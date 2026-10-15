@@ -105,13 +105,14 @@ test('Order detail: mark packed waits for allocation; cancel needs a reason', as
 test('Partial refund sends paise; full refund omits the amount', async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/orders/o2')
-  await page.getByRole('button', { name: 'Refund' }).click()
+  await page.getByRole('button', { name: 'Refund', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Amount (₹)').fill('500.50')
   await dialog.getByRole('button', { name: /Refund ₹500\.50/ }).click()
   await expect.poll(() => api.calls.find((c) => c.path === '/orders/o2/refund')?.body).toEqual({ amount: 50050 })
+  await expect(dialog).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Refund' }).click()
+  await page.getByRole('button', { name: 'Refund', exact: true }).click()
   await page.getByRole('dialog').getByRole('button', { name: /Refund ₹1,299\.00/ }).click()
   await expect.poll(() => api.calls.filter((c) => c.path === '/orders/o2/refund').at(-1)?.body).toEqual({})
 })
