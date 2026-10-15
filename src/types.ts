@@ -201,7 +201,13 @@ export interface OrderDetail {
   items: OrderItem[]
   stock: OrderStock[]
   events: OrderEvent[]
-  payment: { status: PaymentStatus | null; method: string | null; amount: number | null } | null
+  payment: {
+    status: PaymentStatus | null
+    method: string | null
+    amount: number | null
+    /** Set when the customer cancelled a paid order: the one case VMR refunds. */
+    refund?: { requestedAt: string; refundedAt: string | null; id: string | null } | null
+  } | null
   atRisk?: boolean
   atRiskReason?: string | null
   replacementFor?: { id: string; number: string } | null

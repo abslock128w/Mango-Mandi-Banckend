@@ -7,7 +7,7 @@ import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
-import { processPayment } from './orders.js'
+import { addEvent, processPayment, SYSTEM } from './orders.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
@@ -83,7 +83,10 @@ export async function handleWebhook(event, eventId) {
       amount: typeof entity.amount === 'number' ? entity.amount : null,
       method: entity.method ?? null,
     })
-    return { result: r.result }
+    return { result: r.result, orderId }
+  }).then(async (out) => {
+    if (out.result === 'refund_due') await refundOrder(out.orderId).catch(() => {}) // maintenance retries
+    return out
   })
 }
 
@@ -92,9 +95,11 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
   if (!hasKeys() && isProd) return 0
   const { rows } = await query(
     `SELECT id, razorpay_order_id FROM orders
-      WHERE status = 'PAYMENT_PENDING' AND razorpay_order_id IS NOT NULL AND placed_at < $1
+      WHERE razorpay_order_id IS NOT NULL AND placed_at < $1
+        AND (status = 'PAYMENT_PENDING'
+             OR (status = 'CANCELLED' AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at > $2))
       ORDER BY placed_at LIMIT 100`,
-    [new Date(now().getTime() - minAgeSeconds * 1000)],
+    [new Date(now().getTime() - minAgeSeconds * 1000), new Date(now().getTime() - 86_400_000)],
   )
   let n = 0
   for (const o of rows) {
@@ -107,6 +112,64 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
       }
     } catch (err) {
       logger.error({ err, orderId: o.id }, 'payment reconciliation failed for order')
+    }
+  }
+  return n
+}
+
+/**
+ * Sends the full refund for an order whose customer cancelled after paying.
+ * Safe to repeat: it looks for a refund already made for the order before
+ * creating one, and the database is updated only once. Throws on gateway
+ * errors so the caller (or the maintenance loop) can retry.
+ */
+export async function refundOrder(orderId) {
+  const { rows } = await query(
+    'SELECT id, number, payment_id, payment_amount, total FROM orders WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL',
+    [orderId],
+  )
+  const o = rows[0]
+  if (!o) return null
+  let refundId
+  if (hasKeys()) {
+    if (!o.payment_id) throw new Error(`order ${o.number} has no payment id to refund`)
+    const pid = encodeURIComponent(o.payment_id)
+    const existing = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).find((r) => r.status !== 'failed')
+    const refund =
+      existing ??
+      (await razorpay('POST', `/payments/${pid}/refund`, { amount: o.payment_amount ?? o.total, receipt: o.number, notes: { orderId: o.id } }))
+    refundId = refund.id
+  } else if (isProd) {
+    return null
+  } else {
+    refundId = `rfnd_dev_${newId('r').slice(2)}`
+  }
+  try {
+    return await tx(async (c) => {
+      const r = await c.query(
+        `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3 WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
+        [o.id, refundId, now()],
+      )
+      if (r.rowCount) await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', SYSTEM, `Refunded in full (${refundId})`)
+      return refundId
+    })
+  } catch (err) {
+    logger.error({ err, orderId: o.id, refundId }, 'refund sent but not recorded; the next run will pick up the existing refund')
+    throw err
+  }
+}
+
+/** Retries refunds that were requested but not yet sent. */
+export async function processDueRefunds() {
+  const { rows } = await query(
+    'SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50',
+  )
+  let n = 0
+  for (const o of rows) {
+    try {
+      if (await refundOrder(o.id)) n++
+    } catch (err) {
+      logger.error({ err, orderId: o.id }, 'refund failed; will retry')
     }
   }
   return n

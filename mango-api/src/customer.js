@@ -15,8 +15,9 @@ import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { createGatewayOrder, devGateway, reconcilePendingPayments } from './payments.js'
+import { createGatewayOrder, devGateway, reconcilePendingPayments, refundOrder } from './payments.js'
 import { allProducts, findProduct } from './products.js'
+import { sendOtp } from './sms.js'
 import { STAGES } from './stage.js'
 
 export const router = express.Router()
@@ -42,12 +43,6 @@ const phoneSchema = z
   .transform((s) => `+91${s}`)
 
 const hashOtp = (phone, code) => createHash('sha256').update(`${env.JWT_SECRET}:${phone}:${code}`).digest()
-
-async function sendOtp(phone, code) {
-  // Phase 1 has no SMS/WhatsApp provider; in development the code is returned as devCode.
-  if (isProd) logger.warn({ phone: phone.slice(0, 5) }, 'no OTP provider configured; the code was not delivered')
-  else logger.info({ phone }, `OTP for ${phone} is ${code}`)
-}
 
 // ---------------------------------------------------------------- auth
 
@@ -362,7 +357,8 @@ router.get(
     ])
     res.json({
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
-      deliveryAddress: o.delivery_address, total: o.total, paymentStatus: o.payment_status, razorpayOrderId: o.razorpay_order_id,
+      deliveryAddress: o.delivery_address, total: o.total, paymentStatus: o.payment_status,
+      refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
       holdExpiresAt: o.hold_expires_at,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
@@ -381,7 +377,10 @@ router.get(
 router.post(
   '/orders/:id/cancel',
   asyncHandler(async (req, res) => {
-    await tx((c) => customerCancel(c, req.params.id, req.customer.id, req.actor))
+    const refundDue = await tx((c) => customerCancel(c, req.params.id, req.customer.id, req.actor))
+    if (refundDue) {
+      await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
+    }
     res.status(204).end()
   }),
 )
@@ -454,6 +453,7 @@ devRouter.post(
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ orderId: z.string().min(1), outcome: z.enum(['captured', 'failed']) }), req.body)
     const r = await tx((c) => processPayment(c, { orderId: b.orderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }))
+    if (r.result === 'refund_due') await refundOrder(b.orderId)
     res.json({ result: r.result })
   }),
 )

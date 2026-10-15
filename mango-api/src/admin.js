@@ -429,7 +429,8 @@ export async function orderDetail(c, orderId) {
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     events: events.rows.map((e) => ({ status: e.status, fromStatus: e.from_status, actor: e.actor, reason: e.reason, createdAt: e.created_at })),
     payment: o.payment_status || o.payment_method
-      ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id }
+      ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id,
+          refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id } : null }
       : null,
   }
 }

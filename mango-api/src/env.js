@@ -25,6 +25,13 @@ const schema = z.object({
   METRICS_TOKEN: z.string().default(''),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
+  SMS_PROVIDER: z.enum(['log', 'jio']).default('log'),
+  JIO_SMS_URL: z.string().url().optional(),
+  JIO_SMS_API_KEY: z.string().optional(),
+  JIO_SMS_SENDER_ID: z.string().optional(),
+  JIO_SMS_TEMPLATE_ID: z.string().optional(),
+  JIO_SMS_ENTITY_ID: z.string().optional(),
+  JIO_SMS_TEXT: z.string().default('{code} is your VMR Mangoes login code. It expires in 5 minutes.'),
   SEED_DEMO_DATA: z
     .enum(['true', 'false'])
     .default('true')
@@ -41,6 +48,15 @@ if (!parsed.success) {
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
 
+const JIO_KEYS = ['JIO_SMS_URL', 'JIO_SMS_API_KEY', 'JIO_SMS_SENDER_ID', 'JIO_SMS_TEMPLATE_ID', 'JIO_SMS_ENTITY_ID']
+if (env.SMS_PROVIDER === 'jio') {
+  const missing = JIO_KEYS.filter((k) => !env[k])
+  if (missing.length || !env.JIO_SMS_TEXT.includes('{code}')) {
+    console.error(`SMS_PROVIDER=jio needs ${missing.join(', ') || 'JIO_SMS_TEXT containing {code}'}`)
+    process.exit(1)
+  }
+}
+
 if (isProd) {
   const problems = []
   if (env.JWT_SECRET.length < 32 || env.JWT_SECRET === DEV_JWT || env.JWT_SECRET.startsWith('dev-only-change-me')) {
@@ -48,6 +64,7 @@ if (isProd) {
   }
   if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') problems.push('RAZORPAY_WEBHOOK_SECRET is the dev default')
   if (!env.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production')
+  if (env.SMS_PROVIDER !== 'jio') problems.push('SMS_PROVIDER must be jio: customers could not receive login codes')
   if (problems.length) {
     console.error(`Refusing to start in production:\n- ${problems.join('\n- ')}`)
     process.exit(1)

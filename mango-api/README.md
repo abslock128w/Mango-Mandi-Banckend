@@ -26,15 +26,26 @@ batches when the database is empty. Point the panel at it with
 [`.env.example`](.env.example); in production the API refuses to start with a weak
 `JWT_SECRET`, the dev webhook secret, or `COOKIE_SECURE=false`.
 
+## Login codes by SMS (Jio)
+
+Customers sign in with a 6-digit code. With `SMS_PROVIDER=jio` the code goes out
+through the Jio SMS gateway; production refuses to start without it. Set `JIO_SMS_URL`,
+`JIO_SMS_API_KEY`, and the DLT registration (`JIO_SMS_SENDER_ID`, `JIO_SMS_TEMPLATE_ID`,
+`JIO_SMS_ENTITY_ID`). `JIO_SMS_TEXT` must match the registered template exactly, with
+`{code}` where the code goes. The request body is in [`src/sms.js`](src/sms.js); check it
+against your Jio account's API docs before going live. Outside production the default
+`SMS_PROVIDER=log` logs the code and returns it as `devCode`.
+
 ## The rules it enforces
 
 The two specs split the work: the technical plan fixes the API contract, and the
 *Backend Architecture and Edge-Case Playbook* fixes the engine. The business rules
 below override both.
 
-- **No refunds, only replacements.** There is no refund endpoint, and a payment is never
-  marked refunded. A claim resolves as `REPLACEMENT_APPROVED` (a free replacement
-  order on the earliest date with stock) or `REJECTED`.
+- **No refunds, only replacements, with one exception.** A claim resolves as
+  `REPLACEMENT_APPROVED` (a free replacement order on the earliest date with stock) or
+  `REJECTED`, and staff have no refund action. The exception (user decision): a customer
+  who cancels a paid order gets a full refund through Razorpay.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
   a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
   shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
@@ -56,8 +67,13 @@ below override both.
 - **Failed deliveries** (user decision): `DELIVERY_FAILED` reschedules the order to the
   next delivery day for a retry. If the packed boxes would pass the 7-day limit by
   then, the order is flagged at risk.
-- **Customers cancel unpaid orders only**, because paid orders can't be refunded.
-  Staff can cancel up to out-for-delivery; boxes not yet shipped go back on the shelf.
+- **Customer cancels** are allowed until the order is packed. A paid order is refunded
+  in full: the refund is requested in the cancel transaction, sent to Razorpay right
+  after, and retried by the maintenance loop until it lands (it checks for an existing
+  refund first, so retries never pay twice). A payment that arrives after the customer
+  cancelled is refunded too, and a replayed payment can't revive the order. Staff can
+  cancel up to out-for-delivery without a refund; boxes not yet shipped go back on the
+  shelf.
 
 All the numbers above live in the versioned `app_config` table (`GET/PUT
 /admin/v1/config`). Each order records the version it was placed under.
@@ -93,7 +109,7 @@ customer picks the stage.
 ## Background work
 
 Every 60 seconds, on exactly one instance (`pg_try_advisory_lock(427714202)`):
-reconcile pending payments with Razorpay, cancel unpaid orders whose hold expired,
+reconcile pending payments with Razorpay, send due refunds, cancel unpaid orders whose hold expired,
 prune expired OTPs, quotes, idempotency keys, webhooks and sessions, and retire batches
 at age 8. Hourly (or right after a rules change) it rebalances every open order and runs
 the ledger audit, which checks `on_hand` against the ledger and `held`/`committed`
@@ -114,6 +130,5 @@ delivery retries, retirement and the ledger audit, plus a race of 30 buyers for 
 
 ## Not in phase 1
 
-Preorders, delivery slots, WhatsApp/SMS (OTP codes are returned as `devCode` outside
-production; production has no OTP provider yet), Redis, S3 photo storage and rider
+Preorders, delivery slots, WhatsApp order updates, Redis, S3 photo storage and rider
 proof of delivery. Dry fruit is out of scope.

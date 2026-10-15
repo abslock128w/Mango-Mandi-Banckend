@@ -271,6 +271,16 @@ function OrderView({ order }: { order: Order }) {
                 <dd>{order.payment.method ?? '—'}</dd>
                 <dt>Amount</dt>
                 <dd>{rupees(order.payment.amount)}</dd>
+                {order.payment.refund && (
+                  <>
+                    <dt>Refund</dt>
+                    <dd>
+                      {order.payment.refund.refundedAt
+                        ? `Refunded ${dateTime(order.payment.refund.refundedAt)}`
+                        : 'Pending: the customer cancelled after paying'}
+                    </dd>
+                  </>
+                )}
               </dl>
             ) : (
               <p className="muted">No payment recorded.</p>

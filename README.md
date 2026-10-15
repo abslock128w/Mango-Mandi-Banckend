@@ -2,8 +2,8 @@
 
 A static single-page admin tool for warehouse and operations staff. It replaces the
 Postman-based admin workflow with buttons that only ever offer valid actions, so staff
-can run the shop without a developer and without risking an oversell. VMR does not refund: a
-problem with a delivered order is settled by sending a replacement.
+can run the shop without a developer and without risking an oversell. VMR settles a problem
+with a delivered order by sending a replacement, not a refund.
 
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
 this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
@@ -152,11 +152,12 @@ adjustments, status moves, cancelling orders, adding/deactivating pincodes, star
 a claim review, resolving a claim as replacement or reject) is open to both roles.
 See `src/permissions.ts` — confirm this split before launch (PRD Q1).
 
-## No refunds
+## Replacements, not refunds
 
 The business replaces products instead of refunding. The panel has no refund button
-on orders, and a claim can only be resolved as **Replacement** or **Reject**. mango-api
-has no refund endpoint and never marks a payment refunded. Condemning a batch moves its
+on orders, and a claim can only be resolved as **Replacement** or **Reject**. The one
+refund is automatic: a customer who cancels a paid order before it is packed gets the
+full amount back, and the order page shows the refund. Condemning a batch moves its
 orders to other stock or flags them **at risk** (listed on Today and on the order);
 it never cancels them.
 

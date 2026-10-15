@@ -27,6 +27,7 @@ const FLOW = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED',
 const ADMIN_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
 /** Boxes not yet handed to the courier go back on the shelf when cancelled. */
 const RESTOCKABLE = ['PROCESSING', 'PACKED']
+const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 
 export const SYSTEM = { type: 'system', id: 'system' }
 
@@ -216,12 +217,23 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
  */
 export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
   const o = await lockOrder(c, orderId)
-  if (o.payment_status === 'SUCCEEDED') return { order: o, result: 'already_paid' }
+  if (o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED') return { order: o, result: 'already_paid' }
 
   if (outcome === 'failed') {
     if (o.status !== 'PAYMENT_PENDING') return { order: o, result: 'ignored' }
     await cancelInTx(c, o, actor, 'Payment failed', 'FAILED')
     return { order: o, result: 'cancelled' }
+  }
+
+  if (o.status === 'CANCELLED' && o.customer_cancelled_at) {
+    // Paid after the customer cancelled: keep it cancelled and refund the payment.
+    await c.query(
+      `UPDATE orders SET payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id), payment_method = COALESCE($3, payment_method),
+              payment_amount = COALESCE($4, payment_amount), refund_requested_at = $5 WHERE id = $1`,
+      [o.id, paymentId, method, amount, now()],
+    )
+    await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', actor, 'Payment arrived after the customer cancelled; full refund requested')
+    return { order: o, result: 'refund_due' }
   }
 
   const lateFrom = o.status === 'CANCELLED' ? 'CANCELLED' : null
@@ -286,14 +298,25 @@ export async function cancelOrder(c, orderId, actor, reason) {
   await cancelInTx(c, o, actor, reason)
 }
 
-/** Customer cancel: unpaid orders only, since paid orders are never refunded. */
+/**
+ * Customer cancel, allowed until the order is packed. A paid order is
+ * refunded in full: the only case where VMR refunds. The refund is requested
+ * here and sent to the gateway after commit (payments.js refundOrder).
+ * Returns true when a refund is due.
+ */
 export async function customerCancel(c, orderId, customerId, actor) {
   const o = await lockOrder(c, orderId)
   if (o.customer_id !== customerId) throw notFound('Order not found')
-  if (o.status !== 'PAYMENT_PENDING') {
-    throw conflict('Paid orders cannot be cancelled. Contact us to change the delivery date.', 'NOT_CANCELLABLE')
+  if (!CUSTOMER_CANCELLABLE.includes(o.status)) {
+    throw conflict('This order is already packed and can no longer be cancelled.', 'NOT_CANCELLABLE')
   }
-  await cancelInTx(c, o, actor, 'Cancelled by customer')
+  const paid = o.payment_status === 'SUCCEEDED'
+  await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer')
+  await c.query(
+    `UPDATE orders SET customer_cancelled_at = $2, refund_requested_at = CASE WHEN $3 THEN $2 ELSE refund_requested_at END WHERE id = $1`,
+    [o.id, now(), paid],
+  )
+  return paid
 }
 
 /** Admin status move. 409 when someone else already moved it. */

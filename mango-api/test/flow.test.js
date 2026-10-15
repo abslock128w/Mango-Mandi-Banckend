@@ -177,7 +177,7 @@ describe('orders', () => {
 
     let o = await order(c.body.orderId)
     assert.equal(o.status, 'CONFIRMED')
-    assert.deepEqual(o.payment, { status: 'SUCCEEDED', method: 'upi', amount: 2 * 189_900, id: 'pay_1' })
+    assert.deepEqual(o.payment, { status: 'SUCCEEDED', method: 'upi', amount: 2 * 189_900, id: 'pay_1', refund: null })
     assert.equal(o.items[0].stage, 'RIPE')
     assert.equal(o.items[0].eatBy, '2026-10-19')
     assert.deepEqual(o.stock.map((s) => [s.batchId, s.state, s.quantity]), [[b, 'committed', 2]])
@@ -338,7 +338,7 @@ describe('orders', () => {
     assert.equal((await move(id, 'RTO')).status, 204)
   })
 
-  test('customers can cancel unpaid orders only', async () => {
+  test('customers can cancel until packing, and a paid order is refunded in full', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
     const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
@@ -347,12 +347,36 @@ describe('orders', () => {
 
     const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     await pay(paid.body.orderId)
-    const r = await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
+    assert.equal((await line(b, 'ALP-3')).committed, 1)
+    assert.equal((await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
+    const cancelled = (await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body
+    assert.equal(cancelled.status, 'CANCELLED')
+    assert.equal(cancelled.paymentStatus, 'REFUNDED') // the one case VMR refunds
+    assert.equal(cancelled.refundStatus, 'REFUNDED')
+    assert.equal((await line(b, 'ALP-3')).committed, 0)
+    const detail = (await api.get(`/admin/v1/orders/${paid.body.orderId}`, { token: admin })).body
+    assert.match(detail.payment.refund.id, /^rfnd_dev_/)
+    // A replayed payment can't revive a refunded order.
+    assert.equal((await pay(paid.body.orderId)).body.result, 'already_paid')
+
+    // Paid after the customer cancelled: stays cancelled and is refunded.
+    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    assert.equal((await api.post(`/v1/orders/${late.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
+    assert.equal((await pay(late.body.orderId)).body.result, 'refund_due')
+    const lateOrder = (await api.get(`/v1/orders/${late.body.orderId}`, { token: cust.accessToken })).body
+    assert.deepEqual([lateOrder.status, lateOrder.paymentStatus], ['CANCELLED', 'REFUNDED'])
+
+    const packed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    await pay(packed.body.orderId)
+    await move(packed.body.orderId, 'PROCESSING')
+    await api.post(`/admin/v1/orders/${packed.body.orderId}/allocate`, undefined, { token: admin })
+    assert.equal((await move(packed.body.orderId, 'PACKED')).status, 204)
+    const r = await api.post(`/v1/orders/${packed.body.orderId}/cancel`, undefined, { token: cust.accessToken })
     assert.equal(r.status, 409)
     assert.equal(r.body.error.code, 'NOT_CANCELLABLE')
 
     const stranger = await customerToken(api)
-    assert.equal((await api.get(`/v1/orders/${paid.body.orderId}`, { token: stranger.accessToken })).status, 404)
+    assert.equal((await api.get(`/v1/orders/${packed.body.orderId}`, { token: stranger.accessToken })).status, 404)
   })
 
   test('batches retire at age 8 and the books balance', async () => {
