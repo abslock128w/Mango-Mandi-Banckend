@@ -86,7 +86,9 @@ test('a day in the life of the warehouse', async ({ page }) => {
   await page.getByRole('button', { name: `Resolve ${placed.number}` }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Approve replacement' }).click()
   await page.getByRole('button', { name: 'Resolved', exact: true }).click()
-  const replacement = page.getByRole('link', { name: /^ORD-/ }).last()
+  // Both viewports run at once against one API, so pick this run's claim card.
+  const card = page.locator('article').filter({ has: page.getByRole('heading', { name: placed.number, exact: true }) })
+  const replacement = card.locator('dd').getByRole('link', { name: /^ORD-/ })
   await expect(replacement).toBeVisible()
   await replacement.click()
   await expect(page.getByText(`Free replacement for order ${placed.number}`)).toBeVisible()
