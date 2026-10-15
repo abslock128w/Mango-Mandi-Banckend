@@ -39,15 +39,21 @@ src/
   api.ts            HTTP client, silent token refresh, every admin call
   types.ts          DTO shapes and status enums mirroring the API
   format.ts         rupee + IST date formatting, status display labels
-  ui.tsx            Badge, Dialog, Toast, Spinner, EmptyState
+  permissions.ts    operator vs manager split
+  session.tsx       signed-in user context
+  ui.tsx            Badge, Dialog, Toast, Spinner, EmptyState, QueryError, ErrorBoundary
   styles.css        tokens, components, dark mode, print
-  App.tsx           router, auth guard, session restore
+  App.tsx           router, auth guard, session restore, sign-out listener
+  Layout.tsx        nav + per-screen error boundary
   main.tsx          React + Query + Toast providers
   pages/            one file per screen
 tests/
   fixtures.ts       console-error-failing fixture
-  smoke.spec.ts     backend-free: auth guard + login render
-  day-in-the-life.spec.ts   full §10 acceptance script (needs backend)
+  mock-api.ts       in-memory /admin/v1 stand-in for backend-free specs
+  smoke.spec.ts     backend-free: auth guard, login, session restore, banners
+  screens.spec.ts   backend-free: every screen and its actions, no horizontal scroll
+  a11y.spec.ts      backend-free: axe WCAG 2 A/AA on login and every screen
+  day-in-the-life.spec.ts   §10 acceptance script (needs backend)
 ```
 
 ## Running it
@@ -78,8 +84,11 @@ npm run typecheck             # tsc --noEmit
 npx playwright install chromium   # once, if not already present
 npm run test:e2e              # all specs at both viewports
 
-# Just the backend-free gate (smoke + accessibility):
-npx playwright test tests/smoke.spec.ts tests/a11y.spec.ts
+# Just the backend-free gate (smoke + screens + accessibility):
+npx playwright test tests/smoke.spec.ts tests/screens.spec.ts tests/a11y.spec.ts
+
+# Using an already-installed Chromium instead of Playwright's download:
+PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 
 # Full day-in-the-life script (needs a seeded backend + admin credentials):
 E2E_EMAIL=ops@example.com E2E_PASSWORD=... npm run test:e2e
@@ -87,8 +96,11 @@ E2E_EMAIL=ops@example.com E2E_PASSWORD=... npm run test:e2e
 
 - **Smoke** (`tests/smoke.spec.ts`) — auth guard, session-ended banner, offline
   banner, config banner. Runs without a backend.
+- **Screens** (`tests/screens.spec.ts`) — every screen and its main actions against
+  the mocked API in `tests/mock-api.ts`, including the exact request bodies (paise
+  amounts, omitted full-refund amount) and the manager-only gates. Runs without a backend.
 - **Accessibility** (`tests/a11y.spec.ts`) — axe-core WCAG 2 A/AA scan of the login
-  screens plus keyboard-operability checks. Runs without a backend.
+  screens and every signed-in screen, plus keyboard-operability checks. Runs without a backend.
 - **Day-in-the-life** (`tests/day-in-the-life.spec.ts`) — the full §10 acceptance
   flow; skips unless `E2E_EMAIL`/`E2E_PASSWORD` are set and the backend is reachable.
 
@@ -98,7 +110,8 @@ fails any test that logs a console error.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci`,
-typecheck, production build, then the smoke + accessibility specs on Chromium. The
+typecheck (app and tests), production build, then the smoke, screens and accessibility
+specs on Chromium. The
 Playwright report is uploaded as an artifact on failure.
 
 ## Resilience

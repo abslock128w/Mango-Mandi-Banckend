@@ -9,10 +9,12 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  reporter: 'list',
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
     trace: 'on-first-retry',
+    // Optional: point at a preinstalled Chromium instead of Playwright's download.
+    launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
   },
   // §10: drive the script at phone (390px) and desktop (1280px) widths.
   projects: [
@@ -30,5 +32,7 @@ export default defineConfig({
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    // The backend-free specs intercept every /admin/v1 call, so any API URL works.
+    env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
   },
 })

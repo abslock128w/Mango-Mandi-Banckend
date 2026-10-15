@@ -1,0 +1,219 @@
+import { useMemo, useState, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api'
+import { BATCH_STATUS_LABEL, RIPENESS_LABEL, date, istDate } from '../format'
+import { ALL_BATCH_STATUSES, type BatchStatus } from '../types'
+import { Badge, BatchBadge, ClickableRow, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+
+export default function Batches() {
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const status = (params.get('status') as BatchStatus | null) || null
+  const receiving = params.get('receive') === '1'
+
+  const q = useQuery({ queryKey: ['batches', status], queryFn: () => api.batches(status) })
+
+  function setStatus(next: BatchStatus | null) {
+    const p = new URLSearchParams(params)
+    if (next) p.set('status', next)
+    else p.delete('status')
+    setParams(p)
+  }
+  function setReceiving(open: boolean) {
+    const p = new URLSearchParams(params)
+    if (open) p.set('receive', '1')
+    else p.delete('receive')
+    setParams(p, { replace: true })
+  }
+
+  return (
+    <>
+      <div className="topbar">
+        <h1>Batches</h1>
+        <span className="spacer" />
+        <button type="button" className="btn btn-primary" onClick={() => setReceiving(true)}>
+          Receive batch
+        </button>
+      </div>
+
+      <div className="segmented no-print" role="group" aria-label="Filter by status" style={{ marginBottom: '1rem' }}>
+        <button type="button" className="btn btn-small" aria-pressed={status === null} onClick={() => setStatus(null)}>
+          All
+        </button>
+        {ALL_BATCH_STATUSES.map((s) => (
+          <button key={s} type="button" className="btn btn-small" aria-pressed={status === s} onClick={() => setStatus(s)}>
+            {BATCH_STATUS_LABEL[s]}
+          </button>
+        ))}
+      </div>
+
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : q.data.length === 0 ? (
+        <EmptyState>No batches{status ? ` with status ${BATCH_STATUS_LABEL[status]}` : ''}.</EmptyState>
+      ) : (
+        <div {...scrollRegion('Batches')}>
+          <table>
+            <thead>
+              <tr>
+                <th>Variety</th>
+                <th>Plucked</th>
+                <th className="num">Age</th>
+                <th>Status</th>
+                <th>QC</th>
+                <th className="num">On hand</th>
+                <th className="num">Committed</th>
+                <th className="num">Available</th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.data.map((b) => (
+                <ClickableRow
+                  key={b.id}
+                  label={`Open ${b.variety} batch plucked ${date(b.pluckedOn)}`}
+                  onActivate={() => navigate(`/batches/${b.id}`)}
+                >
+                  <td>
+                    <strong>{b.variety}</strong>
+                    {b.farm && <div className="muted small">{b.farm}</div>}
+                  </td>
+                  <td>{date(b.pluckedOn)}</td>
+                  <td className={`num${b.ageDays >= 5 ? ' text-warn' : ''}`}>{b.ageDays}d</td>
+                  <td>
+                    <BatchBadge status={b.status} />
+                  </td>
+                  <td>
+                    {b.latestRating ? (
+                      <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'good'}>
+                        {RIPENESS_LABEL[b.latestRating]}
+                        {b.latestCondition === 'REJECT' ? ' · Reject' : ''}
+                      </Badge>
+                    ) : (
+                      <Badge tone="warn">No QC: not sellable yet</Badge>
+                    )}
+                  </td>
+                  <td className="num">{b.onHand}</td>
+                  <td className="num">{b.committed}</td>
+                  <td className="num">{b.available}</td>
+                </ClickableRow>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {receiving && <ReceiveDialog onClose={() => setReceiving(false)} />}
+    </>
+  )
+}
+
+function ReceiveDialog({ onClose }: { onClose: () => void }) {
+  const navigate = useNavigate()
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const products = useQuery({ queryKey: ['products'], queryFn: api.products, staleTime: Infinity })
+
+  const varieties = useMemo(
+    () => Array.from(new Set((products.data ?? []).map((p) => p.variety).filter(Boolean))).sort(),
+    [products.data],
+  )
+  const [variety, setVariety] = useState('')
+  const [pluckedOn, setPluckedOn] = useState(istDate())
+  const [farm, setFarm] = useState('')
+  const [qty, setQty] = useState<Record<string, string>>({})
+  const [formError, setFormError] = useState<unknown>(null)
+
+  const activeVariety = variety || varieties[0] || ''
+  const skus = (products.data ?? []).filter((p) => p.variety === activeVariety)
+  const today = istDate()
+
+  const create = useMutation({
+    mutationFn: api.createBatch,
+    onSuccess: (batch) => {
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
+      queryClient.invalidateQueries({ queryKey: ['summary'] })
+      toast.success('Batch received. Log QC before it can sell.')
+      navigate(`/batches/${batch.id}?focusQC=1`)
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    if (pluckedOn > today) return setFormError('Plucked date cannot be in the future.')
+    const lines = skus
+      .map((p) => ({ sku: p.sku, onHand: Number(qty[p.sku] || 0) }))
+      .filter((l) => l.onHand > 0)
+    if (lines.some((l) => !Number.isInteger(l.onHand))) return setFormError('Quantities must be whole numbers.')
+    if (lines.length === 0) return setFormError('Enter a quantity for at least one product.')
+    create.mutate({ variety: activeVariety, pluckedOn, farm: farm.trim() || undefined, lines })
+  }
+
+  return (
+    <Dialog
+      title="Receive batch"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="receive-form" className="btn btn-primary" disabled={create.isPending || !activeVariety}>
+            {create.isPending ? 'Saving…' : 'Receive batch'}
+          </button>
+        </>
+      }
+    >
+      {products.isPending ? (
+        <Spinner label="Loading products" />
+      ) : products.isError ? (
+        <QueryError error={products.error} onRetry={() => products.refetch()} />
+      ) : (
+        <form id="receive-form" onSubmit={onSubmit} noValidate>
+          <div className="field">
+            <label htmlFor="rb-variety">Variety</label>
+            <select id="rb-variety" value={activeVariety} onChange={(e) => setVariety(e.target.value)}>
+              {varieties.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="rb-plucked">Plucked date</label>
+            <input id="rb-plucked" type="date" max={today} value={pluckedOn} onChange={(e) => setPluckedOn(e.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="rb-farm">Farm (optional)</label>
+            <input id="rb-farm" value={farm} onChange={(e) => setFarm(e.target.value)} />
+          </div>
+          <fieldset>
+            <legend>Quantity per product</legend>
+            {skus.length === 0 && <p className="muted">No products for this variety.</p>}
+            {skus.map((p) => (
+              <div className="field" key={p.sku}>
+                <label htmlFor={`rb-qty-${p.sku}`}>
+                  {p.name} <span className="muted small">{p.sku}</span>
+                </label>
+                <input
+                  id={`rb-qty-${p.sku}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={qty[p.sku] ?? ''}
+                  onChange={(e) => setQty((q) => ({ ...q, [p.sku]: e.target.value }))}
+                />
+              </div>
+            ))}
+          </fieldset>
+          <FormError error={formError ?? create.error} />
+        </form>
+      )}
+    </Dialog>
+  )
+}
