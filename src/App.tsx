@@ -15,6 +15,7 @@ import OrderDetail from './pages/OrderDetail'
 import PackList from './pages/PackList'
 import Claims from './pages/Claims'
 import Pincodes from './pages/Pincodes'
+import Planning from './pages/Planning'
 import NotFound from './pages/NotFound'
 
 function RequireAuth({ me, children }: { me: Me | null; children: ReactNode }) {
@@ -87,6 +88,7 @@ export default function App() {
             <Route path="/pack-list" element={<PackList />} />
             <Route path="/claims" element={<Claims />} />
             <Route path="/pincodes" element={<Pincodes />} />
+            <Route path="/planning" element={<Planning />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

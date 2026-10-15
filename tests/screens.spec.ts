@@ -162,7 +162,49 @@ test('Dialogs close on Escape and return focus', async ({ page }) => {
   await expect(open).toBeFocused()
 })
 
-for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes']) {
+test('Order detail: move delivery date posts the new date', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/orders/o1')
+  await page.getByRole('button', { name: 'Move delivery date' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Move order ORD-1042' })
+  await dialog.getByLabel('New delivery date').fill('2026-12-01')
+  await dialog.getByRole('button', { name: 'Move order' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.find((c) => c.path === '/orders/o1/reschedule')?.body).toEqual({ deliveryDate: '2026-12-01' })
+})
+
+test('Planning: coverage gaps, closing a day, and manager-only rules', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/planning')
+  const grid = page.getByRole('region', { name: /^Stock for/ })
+  await expect(grid.getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('12')
+  await expect(grid.getByText('none')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'Delivery calendar' })).toContainText('Diwali')
+
+  await page.getByRole('button', { name: 'Change a day' }).click()
+  const day = page.getByRole('dialog', { name: 'Change a delivery day' })
+  await day.getByLabel('Date').fill('2026-11-01')
+  await day.getByLabel('Note (optional)').fill('Bandh')
+  await day.getByRole('button', { name: 'Save' }).click()
+  await expect(day).toHaveCount(0)
+  expect(api.calls.find((c) => c.method === 'PUT' && c.path === '/calendar/2026-11-01')?.body).toEqual({ isOpen: false, maxBoxes: null, note: 'Bandh' })
+
+  await page.getByRole('button', { name: 'Edit rules' }).click()
+  const rules = page.getByRole('dialog', { name: 'Edit selling rules' })
+  await rules.getByLabel('Order cutoff (hour, IST)').fill('17')
+  await rules.getByRole('button', { name: 'Save as new version' }).click()
+  await expect(rules).toHaveCount(0)
+  await expect(page.getByText('Version 4', { exact: true })).toBeVisible()
+  expect((api.calls.find((c) => c.method === 'PUT' && c.path === '/config')?.body as { rules: { cutoffHourIST: number } }).rules.cutoffHourIST).toBe(17)
+})
+
+test('Operators cannot edit selling rules', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await page.goto('/planning')
+  await expect(page.getByRole('button', { name: /Edit rules/ })).toBeDisabled()
+})
+
+for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes', '/planning']) {
   test(`${path} has no horizontal page scroll`, async ({ page }) => {
     await mockApi(page, { signedIn: true })
     await page.goto(path)

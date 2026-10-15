@@ -23,6 +23,10 @@ import type {
   Pincode,
   Product,
   Ripeness,
+  Rules,
+  RulesVersion,
+  CalendarDay,
+  CoverageDay,
   Summary,
 } from './types'
 
@@ -201,6 +205,9 @@ export const api = {
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   cancelOrder: (orderId: string, reason: string) =>
     request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason }),
+  /** Moves a confirmed order to another bookable date that has stock (409 if it doesn't). */
+  rescheduleOrder: (orderId: string, deliveryDate: string) =>
+    request<void>('POST', `/orders/${id(orderId)}/reschedule`, { deliveryDate }),
 
   async packList(date: string): Promise<PackListOrder[]> {
     const res = await request<PackListOrder[] | { orders: PackListOrder[] }>(
@@ -222,6 +229,14 @@ export const api = {
   updatePincode: (pincode: string, patch: Partial<Pick<Pincode, 'city' | 'zone' | 'active'>>) =>
     request<Pincode | undefined>('PATCH', `/pincodes/${id(pincode)}`, patch),
   deletePincode: (pincode: string) => request<void>('DELETE', `/pincodes/${id(pincode)}`),
+
+  coverage: () => request<CoverageDay[]>('GET', '/coverage'),
+  calendar: () => request<CalendarDay[]>('GET', '/calendar'),
+  setCalendarDay: (day: CalendarDay) =>
+    request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
+  clearCalendarDay: (date: string) => request<void>('DELETE', `/calendar/${id(date)}`),
+  rules: () => request<RulesVersion>('GET', '/config'),
+  saveRules: (rules: Rules) => request<RulesVersion>('PUT', '/config', { rules }),
 }
 
 export interface ErrorInfo {

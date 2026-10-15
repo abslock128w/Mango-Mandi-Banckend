@@ -10,6 +10,7 @@ const LINKS: [string, string][] = [
   ['/pack-list', 'Pack list'],
   ['/claims', 'Claims'],
   ['/pincodes', 'Pincodes'],
+  ['/planning', 'Planning'],
 ]
 
 export default function Layout() {

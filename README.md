@@ -22,6 +22,7 @@ the ripeness and stock engine.
 | Pack list | `/pack-list` | PACK-1 to PACK-4 |
 | Claims | `/claims` | CLM-1 to CLM-5 |
 | Pincodes | `/pincodes` | PIN-1 to PIN-3 |
+| Planning | `/planning` | Stock by delivery date and ripeness, delivery calendar, selling rules (managers edit) |
 
 **Thin client.** The UI never computes stock or money. Every total and availability
 figure is formatted straight from the API; the backend stays the single authority.
@@ -146,7 +147,7 @@ The Playwright report is uploaded as an artifact on failure.
 The app expects `GET /admin/v1/auth/me` to return `{ email, role }` with role
 `OPERATOR` or `MANAGER`. The signed-in identity shows in the nav. Irreversible actions
 are **manager-only** and appear disabled with "Requires manager role" for operators:
-condemning a batch and deleting a pincode. Everything else (receiving stock, QC, stock
+condemning a batch, deleting a pincode and editing the selling rules. Everything else (receiving stock, QC, stock
 adjustments, status moves, cancelling orders, adding/deactivating pincodes, starting
 a claim review, resolving a claim as replacement or reject) is open to both roles.
 See `src/permissions.ts` — confirm this split before launch (PRD Q1).
@@ -162,7 +163,5 @@ it never cancels them.
 ## Known gaps
 
 - `RTO` order status is shown as **"Returned"** in the UI.
-- There is no screen yet for the delivery calendar, the versioned business rules or the
-  supply-coverage grid; mango-api has the endpoints (`/calendar`, `/config`, `/coverage`).
 
 See §12 of the admin PRD for the open questions (Q1–Q7) and risks.

@@ -7,11 +7,12 @@
 
 import type { Role } from './types'
 
-export type Action = 'condemnBatch' | 'deletePincode'
+export type Action = 'condemnBatch' | 'deletePincode' | 'editRules'
 
 const MANAGER_ONLY: ReadonlySet<Action> = new Set<Action>([
   'condemnBatch',
   'deletePincode',
+  'editRules',
 ])
 
 export const MANAGER_ONLY_HINT = 'Requires manager role'

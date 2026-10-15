@@ -126,6 +126,41 @@ export function seed() {
       { pincode: '400001', city: 'Mumbai', zone: 'South', active: true },
       { pincode: '411001', city: 'Pune', zone: null, active: false },
     ],
+    coverage: [
+      {
+        date: '2026-10-16',
+        stock: [
+          { sku: 'ALP-3', stage: 'RAW', qty: 0 },
+          { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 12 },
+          { sku: 'ALP-3', stage: 'RIPE', qty: 4 },
+        ],
+      },
+    ],
+    calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
+    config: {
+      version: 3,
+      rules: {
+        maxSellableAge: 7,
+        retireAge: 8,
+        cutoffHourIST: 18,
+        maxDaysAhead: 5,
+        holdMinutes: 10,
+        quoteMinutes: 5,
+        forecastConfidence: 0.85,
+        maxQcShift: 1,
+        transitDays: 2,
+        nearLimitAge: 5,
+        lowStockThreshold: 5,
+        claimWindowHours: 24,
+        stageProfiles: {
+          default: [
+            { stage: 'RAW', minAge: 3, maxAge: 3 },
+            { stage: 'SEMI_RIPE', minAge: 4, maxAge: 5 },
+            { stage: 'RIPE', minAge: 6, maxAge: 7 },
+          ],
+        },
+      },
+    },
   }
 }
 
@@ -182,7 +217,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/orders') return json(route, 200, state.orders)
     if (path === '/orders/o1') return json(route, 200, state.order)
     if (path === '/orders/o2') return json(route, 200, state.deliveredOrder)
-    if (/^\/orders\/[^/]+\/(status|allocate|cancel)$/.test(path)) return route.fulfill({ status: 204 })
+    if (/^\/orders\/[^/]+\/(status|allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/claims') return json(route, 200, state.claims)
@@ -191,6 +226,16 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/pincodes' && method === 'GET') return json(route, 200, state.pincodes)
     if (path === '/pincodes' && method === 'POST') return json(route, 201, { ...(body as object), active: true })
     if (/^\/pincodes\//.test(path)) return route.fulfill({ status: 204 })
+
+    if (path === '/coverage') return json(route, 200, state.coverage)
+    if (path === '/calendar') return json(route, 200, state.calendar)
+    if (/^\/calendar\//.test(path)) return route.fulfill({ status: 204 })
+    if (path === '/config' && method === 'GET') return json(route, 200, state.config)
+    if (path === '/config' && method === 'PUT') {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      state.config = { version: state.config.version + 1, rules: (body as { rules: typeof state.config.rules }).rules }
+      return json(route, 200, state.config)
+    }
 
     return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Not found', requestId: 'req_404' } })
   })

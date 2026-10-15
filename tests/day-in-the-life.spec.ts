@@ -90,4 +90,10 @@ test('a day in the life of the warehouse', async ({ page }) => {
   await expect(replacement).toBeVisible()
   await replacement.click()
   await expect(page.getByText(`Free replacement for order ${placed.number}`)).toBeVisible()
+
+  // 13. Planning reads live coverage, the calendar and the selling rules.
+  await page.getByRole('link', { name: 'Planning' }).click()
+  await expect(page.getByRole('heading', { name: 'Stock by delivery date' })).toBeVisible()
+  await expect(page.getByRole('region', { name: /^Stock for/ }).first()).toBeVisible()
+  await expect(page.getByText(/^Version \d+$/)).toBeVisible()
 })

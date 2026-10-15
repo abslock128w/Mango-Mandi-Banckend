@@ -247,6 +247,47 @@ export interface Pincode {
   active: boolean
 }
 
+export interface StageWindow {
+  stage: Ripeness
+  minAge: number
+  maxAge: number
+}
+
+/** Versioned business rules (mango-api app_config). */
+export interface Rules {
+  maxSellableAge: number
+  retireAge: number
+  cutoffHourIST: number
+  maxDaysAhead: number
+  holdMinutes: number
+  quoteMinutes: number
+  forecastConfidence: number
+  maxQcShift: number
+  transitDays: number
+  nearLimitAge: number
+  lowStockThreshold: number
+  claimWindowHours: number
+  stageProfiles: Record<string, StageWindow[]>
+}
+
+export interface RulesVersion {
+  version: number
+  rules: Rules
+}
+
+export interface CalendarDay {
+  date: string
+  isOpen: boolean
+  maxBoxes: number | null
+  note: string | null
+}
+
+/** Sellable boxes per SKU and stage for one bookable delivery date. */
+export interface CoverageDay {
+  date: string
+  stock: { sku: string; stage: Ripeness; qty: number }[]
+}
+
 export interface ApiErrorBody {
   error?: { code?: string; message?: string; requestId?: string }
 }

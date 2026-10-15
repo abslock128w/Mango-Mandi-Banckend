@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict } from '../api'
-import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, rupees } from '../format'
+import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
 import type { OrderDetail as Order, OrderStatus } from '../types'
 import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
@@ -72,7 +72,7 @@ function useOrderRefresh(orderId: string) {
 function OrderView({ order }: { order: Order }) {
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
-  const [dialog, setDialog] = useState<'cancel' | null>(null)
+  const [dialog, setDialog] = useState<'cancel' | 'reschedule' | null>(null)
 
   const awaitingPack = order.stock.some((s) => s.state === 'committed')
 
@@ -154,6 +154,11 @@ function OrderView({ order }: { order: Order }) {
             </button>
           )
         })}
+        {ALLOCATABLE.includes(order.status) && (
+          <button type="button" className="btn" disabled={busy} onClick={() => setDialog('reschedule')}>
+            Move delivery date
+          </button>
+        )}
         {CANCELLABLE.includes(order.status) && (
           <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
             Cancel order
@@ -292,6 +297,7 @@ function OrderView({ order }: { order: Order }) {
       </div>
 
       {dialog === 'cancel' && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+      {dialog === 'reschedule' && <RescheduleDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
     </>
   )
 }
@@ -346,6 +352,53 @@ function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
           <p className="hint">At least 3 characters. Saved on the order timeline.</p>
         </div>
         <FormError error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null} />
+      </form>
+    </Dialog>
+  )
+}
+
+function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [when, setWhen] = useState(order.deliveryDate > istDate(1) ? order.deliveryDate : istDate(1))
+
+  const move = useMutation({
+    mutationFn: () => api.rescheduleOrder(order.id, when),
+    onSuccess: () => {
+      toast.success(`Order ${order.number} now delivers on ${date(when)}`)
+      onDone()
+      onClose()
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    move.mutate()
+  }
+
+  return (
+    <Dialog
+      title={`Move order ${order.number}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Keep {date(order.deliveryDate)}
+          </button>
+          <button type="submit" form="reschedule-form" className="btn btn-primary" disabled={move.isPending || !when}>
+            {move.isPending ? 'Moving…' : 'Move order'}
+          </button>
+        </>
+      }
+    >
+      <form id="reschedule-form" onSubmit={onSubmit}>
+        <div className="field">
+          <label htmlFor="reschedule-date">New delivery date</label>
+          <input id="reschedule-date" type="date" min={istDate(1)} value={when} onChange={(e) => setWhen(e.target.value)} data-autofocus />
+          <p className="hint">
+            The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes.
+          </p>
+        </div>
+        <FormError error={move.error} />
       </form>
     </Dialog>
   )
