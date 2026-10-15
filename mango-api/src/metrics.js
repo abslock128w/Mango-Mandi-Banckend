@@ -1,0 +1,31 @@
+import client from 'prom-client'
+
+export const registry = new client.Registry()
+client.collectDefaultMetrics({ register: registry })
+
+const httpDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request duration',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+  registers: [registry],
+})
+
+export const metrics = {
+  ordersConfirmed: new client.Counter({ name: 'mango_orders_confirmed_total', help: 'Orders confirmed by payment', registers: [registry] }),
+  holdFailures: new client.Counter({ name: 'mango_hold_failures_total', help: 'Checkouts refused for insufficient stock', registers: [registry] }),
+  rebalanceSwaps: new client.Counter({ name: 'mango_rebalance_swaps_total', help: 'Orders whose stock was swapped to another batch', registers: [registry] }),
+  holdsExpired: new client.Counter({ name: 'mango_holds_expired_total', help: 'Unpaid orders cancelled when their hold expired', registers: [registry] }),
+  ordersAtRisk: new client.Gauge({ name: 'mango_orders_at_risk', help: 'Open orders flagged at-risk', registers: [registry] }),
+  ledgerDrift: new client.Gauge({ name: 'mango_ledger_drift_lines', help: 'Batch lines whose counters disagree with the ledger', registers: [registry] }),
+  maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
+}
+
+export function httpMetrics(req, res, next) {
+  const end = httpDuration.startTimer()
+  res.on('finish', () => {
+    const route = req.route?.path ? `${req.baseUrl}${req.route.path}` : 'unmatched'
+    end({ method: req.method, route, status: res.statusCode })
+  })
+  next()
+}

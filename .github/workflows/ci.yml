@@ -30,3 +30,77 @@ jobs:
             playwright-report
             test-results
           retention-days: 7
+
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mango-api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mango
+          POSTGRES_PASSWORD: mango
+          POSTGRES_DB: mango_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mango" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mango-api/package-lock.json
+      - run: npm ci
+      - name: API tests (engine, flows, concurrency)
+        run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://mango:mango@localhost:5432/mango_test
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, api]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mango
+          POSTGRES_PASSWORD: mango
+          POSTGRES_DB: mango
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mango" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            mango-api/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: mango-api
+      - name: Start mango-api with demo data
+        working-directory: mango-api
+        run: |
+          nohup node src/index.js > ../api.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/ready && exit 0; sleep 1; done
+          cat ../api.log; exit 1
+        env:
+          NODE_ENV: development
+          COOKIE_SECURE: 'false'
+          LOG_LEVEL: warn
+      - run: npx playwright install --with-deps chromium
+      - name: Day in the life against the real API
+        run: npx playwright test tests/day-in-the-life.spec.ts
+        env:
+          CI: 'true'
+          VITE_API_URL: http://localhost:3000
+          E2E_EMAIL: manager@vmr.test
+          E2E_PASSWORD: manager123
+      - if: failure()
+        run: cat api.log
