@@ -182,7 +182,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/orders') return json(route, 200, state.orders)
     if (path === '/orders/o1') return json(route, 200, state.order)
     if (path === '/orders/o2') return json(route, 200, state.deliveredOrder)
-    if (/^\/orders\/[^/]+\/(status|allocate|cancel|refund)$/.test(path)) return route.fulfill({ status: 204 })
+    if (/^\/orders\/[^/]+\/(status|allocate|cancel)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/claims') return json(route, 200, state.claims)

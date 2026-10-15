@@ -22,22 +22,6 @@ export function rupees(paise: number | null | undefined): string {
   return rupee.format(paise / 100)
 }
 
-/**
- * Rupees typed by staff → integer paise, or null if not a positive amount with
- * at most two decimals. This is the only sanctioned money-parse point; the
- * refund and claim-refund dialogs both go through it.
- */
-export function rupeesToPaise(input: string): number | null {
-  const s = input.trim()
-  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null
-  const paise = Math.round(parseFloat(s) * 100)
-  return paise > 0 ? paise : null
-}
-
-/** Paise → "1234.50", for pre-filling an amount input. */
-export function paiseToInput(paise: number): string {
-  return (paise / 100).toFixed(2)
-}
 
 const IST = 'Asia/Kolkata'
 

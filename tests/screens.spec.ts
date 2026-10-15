@@ -49,7 +49,7 @@ test('Batch detail: stock, QC warning, ledger and manager condemn', async ({ pag
   await expect(page.getByText('+20')).toBeVisible()
 
   await page.getByRole('button', { name: 'Condemn batch' }).click()
-  await page.getByRole('button', { name: 'Condemn and refund orders' }).click()
+  await page.getByRole('button', { name: 'Condemn and cancel orders' }).click()
   await expect(page.getByRole('dialog', { name: 'Batch condemned' })).toContainText('ORD-1042')
 })
 
@@ -94,7 +94,8 @@ test('Order detail: mark packed waits for allocation; cancel needs a reason', as
 
   await page.getByRole('button', { name: 'Cancel order' }).click()
   const dialog = page.getByRole('dialog')
-  await expect(dialog).toContainText('will be refunded')
+  await expect(dialog).toContainText('Stock held for this order will be released.')
+  await expect(dialog).not.toContainText(/refund/i)
   const confirm = dialog.getByRole('button', { name: 'Cancel order' })
   await expect(confirm).toBeDisabled()
   await dialog.getByLabel('Reason').fill('Customer asked')
@@ -102,25 +103,11 @@ test('Order detail: mark packed waits for allocation; cancel needs a reason', as
   await expect.poll(() => api.calls.find((c) => c.path === '/orders/o1/cancel')?.body).toEqual({ reason: 'Customer asked' })
 })
 
-test('Partial refund sends paise; full refund omits the amount', async ({ page }) => {
-  const api = await mockApi(page, { signedIn: true })
+test('Orders never offer a refund', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
   await page.goto('/orders/o2')
-  await page.getByRole('button', { name: 'Refund', exact: true }).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Amount (₹)').fill('500.50')
-  await dialog.getByRole('button', { name: /Refund ₹500\.50/ }).click()
-  await expect.poll(() => api.calls.find((c) => c.path === '/orders/o2/refund')?.body).toEqual({ amount: 50050 })
-  await expect(dialog).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Refund', exact: true }).click()
-  await page.getByRole('dialog').getByRole('button', { name: /Refund ₹1,299\.00/ }).click()
-  await expect.poll(() => api.calls.filter((c) => c.path === '/orders/o2/refund').at(-1)?.body).toEqual({})
-})
-
-test('Operators cannot refund', async ({ page }) => {
-  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
-  await page.goto('/orders/o2')
-  await expect(page.getByRole('button', { name: /Refund/ })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Order ORD-1043' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /refund/i })).toHaveCount(0)
 })
 
 test('Pack list: by order with allocate shortcut, by batch with unallocated section', async ({ page }) => {
@@ -140,7 +127,8 @@ test('Claims: start review and resolve as replacement', async ({ page }) => {
   await expect.poll(() => api.calls.some((c) => c.path === '/claims/c1/review')).toBe(true)
   await page.getByRole('button', { name: 'Resolve ORD-1043' }).click()
   const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Replacement').check()
+  await expect(dialog.getByText(/refund/i)).toHaveCount(0)
+  await dialog.getByLabel(/Replacement/).check()
   await dialog.getByRole('button', { name: 'Approve replacement' }).click()
   await expect.poll(() => api.calls.find((c) => c.path === '/claims/c2/resolve')?.body).toEqual({ resolution: 'REPLACEMENT_APPROVED' })
 })

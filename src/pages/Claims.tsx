@@ -2,10 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, paiseToInput, rupees, rupeesToPaise } from '../format'
-import { MANAGER_ONLY_HINT, can } from '../permissions'
-import { useSession } from '../session'
-import type { Claim, ClaimResolution, ClaimStatus } from '../types'
+import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, rupees } from '../format'
+import type { Claim, ClaimStatus } from '../types'
 import { Badge, ClaimBadge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast } from '../ui'
 
 const FILTERS: { value: ClaimStatus | null; label: string }[] = [
@@ -125,25 +123,15 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
   )
 }
 
+type Resolution = 'REPLACEMENT_APPROVED' | 'REJECTED'
+
 function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }) {
-  const { me } = useSession()
   const toast = useToast()
   const refresh = useClaimsRefresh()
-  const canRefund = can(me?.role, 'resolveClaimRefund')
-  const [resolution, setResolution] = useState<ClaimResolution>(canRefund ? 'REFUND_APPROVED' : 'REPLACEMENT_APPROVED')
-  const [amount, setAmount] = useState(paiseToInput(claim.orderTotal))
-
-  const paise = rupeesToPaise(amount)
-  const amountInvalid = resolution === 'REFUND_APPROVED' && (paise === null || paise > claim.orderTotal)
+  const [resolution, setResolution] = useState<Resolution>('REPLACEMENT_APPROVED')
 
   const resolve = useMutation({
-    mutationFn: () =>
-      api.resolveClaim(
-        claim.id,
-        resolution,
-        // Omit the amount for a full refund.
-        resolution === 'REFUND_APPROVED' && paise !== claim.orderTotal ? (paise as number) : undefined,
-      ),
+    mutationFn: () => api.resolveClaim(claim.id, resolution),
     onSuccess: () => {
       toast.success(`Claim on ${claim.orderNumber} resolved: ${RESOLUTION_LABEL[resolution]}`)
       refresh()
@@ -153,53 +141,28 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!amountInvalid) resolve.mutate()
+    resolve.mutate()
   }
-
-  const confirmText =
-    resolution === 'REFUND_APPROVED'
-      ? amountInvalid
-        ? 'Refund'
-        : `Refund ${rupees(paise)}`
-      : resolution === 'REPLACEMENT_APPROVED'
-        ? 'Approve replacement'
-        : 'Reject claim'
 
   return (
     <Dialog
       title={`Resolve claim on ${claim.orderNumber}`}
       onClose={onClose}
-      tone={resolution === 'REFUND_APPROVED' ? 'danger' : undefined}
       footer={
         <>
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="submit"
-            form="resolve-form"
-            className={`btn ${resolution === 'REFUND_APPROVED' ? 'btn-danger' : 'btn-primary'}`}
-            disabled={amountInvalid || resolve.isPending}
-          >
-            {resolve.isPending ? 'Saving…' : confirmText}
+          <button type="submit" form="resolve-form" className="btn btn-primary" disabled={resolve.isPending}>
+            {resolve.isPending ? 'Saving…' : resolution === 'REPLACEMENT_APPROVED' ? 'Approve replacement' : 'Reject claim'}
           </button>
         </>
       }
     >
-      <form id="resolve-form" onSubmit={onSubmit} noValidate>
+      <form id="resolve-form" onSubmit={onSubmit}>
         <fieldset>
           <legend>Resolution</legend>
           <div className="radio-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-            <label title={canRefund ? undefined : MANAGER_ONLY_HINT}>
-              <input
-                type="radio"
-                name="resolution"
-                checked={resolution === 'REFUND_APPROVED'}
-                disabled={!canRefund}
-                onChange={() => setResolution('REFUND_APPROVED')}
-              />
-              Refund{!canRefund && <span className="muted small"> ({MANAGER_ONLY_HINT})</span>}
-            </label>
             <label>
               <input
                 type="radio"
@@ -207,7 +170,7 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
                 checked={resolution === 'REPLACEMENT_APPROVED'}
                 onChange={() => setResolution('REPLACEMENT_APPROVED')}
               />
-              Replacement
+              Replacement: send the customer {claim.affectedItems.length ? claim.affectedItems.join(', ') : 'the affected items'} again
             </label>
             <label>
               <input type="radio" name="resolution" checked={resolution === 'REJECTED'} onChange={() => setResolution('REJECTED')} />
@@ -215,18 +178,6 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
             </label>
           </div>
         </fieldset>
-        {resolution === 'REFUND_APPROVED' && (
-          <div className="field">
-            <label htmlFor="claim-amount">Refund amount (₹)</label>
-            <input id="claim-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            <p className="hint">Up to the full payment of {rupees(claim.orderTotal)}.</p>
-            {amountInvalid && (
-              <p className="form-error" role="alert">
-                Enter an amount above ₹0 and no more than {rupees(claim.orderTotal)}.
-              </p>
-            )}
-          </div>
-        )}
         <p className="muted small">This closes the claim. It cannot be reopened from here.</p>
         <FormError error={resolve.error} />
       </form>

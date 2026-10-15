@@ -198,9 +198,6 @@ export const api = {
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   cancelOrder: (orderId: string, reason: string) =>
     request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason }),
-  /** amount in paise; omit for a full refund. */
-  refundOrder: (orderId: string, amount?: number) =>
-    request<void>('POST', `/orders/${id(orderId)}/refund`, amount === undefined ? {} : { amount }),
 
   async packList(date: string): Promise<PackListOrder[]> {
     const res = await request<PackListOrder[] | { orders: PackListOrder[] }>(
@@ -212,12 +209,9 @@ export const api = {
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
-  resolveClaim: (claimId: string, resolution: ClaimResolution, amount?: number) =>
-    request<void>(
-      'POST',
-      `/claims/${id(claimId)}/resolve`,
-      amount === undefined ? { resolution } : { resolution, amount },
-    ),
+  /** VMR doesn't refund: a claim is resolved by a replacement or rejected. */
+  resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
+    request<void>('POST', `/claims/${id(claimId)}/resolve`, { resolution }),
 
   pincodes: () => request<Pincode[]>('GET', '/pincodes'),
   addPincode: (input: { pincode: string; city: string; zone?: string }) =>

@@ -2,7 +2,8 @@
 
 A static single-page admin tool for warehouse and operations staff. It replaces the
 Postman-based admin workflow with buttons that only ever offer valid actions, so staff
-can run the shop without a developer and without risking an oversell or a wrong refund.
+can run the shop without a developer and without risking an oversell. VMR does not refund: a
+problem with a delivered order is settled by sending a replacement.
 
 Built against the spec in [`../vmr_mangoes_admin.md`](../vmr_mangoes_admin.md). The
 customer-facing API and its rules live in [`../vmr_mangoes.md`](../vmr_mangoes.md).
@@ -97,8 +98,8 @@ E2E_EMAIL=ops@example.com E2E_PASSWORD=... npm run test:e2e
 - **Smoke** (`tests/smoke.spec.ts`) — auth guard, session-ended banner, offline
   banner, config banner. Runs without a backend.
 - **Screens** (`tests/screens.spec.ts`) — every screen and its main actions against
-  the mocked API in `tests/mock-api.ts`, including the exact request bodies (paise
-  amounts, omitted full-refund amount) and the manager-only gates. Runs without a backend.
+  the mocked API in `tests/mock-api.ts`, including the exact request bodies, that no
+  refund action appears anywhere, and the manager-only gates. Runs without a backend.
 - **Accessibility** (`tests/a11y.spec.ts`) — axe-core WCAG 2 A/AA scan of the login
   screens and every signed-in screen, plus keyboard-operability checks. Runs without a backend.
 - **Day-in-the-life** (`tests/day-in-the-life.spec.ts`) — the full §10 acceptance
@@ -137,18 +138,23 @@ Playwright report is uploaded as an artifact on failure.
 ## Roles (v2)
 
 The app expects `GET /admin/v1/auth/me` to return `{ email, role }` with role
-`OPERATOR` or `MANAGER`. The signed-in identity shows in the nav. Money-losing or
-irreversible actions are **manager-only** and appear disabled with "Requires manager
-role" for operators: issuing a refund, condemning a batch, resolving a claim as a
-refund, and deleting a pincode. Everything else (receiving stock, QC, stock
+`OPERATOR` or `MANAGER`. The signed-in identity shows in the nav. Irreversible actions
+are **manager-only** and appear disabled with "Requires manager role" for operators:
+condemning a batch and deleting a pincode. Everything else (receiving stock, QC, stock
 adjustments, status moves, cancelling orders, adding/deactivating pincodes, starting
-a claim review, replacement/reject) is open to both roles. See `src/permissions.ts` —
-confirm this split before launch (PRD Q1).
+a claim review, resolving a claim as replacement or reject) is open to both roles.
+See `src/permissions.ts` — confirm this split before launch (PRD Q1).
+
+## No refunds
+
+The business replaces products instead of refunding. The panel has no refund button
+on orders, and a claim can only be resolved as **Replacement** or **Reject**. The
+API's `POST /orders/:id/refund` and the `REFUND_APPROVED` claim resolution are never
+called. Note that mango-api still marks a paid order's payment `REFUNDED` when the
+order is cancelled or its batch is condemned; that is backend behaviour.
 
 ## Known gaps (v1 → being closed in v2)
 
-- Partial refunds are supported in the UI (order + claim) and assume the backend
-  refund endpoints accept an optional `amount` in paise.
 - `RTO` order status is shown as **"Returned"** in the UI.
 - Dry-fruit batch intake still needs backend availability modelling first.
 
@@ -159,8 +165,6 @@ the affected screens will show errors rather than succeed.
 
 | Endpoint | Change |
 |----------|--------|
-| `POST /admin/v1/orders/:id/refund` | accept optional `{ amount }` paise (omit = full) |
-| `POST /admin/v1/claims/:id/resolve` | accept optional `{ amount }` with `REFUND_APPROVED` |
 | `GET /admin/v1/auth/me` | new — `{ email, role: 'OPERATOR' \| 'MANAGER' }` |
 | `POST /admin/v1/auth/login` | set httpOnly refresh cookie; drop `refreshToken` from the body |
 | `POST /admin/v1/auth/refresh` | read the cookie (empty body), return `{ accessToken }` |

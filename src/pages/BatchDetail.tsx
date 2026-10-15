@@ -198,14 +198,14 @@ function StatusControls({ batch }: { batch: Batch }) {
                 disabled={move.isPending}
                 onClick={() => move.mutate('CONDEMNED')}
               >
-                {move.isPending ? 'Condemning…' : 'Condemn and refund orders'}
+                {move.isPending ? 'Condemning…' : 'Condemn and cancel orders'}
               </button>
             </>
           }
         >
           <p>
-            This cannot be undone. Every open order holding stock from this batch will be <strong>cancelled</strong>, and
-            any that were paid will be <strong>refunded</strong>.
+            This cannot be undone. Every open order holding stock from this batch will be <strong>cancelled</strong> and
+            its stock released.
           </p>
           <FormError error={move.error} />
         </Dialog>
@@ -225,7 +225,7 @@ function StatusControls({ batch }: { batch: Batch }) {
             <p>No open orders were holding this batch.</p>
           ) : (
             <>
-              <p>These orders were cancelled and refunded:</p>
+              <p>These orders were cancelled:</p>
               <ul>
                 {cancelled.map((n) => (
                   <li key={n}>{n}</li>

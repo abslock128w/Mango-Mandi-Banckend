@@ -2,11 +2,9 @@ import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict } from '../api'
-import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, paiseToInput, rupees, rupeesToPaise } from '../format'
-import { can } from '../permissions'
-import { useSession } from '../session'
+import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, rupees } from '../format'
 import type { OrderDetail as Order, OrderStatus } from '../types'
-import { Badge, Dialog, FormError, GatedButton, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
 
@@ -40,7 +38,6 @@ function movesFor(status: OrderStatus): Move[] {
 
 const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
 const ALLOCATABLE: OrderStatus[] = ['CONFIRMED', 'PROCESSING']
-const REFUNDABLE: OrderStatus[] = ['DELIVERED', 'CANCELLED', 'RTO']
 
 export default function OrderDetail() {
   const { id = '' } = useParams()
@@ -73,12 +70,10 @@ function useOrderRefresh(orderId: string) {
 }
 
 function OrderView({ order }: { order: Order }) {
-  const { me } = useSession()
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
-  const [dialog, setDialog] = useState<'cancel' | 'refund' | null>(null)
+  const [dialog, setDialog] = useState<'cancel' | null>(null)
 
-  const paid = order.payment?.status === 'SUCCEEDED'
   const awaitingPack = order.stock.some((s) => s.state === 'committed')
 
   function onActionError(err: unknown) {
@@ -152,14 +147,9 @@ function OrderView({ order }: { order: Order }) {
             Cancel order
           </button>
         )}
-        {REFUNDABLE.includes(order.status) && paid && (
-          <GatedButton allowed={can(me?.role, 'refundOrder')} className="btn btn-danger" onClick={() => setDialog('refund')}>
-            Refund
-          </GatedButton>
+        {moves.length === 0 && !CANCELLABLE.includes(order.status) && (
+          <span className="muted">No actions available.</span>
         )}
-        {moves.length === 0 &&
-          !CANCELLABLE.includes(order.status) &&
-          !(REFUNDABLE.includes(order.status) && paid) && <span className="muted">No actions available.</span>}
       </div>
 
       <div className="grid-2">
@@ -289,15 +279,12 @@ function OrderView({ order }: { order: Order }) {
         </div>
       </div>
 
-      {dialog === 'cancel' && (
-        <CancelDialog order={order} paid={paid} onClose={() => setDialog(null)} onDone={refresh} />
-      )}
-      {dialog === 'refund' && <RefundDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+      {dialog === 'cancel' && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
     </>
   )
 }
 
-function CancelDialog({ order, paid, onClose, onDone }: { order: Order; paid: boolean; onClose: () => void; onDone: () => void }) {
+function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
   const [reason, setReason] = useState('')
   const cancel = useMutation({
@@ -340,86 +327,13 @@ function CancelDialog({ order, paid, onClose, onDone }: { order: Order; paid: bo
       }
     >
       <form id="cancel-form" onSubmit={onSubmit}>
-        <ul>
-          <li>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</li>
-          <li>
-            {paid
-              ? `The customer's payment of ${rupees(order.payment?.amount ?? order.total)} will be refunded.`
-              : 'No payment was taken, so there is nothing to refund.'}
-          </li>
-        </ul>
+        <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
         <div className="field">
           <label htmlFor="cancel-reason">Reason</label>
           <textarea id="cancel-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-autofocus />
           <p className="hint">At least 3 characters. Saved on the order timeline.</p>
         </div>
         <FormError error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null} />
-      </form>
-    </Dialog>
-  )
-}
-
-function RefundDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
-  const toast = useToast()
-  const full = order.payment?.amount ?? order.total
-  const [amount, setAmount] = useState(paiseToInput(full))
-  const paise = rupeesToPaise(amount)
-  const invalid = paise === null || paise > full
-  const isFull = paise === full
-
-  const refund = useMutation({
-    // Omit the amount for a full refund; the API refunds the whole payment.
-    mutationFn: () => api.refundOrder(order.id, isFull ? undefined : (paise as number)),
-    onSuccess: () => {
-      toast.success(`Refunded ${rupees(paise)} on ${order.number}`)
-      onDone()
-      onClose()
-    },
-  })
-
-  const conflict = refund.isError && isConflict(refund.error)
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (!invalid) refund.mutate()
-  }
-
-  return (
-    <Dialog
-      title={`Refund order ${order.number}`}
-      tone="danger"
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="refund-form" className="btn btn-danger" disabled={invalid || refund.isPending}>
-            {refund.isPending ? 'Refunding…' : invalid ? 'Refund' : `Refund ${rupees(paise)}`}
-          </button>
-        </>
-      }
-    >
-      <form id="refund-form" onSubmit={onSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="refund-amount">Amount (₹)</label>
-          <input id="refund-amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-autofocus />
-          <p className="hint">
-            Full payment is {rupees(full)}. Enter less for a partial refund.
-          </p>
-        </div>
-        {invalid && amount.trim() !== '' && (
-          <p className="form-error" role="alert">
-            Enter an amount above ₹0 and no more than {rupees(full)}.
-          </p>
-        )}
-        {!invalid && (
-          <p>
-            This refunds <strong>{rupees(paise)}</strong>
-            {isFull ? ' (the full payment)' : ' (partial)'} to the customer. It cannot be undone.
-          </p>
-        )}
-        <FormError error={conflict ? 'No payment to refund. It may already have been refunded.' : refund.error} />
       </form>
     </Dialog>
   )
