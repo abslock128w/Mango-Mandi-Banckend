@@ -117,6 +117,14 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
             <dd>{RESOLUTION_LABEL[claim.resolution] ?? claim.resolution}</dd>
           </>
         )}
+        {claim.replacementOrder && (
+          <>
+            <dt>Replacement</dt>
+            <dd>
+              <Link to={`/orders/${claim.replacementOrder.id}`}>{claim.replacementOrder.number}</Link>
+            </dd>
+          </>
+        )}
       </dl>
       <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{claim.description}</p>
     </article>

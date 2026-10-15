@@ -172,7 +172,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/\/ledger$/.test(path)) return json(route, 200, state.ledger)
     if (/^\/batches\/[^/]+\/status$/.test(path)) {
       const s = (body as { status: string }).status
-      if (s === 'CONDEMNED') return json(route, 200, { rebalancedOrders: ['ORD-1042'] })
+      if (s === 'CONDEMNED') return json(route, 200, { rebalancedOrders: ['ORD-1042'], atRiskOrders: ['ORD-1043'] })
       state.batch = { ...state.batch, status: s }
       return route.fulfill({ status: 204 })
     }

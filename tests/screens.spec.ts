@@ -49,8 +49,11 @@ test('Batch detail: stock, QC warning, ledger and manager condemn', async ({ pag
   await expect(page.getByText('+20')).toBeVisible()
 
   await page.getByRole('button', { name: 'Condemn batch' }).click()
-  await page.getByRole('button', { name: 'Condemn and cancel orders' }).click()
-  await expect(page.getByRole('dialog', { name: 'Batch condemned' })).toContainText('ORD-1042')
+  await page.getByRole('button', { name: 'Condemn and move orders' }).click()
+  const result = page.getByRole('dialog', { name: 'Batch condemned' })
+  await expect(result).toContainText('moved to other batches')
+  await expect(result).toContainText('ORD-1042')
+  await expect(result).toContainText('ORD-1043')
 })
 
 test('Operators see condemn disabled with the manager hint', async ({ page }) => {

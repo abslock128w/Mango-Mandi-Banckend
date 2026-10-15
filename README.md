@@ -5,8 +5,9 @@ Postman-based admin workflow with buttons that only ever offer valid actions, so
 can run the shop without a developer and without risking an oversell. VMR does not refund: a
 problem with a delivered order is settled by sending a replacement.
 
-Built against the spec in [`../vmr_mangoes_admin.md`](../vmr_mangoes_admin.md). The
-customer-facing API and its rules live in [`../vmr_mangoes.md`](../vmr_mangoes.md).
+The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
+this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
+the ripeness and stock engine.
 
 ## What it does
 
@@ -91,8 +92,10 @@ npx playwright test tests/smoke.spec.ts tests/screens.spec.ts tests/a11y.spec.ts
 # Using an already-installed Chromium instead of Playwright's download:
 PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 
-# Full day-in-the-life script (needs a seeded backend + admin credentials):
-E2E_EMAIL=ops@example.com E2E_PASSWORD=... npm run test:e2e
+# Full day-in-the-life script against a local mango-api with demo data
+# (start it first: cd mango-api && COOKIE_SECURE=false npm start):
+E2E_EMAIL=manager@vmr.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \
+  npx playwright test tests/day-in-the-life.spec.ts
 ```
 
 - **Smoke** (`tests/smoke.spec.ts`) — auth guard, session-ended banner, offline
@@ -103,7 +106,9 @@ E2E_EMAIL=ops@example.com E2E_PASSWORD=... npm run test:e2e
 - **Accessibility** (`tests/a11y.spec.ts`) — axe-core WCAG 2 A/AA scan of the login
   screens and every signed-in screen, plus keyboard-operability checks. Runs without a backend.
 - **Day-in-the-life** (`tests/day-in-the-life.spec.ts`) — the full §10 acceptance
-  flow; skips unless `E2E_EMAIL`/`E2E_PASSWORD` are set and the backend is reachable.
+  flow against the real mango-api: receive and QC a batch, a customer checks out and
+  pays, ops pack, ship and deliver, the customer claims, ops approve a replacement.
+  Skips unless `E2E_EMAIL`/`E2E_PASSWORD` are set.
 
 Both viewports (390px phone, 1280px desktop) run on every spec, and a shared fixture
 fails any test that logs a console error.
@@ -112,8 +117,9 @@ fails any test that logs a console error.
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci`,
 typecheck (app and tests), production build, then the smoke, screens and accessibility
-specs on Chromium. The
-Playwright report is uploaded as an artifact on failure.
+specs on Chromium. A second job runs the mango-api tests against Postgres 16, and a
+third starts mango-api with demo data and runs the day-in-the-life spec against it.
+The Playwright report is uploaded as an artifact on failure.
 
 ## Resilience
 
@@ -148,27 +154,15 @@ See `src/permissions.ts` — confirm this split before launch (PRD Q1).
 ## No refunds
 
 The business replaces products instead of refunding. The panel has no refund button
-on orders, and a claim can only be resolved as **Replacement** or **Reject**. The
-API's `POST /orders/:id/refund` and the `REFUND_APPROVED` claim resolution are never
-called. Note that mango-api still marks a paid order's payment `REFUNDED` when the
-order is cancelled or its batch is condemned; that is backend behaviour.
+on orders, and a claim can only be resolved as **Replacement** or **Reject**. mango-api
+has no refund endpoint and never marks a payment refunded. Condemning a batch moves its
+orders to other stock or flags them **at risk** (listed on Today and on the order);
+it never cancels them.
 
-## Known gaps (v1 → being closed in v2)
+## Known gaps
 
 - `RTO` order status is shown as **"Returned"** in the UI.
-- Dry-fruit batch intake still needs backend availability modelling first.
-
-## Assumed backend changes (v2 — hand to the mango-api team)
-
-The v2 UI is built against these endpoint contracts. Until the backend ships them,
-the affected screens will show errors rather than succeed.
-
-| Endpoint | Change |
-|----------|--------|
-| `GET /admin/v1/auth/me` | new — `{ email, role: 'OPERATOR' \| 'MANAGER' }` |
-| `POST /admin/v1/auth/login` | set httpOnly refresh cookie; drop `refreshToken` from the body |
-| `POST /admin/v1/auth/refresh` | read the cookie (empty body), return `{ accessToken }` |
-| `POST /admin/v1/auth/logout` | new — clear the refresh cookie |
-| CORS | `Access-Control-Allow-Credentials: true`, exact `ADMIN_ORIGIN` |
+- There is no screen yet for the delivery calendar, the versioned business rules or the
+  supply-coverage grid; mango-api has the endpoints (`/calendar`, `/config`, `/coverage`).
 
 See §12 of the admin PRD for the open questions (Q1–Q7) and risks.

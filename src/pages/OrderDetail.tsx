@@ -110,6 +110,18 @@ function OrderView({ order }: { order: Order }) {
         <span className="muted">Placed {dateTime(order.placedAt)}</span>
       </div>
 
+      {order.atRisk && (
+        <div className="notice notice-warn" role="status">
+          <strong>At risk:</strong> {order.atRiskReason ?? 'this order no longer has valid stock.'} Move it to a date with
+          stock, or wait for new stock to arrive.
+        </div>
+      )}
+      {order.replacementFor && (
+        <div className="notice notice-info" role="status">
+          Free replacement for order <Link to={`/orders/${order.replacementFor.id}`}>{order.replacementFor.number}</Link>.
+        </div>
+      )}
+
       {order.status === 'PAYMENT_PENDING' && (
         <div className="notice notice-warn" role="status">
           Waiting for payment… Only a verified payment confirms an order, so there is nothing to do here yet.

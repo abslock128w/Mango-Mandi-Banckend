@@ -76,6 +76,8 @@ export interface Summary {
   openClaims: number
   batchesNearLimit: { id: string; variety: string; ageDays: number; available: number }[]
   lowStock: { sku: string; productName: string; available: number }[]
+  /** Open orders the stock engine could not keep whole. Ops must act on these. */
+  atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
 }
 
 export interface BatchListItem {
@@ -146,6 +148,7 @@ export interface OrderListItem {
   status: OrderStatus
   deliveryDate: string
   placedAt: string
+  atRisk?: boolean
 }
 
 export interface Paged<T> {
@@ -170,6 +173,7 @@ export interface OrderStock {
   id?: string
   batchId: string
   sku?: string
+  stage?: string
   variety: string
   pluckedOn: string
   quantity: number
@@ -198,6 +202,9 @@ export interface OrderDetail {
   stock: OrderStock[]
   events: OrderEvent[]
   payment: { status: PaymentStatus | null; method: string | null; amount: number | null } | null
+  atRisk?: boolean
+  atRiskReason?: string | null
+  replacementFor?: { id: string; number: string } | null
 }
 
 export interface PackPick {
@@ -230,6 +237,7 @@ export interface Claim {
   status: ClaimStatus
   resolution?: ClaimResolution | null
   createdAt?: string
+  replacementOrder?: { id: string; number: string } | null
 }
 
 export interface Pincode {

@@ -175,9 +175,12 @@ export const api = {
     farm?: string
     lines: { sku: string; onHand: number }[]
   }) => request<BatchDetail>('POST', '/batches', input),
-  /** 204 for normal moves; CONDEMNED returns the cancelled order numbers. */
+  /**
+   * 204 for normal moves. CONDEMNED returns the orders moved to other batches
+   * and the ones left at-risk; no order is cancelled.
+   */
   setBatchStatus: (batchId: string, status: BatchStatus) =>
-    request<{ rebalancedOrders?: string[] } | undefined>(
+    request<{ rebalancedOrders?: string[]; atRiskOrders?: string[] } | undefined>(
       'PATCH',
       `/batches/${id(batchId)}/status`,
       { status },
