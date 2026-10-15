@@ -1,0 +1,340 @@
+import { useState, type FormEvent } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ApiError, api, isConflict } from '../api'
+import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, rupees } from '../format'
+import type { OrderDetail as Order, OrderStatus } from '../types'
+import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+
+const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
+
+type Move = { to: OrderStatus; label: string; primary?: boolean }
+
+/** The status moves offered for each status. The UI never offers an invalid one. */
+function movesFor(status: OrderStatus): Move[] {
+  switch (status) {
+    case 'CONFIRMED':
+      return [{ to: 'PROCESSING', label: 'Start processing', primary: true }]
+    case 'PROCESSING':
+      return [{ to: 'PACKED', label: 'Mark packed', primary: true }]
+    case 'PACKED':
+      return [{ to: 'SHIPPED', label: 'Mark shipped', primary: true }]
+    case 'SHIPPED':
+      return [{ to: 'OUT_FOR_DELIVERY', label: 'Out for delivery', primary: true }]
+    case 'OUT_FOR_DELIVERY':
+      return [
+        { to: 'DELIVERED', label: 'Mark delivered', primary: true },
+        { to: 'DELIVERY_FAILED', label: 'Delivery failed' },
+      ]
+    case 'DELIVERY_FAILED':
+      return [
+        { to: 'OUT_FOR_DELIVERY', label: 'Retry delivery', primary: true },
+        { to: 'RTO', label: 'Mark as returned' },
+      ]
+    default:
+      return []
+  }
+}
+
+const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
+const ALLOCATABLE: OrderStatus[] = ['CONFIRMED', 'PROCESSING']
+
+export default function OrderDetail() {
+  const { id = '' } = useParams()
+  const q = useQuery({ queryKey: ['order', id], queryFn: () => api.order(id) })
+
+  if (q.isPending) return <Spinner />
+  if (q.isError) {
+    if (q.error instanceof ApiError && q.error.status === 404) {
+      return (
+        <div className="card">
+          <h1>Order not found</h1>
+          <Link to="/orders">Back to orders</Link>
+        </div>
+      )
+    }
+    return <QueryError error={q.error} onRetry={() => q.refetch()} />
+  }
+  return <OrderView order={q.data} />
+}
+
+function useOrderRefresh(orderId: string) {
+  const queryClient = useQueryClient()
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ['order', orderId] })
+    queryClient.invalidateQueries({ queryKey: ['orders'] })
+    queryClient.invalidateQueries({ queryKey: ['summary'] })
+    queryClient.invalidateQueries({ queryKey: ['pack-list'] })
+    queryClient.invalidateQueries({ queryKey: ['batch'] })
+  }
+}
+
+function OrderView({ order }: { order: Order }) {
+  const toast = useToast()
+  const refresh = useOrderRefresh(order.id)
+  const [dialog, setDialog] = useState<'cancel' | null>(null)
+
+  const awaitingPack = order.stock.some((s) => s.state === 'committed')
+
+  function onActionError(err: unknown) {
+    if (isConflict(err)) toast.error(CONFLICT_MESSAGE)
+    else toast.error(err)
+    refresh()
+  }
+
+  const move = useMutation({
+    mutationFn: (to: OrderStatus) => api.setOrderStatus(order.id, to),
+    onSuccess: (_r, to) => {
+      toast.success(`Order ${order.number} is now ${ORDER_STATUS_LABEL[to]}`)
+      refresh()
+    },
+    onError: onActionError,
+  })
+  const allocate = useMutation({
+    mutationFn: () => api.allocate(order.id),
+    onSuccess: () => {
+      toast.success('Stock allocated. Pick list is ready.')
+      refresh()
+    },
+    onError: onActionError,
+  })
+
+  const busy = move.isPending || allocate.isPending
+  const moves = movesFor(order.status)
+
+  return (
+    <>
+      <div className="topbar">
+        <h1>Order {order.number}</h1>
+        <OrderBadge status={order.status} />
+        <span className="muted">Placed {dateTime(order.placedAt)}</span>
+      </div>
+
+      {order.status === 'PAYMENT_PENDING' && (
+        <div className="notice notice-warn" role="status">
+          Waiting for payment… Only a verified payment confirms an order, so there is nothing to do here yet.
+        </div>
+      )}
+
+      <div className="card btn-row" aria-label="Order actions">
+        {ALLOCATABLE.includes(order.status) && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy || !awaitingPack}
+            title={awaitingPack ? undefined : 'Nothing left to allocate'}
+            onClick={() => allocate.mutate()}
+          >
+            Allocate and pack
+          </button>
+        )}
+        {moves.map((m) => {
+          const blocked = m.to === 'PACKED' && awaitingPack
+          return (
+            <button
+              key={m.to}
+              type="button"
+              className={`btn${m.primary ? ' btn-primary' : ''}`}
+              disabled={busy || blocked}
+              onClick={() => move.mutate(m.to)}
+            >
+              {blocked ? 'Mark packed (allocate first)' : m.label}
+            </button>
+          )
+        })}
+        {CANCELLABLE.includes(order.status) && (
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
+            Cancel order
+          </button>
+        )}
+        {moves.length === 0 && !CANCELLABLE.includes(order.status) && (
+          <span className="muted">No actions available.</span>
+        )}
+      </div>
+
+      <div className="grid-2">
+        <div>
+          <section className="card">
+            <h2>Items</h2>
+            <div {...scrollRegion('Order items')}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Stage</th>
+                    <th className="num">Qty</th>
+                    <th className="num">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {order.items.map((it, i) => (
+                    <tr key={it.id ?? i}>
+                      <td>
+                        {it.productName}
+                        <div className="muted small">{it.sku}</div>
+                      </td>
+                      <td>{it.stage ?? '—'}</td>
+                      <td className="num">{it.quantity}</td>
+                      <td className="num">{rupees(it.linePrice)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th colSpan={3}>Total</th>
+                    <th className="num">{rupees(order.total)}</th>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </section>
+
+          <section className="card">
+            <h2>Stock allocation</h2>
+            {order.stock.length === 0 ? (
+              <p className="muted">No stock is held for this order.</p>
+            ) : (
+              <div {...scrollRegion('Stock allocation')}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Batch</th>
+                      <th>SKU</th>
+                      <th className="num">Qty</th>
+                      <th>State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.stock.map((s, i) => (
+                      <tr key={s.id ?? i}>
+                        <td>
+                          <Link to={`/batches/${s.batchId}`}>
+                            {s.variety} · {date(s.pluckedOn)}
+                          </Link>
+                        </td>
+                        <td>{s.sku ?? '—'}</td>
+                        <td className="num">{s.quantity}</td>
+                        <td>
+                          <Badge tone={s.state === 'packed' ? 'good' : s.state === 'released' ? 'neutral' : 'info'}>
+                            {s.state}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div>
+          <section className="card">
+            <h2>Customer and delivery</h2>
+            <dl className="kv">
+              <dt>Name</dt>
+              <dd>{order.customerName ?? '—'}</dd>
+              <dt>Phone</dt>
+              <dd>{order.phone ?? '—'}</dd>
+              <dt>Address</dt>
+              <dd>{order.deliveryAddress ?? '—'}</dd>
+              <dt>Pincode</dt>
+              <dd>{order.pincode ?? '—'}</dd>
+              <dt>Delivery date</dt>
+              <dd>{date(order.deliveryDate)}</dd>
+            </dl>
+          </section>
+          <section className="card">
+            <h2>Payment</h2>
+            {order.payment ? (
+              <dl className="kv">
+                <dt>Status</dt>
+                <dd>{order.payment.status ? (PAYMENT_LABEL[order.payment.status] ?? order.payment.status) : '—'}</dd>
+                <dt>Method</dt>
+                <dd>{order.payment.method ?? '—'}</dd>
+                <dt>Amount</dt>
+                <dd>{rupees(order.payment.amount)}</dd>
+              </dl>
+            ) : (
+              <p className="muted">No payment recorded.</p>
+            )}
+          </section>
+          <section className="card">
+            <h2>Timeline</h2>
+            {order.events.length === 0 ? (
+              <p className="muted">No events yet.</p>
+            ) : (
+              <ol className="timeline">
+                {order.events.map((e, i) => (
+                  <li key={i}>
+                    <strong>{ORDER_STATUS_LABEL[e.status] ?? e.status}</strong>{' '}
+                    <span className="muted small">{dateTime(e.createdAt)}</span>
+                    {e.actor && <div className="small muted">by {e.actor}</div>}
+                    {e.reason && <div className="small">{e.reason}</div>}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {dialog === 'cancel' && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+    </>
+  )
+}
+
+function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [reason, setReason] = useState('')
+  const cancel = useMutation({
+    mutationFn: () => api.cancelOrder(order.id, reason.trim()),
+    onSuccess: () => {
+      toast.success(`Order ${order.number} cancelled`)
+      onDone()
+      onClose()
+    },
+    onError: (err) => {
+      if (isConflict(err)) {
+        toast.error(CONFLICT_MESSAGE)
+        onDone()
+        onClose()
+      }
+    },
+  })
+  const holdsStock = order.stock.some((s) => s.state !== 'released')
+  const valid = reason.trim().length >= 3
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (valid) cancel.mutate()
+  }
+
+  return (
+    <Dialog
+      title={`Cancel order ${order.number}?`}
+      tone="danger"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Keep order
+          </button>
+          <button type="submit" form="cancel-form" className="btn btn-danger" disabled={!valid || cancel.isPending}>
+            {cancel.isPending ? 'Cancelling…' : 'Cancel order'}
+          </button>
+        </>
+      }
+    >
+      <form id="cancel-form" onSubmit={onSubmit}>
+        <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
+        <div className="field">
+          <label htmlFor="cancel-reason">Reason</label>
+          <textarea id="cancel-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-autofocus />
+          <p className="hint">At least 3 characters. Saved on the order timeline.</p>
+        </div>
+        <FormError error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null} />
+      </form>
+    </Dialog>
+  )
+}

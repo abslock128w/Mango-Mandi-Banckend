@@ -1,7 +1,8 @@
 # Mango Ops — Admin Panel Documentation
 
 Operations tool for VMR Mangoes staff: receive stock, run quality control, move
-orders through fulfilment, handle refunds and claims, and manage delivery areas.
+orders through fulfilment, handle claims with replacements, and manage delivery areas.
+There are no refunds: a problem with a delivered order is settled by a replacement.
 
 - **App:** React + TypeScript + Vite single-page app (`mango-admin/`)
 - **Backend:** talks only to `mango-api` under `/admin/v1`
@@ -13,7 +14,7 @@ orders through fulfilment, handle refunds and claims, and manage delivery areas.
 
 The panel replaces hand-written API calls (Postman) with buttons that only ever
 offer valid actions. Staff can run the shop without a developer, and the UI can't
-cause an oversell or a wrong refund because **all stock and money rules live in the
+cause an oversell because **all stock and money rules live in the
 API** — the panel only displays what the backend returns.
 
 ## 2. Who uses it
@@ -22,8 +23,8 @@ One login per staff member, with two roles:
 
 | Role | Can do | Cannot do |
 |------|--------|-----------|
-| **Operator** | Receive stock, log QC, adjust stock, move batch/order status, allocate & pack, cancel orders, add/deactivate pincodes, start claim review, approve replacement/reject | Issue refunds, condemn a batch, resolve a claim as a refund, delete a pincode |
-| **Manager** | Everything an operator can, **plus** refunds, condemning batches, claim refunds, deleting pincodes | — |
+| **Operator** | Receive stock, log QC, adjust stock, move batch/order status, allocate & pack, cancel orders, add/deactivate pincodes, start claim review, approve replacement/reject | Condemn a batch, delete a pincode |
+| **Manager** | Everything an operator can, **plus** condemning batches and deleting pincodes | — |
 
 Manager-only buttons appear **disabled with "Requires manager role"** for operators.
 
@@ -80,7 +81,7 @@ a quantity per product. Lands you on the new batch's detail with the QC form foc
 - **Status** — moves forward only (`Arriving → In transit → Arrived → Ripening →
   Selling → Exhausted`); the next step is the primary button, skip-ahead is a secondary
   option.
-- **Condemn** (manager-only, red) — cancels and refunds every open order holding the
+- **Condemn** (manager-only, red) — cancels every open order holding the
   batch; the dialog warns first and lists the cancelled order numbers after.
 - **QC** — log ripeness (Raw / Semi-ripe / Ripe) + condition (Good / Minor blemish /
   Reject) + notes. Logging twice in a day warns that the new entry supersedes the old.
@@ -99,10 +100,8 @@ the stock allocation. The **action bar only shows valid actions** for the curren
 status (see §5). Highlights:
 - **Allocate and pack** assigns batch stock, then the pick list appears.
 - **Mark packed** is disabled with "Allocate first" until allocation is done.
-- **Cancel** needs a 3-character reason; the dialog says whether a refund will be
-  issued and that held stock is released.
-- **Refund** (manager-only) lets you enter a **partial amount** or refund in full; the
-  dialog states the exact amount.
+- **Cancel** needs a 3-character reason; the dialog says whether held stock is released.
+- There is no refund action.
 - Payment-pending orders show a read-only note — there's no manual confirm, because only
   a verified payment confirms an order.
 
@@ -115,9 +114,8 @@ whole batch at a time). "Print" produces a clean black-on-white sheet with no na
 ### Claims
 Queue of post-delivery claims (default: open ones). Each shows the order, customer
 phone, issue type, description, affected items, and a photo link if provided.
-**Start review** moves a claim to Under review. **Resolve** as Refund (manager-only,
-enter amount up to the full payment), Replacement, or Reject — each behind a confirm
-dialog.
+**Start review** moves a claim to Under review. **Resolve** as Replacement (send the
+affected items again) or Reject, behind a confirm dialog. There is no refund option.
 
 ### Pincodes
 Serviceable delivery areas. Add a pincode (exactly 6 digits + city). **Deactivate**
@@ -139,10 +137,10 @@ Cancel: allowed from PAYMENT_PENDING through OUT_FOR_DELIVERY (not after).
 
 ### Batch status
 Forward only; `Condemned` can be set from any non-final state and triggers
-cancel-and-refund of affected orders.
+cancellation of affected orders.
 
 ### Destructive actions always confirm
-Cancel, refund, condemn, resolve-claim-as-refund, and deactivate/delete pincode each
+Cancel, condemn, resolve claim, and deactivate/delete pincode each
 open a dialog that names the consequence before it runs.
 
 ---
@@ -190,7 +188,7 @@ push. The accessibility suite runs axe-core (WCAG 2 A/AA) with zero violations.
 
 - **Needs `mango-api` running.** The panel is a thin client; with no backend it shows
   errors, not data.
-- Partial refunds, staff roles, and the httpOnly-cookie auth assume the matching backend
+- Staff roles and the httpOnly-cookie auth assume the matching backend
   endpoints (all implemented in the current `mango-api`).
 - Dry-fruit intake isn't supported yet (needs the backend availability engine to model
   it) — batch intake is mango-only.
@@ -206,7 +204,7 @@ push. The accessibility suite runs axe-core (WCAG 2 A/AA) with zero violations.
 | Batches | `GET /batches`, `GET /batches/:id`, `POST /batches`, `GET /products`, `GET /batches/:id/ledger` |
 | Batch actions | `PATCH /batches/:id/status`, `POST /batches/:id/qc`, `PATCH /batches/:id/lines/:lineId` |
 | Orders | `GET /orders`, `GET /orders/:id` |
-| Order actions | `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/refund` |
+| Order actions | `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel` |
 | Pack list | `GET /pack-list?date=` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
