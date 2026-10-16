@@ -37,7 +37,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await page.getByLabel('Ripe', { exact: true }).check()
   await page.getByLabel('Good').check()
   await page.getByRole('button', { name: 'Log QC' }).click()
-  await expect(page.getByText('QC logged')).toBeVisible()
+  await expect(page.getByText('QC logged', { exact: true })).toBeVisible()
 
   // 4–6. A customer buys from the seeded stock and pays (dev payment endpoint).
   const apiUrl = (process.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/+$/, '')
