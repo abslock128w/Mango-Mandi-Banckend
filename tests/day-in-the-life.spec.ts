@@ -8,7 +8,7 @@ const password = process.env.E2E_PASSWORD
 
 test.skip(!email || !password, 'Set E2E_EMAIL and E2E_PASSWORD and run mango-api to enable')
 
-test('a day in the life of the warehouse', async ({ page }) => {
+test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   // 1. Sign in; a reload keeps the session.
   await page.goto('/login')
   await page.getByLabel('Work email').fill(email!)
@@ -50,7 +50,9 @@ test('a day in the life of the warehouse', async ({ page }) => {
     expect(res.ok(), `${method} ${path} → ${res.status()} ${await res.text()}`).toBeTruthy()
     return res.status() === 204 ? null : res.json()
   }
-  const phone = `9${String(Date.now()).slice(-9)}`
+  // Both viewports run at once, so the phone number differs per worker: two OTP
+  // requests for one number would replace each other's code.
+  const phone = `9${testInfo.workerIndex % 10}${String(Date.now()).slice(-8)}`
   const { devCode } = await call('POST', '/v1/auth/otp/request', { phone })
   const { accessToken: cust } = await call('POST', '/v1/auth/otp/verify', { phone, code: devCode })
   const catalogue = await call('GET', '/v1/catalogue?pincode=560034')
