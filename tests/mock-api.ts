@@ -239,6 +239,19 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/orders') return json(route, 200, state.orders)
     if (path === '/orders/o1') return json(route, 200, state.order)
     if (path === '/orders/o2') return json(route, 200, state.deliveredOrder)
+    if (path === '/orders/bulk-reschedule') {
+      const picked = [
+        { id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', pincode: '400001' },
+        { id: 'o3', number: 'ORD-1044', customerName: 'Vikram Shah', pincode: '400001' },
+      ]
+      if ((body as { dryRun?: boolean }).dryRun) return json(route, 200, { matched: 2, orders: picked, moved: [], notMoved: [] })
+      return json(route, 200, {
+        matched: 2,
+        orders: picked,
+        moved: [{ ...picked[0], deliveryDate: '2026-10-16' }],
+        notMoved: [{ ...picked[1], reason: 'No stock on 2026-10-16 or any later open date' }],
+      })
+    }
     if (/^\/orders\/[^/]+\/(status|allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)

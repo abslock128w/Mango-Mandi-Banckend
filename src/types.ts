@@ -226,6 +226,7 @@ export type NotificationKind =
   | 'DELIVERY_FAILED'
   | 'CANCELLED'
   | 'REFUNDED'
+  | 'DATE_MOVED'
 
 /** A WhatsApp update to the customer, sent from an outbox with retries. */
 export interface OrderNotification {
@@ -369,4 +370,20 @@ export interface PreorderCapacity {
   capacity: number
   reserved: number
   waitlisted: number
+}
+
+/** One order picked by a bulk reschedule. */
+export interface BulkMoveOrder {
+  id: string
+  number: string
+  customerName: string
+  pincode: string
+}
+
+/** What a bulk reschedule matched and did. With dryRun, moved and notMoved are empty. */
+export interface BulkMoveResult {
+  matched: number
+  orders: BulkMoveOrder[]
+  moved: (BulkMoveOrder & { deliveryDate: string })[]
+  notMoved: (BulkMoveOrder & { reason: string })[]
 }

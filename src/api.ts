@@ -7,6 +7,7 @@
 import type {
   ApiErrorBody,
   BatchDetail,
+  BulkMoveResult,
   BatchListItem,
   BatchStatus,
   Claim,
@@ -212,6 +213,9 @@ export const api = {
   /** Moves a confirmed order to another bookable date that has stock (409 if it doesn't), optionally into a slot. */
   rescheduleOrder: (orderId: string, deliveryDate: string, slotId?: string | null) =>
     request<void>('POST', `/orders/${id(orderId)}/reschedule`, slotId ? { deliveryDate, slotId } : { deliveryDate }),
+  /** Moves every confirmed order on one date (optionally some pincodes) to another; managers only. */
+  bulkReschedule: (input: { fromDate: string; toDate: string; pincodes?: string[]; reason: string; dryRun?: boolean }) =>
+    request<BulkMoveResult>('POST', '/orders/bulk-reschedule', input),
 
   async packList(date: string): Promise<PackListOrder[]> {
     const res = await request<PackListOrder[] | { orders: PackListOrder[] }>(

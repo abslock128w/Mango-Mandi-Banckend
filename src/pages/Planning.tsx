@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate } from '../format'
 import { MANAGER_ONLY_HINT, can } from '../permissions'
 import { useSession } from '../session'
-import type { CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
+import type { BulkMoveResult, CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
 import { Badge, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, scrollRegion, useToast } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -105,10 +106,13 @@ function Coverage() {
 
 /** Closed days (festivals, bandhs) and per-day box limits. */
 function Calendar() {
+  const { me } = useSession()
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['calendar'], queryFn: api.calendar })
   const [editing, setEditing] = useState<CalendarDay | null>(null)
+  const [moving, setMoving] = useState(false)
+  const canMove = can(me?.role, 'moveDay')
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['calendar'] })
@@ -128,6 +132,9 @@ function Calendar() {
       <div className="topbar" style={{ marginBottom: '0.5rem' }}>
         <h2 style={{ margin: 0 }}>Delivery calendar</h2>
         <span className="spacer" />
+        <GatedButton allowed={canMove} className="btn" onClick={() => setMoving(true)}>
+          Move a day's orders
+        </GatedButton>
         <button
           type="button"
           className="btn"
@@ -187,7 +194,9 @@ function Calendar() {
           </table>
         </div>
       )}
+      {!canMove && <p className="hint">Moving a day's orders: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
       {editing && <DayDialog day={editing} onClose={() => setEditing(null)} onDone={refresh} />}
+      {moving && <MoveDayDialog onClose={() => setMoving(false)} />}
     </section>
   )
 }
@@ -268,9 +277,171 @@ function DayDialog({ day, onClose, onDone }: { day: CalendarDay; onClose: () => 
           <input id="day-note" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Diwali, bandh…" />
         </div>
         {!isOpen && (
-          <p className="hint">Orders already booked for this date stay booked. Move them from each order's page.</p>
+          <p className="hint">Orders already booked for this date stay booked. Use Move a day's orders to move them.</p>
         )}
         <FormError error={formError ?? save.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+/**
+ * Moves every confirmed order on one date to another (a rain-out, a holiday).
+ * Checks first, so the manager sees how many orders it touches before anything moves.
+ */
+function MoveDayDialog({ onClose }: { onClose: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const coverage = useQuery({ queryKey: ['coverage'], queryFn: api.coverage })
+  const [fromDate, setFromDate] = useState(istDate(1))
+  const [toDate, setToDate] = useState('')
+  const [pincodes, setPincodes] = useState('')
+  const [reason, setReason] = useState('')
+  const [preview, setPreview] = useState<BulkMoveResult | null>(null)
+  const [result, setResult] = useState<BulkMoveResult | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+  const targets = (coverage.data ?? []).map((d) => d.date).filter((d) => d !== fromDate)
+
+  const input = () => {
+    const pins = pincodes.split(/[\s,]+/).filter(Boolean)
+    return { fromDate, toDate, reason: reason.trim(), ...(pins.length ? { pincodes: pins } : {}) }
+  }
+  const check = useMutation({ mutationFn: () => api.bulkReschedule({ ...input(), dryRun: true }), onSuccess: setPreview })
+  const move = useMutation({
+    mutationFn: () => api.bulkReschedule(input()),
+    onSuccess: (r) => {
+      setResult(r)
+      toast.success(`${r.moved.length} of ${r.matched} orders moved`)
+      for (const key of ['orders', 'coverage', 'summary', 'pack-list']) queryClient.invalidateQueries({ queryKey: [key] })
+    },
+  })
+  const changed = () => setPreview(null)
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDate)) return setFormError('Pick the day to move orders from.')
+    if (!toDate) return setFormError('Pick the day to move them to.')
+    if (pincodes.split(/[\s,]+/).filter(Boolean).some((p) => !/^\d{6}$/.test(p))) {
+      return setFormError('Pincodes must be 6 digits, separated by commas.')
+    }
+    if (!reason.trim()) return setFormError('Say why, for example Heavy rain. It goes on each order.')
+    if (preview) move.mutate()
+    else check.mutate()
+  }
+
+  if (result) {
+    return (
+      <Dialog
+        title="Orders moved"
+        onClose={onClose}
+        footer={
+          <button type="button" className="btn btn-primary" onClick={onClose}>
+            Done
+          </button>
+        }
+      >
+        <p>
+          {result.moved.length} of {result.matched} orders moved from {date(fromDate)}. Each customer gets a WhatsApp
+          message with the new date.
+        </p>
+        {result.notMoved.length > 0 && (
+          <>
+            <h3>Not moved ({result.notMoved.length})</h3>
+            <p className="muted small">These stay on {date(fromDate)}. Open each one to move or fix it by hand.</p>
+            <ul>
+              {result.notMoved.map((o) => (
+                <li key={o.id}>
+                  <Link to={`/orders/${o.id}`}>{o.number}</Link> {o.customerName}: {o.reason}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </Dialog>
+    )
+  }
+
+  const busy = check.isPending || move.isPending
+  return (
+    <Dialog
+      title="Move a day's orders"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="move-form" className="btn btn-primary" disabled={busy || preview?.matched === 0}>
+            {busy ? 'Working…' : preview ? `Move ${preview.matched} orders` : 'Check orders'}
+          </button>
+        </>
+      }
+    >
+      <form id="move-form" onSubmit={onSubmit} noValidate>
+        <div className="field">
+          <label htmlFor="move-from">Move orders from</label>
+          <input
+            id="move-from"
+            type="date"
+            min={istDate(0)}
+            value={fromDate}
+            onChange={(e) => {
+              setFromDate(e.target.value)
+              changed()
+            }}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="move-to">To</label>
+          <select
+            id="move-to"
+            value={toDate}
+            onChange={(e) => {
+              setToDate(e.target.value)
+              changed()
+            }}
+          >
+            <option value="">Pick a delivery date</option>
+            {targets.map((d) => (
+              <option key={d} value={d}>
+                {date(d)}
+              </option>
+            ))}
+          </select>
+          <p className="hint">An order with no stock that day goes to the next open date that has it.</p>
+        </div>
+        <div className="field">
+          <label htmlFor="move-pins">Only these pincodes (optional)</label>
+          <input
+            id="move-pins"
+            inputMode="numeric"
+            value={pincodes}
+            onChange={(e) => {
+              setPincodes(e.target.value)
+              changed()
+            }}
+            placeholder="560034, 560095"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="move-reason">Reason</label>
+          <input
+            id="move-reason"
+            value={reason}
+            maxLength={200}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Heavy rain"
+          />
+        </div>
+        {preview && (
+          <p role="status">
+            {preview.matched === 0
+              ? `No confirmed orders on ${date(fromDate)} match.`
+              : `${preview.matched} confirmed orders on ${date(fromDate)} will move. Packed orders are left alone.`}
+          </p>
+        )}
+        <FormError error={formError ?? check.error ?? move.error} />
       </form>
     </Dialog>
   )

@@ -267,10 +267,36 @@ test('Operators cannot set preorder capacity', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Set capacity/ })).toBeDisabled()
 })
 
+test("Planning: moving a day's orders checks first, then lists what didn't move", async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/planning')
+  await page.getByRole('button', { name: "Move a day's orders" }).click()
+  const dialog = page.getByRole('dialog', { name: "Move a day's orders" })
+  await dialog.getByLabel('Move orders from').fill('2026-10-17')
+  await dialog.getByLabel('To', { exact: true }).selectOption('2026-10-16')
+  await dialog.getByLabel('Only these pincodes (optional)').fill('400001, 4000')
+  await dialog.getByLabel('Reason').fill('Heavy rain')
+  await dialog.getByRole('button', { name: 'Check orders' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Pincodes must be 6 digits, separated by commas.')
+  await dialog.getByLabel('Only these pincodes (optional)').fill('400001')
+  await dialog.getByRole('button', { name: 'Check orders' }).click()
+  await expect(dialog.getByRole('status')).toContainText('2 confirmed orders')
+  await dialog.getByRole('button', { name: 'Move 2 orders' }).click()
+  const done = page.getByRole('dialog', { name: 'Orders moved' })
+  await expect(done).toContainText('1 of 2 orders moved')
+  await expect(done.getByRole('link', { name: 'ORD-1044' })).toHaveAttribute('href', '/orders/o3')
+  const moves = api.calls.filter((c) => c.path === '/orders/bulk-reschedule')
+  expect(moves.map((c) => c.body)).toEqual([
+    { fromDate: '2026-10-17', toDate: '2026-10-16', reason: 'Heavy rain', pincodes: ['400001'], dryRun: true },
+    { fromDate: '2026-10-17', toDate: '2026-10-16', reason: 'Heavy rain', pincodes: ['400001'] },
+  ])
+})
+
 test('Operators cannot edit selling rules', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/planning')
   await expect(page.getByRole('button', { name: /Edit rules/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /Move a day's orders/ })).toBeDisabled()
   await expect(page.getByRole('button', { name: /Add slot/ })).toBeDisabled()
   await expect(page.getByRole('button', { name: /Switch off Morning/ })).toBeDisabled()
 })

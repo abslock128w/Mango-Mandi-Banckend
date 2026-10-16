@@ -25,6 +25,7 @@ import {
   setOrderStatus,
   takeBatchOutOfService,
 } from './orders.js'
+import { enqueue } from './notify.js'
 import { isMonday, preorderView, PREORDER_STATUSES, promoteWaitlist } from './preorders.js'
 import { allProducts, findProduct, productName } from './products.js'
 import { STAGES } from './stage.js'
@@ -498,11 +499,93 @@ router.post(
         o.slot_id = await chooseSlot(c, deliveryDate, q[0].n, slotId, { strict: true, excludeOrderId: o.id })
         await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
       }
+      const from = o.delivery_date
       const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], req.actor, `Rescheduled by ${req.admin.email}`)
       if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+      if (date !== from) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
       await rebalanceOrder(c, o.id, req.actor)
     })
     res.status(204).end()
+  }),
+)
+
+const BULK_LIMIT = 500
+
+/**
+ * Moves every open order on one delivery date (a rain-out, a holiday) to
+ * another, optionally only some pincodes or orders. Each order moves in its
+ * own transaction, onto toDate or the next open date after it with stock, and
+ * the customer gets a DATE_MOVED update. Orders that fit nowhere stay put and
+ * are listed so ops can handle them. dryRun lists the orders without moving.
+ */
+router.post(
+  '/orders/bulk-reschedule',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        fromDate: z.string().refine(isDate, 'fromDate must be YYYY-MM-DD'),
+        toDate: z.string().refine(isDate, 'toDate must be YYYY-MM-DD'),
+        slotId: z.string().max(64).optional().nullable(),
+        pincodes: z.array(z.string().regex(/^\d{6}$/, 'pincodes must be 6 digits')).max(200).optional(),
+        orderIds: z.array(z.string().max(64)).max(BULK_LIMIT).optional(),
+        reason: z.string().trim().min(1, 'reason is required').max(200),
+        dryRun: z.boolean().optional(),
+      }),
+      req.body,
+    )
+    if (b.toDate === b.fromDate) throw badRequest('Pick a different date to move to', 'INVALID_DATE')
+    const open = await orderableDates({ query })
+    if (!open.includes(b.toDate)) throw badRequest(`${b.toDate} is not an open delivery date`, 'INVALID_DATE')
+    if (b.slotId && !(await query('SELECT 1 FROM delivery_slots WHERE id = $1 AND active', [b.slotId])).rows.length) {
+      throw badRequest('That delivery slot is not available', 'SLOT_INVALID')
+    }
+    const params = [b.fromDate]
+    let filter = ''
+    if (b.pincodes?.length) {
+      params.push(b.pincodes)
+      filter += ` AND o.pincode = ANY($${params.length})`
+    }
+    if (b.orderIds?.length) {
+      params.push(b.orderIds)
+      filter += ` AND o.id = ANY($${params.length})`
+    }
+    const { rows: picked } = await query(
+      `SELECT o.id, o.number, o.customer_name, o.pincode, o.status FROM orders o
+        WHERE o.delivery_date = $1 AND o.status IN ('CONFIRMED', 'PROCESSING')${filter}
+        ORDER BY o.placed_at LIMIT ${BULK_LIMIT + 1}`,
+      params,
+    )
+    if (picked.length > BULK_LIMIT) throw badRequest(`More than ${BULK_LIMIT} orders match; narrow it by pincode`, 'TOO_MANY')
+    const brief = (o) => ({ id: o.id, number: o.number, customerName: o.customer_name, pincode: o.pincode })
+    if (b.dryRun) return res.json({ matched: picked.length, orders: picked.map(brief), moved: [], notMoved: [] })
+
+    const dates = open.filter((d) => d >= b.toDate)
+    const why = `${b.reason} (moved by ${req.admin.email})`
+    const moved = []
+    const notMoved = []
+    for (const p of picked) {
+      try {
+        const date = await tx(async (c) => {
+          const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [p.id])
+          const o = rows[0]
+          // Changed since we listed it (packed, cancelled or moved): leave it.
+          if (!o || o.delivery_date !== b.fromDate || !['CONFIRMED', 'PROCESSING'].includes(o.status)) return 'changed'
+          if (b.slotId) o.slot_id = b.slotId
+          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why)
+          if (!d) return null
+          await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
+          await rebalanceOrder(c, o.id, req.actor)
+          return d
+        })
+        if (date === 'changed') notMoved.push({ ...brief(p), reason: 'Changed while moving; check it by hand' })
+        else if (date) moved.push({ ...brief(p), deliveryDate: date })
+        else notMoved.push({ ...brief(p), reason: `No stock on ${b.toDate} or any later open date` })
+      } catch (err) {
+        notMoved.push({ ...brief(p), reason: err.message })
+      }
+    }
+    res.json({ matched: picked.length, orders: picked.map(brief), moved, notMoved })
   }),
 )
 

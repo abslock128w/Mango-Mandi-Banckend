@@ -74,6 +74,8 @@ export function paramsFor(n) {
       return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'OUT_FOR_DELIVERY':
       return [name, n.number, slotWords(n)]
+    case 'DATE_MOVED':
+      return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'DELIVERY_FAILED':
       return [name, n.number, dateWords(n.delivery_date)]
     case 'REFUNDED':

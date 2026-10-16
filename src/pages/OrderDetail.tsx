@@ -16,6 +16,7 @@ const MESSAGE_LABEL: Record<NotificationKind, string> = {
   DELIVERY_FAILED: 'Delivery missed',
   CANCELLED: 'Order cancelled',
   REFUNDED: 'Refund sent',
+  DATE_MOVED: 'Delivery date moved',
 }
 
 function messageState(n: OrderNotification) {
