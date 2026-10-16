@@ -44,9 +44,17 @@ back. The maintenance loop sends them, retrying after 1, 5, 15, 60 and 180 minut
 marks them `FAILED`; anything still unsent after 24 hours is `SKIPPED` (old news). Staff
 see each message and its state on the order page.
 
-With `WHATSAPP_PROVIDER=meta` messages go through the WhatsApp Cloud API: set
-`WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`. Every message is an approved template
-named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LANGUAGE`:
+Every message is an approved template named `WHATSAPP_TEMPLATE_PREFIX` + kind (default
+prefix `vmr_`). Pick the provider with `WHATSAPP_PROVIDER`:
+
+- `gupshup`: set `GUPSHUP_API_KEY`, `GUPSHUP_APP_NAME`, `GUPSHUP_SOURCE_NUMBER` (the
+  business number with country code) and `GUPSHUP_TEMPLATE_IDS`, a JSON object mapping
+  each template name below to the id Gupshup gave it on approval. The app refuses to
+  start if any of the seven is missing.
+- `meta` (WhatsApp Cloud API): set `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`;
+  templates are sent by name in `WHATSAPP_LANGUAGE`.
+
+The templates:
 
 | Template | Sent when | Body variables |
 |----------|-----------|----------------|
