@@ -36,6 +36,13 @@ through the Jio SMS gateway; production refuses to start without it. Set `JIO_SM
 against your Jio account's API docs before going live. Outside production the default
 `SMS_PROVIDER=log` logs the code and returns it as `devCode`.
 
+If the SMS send fails and WhatsApp is set up (`WHATSAPP_PROVIDER=meta`), the code goes out
+on WhatsApp instead, as the authentication template `vmr_login_code` (code in the body and
+in the copy-code button). The app can also ask for WhatsApp first with
+`{"channel":"whatsapp"}` on `/v1/auth/otp/request`; the response says which channel was
+used. Each fallback counts in `mango_otp_fallbacks_total`. If neither works the request fails
+with `OTP_NOT_SENT`.
+
 ## WhatsApp order updates
 
 Each order step queues a WhatsApp message in the `notifications` table, in the same
@@ -55,14 +62,20 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LA
 | `vmr_out_for_delivery` | the order leaves for delivery | name, order number, slot |
 | `vmr_delivered` | delivered | name, order number |
 | `vmr_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
-| `vmr_date_moved` | staff move the order to another date (one order, or a whole day) | name, order number, new date, slot |
+| `vmr_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
 | `vmr_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
+| `vmr_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
 | `vmr_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
 | `vmr_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `vmr_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `vmr_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
 
 An order without a slot says "during the day" in place of the slot.
+
+Word `vmr_date_moved` so it also says the customer can cancel for a full refund until the
+order is packed, for example: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that
+date doesn't suit you, cancel it in the app before it is packed for a full refund." That is
+the opt-out for a late payment or a staff move to a date the customer didn't choose.
 
 Outside production the default `WHATSAPP_PROVIDER=log` logs each message and marks it
 sent. In production without a provider, messages are skipped with a warning.
@@ -194,6 +207,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Orders | `GET /orders` (`?status&from&to&q&atRisk&page`), `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/rebalance`, `/reschedule` |
 | Fulfilment | `GET /pack-list?date=`, `GET /manifest?date=` |
 | Season ops | `POST /orders/bulk-reschedule` (managers), `GET /analytics?from&to` |
+| Operations | `GET /attention` (loop heartbeat, failing steps, failed messages, stuck refunds, rejected webhooks), `POST /notifications/:id/retry` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
 | Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage, and boxes booked per slot, for each bookable date) |
@@ -221,9 +235,34 @@ customer picks the stage.
 Every 60 seconds, on exactly one instance (`pg_try_advisory_lock(427714202)`):
 reconcile pending payments with Razorpay, send due refunds and WhatsApp updates, cancel unpaid orders whose hold expired,
 prune expired OTPs, quotes, idempotency keys, webhooks and sessions, and retire batches
-at age 8. Hourly (or right after a rules change) it rebalances every open order and runs
-the ledger audit, which checks `on_hand` against the ledger and `held`/`committed`
-against the order allocations. Drift is logged and exported as `mango_ledger_drift_lines`.
+at age 8. Hourly it rebalances only the open orders that are at risk; once a day (or right
+after a rules change) it rebalances every open order and runs the ledger audit, which
+checks `on_hand` against the ledger and `held`/`committed` against the order allocations.
+Drift is logged and exported as `mango_ledger_drift_lines`.
+
+Every job is also safe if two instances ever run the loop at once. Each WhatsApp message is
+claimed with `FOR UPDATE SKIP LOCKED` before it is sent, each refund is claimed with a
+two-minute lease before Razorpay is called (and Razorpay gets an idempotency key), and each
+Razorpay webhook event id is stored in the same transaction as its effect, so a repeat is
+ignored and an out-of-order `payment.failed` never undoes a capture.
+
+## Operations
+
+- **Needs attention.** The Today screen shows a card only when something is wrong: the loop
+  has not run for 5 minutes, a loop step keeps failing, a WhatsApp message failed (with a
+  Send again button), a refund has been stuck for 30 minutes, or a webhook was rejected.
+  It reads `GET /admin/v1/attention`. Each loop step's last success and error are kept in
+  `maintenance_runs`; rejected webhooks are kept in `webhook_failures` for 30 days.
+- **Alerts.** [`ops/alerts.yml`](ops/alerts.yml) holds Prometheus alert rules for the loop
+  stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on fallback,
+  ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer token and
+  route the alerts to the phone of whoever is on call.
+- **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file and
+  keeps 14 days (`RETAIN_DAYS`). Run it nightly and copy the files off the database host.
+  [`ops/restore-check.sh`](ops/restore-check.sh) restores a dump into a scratch database,
+  prints the migrations and row counts, checks the stock ledger balances, then drops it.
+  Run it weekly and after each schema change; a backup nobody has restored is a guess.
+  Managed Postgres with point-in-time recovery is still worth turning on as well.
 
 ## Tests
 
@@ -238,7 +277,8 @@ auth (refresh rotation and reuse detection, OTP lockout), the full order flow th
 claim and replacement, hold expiry and late payments, condemn and rebalance, failed
 delivery retries, retirement and the ledger audit, customer cancels and refunds, delivery
 slots and WhatsApp updates, preorders, WhatsApp chat ordering, bulk reschedule, the rider
-manifest and analytics, plus a race of 30 buyers for 10 boxes.
+manifest and analytics, double-send and double-refund guards, the login code fallback and
+the Needs attention view, plus a race of 30 buyers for 10 boxes.
 
 ## Not in phase 1
 

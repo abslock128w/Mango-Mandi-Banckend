@@ -13,6 +13,7 @@ import { templateName, whatsappSender } from './whatsapp.js'
 
 const RETRY_MINUTES = [1, 5, 15, 60, 180]
 const MAX_AGE_MS = 24 * 3_600_000 // an update older than a day is no longer news
+const CLAIM_MS = 5 * 60_000 // how long a claimed message is left alone if its sender dies
 
 /** The message an order event sends, if any. */
 function kindFor(from, to, order) {
@@ -98,14 +99,25 @@ async function mark(id, fields) {
 /** Sends due updates. `sender` is injectable for tests. Returns how many were sent. */
 export async function sendDueNotifications({ sender = whatsappSender, limit = 50 } = {}) {
   const at = now()
+  // Claim due rows first: SKIP LOCKED plus pushing next_attempt_at out a few
+  // minutes means a second sender (another instance, an overlapping run) never
+  // picks up the same message. Each outcome below sets the real next state.
+  const claimed = await query(
+    `UPDATE notifications SET next_attempt_at = $3
+      WHERE id IN (SELECT id FROM notifications WHERE status = 'PENDING' AND next_attempt_at <= $1
+                    ORDER BY next_attempt_at LIMIT $2 FOR UPDATE SKIP LOCKED)
+      RETURNING id`,
+    [at, limit, new Date(at.getTime() + CLAIM_MS)],
+  )
+  if (!claimed.rows.length) return 0
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, COALESCE(o.customer_name, p.customer_name) AS customer_name,
             o.delivery_date, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
-      WHERE n.status = 'PENDING' AND n.next_attempt_at <= $1 ORDER BY n.next_attempt_at LIMIT $2`,
-    [at, limit],
+      WHERE n.id = ANY($1) ORDER BY n.created_at`,
+    [claimed.rows.map((r) => r.id)],
   )
   let sent = 0
   for (const n of rows) {

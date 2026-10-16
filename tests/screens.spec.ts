@@ -13,6 +13,31 @@ test('Today shows tiles, aging batches and low stock', async ({ page }) => {
   await expect(page.getByText('Alphonso 5kg Box')).toBeVisible()
 })
 
+test('Today: Needs attention appears only when something is wrong, and a failed message can be sent again', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/today')
+  await expect(page.getByRole('heading', { name: 'Needs attention' })).toHaveCount(0)
+
+  api.attention = {
+    loop: { lastRunAt: '2026-10-15T04:00:00Z', stale: true, failingSteps: [{ step: 'refunds', since: '2026-10-15T04:00:00Z', error: 'Razorpay 503' }] },
+    failedMessages: [
+      { id: 'ntf1', kind: 'ORDER_CONFIRMED', phone: '9876••••10', error: 'WhatsApp 400: template not approved', attempts: 6, createdAt: '2026-10-15T03:00:00Z', order: { id: 'o1', number: 'ORD-1042' }, preorderNumber: null },
+    ],
+    stuckRefunds: [{ type: 'order', id: 'o2', number: 'ORD-1040', requestedAt: '2026-10-15T02:00:00Z' }],
+    webhookFailures: [{ id: 'w1', source: 'razorpay', reason: "payment.captured for an order we don't have (order_x)", eventKey: 'evt_1', createdAt: '2026-10-15T03:30:00Z' }],
+  }
+  await page.reload()
+  const card = page.getByRole('region', { name: 'Needs attention' })
+  await expect(card).toContainText('The background loop has stopped.')
+  await expect(card).toContainText('Sending refunds is failing')
+  await expect(card).toContainText('Refund not sent for ORD-1040')
+  await expect(card).toContainText('template not approved')
+  await expect(card).toContainText('Razorpay webhook problem')
+  await card.getByRole('button', { name: 'Send again for ORD-1042' }).click()
+  await expect(page.getByText('Message queued to send again')).toBeVisible()
+  expect(api.calls.some((c) => c.method === 'POST' && c.path === '/notifications/ntf1/retry')).toBe(true)
+})
+
 test('Batches lists batches, flags missing QC, and filters by status in the URL', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   await page.goto('/batches')

@@ -20,6 +20,9 @@ export const metrics = {
   ledgerDrift: new client.Gauge({ name: 'mango_ledger_drift_lines', help: 'Batch lines whose counters disagree with the ledger', registers: [registry] }),
   notificationsSent: new client.Counter({ name: 'mango_notifications_sent_total', help: 'Customer messages delivered to the provider', labelNames: ['kind'], registers: [registry] }),
   notificationsFailed: new client.Counter({ name: 'mango_notifications_failed_total', help: 'Customer messages given up on after retries', labelNames: ['kind'], registers: [registry] }),
+  maintenanceLastRun: new client.Gauge({ name: 'mango_maintenance_last_run_timestamp_seconds', help: 'When this instance last finished a maintenance tick (unix seconds)', registers: [registry] }),
+  webhookErrors: new client.Counter({ name: 'mango_webhook_errors_total', help: 'Webhooks that failed to process (the sender will retry)', labelNames: ['source'], registers: [registry] }),
+  otpFallbacks: new client.Counter({ name: 'mango_otp_fallbacks_total', help: 'Login codes sent on the second channel because the first failed', labelNames: ['channel'], registers: [registry] }),
   maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
 }
 

@@ -9,7 +9,7 @@ import { newId } from './ids.js'
 import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { enqueueForEvent } from './notify.js'
+import { enqueue, enqueueForEvent } from './notify.js'
 
 /** Orders that still own stock and can be rebalanced. */
 export const OPEN_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -248,6 +248,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   }
 
   const lateFrom = o.status === 'CANCELLED' ? 'CANCELLED' : null
+  const chosenDate = o.delivery_date
   if (o.status !== 'PAYMENT_PENDING' && !lateFrom) return { order: o, result: 'ignored' }
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
@@ -282,6 +283,9 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
       await rebalanceOrder(c, o.id, actor) // flags it at-risk; later rebalances fill it
     }
   }
+  // Moved off the date the customer picked: say so. They can still cancel for a
+  // full refund until the order is packed, and the message tells them that.
+  if (o.delivery_date !== chosenDate) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
   if (amount != null && amount !== o.total) {
     logger.warn({ orderId: o.id, amount, total: o.total }, 'captured amount differs from order total')
   }

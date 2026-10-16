@@ -8,6 +8,7 @@ import type {
   ApiErrorBody,
   BatchDetail,
   Analytics,
+  Attention,
   BulkMoveResult,
   Manifest,
   BatchListItem,
@@ -174,6 +175,8 @@ export const api = {
   },
 
   summary: () => request<Summary>('GET', '/summary'),
+  attention: () => request<Attention>('GET', '/attention'),
+  retryMessage: (notificationId: string) => request<void>('POST', `/notifications/${id(notificationId)}/retry`),
   products: () => request<Product[]>('GET', '/products'),
 
   batches: (status?: BatchStatus | null) =>

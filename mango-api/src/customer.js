@@ -51,7 +51,7 @@ router.post(
   '/auth/otp/request',
   otpLimiter,
   asyncHandler(async (req, res) => {
-    const { phone } = parse(z.object({ phone: phoneSchema }), req.body)
+    const { phone, channel } = parse(z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional() }), req.body)
     const code = String(randomInt(100_000, 1_000_000))
     const at = now()
     const out = await tx(async (c) => {
@@ -70,8 +70,8 @@ router.post(
       )
       return { sent: true }
     })
-    await sendOtp(phone, code)
-    res.json(isProd ? out : { ...out, devCode: code })
+    const via = await sendOtp(phone, code, channel)
+    res.json(isProd ? { ...out, channel: via } : { ...out, channel: via, devCode: code })
   }),
 )
 

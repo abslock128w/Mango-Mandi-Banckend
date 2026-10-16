@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, istTime } from '../format'
 import type { OrderStatus } from '../types'
+import NeedsAttention from './NeedsAttention'
 import { ClickableRow, EmptyState, QueryError, Spinner, scrollRegion } from '../ui'
 
 const TILE_STATUSES: OrderStatus[] = [
@@ -34,6 +35,8 @@ export default function Today() {
         <span className="spacer" />
         <span className="muted small">Last updated {istTime(new Date(q.dataUpdatedAt))}</span>
       </div>
+
+      <NeedsAttention />
 
       <div className="tiles">
         {TILE_STATUSES.map((status) => (

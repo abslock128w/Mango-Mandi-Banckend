@@ -33,6 +33,37 @@ export function metaSender(opts, fetchImpl = fetch) {
   }
 }
 
+/**
+ * Sends a login code with a Meta authentication template (category
+ * AUTHENTICATION, "copy code" button). Meta requires the code twice: once in
+ * the body and once as the button's parameter.
+ */
+export function metaOtpSender(opts, fetchImpl = fetch) {
+  const url = `https://graph.facebook.com/${opts.apiVersion}/${encodeURIComponent(opts.phoneNumberId)}/messages`
+  return async function sendOtpByWhatsApp(phone, code) {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone.replace(/^\+/, ''),
+        type: 'template',
+        template: {
+          name: opts.template,
+          language: { code: opts.language },
+          components: [
+            { type: 'body', parameters: [{ type: 'text', text: code }] },
+            { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: code }] },
+          ],
+        },
+      }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+  }
+}
+
 export const templateName = (kind) => `${env.WHATSAPP_TEMPLATE_PREFIX}${kind.toLowerCase()}`
 
 export const whatsappSender =

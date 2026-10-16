@@ -11,7 +11,8 @@ import { query } from './db.js'
 import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
-import { httpMetrics, registry } from './metrics.js'
+import { httpMetrics, metrics, registry } from './metrics.js'
+import { recordWebhookFailure } from './payments.js'
 import { handleWhatsAppWebhook } from './chat.js'
 import { handleWebhook, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
@@ -76,6 +77,8 @@ export function createApp() {
       res.json({ ok: true, ...result })
     } catch (err) {
       logger.error({ err, reqId: req.id }, 'webhook processing failed')
+      metrics.webhookErrors.inc({ source: 'razorpay' })
+      await recordWebhookFailure('razorpay', err.message, req.get('x-razorpay-event-id') ?? event?.event ?? null)
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
     }
   })
@@ -103,6 +106,8 @@ export function createApp() {
       res.json({ ok: true, handled: await handleWhatsAppWebhook(body) })
     } catch (err) {
       logger.error({ err, reqId: req.id }, 'WhatsApp webhook processing failed')
+      metrics.webhookErrors.inc({ source: 'whatsapp' })
+      await recordWebhookFailure('whatsapp', err.message, body?.entry?.[0]?.id ?? null)
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
     }
   })

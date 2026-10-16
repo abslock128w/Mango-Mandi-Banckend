@@ -442,3 +442,20 @@ export interface Analytics {
   bySku: { sku: string; productName: string; boxes: number; revenue: number; received: number; wasted: number; wastageRate: number | null }[]
   totals: Omit<AnalyticsWeek, 'weekStart'>
 }
+
+/** Problems nobody would otherwise notice: the background loop, failed sends, stuck refunds, bad webhooks. */
+export interface Attention {
+  loop: { lastRunAt: string | null; stale: boolean; failingSteps: { step: string; since: string; error: string | null }[] }
+  failedMessages: {
+    id: string
+    kind: string
+    phone: string | null
+    error: string | null
+    attempts: number
+    createdAt: string
+    order: { id: string; number: string } | null
+    preorderNumber: string | null
+  }[]
+  stuckRefunds: { type: 'order' | 'preorder'; id: string; number: string; requestedAt: string }[]
+  webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
+}

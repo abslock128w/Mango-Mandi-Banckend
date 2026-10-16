@@ -708,6 +708,72 @@ router.get(
   }),
 )
 
+// ---------------------------------------------------------------- needs attention
+
+const LOOP_STALE_MS = 5 * 60_000
+const REFUND_STUCK_MS = 30 * 60_000
+const maskPhone = (p) => (p ? `${p.slice(0, -6)}••••${p.slice(-2)}` : null)
+
+/**
+ * The dead-letter view nobody has to go looking for: is the loop alive, which
+ * steps are failing, WhatsApp messages given up on, refunds that haven't gone
+ * through, and webhooks that failed or named an unknown order.
+ */
+router.get(
+  '/attention',
+  asyncHandler(async (_req, res) => {
+    const at = now()
+    const week = new Date(at.getTime() - 7 * 86_400_000)
+    const [runs, failed, refunds, hooks] = await Promise.all([
+      query('SELECT * FROM maintenance_runs ORDER BY step'),
+      query(
+        `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
+           FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
+          WHERE n.status = 'FAILED' AND n.created_at >= $1 ORDER BY n.created_at DESC LIMIT 50`,
+        [week],
+      ),
+      query(
+        `SELECT 'order' AS type, id, number, refund_requested_at FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+         UNION ALL
+         SELECT 'preorder', id, number, refund_requested_at FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+         ORDER BY refund_requested_at LIMIT 50`,
+        [new Date(at.getTime() - REFUND_STUCK_MS)],
+      ),
+      query('SELECT * FROM webhook_failures WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 50', [week]),
+    ])
+    const tick = runs.rows.find((r) => r.step === 'tick')
+    res.json({
+      loop: {
+        lastRunAt: tick?.last_ok_at ?? null,
+        stale: !tick?.last_ok_at || at - tick.last_ok_at > LOOP_STALE_MS,
+        failingSteps: runs.rows
+          .filter((r) => r.last_err_at && (!r.last_ok_at || r.last_err_at > r.last_ok_at))
+          .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error })),
+      },
+      failedMessages: failed.rows.map((n) => ({
+        id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
+        order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
+      })),
+      stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at })),
+      webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+    })
+  }),
+)
+
+/** Sends a failed WhatsApp message again: back to the outbox as new. */
+router.post(
+  '/notifications/:id/retry',
+  asyncHandler(async (req, res) => {
+    const r = await query(
+      `UPDATE notifications SET status = 'PENDING', attempts = 0, last_error = NULL, next_attempt_at = $2, created_at = $2
+        WHERE id = $1 AND status IN ('FAILED', 'SKIPPED') RETURNING id`,
+      [req.params.id, now()],
+    )
+    if (!r.rowCount) throw notFound('No failed message with that id')
+    res.status(204).end()
+  }),
+)
+
 // ---------------------------------------------------------------- claims
 
 router.get(

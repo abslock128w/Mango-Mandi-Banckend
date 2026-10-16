@@ -93,6 +93,15 @@ async function findOrderId(c, entity, link = null) {
   return rows[0]?.id ?? null
 }
 
+/** Records a webhook that failed or could not be matched, for the Needs attention view. Never throws. */
+export async function recordWebhookFailure(source, reason, eventKey = null, c = { query }) {
+  await c
+    .query('INSERT INTO webhook_failures (id, source, reason, event_key, created_at) VALUES ($1, $2, $3, $4, $5)', [
+      newId('whf'), source, String(reason).slice(0, 500), eventKey ? String(eventKey).slice(0, 200) : null, now(),
+    ])
+    .catch((err) => logger.error({ err }, 'could not record a webhook failure'))
+}
+
 /**
  * Handles one verified webhook body. The dedupe row is written in the same
  * transaction, so a processing error rolls it back and Razorpay's retry runs.
@@ -117,6 +126,7 @@ export async function handleWebhook(event, eventId) {
         return { result: r, preorderId }
       }
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
+      await recordWebhookFailure('razorpay', `${kind} for an order we don't have (${entity.order_id ?? link?.id ?? 'no id'})`, dedupeKey, c)
       return { unknownOrder: true }
     }
     const r = await processPayment(c, {
@@ -166,6 +176,26 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
  * so a retry never pays twice. Returns the refund id (null in production
  * without keys). Throws on gateway errors.
  */
+const REFUND_LEASE_MS = 2 * 60_000
+
+/**
+ * Takes the refund for one order or preorder for the next two minutes, or
+ * returns null when it is done, not due, or another worker holds it. Only the
+ * holder calls Razorpay, so the cancel request, the webhook and the
+ * maintenance loop (on any instance) can't send the same refund twice.
+ */
+export async function claimRefund(table, id, at = now()) {
+  if (table !== 'orders' && table !== 'preorders') throw new Error(`no refunds on ${table}`)
+  const { rows } = await query(
+    `UPDATE ${table} SET refund_attempted_at = $2
+      WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
+        AND (refund_attempted_at IS NULL OR refund_attempted_at < $3)
+      RETURNING *`,
+    [id, at, new Date(at.getTime() - REFUND_LEASE_MS)],
+  )
+  return rows[0] ?? null
+}
+
 export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
   if (hasKeys()) {
     if (!paymentId) throw new Error(`${receipt} has no payment id to refund`)
@@ -184,11 +214,7 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
  * errors so the caller (or the maintenance loop) can retry.
  */
 export async function refundOrder(orderId) {
-  const { rows } = await query(
-    'SELECT id, number, payment_id, payment_amount, total FROM orders WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL',
-    [orderId],
-  )
-  const o = rows[0]
+  const o = await claimRefund('orders', orderId)
   if (!o) return null
   const refundId = await gatewayRefund({ paymentId: o.payment_id, amount: o.payment_amount ?? o.total, receipt: o.number, notes: { orderId: o.id } })
   if (!refundId) return null

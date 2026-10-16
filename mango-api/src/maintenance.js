@@ -20,6 +20,8 @@ const HOURLY_MS = 3_600_000
 let timer = null
 let rebalanceRequested = false
 let lastFullRebalance = 0
+let lastRiskRebalance = 0
+const DAILY_MS = 24 * HOURLY_MS
 let lastAudit = 0
 
 /** Asks the next tick to re-check every open order (after a rules change). */
@@ -27,12 +29,23 @@ export function triggerRebalanceAll() {
   rebalanceRequested = true
 }
 
+/** Runs one step, recording success or failure in maintenance_runs for the Needs attention view. */
 async function step(name, fn) {
   try {
-    return await fn()
+    const out = await fn()
+    await query(
+      `INSERT INTO maintenance_runs (step, last_ok_at) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET last_ok_at = $2`,
+      [name, now()],
+    ).catch(() => {})
+    return out
   } catch (err) {
     metrics.maintenanceErrors.inc({ step: name })
     logger.error({ err, step: name }, 'maintenance step failed')
+    await query(
+      `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
+       ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
+      [name, now(), String(err?.message ?? err).slice(0, 500)],
+    ).catch(() => {})
     return null
   }
 }
@@ -44,6 +57,7 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM idempotency_keys WHERE created_at < $1', [new Date(at.getTime() - 7 * day)])
   await query('DELETE FROM processed_webhooks WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
+  await query('DELETE FROM webhook_failures WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
 }
 
@@ -63,12 +77,18 @@ export async function retireBatches() {
   return rows.length
 }
 
-export async function rebalanceAllOpen() {
+/**
+ * Re-checks open orders. Stock and batch changes already re-check the orders
+ * they touch, so the hourly pass only retries at-risk orders (cheap even in
+ * peak season); every open order is re-checked after a rules change and once a
+ * day as a safety net.
+ */
+export async function rebalanceAllOpen({ atRiskOnly = false } = {}) {
   const { rows } = await query(
     `SELECT id FROM orders o WHERE status = ANY($1)
-        AND (at_risk OR EXISTS (SELECT 1 FROM order_stock s WHERE s.order_id = o.id AND s.state IN ('held', 'committed', 'packed')))
+        AND (at_risk OR (NOT $2 AND EXISTS (SELECT 1 FROM order_stock s WHERE s.order_id = o.id AND s.state IN ('held', 'committed', 'packed'))))
       ORDER BY placed_at`,
-    [OPEN_STATUSES],
+    [OPEN_STATUSES, atRiskOnly],
   )
   let touched = 0
   for (const { id } of rows) {
@@ -113,10 +133,13 @@ export async function runMaintenance({ forceAll = false } = {}) {
       await step('cleanup', () => cleanupExpired())
       out.retired = await step('retire', retireBatches)
       const t = Date.now()
-      if (forceAll || rebalanceRequested || t - lastFullRebalance > HOURLY_MS) {
+      if (forceAll || rebalanceRequested || t - lastFullRebalance > DAILY_MS) {
         rebalanceRequested = false
-        lastFullRebalance = t
-        out.rebalanced = await rebalanceAllOpen()
+        lastFullRebalance = lastRiskRebalance = t
+        out.rebalanced = await step('rebalance-all', () => rebalanceAllOpen())
+      } else if (t - lastRiskRebalance > HOURLY_MS) {
+        lastRiskRebalance = t
+        out.rebalanced = await step('rebalance-at-risk', () => rebalanceAllOpen({ atRiskOnly: true }))
       }
       if (forceAll || t - lastAudit > HOURLY_MS) {
         lastAudit = t
@@ -124,6 +147,8 @@ export async function runMaintenance({ forceAll = false } = {}) {
       }
       const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
       metrics.ordersAtRisk.set(risk.rows[0].n)
+      metrics.maintenanceLastRun.set(Date.now() / 1000)
+      await query(`INSERT INTO maintenance_runs (step, last_ok_at) VALUES ('tick', $1) ON CONFLICT (step) DO UPDATE SET last_ok_at = $1`, [now()])
       return out
     } finally {
       await client.query('SELECT pg_advisory_unlock($1)', [MAINTENANCE_LOCK]).catch(() => {})

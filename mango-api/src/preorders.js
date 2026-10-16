@@ -16,7 +16,7 @@ import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { createOrder, customerCancel, SYSTEM } from './orders.js'
-import { createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
+import { claimRefund, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
 import { findProduct } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
@@ -199,8 +199,7 @@ export async function cancelPreorder(c, id, customerId, actor) {
 
 /** Sends the full refund for a cancelled paid preorder. Safe to repeat. */
 export async function refundPreorder(id) {
-  const { rows } = await query('SELECT * FROM preorders WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL', [id])
-  const p = rows[0]
+  const p = await claimRefund('preorders', id)
   if (!p) return null
   const refundId = await gatewayRefund({ paymentId: p.payment_id, amount: p.paid_amount ?? p.total, receipt: p.number, notes: { preorderId: p.id } })
   if (!refundId) return null

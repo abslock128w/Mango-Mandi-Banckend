@@ -249,6 +249,7 @@ describe('orders', () => {
     assert.equal(o.deliveryDate, '2026-10-16')
     assert.equal((await line(b, 'ALP-3')).committed, 2)
     assert.match(o.events.at(-1).reason ?? o.events.find((e) => e.status === 'CONFIRMED').reason, /after the hold expired/)
+    assert.ok(!o.notifications.some((n) => n.kind === 'DATE_MOVED')) // same date: nothing to tell
     await noDrift()
   })
 
@@ -270,6 +271,8 @@ describe('orders', () => {
     assert.equal(o.deliveryDate, '2026-10-17')
     assert.equal(o.atRisk, false)
     assert.deepEqual(o.stock.map((s) => s.batchId), [later])
+    // The customer is told about the new date (and that they can cancel for a refund).
+    assert.ok(o.notifications.some((n) => n.kind === 'DATE_MOVED'))
     await noDrift()
   })
 
