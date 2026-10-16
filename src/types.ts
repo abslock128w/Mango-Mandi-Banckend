@@ -149,6 +149,8 @@ export interface OrderListItem {
   deliveryDate: string
   placedAt: string
   atRisk?: boolean
+  /** Where the customer placed it: the app or the WhatsApp chat. */
+  channel?: 'app' | 'whatsapp'
 }
 
 export interface Paged<T> {
@@ -212,6 +214,7 @@ export interface OrderDetail {
   atRiskReason?: string | null
   replacementFor?: { id: string; number: string } | null
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
+  channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
 }
 

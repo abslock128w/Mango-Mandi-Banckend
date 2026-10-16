@@ -12,7 +12,9 @@ import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
 import { httpMetrics, registry } from './metrics.js'
+import { handleWhatsAppWebhook } from './chat.js'
 import { handleWebhook, verifySignature } from './payments.js'
+import { verifyMetaSignature } from './whatsapp.js'
 
 export function createApp() {
   const app = express()
@@ -74,6 +76,33 @@ export function createApp() {
       res.json({ ok: true, ...result })
     } catch (err) {
       logger.error({ err, reqId: req.id }, 'webhook processing failed')
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
+    }
+  })
+
+  // WhatsApp Cloud API: Meta checks the endpoint once with the verify token, then
+  // posts signed message and status events. Meta retries on non-2xx, and
+  // messages are deduplicated by id.
+  app.get('/webhooks/whatsapp', (req, res) => {
+    const ok = env.WHATSAPP_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === env.WHATSAPP_VERIFY_TOKEN
+    if (!ok) return res.status(403).end()
+    res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''))
+  })
+  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
+    if (!verifyMetaSignature(raw, req.get('x-hub-signature-256'))) {
+      return res.status(401).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
+    }
+    let body
+    try {
+      body = JSON.parse(raw.toString('utf8'))
+    } catch {
+      return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Body is not JSON', requestId: req.id } })
+    }
+    try {
+      res.json({ ok: true, handled: await handleWhatsAppWebhook(body) })
+    } catch (err) {
+      logger.error({ err, reqId: req.id }, 'WhatsApp webhook processing failed')
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
     }
   })

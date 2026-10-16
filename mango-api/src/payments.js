@@ -13,7 +13,7 @@ import { addEvent, processPayment, SYSTEM } from './orders.js'
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
 
-/** razorpayOrderId → { status: 'captured' | 'failed', id, amount } */
+/** razorpayOrderId or payment link id → { status: 'captured' | 'failed', id, amount } */
 export const devGateway = new Map()
 
 async function razorpay(method, path, body) {
@@ -39,6 +39,34 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
   return `order_dev_${newId('rzp').slice(4)}`
 }
 
+/**
+ * A Razorpay payment link for an order placed in the WhatsApp chat. Razorpay
+ * does not send its own SMS or email; the link goes out in the chat.
+ */
+export async function createPaymentLink({ amount, number, orderId, name, phone }) {
+  if (hasKeys()) {
+    const link = await razorpay('POST', '/payment_links', {
+      amount, currency: 'INR', accept_partial: false, reference_id: number, description: `VMR Mangoes order ${number}`,
+      customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
+      notes: { orderId },
+    })
+    return { id: link.id, url: link.short_url }
+  }
+  if (isProd) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
+  const id = `plink_dev_${newId('l').slice(2)}`
+  return { id, url: `https://rzp.io/i/${id}` }
+}
+
+async function fetchLinkPayments(linkId) {
+  if (hasKeys()) {
+    const link = await razorpay('GET', `/payment_links/${encodeURIComponent(linkId)}`)
+    return (link.payments ?? []).map((p) => ({ id: p.payment_id, status: p.status, amount: p.amount, method: p.method }))
+  }
+  if (isProd) return []
+  const p = devGateway.get(linkId)
+  return p ? [p] : []
+}
+
 async function fetchPayments(razorpayOrderId) {
   if (hasKeys()) return (await razorpay('GET', `/orders/${encodeURIComponent(razorpayOrderId)}/payments`)).items ?? []
   if (isProd) return []
@@ -52,7 +80,11 @@ export function verifySignature(raw, signature) {
   return timingSafeEqual(expected, Buffer.from(signature, 'hex'))
 }
 
-async function findOrderId(c, entity) {
+async function findOrderId(c, entity, link = null) {
+  if (link) {
+    const { rows } = await c.query('SELECT id FROM orders WHERE payment_link_id = $1 OR id = $2 LIMIT 1', [link.id ?? null, link.notes?.orderId ?? null])
+    if (rows.length) return rows[0].id
+  }
   const { rows } = await c.query('SELECT id FROM orders WHERE razorpay_order_id = $1 OR id = $2 LIMIT 1', [
     entity.order_id ?? null,
     entity.notes?.orderId ?? null,
@@ -66,20 +98,21 @@ async function findOrderId(c, entity) {
  */
 export async function handleWebhook(event, eventId) {
   const kind = event?.event
-  if (kind !== 'payment.captured' && kind !== 'payment.failed') return { ignored: true }
+  if (kind !== 'payment.captured' && kind !== 'payment.failed' && kind !== 'payment_link.paid') return { ignored: true }
   const entity = event.payload?.payment?.entity ?? {}
-  const dedupeKey = eventId || `${kind}:${entity.id}`
+  const link = kind === 'payment_link.paid' ? (event.payload?.payment_link?.entity ?? {}) : null
+  const dedupeKey = eventId || `${kind}:${entity.id ?? link?.id}`
   return tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
-    const orderId = await findOrderId(c, entity)
+    const orderId = await findOrderId(c, entity, link)
     if (!orderId) {
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
       return { unknownOrder: true }
     }
     const r = await processPayment(c, {
       orderId,
-      outcome: kind === 'payment.captured' ? 'captured' : 'failed',
+      outcome: kind === 'payment.failed' ? 'failed' : 'captured',
       paymentId: entity.id ?? null,
       amount: typeof entity.amount === 'number' ? entity.amount : null,
       method: entity.method ?? null,
@@ -95,8 +128,8 @@ export async function handleWebhook(event, eventId) {
 export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
   if (!hasKeys() && isProd) return 0
   const { rows } = await query(
-    `SELECT id, razorpay_order_id FROM orders
-      WHERE razorpay_order_id IS NOT NULL AND placed_at < $1
+    `SELECT id, razorpay_order_id, payment_link_id FROM orders
+      WHERE (razorpay_order_id IS NOT NULL OR payment_link_id IS NOT NULL) AND placed_at < $1
         AND (status = 'PAYMENT_PENDING'
              OR (status = 'CANCELLED' AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at > $2))
       ORDER BY placed_at LIMIT 100`,
@@ -105,7 +138,7 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
   let n = 0
   for (const o of rows) {
     try {
-      const payments = await fetchPayments(o.razorpay_order_id)
+      const payments = o.razorpay_order_id ? await fetchPayments(o.razorpay_order_id) : await fetchLinkPayments(o.payment_link_id)
       const captured = payments.find((p) => p.status === 'captured')
       if (captured) {
         await tx((c) => processPayment(c, { orderId: o.id, outcome: 'captured', paymentId: captured.id, amount: captured.amount, method: captured.method }))

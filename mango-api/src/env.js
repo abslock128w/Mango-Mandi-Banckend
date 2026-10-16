@@ -38,6 +38,12 @@ const schema = z.object({
   WHATSAPP_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
   WHATSAPP_TEMPLATE_PREFIX: z.string().regex(/^[a-z0-9_]*$/).default('vmr_'),
   WHATSAPP_LANGUAGE: z.string().default('en'),
+  // Ordering in the chat: Meta's webhook verify token and app secret (signs webhook bodies)
+  WHATSAPP_VERIFY_TOKEN: z.string().default(''),
+  WHATSAPP_APP_SECRET: z.string().default(''),
+  // Payments on WhatsApp: the Razorpay payment configuration name from WhatsApp Manager.
+  // Unset: chat orders get a Razorpay payment link instead.
+  WHATSAPP_PAYMENT_CONFIG: z.string().default(''),
   SEED_DEMO_DATA: z
     .enum(['true', 'false'])
     .default('true')

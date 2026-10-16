@@ -280,6 +280,8 @@ function OrderView({ order }: { order: Order }) {
               <dd>{order.deliveryAddress ?? '—'}</dd>
               <dt>Pincode</dt>
               <dd>{order.pincode ?? '—'}</dd>
+              <dt>Placed via</dt>
+              <dd>{order.channel === 'whatsapp' ? 'WhatsApp chat' : 'App'}</dd>
               <dt>Delivery date</dt>
               <dd>{date(order.deliveryDate)}</dd>
               {order.slot && (

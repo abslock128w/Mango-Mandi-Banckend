@@ -43,13 +43,13 @@ export async function enqueueForEvent(c, orderId, eventId, from, to) {
 }
 
 const IST_DATE = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
-const dateWords = (d) => IST_DATE.format(new Date(`${d}T00:00:00Z`))
-const timeWords = (t) => {
+export const dateWords = (d) => IST_DATE.format(new Date(`${d}T00:00:00Z`))
+export const timeWords = (t) => {
   const [h, m] = String(t).split(':').map(Number)
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`
 }
 const slotWords = (n) => (n.starts_at ? `${timeWords(n.starts_at)} to ${timeWords(n.ends_at)}` : 'during the day')
-const rupees = (paise) => `Rs ${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+export const rupees = (paise) => `Rs ${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 
 /** Template body variables, in order, for each kind of update. */
 export function paramsFor(n) {

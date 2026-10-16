@@ -59,7 +59,7 @@ export function seed() {
       pageSize: 50,
       total: 2,
       items: [
-        { id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', itemCount: 2, total: 249900, status: 'PROCESSING', deliveryDate: '2026-10-16', placedAt: '2026-10-14T06:00:00Z' },
+        { id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', itemCount: 2, total: 249900, status: 'PROCESSING', deliveryDate: '2026-10-16', placedAt: '2026-10-14T06:00:00Z', channel: 'whatsapp' },
         { id: 'o2', number: 'ORD-1043', customerName: 'Vikram S', phone: '9123456780', itemCount: 1, total: 129900, status: 'DELIVERED', deliveryDate: '2026-10-13', placedAt: '2026-10-11T06:00:00Z' },
       ],
     },
@@ -89,6 +89,7 @@ export function seed() {
       ],
       payment: { status: 'SUCCEEDED', method: 'upi', amount: 249900 },
       slot: { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00' },
+      channel: 'whatsapp',
       notifications: [
         { kind: 'ORDER_CONFIRMED', channel: 'whatsapp', status: 'SENT', attempts: 1, createdAt: '2026-10-14T06:01:00Z', sentAt: '2026-10-14T06:01:05Z', error: null },
       ],

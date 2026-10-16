@@ -63,6 +63,28 @@ An order without a slot says "during the day" in place of the slot.
 Outside production the default `WHATSAPP_PROVIDER=log` logs each message and marks it
 sent. In production without a provider, messages are skipped with a warning.
 
+## Ordering in the WhatsApp chat
+
+Customers can order by messaging the business number. Meta posts each message to
+`POST /webhooks/whatsapp` (signed with the app secret, `X-Hub-Signature-256`); Meta
+checks the endpoint first with `GET /webhooks/whatsapp` and `WHATSAPP_VERIFY_TOKEN`.
+The chat (`src/chat.js`) keeps one conversation per phone in `wa_sessions`:
+
+1. menu: Order mangoes, My orders, Help
+2. pincode, then the boxes in stock for the earliest delivery date, by ripeness
+3. quantity, cart, then a delivery slot when slots are on
+4. address (the last one for that pincode is offered), then a summary with Pay
+
+Pay books the order exactly like app checkout (10-minute hold, slot check) with
+`channel = 'whatsapp'`, then sends the payment. With `WHATSAPP_PAYMENT_CONFIG` set (the
+Razorpay payment configuration name in WhatsApp Manager) the customer pays inside
+WhatsApp; otherwise they get a Razorpay payment link. Razorpay's `payment_link.paid`
+webhook, Meta's payment status update, or the reconcile loop confirms the order, and
+the usual WhatsApp updates follow. My orders lists recent orders and lets the customer
+cancel until packing, with the full refund for a paid order. WhatsApp verifies the
+phone number, so the chat needs no OTP; only Indian numbers can order. Messages are
+deduplicated by id, so Meta's retries are safe.
+
 ## Delivery slots
 
 Managers set up delivery windows (Planning page, or `/admin/v1/slots`), each with an
@@ -134,7 +156,8 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `GET/POST /v1/claims` |
-| Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated) |
+| Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.captured`, `payment.failed`, `payment_link.paid`) |
+| WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
 | Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (not mounted in production) |
 
 Errors are `{ error: { code, message, requestId } }`. Admin routes are the contract in

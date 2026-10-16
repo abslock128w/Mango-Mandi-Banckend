@@ -183,6 +183,7 @@ test('Order detail lists the WhatsApp updates sent to the customer', async ({ pa
   const card = page.locator('section', { has: page.getByRole('heading', { name: 'WhatsApp updates' }) })
   await expect(card).toContainText('Order confirmed')
   await expect(card).toContainText('Sent')
+  await expect(page.getByText('WhatsApp chat')).toBeVisible()
 })
 
 test('Planning: managers add and switch off delivery slots', async ({ page }) => {

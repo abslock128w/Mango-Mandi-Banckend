@@ -395,7 +395,7 @@ router.get(
       total,
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
-        status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk,
+        status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
       })),
     })
   }),
@@ -422,7 +422,7 @@ export async function orderDetail(c, orderId) {
   return {
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
-    atRisk: o.at_risk, atRiskReason: o.at_risk_reason,
+    atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
@@ -435,7 +435,7 @@ export async function orderDetail(c, orderId) {
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     events: events.rows.map((e) => ({ status: e.status, fromStatus: e.from_status, actor: e.actor, reason: e.reason, createdAt: e.created_at })),
     payment: o.payment_status || o.payment_method
-      ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id,
+      ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id, ...(o.payment_link_url ? { linkUrl: o.payment_link_url } : {}),
           refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id } : null }
       : null,
   }
