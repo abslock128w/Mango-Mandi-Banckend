@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
+import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
 import { query, tx } from './db.js'
 import { chooseSlot, orderableDates, slotsForDate, slotView } from './delivery.js'
@@ -688,6 +689,22 @@ router.get(
       boxes: runs.reduce((n, r) => n + r.boxes, 0),
       runs: runs.map(({ key, ...r }) => r),
     })
+  }),
+)
+
+// ---------------------------------------------------------------- analytics
+
+/** Week-by-week season numbers. Defaults to the last 8 weeks up to the end of this week. */
+router.get(
+  '/analytics',
+  asyncHandler(async (req, res) => {
+    const date = z.string().refine(isDate, 'dates must be YYYY-MM-DD')
+    const f = parse(z.object({ from: date.optional(), to: date.optional() }), Object.fromEntries(Object.entries(req.query).filter(([, v]) => v !== '')))
+    const to = f.to ?? addDays(mondayOf(todayIST()), 6)
+    const from = f.from ?? addDays(mondayOf(to), -49)
+    if (from > to) throw badRequest('from must be on or before to', 'INVALID_DATE')
+    if (diffDays(to, from) > 366) throw badRequest('Pick at most a year', 'INVALID_DATE')
+    res.json(await analytics({ from, to }))
   }),
 )
 

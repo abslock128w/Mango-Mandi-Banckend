@@ -13,6 +13,7 @@ const LINKS: [string, string][] = [
   ['/pincodes', 'Pincodes'],
   ['/planning', 'Planning'],
   ['/preorders', 'Preorders'],
+  ['/analytics', 'Analytics'],
 ]
 
 export default function Layout() {

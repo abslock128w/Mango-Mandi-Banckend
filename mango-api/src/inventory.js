@@ -6,7 +6,7 @@
 // CONDEMN and RETIRE rows, so their sum must equal on_hand. held and committed
 // must equal the order_stock rows in those states. The nightly audit checks both.
 import { getConfig } from './config.js'
-import { addDays } from './clock.js'
+import { addDays, now } from './clock.js'
 import { newId } from './ids.js'
 import { stageFor } from './stage.js'
 
@@ -81,9 +81,9 @@ export async function availability(c, deliveryDate) {
 
 export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'admin', actorId, reason = null }) {
   await c.query(
-    `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id, reason)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [newId('led'), batchId, eventType, sku, delta, actorType, actorId, reason],
+    `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id, reason, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [newId('led'), batchId, eventType, sku, delta, actorType, actorId, reason, now()],
   )
 }
 

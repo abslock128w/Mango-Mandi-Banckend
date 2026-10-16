@@ -504,6 +504,54 @@ a.tile:hover {
   font-size: 0.9rem;
 }
 
+/* ---------- Charts ---------- */
+
+.chart {
+  position: relative;
+}
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+.chart .bar {
+  fill: var(--green-700);
+}
+.chart .bar-hit {
+  fill: transparent;
+  cursor: default;
+}
+.chart .bar-hit:focus {
+  outline: none;
+}
+.chart .bar-hit:focus-visible {
+  stroke: var(--focus);
+  stroke-width: 2px;
+}
+.chart .grid {
+  stroke: var(--border);
+  stroke-width: 1px;
+}
+.chart .axis-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.chart .tip {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  color: var(--text);
+}
+.chart .tip .muted {
+  color: var(--text-muted);
+}
+
 /* ---------- Dialog ---------- */
 
 .backdrop {

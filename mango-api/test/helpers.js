@@ -1,7 +1,7 @@
 import './setup-env.js'
 import { createHmac } from 'node:crypto'
 import { createApp } from '../src/app.js'
-import { addDays, setNow, todayIST } from '../src/clock.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { loadConfig } from '../src/config.js'
 import { pool, query } from '../src/db.js'
 import { env } from '../src/env.js'
@@ -88,8 +88,8 @@ export async function makeBatch({ variety = 'Alphonso', age, status = 'SELLING',
   for (const [sku, qty] of Object.entries(lines)) {
     await query('INSERT INTO batch_lines (id, batch_id, sku, on_hand) VALUES ($1, $2, $3, $4)', [newId('bl'), id, sku, qty])
     await query(
-      `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id) VALUES ($1, $2, 'INTAKE', $3, $4, 'system', 'test')`,
-      [newId('led'), id, sku, qty],
+      `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id, created_at) VALUES ($1, $2, 'INTAKE', $3, $4, 'system', 'test', $5)`,
+      [newId('led'), id, sku, qty, now()],
     )
   }
   if (rating) {

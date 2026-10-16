@@ -22,7 +22,10 @@ the ripeness and stock engine.
 | Pack list | `/pack-list` | PACK-1 to PACK-4 |
 | Claims | `/claims` | CLM-1 to CLM-5 |
 | Pincodes | `/pincodes` | PIN-1 to PIN-3 |
-| Planning | `/planning` | Stock by delivery date and ripeness, delivery calendar, selling rules (managers edit) |
+| Deliveries | `/deliveries` | Rider manifest: each slot's run by pincode, with addresses, phones and boxes; prints |
+| Planning | `/planning` | Stock by delivery date and ripeness, delivery calendar, Move a day's orders (managers), slots, selling rules (managers edit) |
+| Preorders | `/preorders` | Weekly preorder capacity (managers set) and bookings |
+| Analytics | `/analytics` | Season numbers: sales, wastage, at-risk and claims by week and product |
 
 **Thin client.** The UI never computes stock or money. Every total and availability
 figure is formatted straight from the API; the backend stays the single authority.
@@ -147,7 +150,7 @@ The Playwright report is uploaded as an artifact on failure.
 The app expects `GET /admin/v1/auth/me` to return `{ email, role }` with role
 `OPERATOR` or `MANAGER`. The signed-in identity shows in the nav. Irreversible actions
 are **manager-only** and appear disabled with "Requires manager role" for operators:
-condemning a batch, deleting a pincode and editing the selling rules. Everything else (receiving stock, QC, stock
+condemning a batch, deleting a pincode, editing the selling rules and moving a whole day's orders. Everything else (receiving stock, QC, stock
 adjustments, status moves, cancelling orders, adding/deactivating pincodes, starting
 a claim review, resolving a claim as replacement or reject) is open to both roles.
 See `src/permissions.ts` — confirm this split before launch (PRD Q1).

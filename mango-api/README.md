@@ -55,6 +55,7 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LA
 | `vmr_out_for_delivery` | the order leaves for delivery | name, order number, slot |
 | `vmr_delivered` | delivered | name, order number |
 | `vmr_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
+| `vmr_date_moved` | staff move the order to another date (one order, or a whole day) | name, order number, new date, slot |
 | `vmr_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
 | `vmr_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
 | `vmr_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
@@ -111,6 +112,23 @@ the fruit exists, at the price of the day, and pay in full by Razorpay payment l
 - **Cancel.** The customer can cancel any time before packing with a full refund, the
   same rule as orders: before conversion through `POST /v1/preorders/:id/cancel`, after it
   that call cancels the order.
+
+## Season ops (phase 3)
+
+- **Bulk reschedule.** `POST /admin/v1/orders/bulk-reschedule` (managers) moves every
+  confirmed or processing order on `fromDate` to `toDate`, optionally only some `pincodes` or
+  `orderIds`, with a `reason` that goes on each order. Send `dryRun: true` first to see what
+  matches. Each order moves in its own transaction, onto `toDate` or the next open date after it
+  with stock, and the customer gets `vmr_date_moved`. Orders with no stock anywhere stay put and
+  come back in `notMoved` so ops can handle them. At most 500 orders per call.
+- **Rider manifest.** `GET /admin/v1/manifest?date=` returns the day's run: one block per slot,
+  stops by zone and pincode, each with address, phone, boxes and whether it is packed. Every
+  order is prepaid, so riders collect nothing. It assumes VMR's own riders; a delivery partner
+  would need an export in their format.
+- **Analytics.** `GET /admin/v1/analytics?from&to` (default: the last 8 weeks to the end of this
+  week) returns week-by-week sales (by delivery date), deliveries and misses, at-risk orders,
+  boxes received and wasted (condemned or retired), customer cancels, refunds and claims, plus a
+  per-SKU table and totals. Money is in paise.
 
 ## Delivery slots
 
@@ -174,7 +192,8 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Dashboard | `GET /admin/v1/summary` (adds `atRiskOrders`), `GET /products` |
 | Batches | `GET/POST /batches`, `GET /batches/:id`, `PATCH /batches/:id/status`, `POST /batches/:id/qc`, `PATCH /batches/:id/lines/:lineId`, `GET /batches/:id/ledger` |
 | Orders | `GET /orders` (`?status&from&to&q&atRisk&page`), `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/rebalance`, `/reschedule` |
-| Fulfilment | `GET /pack-list?date=` |
+| Fulfilment | `GET /pack-list?date=`, `GET /manifest?date=` |
+| Season ops | `POST /orders/bulk-reschedule` (managers), `GET /analytics?from&to` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
 | Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage, and boxes booked per slot, for each bookable date) |
@@ -218,7 +237,8 @@ one whose name doesn't end in `_test`. It covers the stage engine, staff and cus
 auth (refresh rotation and reuse detection, OTP lockout), the full order flow through
 claim and replacement, hold expiry and late payments, condemn and rebalance, failed
 delivery retries, retirement and the ledger audit, customer cancels and refunds, delivery
-slots and WhatsApp updates, plus a race of 30 buyers for 10 boxes.
+slots and WhatsApp updates, preorders, WhatsApp chat ordering, bulk reschedule, the rider
+manifest and analytics, plus a race of 30 buyers for 10 boxes.
 
 ## Not in phase 1
 

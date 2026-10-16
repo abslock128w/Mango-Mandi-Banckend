@@ -413,3 +413,32 @@ export interface Manifest {
     stops: { pincode: string; city: string | null; zone: string | null; orders: ManifestOrder[] }[]
   }[]
 }
+
+/** One week (Monday start, by delivery date for sales) of season numbers. Money is in paise. */
+export interface AnalyticsWeek {
+  weekStart: string
+  orders: number
+  boxes: number
+  revenue: number
+  replacements: number
+  delivered: number
+  deliveryFailed: number
+  customerCancels: number
+  refunded: number
+  received: number
+  wasted: number
+  condemned: number
+  atRisk: number
+  claims: number
+  claimsReplaced: number
+  wastageRate: number | null
+  atRiskRate: number | null
+}
+
+export interface Analytics {
+  from: string
+  to: string
+  weeks: AnalyticsWeek[]
+  bySku: { sku: string; productName: string; boxes: number; revenue: number; received: number; wasted: number; wastageRate: number | null }[]
+  totals: Omit<AnalyticsWeek, 'weekStart'>
+}

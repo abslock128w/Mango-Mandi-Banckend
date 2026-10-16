@@ -1,4 +1,4 @@
-// Phase 3 season ops: bulk reschedule and the rider manifest.
+// Phase 3 season ops: bulk reschedule, the rider manifest and analytics.
 import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -118,5 +118,37 @@ describe('rider manifest', () => {
     assert.deepEqual(m.runs[1].stops[0].orders[0].items, [{ sku: 'ALP-3', productName: m.runs[1].stops[0].orders[0].items[0].productName, stage: 'RIPE', quantity: 2 }])
     assert.equal((await api.get('/admin/v1/manifest?date=2026-10-20', { token: admin })).body.runs.length, 0)
     assert.equal((await api.get('/admin/v1/manifest?date=tomorrow', { token: admin })).status, 400)
+  })
+})
+
+describe('analytics', () => {
+  test('weekly sales, deliveries, wastage and at-risk, plus a per-SKU table', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const spare = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
+    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    await api.patch(`/admin/v1/orders/${a}/status`, { status: 'PROCESSING' }, { token: admin })
+    await api.post(`/admin/v1/orders/${a}/allocate`, undefined, { token: admin })
+    for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
+      assert.equal((await api.patch(`/admin/v1/orders/${a}/status`, { status: s }, { token: admin })).status, 204)
+    }
+    assert.equal((await api.patch(`/admin/v1/batches/${spare}/status`, { status: 'CONDEMNED' }, { token: admin })).status, 200)
+
+    const r = await api.get('/admin/v1/analytics', { token: admin })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.equal(r.body.weeks.length, 8)
+    assert.equal(r.body.to, '2026-10-18')
+    const w = r.body.weeks.find((x) => x.weekStart === '2026-10-12')
+    assert.deepEqual(
+      [w.orders, w.boxes, w.delivered, w.received, w.wasted, w.condemned, w.wastageRate],
+      [2, 3, 1, 8, 3, 3, 0.375],
+    )
+    assert.equal(w.revenue, r.body.bySku[0].revenue)
+    assert.deepEqual([r.body.bySku[0].sku, r.body.bySku[0].boxes, r.body.bySku[0].wasted], ['ALP-3', 3, 3])
+    assert.equal(r.body.totals.orders, 2)
+
+    assert.equal((await api.get('/admin/v1/analytics?from=2026-10-20&to=2026-10-01', { token: admin })).status, 400)
+    const one = (await api.get('/admin/v1/analytics?from=2026-10-12&to=2026-10-18', { token: admin })).body
+    assert.deepEqual(one.weeks.map((x) => x.weekStart), ['2026-10-12'])
   })
 })

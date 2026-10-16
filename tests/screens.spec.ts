@@ -304,6 +304,21 @@ test('Deliveries: the rider run by slot and pincode, flagging unpacked orders', 
   expect(api.calls.some((c) => c.path === '/manifest')).toBe(true)
 })
 
+test('Analytics: season tiles, weekly charts with hover detail, and the tables', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/analytics')
+  await expect(page.locator('.tile', { hasText: 'Boxes sold' })).toContainText('72')
+  await expect(page.getByText('10 of 100 received')).toBeVisible()
+  await expect(page.getByText('9.5%')).toBeVisible()
+  const bar = page.getByRole('group', { name: /Weekly boxes, 3 weeks, highest 52/ })
+  await expect(bar).toBeVisible()
+  await page.getByLabel('Week of 12 Oct: 52 boxes, 30 orders, ₹46,800').first().hover()
+  await expect(page.locator('.tip').first()).toContainText('52 boxes')
+  const weeks = page.getByRole('region', { name: 'Week by week' })
+  await expect(weeks.getByRole('row', { name: /12 Oct/ })).toContainText('52')
+  await expect(page.getByRole('region', { name: 'By product' }).getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('10%')
+})
+
 test('Operators cannot edit selling rules', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/planning')
@@ -313,7 +328,7 @@ test('Operators cannot edit selling rules', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Switch off Morning/ })).toBeDisabled()
 })
 
-for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/deliveries', '/claims', '/pincodes', '/planning', '/preorders']) {
+for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/deliveries', '/claims', '/pincodes', '/planning', '/preorders', '/analytics']) {
   test(`${path} has no horizontal page scroll`, async ({ page }) => {
     await mockApi(page, { signedIn: true })
     await page.goto(path)

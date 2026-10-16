@@ -7,6 +7,7 @@
 import type {
   ApiErrorBody,
   BatchDetail,
+  Analytics,
   BulkMoveResult,
   Manifest,
   BatchListItem,
@@ -226,6 +227,7 @@ export const api = {
     return Array.isArray(res) ? res : (res?.orders ?? [])
   },
 
+  analytics: (f: { from?: string | null; to?: string | null } = {}) => request<Analytics>('GET', `/analytics${qs(f)}`),
   manifest: (date: string) => request<Manifest>('GET', `/manifest${qs({ date })}`),
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),

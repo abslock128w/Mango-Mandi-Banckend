@@ -110,6 +110,7 @@ export function seed() {
       events: [{ status: 'DELIVERED', actor: 'ops@vmr.test', reason: null, createdAt: '2026-10-13T10:00:00Z' }],
       payment: { status: 'SUCCEEDED', method: 'card', amount: 129900 },
     },
+    analytics: {"from": "2026-09-28", "to": "2026-10-18", "weeks": [{"weekStart": "2026-09-28", "orders": 0, "boxes": 0, "revenue": 0, "replacements": 0, "delivered": 0, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 0, "wasted": 0, "condemned": 0, "atRisk": 0, "claims": 0, "claimsReplaced": 0, "wastageRate": null, "atRiskRate": null}, {"weekStart": "2026-10-05", "orders": 12, "boxes": 20, "revenue": 1800000, "replacements": 0, "delivered": 12, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 40, "wasted": 4, "condemned": 4, "atRisk": 1, "claims": 0, "claimsReplaced": 0, "wastageRate": 0.1, "atRiskRate": 0.083}, {"weekStart": "2026-10-12", "orders": 30, "boxes": 52, "revenue": 4680000, "replacements": 0, "delivered": 30, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 60, "wasted": 6, "condemned": 6, "atRisk": 3, "claims": 0, "claimsReplaced": 0, "wastageRate": 0.1, "atRiskRate": 0.1}], "bySku": [{"sku": "ALP-3", "productName": "Alphonso 3kg Box", "boxes": 72, "revenue": 6480000, "received": 100, "wasted": 10, "wastageRate": 0.1}], "totals": {"orders": 42, "boxes": 72, "revenue": 6480000, "replacements": 0, "delivered": 42, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 100, "wasted": 10, "condemned": 10, "atRisk": 4, "claims": 1, "claimsReplaced": 1, "wastageRate": 0.1, "atRiskRate": 0.095}},
     manifest: {
       date: '2026-10-16',
       orders: 2,
@@ -285,6 +286,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)
+    if (path === '/analytics') return json(route, 200, state.analytics)
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
 
