@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { paramsFor, sendDueNotifications } from '../src/notify.js'
-import { gupshupSender, metaSender } from '../src/whatsapp.js'
+import { metaSender } from '../src/whatsapp.js'
 
 let srv
 let api
@@ -196,26 +196,5 @@ describe('WhatsApp order updates', () => {
     )
     await assert.rejects(bad({ phone: '+919876543210', template: 'x', params: [] }), /Template name does not exist/)
     assert.deepEqual(paramsFor({ kind: 'REFUNDED', customer_name: null, number: 'ORD-9', payment_amount: 189_900 }), ['there', 'ORD-9', 'Rs 1,899'])
-  })
-
-  test('the Gupshup request sends the template id and its variables as a form', async () => {
-    const calls = []
-    const send = gupshupSender({ apiKey: 'k3y', appName: 'VMRMangoes', source: '+917000000000', templateIds: { vmr_delivered: 'tpl-123' } }, async (url, init) => {
-      calls.push({ url, init })
-      return new Response(JSON.stringify({ status: 'submitted', messageId: 'gs-1' }), { status: 202 })
-    })
-    assert.equal(await send({ phone: '+919876543210', template: 'vmr_delivered', params: ['Asha', 'ORD-1001'] }), 'gs-1')
-    assert.equal(calls[0].url, 'https://api.gupshup.io/wa/api/v1/template/msg')
-    assert.equal(calls[0].init.headers.apikey, 'k3y')
-    const form = Object.fromEntries(new URLSearchParams(calls[0].init.body))
-    assert.deepEqual(form, {
-      channel: 'whatsapp', source: '917000000000', destination: '919876543210', 'src.name': 'VMRMangoes',
-      template: JSON.stringify({ id: 'tpl-123', params: ['Asha', 'ORD-1001'] }),
-    })
-    await assert.rejects(send({ phone: '+919876543210', template: 'vmr_cancelled', params: [] }), /no template id for vmr_cancelled/)
-    const bad = gupshupSender({ apiKey: 'k', appName: 'a', source: '1', templateIds: { x: 'y' } }, async () =>
-      new Response(JSON.stringify({ status: 'error', message: 'Invalid Destination' }), { status: 200 }),
-    )
-    await assert.rejects(bad({ phone: '+91', template: 'x', params: [] }), /Invalid Destination/)
   })
 })

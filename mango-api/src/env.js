@@ -32,22 +32,7 @@ const schema = z.object({
   JIO_SMS_TEMPLATE_ID: z.string().optional(),
   JIO_SMS_ENTITY_ID: z.string().optional(),
   JIO_SMS_TEXT: z.string().default('{code} is your VMR Mangoes login code. It expires in 5 minutes.'),
-  WHATSAPP_PROVIDER: z.enum(['log', 'meta', 'gupshup']).default('log'),
-  GUPSHUP_API_KEY: z.string().optional(),
-  GUPSHUP_APP_NAME: z.string().optional(),
-  GUPSHUP_SOURCE_NUMBER: z.string().regex(/^\+?\d{10,15}$/, 'digits with country code, e.g. 919876543210').optional(),
-  // JSON object: template name → the id Gupshup gave it, e.g. {"vmr_order_confirmed":"8f1c…"}
-  GUPSHUP_TEMPLATE_IDS: z
-    .string()
-    .default('{}')
-    .transform((v, ctx) => {
-      try {
-        const o = JSON.parse(v)
-        if (o && typeof o === 'object' && !Array.isArray(o)) return o
-      } catch {}
-      ctx.addIssue({ code: 'custom', message: 'must be a JSON object of template name to id' })
-      return z.NEVER
-    }),
+  WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   WHATSAPP_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
@@ -72,16 +57,6 @@ export const isProd = env.NODE_ENV === 'production'
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')
   process.exit(1)
-}
-
-if (env.WHATSAPP_PROVIDER === 'gupshup') {
-  const missing = ['GUPSHUP_API_KEY', 'GUPSHUP_APP_NAME', 'GUPSHUP_SOURCE_NUMBER'].filter((k) => !env[k])
-  const kinds = ['order_confirmed', 'replacement_confirmed', 'out_for_delivery', 'delivered', 'delivery_failed', 'cancelled', 'refunded']
-  const noId = kinds.map((k) => `${env.WHATSAPP_TEMPLATE_PREFIX}${k}`).filter((t) => !env.GUPSHUP_TEMPLATE_IDS[t])
-  if (missing.length || noId.length) {
-    console.error(`WHATSAPP_PROVIDER=gupshup needs ${[...missing, ...noId.map((t) => `GUPSHUP_TEMPLATE_IDS.${t}`)].join(', ')}`)
-    process.exit(1)
-  }
 }
 
 const JIO_KEYS = ['JIO_SMS_URL', 'JIO_SMS_API_KEY', 'JIO_SMS_SENDER_ID', 'JIO_SMS_TEMPLATE_ID', 'JIO_SMS_ENTITY_ID']
