@@ -3,10 +3,33 @@ import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict } from '../api'
 import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
-import type { OrderDetail as Order, OrderStatus } from '../types'
+import type { NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
 import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
+
+const MESSAGE_LABEL: Record<NotificationKind, string> = {
+  ORDER_CONFIRMED: 'Order confirmed',
+  REPLACEMENT_CONFIRMED: 'Replacement confirmed',
+  OUT_FOR_DELIVERY: 'Out for delivery',
+  DELIVERED: 'Delivered',
+  DELIVERY_FAILED: 'Delivery missed',
+  CANCELLED: 'Order cancelled',
+  REFUNDED: 'Refund sent',
+}
+
+function messageState(n: OrderNotification) {
+  switch (n.status) {
+    case 'SENT':
+      return <Badge tone="good">Sent</Badge>
+    case 'PENDING':
+      return <Badge tone="info">{n.attempts > 0 ? `Retrying (try ${n.attempts + 1})` : 'Queued'}</Badge>
+    case 'FAILED':
+      return <Badge tone="bad">Failed</Badge>
+    default:
+      return <Badge tone="neutral">Not sent</Badge>
+  }
+}
 
 type Move = { to: OrderStatus; label: string; primary?: boolean }
 
@@ -259,6 +282,17 @@ function OrderView({ order }: { order: Order }) {
               <dd>{order.pincode ?? '—'}</dd>
               <dt>Delivery date</dt>
               <dd>{date(order.deliveryDate)}</dd>
+              {order.slot && (
+                <>
+                  <dt>Delivery slot</dt>
+                  <dd>
+                    {order.slot.label}{' '}
+                    <span className="muted small">
+                      {order.slot.startsAt}–{order.slot.endsAt}
+                    </span>
+                  </dd>
+                </>
+              )}
             </dl>
           </section>
           <section className="card">
@@ -303,6 +337,20 @@ function OrderView({ order }: { order: Order }) {
               </ol>
             )}
           </section>
+          {order.notifications && order.notifications.length > 0 && (
+            <section className="card">
+              <h2>WhatsApp updates</h2>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {order.notifications.map((n, i) => (
+                  <li key={i} style={{ marginBottom: '0.5rem' }}>
+                    {MESSAGE_LABEL[n.kind] ?? n.kind} {messageState(n)}{' '}
+                    <span className="muted small">{dateTime(n.sentAt ?? n.createdAt)}</span>
+                    {n.error && n.status !== 'SENT' && <div className="small muted">{n.error}</div>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </div>
       </div>
 
@@ -370,9 +418,12 @@ function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
 function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
   const [when, setWhen] = useState(order.deliveryDate > istDate(1) ? order.deliveryDate : istDate(1))
+  const [slotId, setSlotId] = useState(order.slot?.id ?? '')
+  const slots = useQuery({ queryKey: ['slots'], queryFn: api.slots })
+  const activeSlots = (slots.data ?? []).filter((s) => s.active)
 
   const move = useMutation({
-    mutationFn: () => api.rescheduleOrder(order.id, when),
+    mutationFn: () => api.rescheduleOrder(order.id, when, slotId || null),
     onSuccess: () => {
       toast.success(`Order ${order.number} now delivers on ${date(when)}`)
       onDone()
@@ -408,6 +459,20 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
             The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes.
           </p>
         </div>
+        {activeSlots.length > 0 && (
+          <div className="field">
+            <label htmlFor="reschedule-slot">Delivery slot</label>
+            <select id="reschedule-slot" value={slotId} onChange={(e) => setSlotId(e.target.value)}>
+              <option value="">Any slot with room</option>
+              {activeSlots.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label} ({s.startsAt}–{s.endsAt})
+                </option>
+              ))}
+            </select>
+            <p className="hint">A full slot is refused. "Any slot with room" keeps the current slot if it fits.</p>
+          </div>
+        )}
         <FormError error={move.error} />
       </form>
     </Dialog>

@@ -27,6 +27,7 @@ import type {
   RulesVersion,
   CalendarDay,
   CoverageDay,
+  DeliverySlot,
   Summary,
 } from './types'
 
@@ -205,9 +206,9 @@ export const api = {
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   cancelOrder: (orderId: string, reason: string) =>
     request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason }),
-  /** Moves a confirmed order to another bookable date that has stock (409 if it doesn't). */
-  rescheduleOrder: (orderId: string, deliveryDate: string) =>
-    request<void>('POST', `/orders/${id(orderId)}/reschedule`, { deliveryDate }),
+  /** Moves a confirmed order to another bookable date that has stock (409 if it doesn't), optionally into a slot. */
+  rescheduleOrder: (orderId: string, deliveryDate: string, slotId?: string | null) =>
+    request<void>('POST', `/orders/${id(orderId)}/reschedule`, slotId ? { deliveryDate, slotId } : { deliveryDate }),
 
   async packList(date: string): Promise<PackListOrder[]> {
     const res = await request<PackListOrder[] | { orders: PackListOrder[] }>(
@@ -235,6 +236,11 @@ export const api = {
   setCalendarDay: (day: CalendarDay) =>
     request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
   clearCalendarDay: (date: string) => request<void>('DELETE', `/calendar/${id(date)}`),
+  slots: () => request<DeliverySlot[]>('GET', '/slots'),
+  addSlot: (input: Omit<DeliverySlot, 'id' | 'active' | 'sort'> & { sort?: number }) =>
+    request<DeliverySlot>('POST', '/slots', input),
+  updateSlot: (slotId: string, patch: Partial<Omit<DeliverySlot, 'id'>>) =>
+    request<DeliverySlot>('PATCH', `/slots/${id(slotId)}`, patch),
   rules: () => request<RulesVersion>('GET', '/config'),
   saveRules: (rules: Rules) => request<RulesVersion>('PUT', '/config', { rules }),
 }

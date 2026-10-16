@@ -142,6 +142,7 @@ function ByOrder({ orders, day }: { orders: PackListOrder[]; day: string }) {
               </h2>
               <span>{o.customerName ?? '—'}</span>
               {o.pincode && <span className="muted">{o.pincode}</span>}
+              {o.slot && <Badge tone="info">{o.slot.label}</Badge>}
               <OrderBadge status={o.status} />
               <span className="spacer" />
               {needsPacking && (o.status === 'CONFIRMED' || o.status === 'PROCESSING') && (

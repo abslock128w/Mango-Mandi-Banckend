@@ -106,12 +106,12 @@ export async function line(batchId, sku) {
 }
 
 /** Cart → quote → confirm for one customer. Returns the confirm response. */
-export async function checkout(api, token, items, { pincode = '560034', deliveryDate, key = newId('idem') } = {}) {
+export async function checkout(api, token, items, { pincode = '560034', deliveryDate, slotId, key = newId('idem') } = {}) {
   for (const it of items) {
     const r = await api.post('/v1/cart/items', it, { token })
     if (r.status !== 204) throw new Error(`cart: ${r.status} ${JSON.stringify(r.body)}`)
   }
-  const q = await api.post('/v1/checkout/quote', { pincode, deliveryDate }, { token })
+  const q = await api.post('/v1/checkout/quote', { pincode, deliveryDate, slotId }, { token })
   if (q.status !== 200) return q
   return api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }, { token, headers: { 'Idempotency-Key': key } })
 }

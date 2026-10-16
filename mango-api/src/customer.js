@@ -8,7 +8,7 @@ import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefre
 import { now } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
-import { earliestDeliveryDate, orderableDates } from './delivery.js'
+import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
@@ -151,7 +151,22 @@ router.get(
     const pincode = parse(PIN, req.query.pincode)
     const ok = await serviceable({ query }, pincode)
     const dates = ok ? await orderableDates({ query }) : []
-    res.json({ serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel() })
+    const slots = ok ? (await activeSlots({ query })).map(slotView) : []
+    res.json({ serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots })
+  }),
+)
+
+/** Delivery slots on a date with what is left in each. Empty when slots are not in use. */
+router.get(
+  '/delivery/slots',
+  asyncHandler(async (req, res) => {
+    const pincode = parse(PIN, req.query.pincode)
+    const { date } = await deliveryDateFor({ query }, pincode, req.query.delivery_date || null)
+    const slots = await slotsForDate({ query }, date)
+    res.json({
+      deliveryDate: date,
+      slots: slots.map(({ id, label, startsAt, endsAt, remainingBoxes, available }) => ({ id, label, startsAt, endsAt, remainingBoxes, available })),
+    })
   }),
 )
 
@@ -243,7 +258,7 @@ router.delete(
 router.post(
   '/checkout/quote',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ pincode: PIN, deliveryDate: z.string().optional().nullable() }), req.body)
+    const b = parse(z.object({ pincode: PIN, deliveryDate: z.string().optional().nullable(), slotId: z.string().max(64).optional().nullable() }), req.body)
     const quote = await tx(async (c) => {
       const { date } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
@@ -255,7 +270,8 @@ router.post(
         return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }
       })
       const subtotal = lines.reduce((s, l) => s + l.linePrice, 0)
-      const data = { pincode: b.pincode, deliveryDate: date, lines, subtotal, total: subtotal }
+      const slot = await quoteSlot(c, date, b.slotId ?? null, lines.reduce((s, l) => s + l.qty, 0))
+      const data = { pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal, total: subtotal }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
@@ -265,8 +281,19 @@ router.post(
   }),
 )
 
+/** Checks the customer's slot choice at quote time; confirm re-checks it under lock. */
+async function quoteSlot(c, date, wanted, boxes) {
+  const slots = await slotsForDate(c, date)
+  if (!slots.length) return null
+  if (!wanted) throw badRequest('Choose a delivery slot', 'SLOT_REQUIRED')
+  const s = slots.find((x) => x.id === wanted)
+  if (!s) throw badRequest('That delivery slot is not available', 'SLOT_INVALID')
+  if (s.remainingBoxes != null && s.remainingBoxes < boxes) throw conflict(`The ${s.label} slot on ${date} is fully booked`, 'SLOT_FULL')
+  return { id: s.id, label: s.label, startsAt: s.startsAt, endsAt: s.endsAt }
+}
+
 const confirmResponse = (o) => ({
-  orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date,
+  orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
   razorpayOrderId: o.razorpay_order_id, razorpayKeyId: env.RAZORPAY_KEY_ID || null, holdExpiresAt: o.hold_expires_at,
 })
 
@@ -301,7 +328,7 @@ router.post(
         c,
         {
           customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address,
-          deliveryDate: date, status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
+          deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: q.data.lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice })),
         },
@@ -351,11 +378,13 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events] = await Promise.all([
+    const [items, events, slot] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
+      o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
     ])
     res.json({
+      slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
       deliveryAddress: o.delivery_address, total: o.total, paymentStatus: o.payment_status,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,

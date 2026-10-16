@@ -88,6 +88,10 @@ export function seed() {
         { status: 'PROCESSING', actor: 'ops@vmr.test', reason: null, createdAt: '2026-10-14T08:00:00Z' },
       ],
       payment: { status: 'SUCCEEDED', method: 'upi', amount: 249900 },
+      slot: { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00' },
+      notifications: [
+        { kind: 'ORDER_CONFIRMED', channel: 'whatsapp', status: 'SENT', attempts: 1, createdAt: '2026-10-14T06:01:00Z', sentAt: '2026-10-14T06:01:05Z', error: null },
+      ],
     },
     deliveredOrder: {
       id: 'o2',
@@ -112,6 +116,7 @@ export function seed() {
         customerName: 'Asha Rao',
         pincode: '400001',
         status: 'PROCESSING',
+        slot: { id: 'slt1', label: 'Morning' },
         items: [
           { sku: 'ALP-3', productName: 'Alphonso 3kg Box', quantity: 1, picks: [{ batchId: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', quantity: 1, packed: false }] },
           { sku: 'ALP-5', productName: 'Alphonso 5kg Box', quantity: 1, picks: [] },
@@ -129,12 +134,20 @@ export function seed() {
     coverage: [
       {
         date: '2026-10-16',
+        slots: [
+          { id: 'slt1', label: 'Morning', booked: 12, maxBoxes: 40 },
+          { id: 'slt2', label: 'Evening', booked: 3, maxBoxes: null },
+        ],
         stock: [
           { sku: 'ALP-3', stage: 'RAW', qty: 0 },
           { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 12 },
           { sku: 'ALP-3', stage: 'RIPE', qty: 4 },
         ],
       },
+    ],
+    slots: [
+      { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00', maxBoxes: 40, active: true, sort: 0 },
+      { id: 'slt2', label: 'Evening', startsAt: '16:00', endsAt: '20:00', maxBoxes: null, active: true, sort: 1 },
     ],
     calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
     config: {
@@ -228,6 +241,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/pincodes\//.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/coverage') return json(route, 200, state.coverage)
+    if (path === '/slots' && method === 'GET') return json(route, 200, state.slots)
+    if (path === '/slots' || path.startsWith('/slots/')) {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      if (method === 'POST') {
+        const slot = { id: `slt${state.slots.length + 1}`, active: true, sort: state.slots.length, ...(body as object) } as (typeof state.slots)[number]
+        state.slots = [...state.slots, slot]
+        return json(route, 201, slot)
+      }
+      const slotId = path.split('/')[2]
+      state.slots = state.slots.map((x) => (x.id === slotId ? { ...x, ...(body as object) } : x))
+      return json(route, 200, state.slots.find((x) => x.id === slotId))
+    }
     if (path === '/calendar') return json(route, 200, state.calendar)
     if (/^\/calendar\//.test(path)) return route.fulfill({ status: 204 })
     if (path === '/config' && method === 'GET') return json(route, 200, state.config)

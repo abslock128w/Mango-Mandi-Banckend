@@ -36,6 +36,44 @@ through the Jio SMS gateway; production refuses to start without it. Set `JIO_SM
 against your Jio account's API docs before going live. Outside production the default
 `SMS_PROVIDER=log` logs the code and returns it as `devCode`.
 
+## WhatsApp order updates
+
+Each order step queues a WhatsApp message in the `notifications` table, in the same
+transaction as the step, so an update is never lost or sent for a change that rolled
+back. The maintenance loop sends them, retrying after 1, 5, 15, 60 and 180 minutes, then
+marks them `FAILED`; anything still unsent after 24 hours is `SKIPPED` (old news). Staff
+see each message and its state on the order page.
+
+With `WHATSAPP_PROVIDER=meta` messages go through the WhatsApp Cloud API: set
+`WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`. Every message is an approved template
+named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LANGUAGE`:
+
+| Template | Sent when | Body variables |
+|----------|-----------|----------------|
+| `vmr_order_confirmed` | payment confirms the order | name, order number, date ("Fri, 16 Oct"), slot ("7 AM to 11 AM") |
+| `vmr_replacement_confirmed` | a free replacement is booked | same as above |
+| `vmr_out_for_delivery` | the order leaves for delivery | name, order number, slot |
+| `vmr_delivered` | delivered | name, order number |
+| `vmr_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
+| `vmr_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
+| `vmr_refunded` | Razorpay confirms a customer-cancel refund | name, order number, amount ("Rs 1,899") |
+
+An order without a slot says "during the day" in place of the slot.
+
+Outside production the default `WHATSAPP_PROVIDER=log` logs each message and marks it
+sent. In production without a provider, messages are skipped with a warning.
+
+## Delivery slots
+
+Managers set up delivery windows (Planning page, or `/admin/v1/slots`), each with an
+optional daily box limit. Once any slot is on, checkout requires one: the quote takes
+`slotId` and refuses a full slot (`SLOT_FULL`). `GET /v1/delivery/slots` lists each
+slot's remaining boxes for a date. Staff can pick a slot when moving an order. Moves
+the system makes (late payments, failed-delivery retries, replacements) keep the slot
+if it has room, else take the first with room, and never fail because of a slot.
+Slots are switched off rather than deleted, so old orders keep theirs. The pack list
+is sorted by slot.
+
 ## The rules it enforces
 
 The two specs split the work: the technical plan fixes the API contract, and the
@@ -90,9 +128,10 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Fulfilment | `GET /pack-list?date=` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
-| Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage for each bookable date) |
+| Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage, and boxes booked per slot, for each bookable date) |
+| Slots | `GET/POST /slots`, `PATCH /slots/:id` (managers only for changes) |
 | Customer auth | `POST /v1/auth/otp/request`, `/otp/verify`, `/token/refresh`, `/logout` |
-| Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
+| Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `GET/POST /v1/claims` |
 | Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated) |
@@ -100,7 +139,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 
 Errors are `{ error: { code, message, requestId } }`. Admin routes are the contract in
 the panel's `src/types.ts`; extra fields (`atRisk`, `atRiskReason`, `replacementFor`,
-`eatBy`, `replacementOrder`) are additive.
+`eatBy`, `replacementOrder`, `slot`, `notifications`) are additive.
 
 Cart lines carry a stage (`{ sku, stage, qty }`), unlike the technical plan's
 `{ sku, qty }`. The same box can sell as raw on one date and ripe on another, so the
@@ -109,7 +148,7 @@ customer picks the stage.
 ## Background work
 
 Every 60 seconds, on exactly one instance (`pg_try_advisory_lock(427714202)`):
-reconcile pending payments with Razorpay, send due refunds, cancel unpaid orders whose hold expired,
+reconcile pending payments with Razorpay, send due refunds and WhatsApp updates, cancel unpaid orders whose hold expired,
 prune expired OTPs, quotes, idempotency keys, webhooks and sessions, and retire batches
 at age 8. Hourly (or right after a rules change) it rebalances every open order and runs
 the ledger audit, which checks `on_hand` against the ledger and `held`/`committed`
@@ -126,9 +165,10 @@ The suite drops and recreates the schema of that database, and refuses to run ag
 one whose name doesn't end in `_test`. It covers the stage engine, staff and customer
 auth (refresh rotation and reuse detection, OTP lockout), the full order flow through
 claim and replacement, hold expiry and late payments, condemn and rebalance, failed
-delivery retries, retirement and the ledger audit, plus a race of 30 buyers for 10 boxes.
+delivery retries, retirement and the ledger audit, customer cancels and refunds, delivery
+slots and WhatsApp updates, plus a race of 30 buyers for 10 boxes.
 
 ## Not in phase 1
 
-Preorders, delivery slots, WhatsApp order updates, Redis, S3 photo storage and rider
+Preorders, Redis, S3 photo storage and rider
 proof of delivery. Dry fruit is out of scope.

@@ -18,6 +18,8 @@ export const metrics = {
   holdsExpired: new client.Counter({ name: 'mango_holds_expired_total', help: 'Unpaid orders cancelled when their hold expired', registers: [registry] }),
   ordersAtRisk: new client.Gauge({ name: 'mango_orders_at_risk', help: 'Open orders flagged at-risk', registers: [registry] }),
   ledgerDrift: new client.Gauge({ name: 'mango_ledger_drift_lines', help: 'Batch lines whose counters disagree with the ledger', registers: [registry] }),
+  notificationsSent: new client.Counter({ name: 'mango_notifications_sent_total', help: 'Customer messages delivered to the provider', labelNames: ['kind'], registers: [registry] }),
+  notificationsFailed: new client.Counter({ name: 'mango_notifications_failed_total', help: 'Customer messages given up on after retries', labelNames: ['kind'], registers: [registry] }),
   maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
 }
 

@@ -62,6 +62,16 @@ export async function seed() {
   }
 
   if (env.SEED_DEMO_DATA && !isProd) await seedDemoBatches()
+  // Tests set up their own slots; development gets two to click through.
+  if (env.SEED_DEMO_DATA && env.NODE_ENV === 'development') await seedDemoSlots()
+}
+
+async function seedDemoSlots() {
+  const { rows } = await query('SELECT COUNT(*)::int AS n FROM delivery_slots')
+  if (rows[0].n > 0) return
+  for (const [label, from, to, sort] of [['Morning', '07:00', '11:00', 1], ['Evening', '16:00', '20:00', 2]]) {
+    await query('INSERT INTO delivery_slots (id, label, starts_at, ends_at, max_boxes, sort) VALUES ($1, $2, $3, $4, 40, $5)', [newId('slt'), label, from, to, sort])
+  }
 }
 
 /** A rolling spread of batches so every stage has stock for the next few days. */

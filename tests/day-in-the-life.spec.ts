@@ -57,7 +57,10 @@ test('a day in the life of the warehouse', async ({ page }) => {
   const pick = catalogue.items.find((i: { qty: number }) => i.qty > 0)
   expect(pick, 'the seeded demo batches should have stock').toBeTruthy()
   await call('POST', '/v1/cart/items', { sku: pick.sku, stage: pick.stage, qty: 1 }, cust)
-  const quote = await call('POST', '/v1/checkout/quote', { pincode: '560034' }, cust)
+  // The dev API seeds Morning and Evening slots; checkout must pick one with room.
+  const { slots } = await call('GET', '/v1/delivery/slots?pincode=560034')
+  const slot = slots.find((x: { available: boolean }) => x.available)
+  const quote = await call('POST', '/v1/checkout/quote', { pincode: '560034', ...(slot ? { slotId: slot.id } : {}) }, cust)
   const placed = await call(
     'POST',
     '/v1/checkout/confirm',

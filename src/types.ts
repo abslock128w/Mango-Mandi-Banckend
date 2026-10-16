@@ -211,6 +211,39 @@ export interface OrderDetail {
   atRisk?: boolean
   atRiskReason?: string | null
   replacementFor?: { id: string; number: string } | null
+  slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
+  notifications?: OrderNotification[]
+}
+
+export type NotificationKind =
+  | 'ORDER_CONFIRMED'
+  | 'REPLACEMENT_CONFIRMED'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'DELIVERY_FAILED'
+  | 'CANCELLED'
+  | 'REFUNDED'
+
+/** A WhatsApp update to the customer, sent from an outbox with retries. */
+export interface OrderNotification {
+  kind: NotificationKind
+  channel: string
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
+  attempts: number
+  createdAt: string
+  sentAt: string | null
+  error: string | null
+}
+
+/** A delivery time window. maxBoxes caps boxes per day in this window (null = no cap). */
+export interface DeliverySlot {
+  id: string
+  label: string
+  startsAt: string
+  endsAt: string
+  maxBoxes: number | null
+  active: boolean
+  sort: number
 }
 
 export interface PackPick {
@@ -227,6 +260,7 @@ export interface PackListOrder {
   customerName: string | null
   pincode: string | null
   status: OrderStatus
+  slot?: { id: string; label: string } | null
   items: { sku: string; productName: string; quantity: number; picks: PackPick[] }[]
 }
 
@@ -291,6 +325,8 @@ export interface CalendarDay {
 /** Sellable boxes per SKU and stage for one bookable delivery date. */
 export interface CoverageDay {
   date: string
+  /** Boxes booked per delivery slot; empty when slots aren't in use. */
+  slots?: { id: string; label: string; booked: number; maxBoxes: number | null }[]
   stock: { sku: string; stage: Ripeness; qty: number }[]
 }
 

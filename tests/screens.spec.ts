@@ -117,6 +117,7 @@ test('Pack list: by order with allocate shortcut, by batch with unallocated sect
   await mockApi(page, { signedIn: true })
   await page.goto('/pack-list?date=2026-10-16')
   await expect(page.getByRole('link', { name: 'ORD-1042' })).toBeVisible()
+  await expect(page.locator('.pack-order').first()).toContainText('Morning')
   await expect(page.getByRole('button', { name: 'Allocate and pack ORD-1042' })).toBeVisible()
   await page.getByRole('button', { name: 'By batch' }).click()
   await expect(page).toHaveURL(/view=batch/)
@@ -162,15 +163,51 @@ test('Dialogs close on Escape and return focus', async ({ page }) => {
   await expect(open).toBeFocused()
 })
 
-test('Order detail: move delivery date posts the new date', async ({ page }) => {
+test('Order detail: move delivery date posts the new date and slot', async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/orders/o1')
+  await expect(page.getByText('Morning 07:00–11:00')).toBeVisible()
   await page.getByRole('button', { name: 'Move delivery date' }).click()
   const dialog = page.getByRole('dialog', { name: 'Move order ORD-1042' })
   await dialog.getByLabel('New delivery date').fill('2026-12-01')
+  await expect(dialog.getByLabel('Delivery slot')).toHaveValue('slt1')
+  await dialog.getByLabel('Delivery slot').selectOption({ label: 'Evening (16:00–20:00)' })
   await dialog.getByRole('button', { name: 'Move order' }).click()
   await expect(dialog).toHaveCount(0)
-  expect(api.calls.find((c) => c.path === '/orders/o1/reschedule')?.body).toEqual({ deliveryDate: '2026-12-01' })
+  expect(api.calls.find((c) => c.path === '/orders/o1/reschedule')?.body).toEqual({ deliveryDate: '2026-12-01', slotId: 'slt2' })
+})
+
+test('Order detail lists the WhatsApp updates sent to the customer', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/orders/o1')
+  const card = page.locator('section', { has: page.getByRole('heading', { name: 'WhatsApp updates' }) })
+  await expect(card).toContainText('Order confirmed')
+  await expect(card).toContainText('Sent')
+})
+
+test('Planning: managers add and switch off delivery slots', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/planning')
+  await expect(page.getByText('Booked: Morning 12 of 40 boxes · Evening 3 boxes')).toBeVisible()
+  const table = page.getByRole('region', { name: 'Delivery slots' })
+  await expect(table.getByRole('row', { name: /Morning/ })).toContainText('07:00–11:00')
+
+  await page.getByRole('button', { name: 'Add slot' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add a delivery slot' })
+  await dialog.getByLabel('Name').fill('Late')
+  await dialog.getByLabel('Starts').fill('20:00')
+  await dialog.getByLabel('Ends').fill('19:00')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('The slot must end after it starts.')
+  await dialog.getByLabel('Ends').fill('22:00')
+  await dialog.getByLabel('Boxes per day (optional)').fill('10')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.find((c) => c.method === 'POST' && c.path === '/slots')?.body).toEqual({ label: 'Late', startsAt: '20:00', endsAt: '22:00', maxBoxes: 10 })
+  await expect(table.getByRole('row', { name: /Late/ })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Switch off Evening' }).click()
+  await expect.poll(() => api.calls.find((c) => c.method === 'PATCH' && c.path === '/slots/slt2')?.body).toEqual({ active: false })
 })
 
 test('Planning: coverage gaps, closing a day, and manager-only rules', async ({ page }) => {
@@ -202,6 +239,8 @@ test('Operators cannot edit selling rules', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/planning')
   await expect(page.getByRole('button', { name: /Edit rules/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /Add slot/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /Switch off Morning/ })).toBeDisabled()
 })
 
 for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes', '/planning']) {

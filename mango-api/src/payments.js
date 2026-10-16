@@ -7,6 +7,7 @@ import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
+import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
@@ -150,7 +151,10 @@ export async function refundOrder(orderId) {
         `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3 WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
         [o.id, refundId, now()],
       )
-      if (r.rowCount) await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', SYSTEM, `Refunded in full (${refundId})`)
+      if (r.rowCount) {
+        const eventId = await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', SYSTEM, `Refunded in full (${refundId})`)
+        await enqueue(c, o.id, eventId, 'REFUNDED')
+      }
       return refundId
     })
   } catch (err) {

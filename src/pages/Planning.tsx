@@ -4,7 +4,7 @@ import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate } from '../format'
 import { MANAGER_ONLY_HINT, can } from '../permissions'
 import { useSession } from '../session'
-import type { CalendarDay, Ripeness, Rules, StageWindow } from '../types'
+import type { CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
 import { Badge, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, scrollRegion, useToast } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -17,6 +17,7 @@ export default function Planning() {
       </div>
       <Coverage />
       <Calendar />
+      <Slots />
       <RulesCard />
     </>
   )
@@ -48,6 +49,14 @@ function Coverage() {
           return (
             <div key={day.date} style={{ marginTop: '1rem' }}>
               <h3>{date(day.date)}</h3>
+              {day.slots && day.slots.length > 0 && (
+                <p className="muted small" style={{ marginTop: 0 }}>
+                  Booked:{' '}
+                  {day.slots
+                    .map((sl) => `${sl.label} ${sl.booked}${sl.maxBoxes == null ? '' : ` of ${sl.maxBoxes}`} boxes`)
+                    .join(' · ')}
+                </p>
+              )}
               <div {...scrollRegion(`Stock for ${date(day.date)}`)}>
                 <table>
                   <thead>
@@ -261,6 +270,170 @@ function DayDialog({ day, onClose, onDone }: { day: CalendarDay; onClose: () => 
         {!isOpen && (
           <p className="hint">Orders already booked for this date stay booked. Move them from each order's page.</p>
         )}
+        <FormError error={formError ?? save.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+const slotTime = (s: Pick<DeliverySlot, 'startsAt' | 'endsAt'>) => `${s.startsAt}–${s.endsAt}`
+
+/** Delivery time windows customers pick at checkout, each with an optional daily box limit. */
+function Slots() {
+  const { me } = useSession()
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const q = useQuery({ queryKey: ['slots'], queryFn: api.slots })
+  const [editing, setEditing] = useState<DeliverySlot | 'new' | null>(null)
+  const allowed = can(me?.role, 'editRules')
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['slots'] })
+    queryClient.invalidateQueries({ queryKey: ['coverage'] })
+  }
+  const toggle = useMutation({
+    mutationFn: (s: DeliverySlot) => api.updateSlot(s.id, { active: !s.active }),
+    onSuccess: (_r, s) => {
+      toast.success(s.active ? `${s.label} switched off` : `${s.label} switched on`)
+      refresh()
+    },
+    onError: (err) => toast.error(err),
+  })
+
+  return (
+    <section className="card">
+      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
+        <h2 style={{ margin: 0 }}>Delivery slots</h2>
+        <span className="spacer" />
+        <GatedButton allowed={allowed} className="btn" onClick={() => setEditing('new')}>
+          Add slot
+        </GatedButton>
+      </div>
+      <p className="muted">
+        Customers pick one of the slots that are on when they check out. With no slots on, orders have no time window.
+      </p>
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : q.data.length === 0 ? (
+        <EmptyState>No delivery slots yet.</EmptyState>
+      ) : (
+        <div {...scrollRegion('Delivery slots')}>
+          <table>
+            <thead>
+              <tr>
+                <th>Slot</th>
+                <th>Time</th>
+                <th className="num">Boxes per day</th>
+                <th>State</th>
+                <th>
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {q.data.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.label}</td>
+                  <td>{slotTime(s)}</td>
+                  <td className="num">{s.maxBoxes ?? 'No limit'}</td>
+                  <td>
+                    <Badge tone={s.active ? 'good' : 'neutral'}>{s.active ? 'On' : 'Off'}</Badge>
+                  </td>
+                  <td>
+                    <div className="btn-row">
+                      <GatedButton allowed={allowed} className="btn btn-small" onClick={() => setEditing(s)}>
+                        Edit<span className="sr-only"> {s.label}</span>
+                      </GatedButton>
+                      <GatedButton
+                        allowed={allowed}
+                        className="btn btn-small"
+                        disabled={toggle.isPending}
+                        onClick={() => toggle.mutate(s)}
+                      >
+                        {s.active ? 'Switch off' : 'Switch on'}
+                        <span className="sr-only"> {s.label}</span>
+                      </GatedButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!allowed && <p className="hint">Changing slots: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
+      {editing && (
+        <SlotDialog slot={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onDone={refresh} />
+      )}
+    </section>
+  )
+}
+
+function SlotDialog({ slot, onClose, onDone }: { slot: DeliverySlot | null; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [label, setLabel] = useState(slot?.label ?? '')
+  const [startsAt, setStartsAt] = useState(slot?.startsAt ?? '07:00')
+  const [endsAt, setEndsAt] = useState(slot?.endsAt ?? '11:00')
+  const [limit, setLimit] = useState(slot?.maxBoxes == null ? '' : String(slot.maxBoxes))
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const input = { label: label.trim(), startsAt, endsAt, maxBoxes: limit === '' ? null : Number(limit) }
+      return slot ? api.updateSlot(slot.id, input) : api.addSlot(input)
+    },
+    onSuccess: (s) => {
+      toast.success(`${s?.label ?? label.trim()} saved`)
+      onDone()
+      onClose()
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    if (!label.trim()) return setFormError('Give the slot a name, like Morning.')
+    if (!/^\d{2}:\d{2}$/.test(startsAt) || !/^\d{2}:\d{2}$/.test(endsAt)) return setFormError('Set a start and end time.')
+    if (endsAt <= startsAt) return setFormError('The slot must end after it starts.')
+    if (limit !== '' && !/^\d+$/.test(limit)) return setFormError('The box limit must be a whole number.')
+    save.mutate()
+  }
+
+  return (
+    <Dialog
+      title={slot ? `Edit ${slot.label}` : 'Add a delivery slot'}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="slot-form" className="btn btn-primary" disabled={save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <form id="slot-form" onSubmit={onSubmit} noValidate>
+        <div className="field">
+          <label htmlFor="slot-label">Name</label>
+          <input id="slot-label" value={label} maxLength={40} onChange={(e) => setLabel(e.target.value)} placeholder="Morning" />
+        </div>
+        <div className="field">
+          <label htmlFor="slot-start">Starts</label>
+          <input id="slot-start" type="time" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="slot-end">Ends</label>
+          <input id="slot-end" type="time" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="slot-limit">Boxes per day (optional)</label>
+          <input id="slot-limit" inputMode="numeric" value={limit} onChange={(e) => setLimit(e.target.value.trim())} />
+          <p className="hint">Checkout stops offering this slot on a day once this many boxes are booked in it.</p>
+        </div>
         <FormError error={formError ?? save.error} />
       </form>
     </Dialog>

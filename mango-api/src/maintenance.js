@@ -8,6 +8,7 @@ import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
+import { sendDueNotifications } from './notify.js'
 import { processDueRefunds, reconcilePendingPayments } from './payments.js'
 import { now } from './clock.js'
 
@@ -93,6 +94,7 @@ export async function runMaintenance({ forceAll = false } = {}) {
       const out = {}
       out.reconciled = await step('reconcile', () => reconcilePendingPayments())
       out.refunded = await step('refunds', processDueRefunds)
+      out.notified = await step('notifications', () => sendDueNotifications())
       out.expired = await step('sweep', () => tx((c) => sweepExpiredHolds(c)))
       if (out.expired) metrics.holdsExpired.inc(out.expired)
       await step('cleanup', () => cleanupExpired())

@@ -1,7 +1,7 @@
 // Delivery dates: the cutoff, D+1/D+2, closed days and per-day capacity.
 import { getConfig } from './config.js'
 import { addDays, istParts, now } from './clock.js'
-import { conflict } from './errors.js'
+import { badRequest, conflict } from './errors.js'
 
 /** Closed days between two dates (inclusive), as a Set of "YYYY-MM-DD". */
 async function closedDays(c, from, to) {
@@ -55,4 +55,68 @@ export async function checkCapacity(c, date, boxes, excludeOrderId = null) {
     [date, excludeOrderId],
   )
   if (used.rows[0].n + boxes > rows[0].max_boxes) throw conflict(`${date} is fully booked`, 'DATE_FULL')
+}
+
+// ---------------------------------------------------------------- slots
+
+const hhmm = (t) => String(t).slice(0, 5)
+
+/** A slot as the APIs return it. */
+export const slotView = (s) => ({
+  id: s.id, label: s.label, startsAt: hhmm(s.starts_at), endsAt: hhmm(s.ends_at), maxBoxes: s.max_boxes, active: s.active, sort: s.sort,
+})
+
+/** Active slots in display order. `lock` takes row locks, serialising bookings across slots. */
+export async function activeSlots(c, { lock = false } = {}) {
+  const { rows } = await c.query(`SELECT * FROM delivery_slots WHERE active ORDER BY sort, starts_at, id${lock ? ' FOR UPDATE' : ''}`)
+  return rows
+}
+
+/** Boxes booked per slot on a date (slot id → boxes). */
+export async function slotUsage(c, date, excludeOrderId = null) {
+  const { rows } = await c.query(
+    `SELECT o.slot_id, COALESCE(SUM(i.quantity), 0)::int AS n FROM orders o JOIN order_items i ON i.order_id = o.id
+      WHERE o.delivery_date = $1 AND o.slot_id IS NOT NULL AND o.status NOT IN ('CANCELLED', 'RTO') AND o.id IS DISTINCT FROM $2
+      GROUP BY o.slot_id`,
+    [date, excludeOrderId],
+  )
+  return new Map(rows.map((r) => [r.slot_id, r.n]))
+}
+
+/** Each active slot on a date with what is left in it, for customers and the Planning page. */
+export async function slotsForDate(c, date) {
+  const [slots, used] = await Promise.all([activeSlots(c), slotUsage(c, date)])
+  return slots.map((s) => {
+    const booked = used.get(s.id) ?? 0
+    const remaining = s.max_boxes == null ? null : Math.max(0, s.max_boxes - booked)
+    return { ...slotView(s), booked, remainingBoxes: remaining, available: remaining == null || remaining > 0 }
+  })
+}
+
+/**
+ * Picks the slot for `boxes` on `date`, or null when no slots are set up.
+ * `strict` (customer checkout, staff choosing a slot): the wanted slot must
+ * exist and have room. Otherwise (late payments, retries, replacements) the
+ * order keeps its slot if it has room, else takes the first with room, else
+ * the least booked one: a system move never fails because of a slot.
+ */
+export async function chooseSlot(c, date, boxes, wanted, { strict = false, excludeOrderId = null } = {}) {
+  const slots = await activeSlots(c, { lock: true })
+  if (!slots.length) {
+    if (strict && wanted) throw badRequest('Delivery slots are not in use', 'SLOT_INVALID')
+    return null
+  }
+  const used = await slotUsage(c, date, excludeOrderId)
+  const fits = (s) => s.max_boxes == null || (used.get(s.id) ?? 0) + boxes <= s.max_boxes
+  const want = slots.find((s) => s.id === wanted)
+  if (strict) {
+    if (!wanted) throw badRequest('Choose a delivery slot', 'SLOT_REQUIRED')
+    if (!want) throw badRequest('That delivery slot is not available', 'SLOT_INVALID')
+    if (!fits(want)) throw conflict(`The ${want.label} slot on ${date} is fully booked`, 'SLOT_FULL')
+    return want.id
+  }
+  if (want && fits(want)) return want.id
+  const free = slots.find(fits)
+  if (free) return free.id
+  return [...slots].sort((a, b) => (used.get(a.id) ?? 0) - (used.get(b.id) ?? 0))[0].id
 }

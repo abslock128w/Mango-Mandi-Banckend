@@ -3,12 +3,13 @@
 // moves the order to the next date with stock, or flags it at-risk for ops.
 import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now } from './clock.js'
-import { checkCapacity, earliestDeliveryDate, nextDeliveryDay, orderableDates } from './delivery.js'
+import { checkCapacity, chooseSlot, earliestDeliveryDate, nextDeliveryDay, orderableDates } from './delivery.js'
 import { badRequest, conflict, HttpError, notFound, StockError } from './errors.js'
 import { newId } from './ids.js'
 import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { enqueueForEvent } from './notify.js'
 
 /** Orders that still own stock and can be rebalanced. */
 export const OPEN_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -32,10 +33,13 @@ const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 export const SYSTEM = { type: 'system', id: 'system' }
 
 export async function addEvent(c, orderId, from, to, actor, reason = null) {
+  const id = newId('evt')
   await c.query(
     `INSERT INTO order_events (id, order_id, from_status, status, actor, reason, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [newId('evt'), orderId, from, to, actor.label ?? actor.id, reason, now()],
+    [id, orderId, from, to, actor.label ?? actor.id, reason, now()],
   )
+  await enqueueForEvent(c, orderId, id, from, to)
+  return id
 }
 
 async function lockOrder(c, orderId) {
@@ -60,16 +64,18 @@ export async function createOrder(c, o, actor) {
   const { rows } = await c.query(`SELECT 'ORD-' || nextval('order_seq') AS number`)
   const number = rows[0].number
   const subtotal = o.lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
-  await checkCapacity(c, o.deliveryDate, o.lines.reduce((s, l) => s + l.qty, 0))
+  const boxes = o.lines.reduce((s, l) => s + l.qty, 0)
+  await checkCapacity(c, o.deliveryDate, boxes)
+  const slotId = await chooseSlot(c, o.deliveryDate, boxes, o.slotId ?? null, { strict: Boolean(o.strictSlot) })
   await c.query(
     `INSERT INTO orders (id, number, customer_id, customer_name, phone, status, delivery_date, placed_at, pincode,
                          delivery_address, subtotal, total, payment_status, payment_method, payment_amount,
-                         hold_expires_at, config_version, replacement_for)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17)`,
+                         hold_expires_at, config_version, replacement_for, slot_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)`,
     [
       id, number, o.customerId ?? null, o.customerName ?? null, o.phone ?? null, o.status, o.deliveryDate, now(),
       o.pincode ?? null, o.address ?? null, subtotal, o.paymentStatus ?? null, o.paymentMethod ?? null,
-      o.paymentStatus ? subtotal : null, o.holdExpiresAt ?? null, configVersion(), o.replacementFor ?? null,
+      o.paymentStatus ? subtotal : null, o.holdExpiresAt ?? null, configVersion(), o.replacementFor ?? null, slotId,
     ],
   )
   for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku) || a.stage.localeCompare(b.stage))) {
@@ -79,7 +85,7 @@ export async function createOrder(c, o, actor) {
     )
   }
   await addEvent(c, id, null, o.status, actor, o.eventReason ?? null)
-  const order = { id, number, delivery_date: o.deliveryDate, status: o.status }
+  const order = { id, number, delivery_date: o.deliveryDate, status: o.status, slot_id: slotId }
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
   const short = []
   for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku))) {
@@ -183,6 +189,7 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
     try {
       for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Move ${o.number}`)
       await checkCapacity(c, date, boxes, o.id)
+      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id })
       let full = true
       for (const i of items) {
         const got = await allocate(c, {
@@ -195,6 +202,10 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
       }
       if (full) {
         await c.query('RELEASE SAVEPOINT place')
+        if (slot !== (o.slot_id ?? null)) {
+          await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, slot])
+          o.slot_id = slot
+        }
         if (date !== o.delivery_date) {
           await c.query('UPDATE orders SET delivery_date = $2 WHERE id = $1', [o.id, date])
           await addEvent(c, o.id, o.status, o.status, actor, `${why}; moved from ${o.delivery_date} to ${date}`)
@@ -337,7 +348,9 @@ export async function setOrderStatus(c, orderId, to, actor) {
   if (to === 'DELIVERY_FAILED') {
     // Retry on the next delivery day (user decision): reschedule, don't refund.
     const date = await nextDeliveryDay(c)
-    await c.query('UPDATE orders SET delivery_date = $2 WHERE id = $1', [o.id, date])
+    const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
+    const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
+    await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
     reason = `Delivery failed; retrying on ${date}`
   }
   await c.query('UPDATE orders SET status = $2 WHERE id = $1', [o.id, to])

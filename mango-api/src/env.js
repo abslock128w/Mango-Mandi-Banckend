@@ -32,6 +32,12 @@ const schema = z.object({
   JIO_SMS_TEMPLATE_ID: z.string().optional(),
   JIO_SMS_ENTITY_ID: z.string().optional(),
   JIO_SMS_TEXT: z.string().default('{code} is your VMR Mangoes login code. It expires in 5 minutes.'),
+  WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_API_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
+  WHATSAPP_TEMPLATE_PREFIX: z.string().regex(/^[a-z0-9_]*$/).default('vmr_'),
+  WHATSAPP_LANGUAGE: z.string().default('en'),
   SEED_DEMO_DATA: z
     .enum(['true', 'false'])
     .default('true')
@@ -47,6 +53,11 @@ if (!parsed.success) {
 
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
+
+if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
+  console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')
+  process.exit(1)
+}
 
 const JIO_KEYS = ['JIO_SMS_URL', 'JIO_SMS_API_KEY', 'JIO_SMS_SENDER_ID', 'JIO_SMS_TEMPLATE_ID', 'JIO_SMS_ENTITY_ID']
 if (env.SMS_PROVIDER === 'jio') {

@@ -8,7 +8,7 @@ import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
 import { query, tx } from './db.js'
-import { orderableDates } from './delivery.js'
+import { chooseSlot, orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
@@ -403,12 +403,13 @@ router.get(
 
 export async function orderDetail(c, orderId) {
   const { rows } = await c.query(
-    `SELECT o.*, r.number AS replacement_for_number FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for WHERE o.id = $1`,
+    `SELECT o.*, r.number AS replacement_for_number, s.label AS slot_label, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at
+       FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for LEFT JOIN delivery_slots s ON s.id = o.slot_id WHERE o.id = $1`,
     [orderId],
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events] = await Promise.all([
+  const [items, stock, events, notes] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -416,12 +417,17 @@ export async function orderDetail(c, orderId) {
       [orderId],
     ),
     c.query('SELECT * FROM order_events WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
+    c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
   ])
   return {
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason,
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
+    slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
+    notifications: notes.rows.map((n) => ({
+      kind: n.kind, channel: n.channel, status: n.status, attempts: n.attempts, createdAt: n.created_at, sentAt: n.sent_at, error: n.last_error,
+    })),
     items: items.rows.map((i) => ({
       id: i.id, productName: productName(i.sku), sku: i.sku, quantity: i.quantity, stage: i.stage, unitPrice: i.unit_price,
       linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
@@ -476,13 +482,21 @@ router.post(
 router.post(
   '/orders/:id/reschedule',
   asyncHandler(async (req, res) => {
-    const { deliveryDate } = parse(z.object({ deliveryDate: z.string().refine(isDate, 'deliveryDate must be YYYY-MM-DD') }), req.body)
+    const { deliveryDate, slotId } = parse(
+      z.object({ deliveryDate: z.string().refine(isDate, 'deliveryDate must be YYYY-MM-DD'), slotId: z.string().max(64).optional().nullable() }),
+      req.body,
+    )
     await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Order not found')
       const o = rows[0]
       if (!['CONFIRMED', 'PROCESSING'].includes(o.status)) throw badRequest(`A ${o.status} order cannot be rescheduled`, 'INVALID_TRANSITION')
       if (!(await orderableDates(c)).includes(deliveryDate)) throw badRequest(`${deliveryDate} is not an open delivery date`, 'INVALID_DATE')
+      if (slotId) {
+        const { rows: q } = await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [o.id])
+        o.slot_id = await chooseSlot(c, deliveryDate, q[0].n, slotId, { strict: true, excludeOrderId: o.id })
+        await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
+      }
       const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], req.actor, `Rescheduled by ${req.admin.email}`)
       if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
       await rebalanceOrder(c, o.id, req.actor)
@@ -498,8 +512,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
     const { rows: orders } = await query(
-      `SELECT id, number, customer_name, pincode, status FROM orders
-        WHERE delivery_date = $1 AND status IN ('CONFIRMED', 'PROCESSING', 'PACKED') ORDER BY number`,
+      `SELECT o.id, o.number, o.customer_name, o.pincode, o.status, o.slot_id, s.label AS slot_label
+         FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id
+        WHERE o.delivery_date = $1 AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
+        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, o.number`,
       [date],
     )
     const ids = orders.map((o) => o.id)
@@ -515,6 +531,7 @@ router.get(
     res.json(
       orders.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, pincode: o.pincode, status: o.status,
+        slot: o.slot_id ? { id: o.slot_id, label: o.slot_label } : null,
         items: items.rows
           .filter((i) => i.order_id === o.id)
           .map((i) => ({
@@ -685,6 +702,58 @@ router.delete(
   }),
 )
 
+const TIME = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM (24-hour)')
+const slotBody = z.object({
+  label: z.string().trim().min(1).max(40),
+  startsAt: TIME,
+  endsAt: TIME,
+  maxBoxes: z.number().int().min(0).nullable().optional(),
+  active: z.boolean().optional(),
+  sort: z.number().int().min(0).max(1000).optional(),
+})
+
+router.get(
+  '/slots',
+  asyncHandler(async (_req, res) => {
+    const { rows } = await query('SELECT * FROM delivery_slots ORDER BY sort, starts_at, id')
+    res.json(rows.map(slotView))
+  }),
+)
+
+router.post(
+  '/slots',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(slotBody.refine((s) => s.endsAt > s.startsAt, { message: 'The slot must end after it starts', path: ['endsAt'] }), req.body)
+    const { rows } = await query(
+      `INSERT INTO delivery_slots (id, label, starts_at, ends_at, max_boxes, active, sort, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [newId('slt'), b.label, b.startsAt, b.endsAt, b.maxBoxes ?? null, b.active ?? true, b.sort ?? 0, now()],
+    )
+    res.status(201).json(slotView(rows[0]))
+  }),
+)
+
+/** Slots are switched off rather than deleted: orders keep pointing at them. */
+router.patch(
+  '/slots/:id',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(slotBody.partial(), req.body)
+    const out = await tx(async (c) => {
+      const { rows } = await c.query('SELECT * FROM delivery_slots WHERE id = $1 FOR UPDATE', [req.params.id])
+      if (!rows.length) throw notFound('Slot not found')
+      const s = { ...slotView(rows[0]), ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)) }
+      if (!(s.endsAt > s.startsAt)) throw badRequest('The slot must end after it starts', 'VALIDATION_ERROR')
+      const r = await c.query(
+        'UPDATE delivery_slots SET label = $2, starts_at = $3, ends_at = $4, max_boxes = $5, active = $6, sort = $7 WHERE id = $1 RETURNING *',
+        [s.id, s.label, s.startsAt, s.endsAt, s.maxBoxes ?? null, s.active, s.sort],
+      )
+      return slotView(r.rows[0])
+    })
+    res.json(out)
+  }),
+)
+
 /** Sellable boxes per SKU and stage for each orderable date: the supply-coverage grid. */
 router.get(
   '/coverage',
@@ -696,6 +765,7 @@ router.get(
         const pool = await availability(c, date)
         grid.push({
           date,
+          slots: (await slotsForDate(c, date)).map(({ id, label, booked, maxBoxes }) => ({ id, label, booked, maxBoxes })),
           stock: allProducts().flatMap((p) => STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
         })
       }
