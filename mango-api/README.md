@@ -17,8 +17,9 @@ COOKIE_SECURE=false npm run dev
 ```
 
 On start it migrates, seeds products (Alphonso and Badami, 3 kg and 5 kg), Bengaluru
-pincodes and two staff logins (`manager@vmr.test` / `manager123`,
-`ops@vmr.test` / `operator123`; not created in production), plus a spread of demo
+pincodes and four staff logins (`manager@vmr.test` / `manager123`,
+`ops@vmr.test` / `operator123`, `packer@vmr.test` / `packer123`, `qc@vmr.test` / `qc123`;
+not created in production), plus a spread of demo
 batches when the database is empty. Point the panel at it with
 `VITE_API_URL=http://localhost:3000`.
 
@@ -207,6 +208,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Orders | `GET /orders` (`?status&from&to&q&atRisk&page`), `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/rebalance`, `/reschedule` |
 | Fulfilment | `GET /pack-list?date=`, `GET /manifest?date=` |
 | Season ops | `POST /orders/bulk-reschedule` (managers), `GET /analytics?from&to` |
+| Staff | `GET/POST /staff`, `PATCH/DELETE /staff/:id`, `GET /audit?staff&target&from&to&page` (all managers only) |
 | Operations | `GET /attention` (loop heartbeat, failing steps, failed messages, stuck refunds, rejected webhooks), `POST /notifications/:id/retry` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
@@ -246,6 +248,24 @@ two-minute lease before Razorpay is called (and Razorpay gets an idempotency key
 Razorpay webhook event id is stored in the same transaction as its effect, so a repeat is
 ignored and an out-of-order `payment.failed` never undoes a capture.
 
+## Staff roles and the audit trail
+
+Four roles: `MANAGER`, `OPERATOR`, `PACKER` and `QC`. Managers and operators reach every
+route except the manager-only ones. Packers and QC get an allowlist in
+[`src/access.js`](src/access.js) and are refused everything else, so a new route stays
+closed to them until it is added there. Packers may only move orders through
+`PROCESSING`, `PACKED`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` and `DELIVERY_FAILED`.
+
+Managers add, change and remove staff through `/staff`. A role change, password change or
+removal ends that person's sessions; an access token already issued lapses within 15
+minutes. In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
+`ADMIN_BOOTSTRAP_PASSWORD`.
+
+Every successful staff change (any non-GET admin request) and every sign-in is written to
+`staff_audit`: who, their role, the route, what it was done to, and the request body with
+passwords and tokens removed. Read it at `GET /admin/v1/audit` or on the panel's Staff
+screen.
+
 ## Operations
 
 - **Needs attention.** The Today screen shows a card only when something is wrong: the loop
@@ -277,7 +297,7 @@ auth (refresh rotation and reuse detection, OTP lockout), the full order flow th
 claim and replacement, hold expiry and late payments, condemn and rebalance, failed
 delivery retries, retirement and the ledger audit, customer cancels and refunds, delivery
 slots and WhatsApp updates, preorders, WhatsApp chat ordering, bulk reschedule, the rider
-manifest and analytics, double-send and double-refund guards, the login code fallback and
+manifest and analytics, double-send and double-refund guards, staff roles and the audit trail, the login code fallback and
 the Needs attention view, plus a race of 30 buyers for 10 boxes.
 
 ## Not in phase 1

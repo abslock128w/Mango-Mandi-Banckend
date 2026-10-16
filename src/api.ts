@@ -9,6 +9,7 @@ import type {
   BatchDetail,
   Analytics,
   Attention,
+  AuditPage,
   BulkMoveResult,
   Manifest,
   BatchListItem,
@@ -35,6 +36,8 @@ import type {
   Preorder,
   PreorderCapacity,
   PreorderStatus,
+  Role,
+  StaffMember,
   Summary,
 } from './types'
 
@@ -238,6 +241,14 @@ export const api = {
   /** VMR doesn't refund: a claim is resolved by a replacement or rejected. */
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
     request<void>('POST', `/claims/${id(claimId)}/resolve`, { resolution }),
+
+  staff: () => request<StaffMember[]>('GET', '/staff'),
+  addStaff: (input: { email: string; role: Role; password: string }) => request<StaffMember>('POST', '/staff', input),
+  updateStaff: (staffId: string, patch: { role?: Role; password?: string }) =>
+    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, patch),
+  removeStaff: (staffId: string) => request<void>('DELETE', `/staff/${id(staffId)}`),
+  audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number } = {}) =>
+    request<AuditPage>('GET', `/audit${qs(f)}`),
 
   pincodes: () => request<Pincode[]>('GET', '/pincodes'),
   addPincode: (input: { pincode: string; city: string; zone?: string }) =>

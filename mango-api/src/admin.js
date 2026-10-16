@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import express from 'express'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
+import { audit, auditStaffChanges, limitByRole, ROLES } from './access.js'
 import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
@@ -66,6 +67,7 @@ router.post(
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH)
     if (!user || !ok) throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
     const refresh = await issueRefresh(user.id, 'admin')
+    await audit(user, 'auth.login', { requestId: req.id })
     res.cookie(COOKIE, refresh.token, { ...cookieOptions(), expires: refresh.expiresAt })
     res.json({ accessToken: signAccess({ sub: user.id, email: user.email, role: user.role, typ: 'admin' }), expiresIn: ACCESS_TTL_S })
   }),
@@ -93,12 +95,13 @@ router.post(
   }),
 )
 
-router.use(requireAdmin)
+router.use(requireAdmin, limitByRole, auditStaffChanges)
 
 router.get('/auth/me', (req, res) => res.json({ email: req.admin.email, role: req.admin.role }))
 
 // ---------------------------------------------------------------- helpers
 
+const AUDIT_PAGE = 50
 const available = (l) => Math.max(0, l.on_hand - l.held - l.committed - l.reserve_buffer)
 
 // ---------------------------------------------------------------- dashboard
@@ -771,6 +774,112 @@ router.post(
     )
     if (!r.rowCount) throw notFound('No failed message with that id')
     res.status(204).end()
+  }),
+)
+
+// ---------------------------------------------------------------- staff
+
+const staffDto = (u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.created_at })
+const password = z.string().min(10, 'Use at least 10 characters').max(200)
+
+router.get(
+  '/staff',
+  requireManager,
+  asyncHandler(async (_req, res) => res.json((await query('SELECT id, email, role, created_at FROM admin_users ORDER BY email')).rows.map(staffDto))),
+)
+
+router.post(
+  '/staff',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password }), req.body)
+    const { rows } = await query(
+      `INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (email) DO NOTHING RETURNING id, email, role, created_at`,
+      [newId('adm'), b.email, await bcrypt.hash(b.password, 10), b.role],
+    )
+    if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
+    req.params.id = rows[0].id
+    res.status(201).json(staffDto(rows[0]))
+  }),
+)
+
+/** Changes a person's role or password. Their open sessions end, so they sign in again under the change. */
+router.patch(
+  '/staff/:id',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ role: z.enum(ROLES).optional(), password: password.optional() }), req.body)
+    if (req.params.id === req.admin.id && b.role && b.role !== 'MANAGER') throw badRequest('You cannot remove your own manager role', 'SELF_DEMOTE')
+    const hash = b.password ? await bcrypt.hash(b.password, 10) : null
+    const result = await tx(async (c) => {
+      const { rows } = await c.query(
+        `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash) WHERE id = $1
+         RETURNING id, email, role, created_at`,
+        [req.params.id, b.role ?? null, hash],
+      )
+      if (!rows.length) throw notFound('No staff member with that id')
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      return rows[0]
+    })
+    res.json(staffDto(result))
+  }),
+)
+
+/** Removes someone's access. Their open sessions end; an access token already issued lapses within 15 minutes. */
+router.delete(
+  '/staff/:id',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    if (req.params.id === req.admin.id) throw badRequest('You cannot remove yourself', 'SELF_REMOVE')
+    await tx(async (c) => {
+      const r = await c.query('DELETE FROM admin_users WHERE id = $1', [req.params.id])
+      if (!r.rowCount) throw notFound('No staff member with that id')
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+    })
+    res.status(204).end()
+  }),
+)
+
+/** The staff audit trail, newest first. Managers only. */
+router.get(
+  '/audit',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const f = parse(
+      z.object({
+        staff: z.string().trim().toLowerCase().max(200).optional(),
+        target: z.string().trim().max(100).optional(),
+        from: z.string().refine(isDate).optional(),
+        to: z.string().refine(isDate).optional(),
+        page: z.coerce.number().int().min(1).max(10_000).default(1),
+      }),
+      req.query,
+    )
+    const where = []
+    const params = []
+    const add = (sql, v) => {
+      params.push(v)
+      where.push(sql.replace('?', `$${params.length}`))
+    }
+    if (f.staff) add('email = ?', f.staff)
+    if (f.target) add('target LIKE ?', `${f.target.replace(/[%_\\]/g, '\\$&')}%`)
+    if (f.from) add("created_at >= (?::date)::timestamp AT TIME ZONE 'Asia/Kolkata'", f.from)
+    if (f.to) add("created_at < ((?::date) + 1)::timestamp AT TIME ZONE 'Asia/Kolkata'", f.to)
+    const w = where.length ? `WHERE ${where.join(' AND ')}` : ''
+    const total = (await query(`SELECT COUNT(*)::int AS n FROM staff_audit ${w}`, params)).rows[0].n
+    const { rows } = await query(
+      `SELECT * FROM staff_audit ${w} ORDER BY created_at DESC, id DESC LIMIT ${AUDIT_PAGE} OFFSET ${(f.page - 1) * AUDIT_PAGE}`,
+      params,
+    )
+    const staff = (await query('SELECT email, role FROM admin_users ORDER BY email')).rows
+    res.json({
+      page: f.page,
+      pageSize: AUDIT_PAGE,
+      total,
+      staff,
+      items: rows.map((a) => ({ id: a.id, at: a.created_at, email: a.email, role: a.role, action: a.action, target: a.target, detail: a.detail })),
+    })
   }),
 )
 

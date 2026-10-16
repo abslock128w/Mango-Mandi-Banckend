@@ -26,6 +26,7 @@ the ripeness and stock engine.
 | Planning | `/planning` | Stock by delivery date and ripeness, delivery calendar, Move a day's orders (managers), slots, selling rules (managers edit) |
 | Preorders | `/preorders` | Weekly preorder capacity (managers set) and bookings |
 | Analytics | `/analytics` | Season numbers: sales, wastage, at-risk and claims by week and product |
+| Staff | `/staff` | Managers add people, set roles and passwords, and read the activity log of every change |
 
 **Thin client.** The UI never computes stock or money. Every total and availability
 figure is formatted straight from the API; the backend stays the single authority.
@@ -145,15 +146,22 @@ The Playwright report is uploaded as an artifact on failure.
 - On any 401 the client refreshes once and retries once; concurrent 401s share a
   single refresh call. A failed refresh signs the user out.
 
-## Roles (v2)
+## Roles
 
-The app expects `GET /admin/v1/auth/me` to return `{ email, role }` with role
-`OPERATOR` or `MANAGER`. The signed-in identity shows in the nav. Irreversible actions
-are **manager-only** and appear disabled with "Requires manager role" for operators:
-condemning a batch, deleting a pincode, editing the selling rules and moving a whole day's orders. Everything else (receiving stock, QC, stock
-adjustments, status moves, cancelling orders, adding/deactivating pincodes, starting
-a claim review, resolving a claim as replacement or reject) is open to both roles.
-See `src/permissions.ts` — confirm this split before launch (PRD Q1).
+`GET /admin/v1/auth/me` returns `{ email, role }` with role `MANAGER`, `OPERATOR`,
+`PACKER` or `QC`. The signed-in identity shows in the nav.
+
+- **Packer**: Pack list, Deliveries and order pages; allocate, pack and move orders
+  through delivery. No cancelling or moving dates.
+- **QC**: Batches only; receive, log QC, adjust counts, move a batch forward.
+- **Operator**: every screen except Staff. Irreversible actions are **manager-only** and
+  appear disabled with "Requires manager role": condemning a batch, deleting a pincode,
+  editing the selling rules and moving a whole day's orders.
+- **Manager**: everything, plus the Staff screen and its activity log.
+
+Packers and QC land on their own screen; other screens show "Not available for your
+role" and are hidden from the nav. The API enforces the same split on its own
+(`mango-api/src/access.js`); the panel's copy is `src/permissions.ts`.
 
 ## Replacements, not refunds
 

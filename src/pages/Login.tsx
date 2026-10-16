@@ -14,7 +14,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  const from = (location.state as { from?: string } | null)?.from ?? '/today'
+  const from = (location.state as { from?: string } | null)?.from ?? '/'
   if (me) return <Navigate to={from} replace />
 
   async function onSubmit(e: FormEvent) {

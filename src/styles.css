@@ -781,3 +781,11 @@ dl.kv dd {
     border: 1px solid #000;
   }
 }
+
+.role-hints {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+}
+.role-hints li + li {
+  margin-top: 0.15rem;
+}

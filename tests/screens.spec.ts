@@ -362,3 +362,71 @@ for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1'
     expect(overflow).toBeLessThanOrEqual(0)
   })
 }
+
+test('a packer sees only the pack list, deliveries and order steps', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'PACKER' })
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/pack-list/)
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav.getByRole('link', { name: 'Pack list' })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Deliveries' })).toBeVisible()
+  for (const name of ['Today', 'Batches', 'Orders', 'Claims', 'Pincodes', 'Planning', 'Staff']) {
+    await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0)
+  }
+  await expect(nav).toContainText('packer@vmr.test · Packer')
+
+  await page.goto('/orders/o1')
+  await expect(page.getByRole('heading', { name: /^Order ORD-1042/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel order' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Move delivery date' })).toHaveCount(0)
+
+  await page.goto('/orders')
+  await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
+  await page.getByRole('link', { name: 'Go to your home screen' }).click()
+  await expect(page).toHaveURL(/\/pack-list/)
+})
+
+test('QC staff land on batches and see nothing else', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'QC' })
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/batches/)
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav.getByRole('link', { name: 'Batches' })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Pack list' })).toHaveCount(0)
+  await page.goto('/today')
+  await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
+})
+
+test('Staff: a manager adds a packer, changes a role and reads the activity log', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/staff')
+  await expect(page.getByRole('heading', { name: 'Staff', level: 1 })).toBeVisible()
+  await expect(page.getByLabel('Role for manager@vmr.test')).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Add person' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add person' })
+  await dialog.getByLabel('Work email').fill('ravi@vmr.test')
+  await dialog.getByLabel('First password').fill('short')
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(dialog).toContainText('at least 10 characters')
+  await dialog.getByLabel('First password').fill('long-enough-1')
+  await dialog.getByRole('button', { name: 'Add' }).click()
+  await expect(page.getByText('ravi@vmr.test added as Packer')).toBeVisible()
+  expect(api.calls.find((c) => c.method === 'POST' && c.path === '/staff')?.body).toEqual({ email: 'ravi@vmr.test', role: 'PACKER', password: 'long-enough-1' })
+
+  await page.getByLabel('Role for ops@vmr.test').selectOption('QC')
+  await expect(page.getByText('ops@vmr.test is now QC. They will need to sign in again.')).toBeVisible()
+
+  const log = page.getByRole('region', { name: 'Activity' })
+  await expect(log).toContainText('Set order to Packed')
+  await expect(log).toContainText('Logged QC')
+  await expect(log.getByRole('link', { name: 'Open order' })).toHaveAttribute('href', '/orders/o1')
+})
+
+test('Staff is a manager-only screen', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await page.goto('/today')
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Staff' })).toHaveCount(0)
+  await page.goto('/staff')
+  await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
+})

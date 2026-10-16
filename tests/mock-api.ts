@@ -1,10 +1,10 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention } from '../src/types'
+import type { Attention, AuditEntry, StaffMember } from '../src/types'
 
 // A small in-memory stand-in for mango-api's /admin/v1, so the UI can be
 // exercised in CI without a database. Shapes follow the API reference (§6).
 
-export type Role = 'MANAGER' | 'OPERATOR'
+export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC'
 
 export interface MockOptions {
   /** Signed in already (refresh succeeds) or not (refresh returns 401). */
@@ -19,8 +19,17 @@ const json = (route: Route, status: number, body?: unknown) =>
     body: body === undefined ? '' : JSON.stringify(body),
   })
 
+const EMAIL: Record<Role, string> = { MANAGER: 'manager@vmr.test', OPERATOR: 'ops@vmr.test', PACKER: 'packer@vmr.test', QC: 'qc@vmr.test' }
+
 export function seed() {
   return {
+    staff: (['MANAGER', 'OPERATOR', 'PACKER', 'QC'] as Role[]).map(
+      (role, i): StaffMember => ({ id: `adm${i + 1}`, email: EMAIL[role], role, createdAt: '2026-10-01T04:30:00Z' }),
+    ),
+    audit: [
+      { id: 'aud2', at: '2026-10-16T05:10:00Z', email: 'packer@vmr.test', role: 'PACKER', action: 'PATCH /orders/:id/status', target: 'o1', detail: { status: 'PACKED' } },
+      { id: 'aud1', at: '2026-10-16T05:00:00Z', email: 'qc@vmr.test', role: 'QC', action: 'POST /batches/:id/qc', target: 'b1', detail: { ripeness: 'SEMI_RIPE', condition: 'GOOD' } },
+    ] as AuditEntry[],
     summary: {
       orders: { CONFIRMED: 3, PROCESSING: 1, PACKED: 2, SHIPPED: 0, OUT_FOR_DELIVERY: 1, DELIVERY_FAILED: 0, PAYMENT_PENDING: 5 },
       openClaims: 2,
@@ -251,7 +260,29 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return route.fulfill({ status: 204 })
     }
     if (!state.signedIn) return json(route, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized', requestId: 'req_z' } })
-    if (path === '/auth/me') return json(route, 200, { email: state.role === 'MANAGER' ? 'manager@vmr.test' : 'ops@vmr.test', role: state.role })
+    if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role })
+
+    if (path === '/staff' && method === 'GET') return json(route, 200, state.staff)
+    if (path === '/staff' && method === 'POST') {
+      const b = body as { email: string; role: Role }
+      const s: StaffMember = { id: `adm${state.staff.length + 1}`, email: b.email, role: b.role, createdAt: '2026-10-16T06:00:00Z' }
+      state.staff = [...state.staff, s]
+      return json(route, 201, s)
+    }
+    if (/^\/staff\/[^/]+$/.test(path)) {
+      const staffId = path.split('/')[2]
+      if (method === 'DELETE') {
+        state.staff = state.staff.filter((s) => s.id !== staffId)
+        return route.fulfill({ status: 204 })
+      }
+      state.staff = state.staff.map((s) => (s.id === staffId ? { ...s, ...((body as { role?: Role }).role ? { role: (body as { role: Role }).role } : {}) } : s))
+      return json(route, 200, state.staff.find((s) => s.id === staffId))
+    }
+    if (path === '/audit') {
+      const who = url.searchParams.get('staff')
+      const items = who ? state.audit.filter((a) => a.email === who) : state.audit
+      return json(route, 200, { page: 1, pageSize: 50, total: items.length, items, staff: state.staff.map(({ email, role }) => ({ email, role })) })
+    }
 
     if (path === '/summary') return json(route, 200, state.summary)
     if (path === '/attention') return json(route, 200, state.attention)

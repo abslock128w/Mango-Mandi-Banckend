@@ -19,14 +19,18 @@ API** — the panel only displays what the backend returns.
 
 ## 2. Who uses it
 
-One login per staff member, with two roles:
+One login per staff member, with four roles. Managers add people and set roles on the
+**Staff** screen.
 
-| Role | Can do | Cannot do |
-|------|--------|-----------|
-| **Operator** | Receive stock, log QC, adjust stock, move batch/order status, allocate & pack, cancel orders, add/deactivate pincodes, start claim review, approve replacement/reject | Condemn a batch, delete a pincode |
-| **Manager** | Everything an operator can, **plus** condemning batches and deleting pincodes | — |
+| Role | Sees | Can do | Cannot do |
+|------|------|--------|-----------|
+| **Packer** | Pack list, Deliveries, order pages | Allocate and pack, mark packed, shipped, out for delivery, delivered or missed | Cancel or move orders, anything outside packing and delivery |
+| **QC** | Batches | Receive stock, log QC, adjust stock counts, move a batch forward | Condemn a batch, see orders or customers |
+| **Operator** | Every screen except Staff | Everything above, plus cancel orders, add/deactivate pincodes, claims | Condemn a batch, delete a pincode, edit rules, move a whole day |
+| **Manager** | Everything | Everything, plus Staff and the activity log | — |
 
-Manager-only buttons appear **disabled with "Requires manager role"** for operators.
+Packers and QC staff land on their own screen after signing in, and other screens say
+"Not available for your role". Manager-only buttons appear **disabled with "Requires manager role"** for operators.
 
 ---
 
@@ -48,6 +52,8 @@ If it's unset, a red banner warns you.
 |-------|----------|------|
 | `manager@vmr.test` | `manager123` | Manager |
 | `ops@vmr.test` | `operator123` | Operator |
+| `packer@vmr.test` | `packer123` | Packer |
+| `qc@vmr.test` | `qc123` | QC |
 
 ### Signing in
 Email + password. A wrong login shows a generic "Invalid credentials" (it never

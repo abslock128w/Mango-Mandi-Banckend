@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict } from '../api'
 import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
 import type { NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
+import { PACKER_STATUSES, can, canSee } from '../permissions'
+import { useSession } from '../session'
 import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
@@ -94,6 +96,9 @@ function useOrderRefresh(orderId: string) {
 }
 
 function OrderView({ order }: { order: Order }) {
+  const { me } = useSession()
+  const changeOrder = can(me?.role, 'changeOrder')
+  const openBatches = canSee(me?.role, 'batches')
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
   const [dialog, setDialog] = useState<'cancel' | 'reschedule' | null>(null)
@@ -124,7 +129,7 @@ function OrderView({ order }: { order: Order }) {
   })
 
   const busy = move.isPending || allocate.isPending
-  const moves = movesFor(order.status)
+  const moves = movesFor(order.status).filter((m) => me?.role !== 'PACKER' || PACKER_STATUSES.includes(m.to))
 
   return (
     <>
@@ -178,17 +183,17 @@ function OrderView({ order }: { order: Order }) {
             </button>
           )
         })}
-        {ALLOCATABLE.includes(order.status) && (
+        {changeOrder && ALLOCATABLE.includes(order.status) && (
           <button type="button" className="btn" disabled={busy} onClick={() => setDialog('reschedule')}>
             Move delivery date
           </button>
         )}
-        {CANCELLABLE.includes(order.status) && (
+        {changeOrder && CANCELLABLE.includes(order.status) && (
           <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
             Cancel order
           </button>
         )}
-        {moves.length === 0 && !CANCELLABLE.includes(order.status) && (
+        {moves.length === 0 && !(changeOrder && CANCELLABLE.includes(order.status)) && (
           <span className="muted">No actions available.</span>
         )}
       </div>
@@ -249,9 +254,13 @@ function OrderView({ order }: { order: Order }) {
                     {order.stock.map((s, i) => (
                       <tr key={s.id ?? i}>
                         <td>
-                          <Link to={`/batches/${s.batchId}`}>
-                            {s.variety} · {date(s.pluckedOn)}
-                          </Link>
+                          {openBatches ? (
+                            <Link to={`/batches/${s.batchId}`}>
+                              {s.variety} · {date(s.pluckedOn)}
+                            </Link>
+                          ) : (
+                            `${s.variety} · ${date(s.pluckedOn)}`
+                          )}
                         </td>
                         <td>{s.sku ?? '—'}</td>
                         <td className="num">{s.quantity}</td>

@@ -2,7 +2,7 @@
 // Money is always integer paise. Dates are "YYYY-MM-DD" (date-only columns)
 // or ISO timestamps.
 
-export type Role = 'OPERATOR' | 'MANAGER'
+export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC'
 
 export interface Me {
   email: string
@@ -458,4 +458,26 @@ export interface Attention {
   }[]
   stuckRefunds: { type: 'order' | 'preorder'; id: string; number: string; requestedAt: string }[]
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
+}
+
+export interface StaffMember {
+  id: string
+  email: string
+  role: Role
+  createdAt: string
+}
+
+/** One staff change. `action` is the route ("PATCH /orders/:id/status") or "auth.login". */
+export interface AuditEntry {
+  id: string
+  at: string
+  email: string
+  role: Role
+  action: string
+  target: string | null
+  detail: Record<string, unknown> | null
+}
+
+export interface AuditPage extends Paged<AuditEntry> {
+  staff: { email: string; role: Role }[]
 }
