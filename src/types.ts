@@ -387,3 +387,29 @@ export interface BulkMoveResult {
   moved: (BulkMoveOrder & { deliveryDate: string })[]
   notMoved: (BulkMoveOrder & { reason: string })[]
 }
+
+/** One delivery on the rider manifest. Every order is prepaid: nothing to collect. */
+export interface ManifestOrder {
+  id: string
+  number: string
+  customerName: string
+  phone: string
+  deliveryAddress: string | null
+  status: OrderStatus
+  packed: boolean
+  boxes: number
+  items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
+}
+
+/** A day's delivery run: one run per slot (or one with no slot), stops by pincode. */
+export interface Manifest {
+  date: string
+  orders: number
+  boxes: number
+  runs: {
+    slot: { id: string; label: string; startsAt: string; endsAt: string } | null
+    orders: number
+    boxes: number
+    stops: { pincode: string; city: string | null; zone: string | null; orders: ManifestOrder[] }[]
+  }[]
+}

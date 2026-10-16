@@ -8,6 +8,7 @@ const LINKS: [string, string][] = [
   ['/batches', 'Batches'],
   ['/orders', 'Orders'],
   ['/pack-list', 'Pack list'],
+  ['/deliveries', 'Deliveries'],
   ['/claims', 'Claims'],
   ['/pincodes', 'Pincodes'],
   ['/planning', 'Planning'],

@@ -703,6 +703,10 @@ dl.kv dd {
   .print-only {
     display: block;
   }
+  th.print-only,
+  td.print-only {
+    display: table-cell;
+  }
   main.content {
     max-width: none;
     padding: 0;

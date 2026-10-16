@@ -629,6 +629,68 @@ router.get(
   }),
 )
 
+// ---------------------------------------------------------------- rider manifest
+
+const MANIFEST_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED', 'DELIVERED']
+
+/**
+ * The delivery run for a date: slots in order, then stops grouped by zone and
+ * pincode, each with the address, phone and boxes. Every order is prepaid, so
+ * riders collect nothing. Orders not packed yet are flagged.
+ */
+router.get(
+  '/manifest',
+  asyncHandler(async (req, res) => {
+    const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
+    const { rows: orders } = await query(
+      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id,
+              s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
+         FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
+        WHERE o.delivery_date = $1 AND o.status = ANY($2)
+        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, o.number`,
+      [date, MANIFEST_STATUSES],
+    )
+    const { rows: items } = await query(
+      'SELECT order_id, sku, stage, SUM(quantity)::int AS quantity FROM order_items WHERE order_id = ANY($1) GROUP BY order_id, sku, stage ORDER BY sku, stage',
+      [orders.map((o) => o.id)],
+    )
+    const runs = []
+    for (const o of orders) {
+      let run = runs.at(-1)
+      if (!run || run.key !== (o.slot_id ?? null)) {
+        run = {
+          key: o.slot_id ?? null,
+          slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.starts_at).slice(0, 5), endsAt: String(o.ends_at).slice(0, 5) } : null,
+          stops: [],
+          orders: 0,
+          boxes: 0,
+        }
+        runs.push(run)
+      }
+      let stop = run.stops.at(-1)
+      if (!stop || stop.pincode !== o.pincode) {
+        stop = { pincode: o.pincode, city: o.city ?? null, zone: o.zone ?? null, orders: [] }
+        run.stops.push(stop)
+      }
+      const lines = items.filter((i) => i.order_id === o.id)
+      const boxes = lines.reduce((n, i) => n + i.quantity, 0)
+      stop.orders.push({
+        id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, deliveryAddress: o.delivery_address, status: o.status,
+        packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,
+        items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
+      })
+      run.orders++
+      run.boxes += boxes
+    }
+    res.json({
+      date,
+      orders: orders.length,
+      boxes: runs.reduce((n, r) => n + r.boxes, 0),
+      runs: runs.map(({ key, ...r }) => r),
+    })
+  }),
+)
+
 // ---------------------------------------------------------------- claims
 
 router.get(

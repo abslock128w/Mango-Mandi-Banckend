@@ -1,4 +1,4 @@
-// Phase 3 season ops: bulk reschedule.
+// Phase 3 season ops: bulk reschedule and the rider manifest.
 import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -26,9 +26,9 @@ beforeEach(async () => {
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
 const bulk = (body, token = admin) => api.post('/admin/v1/orders/bulk-reschedule', body, { token })
 const order = async (id) => (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
-const place = async (items) => {
+const place = async (items, opts = {}) => {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, items, { deliveryDate: '2026-10-16' })
+  const c = await checkout(api, cust.accessToken, items, { deliveryDate: '2026-10-16', ...opts })
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await pay(c.body.orderId)
   return c.body.orderId
@@ -90,5 +90,33 @@ describe('bulk reschedule', () => {
     assert.deepEqual(paramsFor({ kind: 'DATE_MOVED', customer_name: 'Asha', number: 'ORD-1', delivery_date: '2026-10-17' }), [
       'Asha', 'ORD-1', 'Sat, 17 Oct', 'during the day',
     ])
+  })
+})
+
+describe('rider manifest', () => {
+  test('groups the day by slot, then pincode, with boxes and packed flags', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const morning = (await api.post('/admin/v1/slots', { label: 'Morning', startsAt: '07:00', endsAt: '11:00', sort: 1 }, { token: admin })).body
+    const evening = (await api.post('/admin/v1/slots', { label: 'Evening', startsAt: '16:00', endsAt: '20:00', sort: 2 }, { token: admin })).body
+    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { slotId: evening.id, pincode: '560034' })
+    const b = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
+    const c = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
+    await api.patch(`/admin/v1/orders/${c}/status`, { status: 'PROCESSING' }, { token: admin })
+    await api.post(`/admin/v1/orders/${c}/allocate`, undefined, { token: admin })
+    assert.equal((await api.patch(`/admin/v1/orders/${c}/status`, { status: 'PACKED' }, { token: admin })).status, 204)
+    const unpaid = await customerToken(api)
+    await checkout(api, unpaid.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16', slotId: morning.id })
+
+    const m = (await api.get('/admin/v1/manifest?date=2026-10-16', { token: admin })).body
+    assert.equal(m.orders, 3) // the unpaid checkout is left off
+    assert.equal(m.boxes, 4)
+    assert.deepEqual(m.runs.map((r) => [r.slot.label, r.orders, r.boxes]), [['Morning', 2, 2], ['Evening', 1, 2]])
+    const stop = m.runs[0].stops[0]
+    assert.deepEqual([stop.pincode, stop.city, stop.zone], ['560008', 'Bengaluru', 'East'])
+    assert.deepEqual(stop.orders.map((o) => [o.id, o.packed]).sort(), [[b, false], [c, true]].sort())
+    assert.equal(m.runs[1].stops[0].orders[0].id, a)
+    assert.deepEqual(m.runs[1].stops[0].orders[0].items, [{ sku: 'ALP-3', productName: m.runs[1].stops[0].orders[0].items[0].productName, stage: 'RIPE', quantity: 2 }])
+    assert.equal((await api.get('/admin/v1/manifest?date=2026-10-20', { token: admin })).body.runs.length, 0)
+    assert.equal((await api.get('/admin/v1/manifest?date=tomorrow', { token: admin })).status, 400)
   })
 })

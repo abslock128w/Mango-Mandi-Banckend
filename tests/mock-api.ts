@@ -110,6 +110,35 @@ export function seed() {
       events: [{ status: 'DELIVERED', actor: 'ops@vmr.test', reason: null, createdAt: '2026-10-13T10:00:00Z' }],
       payment: { status: 'SUCCEEDED', method: 'card', amount: 129900 },
     },
+    manifest: {
+      date: '2026-10-16',
+      orders: 2,
+      boxes: 3,
+      runs: [
+        {
+          slot: { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00' },
+          orders: 2,
+          boxes: 3,
+          stops: [
+            {
+              pincode: '400001',
+              city: 'Mumbai',
+              zone: 'South',
+              orders: [
+                {
+                  id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', deliveryAddress: '12 Marine Drive',
+                  status: 'PACKED', packed: true, boxes: 2, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
+                },
+                {
+                  id: 'o3', number: 'ORD-1044', customerName: 'Vikram Shah', phone: '9876500000', deliveryAddress: null,
+                  status: 'CONFIRMED', packed: false, boxes: 1, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'SEMI_RIPE', quantity: 1 }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
     packList: [
       {
         id: 'o1',
@@ -255,6 +284,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/orders\/[^/]+\/(status|allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
+    if (path === '/manifest') return json(route, 200, state.manifest)
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
 

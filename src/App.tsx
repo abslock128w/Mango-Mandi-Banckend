@@ -13,6 +13,7 @@ import BatchDetail from './pages/BatchDetail'
 import Orders from './pages/Orders'
 import OrderDetail from './pages/OrderDetail'
 import PackList from './pages/PackList'
+import Deliveries from './pages/Deliveries'
 import Claims from './pages/Claims'
 import Pincodes from './pages/Pincodes'
 import Planning from './pages/Planning'
@@ -87,6 +88,7 @@ export default function App() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/orders/:id" element={<OrderDetail />} />
             <Route path="/pack-list" element={<PackList />} />
+            <Route path="/deliveries" element={<Deliveries />} />
             <Route path="/claims" element={<Claims />} />
             <Route path="/pincodes" element={<Pincodes />} />
             <Route path="/planning" element={<Planning />} />

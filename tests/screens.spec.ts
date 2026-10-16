@@ -292,6 +292,18 @@ test("Planning: moving a day's orders checks first, then lists what didn't move"
   ])
 })
 
+test('Deliveries: the rider run by slot and pincode, flagging unpacked orders', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/deliveries?date=2026-10-16')
+  await expect(page.getByText('2 orders, 3 boxes. Every order is paid: riders collect nothing.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Morning · 07:00–11:00' })).toBeVisible()
+  const stop = page.getByRole('region', { name: 'Morning · 07:00–11:00, 400001' })
+  await expect(stop.getByRole('row', { name: /ORD-1042/ })).toContainText('12 Marine Drive')
+  await expect(stop.getByRole('row', { name: /ORD-1044/ })).toContainText('Not packed yet')
+  await expect(stop.getByRole('link', { name: '9876543210' })).toHaveAttribute('href', 'tel:+919876543210')
+  expect(api.calls.some((c) => c.path === '/manifest')).toBe(true)
+})
+
 test('Operators cannot edit selling rules', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/planning')
@@ -301,7 +313,7 @@ test('Operators cannot edit selling rules', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Switch off Morning/ })).toBeDisabled()
 })
 
-for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes', '/planning', '/preorders']) {
+for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/deliveries', '/claims', '/pincodes', '/planning', '/preorders']) {
   test(`${path} has no horizontal page scroll`, async ({ page }) => {
     await mockApi(page, { signedIn: true })
     await page.goto(path)
