@@ -28,6 +28,9 @@ import type {
   CalendarDay,
   CoverageDay,
   DeliverySlot,
+  Preorder,
+  PreorderCapacity,
+  PreorderStatus,
   Summary,
 } from './types'
 
@@ -236,6 +239,10 @@ export const api = {
   setCalendarDay: (day: CalendarDay) =>
     request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
   clearCalendarDay: (date: string) => request<void>('DELETE', `/calendar/${id(date)}`),
+  preorders: (status?: PreorderStatus | null) => request<Preorder[]>('GET', `/preorders${qs({ status })}`),
+  preorderCapacity: () => request<PreorderCapacity[]>('GET', '/preorder-capacity'),
+  setPreorderCapacity: (weekStart: string, sku: string, capacity: number) =>
+    request<unknown>('PUT', `/preorder-capacity/${id(weekStart)}/${id(sku)}`, { capacity }),
   slots: () => request<DeliverySlot[]>('GET', '/slots'),
   addSlot: (input: Omit<DeliverySlot, 'id' | 'active' | 'sort'> & { sort?: number }) =>
     request<DeliverySlot>('POST', '/slots', input),

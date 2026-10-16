@@ -9,6 +9,7 @@ import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
+import { findPreorderId, processPreorderPayment, refundPreorder } from './preorders.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
@@ -43,12 +44,12 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
  * A Razorpay payment link for an order placed in the WhatsApp chat. Razorpay
  * does not send its own SMS or email; the link goes out in the chat.
  */
-export async function createPaymentLink({ amount, number, orderId, name, phone }) {
+export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description }) {
   if (hasKeys()) {
     const link = await razorpay('POST', '/payment_links', {
-      amount, currency: 'INR', accept_partial: false, reference_id: number, description: `VMR Mangoes order ${number}`,
+      amount, currency: 'INR', accept_partial: false, reference_id: number, description: description ?? `VMR Mangoes order ${number}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
-      notes: { orderId },
+      notes: preorderId ? { preorderId } : { orderId },
     })
     return { id: link.id, url: link.short_url }
   }
@@ -57,7 +58,7 @@ export async function createPaymentLink({ amount, number, orderId, name, phone }
   return { id, url: `https://rzp.io/i/${id}` }
 }
 
-async function fetchLinkPayments(linkId) {
+export async function fetchLinkPayments(linkId) {
   if (hasKeys()) {
     const link = await razorpay('GET', `/payment_links/${encodeURIComponent(linkId)}`)
     return (link.payments ?? []).map((p) => ({ id: p.payment_id, status: p.status, amount: p.amount, method: p.method }))
@@ -107,6 +108,14 @@ export async function handleWebhook(event, eventId) {
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
     if (!orderId) {
+      const preorderId = await findPreorderId(c, entity, link)
+      if (preorderId) {
+        const r = await processPreorderPayment(c, {
+          preorderId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
+          amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
+        })
+        return { result: r, preorderId }
+      }
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
       return { unknownOrder: true }
     }
@@ -119,7 +128,8 @@ export async function handleWebhook(event, eventId) {
     })
     return { result: r.result, orderId }
   }).then(async (out) => {
-    if (out.result === 'refund_due') await refundOrder(out.orderId).catch(() => {}) // maintenance retries
+    if (out.result === 'refund_due' && out.orderId) await refundOrder(out.orderId).catch(() => {}) // maintenance retries
+    if (out.result === 'refund_due' && out.preorderId) await refundPreorder(out.preorderId).catch(() => {})
     return out
   })
 }
@@ -152,6 +162,22 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
 }
 
 /**
+ * Refunds a payment in full at Razorpay, reusing a refund already made for it
+ * so a retry never pays twice. Returns the refund id (null in production
+ * without keys). Throws on gateway errors.
+ */
+export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
+  if (hasKeys()) {
+    if (!paymentId) throw new Error(`${receipt} has no payment id to refund`)
+    const pid = encodeURIComponent(paymentId)
+    const existing = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).find((r) => r.status !== 'failed')
+    return (existing ?? (await razorpay('POST', `/payments/${pid}/refund`, { amount, receipt, notes }))).id
+  }
+  if (isProd) return null
+  return `rfnd_dev_${newId('r').slice(2)}`
+}
+
+/**
  * Sends the full refund for an order whose customer cancelled after paying.
  * Safe to repeat: it looks for a refund already made for the order before
  * creating one, and the database is updated only once. Throws on gateway
@@ -164,20 +190,8 @@ export async function refundOrder(orderId) {
   )
   const o = rows[0]
   if (!o) return null
-  let refundId
-  if (hasKeys()) {
-    if (!o.payment_id) throw new Error(`order ${o.number} has no payment id to refund`)
-    const pid = encodeURIComponent(o.payment_id)
-    const existing = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).find((r) => r.status !== 'failed')
-    const refund =
-      existing ??
-      (await razorpay('POST', `/payments/${pid}/refund`, { amount: o.payment_amount ?? o.total, receipt: o.number, notes: { orderId: o.id } }))
-    refundId = refund.id
-  } else if (isProd) {
-    return null
-  } else {
-    refundId = `rfnd_dev_${newId('r').slice(2)}`
-  }
+  const refundId = await gatewayRefund({ paymentId: o.payment_id, amount: o.payment_amount ?? o.total, receipt: o.number, notes: { orderId: o.id } })
+  if (!refundId) return null
   try {
     return await tx(async (c) => {
       const r = await c.query(
@@ -202,6 +216,14 @@ export async function processDueRefunds() {
     'SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50',
   )
   let n = 0
+  const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
+  for (const p of pre.rows) {
+    try {
+      if (await refundPreorder(p.id)) n++
+    } catch (err) {
+      logger.error({ err, preorderId: p.id }, 'preorder refund failed; will retry')
+    }
+  }
   for (const o of rows) {
     try {
       if (await refundOrder(o.id)) n++

@@ -8,6 +8,7 @@ import { isProd } from './env.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { productName } from './products.js'
 import { templateName, whatsappSender } from './whatsapp.js'
 
 const RETRY_MINUTES = [1, 5, 15, 60, 180]
@@ -34,6 +35,17 @@ export async function enqueue(c, orderId, eventId, kind) {
   )
 }
 
+/** Queues a preorder message (booked, spot open, moved, refunded). */
+export async function enqueuePreorder(c, preorderId, kind) {
+  const { rows } = await c.query('SELECT phone FROM preorders WHERE id = $1', [preorderId])
+  if (!rows[0]?.phone) return
+  const at = now()
+  await c.query(
+    `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+    [newId('ntf'), preorderId, newId('pev'), kind, rows[0].phone, at],
+  )
+}
+
 /** Called for every order event; queues the matching update. */
 export async function enqueueForEvent(c, orderId, eventId, from, to) {
   if (from === to) return
@@ -44,6 +56,8 @@ export async function enqueueForEvent(c, orderId, eventId, from, to) {
 
 const IST_DATE = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
 export const dateWords = (d) => IST_DATE.format(new Date(`${d}T00:00:00Z`))
+/** "week of Mon, 2 Mar" */
+export const weekWords = (d) => `the week of ${dateWords(d)}`
 export const timeWords = (t) => {
   const [h, m] = String(t).split(':').map(Number)
   return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`
@@ -64,6 +78,11 @@ export function paramsFor(n) {
       return [name, n.number, dateWords(n.delivery_date)]
     case 'REFUNDED':
       return [name, n.number, rupees(n.payment_amount ?? n.total)]
+    case 'PREORDER_BOOKED':
+    case 'PREORDER_MOVED':
+      return [name, n.number, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start)]
+    case 'PREORDER_SPOT_OPEN':
+      return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
     default:
       return [name, n.number]
   }
@@ -78,8 +97,11 @@ async function mark(id, fields) {
 export async function sendDueNotifications({ sender = whatsappSender, limit = 50 } = {}) {
   const at = now()
   const { rows } = await query(
-    `SELECT n.*, o.number, o.customer_name, o.delivery_date, o.total, o.payment_amount, s.starts_at, s.ends_at
-       FROM notifications n JOIN orders o ON o.id = n.order_id LEFT JOIN delivery_slots s ON s.id = o.slot_id
+    `SELECT n.*, COALESCE(o.number, p.number) AS number, COALESCE(o.customer_name, p.customer_name) AS customer_name,
+            o.delivery_date, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
+            s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url
+       FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
+       LEFT JOIN delivery_slots s ON s.id = o.slot_id
       WHERE n.status = 'PENDING' AND n.next_attempt_at <= $1 ORDER BY n.next_attempt_at LIMIT $2`,
     [at, limit],
   )

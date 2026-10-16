@@ -336,3 +336,37 @@ export interface CoverageDay {
 export interface ApiErrorBody {
   error?: { code?: string; message?: string; requestId?: string }
 }
+
+export type PreorderStatus = 'PAYMENT_PENDING' | 'BOOKED' | 'WAITLISTED' | 'CONVERTED' | 'CANCELLED'
+
+/** A customer's booking for a delivery week, before the fruit exists. */
+export interface Preorder {
+  id: string
+  number: string
+  status: PreorderStatus
+  sku: string
+  productName: string
+  stage: Ripeness
+  qty: number
+  unitPrice: number
+  total: number
+  weekStart: string
+  pincode: string
+  customerName: string | null
+  phone: string
+  channel: 'app' | 'whatsapp'
+  paymentStatus: string | null
+  movedCount: number
+  createdAt: string
+  refund: { requestedAt: string; refundedAt: string | null; id: string | null } | null
+  order: { id: string; number: string; status: OrderStatus; deliveryDate: string } | null
+}
+
+export interface PreorderCapacity {
+  sku: string
+  productName: string
+  weekStart: string
+  capacity: number
+  reserved: number
+  waitlisted: number
+}

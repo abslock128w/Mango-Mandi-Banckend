@@ -56,7 +56,10 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LA
 | `vmr_delivered` | delivered | name, order number |
 | `vmr_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
 | `vmr_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
-| `vmr_refunded` | Razorpay confirms a customer-cancel refund | name, order number, amount ("Rs 1,899") |
+| `vmr_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
+| `vmr_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
+| `vmr_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
+| `vmr_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
 
 An order without a slot says "during the day" in place of the slot.
 
@@ -84,6 +87,30 @@ the usual WhatsApp updates follow. My orders lists recent orders and lets the cu
 cancel until packing, with the full refund for a paid order. WhatsApp verifies the
 phone number, so the chat needs no OTP; only Indian numbers can order. Messages are
 deduplicated by id, so Meta's retries are safe.
+
+## Preorders (phase 2)
+
+Customers book a SKU, ripeness and quantity for a delivery **week** (Monday start) before
+the fruit exists, at the price of the day, and pay in full by Razorpay payment link.
+
+- **Capacity.** Managers set boxes per SKU per week (Preorders page, or
+  `PUT /admin/v1/preorder-capacity/:weekStart/:sku`). Booking takes capacity with a
+  conditional `UPDATE`, so a launch-day rush can't oversell. Only weeks after the
+  regular booking horizon are open.
+- **Waitlist.** A full week refuses with `PREORDER_FULL`, or with `waitlist: true` joins the
+  waitlist. Freed or added capacity goes to the waitlist in booking order; the promoted
+  customer gets a WhatsApp message with a payment link and 12 hours to pay.
+- **Holds and late payments.** An unpaid booking holds capacity for `holdMinutes`. A payment
+  after the hold still books it (over capacity if need be), as for orders.
+- **Allocator.** Every maintenance tick, each paid preorder whose week has reached one day
+  past the regular booking horizon becomes a normal confirmed order on the first date in its
+  week with stock. Preorders therefore claim stock before regular shoppers can book that
+  date. The order carries the preorder's payment, and the usual WhatsApp updates follow.
+  When a week passes with no stock, the preorder moves to the next week and the customer is
+  told (`moved_count`); nothing is cancelled.
+- **Cancel.** The customer can cancel any time before packing with a full refund, the
+  same rule as orders: before conversion through `POST /v1/preorders/:id/cancel`, after it
+  that call cancels the order.
 
 ## Delivery slots
 
@@ -152,9 +179,11 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
 | Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage, and boxes booked per slot, for each bookable date) |
 | Slots | `GET/POST /slots`, `PATCH /slots/:id` (managers only for changes) |
+| Preorders | `GET /preorders?status&week`, `GET /preorder-capacity`, `PUT /preorder-capacity/:weekStart/:sku` (managers) |
 | Customer auth | `POST /v1/auth/otp/request`, `/otp/verify`, `/token/refresh`, `/logout` |
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
+| Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel` |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `GET/POST /v1/claims` |
 | Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.captured`, `payment.failed`, `payment_link.paid`) |
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
@@ -193,5 +222,5 @@ slots and WhatsApp updates, plus a race of 30 buyers for 10 boxes.
 
 ## Not in phase 1
 
-Preorders, Redis, S3 photo storage and rider
+Redis, S3 photo storage and rider
 proof of delivery. Dry fruit is out of scope.

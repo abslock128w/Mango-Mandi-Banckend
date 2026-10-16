@@ -236,6 +236,37 @@ test('Planning: coverage gaps, closing a day, and manager-only rules', async ({ 
   expect((api.calls.find((c) => c.method === 'PUT' && c.path === '/config')?.body as { rules: { cutoffHourIST: number } }).rules.cutoffHourIST).toBe(17)
 })
 
+test('Preorders: weekly capacity, bookings by state, and setting capacity', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/preorders')
+  const cap = page.getByRole('region', { name: 'Weekly capacity' })
+  await expect(cap.getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('100')
+  const list = page.getByRole('region', { name: 'Preorders' })
+  await expect(list.getByRole('row', { name: /PRE-1001/ })).toContainText('Moved once: no stock')
+  await expect(list.getByRole('link', { name: 'ORD-1042' })).toBeVisible()
+  await page.getByRole('button', { name: 'Waitlist', exact: true }).click()
+  await expect(page).toHaveURL(/status=WAITLISTED/)
+  await expect(page.getByText('No preorders here.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Set capacity' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Set preorder capacity' })
+  await dialog.getByLabel('Week starting (Monday)').fill('2027-03-02')
+  await dialog.getByLabel('Boxes').fill('80')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Pick the Monday the week starts on.')
+  await dialog.getByLabel('Week starting (Monday)').fill('2027-03-08')
+  await dialog.getByLabel('Product').selectOption({ label: 'Kesar 3kg Box' })
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.find((c) => c.method === 'PUT' && c.path === '/preorder-capacity/2027-03-08/KES-3')?.body).toEqual({ capacity: 80 })
+})
+
+test('Operators cannot set preorder capacity', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await page.goto('/preorders')
+  await expect(page.getByRole('button', { name: /Set capacity/ })).toBeDisabled()
+})
+
 test('Operators cannot edit selling rules', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/planning')
@@ -244,7 +275,7 @@ test('Operators cannot edit selling rules', async ({ page }) => {
   await expect(page.getByRole('button', { name: /Switch off Morning/ })).toBeDisabled()
 })
 
-for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes', '/planning']) {
+for (const path of ['/today', '/batches', '/batches/b1', '/orders', '/orders/o1', '/pack-list', '/claims', '/pincodes', '/planning', '/preorders']) {
   test(`${path} has no horizontal page scroll`, async ({ page }) => {
     await mockApi(page, { signedIn: true })
     await page.goto(path)

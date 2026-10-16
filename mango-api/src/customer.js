@@ -5,7 +5,7 @@ import express from 'express'
 import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
 import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefresh, signAccess } from './auth.js'
-import { now } from './clock.js'
+import { isDate, now } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
@@ -17,6 +17,7 @@ import { logger } from './logger.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundOrder } from './payments.js'
 import { allProducts, findProduct } from './products.js'
+import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, refundPreorder } from './preorders.js'
 import { sendOtp } from './sms.js'
 import { STAGES } from './stage.js'
 
@@ -200,7 +201,16 @@ router.get(
 
 // ---------------------------------------------------------------- cart
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me'], requireCustomer)
+/** Weeks open for preorders, with capacity left per SKU. */
+router.get(
+  '/preorders/weeks',
+  asyncHandler(async (req, res) => {
+    const sku = req.query.sku ? String(req.query.sku) : null
+    res.json({ weeks: await openWeeks({ query }, sku), cancelPolicy: 'Cancel any time before packing for a full refund.' })
+  }),
+)
+
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders'], requireCustomer)
 
 router.get('/me', asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT id, phone, name FROM customers WHERE id = $1', [req.customer.id])
@@ -410,6 +420,74 @@ router.post(
     if (refundDue) {
       await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
     }
+    res.status(204).end()
+  }),
+)
+
+// ---------------------------------------------------------------- preorders
+
+router.post(
+  '/preorders',
+  asyncHandler(async (req, res) => {
+    const rawKey = req.get('Idempotency-Key')
+    if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    const b = parse(
+      z.object({
+        sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(1).max(20),
+        weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), pincode: PIN,
+        address: z.string().trim().min(10, 'Enter the full delivery address').max(500), name: z.string().trim().max(80).optional(),
+        slotId: z.string().max(64).optional().nullable(), waitlist: z.boolean().optional(),
+      }),
+      req.body,
+    )
+    const key = `${req.customer.id}:pre:${rawKey}`
+    const existing = async () => (await query('SELECT p.* FROM idempotency_keys k JOIN preorders p ON p.id = k.order_id WHERE k.key = $1', [key])).rows[0] ?? null
+    const replay = await existing()
+    if (replay) return res.status(200).json(preorderView(replay))
+    const pre = await tx(async (c) => {
+      const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [key, 'pending', now()])
+      if (!ins.rowCount) return null
+      if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
+      const cust = (await c.query('SELECT name, phone FROM customers WHERE id = $1', [req.customer.id])).rows[0]
+      const p = await bookPreorder(c, { ...b, customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone }, req.actor)
+      await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, p.id])
+      return p
+    })
+    if (!pre) return res.status(200).json(preorderView(await existing()))
+    if (pre.status !== 'PAYMENT_PENDING') return res.status(201).json(preorderView(pre))
+    try {
+      res.status(201).json(preorderView(await ensurePaymentLink(pre.id)))
+    } catch (err) {
+      logger.error({ err, preorderId: pre.id }, 'could not create the preorder payment link')
+      await tx((c) => cancelPreorder(c, pre.id, req.customer.id, SYSTEM))
+      throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
+    }
+  }),
+)
+
+router.get(
+  '/preorders',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query('SELECT * FROM preorders WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50', [req.customer.id])
+    res.json(rows.map(preorderView))
+  }),
+)
+
+router.get(
+  '/preorders/:id',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query('SELECT * FROM preorders WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
+    if (!rows.length) throw notFound('Preorder not found')
+    res.json(preorderView(rows[0]))
+  }),
+)
+
+router.post(
+  '/preorders/:id/cancel',
+  asyncHandler(async (req, res) => {
+    const r = await tx((c) => cancelPreorder(c, req.params.id, req.customer.id, req.actor))
+    const send = r.refund === 'order' ? refundOrder : r.refund === 'preorder' ? refundPreorder : null
+    if (send) await send(r.id).catch((err) => logger.error({ err, id: r.id }, 'refund failed; maintenance will retry'))
     res.status(204).end()
   }),
 )

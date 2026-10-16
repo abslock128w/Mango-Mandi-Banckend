@@ -7,6 +7,7 @@ import { pool, query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
 import { processDueRefunds, reconcilePendingPayments } from './payments.js'
@@ -84,6 +85,16 @@ export async function runAudit() {
   return drift
 }
 
+/** Preorder upkeep: missed payments, expired holds, waitlist, links, then the allocator. */
+export async function runPreorderJobs() {
+  const reconciled = await reconcilePreorderPayments()
+  const expired = await tx((c) => expirePreorderHolds(c))
+  const promoted = await promoteWaitlist()
+  await retryMissingLinks()
+  const { converted, moved } = await allocatePreorders()
+  return { reconciled, expired, promoted, converted, moved }
+}
+
 /** One maintenance tick. Returns { skipped: true } when another instance holds the lock. */
 export async function runMaintenance({ forceAll = false } = {}) {
   await step('config', loadConfig) // every instance keeps its rules fresh
@@ -95,6 +106,7 @@ export async function runMaintenance({ forceAll = false } = {}) {
       const out = {}
       out.reconciled = await step('reconcile', () => reconcilePendingPayments())
       out.refunded = await step('refunds', processDueRefunds)
+      out.preorders = await step('preorders', runPreorderJobs)
       out.notified = await step('notifications', () => sendDueNotifications())
       out.expired = await step('sweep', () => tx((c) => sweepExpiredHolds(c)))
       if (out.expired) metrics.holdsExpired.inc(out.expired)

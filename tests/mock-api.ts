@@ -150,6 +150,14 @@ export function seed() {
       { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00', maxBoxes: 40, active: true, sort: 0 },
       { id: 'slt2', label: 'Evening', startsAt: '16:00', endsAt: '20:00', maxBoxes: null, active: true, sort: 1 },
     ],
+    preorderCapacity: [
+      { sku: 'ALP-3', productName: 'Alphonso 3kg Box', weekStart: '2027-03-01', capacity: 100, reserved: 100, waitlisted: 4 },
+      { sku: 'KES-3', productName: 'Kesar 3kg Box', weekStart: '2027-03-01', capacity: 50, reserved: 12, waitlisted: 0 },
+    ],
+    preorders: [
+      { id: 'p1', number: 'PRE-1001', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 2, unitPrice: 129900, total: 259800, weekStart: '2027-03-01', pincode: '560034', customerName: 'Asha Rao', phone: '+919876543210', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 1, createdAt: '2027-01-05T06:00:00Z', refund: null, order: null },
+      { id: 'p2', number: 'PRE-1002', status: 'CONVERTED', sku: 'KES-3', productName: 'Kesar 3kg Box', stage: 'SEMI_RIPE', qty: 1, unitPrice: 99900, total: 99900, weekStart: '2027-03-01', pincode: '560034', customerName: 'Vikram S', phone: '+919123456780', channel: 'whatsapp', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-06T06:00:00Z', refund: null, order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2027-03-02' } },
+    ],
     calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
     config: {
       version: 3,
@@ -242,6 +250,15 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/pincodes\//.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/coverage') return json(route, 200, state.coverage)
+    if (path === '/preorders') {
+      const status = url.searchParams.get('status')
+      return json(route, 200, status ? state.preorders.filter((p) => p.status === status) : state.preorders)
+    }
+    if (path === '/preorder-capacity') return json(route, 200, state.preorderCapacity)
+    if (path.startsWith('/preorder-capacity/')) {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      return json(route, 200, body)
+    }
     if (path === '/slots' && method === 'GET') return json(route, 200, state.slots)
     if (path === '/slots' || path.startsWith('/slots/')) {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
