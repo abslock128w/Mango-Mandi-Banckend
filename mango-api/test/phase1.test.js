@@ -2,7 +2,7 @@
 import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import { setNow } from '../src/clock.js'
+import { now, setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { paramsFor, sendDueNotifications } from '../src/notify.js'
 import { metaSender } from '../src/whatsapp.js'
@@ -165,8 +165,11 @@ describe('WhatsApp order updates', () => {
     assert.ok(Math.abs((await row()).next_attempt_at.getTime() - (t0 + 60_000)) < 5000) // the test clock keeps ticking
     assert.equal(await sendDueNotifications({ sender: failing }), 0) // not due yet
     assert.equal((await row()).attempts, 1)
-    for (const minutes of [1, 6, 21, 81, 261]) {
-      setNow(new Date(t0 + minutes * 60_000 + 1000).toISOString())
+    // Each retry waits 1, 5, 15, 60 and 180 minutes; step the clock just past each one.
+    for (const minutes of [1, 5, 15, 60, 180]) {
+      const due = (await row()).next_attempt_at.getTime()
+      assert.ok(Math.abs(due - now().getTime() - minutes * 60_000) < 5000)
+      setNow(new Date(due + 1000).toISOString())
       await sendDueNotifications({ sender: failing })
     }
     assert.deepEqual([(await row()).status, (await row()).attempts], ['FAILED', 6])
