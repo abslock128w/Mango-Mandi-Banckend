@@ -88,7 +88,7 @@ Customers can order by messaging the business number. Meta posts each message to
 checks the endpoint first with `GET /webhooks/whatsapp` and `WHATSAPP_VERIFY_TOKEN`.
 The chat (`src/chat.js`) keeps one conversation per phone in `wa_sessions`:
 
-1. menu: Order mangoes, My orders, Help
+1. menu: Order mangoes, Book ahead, My orders (send *help* for how it works)
 2. pincode, then the boxes in stock for the earliest delivery date, by ripeness
 3. quantity, cart, then a delivery slot when slots are on
 4. address (the last one for that pincode is offered), then a summary with Pay
@@ -102,6 +102,25 @@ the usual WhatsApp updates follow. My orders lists recent orders and lets the cu
 cancel until packing, with the full refund for a paid order. WhatsApp verifies the
 phone number, so the chat needs no OTP; only Indian numbers can order. Messages are
 deduplicated by id, so Meta's retries are safe.
+
+**Book ahead** in the chat makes a preorder with the same engine as `POST /v1/preorders`
+(`channel = 'whatsapp'`): pick an open week and box, the ripeness, how many, the pincode
+and address, then pay by Razorpay link. A full week offers the waitlist instead (no
+payment until a spot opens). Bookings show in My orders and can be cancelled there for a
+full refund until packing.
+
+## Promo codes and gifts
+
+Managers make codes on the panel's Promos page (`/admin/v1/promos`): a percentage (with
+an optional cap) or a flat amount off, a smallest order, start and end dates, total and
+per-customer uses, and first-order-only. The shop sends `promoCode` with the quote; the
+code is checked again, with the row locked, when the order is confirmed, and the use is
+recorded. A use counts while its order is not cancelled. The discount never takes the
+total below ₹1.
+
+An order can be a gift: `gift { recipientName, recipientPhone, message }` at checkout. The
+pack list marks it (no price slip, the note goes in the box) and the rider sees the
+recipient's name and phone. Order updates and the delivery code still go to the buyer.
 
 ## Preorders (phase 2)
 

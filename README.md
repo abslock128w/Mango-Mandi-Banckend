@@ -8,8 +8,8 @@ with a delivered order by sending a replacement, not a refund.
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
 this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
 the ripeness and stock engine. The customer shop is in
-[`customer-app/`](customer-app/README.md) (`npm run shop:dev`). Going live on a server is in
-[`deploy/README.md`](deploy/README.md).
+[`customer-app/`](customer-app/README.md) (`npm run shop:dev`). Going live on Vercel and Neon is in
+[`deploy/VERCEL.md`](deploy/VERCEL.md); on a single server, [`deploy/README.md`](deploy/README.md).
 
 ## What it does
 
