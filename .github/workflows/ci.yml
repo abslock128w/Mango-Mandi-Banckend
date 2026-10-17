@@ -71,7 +71,7 @@ jobs:
           printf '"mango" "mango"\n' > /tmp/pgb/users.txt
           cat > /tmp/pgb/pgbouncer.ini <<'INI'
           [databases]
-          mango_test = host=127.0.0.1 port=5432 dbname=mango_test
+          mango_test = host=127.0.0.1 port=5432 dbname=mango_test user=mango password=mango
           [pgbouncer]
           listen_addr = 127.0.0.1
           listen_port = 6432
