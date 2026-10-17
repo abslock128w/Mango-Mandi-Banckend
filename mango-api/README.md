@@ -1,6 +1,6 @@
 # mango-api
 
-The VMR Mangoes backend: the `/admin/v1` API the Mango Ops panel uses, the `/v1`
+The MandiMangoes backend: the `/admin/v1` API the Mango Ops panel uses, the `/v1`
 storefront API, Razorpay payments, and the engine that decides which boxes can be sold
 as raw, semi-ripe or ripe on each delivery date.
 
@@ -17,8 +17,8 @@ COOKIE_SECURE=false npm run dev
 ```
 
 On start it migrates, seeds products (Alphonso and Badami, 3 kg and 5 kg), Bengaluru
-pincodes and four staff logins (`manager@vmr.test` / `manager123`,
-`ops@vmr.test` / `operator123`, `packer@vmr.test` / `packer123`, `qc@vmr.test` / `qc123`;
+pincodes and four staff logins (`manager@mandimangoes.test` / `manager123`,
+`ops@mandimangoes.test` / `operator123`, `packer@mandimangoes.test` / `packer123`, `qc@mandimangoes.test` / `qc123`;
 not created in production), plus a spread of demo
 batches when the database is empty. Point the panel at it with
 `VITE_API_URL=http://localhost:3000`.
@@ -38,7 +38,7 @@ against your Jio account's API docs before going live. Outside production the de
 `SMS_PROVIDER=log` logs the code and returns it as `devCode`.
 
 If the SMS send fails and WhatsApp is set up (`WHATSAPP_PROVIDER=meta`), the code goes out
-on WhatsApp instead, as the authentication template `vmr_login_code` (code in the body and
+on WhatsApp instead, as the authentication template `mandi_login_code` (code in the body and
 in the copy-code button). The app can also ask for WhatsApp first with
 `{"channel":"whatsapp"}` on `/v1/auth/otp/request`; the response says which channel was
 used. Each fallback counts in `mango_otp_fallbacks_total`. If neither works the request fails
@@ -54,26 +54,26 @@ see each message and its state on the order page.
 
 With `WHATSAPP_PROVIDER=meta` messages go through the WhatsApp Cloud API: set
 `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID`. Every message is an approved template
-named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `vmr_`), in `WHATSAPP_LANGUAGE`:
+named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_LANGUAGE`:
 
 | Template | Sent when | Body variables |
 |----------|-----------|----------------|
-| `vmr_order_confirmed` | payment confirms the order | name, order number, date ("Fri, 16 Oct"), slot ("7 AM to 11 AM") |
-| `vmr_replacement_confirmed` | a free replacement is booked | same as above |
-| `vmr_out_for_delivery` | the order leaves for delivery | name, order number, slot |
-| `vmr_delivered` | delivered | name, order number |
-| `vmr_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
-| `vmr_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
-| `vmr_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
-| `vmr_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
-| `vmr_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
-| `vmr_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
-| `vmr_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
-| `vmr_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
+| `mandi_order_confirmed` | payment confirms the order | name, order number, date ("Fri, 16 Oct"), slot ("7 AM to 11 AM") |
+| `mandi_replacement_confirmed` | a free replacement is booked | same as above |
+| `mandi_out_for_delivery` | the order leaves for delivery | name, order number, slot |
+| `mandi_delivered` | delivered | name, order number |
+| `mandi_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
+| `mandi_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
+| `mandi_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
+| `mandi_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
+| `mandi_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
+| `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
+| `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
+| `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
 
 An order without a slot says "during the day" in place of the slot.
 
-Word `vmr_date_moved` so it also says the customer can cancel for a full refund until the
+Word `mandi_date_moved` so it also says the customer can cancel for a full refund until the
 order is packed, for example: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that
 date doesn't suit you, cancel it in the app before it is packed for a full refund." That is
 the opt-out for a late payment or a staff move to a date the customer didn't choose.
@@ -133,11 +133,11 @@ the fruit exists, at the price of the day, and pay in full by Razorpay payment l
   confirmed or processing order on `fromDate` to `toDate`, optionally only some `pincodes` or
   `orderIds`, with a `reason` that goes on each order. Send `dryRun: true` first to see what
   matches. Each order moves in its own transaction, onto `toDate` or the next open date after it
-  with stock, and the customer gets `vmr_date_moved`. Orders with no stock anywhere stay put and
+  with stock, and the customer gets `mandi_date_moved`. Orders with no stock anywhere stay put and
   come back in `notMoved` so ops can handle them. At most 500 orders per call.
 - **Rider manifest.** `GET /admin/v1/manifest?date=` returns the day's run: one block per slot,
   stops by zone and pincode, each with address, phone, boxes and whether it is packed. Every
-  order is prepaid, so riders collect nothing. It assumes VMR's own riders; a delivery partner
+  order is prepaid, so riders collect nothing. It assumes MandiMangoes' own riders; a delivery partner
   would need an export in their format.
 - **Analytics.** `GET /admin/v1/analytics?from&to` (default: the last 8 weeks to the end of this
   week) returns week-by-week sales (by delivery date), deliveries and misses, at-risk orders,

@@ -43,7 +43,7 @@ describe('bulk reschedule', () => {
     const semi = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const body = { fromDate: '2026-10-16', toDate: '2026-10-17', reason: 'Rain' }
 
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await bulk(body, ops)).status, 403)
     assert.equal((await bulk({ ...body, toDate: '2026-10-16' })).body.error.code, 'INVALID_DATE')
     assert.equal((await bulk({ ...body, toDate: '2026-10-25' })).body.error.code, 'INVALID_DATE')
@@ -63,7 +63,7 @@ describe('bulk reschedule', () => {
     for (const id of [a, b]) {
       const o = await order(id)
       assert.equal(o.deliveryDate, '2026-10-17')
-      assert.ok(o.events.some((e) => /Rain \(moved by manager@vmr\.test\); moved from 2026-10-16 to 2026-10-17/.test(e.reason ?? '')))
+      assert.ok(o.events.some((e) => /Rain \(moved by manager@mandimangoes\.test\); moved from 2026-10-16 to 2026-10-17/.test(e.reason ?? '')))
       assert.ok(o.notifications.some((n) => n.kind === 'DATE_MOVED'))
     }
     const kept = await order(semi)

@@ -55,7 +55,7 @@ const kinds = async (id) => (await query('SELECT kind FROM notifications WHERE p
 describe('preorders', () => {
   test('capacity is taken atomically, overflow joins the waitlist, and payment books it', async () => {
     const week = openWeek()
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await setCapacity(week, 3, ops)).status, 403)
     assert.equal((await setCapacity(week, 3)).status, 200)
     assert.equal((await setCapacity(addDays(week, 1), 3)).status, 400) // not a Monday

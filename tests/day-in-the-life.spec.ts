@@ -84,7 +84,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   }
   await expect(page.getByText('No actions available.')).toBeVisible()
 
-  // 10–12. The customer claims damage; ops approve a free replacement (VMR never refunds).
+  // 10–12. The customer claims damage; ops approve a free replacement (MandiMangoes never refunds).
   await call('POST', '/v1/claims', { orderId: placed.orderId, issueType: 'DAMAGED', description: 'Box arrived crushed', itemSkus: [pick.sku] }, cust)
   await page.getByRole('link', { name: 'Claims' }).click()
   await page.getByRole('button', { name: `Start review for ${placed.number}` }).click()

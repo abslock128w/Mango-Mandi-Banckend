@@ -373,7 +373,7 @@ test('a packer sees only the pack list, deliveries and order steps', async ({ pa
   for (const name of ['Today', 'Batches', 'Orders', 'Claims', 'Pincodes', 'Planning', 'Staff']) {
     await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0)
   }
-  await expect(nav).toContainText('packer@vmr.test · Packer')
+  await expect(nav).toContainText('packer@mandimangoes.test · Packer')
 
   await page.goto('/orders/o1')
   await expect(page.getByRole('heading', { name: /^Order ORD-1042/ })).toBeVisible()
@@ -401,21 +401,21 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/staff')
   await expect(page.getByRole('heading', { name: 'Staff', level: 1 })).toBeVisible()
-  await expect(page.getByLabel('Role for manager@vmr.test')).toBeDisabled()
+  await expect(page.getByLabel('Role for manager@mandimangoes.test')).toBeDisabled()
 
   await page.getByRole('button', { name: 'Add person' }).click()
   const dialog = page.getByRole('dialog', { name: 'Add person' })
-  await dialog.getByLabel('Work email').fill('ravi@vmr.test')
+  await dialog.getByLabel('Work email').fill('ravi@mandimangoes.test')
   await dialog.getByLabel('First password').fill('short')
   await dialog.getByRole('button', { name: 'Add' }).click()
   await expect(dialog).toContainText('at least 10 characters')
   await dialog.getByLabel('First password').fill('long-enough-1')
   await dialog.getByRole('button', { name: 'Add' }).click()
-  await expect(page.getByText('ravi@vmr.test added as Packer')).toBeVisible()
-  expect(api.calls.find((c) => c.method === 'POST' && c.path === '/staff')?.body).toEqual({ email: 'ravi@vmr.test', role: 'PACKER', password: 'long-enough-1' })
+  await expect(page.getByText('ravi@mandimangoes.test added as Packer')).toBeVisible()
+  expect(api.calls.find((c) => c.method === 'POST' && c.path === '/staff')?.body).toEqual({ email: 'ravi@mandimangoes.test', role: 'PACKER', password: 'long-enough-1' })
 
-  await page.getByLabel('Role for ops@vmr.test').selectOption('QC')
-  await expect(page.getByText('ops@vmr.test is now QC. They will need to sign in again.')).toBeVisible()
+  await page.getByLabel('Role for ops@mandimangoes.test').selectOption('QC')
+  await expect(page.getByText('ops@mandimangoes.test is now QC. They will need to sign in again.')).toBeVisible()
 
   const log = page.getByRole('region', { name: 'Activity' })
   await expect(log).toContainText('Set order to Packed')

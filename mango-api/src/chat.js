@@ -33,7 +33,7 @@ const MAX_QTY = 20
 
 const text = (t) => ({ type: 'text', text: t })
 const buttons = (t, bs) => ({ type: 'buttons', text: t, buttons: bs.map(([id, title]) => ({ id, title })) })
-const MENU = buttons('Welcome to VMR Mangoes 🥭 What would you like to do?', [
+const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do?', [
   ['ORDER', 'Order mangoes'],
   ['ORDERS', 'My orders'],
   ['HELP', 'Help'],
@@ -269,7 +269,7 @@ async function step(c, s, cust, input) {
   }
   if (id === 'HELP' || lower === 'help') {
     return { replies: [buttons(
-      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the VMR app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
+      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
       [['ORDER', 'Order mangoes'], ['ORDERS', 'My orders']],
     )] }
   }

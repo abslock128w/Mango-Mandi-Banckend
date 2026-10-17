@@ -127,7 +127,7 @@ export async function ensurePaymentLink(id) {
   if (!p || p.payment_link_url) return p ?? null
   const link = await createPaymentLink({
     amount: p.total, number: p.number, preorderId: p.id, name: p.customer_name, phone: p.phone,
-    description: `VMR Mangoes preorder ${p.number}`,
+    description: `MandiMangoes preorder ${p.number}`,
   })
   const up = await query('UPDATE preorders SET payment_link_id = $2, payment_link_url = $3 WHERE id = $1 AND payment_link_url IS NULL RETURNING *', [
     p.id, link.id, link.url,

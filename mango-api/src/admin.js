@@ -919,7 +919,7 @@ router.post(
 router.post(
   '/claims/:id/resolve',
   asyncHandler(async (req, res) => {
-    if (req.body?.resolution === 'REFUND_APPROVED') throw badRequest('VMR does not refund. Approve a replacement or reject the claim.', 'NO_REFUNDS')
+    if (req.body?.resolution === 'REFUND_APPROVED') throw badRequest('MandiMangoes does not refund. Approve a replacement or reject the claim.', 'NO_REFUNDS')
     const { resolution } = parse(z.object({ resolution: z.enum(['REPLACEMENT_APPROVED', 'REJECTED']) }), req.body)
     await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM claims WHERE id = $1 FOR UPDATE', [req.params.id])

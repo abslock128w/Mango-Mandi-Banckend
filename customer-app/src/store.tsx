@@ -40,12 +40,12 @@ function save(key: string, value: unknown) {
 
 /** Where to deliver and what is in the cart, kept on this device. */
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [where, setWhereState] = useState(() => load<{ pincode: string | null; date: string | null }>('vmr.where', { pincode: null, date: null }))
-  const [cart, setCart] = useState(() => load<CartLine[]>('vmr.cart', []))
+  const [where, setWhereState] = useState(() => load<{ pincode: string | null; date: string | null }>('mm.where', { pincode: null, date: null }))
+  const [cart, setCart] = useState(() => load<CartLine[]>('mm.cart', []))
   const [phone, setPhone] = useState(signedInPhone)
 
-  useEffect(() => save('vmr.where', where), [where])
-  useEffect(() => save('vmr.cart', cart), [cart])
+  useEffect(() => save('mm.where', where), [where])
+  useEffect(() => save('mm.cart', cart), [cart])
   useEffect(() => {
     const onOut = () => setPhone(null)
     window.addEventListener(SIGNOUT_EVENT, onOut)

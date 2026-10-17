@@ -28,10 +28,10 @@ const PINCODES = [
 ]
 
 const DEMO_USERS = [
-  ['manager@vmr.test', 'manager123', 'MANAGER'],
-  ['ops@vmr.test', 'operator123', 'OPERATOR'],
-  ['packer@vmr.test', 'packer123', 'PACKER'],
-  ['qc@vmr.test', 'qc123', 'QC'],
+  ['manager@mandimangoes.test', 'manager123', 'MANAGER'],
+  ['ops@mandimangoes.test', 'operator123', 'OPERATOR'],
+  ['packer@mandimangoes.test', 'packer123', 'PACKER'],
+  ['qc@mandimangoes.test', 'qc123', 'QC'],
 ]
 
 export async function seed() {

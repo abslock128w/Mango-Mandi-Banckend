@@ -9,7 +9,7 @@ declare global {
   }
 }
 
-const KEY = 'vmr.pay'
+const KEY = 'mm.pay'
 
 /** Keeps what's needed to reopen checkout for an unpaid order on this device. */
 export function rememberPayment(c: Confirmed) {
@@ -54,7 +54,7 @@ export async function openRazorpay(p: { key: string; rzp: string; total: number;
       order_id: p.rzp,
       amount: p.total,
       currency: 'INR',
-      name: 'VMR Mangoes',
+      name: 'MandiMangoes',
       description: `Order ${p.number}`,
       prefill: phone ? { contact: phone } : undefined,
       theme: { color: '#d97706' },

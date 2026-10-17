@@ -77,7 +77,7 @@ describe('delivery slots', () => {
   })
 
   test('only managers edit slots, a slot must end after it starts, and an inactive slot is not offered', async () => {
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.post('/admin/v1/slots', { label: 'X', startsAt: '07:00', endsAt: '09:00' }, { token: ops })).status, 403)
     const bad = await api.post('/admin/v1/slots', { label: 'X', startsAt: '09:00', endsAt: '07:00' }, { token: admin })
     assert.equal(bad.status, 400)
@@ -128,7 +128,7 @@ describe('WhatsApp order updates', () => {
       return `wamid.${sent.length}`
     }
     assert.equal(await sendDueNotifications({ sender }), 1)
-    assert.equal(sent[0].template, 'vmr_order_confirmed')
+    assert.equal(sent[0].template, 'mandi_order_confirmed')
     assert.equal(sent[0].phone, (await query('SELECT phone FROM orders WHERE id = $1', [id])).rows[0].phone)
     assert.deepEqual(sent[0].params.slice(2), ['Fri, 16 Oct', '7 AM to 11:30 AM'])
     assert.equal(await sendDueNotifications({ sender }), 0)
@@ -187,12 +187,12 @@ describe('WhatsApp order updates', () => {
       calls.push({ url, init })
       return new Response(JSON.stringify({ messages: [{ id: 'wamid.abc' }] }), { status: 200 })
     })
-    assert.equal(await send({ phone: '+919876543210', template: 'vmr_delivered', params: ['Asha', 'ORD-1001'] }), 'wamid.abc')
+    assert.equal(await send({ phone: '+919876543210', template: 'mandi_delivered', params: ['Asha', 'ORD-1001'] }), 'wamid.abc')
     assert.equal(calls[0].url, 'https://graph.facebook.com/v23.0/1234/messages')
     assert.equal(calls[0].init.headers.Authorization, 'Bearer t0k')
     assert.deepEqual(JSON.parse(calls[0].init.body), {
       messaging_product: 'whatsapp', to: '919876543210', type: 'template',
-      template: { name: 'vmr_delivered', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: 'Asha' }, { type: 'text', text: 'ORD-1001' }] }] },
+      template: { name: 'mandi_delivered', language: { code: 'en' }, components: [{ type: 'body', parameters: [{ type: 'text', text: 'Asha' }, { type: 'text', text: 'ORD-1001' }] }] },
     })
     const bad = metaSender({ token: 't', phoneNumberId: '1', apiVersion: 'v23.0', language: 'en' }, async () =>
       new Response(JSON.stringify({ error: { message: 'Template name does not exist' } }), { status: 404 }),

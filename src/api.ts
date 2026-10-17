@@ -238,7 +238,7 @@ export const api = {
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
-  /** VMR doesn't refund: a claim is resolved by a replacement or rejected. */
+  /** MandiMangoes doesn't refund: a claim is resolved by a replacement or rejected. */
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
     request<void>('POST', `/claims/${id(claimId)}/resolve`, { resolution }),
 

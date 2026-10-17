@@ -1,5 +1,5 @@
 -- A customer who cancels a paid order is refunded in full: the one case where
--- VMR refunds. The refund is requested in the cancel transaction and sent to
+-- MandiMangoes refunds. The refund is requested in the cancel transaction and sent to
 -- the gateway afterwards, with the maintenance loop retrying until it lands.
 ALTER TABLE orders DROP CONSTRAINT orders_payment_status_check;
 ALTER TABLE orders ADD CONSTRAINT orders_payment_status_check

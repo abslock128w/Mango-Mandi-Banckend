@@ -61,7 +61,7 @@ export function client(base) {
   }
 }
 
-export async function adminToken(api, email = 'manager@vmr.test', password = 'manager123') {
+export async function adminToken(api, email = 'manager@mandimangoes.test', password = 'manager123') {
   const r = await api.post('/admin/v1/auth/login', { email, password })
   if (r.status !== 200) throw new Error(`login failed: ${r.status} ${JSON.stringify(r.body)}`)
   return r.body.accessToken

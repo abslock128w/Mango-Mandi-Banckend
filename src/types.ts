@@ -207,7 +207,7 @@ export interface OrderDetail {
     status: PaymentStatus | null
     method: string | null
     amount: number | null
-    /** Set when the customer cancelled a paid order: the one case VMR refunds. */
+    /** Set when the customer cancelled a paid order: the one case MandiMangoes refunds. */
     refund?: { requestedAt: string; refundedAt: string | null; id: string | null } | null
   } | null
   atRisk?: boolean

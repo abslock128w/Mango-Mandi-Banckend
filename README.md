@@ -2,7 +2,7 @@
 
 A static single-page admin tool for warehouse and operations staff. It replaces the
 Postman-based admin workflow with buttons that only ever offer valid actions, so staff
-can run the shop without a developer and without risking an oversell. VMR settles a problem
+can run the shop without a developer and without risking an oversell. MandiMangoes settles a problem
 with a delivered order by sending a replacement, not a refund.
 
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
@@ -100,7 +100,7 @@ PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 
 # Full day-in-the-life script against a local mango-api with demo data
 # (start it first: cd mango-api && COOKIE_SECURE=false npm start):
-E2E_EMAIL=manager@vmr.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \
+E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \
   npx playwright test tests/day-in-the-life.spec.ts
 ```
 

@@ -1,5 +1,5 @@
 // Order lifecycle: placing, paying, rebalancing, packing, delivering and
-// cancelling. VMR never refunds: when stock goes bad the engine swaps it,
+// cancelling. MandiMangoes never refunds: when stock goes bad the engine swaps it,
 // moves the order to the next date with stock, or flags it at-risk for ops.
 import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now } from './clock.js'
@@ -305,7 +305,7 @@ async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
   await addEvent(c, o.id, o.status, 'CANCELLED', actor, reason)
 }
 
-/** Admin cancel. Payment is left as it is: VMR does not refund. */
+/** Admin cancel. Payment is left as it is: MandiMangoes does not refund. */
 export async function cancelOrder(c, orderId, actor, reason) {
   const o = await lockOrder(c, orderId)
   if (o.status === 'CANCELLED') throw conflict('This order is already cancelled')
@@ -315,7 +315,7 @@ export async function cancelOrder(c, orderId, actor, reason) {
 
 /**
  * Customer cancel, allowed until the order is packed. A paid order is
- * refunded in full: the only case where VMR refunds. The refund is requested
+ * refunded in full: the only case where MandiMangoes refunds. The refund is requested
  * here and sent to the gateway after commit (payments.js refundOrder).
  * Returns true when a refund is due.
  */

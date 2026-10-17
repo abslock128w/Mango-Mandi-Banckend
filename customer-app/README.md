@@ -1,4 +1,4 @@
-# VMR Mangoes customer app
+# MandiMangoes customer app
 
 The shop customers use on their phones: pick a delivery day and the ripeness they
 want, sign in with a code sent to their phone, choose a delivery time, pay with

@@ -9,7 +9,7 @@ import { ErrorNote, Spinner } from '../ui'
 
 function loadAddress() {
   try {
-    return JSON.parse(localStorage.getItem('vmr.address') ?? '{}') as { name?: string; address?: string }
+    return JSON.parse(localStorage.getItem('mm.address') ?? '{}') as { name?: string; address?: string }
   } catch {
     return {}
   }
@@ -72,7 +72,7 @@ export default function Checkout() {
     if (address.trim().length < 10) return setFormError('Enter the full delivery address, with house number and landmark.')
     if (slots.data?.slots.length && !slotId) return setFormError('Choose a delivery time.')
     try {
-      localStorage.setItem('vmr.address', JSON.stringify({ name: name.trim(), address: address.trim() }))
+      localStorage.setItem('mm.address', JSON.stringify({ name: name.trim(), address: address.trim() }))
     } catch {
       // ignore
     }

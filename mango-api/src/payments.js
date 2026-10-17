@@ -47,7 +47,7 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
 export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description }) {
   if (hasKeys()) {
     const link = await razorpay('POST', '/payment_links', {
-      amount, currency: 'INR', accept_partial: false, reference_id: number, description: description ?? `VMR Mangoes order ${number}`,
+      amount, currency: 'INR', accept_partial: false, reference_id: number, description: description ?? `MandiMangoes order ${number}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
       notes: preorderId ? { preorderId } : { orderId },
     })

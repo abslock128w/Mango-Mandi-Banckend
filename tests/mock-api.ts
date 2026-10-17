@@ -19,7 +19,7 @@ const json = (route: Route, status: number, body?: unknown) =>
     body: body === undefined ? '' : JSON.stringify(body),
   })
 
-const EMAIL: Record<Role, string> = { MANAGER: 'manager@vmr.test', OPERATOR: 'ops@vmr.test', PACKER: 'packer@vmr.test', QC: 'qc@vmr.test' }
+const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test' }
 
 export function seed() {
   return {
@@ -27,8 +27,8 @@ export function seed() {
       (role, i): StaffMember => ({ id: `adm${i + 1}`, email: EMAIL[role], role, createdAt: '2026-10-01T04:30:00Z' }),
     ),
     audit: [
-      { id: 'aud2', at: '2026-10-16T05:10:00Z', email: 'packer@vmr.test', role: 'PACKER', action: 'PATCH /orders/:id/status', target: 'o1', detail: { status: 'PACKED' } },
-      { id: 'aud1', at: '2026-10-16T05:00:00Z', email: 'qc@vmr.test', role: 'QC', action: 'POST /batches/:id/qc', target: 'b1', detail: { ripeness: 'SEMI_RIPE', condition: 'GOOD' } },
+      { id: 'aud2', at: '2026-10-16T05:10:00Z', email: 'packer@mandimangoes.test', role: 'PACKER', action: 'PATCH /orders/:id/status', target: 'o1', detail: { status: 'PACKED' } },
+      { id: 'aud1', at: '2026-10-16T05:00:00Z', email: 'qc@mandimangoes.test', role: 'QC', action: 'POST /batches/:id/qc', target: 'b1', detail: { ripeness: 'SEMI_RIPE', condition: 'GOOD' } },
     ] as AuditEntry[],
     summary: {
       orders: { CONFIRMED: 3, PROCESSING: 1, PACKED: 2, SHIPPED: 0, OUT_FOR_DELIVERY: 1, DELIVERY_FAILED: 0, PAYMENT_PENDING: 5 },
@@ -53,7 +53,7 @@ export function seed() {
         { id: 'l2', sku: 'ALP-5', onHand: 10, held: 0, committed: 6, reserveBuffer: 1, available: 3 },
       ],
       qc: [
-        { id: 'q1', ripenessRating: 'RIPE', condition: 'GOOD', notes: null, loggedBy: 'ops@vmr.test', loggedAt: '2026-10-14T04:30:00Z' },
+        { id: 'q1', ripenessRating: 'RIPE', condition: 'GOOD', notes: null, loggedBy: 'ops@mandimangoes.test', loggedAt: '2026-10-14T04:30:00Z' },
       ],
     },
     batches: [
@@ -61,8 +61,8 @@ export function seed() {
       { id: 'b2', variety: 'Kesar', pluckedOn: '2026-10-14', ageDays: 1, farm: null, status: 'ARRIVED', latestRating: null, latestCondition: null, onHand: 40, held: 0, committed: 0, available: 0 },
     ],
     ledger: [
-      { eventType: 'INTAKE', sku: 'ALP-3', delta: 20, actorType: 'admin', actorId: 'ops@vmr.test', reason: null, createdAt: '2026-10-08T05:00:00Z' },
-      { eventType: 'PACK', sku: 'ALP-3', delta: -2, actorType: 'admin', actorId: 'ops@vmr.test', reason: null, createdAt: '2026-10-10T05:00:00Z' },
+      { eventType: 'INTAKE', sku: 'ALP-3', delta: 20, actorType: 'admin', actorId: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-08T05:00:00Z' },
+      { eventType: 'PACK', sku: 'ALP-3', delta: -2, actorType: 'admin', actorId: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-10T05:00:00Z' },
     ],
     orders: {
       page: 1,
@@ -95,7 +95,7 @@ export function seed() {
       events: [
         { status: 'PAYMENT_PENDING', actor: 'system', reason: null, createdAt: '2026-10-14T06:00:00Z' },
         { status: 'CONFIRMED', actor: 'webhook:razorpay', reason: null, createdAt: '2026-10-14T06:01:00Z' },
-        { status: 'PROCESSING', actor: 'ops@vmr.test', reason: null, createdAt: '2026-10-14T08:00:00Z' },
+        { status: 'PROCESSING', actor: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-14T08:00:00Z' },
       ],
       payment: { status: 'SUCCEEDED', method: 'upi', amount: 249900 },
       slot: { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00' },
@@ -117,7 +117,7 @@ export function seed() {
       total: 129900,
       items: [{ productName: 'Alphonso 3kg Box', sku: 'ALP-3', quantity: 1, stage: 'RIPE', linePrice: 129900 }],
       stock: [{ batchId: 'b1', sku: 'ALP-3', variety: 'Alphonso', pluckedOn: '2026-10-08', quantity: 1, state: 'packed' }],
-      events: [{ status: 'DELIVERED', actor: 'ops@vmr.test', reason: null, createdAt: '2026-10-13T10:00:00Z' }],
+      events: [{ status: 'DELIVERED', actor: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-13T10:00:00Z' }],
       payment: { status: 'SUCCEEDED', method: 'card', amount: 129900 },
     },
     attention: { loop: { lastRunAt: '2026-10-15T04:29:00Z', stale: false, failingSteps: [] }, failedMessages: [], stuckRefunds: [], webhookFailures: [] } as Attention,

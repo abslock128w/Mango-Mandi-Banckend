@@ -134,8 +134,8 @@ interface Session {
   phone: string
 }
 
-const SESSION_KEY = 'vmr.session'
-export const SIGNOUT_EVENT = 'vmr:signout'
+const SESSION_KEY = 'mm.session'
+export const SIGNOUT_EVENT = 'mm:signout'
 
 function load<T>(key: string): T | null {
   try {
@@ -259,7 +259,7 @@ export const api = {
 
 export function errorMessage(err: unknown): string {
   if (err instanceof ApiError) return err.message
-  if (err instanceof TypeError) return 'Could not reach VMR Mangoes. Check your connection and try again.'
+  if (err instanceof TypeError) return 'Could not reach MandiMangoes. Check your connection and try again.'
   if (err instanceof Error) return err.message
   return 'Something went wrong.'
 }

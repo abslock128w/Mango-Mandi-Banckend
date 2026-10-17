@@ -42,7 +42,7 @@ async function auditUntil(token, pred, qs = '') {
 describe('staff roles', () => {
   test('a packer packs and delivers, and nothing else', async () => {
     const id = await paidOrder()
-    const packer = await adminToken(api, 'packer@vmr.test', 'packer123')
+    const packer = await adminToken(api, 'packer@mandimangoes.test', 'packer123')
     assert.equal((await api.get('/admin/v1/auth/me', { token: packer })).body.role, 'PACKER')
     assert.equal((await api.get('/admin/v1/pack-list?date=2026-10-16', { token: packer })).status, 200)
     assert.equal((await api.get('/admin/v1/manifest?date=2026-10-16', { token: packer })).status, 200)
@@ -69,7 +69,7 @@ describe('staff roles', () => {
 
   test('QC receives batches and logs QC, and sees no orders', async () => {
     await makeBatch({ age: 1, rating: 'RAW', lines: { 'ALP-3': 5 } })
-    const qc = await adminToken(api, 'qc@vmr.test', 'qc123')
+    const qc = await adminToken(api, 'qc@mandimangoes.test', 'qc123')
     const list = await api.get('/admin/v1/batches', { token: qc })
     assert.equal(list.status, 200)
     const batchId = (list.body.items ?? list.body)[0].id
@@ -82,7 +82,7 @@ describe('staff roles', () => {
   })
 
   test('operators keep their access but cannot manage staff or read the audit trail', async () => {
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.get('/admin/v1/orders', { token: ops })).status, 200)
     assert.equal((await api.get('/admin/v1/staff', { token: ops })).status, 403)
     assert.equal((await api.get('/admin/v1/audit', { token: ops })).status, 403)
@@ -91,40 +91,40 @@ describe('staff roles', () => {
 
 describe('staff management and the audit trail', () => {
   test('a manager adds, changes and removes staff; the new role applies and every change is logged', async () => {
-    const add = await api.post('/admin/v1/staff', { email: 'Ravi@VMR.test', role: 'PACKER', password: 'long-enough-1' }, { token: manager })
+    const add = await api.post('/admin/v1/staff', { email: 'Ravi@MandiMangoes.test', role: 'PACKER', password: 'long-enough-1' }, { token: manager })
     assert.equal(add.status, 201)
-    assert.equal(add.body.email, 'ravi@vmr.test')
-    assert.equal((await api.post('/admin/v1/staff', { email: 'ravi@vmr.test', role: 'QC', password: 'long-enough-1' }, { token: manager })).status, 409)
-    assert.equal((await api.post('/admin/v1/staff', { email: 'x@vmr.test', role: 'QC', password: 'short' }, { token: manager })).status, 400)
+    assert.equal(add.body.email, 'ravi@mandimangoes.test')
+    assert.equal((await api.post('/admin/v1/staff', { email: 'ravi@mandimangoes.test', role: 'QC', password: 'long-enough-1' }, { token: manager })).status, 409)
+    assert.equal((await api.post('/admin/v1/staff', { email: 'x@mandimangoes.test', role: 'QC', password: 'short' }, { token: manager })).status, 400)
 
-    let ravi = await adminToken(api, 'ravi@vmr.test', 'long-enough-1')
+    let ravi = await adminToken(api, 'ravi@mandimangoes.test', 'long-enough-1')
     assert.equal((await api.get('/admin/v1/batches', { token: ravi })).status, 403)
     assert.equal((await api.patch(`/admin/v1/staff/${add.body.id}`, { role: 'QC' }, { token: manager })).status, 200)
-    ravi = await adminToken(api, 'ravi@vmr.test', 'long-enough-1')
+    ravi = await adminToken(api, 'ravi@mandimangoes.test', 'long-enough-1')
     assert.equal((await api.get('/admin/v1/batches', { token: ravi })).status, 200)
 
-    const me = (await api.get('/admin/v1/staff', { token: manager })).body.find((s) => s.email === 'manager@vmr.test')
+    const me = (await api.get('/admin/v1/staff', { token: manager })).body.find((s) => s.email === 'manager@mandimangoes.test')
     assert.equal((await api.patch(`/admin/v1/staff/${me.id}`, { role: 'OPERATOR' }, { token: manager })).status, 400)
     assert.equal((await api.del(`/admin/v1/staff/${me.id}`, { token: manager })).status, 400)
     assert.equal((await api.del(`/admin/v1/staff/${add.body.id}`, { token: manager })).status, 204)
-    assert.equal((await api.post('/admin/v1/auth/login', { email: 'ravi@vmr.test', password: 'long-enough-1' })).status, 401)
+    assert.equal((await api.post('/admin/v1/auth/login', { email: 'ravi@mandimangoes.test', password: 'long-enough-1' })).status, 401)
 
     const log = await auditUntil(manager, (items) => items.some((a) => a.action === 'DELETE /staff/:id'))
     const add1 = log.items.find((a) => a.action === 'POST /staff')
-    assert.equal(add1.email, 'manager@vmr.test')
+    assert.equal(add1.email, 'manager@mandimangoes.test')
     assert.equal(add1.target, add.body.id)
     assert.equal(add1.detail.password, '[removed]')
-    assert.ok(log.items.some((a) => a.action === 'auth.login' && a.email === 'ravi@vmr.test'))
+    assert.ok(log.items.some((a) => a.action === 'auth.login' && a.email === 'ravi@mandimangoes.test'))
     assert.ok(!log.items.some((a) => a.action === 'POST /staff' && a.detail.role === 'QC'), 'refused changes are not logged')
-    assert.ok(log.staff.some((s) => s.email === 'qc@vmr.test' && s.role === 'QC'))
+    assert.ok(log.staff.some((s) => s.email === 'qc@mandimangoes.test' && s.role === 'QC'))
   })
 
   test('order steps are logged against the order, and the trail filters by person and target', async () => {
     const id = await paidOrder()
-    const packer = await adminToken(api, 'packer@vmr.test', 'packer123')
+    const packer = await adminToken(api, 'packer@mandimangoes.test', 'packer123')
     await api.post(`/admin/v1/orders/${id}/allocate`, {}, { token: packer })
     await api.patch(`/admin/v1/orders/${id}/status`, { status: 'PROCESSING' }, { token: packer })
-    const log = await auditUntil(manager, (items) => items.length === 2, `?staff=packer@vmr.test&target=${id}`)
+    const log = await auditUntil(manager, (items) => items.length === 2, `?staff=packer@mandimangoes.test&target=${id}`)
     assert.deepEqual(log.items.map((a) => a.action), ['PATCH /orders/:id/status', 'POST /orders/:id/allocate'])
     assert.deepEqual(log.items[0].detail, { status: 'PROCESSING' })
     assert.equal(log.items[0].role, 'PACKER')

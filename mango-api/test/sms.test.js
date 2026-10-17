@@ -4,8 +4,8 @@ import { test } from 'node:test'
 import { jioSender } from '../src/sms.js'
 
 const opts = {
-  url: 'https://sms.example.test/send', apiKey: 'k1', senderId: 'VMRMNG', templateId: 'T1', entityId: 'E1',
-  text: '{code} is your VMR Mangoes login code. It expires in 5 minutes.',
+  url: 'https://sms.example.test/send', apiKey: 'k1', senderId: 'MANDIM', templateId: 'T1', entityId: 'E1',
+  text: '{code} is your MandiMangoes login code. It expires in 5 minutes.',
 }
 
 test('the Jio sender posts the DLT-registered message', async () => {
@@ -19,7 +19,7 @@ test('the Jio sender posts the DLT-registered message', async () => {
   assert.equal(calls[0].url, opts.url)
   assert.equal(calls[0].init.headers.Authorization, 'Bearer k1')
   assert.deepEqual(JSON.parse(calls[0].init.body), {
-    to: '919876543210', sender: 'VMRMNG', message: '123456 is your VMR Mangoes login code. It expires in 5 minutes.', templateId: 'T1', entityId: 'E1',
+    to: '919876543210', sender: 'MANDIM', message: '123456 is your MandiMangoes login code. It expires in 5 minutes.', templateId: 'T1', entityId: 'E1',
   })
 })
 

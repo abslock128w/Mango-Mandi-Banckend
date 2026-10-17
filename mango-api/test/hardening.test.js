@@ -60,7 +60,7 @@ describe('one worker per job', () => {
     }
     const [x, y] = await Promise.all([sendDueNotifications({ sender }), sendDueNotifications({ sender })])
     assert.equal(x + y, 1)
-    assert.deepEqual(sent, ['vmr_order_confirmed'])
+    assert.deepEqual(sent, ['mandi_order_confirmed'])
     const { rows } = await query('SELECT status FROM notifications WHERE order_id = $1', [id])
     assert.deepEqual(rows.map((r) => r.status), ['SENT'])
   })
@@ -82,13 +82,13 @@ describe('login codes', () => {
 
   test('the WhatsApp code uses an authentication template with the copy-code button', async () => {
     let req
-    const send = metaOtpSender({ token: 't', phoneNumberId: '42', apiVersion: 'v21.0', language: 'en', template: 'vmr_login_code' }, async (url, init) => {
+    const send = metaOtpSender({ token: 't', phoneNumberId: '42', apiVersion: 'v21.0', language: 'en', template: 'mandi_login_code' }, async (url, init) => {
       req = { url, body: JSON.parse(init.body) }
       return new Response(JSON.stringify({ messages: [{ id: 'wamid.1' }] }), { status: 200 })
     })
     await send('919000000001', '654321')
     assert.equal(req.url, 'https://graph.facebook.com/v21.0/42/messages')
-    assert.equal(req.body.template.name, 'vmr_login_code')
+    assert.equal(req.body.template.name, 'mandi_login_code')
     assert.deepEqual(req.body.template.components, [
       { type: 'body', parameters: [{ type: 'text', text: '654321' }] },
       { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: '654321' }] },
@@ -131,7 +131,7 @@ describe('needs attention', () => {
     assert.deepEqual(a.stuckRefunds.map((r) => [r.type, r.id]), [['order', id]])
     assert.deepEqual(a.webhookFailures.map((w) => [w.source, w.eventKey]), [['razorpay', 'evt_unknown']])
 
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.post(`/admin/v1/notifications/${a.failedMessages[0].id}/retry`, undefined, { token: ops })).status, 204)
     assert.equal((await api.post(`/admin/v1/notifications/${a.failedMessages[0].id}/retry`, undefined, { token: ops })).status, 404)
     const { rows } = await query('SELECT status, attempts FROM notifications WHERE id = $1', [a.failedMessages[0].id])

@@ -35,7 +35,7 @@ const noDrift = async () => assert.deepEqual(await tx((c) => auditLedger(c)), []
 
 describe('staff auth', () => {
   test('login, refresh rotation, and reuse detection', async () => {
-    const login = await api.post('/admin/v1/auth/login', { email: 'manager@vmr.test', password: 'manager123' })
+    const login = await api.post('/admin/v1/auth/login', { email: 'manager@mandimangoes.test', password: 'manager123' })
     assert.equal(login.status, 200)
     const cookie = login.headers.get('set-cookie')
     assert.match(cookie, /mango_admin_rt=.*HttpOnly/i)
@@ -60,13 +60,13 @@ describe('staff auth', () => {
   })
 
   test('wrong password, me, and manager-only actions', async () => {
-    const bad = await api.post('/admin/v1/auth/login', { email: 'manager@vmr.test', password: 'nope' })
+    const bad = await api.post('/admin/v1/auth/login', { email: 'manager@mandimangoes.test', password: 'nope' })
     assert.equal(bad.status, 401)
     assert.equal(bad.body.error.code, 'INVALID_CREDENTIALS')
     assert.equal((await api.get('/admin/v1/summary')).status, 401)
 
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, { email: 'ops@vmr.test', role: 'OPERATOR' })
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
+    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, { email: 'ops@mandimangoes.test', role: 'OPERATOR' })
     const b = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'CONDEMNED' }, { token: ops })).status, 403)
     assert.equal((await api.del('/admin/v1/pincodes/560034', { token: ops })).status, 403)
@@ -354,7 +354,7 @@ describe('orders', () => {
     assert.equal((await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
     const cancelled = (await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body
     assert.equal(cancelled.status, 'CANCELLED')
-    assert.equal(cancelled.paymentStatus, 'REFUNDED') // the one case VMR refunds
+    assert.equal(cancelled.paymentStatus, 'REFUNDED') // the one case MandiMangoes refunds
     assert.equal(cancelled.refundStatus, 'REFUNDED')
     assert.equal((await line(b, 'ALP-3')).committed, 0)
     const detail = (await api.get(`/admin/v1/orders/${paid.body.orderId}`, { token: admin })).body
@@ -446,7 +446,7 @@ describe('ops tools', () => {
     assert.equal(cfg.version, 1)
     const bad = await api.put('/admin/v1/config', { rules: { ...cfg.rules, retireAge: 5 } }, { token: admin })
     assert.equal(bad.status, 400)
-    const ops = await adminToken(api, 'ops@vmr.test', 'operator123')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.put('/admin/v1/config', { rules: { ...cfg.rules, cutoffHourIST: 17 } }, { token: ops })).status, 403)
     const saved = await api.put('/admin/v1/config', { rules: { ...cfg.rules, cutoffHourIST: 17 } }, { token: admin })
     assert.equal(saved.body.version, 2)

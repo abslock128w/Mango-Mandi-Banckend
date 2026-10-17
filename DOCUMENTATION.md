@@ -1,6 +1,6 @@
 # Mango Ops — Admin Panel Documentation
 
-Operations tool for VMR Mangoes staff: receive stock, run quality control, move
+Operations tool for MandiMangoes staff: receive stock, run quality control, move
 orders through fulfilment, handle claims with replacements, and manage delivery areas.
 There are no refunds: a problem with a delivered order is settled by a replacement.
 
@@ -50,10 +50,10 @@ If it's unset, a red banner warns you.
 ### Seed logins (change before production)
 | Email | Password | Role |
 |-------|----------|------|
-| `manager@vmr.test` | `manager123` | Manager |
-| `ops@vmr.test` | `operator123` | Operator |
-| `packer@vmr.test` | `packer123` | Packer |
-| `qc@vmr.test` | `qc123` | QC |
+| `manager@mandimangoes.test` | `manager123` | Manager |
+| `ops@mandimangoes.test` | `operator123` | Operator |
+| `packer@mandimangoes.test` | `packer123` | Packer |
+| `qc@mandimangoes.test` | `qc123` | QC |
 
 ### Signing in
 Email + password. A wrong login shows a generic "Invalid credentials" (it never
@@ -184,7 +184,7 @@ npm run build          # type-checks, then builds to dist/
 npm run typecheck                                  # tsc --noEmit
 npx playwright test tests/smoke.spec.ts tests/a11y.spec.ts   # no backend needed
 # full flow against a live backend:
-E2E_EMAIL=manager@vmr.test E2E_PASSWORD=manager123 \
+E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 \
   npx playwright test tests/day-in-the-life.spec.ts --project=desktop
 ```
 CI (`.github/workflows/ci.yml`) runs typecheck + build + smoke + accessibility on every

@@ -1,7 +1,7 @@
 // WhatsApp through the Meta WhatsApp Cloud API. Business-initiated messages
 // (order updates) must use templates approved in WhatsApp Manager; each kind of
 // update maps to one template named <WHATSAPP_TEMPLATE_PREFIX><kind>, e.g.
-// vmr_order_confirmed, whose body variables are filled in order ({{1}}, {{2}}…).
+// mandi_order_confirmed, whose body variables are filled in order ({{1}}, {{2}}…).
 // Replies in the ordering chat are free-form (text, buttons, lists), which
 // WhatsApp allows within 24 hours of the customer's last message.
 import { createHmac, timingSafeEqual } from 'node:crypto'
