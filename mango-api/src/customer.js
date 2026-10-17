@@ -8,6 +8,7 @@ import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefre
 import { isDate, now } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
+import { customerDelivery, customerPhoto } from './delivery-proof.js'
 import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
@@ -388,10 +389,11 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot] = await Promise.all([
+    const [items, events, slot, proof] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
+      customerDelivery({ query }, o),
     ])
     res.json({
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
@@ -401,7 +403,16 @@ router.get(
       holdExpiresAt: o.hold_expires_at,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
+      ...proof,
     })
+  }),
+)
+
+router.get(
+  '/orders/:id/delivery-photo',
+  asyncHandler(async (req, res) => {
+    const p = await customerPhoto({ query }, await ownOrder({ query }, req))
+    res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=86400').send(p.bytes)
   }),
 )
 

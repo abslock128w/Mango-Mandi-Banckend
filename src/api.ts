@@ -32,6 +32,7 @@ import type {
   RulesVersion,
   CalendarDay,
   CoverageDay,
+  FailReason,
   DeliverySlot,
   Preorder,
   PreorderCapacity,
@@ -102,24 +103,31 @@ function signOutLocally() {
   window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'expired' } }))
 }
 
-async function request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+/** A Blob body is sent as-is (photos); anything else as JSON. */
+async function send(method: string, path: string, body?: unknown, retried = false): Promise<Response> {
   const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const blob = body instanceof Blob
+  if (body !== undefined) headers['Content-Type'] = blob ? body.type : 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers,
     credentials: 'include',
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
   })
 
   if (res.status === 401 && !retried) {
-    if (await refreshOnce()) return request<T>(method, path, body, true)
+    if (await refreshOnce()) return send(method, path, body, true)
     signOutLocally()
     throw new ApiError(401, 'SESSION_ENDED', 'Your session has ended. Please sign in again.')
   }
   if (!res.ok) throw await toApiError(res)
+  return res
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await send(method, path, body)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
@@ -235,6 +243,22 @@ export const api = {
 
   analytics: (f: { from?: string | null; to?: string | null } = {}) => request<Analytics>('GET', `/analytics${qs(f)}`),
   manifest: (date: string) => request<Manifest>('GET', `/manifest${qs({ date })}`),
+  /** Puts every packed order of a run (one slot, null for orders without one) out for delivery. */
+  dispatchRun: (date: string, slotId: string | null) =>
+    request<{ dispatched: string[]; skipped: { number: string; reason: string }[] }>('POST', '/manifest/dispatch', { date, slotId }),
+  dispatch: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/dispatch`),
+  uploadDeliveryPhoto: (orderId: string, photo: Blob) => request<{ id: string }>('POST', `/orders/${id(orderId)}/delivery-photos`, photo),
+  /** An object URL for a delivery photo (the image needs the staff sign-in, so it is fetched, not linked). */
+  async deliveryPhotoUrl(orderId: string, photoId: string): Promise<string> {
+    const res = await send('GET', `/orders/${id(orderId)}/delivery-photos/${id(photoId)}`)
+    return URL.createObjectURL(await res.blob())
+  },
+  recordDelivery: (
+    orderId: string,
+    body:
+      | { outcome: 'DELIVERED'; code?: string; photoId?: string; receivedBy?: string; lat?: number; lng?: number }
+      | { outcome: 'FAILED'; reason: FailReason; note?: string; photoId?: string; lat?: number; lng?: number },
+  ) => request<{ outcome: 'DELIVERED' | 'FAILED'; method?: string }>('POST', `/orders/${id(orderId)}/delivery`, body),
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),

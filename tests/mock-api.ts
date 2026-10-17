@@ -4,7 +4,7 @@ import type { Attention, AuditEntry, StaffMember } from '../src/types'
 // A small in-memory stand-in for mango-api's /admin/v1, so the UI can be
 // exercised in CI without a database. Shapes follow the API reference (§6).
 
-export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC'
+export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC' | 'RIDER'
 
 export interface MockOptions {
   /** Signed in already (refresh succeeds) or not (refresh returns 401). */
@@ -19,7 +19,7 @@ const json = (route: Route, status: number, body?: unknown) =>
     body: body === undefined ? '' : JSON.stringify(body),
   })
 
-const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test' }
+const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
 
 export function seed() {
   return {
@@ -118,6 +118,12 @@ export function seed() {
       items: [{ productName: 'Alphonso 3kg Box', sku: 'ALP-3', quantity: 1, stage: 'RIPE', linePrice: 129900 }],
       stock: [{ batchId: 'b1', sku: 'ALP-3', variety: 'Alphonso', pluckedOn: '2026-10-08', quantity: 1, state: 'packed' }],
       events: [{ status: 'DELIVERED', actor: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-13T10:00:00Z' }],
+      deliveryAttempts: [
+        {
+          id: 'dat1', outcome: 'DELIVERED', method: 'photo', receivedBy: 'Security at the gate', reason: null, reasonLabel: null, note: null,
+          photoId: 'dph1', lat: 18.9438, lng: 72.8231, actor: 'rider@mandimangoes.test', at: '2026-10-13T10:00:00Z',
+        },
+      ],
       payment: { status: 'SUCCEEDED', method: 'card', amount: 129900 },
     },
     attention: { loop: { lastRunAt: '2026-10-15T04:29:00Z', stale: false, failingSteps: [] }, failedMessages: [], stuckRefunds: [], webhookFailures: [] } as Attention,
@@ -321,6 +327,30 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)
+    if (path === '/manifest/dispatch') {
+      const dispatched: string[] = []
+      for (const o of state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders))) {
+        if (o.status === 'PACKED') {
+          o.status = 'OUT_FOR_DELIVERY'
+          dispatched.push(o.number)
+        }
+      }
+      return json(route, 200, { dispatched, skipped: [{ number: 'ORD-1044', reason: 'Not packed yet' }] })
+    }
+    if (/^\/orders\/[^/]+\/delivery-photos$/.test(path)) return json(route, 201, { id: 'dph9' })
+    if (/^\/orders\/[^/]+\/delivery-photos\/[^/]+$/.test(path)) {
+      // A 1×1 PNG
+      return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64') })
+    }
+    if (/^\/orders\/[^/]+\/delivery$/.test(path)) {
+      const b = body as { outcome: string; code?: string }
+      if (b.outcome === 'DELIVERED' && b.code && b.code !== '4821') {
+        return json(route, 422, { error: { code: 'WRONG_CODE', message: 'That code is not right. 4 tries left.', requestId: 'req_c', triesLeft: 4 } })
+      }
+      const o = state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders)).find((x) => x.id === path.split('/')[2])
+      if (o) o.status = b.outcome === 'DELIVERED' ? 'DELIVERED' : 'DELIVERY_FAILED'
+      return json(route, 200, { outcome: b.outcome })
+    }
     if (path === '/analytics') return json(route, 200, state.analytics)
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })

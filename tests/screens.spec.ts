@@ -138,6 +138,16 @@ test('Orders never offer a refund', async ({ page }) => {
   await expect(page.getByRole('button', { name: /refund/i })).toHaveCount(0)
 })
 
+test('the order page shows the proof of delivery with the rider photo', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/orders/o2')
+  const proof = page.locator('section', { has: page.getByRole('heading', { name: 'Proof of delivery' }) })
+  await expect(proof).toContainText('Left with Security at the gate, with a photo')
+  await expect(proof).toContainText('by rider@mandimangoes.test')
+  await expect(proof.getByRole('link', { name: 'where' })).toHaveAttribute('href', /18\.9438,72\.8231/)
+  await expect(proof.getByRole('img', { name: 'Delivery photo taken by the rider' })).toBeVisible()
+})
+
 test('Pack list: by order with allocate shortcut, by batch with unallocated section', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   await page.goto('/pack-list?date=2026-10-16')
@@ -322,11 +332,86 @@ test('Deliveries: the rider run by slot and pincode, flagging unpacked orders', 
   await page.goto('/deliveries?date=2026-10-16')
   await expect(page.getByText('2 orders, 3 boxes. Every order is paid: riders collect nothing.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Morning · 07:00–11:00' })).toBeVisible()
-  const stop = page.getByRole('region', { name: 'Morning · 07:00–11:00, 400001' })
-  await expect(stop.getByRole('row', { name: /ORD-1042/ })).toContainText('12 Marine Drive')
-  await expect(stop.getByRole('row', { name: /ORD-1044/ })).toContainText('Not packed yet')
+  const stop = page.getByRole('list', { name: 'Morning · 07:00–11:00, 400001' })
+  await expect(stop.getByRole('listitem', { name: 'ORD-1042' })).toContainText('12 Marine Drive')
+  await expect(stop.getByRole('listitem', { name: 'ORD-1044' })).toContainText('Not packed yet')
   await expect(stop.getByRole('link', { name: '9876543210' })).toHaveAttribute('href', 'tel:+919876543210')
+  await expect(stop.getByRole('link', { name: 'Map for ORD-1042' })).toHaveAttribute('href', /google\.com\/maps\/search\/.*12%20Marine%20Drive%20400001/)
   expect(api.calls.some((c) => c.path === '/manifest')).toBe(true)
+})
+
+test('a rider starts the run and proves each delivery with the code, or says why it failed', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true, role: 'RIDER' })
+  await page.context().grantPermissions(['geolocation'])
+  await page.context().setGeolocation({ latitude: 18.9438, longitude: 72.8231 })
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/deliveries/)
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav.getByRole('link', { name: 'Deliveries' })).toBeVisible()
+  for (const name of ['Today', 'Orders', 'Pack list', 'Staff']) await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0)
+  await expect(nav).toContainText('rider@mandimangoes.test · Rider')
+
+  await page.goto('/deliveries?date=2026-10-16')
+  const stop = page.getByRole('list', { name: 'Morning · 07:00–11:00, 400001' })
+  // Riders don't open the staff order page.
+  await expect(stop.getByRole('link', { name: 'ORD-1042' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Start run Morning · 07:00–11:00 (1)' }).click()
+  await expect(page.getByText('1 order out for delivery')).toBeVisible()
+  await expect(page.getByText('Not sent: ORD-1044 (not packed yet)')).toBeVisible()
+  expect(api.calls.find((c) => c.path === '/manifest/dispatch')?.body).toEqual({ date: '2026-10-16', slotId: 'slt1' })
+
+  await stop.getByRole('button', { name: 'Delivered ORD-1042' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Deliver ORD-1042' })
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Enter the 4-digit code the customer gives you.')
+  await dialog.getByLabel("Customer's delivery code").fill('1111')
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('That code is not right. 4 tries left.')
+  await dialog.getByLabel("Customer's delivery code").fill('4821')
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText('ORD-1042 delivered')).toBeVisible()
+  const sent = api.calls.filter((c) => c.path === '/orders/o1/delivery').map((c) => c.body)
+  const at = { lat: 18.9438, lng: 72.8231 }
+  expect(sent).toEqual([{ outcome: 'DELIVERED', code: '1111', ...at }, { outcome: 'DELIVERED', code: '4821', ...at }])
+  await expect(stop.getByRole('listitem', { name: 'ORD-1042' })).toContainText('Delivered')
+})
+
+test('a rider records a missed delivery with a reason, and a handover with a photo', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true, role: 'RIDER' })
+  await page.context().grantPermissions(['geolocation'])
+  await page.context().setGeolocation({ latitude: 18.9438, longitude: 72.8231 })
+  api.manifest.runs[0].stops[0].orders[0].status = 'OUT_FOR_DELIVERY'
+  await page.goto('/deliveries?date=2026-10-16')
+  const stop = page.getByRole('list', { name: 'Morning · 07:00–11:00, 400001' })
+
+  await stop.getByRole('button', { name: 'Delivered ORD-1042' }).click()
+  let dialog = page.getByRole('dialog', { name: 'Deliver ORD-1042' })
+  await dialog.getByRole('button', { name: 'No code? Leave it with someone and take a photo' }).click()
+  await dialog.getByLabel('Photo of the handover').setInputFiles({
+    name: 'door.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64'),
+  })
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Say who took it, or where you left it.')
+  await dialog.getByLabel('Who took it, or where you left it').fill('Security at the gate')
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery-photos')).toHaveLength(1)
+  expect(api.calls.find((c) => c.path === '/orders/o1/delivery')?.body).toEqual({ outcome: 'DELIVERED', photoId: 'dph9', receivedBy: 'Security at the gate', lat: 18.9438, lng: 72.8231 })
+
+  api.manifest.runs[0].stops[0].orders[0].status = 'OUT_FOR_DELIVERY'
+  await page.reload()
+  await stop.getByRole('button', { name: "Couldn't deliver ORD-1042" }).click()
+  dialog = page.getByRole('dialog', { name: "Couldn't deliver ORD-1042" })
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Pick what happened.')
+  await dialog.getByLabel('Customer not home').check()
+  await dialog.getByLabel('Note (optional)').fill('Called twice')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('ORD-1042 will be tried again on the next delivery day')).toBeVisible()
+  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery').at(-1)?.body).toEqual({ outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', lat: 18.9438, lng: 72.8231 })
 })
 
 test('Analytics: season tiles, weekly charts with hover detail, and the tables', async ({ page }) => {

@@ -1,7 +1,7 @@
 // Staff roles and the audit trail.
 //
 // MANAGER does everything. OPERATOR does everything except the manager-only
-// routes (requireManager in admin.js). PACKER and QC see only their own screens:
+// routes (requireManager in admin.js). PACKER, QC and RIDER see only their own screens:
 // anything not listed for them below is refused, so a new route is closed to
 // them until someone adds it here.
 import { now } from './clock.js'
@@ -10,7 +10,7 @@ import { forbidden } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 
-export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC']
+export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
 
 /** The order steps a packer may make: packing, handing over and delivery. */
 export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED']
@@ -19,11 +19,22 @@ const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace
 
 const COMMON = [route('GET', '/auth/me'), route('GET', '/products'), route('GET', '/summary')]
 
+const DELIVERY = [
+  route('GET', '/manifest'),
+  route('POST', '/manifest/dispatch'),
+  route('POST', '/orders/:id/dispatch'),
+  route('POST', '/orders/:id/delivery-photos'),
+  route('GET', '/orders/:id/delivery-photos/:photoId'),
+  route('POST', '/orders/:id/delivery'),
+]
+
 const LIMITED = {
+  // Riders only see the day's run and record deliveries, with proof.
+  RIDER: [...COMMON, ...DELIVERY],
   PACKER: [
+    ...DELIVERY,
     ...COMMON,
     route('GET', '/pack-list'),
-    route('GET', '/manifest'),
     route('GET', '/orders/:id'),
     route('GET', '/slots'),
     route('POST', '/orders/:id/allocate'),
@@ -41,7 +52,7 @@ const LIMITED = {
   ],
 }
 
-/** Refuses PACKER and QC staff anything outside their own screens. */
+/** Refuses PACKER, QC and RIDER staff anything outside their own screens. */
 export function limitByRole(req, _res, next) {
   const allowed = LIMITED[req.admin?.role]
   if (!allowed) return next()
@@ -53,9 +64,11 @@ export function limitByRole(req, _res, next) {
   next()
 }
 
-const SECRET_KEYS = /password|token|secret/i
+// The customer's delivery code is a secret too.
+const SECRET_KEYS = /password|token|secret|^code$/i
 
 function clean(body) {
+  if (Buffer.isBuffer(body)) return body.length ? { bytes: body.length } : null
   if (!body || typeof body !== 'object' || !Object.keys(body).length) return null
   const out = {}
   for (const [k, v] of Object.entries(body)) out[k] = SECRET_KEYS.test(k) ? '[removed]' : v

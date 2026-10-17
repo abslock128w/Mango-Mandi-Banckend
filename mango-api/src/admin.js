@@ -9,10 +9,11 @@ import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
+import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, recordDelivery, recordStaffDelivery, savePhoto } from './delivery-proof.js'
 import { query, tx } from './db.js'
 import { chooseSlot, orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
-import { asyncHandler, badRequest, conflict, notFound, parse, unauthorized } from './errors.js'
+import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
 import { availability, ledger, SELLABLE_STATUSES } from './inventory.js'
 import { triggerRebalanceAll } from './maintenance.js'
@@ -415,7 +416,7 @@ export async function orderDetail(c, orderId) {
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events, notes] = await Promise.all([
+  const [items, stock, events, notes, deliveryAttempts] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -424,6 +425,7 @@ export async function orderDetail(c, orderId) {
     ),
     c.query('SELECT * FROM order_events WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
+    attemptsFor(c, orderId),
   ])
   return {
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
@@ -440,6 +442,7 @@ export async function orderDetail(c, orderId) {
     })),
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     events: events.rows.map((e) => ({ status: e.status, fromStatus: e.from_status, actor: e.actor, reason: e.reason, createdAt: e.created_at })),
+    deliveryAttempts,
     payment: o.payment_status || o.payment_method
       ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id, ...(o.payment_link_url ? { linkUrl: o.payment_link_url } : {}),
           refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id } : null }
@@ -453,7 +456,10 @@ router.patch(
   '/orders/:id/status',
   asyncHandler(async (req, res) => {
     const { status } = parse(z.object({ status: z.enum(ORDER_STATUSES) }), req.body)
-    await tx((c) => setOrderStatus(c, req.params.id, status, req.actor))
+    await tx(async (c) => {
+      await setOrderStatus(c, req.params.id, status, req.actor)
+      await recordStaffDelivery(c, req.params.id, status, req.actor)
+    })
     res.status(204).end()
   }),
 )
@@ -692,6 +698,95 @@ router.get(
       boxes: runs.reduce((n, r) => n + r.boxes, 0),
       runs: runs.map(({ key, ...r }) => r),
     })
+  }),
+)
+
+// ---------------------------------------------------------------- proof of delivery
+
+/** Start a run: every packed order on the date (one slot, or all) goes out for delivery. */
+router.post(
+  '/manifest/dispatch',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({ date: z.string().refine(isDate, 'date must be YYYY-MM-DD'), slotId: z.string().nullable().optional() }),
+      req.body,
+    )
+    const params = [b.date]
+    let slotFilter = ''
+    if (b.slotId === null) slotFilter = 'AND slot_id IS NULL'
+    else if (b.slotId) {
+      params.push(b.slotId)
+      slotFilter = 'AND slot_id = $2'
+    }
+    const { rows } = await query(
+      `SELECT id, number, status FROM orders WHERE delivery_date = $1 ${slotFilter}
+          AND status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED') ORDER BY number`,
+      params,
+    )
+    const dispatched = []
+    const skipped = []
+    for (const o of rows) {
+      if (['CONFIRMED', 'PROCESSING'].includes(o.status)) {
+        skipped.push({ number: o.number, reason: 'Not packed yet' })
+        continue
+      }
+      try {
+        if (await tx((c) => dispatchOrder(c, o.id, req.actor))) dispatched.push(o.number)
+      } catch (err) {
+        skipped.push({ number: o.number, reason: err.message })
+      }
+    }
+    res.json({ dispatched, skipped })
+  }),
+)
+
+router.post(
+  '/orders/:id/dispatch',
+  asyncHandler(async (req, res) => {
+    await tx((c) => dispatchOrder(c, req.params.id, req.actor))
+    res.status(204).end()
+  }),
+)
+
+/** The photo is the raw request body (Content-Type image/jpeg, png or webp). */
+router.post(
+  '/orders/:id/delivery-photos',
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
+  asyncHandler(async (req, res) => {
+    const id = await tx((c) => savePhoto(c, req.params.id, req.body, req.actor))
+    res.status(201).json({ id })
+  }),
+)
+
+router.get(
+  '/orders/:id/delivery-photos/:photoId',
+  asyncHandler(async (req, res) => {
+    const p = await photo({ query }, req.params.id, req.params.photoId)
+    res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=86400').send(p.bytes)
+  }),
+)
+
+router.post(
+  '/orders/:id/delivery',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        outcome: z.enum(['DELIVERED', 'FAILED']),
+        code: z.string().regex(/^\d{4}$/, 'The code is 4 digits').optional(),
+        photoId: z.string().max(40).optional(),
+        receivedBy: z.string().trim().max(80).optional(),
+        reason: z.enum(FAIL_REASONS).optional(),
+        note: z.string().trim().max(300).optional(),
+        lat: z.number().min(-90).max(90).optional(),
+        lng: z.number().min(-180).max(180).optional(),
+      }),
+      req.body,
+    )
+    const r = await tx((c) => recordDelivery(c, req.params.id, b, req.actor))
+    if (r.wrongCode) {
+      throw new HttpError(422, 'WRONG_CODE', r.triesLeft ? `That code is not right. ${r.triesLeft} tries left.` : 'That code is not right. Take a photo of the handover instead.', { triesLeft: r.triesLeft })
+    }
+    res.json(r)
   }),
 )
 

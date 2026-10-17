@@ -13,6 +13,7 @@ const ROLE_HINT: Record<Role, string> = {
   OPERATOR: 'Everything except the manager-only actions',
   PACKER: 'Pack list, deliveries and order steps through delivery',
   QC: 'Receiving batches, QC and stock counts',
+  RIDER: "The day's deliveries, marked with the customer's code or a photo",
 }
 
 /** Managers add staff, set roles and see who did what. */
@@ -284,6 +285,10 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /orders/:id/rebalance': 'Rechecked an order’s stock',
   'POST /orders/:id/reschedule': 'Moved an order’s date',
   'POST /orders/bulk-reschedule': 'Moved a whole day',
+  'POST /manifest/dispatch': 'Started a delivery run',
+  'POST /orders/:id/dispatch': 'Sent an order out for delivery',
+  'POST /orders/:id/delivery-photos': 'Took a delivery photo',
+  'POST /orders/:id/delivery': (d) => (d.outcome === 'FAILED' ? 'Recorded a missed delivery' : 'Recorded a delivery'),
   'POST /notifications/:id/retry': 'Sent a WhatsApp message again',
   'POST /claims/:id/review': 'Started reviewing a claim',
   'POST /claims/:id/resolve': 'Resolved a claim',

@@ -8,6 +8,7 @@
 // OPERATOR: everything except the manager-only actions below.
 // PACKER: the pack list, deliveries and order steps through delivery.
 // QC: receiving batches, QC and stock counts.
+// RIDER: the day's deliveries, marked with the customer's code or a photo.
 
 import type { OrderStatus, Role } from './types'
 
@@ -23,11 +24,11 @@ const MANAGER_ONLY: ReadonlySet<Action> = new Set<Action>([
 
 export const MANAGER_ONLY_HINT = 'Requires manager role'
 
-export const ROLE_LABEL: Record<Role, string> = { MANAGER: 'Manager', OPERATOR: 'Operator', PACKER: 'Packer', QC: 'QC' }
-export const ALL_ROLES: Role[] = ['MANAGER', 'OPERATOR', 'PACKER', 'QC']
+export const ROLE_LABEL: Record<Role, string> = { MANAGER: 'Manager', OPERATOR: 'Operator', PACKER: 'Packer', QC: 'QC', RIDER: 'Rider' }
+export const ALL_ROLES: Role[] = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
 
-/** Packers and QC staff only get their own work; cancelling or moving orders is not theirs. */
-const LIMITED: ReadonlySet<Role> = new Set<Role>(['PACKER', 'QC'])
+/** Packers, QC and riders only get their own work; cancelling or moving orders is not theirs. */
+const LIMITED: ReadonlySet<Role> = new Set<Role>(['PACKER', 'QC', 'RIDER'])
 
 export function can(role: Role | null | undefined, action: Action): boolean {
   if (!role) return false
@@ -57,6 +58,7 @@ const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
   QC: new Set<Screen>(['batches']),
+  RIDER: new Set<Screen>(['deliveries']),
 }
 
 export function canSee(role: Role | null | undefined, screen: Screen): boolean {
@@ -69,5 +71,6 @@ export function canSee(role: Role | null | undefined, screen: Screen): boolean {
 export function homeFor(role: Role | null | undefined): string {
   if (role === 'PACKER') return '/pack-list'
   if (role === 'QC') return '/batches'
+  if (role === 'RIDER') return '/deliveries'
   return '/today'
 }

@@ -735,6 +735,50 @@ dl.kv dd {
   break-inside: avoid;
 }
 
+/* ---------- Delivery run ---------- */
+
+.btn-link {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  min-height: 2.25rem;
+  color: var(--blue-700);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.stop {
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 0.2rem;
+  break-inside: avoid;
+}
+.stop:first-child {
+  border-top: none;
+}
+.stop-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.stop .btn {
+  min-height: 2.75rem;
+}
+.delivery-photo {
+  display: block;
+  max-width: min(100%, 320px);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin-top: 0.35rem;
+}
+
 .print-only {
   display: none;
 }

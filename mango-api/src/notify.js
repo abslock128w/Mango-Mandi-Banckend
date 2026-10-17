@@ -74,7 +74,7 @@ export function paramsFor(n) {
     case 'REPLACEMENT_CONFIRMED':
       return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'OUT_FOR_DELIVERY':
-      return [name, n.number, slotWords(n)]
+      return [name, n.number, slotWords(n), n.delivery_code ?? '']
     case 'DATE_MOVED':
       return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'DELIVERY_FAILED':
@@ -112,7 +112,7 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
   if (!claimed.rows.length) return 0
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, COALESCE(o.customer_name, p.customer_name) AS customer_name,
-            o.delivery_date, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
+            o.delivery_date, o.delivery_code, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id

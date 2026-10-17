@@ -104,6 +104,10 @@ export interface Order {
   slot: Slot | null
   items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null }[]
   timeline: { status: OrderStatus; at: string }[]
+  /** Give this to the rider; set while the order is out for delivery. */
+  deliveryCode?: string | null
+  /** How the order was handed over, once delivered. */
+  delivery?: { at: string; method: 'code' | 'photo' | 'staff' | null; receivedBy: string | null; hasPhoto: boolean } | null
 }
 export type IssueType = 'DAMAGED' | 'WRONG_ITEM' | 'NOT_DELIVERED'
 export interface Claim {
@@ -252,6 +256,15 @@ export const api = {
   claims: () => request<Claim[]>('GET', '/claims'),
   raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoUrl?: string }) =>
     request<{ id: string; status: string }>('POST', '/claims', input),
+
+  /** The rider's photo of the handover, as an object URL (it needs the sign-in, so it is fetched). */
+  async deliveryPhotoUrl(orderId: string): Promise<string> {
+    const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: session ? { Authorization: `Bearer ${session.accessToken}` } : {} })
+    let res = await get()
+    if (res.status === 401 && session && (await refreshOnce())) res = await get()
+    if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
+    return URL.createObjectURL(await res.blob())
+  },
 
   /** Development only: the API's stand-in for Razorpay. */
   devPay: (orderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay', { orderId, outcome }),

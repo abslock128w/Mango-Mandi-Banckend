@@ -60,7 +60,7 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 |----------|-----------|----------------|
 | `mandi_order_confirmed` | payment confirms the order | name, order number, date ("Fri, 16 Oct"), slot ("7 AM to 11 AM") |
 | `mandi_replacement_confirmed` | a free replacement is booked | same as above |
-| `mandi_out_for_delivery` | the order leaves for delivery | name, order number, slot |
+| `mandi_out_for_delivery` | the order leaves for delivery | name, order number, slot, 4-digit delivery code ("Give the rider code {{4}}") |
 | `mandi_delivered` | delivered | name, order number |
 | `mandi_delivery_failed` | a delivery is missed and retried | name, order number, retry date |
 | `mandi_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
@@ -143,6 +143,30 @@ the fruit exists, at the price of the day, and pay in full by Razorpay payment l
   week) returns week-by-week sales (by delivery date), deliveries and misses, at-risk orders,
   boxes received and wasted (condemned or retired), customer cancels, refunds and claims, plus a
   per-SKU table and totals. Money is in paise.
+
+## Proof of delivery
+
+Riders have their own staff role, `RIDER`, which can open the Deliveries page and nothing
+else. A packer, operator or manager can do the same steps.
+
+- **Start a run.** `POST /admin/v1/manifest/dispatch` `{date, slotId}` sends every packed order
+  of that slot (`slotId: null` for orders without one) out for delivery; unpacked orders are
+  skipped and listed. `POST /orders/:id/dispatch` does one order, including a retry after a
+  missed delivery.
+- **Delivery code.** Going out for delivery gives the order a 4-digit code. The customer sees it
+  in the app and in the `mandi_out_for_delivery` WhatsApp message, and reads it to the rider. A
+  retry keeps the same code. Five wrong codes lock it (`CODE_LOCKED`); then the rider uses a photo.
+- **Delivered.** `POST /orders/:id/delivery` `{outcome: 'DELIVERED', code}`, or with
+  `photoId` and `receivedBy` ("Security at the gate") when nobody can give the code. Photos are
+  uploaded first as the raw body of `POST /orders/:id/delivery-photos` (JPEG, PNG or WebP, 2 MB
+  at most; the panel shrinks them to about 150 KB) and kept in `delivery_photos`.
+- **Missed.** `{outcome: 'FAILED', reason}` with `NOT_HOME`, `UNREACHABLE`, `WRONG_ADDRESS`,
+  `REFUSED` or `OTHER` (plus a `note`), optionally a photo. The order moves to the next delivery
+  day as before, with the reason on the order.
+- Each attempt is a row in `delivery_attempts`, with the rider and, if the phone allows it,
+  where they were. Staff moving an order to delivered from the order page is recorded as
+  `staff`, with no proof. The staff order page shows every attempt and photo; the customer
+  sees how it was handed over and the photo (`GET /v1/orders/:id/delivery-photo`).
 
 ## Delivery slots
 

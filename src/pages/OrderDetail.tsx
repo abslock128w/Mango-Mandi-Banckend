@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict } from '../api'
 import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
-import type { NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
+import type { DeliveryAttempt, NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
 import { PACKER_STATUSES, can, canSee } from '../permissions'
 import { useSession } from '../session'
 import { Badge, Dialog, FormError, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
@@ -332,6 +332,33 @@ function OrderView({ order }: { order: Order }) {
               <p className="muted">No payment recorded.</p>
             )}
           </section>
+          {order.deliveryAttempts && order.deliveryAttempts.length > 0 && (
+            <section className="card">
+              <h2>Proof of delivery</h2>
+              <ol className="timeline">
+                {order.deliveryAttempts.map((a) => (
+                  <li key={a.id}>
+                    <strong>{a.outcome === 'DELIVERED' ? 'Delivered' : (a.reasonLabel ?? 'Not delivered')}</strong>{' '}
+                    <span className="muted small">{dateTime(a.at)}</span>
+                    <div className="small">{proofText(a)}</div>
+                    {a.note && <div className="small">{a.note}</div>}
+                    <div className="small muted">
+                      by {a.actor}
+                      {a.lat !== null && a.lng !== null && (
+                        <>
+                          {' · '}
+                          <a href={`https://www.google.com/maps/search/?api=1&query=${a.lat},${a.lng}`} target="_blank" rel="noreferrer">
+                            where
+                          </a>
+                        </>
+                      )}
+                    </div>
+                    {a.photoId && <ProofPhoto orderId={order.id} photoId={a.photoId} />}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
           <section className="card">
             <h2>Timeline</h2>
             {order.events.length === 0 ? (
@@ -489,4 +516,35 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
       </form>
     </Dialog>
   )
+}
+
+function proofText(a: DeliveryAttempt): string {
+  if (a.method === 'code') return "The customer's code matched"
+  if (a.method === 'photo') return a.outcome === 'DELIVERED' ? `Left with ${a.receivedBy ?? 'someone'}, with a photo` : 'With a photo'
+  if (a.method === 'staff') return 'Marked from the panel, without proof'
+  return ''
+}
+
+function ProofPhoto({ orderId, photoId }: { orderId: string; photoId: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let made: string | null = null
+    let live = true
+    api
+      .deliveryPhotoUrl(orderId, photoId)
+      .then((u) => {
+        made = u
+        if (live) setUrl(u)
+        else URL.revokeObjectURL(u)
+      })
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [orderId, photoId])
+  if (failed) return <div className="small muted">The photo could not be loaded.</div>
+  if (!url) return <div className="small muted">Loading photo…</div>
+  return <img className="delivery-photo" src={url} alt="Delivery photo taken by the rider" />
 }

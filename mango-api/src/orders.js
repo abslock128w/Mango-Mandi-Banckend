@@ -1,6 +1,7 @@
 // Order lifecycle: placing, paying, rebalancing, packing, delivering and
 // cancelling. MandiMangoes never refunds: when stock goes bad the engine swaps it,
 // moves the order to the next date with stock, or flags it at-risk for ops.
+import { randomInt } from 'node:crypto'
 import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now } from './clock.js'
 import { checkCapacity, chooseSlot, earliestDeliveryDate, nextDeliveryDay, orderableDates } from './delivery.js'
@@ -335,7 +336,8 @@ export async function customerCancel(c, orderId, customerId, actor) {
 }
 
 /** Admin status move. 409 when someone else already moved it. */
-export async function setOrderStatus(c, orderId, to, actor) {
+/** opts.reason: why a delivery failed (shown on the order and to staff). */
+export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   const o = await lockOrder(c, orderId)
   if (!(TRANSITIONS[o.status] ?? []).includes(to)) {
     const stale = o.status === to || (FLOW.includes(to) && FLOW.indexOf(o.status) > FLOW.indexOf(to))
@@ -355,7 +357,13 @@ export async function setOrderStatus(c, orderId, to, actor) {
     const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
     const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
     await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
-    reason = `Delivery failed; retrying on ${date}`
+    reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+  }
+  if (to === 'OUT_FOR_DELIVERY') {
+    // The customer gives this code to the rider (delivery-proof.js). A retry keeps the code already sent.
+    await c.query('UPDATE orders SET delivery_code = COALESCE(delivery_code, $2), delivery_code_tries = 0 WHERE id = $1', [
+      o.id, String(randomInt(0, 10_000)).padStart(4, '0'),
+    ])
   }
   await c.query('UPDATE orders SET status = $2 WHERE id = $1', [o.id, to])
   await addEvent(c, o.id, o.status, to, actor, reason)

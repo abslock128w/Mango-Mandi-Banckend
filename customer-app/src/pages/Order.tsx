@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus } from '../api'
@@ -30,7 +30,11 @@ export default function OrderPage() {
   const q = useQuery({
     queryKey: ['order', id],
     queryFn: () => api.order(id),
-    refetchInterval: (query) => (query.state.data?.status === 'PAYMENT_PENDING' ? 3000 : false),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      // Waiting on the payment: check often. On the way: notice the delivery.
+      return status === 'PAYMENT_PENDING' ? 3000 : status === 'OUT_FOR_DELIVERY' ? 30_000 : false
+    },
   })
   if (q.isPending) return <Spinner label="Loading your order" />
   if (q.isError) {
@@ -118,6 +122,31 @@ function OrderView({ order }: { order: Order }) {
                 ? `Your full refund of ${rupees(order.total)} is on its way.`
                 : 'Nothing was charged.'}
           </p>
+        </section>
+      )}
+
+      {order.status === 'OUT_FOR_DELIVERY' && order.deliveryCode && (
+        <section className="card note-card code-card" aria-labelledby="code-title">
+          <p id="code-title">
+            <strong>Your mangoes are on the way.</strong> Give the rider this code when they arrive:
+          </p>
+          <p className="delivery-code" aria-label={`Delivery code ${order.deliveryCode.split('').join(' ')}`}>
+            {order.deliveryCode}
+          </p>
+          <p className="muted small">Only share it once you have the boxes in hand.</p>
+        </section>
+      )}
+
+      {order.status === 'DELIVERED' && order.delivery && (
+        <section className="card">
+          <h2>Delivered</h2>
+          <p>
+            {when(order.delivery.at)}
+            {order.delivery.method === 'code' && ', handed to you with your code.'}
+            {order.delivery.method === 'photo' && `, left with ${order.delivery.receivedBy ?? 'someone at your address'}.`}
+            {order.delivery.method !== 'code' && order.delivery.method !== 'photo' && '.'}
+          </p>
+          {order.delivery.hasPhoto && <DeliveryPhoto orderId={order.id} />}
         </section>
       )}
 
@@ -238,4 +267,28 @@ function OrderView({ order }: { order: Order }) {
       )}
     </>
   )
+}
+
+function DeliveryPhoto({ orderId }: { orderId: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let made: string | null = null
+    let live = true
+    api
+      .deliveryPhotoUrl(orderId)
+      .then((u) => {
+        made = u
+        if (live) setUrl(u)
+        else URL.revokeObjectURL(u)
+      })
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [orderId])
+  if (failed) return <p className="muted small">The photo could not be loaded.</p>
+  if (!url) return <p className="muted small">Loading the rider's photo…</p>
+  return <img className="delivery-photo" src={url} alt="The rider's photo of your delivery" />
 }

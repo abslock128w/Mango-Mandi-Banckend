@@ -2,7 +2,7 @@
 // Money is always integer paise. Dates are "YYYY-MM-DD" (date-only columns)
 // or ISO timestamps.
 
-export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC'
+export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC' | 'RIDER'
 
 export interface Me {
   email: string
@@ -216,6 +216,26 @@ export interface OrderDetail {
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
+  deliveryAttempts?: DeliveryAttempt[]
+}
+
+export type FailReason = 'NOT_HOME' | 'WRONG_ADDRESS' | 'REFUSED' | 'UNREACHABLE' | 'OTHER'
+
+/** One delivery or missed delivery, with how it was proved. */
+export interface DeliveryAttempt {
+  id: string
+  outcome: 'DELIVERED' | 'FAILED'
+  /** code: the customer's code matched; photo: handed over with a photo; staff: marked from the panel, no proof */
+  method: 'code' | 'photo' | 'staff' | null
+  receivedBy: string | null
+  reason: FailReason | null
+  reasonLabel: string | null
+  note: string | null
+  photoId: string | null
+  lat: number | null
+  lng: number | null
+  actor: string
+  at: string
 }
 
 export type NotificationKind =
