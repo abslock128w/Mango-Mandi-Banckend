@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { GoogleButton, PhoneCodeForm } from '../auth-ui'
 import { useStore } from '../store'
 
@@ -27,6 +27,9 @@ export default function SignIn() {
         </p>
       )}
       <PhoneCodeForm mode="signin" onDone={finish} />
+      <p className="small muted consent">
+        By continuing you agree to how we use your details, set out in our <Link to="/privacy">privacy notice</Link>.
+      </p>
     </section>
   )
 }

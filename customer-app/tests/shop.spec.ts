@@ -216,3 +216,28 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
   const pic = await request.get(`${API}/admin/v1/claims/${mine.id}/photos/${mine.photos[0].id}`, staff)
   expect(pic.headers()['content-type']).toBe('image/jpeg')
 })
+
+test('the privacy notice, and deleting an account', async ({ page }, info) => {
+  const phone = `6${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
+  await page.goto('/sign-in')
+  await page.getByRole('link', { name: 'privacy notice', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Privacy notice' })).toBeVisible()
+  await expect(page.getByText(/in Singapore/)).toBeVisible()
+  await noA11yViolations(page)
+
+  await page.goto('/sign-in')
+  await page.getByLabel('Mobile number').fill(phone)
+  await page.getByRole('button', { name: 'Send code' }).click()
+  const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
+  await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
+  await page.getByRole('button', { name: 'Sign in' }).click()
+
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Account' }).click()
+  await expect(page.getByRole('heading', { name: 'Your account', exact: true })).toBeVisible()
+  await expect(page.getByText(`+91 ${phone}`)).toBeVisible()
+  await noA11yViolations(page)
+  await page.getByRole('button', { name: 'Delete my account' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete account' }).click()
+  await expect(page.getByText('Your account is deleted.')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+})

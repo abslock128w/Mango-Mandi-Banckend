@@ -10,6 +10,8 @@ import SignIn from './pages/SignIn'
 import Orders from './pages/Orders'
 import OrderPage from './pages/Order'
 import ClaimPage from './pages/Claim'
+import Account from './pages/Account'
+import Privacy from './pages/Privacy'
 import BookAhead, { PreorderPage } from './pages/Preorder'
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
@@ -48,9 +50,14 @@ export default function App() {
           </Link>
           <nav aria-label="Main" className="top-nav">
             {profile && (
-              <NavLink to="/orders" className="top-link">
-                Orders
-              </NavLink>
+              <>
+                <NavLink to="/orders" className="top-link">
+                  Orders
+                </NavLink>
+                <NavLink to="/account" className="top-link">
+                  Account
+                </NavLink>
+              </>
             )}
             <NavLink to="/cart" className="top-link cart-link" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
               Cart{boxes > 0 && <span className="count" aria-hidden="true">{boxes}</span>}
@@ -72,6 +79,8 @@ export default function App() {
           <Route path="/" element={<Shop />} />
           <Route path="/cart" element={<Cart />} />
           <Route path="/sign-in" element={<SignIn />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/account" element={<RequireSignIn><Account /></RequireSignIn>} />
           <Route path="/checkout" element={<RequireSignIn><Checkout /></RequireSignIn>} />
           <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />
           <Route path="/orders/:id" element={<RequireSignIn><OrderPage /></RequireSignIn>} />
@@ -93,6 +102,9 @@ export default function App() {
       </main>
       <footer className="foot">
         <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
+        <p>
+          <Link to="/privacy">Privacy notice</Link>
+        </p>
       </footer>
     </>
   )

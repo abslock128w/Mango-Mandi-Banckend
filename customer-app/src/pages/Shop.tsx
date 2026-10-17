@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError, api, type CatalogueItem } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
@@ -12,9 +12,15 @@ export default function Shop() {
   const [editing, setEditing] = useState(!pincode)
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
   const pickDate = useCallback((d: string | null) => setWhere(pincode, d), [setWhere, pincode])
+  const [params] = useSearchParams()
 
   return (
     <>
+      {params.get('deleted') === '1' && (
+        <p className="note" role="status">
+          Your account is deleted. Thank you for buying from MandiMangoes.
+        </p>
+      )}
       {editing || !pincode ? (
         <PincodeForm
           initial={pincode ?? ''}

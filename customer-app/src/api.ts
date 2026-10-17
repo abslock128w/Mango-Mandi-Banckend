@@ -317,6 +317,11 @@ export const api = {
   async verifyPhoneCode(phone: string, code: string) {
     signedIn(await request<TokenResponse>('POST', '/me/phone/verify', { phone, code }))
   },
+  /** Deletes the account and its personal details, then signs out. */
+  async deleteAccount() {
+    await request<void>('DELETE', '/me')
+    signedOut()
+  },
   async signOut() {
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
     signedOut()

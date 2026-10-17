@@ -123,9 +123,23 @@ a {
   color: var(--ink);
   text-decoration: none;
 }
-@media (max-width: 380px) {
+/* Signed in, the nav has four links: on a phone the logo stands alone. */
+@media (max-width: 479px) {
   .brand span {
     display: none;
+  }
+}
+@media (max-width: 359px) {
+  .top-inner {
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .top-nav {
+    gap: 0;
+  }
+  .top-link {
+    padding: 0.4rem 0.3rem;
+    font-size: 0.875rem;
   }
 }
 .top-nav {
@@ -796,4 +810,28 @@ textarea:focus {
 .photo-pick:focus-within {
   outline: 2px solid currentColor;
   outline-offset: 2px;
+}
+
+/* account and privacy */
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1rem;
+}
+.details dt {
+  font-weight: 600;
+}
+.details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.prose h2 {
+  margin-top: 1.5rem;
+}
+.prose li + li {
+  margin-top: 0.35rem;
+}
+.consent {
+  margin-top: 1rem;
 }

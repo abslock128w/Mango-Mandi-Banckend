@@ -22,13 +22,14 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderVie
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
-import { checkPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
 
 export const router = express.Router()
 
 const otpLimiter = rateLimit({
   windowMs: 15 * 60_000,
-  limit: 30,
+  // Per address. Outside production it is loose, so test runs don't trip it.
+  limit: isProd ? 30 : 300,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => env.NODE_ENV === 'test',
@@ -270,10 +271,55 @@ router.get(
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders'], requireCustomer)
 
 router.get('/me', asyncHandler(async (req, res) => {
-  const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1', [req.customer.id])
+  const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1 AND deleted_at IS NULL', [req.customer.id])
   if (!rows.length) throw notFound('Customer not found')
   res.json(profile(rows[0]))
 }))
+
+/**
+ * Deletes the account (DPDP Act): name, phone, email and addresses are
+ * removed from the account, its orders, bookings and claims. Orders keep
+ * their amounts for the books. Not while an order or booking is still open.
+ */
+router.delete(
+  '/me',
+  asyncHandler(async (req, res) => {
+    const photos = await tx(async (c) => {
+      const { rows } = await c.query('SELECT id, phone FROM customers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [req.customer.id])
+      if (!rows.length) throw notFound('Customer not found')
+      const me = rows[0]
+      const open = await c.query(
+        `SELECT 1 FROM orders WHERE customer_id = $1
+            AND (status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') OR (refund_requested_at IS NOT NULL AND refunded_at IS NULL))
+         UNION ALL
+         SELECT 1 FROM preorders WHERE customer_id = $1 AND status IN ('PAYMENT_PENDING', 'BOOKED', 'WAITLISTED')
+         LIMIT 1`,
+        [me.id],
+      )
+      if (open.rowCount) throw conflict('You have an order or booking that is not finished yet. Cancel it, or wait until it is delivered, then delete your account.', 'OPEN_ORDERS')
+      await c.query(`UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL WHERE customer_id = $1`, [me.id])
+      await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '' WHERE customer_id = $1`, [me.id])
+      await c.query(`UPDATE claims SET description = '(removed when the account was deleted)', photo_url = NULL WHERE customer_id = $1`, [me.id])
+      await c.query(
+        `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END
+          WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)`,
+        [me.id],
+      )
+      const pics = await c.query('DELETE FROM claim_photos WHERE customer_id = $1 RETURNING blob_path', [me.id])
+      await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
+      await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
+      await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
+      if (me.phone) await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
+      await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, deleted_at = $2 WHERE id = $1', [me.id, now()])
+      return pics.rows
+    })
+    for (const p of photos) await dropPhoto(p)
+    logger.info({ customerId: req.customer.id }, 'customer deleted their account')
+    res.clearCookie(RT_COOKIE, rtCookie())
+    res.status(204).end()
+  }),
+)
 
 /** Orders need a mobile number: the rider calls it and WhatsApp updates go to it. */
 async function requirePhone(c, customerId) {
