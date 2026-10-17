@@ -162,6 +162,7 @@ test('Pack list: by order with allocate shortcut, by batch with unallocated sect
 test('Claims: start review and resolve as replacement', async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/claims')
+  await expect(page.getByRole('img', { name: "Customer's photo 1" })).toBeVisible()
   await page.getByRole('button', { name: 'Start review for ORD-1043' }).click()
   await expect.poll(() => api.calls.some((c) => c.path === '/claims/c1/review')).toBe(true)
   await page.getByRole('button', { name: 'Resolve ORD-1043' }).click()

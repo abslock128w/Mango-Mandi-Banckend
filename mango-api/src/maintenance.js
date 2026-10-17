@@ -6,6 +6,7 @@
 // when the hourly and daily passes last ran is read from maintenance_runs.
 // Order matters: payments are reconciled before the hold sweeper, so a paid
 // order is never cancelled for non-payment.
+import { dropPhoto } from './photos.js'
 import { addDays, todayIST } from './clock.js'
 import { getConfig, loadConfig } from './config.js'
 import { pool, query, tx } from './db.js'
@@ -69,6 +70,9 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
   await query('DELETE FROM webhook_failures WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
+  // Claim photos uploaded but never sent with a claim.
+  const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
+  for (const row of loose.rows) await dropPhoto(row)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */

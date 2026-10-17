@@ -10,6 +10,7 @@ import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
+import { sendPhoto } from './photos.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, recordDelivery, recordStaffDelivery, savePhoto } from './delivery-proof.js'
 import { query, tx } from './db.js'
 import { chooseSlot, orderableDates, slotsForDate, slotView } from './delivery.js'
@@ -782,8 +783,7 @@ router.post(
 router.get(
   '/orders/:id/delivery-photos/:photoId',
   asyncHandler(async (req, res) => {
-    const p = await photo({ query }, req.params.id, req.params.photoId)
-    res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=86400').send(p.bytes)
+    await sendPhoto(res, await photo({ query }, req.params.id, req.params.photoId))
   }),
 )
 
@@ -1012,14 +1012,25 @@ router.get(
         ORDER BY c.created_at`,
       [status],
     )
+    const pics = await query('SELECT id, claim_id FROM claim_photos WHERE claim_id = ANY($1) ORDER BY created_at', [rows.map((c) => c.id)])
     res.json(
       rows.map((c) => ({
+        photos: pics.rows.filter((p) => p.claim_id === c.id).map((p) => ({ id: p.id })),
         id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
         issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: c.photo_url,
         status: c.status, resolution: c.resolution, createdAt: c.created_at,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null,
       })),
     )
+  }),
+)
+
+router.get(
+  '/claims/:id/photos/:photoId',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query('SELECT mime, bytes, blob_path FROM claim_photos WHERE id = $1 AND claim_id = $2', [req.params.photoId, req.params.id])
+    if (!rows.length) throw notFound('Photo not found')
+    await sendPhoto(res, rows[0])
   }),
 )
 

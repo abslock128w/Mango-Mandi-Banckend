@@ -298,6 +298,7 @@ export interface Claim {
   description: string
   affectedItems: string[]
   photoUrl?: string | null
+  photos?: { id: string }[]
   status: ClaimStatus
   resolution?: ClaimResolution | null
   createdAt?: string

@@ -282,6 +282,11 @@ export const api = {
   ) => request<{ outcome: 'DELIVERED' | 'FAILED'; method?: string }>('POST', `/orders/${id(orderId)}/delivery`, body),
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
+  /** An object URL for a claim photo (fetched with the staff sign-in). */
+  async claimPhotoUrl(claimId: string, photoId: string): Promise<string> {
+    const res = await send('GET', `/claims/${id(claimId)}/photos/${id(photoId)}`)
+    return URL.createObjectURL(await res.blob())
+  },
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
   /** MandiMangoes doesn't refund: a claim is resolved by a replacement or rejected. */
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>

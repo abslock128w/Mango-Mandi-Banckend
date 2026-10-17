@@ -1,8 +1,16 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type IssueType } from '../api'
+import { api, errorMessage, type IssueType } from '../api'
+import { shrinkPhoto } from '../photo'
 import { ErrorNote, Spinner } from '../ui'
+
+const MAX_PHOTOS = 3
+
+interface Pic {
+  id: string
+  preview: string
+}
 
 const ISSUES: { value: IssueType; label: string }[] = [
   { value: 'DAMAGED', label: 'Damaged or spoilt mangoes' },
@@ -18,11 +26,16 @@ export default function ClaimPage() {
   const [issue, setIssue] = useState<IssueType | null>(null)
   const [skus, setSkus] = useState<string[]>([])
   const [description, setDescription] = useState('')
-  const [photoUrl, setPhotoUrl] = useState('')
+  const [photos, setPhotos] = useState<Pic[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const previews = useRef(photos)
+  previews.current = photos
+  useEffect(() => () => previews.current.forEach((p) => URL.revokeObjectURL(p.preview)), [])
   const send = useMutation({
     mutationFn: () =>
-      api.raiseClaim({ orderId: id, issueType: issue!, description: description.trim(), itemSkus: skus, photoUrl: photoUrl.trim() || undefined }),
+      api.raiseClaim({ orderId: id, issueType: issue!, description: description.trim(), itemSkus: skus, photoIds: photos.map((p) => p.id) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['claims'] })
       navigate(`/orders/${id}`, { replace: true })
@@ -37,8 +50,34 @@ export default function ClaimPage() {
     setFormError(null)
     if (!issue) return setFormError('Choose what went wrong.')
     if (description.trim().length < 5) return setFormError('Tell us a little about what happened.')
-    if (photoUrl.trim() && !/^https:\/\//.test(photoUrl.trim())) return setFormError('A photo link must start with https://')
+    if (uploading) return setFormError('Wait for the photo to finish uploading.')
     send.mutate()
+  }
+
+  async function addPhotos(e: ChangeEvent<HTMLInputElement>) {
+    const files = [...(e.target.files ?? [])].slice(0, MAX_PHOTOS - photos.length)
+    e.target.value = ''
+    if (!files.length) return
+    setPhotoError(null)
+    setUploading(true)
+    try {
+      for (const file of files) {
+        const small = await shrinkPhoto(file)
+        const { id: photoId } = await api.uploadClaimPhoto(small)
+        setPhotos((p) => [...p, { id: photoId, preview: URL.createObjectURL(small) }])
+      }
+    } catch (err) {
+      setPhotoError(errorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+  function removePhoto(photoId: string) {
+    setPhotos((p) => {
+      const gone = p.find((x) => x.id === photoId)
+      if (gone) URL.revokeObjectURL(gone.preview)
+      return p.filter((x) => x.id !== photoId)
+    })
   }
 
   const skuOptions = [...new Map(order.data.items.map((i) => [i.sku, i.name])).entries()]
@@ -82,8 +121,40 @@ export default function ClaimPage() {
           <textarea id="desc" rows={4} maxLength={2000} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div className="field">
-          <label htmlFor="photo">Link to a photo (optional)</label>
-          <input id="photo" type="url" inputMode="url" placeholder="https://" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} />
+          <span className="label" id="photos-label">
+            Photos (optional, up to {MAX_PHOTOS})
+          </span>
+          {photos.length > 0 && (
+            <ul className="claim-photos" aria-labelledby="photos-label">
+              {photos.map((p, i) => (
+                <li key={p.id}>
+                  <img src={p.preview} alt={`Photo ${i + 1}`} />
+                  <button type="button" className="link-btn" onClick={() => removePhoto(p.id)}>
+                    Remove<span className="sr-only"> photo {i + 1}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {photos.length < MAX_PHOTOS && (
+            <label className="btn btn-quiet photo-pick">
+              {uploading ? 'Uploading…' : photos.length ? 'Add another photo' : 'Add a photo'}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                className="sr-only"
+                disabled={uploading}
+                onChange={addPhotos}
+                aria-describedby={photoError ? 'photo-error' : 'photos-label'}
+              />
+            </label>
+          )}
+          {photoError && (
+            <p id="photo-error" className="field-error" role="alert">
+              {photoError}
+            </p>
+          )}
         </div>
         {formError && (
           <p className="field-error" role="alert">
@@ -91,7 +162,7 @@ export default function ClaimPage() {
           </p>
         )}
         <ErrorNote error={send.error} />
-        <button type="submit" className="btn btn-primary btn-block" disabled={send.isPending}>
+        <button type="submit" className="btn btn-primary btn-block" disabled={send.isPending || uploading}>
           {send.isPending ? 'Sending…' : 'Send report'}
         </button>
         <Link to={`/orders/${id}`} className="btn btn-block btn-quiet">

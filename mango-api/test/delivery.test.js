@@ -2,7 +2,9 @@
 import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
-import { setNow } from '../src/clock.js'
+import { now, setNow } from '../src/clock.js'
+import { cleanupExpired } from '../src/maintenance.js'
+import { usePhotoStore } from '../src/photos.js'
 import { query } from '../src/db.js'
 import { sendDueNotifications } from '../src/notify.js'
 
@@ -154,5 +156,63 @@ describe('proof of delivery', () => {
     const o = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
     assert.deepEqual(o.deliveryAttempts.map((a) => [a.outcome, a.method]), [['DELIVERED', 'staff']])
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM delivery_attempts')).rows[0].n, 1)
+  })
+})
+
+describe('photos in Blob storage', () => {
+  const blobs = new Map()
+  const fake = {
+    put: async (path, bytes) => (blobs.set(path, Buffer.from(bytes)), path),
+    get: async (path) => blobs.get(path) ?? null,
+    del: async (path) => void blobs.delete(path),
+  }
+  beforeEach(() => {
+    blobs.clear()
+    usePhotoStore(fake)
+  })
+  after(() => usePhotoStore(null))
+
+  const claimPhoto = (cust, bytes = JPEG) =>
+    api.raw('POST', '/v1/claims/photos', { token: cust.accessToken, headers: { 'Content-Type': 'image/jpeg' }, raw: bytes })
+
+  test('delivery and claim photos go to the store, not the database, and only the owner and staff see them', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const cust = await customerToken(api)
+    const { id } = await packedOrder(cust)
+    await api.post(`/admin/v1/orders/${id}/dispatch`, undefined, { token: rider })
+    const up = await upload(id, JPEG)
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    const row = (await query('SELECT bytes, blob_path FROM delivery_photos WHERE id = $1', [up.body.id])).rows[0]
+    assert.equal(row.bytes, null)
+    assert.ok(blobs.has(row.blob_path))
+    await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id, receivedBy: 'Neighbour' })
+    const pic = await fetch(`${srv.base}/v1/orders/${id}/delivery-photo`, { headers: { Authorization: `Bearer ${cust.accessToken}` } })
+    assert.ok(Buffer.from(await pic.arrayBuffer()).equals(JPEG))
+
+    // Claim photos: uploaded first, then sent with the claim.
+    assert.equal((await claimPhoto(cust, Buffer.from('nope'))).body.error.code, 'PHOTO_INVALID')
+    const ids = []
+    for (let i = 0; i < 4; i++) ids.push((await claimPhoto(cust)).body.id)
+    const stranger = await customerToken(api)
+    const theirs = (await claimPhoto(stranger)).body.id
+    const body = { orderId: id, issueType: 'DAMAGED', description: 'Box crushed on one side', itemSkus: ['ALP-3'] }
+    assert.equal((await api.post('/v1/claims', { ...body, photoIds: ids }, { token: cust.accessToken })).status, 400)
+    assert.equal((await api.post('/v1/claims', { ...body, photoIds: [ids[0], theirs] }, { token: cust.accessToken })).body.error.code, 'PHOTO_NOT_FOUND')
+    const claim = await api.post('/v1/claims', { ...body, photoIds: ids.slice(0, 2) }, { token: cust.accessToken })
+    assert.equal(claim.status, 201, JSON.stringify(claim.body))
+    assert.equal(claim.body.photos, 2)
+
+    const listed = (await api.get('/admin/v1/claims', { token: admin })).body[0]
+    assert.deepEqual(listed.photos.map((p) => p.id), ids.slice(0, 2))
+    const staffPic = await fetch(`${srv.base}/admin/v1/claims/${claim.body.id}/photos/${ids[0]}`, { headers: { Authorization: `Bearer ${admin}` } })
+    assert.equal(staffPic.status, 200)
+    assert.ok(Buffer.from(await staffPic.arrayBuffer()).equals(JPEG))
+    assert.equal((await api.get(`/admin/v1/claims/${claim.body.id}/photos/${ids[3]}`, { token: admin })).status, 404)
+
+    // Photos never sent with a claim are cleared after a day, blobs too.
+    const before = blobs.size
+    await cleanupExpired(new Date(now().getTime() + 2 * 86_400_000))
+    assert.equal(blobs.size, before - 3)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM claim_photos')).rows[0].n, 2)
   })
 })

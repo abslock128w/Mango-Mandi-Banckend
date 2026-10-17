@@ -22,6 +22,7 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderVie
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
+import { checkPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
 
 export const router = express.Router()
 
@@ -327,6 +328,7 @@ router.post(
       )
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
+      await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
@@ -531,8 +533,7 @@ router.get(
 router.get(
   '/orders/:id/delivery-photo',
   asyncHandler(async (req, res) => {
-    const p = await customerPhoto({ query }, await ownOrder({ query }, req))
-    res.set('Content-Type', p.mime).set('Cache-Control', 'private, max-age=86400').send(p.bytes)
+    await sendPhoto(res, await customerPhoto({ query }, await ownOrder({ query }, req)))
   }),
 )
 
@@ -625,6 +626,25 @@ router.post(
 
 // ---------------------------------------------------------------- claims
 
+export const MAX_CLAIM_PHOTOS = 3
+
+/** A claim photo is uploaded first (raw image body), then linked by id when the claim is sent. */
+router.post(
+  '/claims/photos',
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
+  asyncHandler(async (req, res) => {
+    const { mime, ext } = checkPhoto(req.body)
+    const loose = await query('SELECT COUNT(*)::int AS n FROM claim_photos WHERE customer_id = $1 AND claim_id IS NULL', [req.customer.id])
+    if (loose.rows[0].n >= 10) throw new HttpError(429, 'TOO_MANY_PHOTOS', 'Send your claim with the photos you have added first')
+    const id = newId('cph')
+    const saved = await storePhoto(`claims/${req.customer.id}`, id, req.body, ext, mime)
+    await query('INSERT INTO claim_photos (id, customer_id, mime, bytes, blob_path, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
+      id, req.customer.id, mime, saved.bytes, saved.blobPath, now(),
+    ])
+    res.status(201).json({ id })
+  }),
+)
+
 router.post(
   '/claims',
   asyncHandler(async (req, res) => {
@@ -635,6 +655,7 @@ router.post(
         description: z.string().trim().min(5).max(2000),
         itemSkus: z.array(z.string()).max(20).default([]),
         photoUrl: z.string().url().startsWith('https://').max(500).optional().nullable(),
+        photoIds: z.array(z.string().max(40)).max(MAX_CLAIM_PHOTOS).default([]),
       }),
       req.body,
     )
@@ -659,7 +680,12 @@ router.post(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [id, b.orderId, req.customer.id, b.issueType, b.description, [...new Set(b.itemSkus)], b.photoUrl ?? null, now()],
       )
-      return { id, status: 'SUBMITTED' }
+      const photoIds = [...new Set(b.photoIds)]
+      if (photoIds.length) {
+        const linked = await c.query('UPDATE claim_photos SET claim_id = $1 WHERE id = ANY($2) AND customer_id = $3 AND claim_id IS NULL', [id, photoIds, req.customer.id])
+        if (linked.rowCount !== photoIds.length) throw badRequest('One of the photos was not found. Add it again.', 'PHOTO_NOT_FOUND')
+      }
+      return { id, status: 'SUBMITTED', photos: photoIds.length }
     })
     res.status(201).json(claim)
   }),

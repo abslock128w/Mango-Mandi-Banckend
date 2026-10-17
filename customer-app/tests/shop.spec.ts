@@ -151,3 +151,68 @@ test('book a box ahead, pay, then cancel for a refund', async ({ page, request }
   await expect(page.getByText('This booking was cancelled.')).toBeVisible()
   await expect(page.getByText(/refund of ₹[\d,]+ (has been sent|is on its way)/)).toBeVisible()
 })
+
+test('report a damaged box with a photo', async ({ page, request }, info) => {
+  // Set up a delivered order through the API: the customer orders and pays, staff pack and deliver.
+  const phone = `7${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
+  const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })
+  expect(asked.ok(), await asked.text()).toBeTruthy()
+  const signIn = await request.post(`${API}/v1/auth/otp/verify`, { data: { phone, code: (await asked.json()).devCode } })
+  expect(signIn.ok(), await signIn.text()).toBeTruthy()
+  const tokens = await signIn.json()
+  const as = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } })
+  const cat = await (await request.get(`${API}/v1/catalogue?pincode=560034`, as(tokens.accessToken))).json()
+  const item = cat.items.find((i: { qty: number }) => i.qty > 0)
+  expect(item, 'something in stock').toBeTruthy()
+  await request.post(`${API}/v1/cart/items`, { data: { sku: item.sku, stage: item.stage, qty: 1 }, ...as(tokens.accessToken) })
+  const slots = await (await request.get(`${API}/v1/delivery/slots?pincode=560034&delivery_date=${cat.deliveryDate}`, as(tokens.accessToken))).json()
+  const slotId = slots.slots.find((s: { full?: boolean }) => !s.full)?.id ?? null
+  const q = await request.post(`${API}/v1/checkout/quote`, { data: { pincode: '560034', deliveryDate: cat.deliveryDate, slotId }, ...as(tokens.accessToken) })
+  expect(q.ok(), await q.text()).toBeTruthy()
+  const quote = await q.json()
+  const confirm = await request.post(`${API}/v1/checkout/confirm`, {
+    data: { quoteId: quote.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' },
+    headers: { Authorization: `Bearer ${tokens.accessToken}`, 'Idempotency-Key': `e2e-${phone}` },
+  })
+  expect(confirm.ok(), await confirm.text()).toBeTruthy()
+  const { orderId } = await confirm.json()
+  await request.post(`${API}/v1/dev/pay`, { data: { orderId, outcome: 'captured' } })
+  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const staff = as(login.accessToken)
+  for (const step of [
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PROCESSING' }, ...staff }),
+    () => request.post(`${API}/admin/v1/orders/${orderId}/allocate`, staff),
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PACKED' }, ...staff }),
+    () => request.post(`${API}/admin/v1/orders/${orderId}/dispatch`, staff),
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'DELIVERED' }, ...staff }),
+  ]) {
+    const r = await step()
+    expect(r.ok(), await r.text()).toBeTruthy()
+  }
+
+  // The customer signs in on the web and reports the problem with a photo.
+  await page.goto(`/orders/${orderId}/claim`)
+  await page.getByLabel('Mobile number').fill(phone)
+  await page.getByRole('button', { name: 'Send code' }).click()
+  const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
+  await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
+  await page.getByRole('button', { name: 'Sign in' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Report a problem' })).toBeVisible()
+  await page.getByLabel('Damaged or spoilt mangoes').check()
+  await page.getByLabel('What happened?').fill('Two mangoes were crushed in the box.')
+  // A 1×1 PNG, shrunk to a JPEG in the browser before upload.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+  await page.locator('input[type=file]').setInputFiles({ name: 'box.png', mimeType: 'image/png', buffer: png })
+  await expect(page.getByRole('img', { name: 'Photo 1' })).toBeVisible()
+  await noA11yViolations(page)
+  await page.getByRole('button', { name: 'Send report' }).click()
+  await expect(page.getByRole('heading', { name: 'Your report' })).toBeVisible()
+  await expect(page.getByText('Damaged or spoilt: we are looking into it.')).toBeVisible()
+
+  const claims = await (await request.get(`${API}/admin/v1/claims`, staff)).json()
+  const mine = claims.find((c: { orderId: string }) => c.orderId === orderId)
+  expect(mine.photos).toHaveLength(1)
+  const pic = await request.get(`${API}/admin/v1/claims/${mine.id}/photos/${mine.photos[0].id}`, staff)
+  expect(pic.headers()['content-type']).toBe('image/jpeg')
+})

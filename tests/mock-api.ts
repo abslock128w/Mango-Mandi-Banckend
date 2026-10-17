@@ -1,6 +1,9 @@
 import type { Page, Route } from '@playwright/test'
 import type { Attention, AuditEntry, StaffMember } from '../src/types'
 
+/** A 1×1 PNG. */
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
+
 // A small in-memory stand-in for mango-api's /admin/v1, so the UI can be
 // exercised in CI without a database. Shapes follow the API reference (§6).
 
@@ -172,7 +175,7 @@ export function seed() {
       },
     ],
     claims: [
-      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
+      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
     pincodes: [
@@ -340,8 +343,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (/^\/orders\/[^/]+\/delivery-photos$/.test(path)) return json(route, 201, { id: 'dph9' })
     if (/^\/orders\/[^/]+\/delivery-photos\/[^/]+$/.test(path)) {
-      // A 1×1 PNG
-      return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64') })
+      return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     }
     if (/^\/orders\/[^/]+\/delivery$/.test(path)) {
       const b = body as { outcome: string; code?: string }
@@ -354,6 +356,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (path === '/analytics') return json(route, 200, state.analytics)
     if (path === '/claims') return json(route, 200, state.claims)
+    if (/^\/claims\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pincodes' && method === 'GET') return json(route, 200, state.pincodes)

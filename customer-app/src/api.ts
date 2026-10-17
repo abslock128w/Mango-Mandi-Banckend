@@ -257,17 +257,19 @@ function refreshOnce(): Promise<boolean> {
   return refreshing
 }
 
+/** A Blob body (a photo) is sent as-is; anything else as JSON. */
 async function raw<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
+  const blob = body instanceof Blob
   const res = await fetch(`${API_URL}/v1${path}`, {
     method,
     credentials: 'include',
     headers: {
       'X-Session': 'cookie',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined ? { 'Content-Type': blob ? body.type : 'application/json' } : {}),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...headers,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
   })
   if (res.status === 204) return undefined as T
   const text = await res.text()
@@ -335,8 +337,10 @@ export const api = {
   order: (orderId: string) => request<Order>('GET', `/orders/${id(orderId)}`),
   cancel: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/cancel`),
   claims: () => request<Claim[]>('GET', '/claims'),
-  raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoUrl?: string }) =>
+  raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoIds: string[] }) =>
     request<{ id: string; status: string }>('POST', '/claims', input),
+  /** Uploads one claim photo (a JPEG from shrinkPhoto); the id goes with the claim. */
+  uploadClaimPhoto: (photo: Blob) => request<{ id: string }>('POST', '/claims/photos', photo),
 
   preorderWeeks: () => request<{ weeks: PreorderWeek[]; cancelPolicy: string }>('GET', '/preorders/weeks'),
   bookPreorder: (input: PreorderInput, idempotencyKey: string) =>

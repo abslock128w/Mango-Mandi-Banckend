@@ -10,6 +10,7 @@ import { now } from './clock.js'
 import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { setOrderStatus } from './orders.js'
+import { checkPhoto, MAX_PHOTO_BYTES, storePhoto } from './photos.js'
 
 export const FAIL_REASONS = ['NOT_HOME', 'WRONG_ADDRESS', 'REFUSED', 'UNREACHABLE', 'OTHER']
 export const FAIL_LABEL = {
@@ -20,13 +21,7 @@ export const FAIL_LABEL = {
   OTHER: 'Could not deliver',
 }
 export const MAX_CODE_TRIES = 5
-export const MAX_PHOTO_BYTES = 2 * 1024 * 1024
-
-const MAGIC = [
-  ['image/jpeg', (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff],
-  ['image/png', (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))],
-  ['image/webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
-]
+export { MAX_PHOTO_BYTES }
 
 async function lockOrder(c, orderId) {
   const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
@@ -49,21 +44,19 @@ export async function dispatchOrder(c, orderId, actor) {
 
 /** Stores a delivery photo for an order that is out for delivery. Returns its id. */
 export async function savePhoto(c, orderId, bytes, actor) {
-  if (!Buffer.isBuffer(bytes) || !bytes.length) throw badRequest('Send the photo as the request body', 'PHOTO_REQUIRED')
-  if (bytes.length > MAX_PHOTO_BYTES) throw new HttpError(413, 'PAYLOAD_TOO_LARGE', 'The photo is too large (2 MB at most)')
-  const mime = MAGIC.find(([, test]) => test(bytes))?.[0]
-  if (!mime) throw badRequest('The photo must be a JPEG, PNG or WebP image', 'PHOTO_INVALID')
+  const { mime, ext } = checkPhoto(bytes)
   const o = await lockOrder(c, orderId)
   if (o.status !== 'OUT_FOR_DELIVERY') throw badRequest('Photos are taken while the order is out for delivery', 'INVALID_TRANSITION')
   const id = newId('dph')
-  await c.query('INSERT INTO delivery_photos (id, order_id, mime, bytes, taken_by, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
-    id, orderId, mime, bytes, actor.label ?? actor.id, now(),
+  const stored = await storePhoto(`delivery/${o.number}`, id, bytes, ext, mime)
+  await c.query('INSERT INTO delivery_photos (id, order_id, mime, bytes, blob_path, taken_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
+    id, orderId, mime, stored.bytes, stored.blobPath, actor.label ?? actor.id, now(),
   ])
   return id
 }
 
 export async function photo(c, orderId, photoId) {
-  const { rows } = await c.query('SELECT mime, bytes FROM delivery_photos WHERE id = $1 AND order_id = $2', [photoId, orderId])
+  const { rows } = await c.query('SELECT mime, bytes, blob_path FROM delivery_photos WHERE id = $1 AND order_id = $2', [photoId, orderId])
   if (!rows.length) throw notFound('Photo not found')
   return rows[0]
 }
@@ -159,7 +152,7 @@ export async function customerDelivery(c, o) {
 
 export async function customerPhoto(c, o) {
   const { rows } = await c.query(
-    `SELECT p.mime, p.bytes FROM delivery_attempts a JOIN delivery_photos p ON p.id = a.photo_id
+    `SELECT p.mime, p.bytes, p.blob_path FROM delivery_attempts a JOIN delivery_photos p ON p.id = a.photo_id
       WHERE a.order_id = $1 AND a.outcome = 'DELIVERED' ORDER BY a.created_at DESC LIMIT 1`,
     [o.id],
   )
