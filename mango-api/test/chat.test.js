@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { handleInbound, phoneFromWaId } from '../src/chat.js'
+import { addDays, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { devGateway, reconcilePendingPayments } from '../src/payments.js'
 import { toMeta } from '../src/whatsapp.js'
@@ -54,7 +55,7 @@ describe('ordering in the WhatsApp chat', () => {
   test('a customer picks boxes, gives an address and gets a payment link; payment confirms the order', async () => {
     const ch = chatter()
     const [menu] = await ch.say('Hi')
-    assert.deepEqual(ids(menu), ['ORDER', 'ORDERS', 'HELP'])
+    assert.deepEqual(ids(menu), ['ORDER', 'BOOK', 'ORDERS'])
     await orderTwoBoxes(ch)
     const [addr] = await ch.tap('CHECKOUT')
     assert.match(addr.text, /full delivery address/)
@@ -164,10 +165,83 @@ describe('ordering in the WhatsApp chat', () => {
     await ch.tap('ORDER')
     assert.match((await ch.say('110001'))[0].text, /don't deliver to 110001/)
     assert.match((await ch.say('12'))[0].text, /6-digit pincode/)
-    assert.match((await ch.tap('HELP'))[0].text, /cancel until your order is packed/)
+    assert.match((await ch.say('help'))[0].text, /cancel until your order is packed/)
     const abroad = await handleInbound({ waId: '14155550100', messageId: 'wamid.us', input: { text: 'hi' } }, { send: async () => {} })
     assert.match(abroad[0].text, /Indian mobile numbers/)
     assert.equal(phoneFromWaId('919812345678'), '+919812345678')
+  })
+})
+
+/** The first Monday after the regular booking horizon. */
+function openWeek() {
+  let d = addDays(todayIST(), 6)
+  while (new Date(`${d}T00:00:00Z`).getUTCDay() !== 1) d = addDays(d, 1)
+  return d
+}
+
+describe('booking ahead in the WhatsApp chat', () => {
+  const preOf = async (phone) => (await query(`SELECT * FROM preorders WHERE phone = $1 ORDER BY created_at DESC LIMIT 1`, [phone])).rows[0]
+  async function openFor(capacity) {
+    const week = openWeek()
+    const token = await adminToken(api)
+    const r = await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity }, { token })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    return week
+  }
+  async function bookTwo(ch, week) {
+    const [list] = await ch.tap('BOOK')
+    assert.equal(list.type, 'list')
+    assert.ok(ids(list).includes(`week:${week}|ALP-3`), JSON.stringify(list))
+    const [ripe] = await ch.tap(`week:${week}|ALP-3`)
+    assert.deepEqual(ids(ripe), ['prestage:RAW', 'prestage:SEMI_RIPE', 'prestage:RIPE'])
+    await ch.tap('prestage:RIPE')
+    await ch.tap('qty:2')
+    await ch.say('560034')
+    return ch.say('12, 4th Cross, Koramangala, Bengaluru')
+  }
+
+  test('a customer books a week ahead, pays by link, sees it in My orders and cancels for a refund', async () => {
+    const week = await openFor(10)
+    const ch = chatter()
+    const [sum] = await bookTwo(ch, week)
+    assert.match(sum.text, /2 × Alphonso 3kg Box \(Ripe\)/)
+    assert.deepEqual(ids(sum), ['PREPAY', 'BOOK', 'MENU'])
+    const link = (await ch.tap('PREPAY')).at(-1)
+    assert.equal(link.type, 'link')
+    assert.match(link.text, /Booking PRE-\d+ is held/)
+    const p = await preOf('+919812345678')
+    assert.equal(p.channel, 'whatsapp')
+    assert.equal(p.status, 'PAYMENT_PENDING')
+    assert.equal(p.qty, 2)
+    assert.equal(p.payment_link_url, link.url)
+    // Tapping Pay again resends the same link instead of booking twice.
+    assert.equal((await ch.tap('PREPAY')).at(-1).url, link.url)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM preorders')).rows[0].n, 1)
+
+    const paid = await api.post('/v1/dev/pay-preorder', { preorderId: p.id, outcome: 'captured' })
+    assert.ok(paid.status < 300, JSON.stringify(paid.body))
+    const [mine] = await ch.say('my orders')
+    assert.match(mine.text, new RegExp(`${p.number}\\*: Booked`))
+    assert.deepEqual(ids(mine), [`precancel:${p.id}`, 'MENU'])
+    assert.match((await ch.tap(`precancel:${p.id}`))[0].text, /full refund/)
+    const [done] = await ch.tap(`precancelyes:${p.id}`)
+    assert.match(done.text, /cancelled\. Your full refund of Rs/)
+    const after = await preOf('+919812345678')
+    assert.equal(after.status, 'CANCELLED')
+    assert.equal(after.payment_status, 'REFUNDED')
+  })
+
+  test('a full week offers the waitlist, and no weeks open says so', async () => {
+    const ch = chatter('919812345679', 'Ravi')
+    assert.match((await ch.tap('BOOK'))[0].text, /No weeks are open/)
+    const week = await openFor(1)
+    const [sum] = await bookTwo(ch, week)
+    assert.match(sum.text, /Join the waitlist/)
+    const [wait] = await ch.tap('PREPAY')
+    assert.match(wait.text, /on the waitlist/)
+    const p = await preOf('+919812345679')
+    assert.equal(p.status, 'WAITLISTED')
+    assert.equal(p.payment_link_url, null)
   })
 })
 

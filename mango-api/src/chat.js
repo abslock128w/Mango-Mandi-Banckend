@@ -2,8 +2,9 @@
 // POST /webhooks/whatsapp; this module keeps one conversation per phone
 // (wa_sessions) and answers with text, reply buttons and lists. Orders go
 // through the same engine as app checkout: holds, slots, payment and the
-// customer-cancel refund. WhatsApp verifies the phone number, so the chat
-// needs no OTP.
+// customer-cancel refund. Booking ahead (a preorder for a later week) uses
+// the same preorder engine as the app. WhatsApp verifies the phone number,
+// so the chat needs no OTP.
 import { getConfig } from './config.js'
 import { now } from './clock.js'
 import { tx, query } from './db.js'
@@ -13,9 +14,10 @@ import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
-import { dateWords, rupees, timeWords } from './notify.js'
+import { dateWords, rupees, timeWords, weekWords } from './notify.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { createPaymentLink, refundOrder } from './payments.js'
+import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, allProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
@@ -33,11 +35,12 @@ const MAX_QTY = 20
 
 const text = (t) => ({ type: 'text', text: t })
 const buttons = (t, bs) => ({ type: 'buttons', text: t, buttons: bs.map(([id, title]) => ({ id, title })) })
-const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do?', [
+const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do? Send *help* any time to learn how it works.', [
   ['ORDER', 'Order mangoes'],
+  ['BOOK', 'Book ahead'],
   ['ORDERS', 'My orders'],
-  ['HELP', 'Help'],
 ])
+const PRE_WORDS = { PAYMENT_PENDING: 'Waiting for payment', BOOKED: 'Booked', WAITLISTED: 'On the waitlist', CONVERTED: 'Booked', CANCELLED: 'Cancelled' }
 const slotWords = (s) => `${s.label} (${timeWords(s.startsAt)} to ${timeWords(s.endsAt)})`
 const boxesOf = (cart) => cart.reduce((n, l) => n + l.qty, 0)
 const totalOf = (cart) => cart.reduce((n, l) => n + findProduct(l.sku).price * l.qty, 0)
@@ -162,17 +165,26 @@ async function myOrders(c, s) {
       ORDER BY o.placed_at DESC LIMIT 5`,
     [s.customerId],
   )
-  if (!rows.length) return [buttons("You don't have any orders yet.", [['ORDER', 'Order mangoes']])]
+  // Bookings that are not yet orders (a converted booking shows as its order above).
+  const { rows: pres } = await c.query(
+    `SELECT * FROM preorders WHERE customer_id = $1 AND status IN ('PAYMENT_PENDING', 'BOOKED', 'WAITLISTED')
+      ORDER BY created_at DESC LIMIT 3`,
+    [s.customerId],
+  )
+  if (!rows.length && !pres.length) return [buttons("You don't have any orders yet.", [['ORDER', 'Order mangoes'], ['BOOK', 'Book ahead']])]
   const lines = rows.map((o) => {
     const refund = o.refunded_at ? ', refunded' : o.refund_requested_at ? ', refund on its way' : ''
     return `*${o.number}*: ${STATUS_WORDS[o.status] ?? o.status}${refund}\nDelivery ${dateWords(o.delivery_date)}${o.slot_label ? `, ${o.slot_label}` : ''} · ${rupees(o.total)}`
   })
-  const cancellable = rows.filter((o) => CANCELLABLE.includes(o.status)).slice(0, 2)
-  const note = cancellable.length ? '\n\nYou can cancel an order until it is packed. Paid orders are refunded in full.' : ''
-  return [buttons(`Your recent orders:\n\n${lines.join('\n\n')}${note}`, [
-    ...cancellable.map((o) => [`cancel:${o.id}`, `Cancel ${o.number}`]),
-    ['MENU', 'Menu'],
-  ])]
+  const booked = pres.map((p) =>
+    `*${p.number}*: ${PRE_WORDS[p.status]}\n${p.qty} × ${findProduct(p.sku)?.name ?? p.sku} (${STAGE_WORDS[p.stage]}) for ${weekWords(p.week_start)} · ${rupees(p.total)}`)
+  const cancellable = [
+    ...rows.filter((o) => CANCELLABLE.includes(o.status)).map((o) => [`cancel:${o.id}`, `Cancel ${o.number}`]),
+    ...pres.map((p) => [`precancel:${p.id}`, `Cancel ${p.number}`]),
+  ].slice(0, 2)
+  const note = cancellable.length ? '\n\nYou can cancel until your box is packed. Paid orders and bookings are refunded in full.' : ''
+  const parts = [lines.length ? `Your recent orders:\n\n${lines.join('\n\n')}` : '', booked.length ? `Booked ahead:\n\n${booked.join('\n\n')}` : '']
+  return [buttons(`${parts.filter(Boolean).join('\n\n')}${note}`, [...cancellable, ['MENU', 'Menu']])]
 }
 
 async function addToCart(c, s, qty) {
@@ -255,6 +267,170 @@ async function cancelChosen(c, s, orderId) {
   }
 }
 
+// ---------------------------------------------------------------- booking ahead
+
+/** Weeks open for booking, one row per week and box, with what is left. */
+async function bookWeeks(c, s) {
+  const weeks = (await openWeeks(c)).filter((w) => findProduct(w.sku)).slice(0, 10)
+  s.data = { pincode: s.data.pincode, pre: {} }
+  if (!weeks.length) {
+    s.state = 'IDLE'
+    return [buttons('No weeks are open for booking right now. You can still order for the next few days.', [['ORDER', 'Order mangoes'], ['MENU', 'Menu']])]
+  }
+  s.state = 'PRE_WEEK'
+  return [{
+    type: 'list',
+    text: 'Book a box for a later week at today\'s price. You pay now, we pick the delivery day in that week when the fruit is ready, and you can cancel for a full refund until it is packed.',
+    button: 'See weeks',
+    section: 'Open weeks',
+    rows: weeks.map((w) => {
+      const p = findProduct(w.sku)
+      return {
+        id: `week:${w.weekStart}|${w.sku}`,
+        title: p.name,
+        description: `Week of ${dateWords(w.weekStart)} · ${rupees(p.price)} · ${w.remaining ? `${w.remaining} left` : 'full, join the waitlist'}`,
+      }
+    }),
+  }]
+}
+
+async function bookAddress(c, s) {
+  const pre = s.data.pre
+  const { rows } = await c.query(
+    `SELECT delivery_address FROM (
+       SELECT delivery_address, placed_at AS at FROM orders WHERE customer_id = $1 AND pincode = $2 AND delivery_address IS NOT NULL
+       UNION ALL
+       SELECT delivery_address, created_at AS at FROM preorders WHERE customer_id = $1 AND pincode = $2 AND delivery_address <> ''
+     ) a ORDER BY at DESC LIMIT 1`,
+    [s.customerId, pre.pincode],
+  )
+  s.state = 'PRE_ADDRESS'
+  if (rows.length) {
+    pre.savedAddress = rows[0].delivery_address
+    return [buttons(`Deliver to:\n${rows[0].delivery_address}`, [['ADDR_SAVED', 'Yes, this address'], ['ADDR_NEW', 'New address']])]
+  }
+  return [text('Please send the full delivery address: house or flat, street, area and a landmark.')]
+}
+
+async function bookSummary(c, s) {
+  const pre = s.data.pre
+  const p = findProduct(pre.sku)
+  const week = (await openWeeks(c, pre.sku)).find((w) => w.weekStart === pre.weekStart)
+  const total = p.price * pre.qty
+  pre.waitlist = !week || week.remaining < pre.qty
+  s.state = 'PRE_CONFIRM'
+  const body = `Please check your booking:\n${pre.qty} × ${p.name} (${STAGE_WORDS[pre.stage]}) ${rupees(total)}\nDelivery: a day in ${weekWords(pre.weekStart)}\nTo: ${pre.address}`
+  if (pre.waitlist) {
+    return [buttons(`${body}\n\nThat week is full for ${pre.qty} boxes. Join the waitlist and we'll message you with a payment link if a spot opens. Nothing is charged until then.`, [
+      ['PREPAY', 'Join the waitlist'], ['MENU', 'Cancel'],
+    ])]
+  }
+  return [buttons(body, [['PREPAY', `Pay ${rupees(total)}`], ['BOOK', 'Start over'], ['MENU', 'Cancel']])]
+}
+
+/** Books the preorder; the payment link goes out after commit. */
+async function placePreorder(c, s, cust) {
+  const pre = s.data.pre
+  if (s.data.preorderId) {
+    const { rows } = await c.query('SELECT status FROM preorders WHERE id = $1', [s.data.preorderId])
+    if (rows[0]?.status === 'PAYMENT_PENDING') return { replies: [], after: { prepay: s.data.preorderId } }
+    if (rows[0] && rows[0].status !== 'CANCELLED') return { replies: [text('This booking is already made. Send *my orders* to see it.'), MENU] }
+    delete s.data.preorderId
+  }
+  if (!pre?.sku || !pre.address) return { replies: [MENU] }
+  const r = await attempt(c, () =>
+    bookPreorder(
+      c,
+      {
+        customerId: s.customerId, name: cust.name, phone: s.phone, sku: pre.sku, stage: pre.stage, qty: pre.qty, weekStart: pre.weekStart,
+        pincode: pre.pincode, address: pre.address, slotId: null, waitlist: Boolean(pre.waitlist), channel: 'whatsapp',
+      },
+      { type: 'customer', id: s.customerId, label: 'whatsapp' },
+    ),
+  )
+  if (!r.ok) {
+    if (r.error.code === 'PREORDER_FULL') return { replies: [text('Sorry, that week just filled up.'), ...(await bookSummary(c, s))] }
+    if (r.error.code === 'INVALID_WEEK') return { replies: [text('Sorry, that week is no longer open for booking.'), ...(await bookWeeks(c, s))] }
+    return { replies: [text(`Sorry, we couldn't book that: ${r.error.message}`), MENU] }
+  }
+  const booked = r.value
+  s.data = { pincode: pre.pincode, preorderId: booked.id }
+  if (booked.status === 'WAITLISTED') {
+    s.state = 'IDLE'
+    return { replies: [text(`You're on the waitlist for ${weekWords(booked.week_start)} (${booked.number}). We'll message you with a payment link as soon as a spot opens.`), MENU] }
+  }
+  s.state = 'PRE_AWAITING'
+  return { replies: [], after: { prepay: booked.id } }
+}
+
+async function cancelBooking(c, s, id) {
+  const { rows } = await c.query('SELECT number, total FROM preorders WHERE id = $1 AND customer_id = $2', [id, s.customerId])
+  if (!rows.length) return { replies: [MENU] }
+  const r = await attempt(c, () => cancelPreorder(c, id, s.customerId, { type: 'customer', id: s.customerId, label: 'whatsapp' }))
+  if (!r.ok) return { replies: [text(r.error.code === 'NOT_CANCELLABLE' ? `${rows[0].number} is already packed, so it can't be cancelled now.` : r.error.message), MENU] }
+  if (s.data.preorderId === id) delete s.data.preorderId
+  return {
+    replies: [text(r.value.refund
+      ? `${rows[0].number} is cancelled. Your full refund of ${rupees(rows[0].total)} has been started and usually reaches your account in 5 to 7 working days.`
+      : `${rows[0].number} is cancelled.`), MENU],
+    after: r.value.refund ? { refund: r.value.id, refundKind: r.value.refund } : null,
+  }
+}
+
+/** The booking steps; null when the message is not part of booking ahead. */
+async function bookStep(c, s, cust, id, said) {
+  const pre = s.data.pre
+  switch (s.state) {
+    case 'PRE_WEEK': {
+      if (!id?.startsWith('week:')) return bookWeeks(c, s)
+      const [weekStart, sku] = id.slice(5).split('|')
+      if (!findProduct(sku)) return bookWeeks(c, s)
+      s.data.pre = { weekStart, sku }
+      s.state = 'PRE_STAGE'
+      return [buttons(`How ripe should ${findProduct(sku).name} be when it reaches you?`, STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
+    }
+    case 'PRE_STAGE': {
+      const stage = id?.startsWith('prestage:') ? id.slice(9) : null
+      if (!STAGES.includes(stage)) return [buttons('Tap how ripe you want it.', STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
+      pre.stage = stage
+      s.state = 'PRE_QTY'
+      return [buttons(`How many boxes? Tap or send a number up to ${MAX_QTY}.`, [1, 2, 3].map((n) => [`qty:${n}`, String(n)]))]
+    }
+    case 'PRE_QTY': {
+      const n = Number(id?.startsWith('qty:') ? id.slice(4) : said)
+      if (!Number.isInteger(n) || n < 1) return [text('Send the number of boxes, like 2.')]
+      if (n > MAX_QTY) return [text(`You can book up to ${MAX_QTY} boxes at a time.`)]
+      pre.qty = n
+      s.state = 'PRE_PINCODE'
+      const ask = 'Which pincode should we deliver to? Send the 6 digits.'
+      return [s.data.pincode ? buttons(ask, [[`pin:${s.data.pincode}`, `Use ${s.data.pincode}`]]) : text(ask)]
+    }
+    case 'PRE_PINCODE': {
+      const pin = id?.startsWith('pin:') ? id.slice(4) : said.replace(/\s/g, '')
+      if (!/^\d{6}$/.test(pin)) return [text('Please send a 6-digit pincode, like 560034.')]
+      const { rows } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [pin])
+      if (!rows.length) return [text(`Sorry, we don't deliver to ${pin} yet. Try another pincode, or send *menu*.`)]
+      pre.pincode = pin
+      s.data.pincode = pin
+      return bookAddress(c, s)
+    }
+    case 'PRE_ADDRESS': {
+      if (id === 'ADDR_SAVED' && pre.savedAddress) pre.address = pre.savedAddress
+      else if (id === 'ADDR_NEW') return [text('Please send the full delivery address: house or flat, street, area and a landmark.')]
+      else if (said.length >= 10 && said.length <= 500) pre.address = said
+      else return [text('That address looks too short. Please send the full address with the house number, street and area.')]
+      delete pre.savedAddress
+      return bookSummary(c, s)
+    }
+    case 'PRE_CONFIRM':
+      return bookSummary(c, s)
+    case 'PRE_AWAITING':
+      return [buttons('Your booking is waiting for payment.', [['PREPAY', 'Send payment again'], ['ORDERS', 'My orders'], ['MENU', 'Menu']])]
+    default:
+      return null
+  }
+}
+
 /** One customer message → the new conversation state and the replies. */
 async function step(c, s, cust, input) {
   const id = input.id ?? null
@@ -269,7 +445,7 @@ async function step(c, s, cust, input) {
   }
   if (id === 'HELP' || lower === 'help') {
     return { replies: [buttons(
-      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
+      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can also book a box for a later week at today's price with *Book ahead*. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
       [['ORDER', 'Order mangoes'], ['ORDERS', 'My orders']],
     )] }
   }
@@ -280,6 +456,19 @@ async function step(c, s, cust, input) {
     return { replies: [buttons(`Cancel ${rows[0].number}? If you've paid, you get a full refund.`, [[`cancelyes:${id.slice(7)}`, 'Yes, cancel it'], ['ORDERS', 'Keep it']])] }
   }
   if (id?.startsWith('cancelyes:')) return cancelChosen(c, s, id.slice(10))
+  if (id?.startsWith('precancel:')) {
+    const { rows } = await c.query('SELECT number, payment_status FROM preorders WHERE id = $1 AND customer_id = $2', [id.slice(10), s.customerId])
+    if (!rows.length) return { replies: [MENU] }
+    const refund = rows[0].payment_status === 'SUCCEEDED' ? ' You get a full refund.' : ''
+    return { replies: [buttons(`Cancel booking ${rows[0].number}?${refund}`, [[`precancelyes:${id.slice(10)}`, 'Yes, cancel it'], ['ORDERS', 'Keep it']])] }
+  }
+  if (id?.startsWith('precancelyes:')) return cancelBooking(c, s, id.slice(13))
+  if (id === 'BOOK' || ['book', 'book ahead', 'preorder', 'pre-order'].includes(lower)) return { replies: await bookWeeks(c, s) }
+  if (id === 'PREPAY') return placePreorder(c, s, cust)
+  if (s.state?.startsWith('PRE_')) {
+    const replies = await bookStep(c, s, cust, id, said)
+    if (replies) return { replies }
+  }
   if (id === 'ORDER' || lower === 'order') {
     s.state = 'PINCODE'
     s.data = { pincode: d.pincode, cart: [] }
@@ -404,8 +593,9 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
     if (stale && s.state !== 'AWAITING_PAYMENT') s.state = 'IDLE'
     const out = await step(c, s, cust, input)
     if (out.after?.pay) s.state = 'AWAITING_PAYMENT'
+    if (out.after?.prepay) s.state = 'PRE_AWAITING'
     await c.query('UPDATE wa_sessions SET state = $2, data = $3, updated_at = $4 WHERE phone = $1', [phone, s.state, s.data, now()])
-    return { ...out, phone }
+    return { ...out, phone, customerId: cust.id }
   })
   if (!turn) return []
   const replies = [...turn.replies]
@@ -420,8 +610,25 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
       replies.push(buttons("Sorry, we couldn't start the payment. Please try again.", [['PAY', 'Try again'], ['MENU', 'Menu']]))
     }
   }
+  if (turn.after?.prepay) {
+    try {
+      const p = await ensurePaymentLink(turn.after.prepay)
+      if (p?.payment_link_url) {
+        const hold = `Pay within ${getConfig().holdMinutes} minutes to keep your spot.`
+        replies.push({ type: 'link', text: `Booking ${p.number} is held: ${rupees(p.total)}. ${hold}\n${p.payment_link_url}`, button: `Pay ${rupees(p.total)}`, url: p.payment_link_url })
+      } else {
+        replies.push(text('This booking is no longer waiting for payment. Send *my orders* to see it.'))
+      }
+    } catch (err) {
+      logger.error({ err, preorderId: turn.after.prepay }, 'could not start the booking payment')
+      await tx((c) => cancelPreorder(c, turn.after.prepay, turn.customerId, SYSTEM))
+      await query(`UPDATE wa_sessions SET state = 'IDLE', data = data - 'preorderId' WHERE phone = $1`, [phone])
+      replies.push(buttons("Sorry, we couldn't start the payment. Please book again.", [['BOOK', 'Book again'], ['MENU', 'Menu']]))
+    }
+  }
   if (turn.after?.refund) {
-    await refundOrder(turn.after.refund).catch((err) => logger.error({ err, orderId: turn.after.refund }, 'refund failed; maintenance will retry'))
+    const send = turn.after.refundKind === 'preorder' ? refundPreorder : refundOrder
+    await send(turn.after.refund).catch((err) => logger.error({ err, id: turn.after.refund }, 'refund failed; maintenance will retry'))
   }
   await deliver(send, phone, replies)
   return replies
