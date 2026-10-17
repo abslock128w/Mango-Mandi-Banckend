@@ -121,6 +121,51 @@ export interface Claim {
   createdAt: string
 }
 
+export interface PreorderWeek {
+  sku: string
+  name: string
+  variety: string
+  boxSize: string
+  price: number
+  /** The Monday the delivery week starts. */
+  weekStart: string
+  capacity: number
+  remaining: number
+}
+export type PreorderStatus = 'PAYMENT_PENDING' | 'BOOKED' | 'WAITLISTED' | 'CONVERTED' | 'CANCELLED'
+export interface Preorder {
+  id: string
+  number: string
+  status: PreorderStatus
+  sku: string
+  productName: string
+  stage: Stage
+  qty: number
+  unitPrice: number
+  total: number
+  weekStart: string
+  pincode: string
+  address: string | null
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | null
+  /** Razorpay payment link; set while waiting for payment. */
+  paymentUrl: string | null
+  holdExpiresAt: string | null
+  /** The normal order the preorder became, once its delivery day was set. */
+  orderId: string | null
+  createdAt: string
+  refund: { requestedAt: string; refundedAt: string | null } | null
+}
+export interface PreorderInput {
+  sku: string
+  stage: Stage
+  qty: number
+  weekStart: string
+  pincode: string
+  address: string
+  name?: string
+  waitlist?: boolean
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -257,6 +302,13 @@ export const api = {
   raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoUrl?: string }) =>
     request<{ id: string; status: string }>('POST', '/claims', input),
 
+  preorderWeeks: () => request<{ weeks: PreorderWeek[]; cancelPolicy: string }>('GET', '/preorders/weeks'),
+  bookPreorder: (input: PreorderInput, idempotencyKey: string) =>
+    request<Preorder>('POST', '/preorders', input, { 'Idempotency-Key': idempotencyKey }),
+  preorders: () => request<Preorder[]>('GET', '/preorders'),
+  preorder: (preorderId: string) => request<Preorder>('GET', `/preorders/${id(preorderId)}`),
+  cancelPreorder: (preorderId: string) => request<void>('POST', `/preorders/${id(preorderId)}/cancel`),
+
   /** The rider's photo of the handover, as an object URL (it needs the sign-in, so it is fetched). */
   async deliveryPhotoUrl(orderId: string): Promise<string> {
     const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: session ? { Authorization: `Bearer ${session.accessToken}` } : {} })
@@ -268,6 +320,8 @@ export const api = {
 
   /** Development only: the API's stand-in for Razorpay. */
   devPay: (orderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay', { orderId, outcome }),
+  devPayPreorder: (preorderId: string, outcome: 'captured' | 'failed') =>
+    raw<{ result: string }>('POST', '/dev/pay-preorder', { preorderId, outcome }),
 }
 
 export function errorMessage(err: unknown): string {

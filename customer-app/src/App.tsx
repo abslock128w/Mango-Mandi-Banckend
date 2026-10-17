@@ -10,6 +10,7 @@ import SignIn from './pages/SignIn'
 import Orders from './pages/Orders'
 import OrderPage from './pages/Order'
 import ClaimPage from './pages/Claim'
+import BookAhead, { PreorderPage } from './pages/Preorder'
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
   const { phone } = useStore()
@@ -25,7 +26,7 @@ export default function App() {
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
 
   useEffect(() => {
-    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims'].includes(String(q.queryKey[0])) })
+    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder'].includes(String(q.queryKey[0])) })
     window.addEventListener(SIGNOUT_EVENT, onOut)
     return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
   }, [queryClient])
@@ -75,6 +76,8 @@ export default function App() {
           <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />
           <Route path="/orders/:id" element={<RequireSignIn><OrderPage /></RequireSignIn>} />
           <Route path="/orders/:id/claim" element={<RequireSignIn><ClaimPage /></RequireSignIn>} />
+          <Route path="/preorder" element={<RequireSignIn><BookAhead /></RequireSignIn>} />
+          <Route path="/preorders/:id" element={<RequireSignIn><PreorderPage /></RequireSignIn>} />
           <Route
             path="*"
             element={

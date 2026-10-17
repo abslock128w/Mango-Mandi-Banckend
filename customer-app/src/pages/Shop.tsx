@@ -5,6 +5,7 @@ import { ApiError, api, type CatalogueItem } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
 import { ErrorNote, Spinner } from '../ui'
+import { BookAheadCard } from './Preorder'
 
 export default function Shop() {
   const { pincode, date, setWhere, cart } = useStore()
@@ -33,6 +34,7 @@ export default function Shop() {
         </div>
       )}
       {pincode && !editing && <Catalogue pincode={pincode} date={date} onDate={pickDate} />}
+      <BookAheadCard />
       {boxes > 0 && (
         <div className="sticky-cart">
           <Link to="/cart" className="btn btn-primary btn-block">

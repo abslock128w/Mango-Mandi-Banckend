@@ -61,7 +61,11 @@ describe('preorders', () => {
     assert.equal((await setCapacity(addDays(week, 1), 3)).status, 400) // not a Monday
 
     const weeks = await api.get('/v1/preorders/weeks?sku=ALP-3')
-    assert.deepEqual(weeks.body.weeks, [{ sku: 'ALP-3', weekStart: week, capacity: 3, remaining: 3 }])
+    const [w] = weeks.body.weeks
+    assert.equal(weeks.body.weeks.length, 1)
+    assert.deepEqual({ sku: w.sku, weekStart: w.weekStart, capacity: w.capacity, remaining: w.remaining }, { sku: 'ALP-3', weekStart: week, capacity: 3, remaining: 3 })
+    // The shop shows the product with its locked price.
+    assert.ok(w.name && w.boxSize && w.price > 0, JSON.stringify(w))
     // A week inside the regular booking horizon can't be preordered.
     const near = addDays(week, -7)
     await setCapacity(near, 5)
@@ -187,5 +191,23 @@ describe('preorders', () => {
     assert.deepEqual(await kinds(p.id), ['PREORDER_BOOKED', 'REFUNDED'])
     assert.equal((await runPreorderJobs()).promoted, 1)
     assert.equal((await pre(waiting.body.id)).status, 'PAYMENT_PENDING')
+  })
+
+  test('the dev payment route books a preorder, and a cancel after paying refunds it', async () => {
+    const week = openWeek()
+    await setCapacity(week, 5)
+    const a = await customerToken(api)
+    const p = (await book(a.accessToken, week)).body
+    assert.equal(p.address, '12, 4th Cross, Koramangala, Bengaluru')
+    assert.equal((await api.post('/v1/dev/pay-preorder', { preorderId: p.id, outcome: 'failed' })).body.result, 'ignored')
+    assert.equal((await api.get(`/v1/preorders/${p.id}`, { token: a.accessToken })).body.status, 'PAYMENT_PENDING')
+    assert.equal((await api.post('/v1/dev/pay-preorder', { preorderId: p.id, outcome: 'captured' })).body.result, 'booked')
+    const booked = (await api.get(`/v1/preorders/${p.id}`, { token: a.accessToken })).body
+    assert.equal(booked.status, 'BOOKED')
+    assert.equal(booked.paymentUrl, null)
+    assert.equal((await api.post(`/v1/preorders/${p.id}/cancel`, {}, { token: a.accessToken })).status, 204)
+    const gone = (await api.get(`/v1/preorders/${p.id}`, { token: a.accessToken })).body
+    assert.equal(gone.status, 'CANCELLED')
+    assert.ok(gone.refund?.refundedAt, JSON.stringify(gone.refund))
   })
 })

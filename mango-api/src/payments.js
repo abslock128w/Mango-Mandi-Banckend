@@ -44,12 +44,16 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
  * A Razorpay payment link for an order placed in the WhatsApp chat. Razorpay
  * does not send its own SMS or email; the link goes out in the chat.
  */
+// After paying a preorder link, Razorpay sends the customer back to the shop.
+const shopOrigin = () => env.CUSTOMER_ORIGIN.split(',')[0]?.trim().replace(/\/$/, '') || null
+
 export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description }) {
   if (hasKeys()) {
     const link = await razorpay('POST', '/payment_links', {
       amount, currency: 'INR', accept_partial: false, reference_id: number, description: description ?? `MandiMangoes order ${number}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
       notes: preorderId ? { preorderId } : { orderId },
+      ...(preorderId && shopOrigin() ? { callback_url: `${shopOrigin()}/preorders/${preorderId}`, callback_method: 'get' } : {}),
     })
     return { id: link.id, url: link.short_url }
   }

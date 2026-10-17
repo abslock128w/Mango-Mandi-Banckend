@@ -1,4 +1,4 @@
-import type { OrderStatus, Stage } from './api'
+import type { OrderStatus, PreorderStatus, Stage } from './api'
 
 const rupeeFmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
 /** Paise to "₹1,899"; paise show only when there are any. */
@@ -45,3 +45,20 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 
 /** Statuses a customer can still cancel from; mirrors CUSTOMER_CANCELLABLE in the API. */
 export const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
+
+/** "2026-11-02" (a Monday) to "2 to 8 Nov". */
+export function week(monday: string) {
+  const start = new Date(`${monday}T00:00:00Z`)
+  const end = new Date(start.getTime() + 6 * 86_400_000)
+  const d = (x: Date) => x.getUTCDate()
+  const m = (x: Date) => x.toLocaleString('en-IN', { month: 'short', timeZone: 'UTC' })
+  return start.getUTCMonth() === end.getUTCMonth() ? `${d(start)} to ${d(end)} ${m(end)}` : `${d(start)} ${m(start)} to ${d(end)} ${m(end)}`
+}
+
+export const PREORDER_LABEL: Record<PreorderStatus, string> = {
+  PAYMENT_PENDING: 'Waiting for payment',
+  BOOKED: 'Booked',
+  WAITLISTED: 'On the waitlist',
+  CONVERTED: 'Delivery day set',
+  CANCELLED: 'Cancelled',
+}

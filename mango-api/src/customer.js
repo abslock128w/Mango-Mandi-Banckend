@@ -18,7 +18,7 @@ import { logger } from './logger.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundOrder } from './payments.js'
 import { allProducts, findProduct } from './products.js'
-import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, refundPreorder } from './preorders.js'
+import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
 import { sendOtp } from './sms.js'
 import { STAGES } from './stage.js'
 
@@ -207,7 +207,11 @@ router.get(
   '/preorders/weeks',
   asyncHandler(async (req, res) => {
     const sku = req.query.sku ? String(req.query.sku) : null
-    res.json({ weeks: await openWeeks({ query }, sku), cancelPolicy: 'Cancel any time before packing for a full refund.' })
+    const weeks = (await openWeeks({ query }, sku)).flatMap((w) => {
+      const p = findProduct(w.sku)
+      return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
+    })
+    res.json({ weeks, stages: STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
   }),
 )
 
@@ -573,6 +577,19 @@ devRouter.post(
     const r = await tx((c) => processPayment(c, { orderId: b.orderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }))
     if (r.result === 'refund_due') await refundOrder(b.orderId)
     res.json({ result: r.result })
+  }),
+)
+
+// Pays (or fails) a preorder's payment link, as the Razorpay webhook would.
+devRouter.post(
+  '/pay-preorder',
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ preorderId: z.string().min(1), outcome: z.enum(['captured', 'failed']) }), req.body)
+    const r = await tx((c) =>
+      processPreorderPayment(c, { preorderId: b.preorderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }),
+    )
+    if (r === 'refund_due') await refundPreorder(b.preorderId)
+    res.json({ result: r })
   }),
 )
 
