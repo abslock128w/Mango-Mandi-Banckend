@@ -21,6 +21,7 @@ import Planning from './pages/Planning'
 import Preorders from './pages/Preorders'
 import NotFound from './pages/NotFound'
 import Staff from './pages/Staff'
+import Promos from './pages/Promos'
 import TwoStepPage, { TwoStepGate } from './pages/TwoStep'
 import { canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
@@ -112,6 +113,7 @@ export default function App() {
             <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />
             <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />
             <Route path="/staff" element={<Only screen="staff"><Staff /></Only>} />
+            <Route path="/promos" element={<Only screen="promos"><Promos /></Only>} />
             <Route path="/two-step" element={<TwoStepPage />} />
             <Route path="*" element={<NotFound />} />
           </Route>

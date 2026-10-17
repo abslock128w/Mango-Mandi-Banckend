@@ -145,6 +145,7 @@ function ByOrder({ orders, day }: { orders: PackListOrder[]; day: string }) {
               <span>{o.customerName ?? '—'}</span>
               {o.pincode && <span className="muted">{o.pincode}</span>}
               {o.slot && <Badge tone="info">{o.slot.label}</Badge>}
+              {o.gift && <Badge tone="info">Gift</Badge>}
               <OrderBadge status={o.status} />
               <span className="spacer" />
               {needsPacking && (o.status === 'CONFIRMED' || o.status === 'PROCESSING') && (
@@ -158,6 +159,12 @@ function ByOrder({ orders, day }: { orders: PackListOrder[]; day: string }) {
                 </button>
               )}
             </div>
+            {o.gift && (
+              <p className="small">
+                <strong>Gift for {o.gift.recipientName}.</strong> Leave the price slip out.
+                {o.gift.message && <> Card note: “{o.gift.message}”</>}
+              </p>
+            )}
             <div {...scrollRegion(`Items for ${o.number}`)}>
               <table>
                 <thead>

@@ -174,6 +174,12 @@ function RunSection({
                   {o.customerName ?? '—'} ·{' '}
                   <a href={telLink(o.phone)}>{o.phone}</a>
                 </div>
+                {o.gift && (
+                  <div className="small">
+                    <Badge tone="info">Gift</Badge> from {o.gift.from ?? 'a customer'}
+                    {o.gift.message && <> · “{o.gift.message}”</>}
+                  </div>
+                )}
                 <div>
                   {o.deliveryAddress ?? 'No address'}{' '}
                   {o.deliveryAddress && (

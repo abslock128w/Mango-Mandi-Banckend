@@ -22,6 +22,7 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderVie
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
+import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
 
 export const router = express.Router()
@@ -437,7 +438,13 @@ router.delete(
 router.post(
   '/checkout/quote',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ pincode: PIN, deliveryDate: z.string().optional().nullable(), slotId: z.string().max(64).optional().nullable() }), req.body)
+    const b = parse(
+      z.object({
+        pincode: PIN, deliveryDate: z.string().optional().nullable(), slotId: z.string().max(64).optional().nullable(),
+        promoCode: z.string().max(40).optional().nullable(),
+      }),
+      req.body,
+    )
     const quote = await tx(async (c) => {
       const { date } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
@@ -450,7 +457,12 @@ router.post(
       })
       const subtotal = lines.reduce((s, l) => s + l.linePrice, 0)
       const slot = await quoteSlot(c, date, b.slotId ?? null, lines.reduce((s, l) => s + l.qty, 0))
-      const data = { pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal, total: subtotal }
+      const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, subtotal) : null
+      const discount = promo?.discount ?? 0
+      const data = {
+        pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
+        promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount, total: subtotal - discount,
+      }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
@@ -482,7 +494,19 @@ router.post(
     const rawKey = req.get('Idempotency-Key')
     if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
     const b = parse(
-      z.object({ quoteId: z.string().min(1), address: z.string().trim().min(10, 'Enter the full delivery address').max(500), name: z.string().trim().max(80).optional() }),
+      z.object({
+        quoteId: z.string().min(1),
+        address: z.string().trim().min(10, 'Enter the full delivery address').max(500),
+        name: z.string().trim().max(80).optional(),
+        gift: z
+          .object({
+            recipientName: z.string().trim().min(1, "Enter the recipient's name").max(80),
+            recipientPhone: phoneSchema,
+            message: z.string().trim().max(200).optional().nullable(),
+          })
+          .optional()
+          .nullable(),
+      }),
       req.body,
     )
     const key = `${req.customer.id}:${rawKey}`
@@ -503,6 +527,9 @@ router.post(
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
+      const subtotal = q.data.lines.reduce((t, l) => t + l.unitPrice * l.qty, 0)
+      // The code is checked again, locked, so a limited code can't be over-used.
+      const promo = q.data.promo ? await applyPromo(c, q.data.promo.code, req.customer.id, subtotal, { lock: true }) : null
       const created = await createOrder(
         c,
         {
@@ -510,9 +537,12 @@ router.post(
           deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: q.data.lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice })),
+          discount: promo?.discount ?? 0, promoCode: promo?.code ?? null,
+          gift: b.gift ? { recipientName: b.gift.recipientName, recipientPhone: b.gift.recipientPhone, message: b.gift.message || null } : null,
         },
         req.actor,
       )
+      if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, created.id])
       await c.query('DELETE FROM quotes WHERE id = $1', [q.id])
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
@@ -566,7 +596,8 @@ router.get(
     res.json({
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
-      deliveryAddress: o.delivery_address, total: o.total, paymentStatus: o.payment_status,
+      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
+      gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
       holdExpiresAt: o.hold_expires_at,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null })),

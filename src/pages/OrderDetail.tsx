@@ -226,6 +226,12 @@ function OrderView({ order }: { order: Order }) {
                   ))}
                 </tbody>
                 <tfoot>
+                  {!!order.discount && (
+                    <tr>
+                      <td colSpan={3}>Promo {order.promoCode ?? ''}</td>
+                      <td className="num">−{rupees(order.discount)}</td>
+                    </tr>
+                  )}
                   <tr>
                     <th colSpan={3}>Total</th>
                     <th className="num">{rupees(order.total)}</th>
@@ -286,6 +292,20 @@ function OrderView({ order }: { order: Order }) {
               <dd>{order.customerName ?? '—'}</dd>
               <dt>Phone</dt>
               <dd>{order.phone ?? '—'}</dd>
+              {order.gift && (
+                <>
+                  <dt>Gift for</dt>
+                  <dd>
+                    {order.gift.recipientName} · {order.gift.recipientPhone}
+                  </dd>
+                  {order.gift.message && (
+                    <>
+                      <dt>Gift note</dt>
+                      <dd>{order.gift.message}</dd>
+                    </>
+                  )}
+                </>
+              )}
               <dt>Address</dt>
               <dd>{order.deliveryAddress ?? '—'}</dd>
               <dt>Pincode</dt>

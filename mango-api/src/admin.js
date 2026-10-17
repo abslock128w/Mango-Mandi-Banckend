@@ -12,6 +12,7 @@ import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
 import { sendPhoto } from './photos.js'
+import { normaliseCode, promoView } from './promos.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, recordDelivery, recordStaffDelivery, savePhoto } from './delivery-proof.js'
 import { query, tx } from './db.js'
@@ -609,6 +610,7 @@ export async function orderDetail(c, orderId) {
   return {
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
+    subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
@@ -785,7 +787,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
     const { rows: orders } = await query(
-      `SELECT o.id, o.number, o.customer_name, o.pincode, o.status, o.slot_id, s.label AS slot_label
+      `SELECT o.id, o.number, o.customer_name, o.pincode, o.status, o.slot_id, s.label AS slot_label,
+              o.gift_recipient_name, o.gift_recipient_phone, o.gift_message
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id
         WHERE o.delivery_date = $1 AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
         ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, o.number`,
@@ -805,6 +808,7 @@ router.get(
       orders.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, pincode: o.pincode, status: o.status,
         slot: o.slot_id ? { id: o.slot_id, label: o.slot_label } : null,
+        gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
         items: items.rows
           .filter((i) => i.order_id === o.id)
           .map((i) => ({
@@ -833,6 +837,7 @@ router.get(
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
     const { rows: orders } = await query(
       `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id,
+              o.gift_recipient_name, o.gift_recipient_phone, o.gift_message,
               s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
         WHERE o.delivery_date = $1 AND o.status = ANY($2)
@@ -864,7 +869,10 @@ router.get(
       const lines = items.filter((i) => i.order_id === o.id)
       const boxes = lines.reduce((n, i) => n + i.quantity, 0)
       stop.orders.push({
-        id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, deliveryAddress: o.delivery_address, status: o.status,
+        // A gift goes to the recipient: the rider sees and calls them.
+        id: o.id, number: o.number, status: o.status, deliveryAddress: o.delivery_address,
+        customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
+        gift: o.gift_recipient_name ? { from: o.customer_name, message: o.gift_message } : null,
         packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
       })
@@ -1047,6 +1055,87 @@ router.post(
     )
     if (!r.rowCount) throw notFound('No failed message with that id')
     res.status(204).end()
+  }),
+)
+
+// ---------------------------------------------------------------- promo codes
+
+router.get(
+  '/promos',
+  requireManager,
+  asyncHandler(async (_req, res) => {
+    const { rows } = await query(
+      `SELECT p.*, (SELECT COUNT(*)::int FROM promo_redemptions r JOIN orders o ON o.id = r.order_id
+                     WHERE r.code = p.code AND o.status <> 'CANCELLED') AS uses,
+              (SELECT COALESCE(SUM(r.discount), 0)::int FROM promo_redemptions r JOIN orders o ON o.id = r.order_id
+                     WHERE r.code = p.code AND o.status <> 'CANCELLED' AND o.payment_status = 'SUCCEEDED') AS given
+         FROM promo_codes p ORDER BY p.active DESC, p.created_at DESC`,
+    )
+    res.json(rows.map((p) => ({ ...promoView(p, p.uses), discountGiven: p.given })))
+  }),
+)
+
+const promoFields = {
+  description: z.string().trim().max(120).optional().nullable(),
+  endsOn: z.string().refine(isDate, 'Use YYYY-MM-DD').optional().nullable(),
+  maxUses: z.number().int().positive().optional().nullable(),
+}
+
+router.post(
+  '/promos',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z
+        .object({
+          code: z.string().transform(normaliseCode).refine((c) => /^[A-Z0-9]{3,20}$/.test(c), 'Use 3 to 20 letters and digits'),
+          kind: z.enum(['PERCENT', 'FLAT']),
+          value: z.number().int().positive(),
+          maxDiscount: z.number().int().positive().optional().nullable(),
+          minSubtotal: z.number().int().min(0).default(0),
+          startsOn: z.string().refine(isDate, 'Use YYYY-MM-DD').optional().nullable(),
+          perCustomer: z.number().int().positive().default(1),
+          firstOrderOnly: z.boolean().default(false),
+          ...promoFields,
+        })
+        .refine((p) => p.kind !== 'PERCENT' || p.value <= 90, { message: 'A percentage is at most 90', path: ['value'] })
+        .refine((p) => !p.startsOn || !p.endsOn || p.startsOn <= p.endsOn, { message: 'The end date is before the start', path: ['endsOn'] }),
+      req.body,
+    )
+    const { rows } = await query(
+      `INSERT INTO promo_codes (code, kind, value, max_discount, min_subtotal, starts_on, ends_on, max_uses, per_customer, first_order_only,
+                                description, created_by, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (code) DO NOTHING RETURNING *`,
+      [
+        b.code, b.kind, b.value, b.maxDiscount ?? null, b.minSubtotal, b.startsOn ?? null, b.endsOn ?? null, b.maxUses ?? null,
+        b.perCustomer, b.firstOrderOnly, b.description ?? null, req.admin.email, now(),
+      ],
+    )
+    if (!rows.length) throw conflict('That code already exists', 'PROMO_EXISTS')
+    req.params.id = b.code
+    res.status(201).json(promoView(rows[0]))
+  }),
+)
+
+/** Turn a code off or on, or change its end date, limit or note. The discount itself can't change once made. */
+router.patch(
+  '/promos/:code',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ active: z.boolean().optional(), ...promoFields }), req.body)
+    const { rows } = await query(
+      `UPDATE promo_codes SET active = COALESCE($2, active),
+              description = CASE WHEN $3::boolean THEN $4 ELSE description END,
+              ends_on = CASE WHEN $5::boolean THEN $6::date ELSE ends_on END,
+              max_uses = CASE WHEN $7::boolean THEN $8::int ELSE max_uses END
+        WHERE code = $1 RETURNING *`,
+      [
+        normaliseCode(req.params.code), b.active ?? null, 'description' in b, b.description ?? null, 'endsOn' in b, b.endsOn ?? null,
+        'maxUses' in b, b.maxUses ?? null,
+      ],
+    )
+    if (!rows.length) throw notFound('No promo code with that name')
+    res.json(promoView(rows[0]))
   }),
 )
 

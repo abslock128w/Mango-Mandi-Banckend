@@ -15,6 +15,7 @@ const LINKS: [string, string, Screen][] = [
   ['/planning', 'Planning', 'planning'],
   ['/preorders', 'Preorders', 'preorders'],
   ['/analytics', 'Analytics', 'analytics'],
+  ['/promos', 'Promos', 'promos'],
   ['/staff', 'Staff', 'staff'],
 ]
 

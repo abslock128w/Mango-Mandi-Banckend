@@ -835,3 +835,21 @@ textarea:focus {
 .consent {
   margin-top: 1rem;
 }
+
+/* promo codes and gifts */
+.sum-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.35rem 0;
+}
+.sum-row.discount {
+  color: var(--leaf-ink, #2f6b1f);
+}
+.gift-toggle {
+  margin-bottom: 1rem;
+}
+.gift-fields {
+  border-left: 3px solid var(--mango);
+  padding-left: 0.85rem;
+}

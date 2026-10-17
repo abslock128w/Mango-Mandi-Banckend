@@ -66,8 +66,15 @@ export interface Quote {
   slot: Slot | null
   lines: QuoteLine[]
   subtotal: number
+  promo: { code: string; description: string | null } | null
+  discount: number
   total: number
   expiresAt: string
+}
+export interface Gift {
+  recipientName: string
+  recipientPhone: string
+  message?: string | null
 }
 export interface Confirmed {
   orderId: string
@@ -96,7 +103,11 @@ export interface Order {
   placedAt: string
   pincode: string
   deliveryAddress: string | null
+  subtotal: number
+  discount: number
+  promoCode: string | null
   total: number
+  gift: Gift | null
   paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
@@ -334,8 +345,8 @@ export const api = {
 
   serverCart: () => request<{ lines: { sku: string; stage: Stage; qty: number }[] }>('GET', '/cart'),
   setCartLine: (sku: string, stage: Stage, qty: number) => request<void>('POST', '/cart/items', { sku, stage, qty }),
-  quote: (input: { pincode: string; deliveryDate: string; slotId: string | null }) => request<Quote>('POST', '/checkout/quote', input),
-  confirm: (input: { quoteId: string; address: string; name?: string }, idempotencyKey: string) =>
+  quote: (input: { pincode: string; deliveryDate: string; slotId: string | null; promoCode?: string | null }) => request<Quote>('POST', '/checkout/quote', input),
+  confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null }, idempotencyKey: string) =>
     request<Confirmed>('POST', '/checkout/confirm', input, { 'Idempotency-Key': idempotencyKey }),
 
   orders: () => request<OrderSummary[]>('GET', '/orders'),

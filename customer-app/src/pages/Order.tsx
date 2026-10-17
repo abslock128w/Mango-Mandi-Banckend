@@ -187,9 +187,21 @@ function OrderView({ order }: { order: Order }) {
           <div>
             <dt>To</dt>
             <dd>
+              {order.gift && (
+                <>
+                  {order.gift.recipientName} (a gift)
+                  <br />
+                </>
+              )}
               {order.deliveryAddress ?? '—'}, {order.pincode}
             </dd>
           </div>
+          {order.gift?.message && (
+            <div>
+              <dt>Note</dt>
+              <dd>{order.gift.message}</dd>
+            </div>
+          )}
         </dl>
         <ul className="lines">
           {order.items.map((i) => (
@@ -209,6 +221,12 @@ function OrderView({ order }: { order: Order }) {
             </li>
           ))}
         </ul>
+        {order.discount > 0 && (
+          <div className="sum-row discount">
+            <span>Promo {order.promoCode}</span>
+            <span>−{rupees(order.discount)}</span>
+          </div>
+        )}
         <div className="total-row">
           <span>{paid ? 'Paid' : 'Total'}</span>
           <strong>{rupees(order.total)}</strong>

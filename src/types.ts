@@ -205,6 +205,10 @@ export interface OrderDetail {
   deliveryDate: string
   placedAt: string
   total: number
+  subtotal?: number
+  discount?: number
+  promoCode?: string | null
+  gift?: Gift | null
   items: OrderItem[]
   stock: OrderStock[]
   events: OrderEvent[]
@@ -290,6 +294,7 @@ export interface PackListOrder {
   pincode: string | null
   status: OrderStatus
   slot?: { id: string; label: string } | null
+  gift?: Gift | null
   items: { sku: string; productName: string; quantity: number; picks: PackPick[] }[]
 }
 
@@ -424,6 +429,8 @@ export interface ManifestOrder {
   status: OrderStatus
   packed: boolean
   boxes: number
+  /** A gift: the name and phone above are the recipient's. */
+  gift?: { from: string | null; message: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
 }
 
@@ -507,4 +514,44 @@ export interface AuditEntry {
 
 export interface AuditPage extends Paged<AuditEntry> {
   staff: { email: string; role: Role }[]
+}
+
+export interface Promo {
+  code: string
+  kind: 'PERCENT' | 'FLAT'
+  /** Percent (1 to 90), or paise off. */
+  value: number
+  maxDiscount: number | null
+  minSubtotal: number
+  startsOn: string | null
+  endsOn: string | null
+  maxUses: number | null
+  perCustomer: number
+  firstOrderOnly: boolean
+  active: boolean
+  description: string | null
+  uses: number
+  discountGiven?: number
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface NewPromo {
+  code: string
+  kind: 'PERCENT' | 'FLAT'
+  value: number
+  maxDiscount?: number | null
+  minSubtotal?: number
+  startsOn?: string | null
+  endsOn?: string | null
+  maxUses?: number | null
+  perCustomer?: number
+  firstOrderOnly?: boolean
+  description?: string | null
+}
+
+export interface Gift {
+  recipientName: string
+  recipientPhone: string
+  message: string | null
 }

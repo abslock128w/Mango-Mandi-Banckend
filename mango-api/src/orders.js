@@ -65,18 +65,22 @@ export async function createOrder(c, o, actor) {
   const { rows } = await c.query(`SELECT 'ORD-' || nextval('order_seq') AS number`)
   const number = rows[0].number
   const subtotal = o.lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
+  const discount = o.discount ?? 0
+  const total = subtotal - discount
   const boxes = o.lines.reduce((s, l) => s + l.qty, 0)
   await checkCapacity(c, o.deliveryDate, boxes)
   const slotId = await chooseSlot(c, o.deliveryDate, boxes, o.slotId ?? null, { strict: Boolean(o.strictSlot) })
   await c.query(
     `INSERT INTO orders (id, number, customer_id, customer_name, phone, status, delivery_date, placed_at, pincode,
                          delivery_address, subtotal, total, payment_status, payment_method, payment_amount,
-                         hold_expires_at, config_version, replacement_for, slot_id, channel)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+                         hold_expires_at, config_version, replacement_for, slot_id, channel,
+                         discount, promo_code, gift_recipient_name, gift_recipient_phone, gift_message)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $20, $12, $13, $14, $15, $16, $17, $18, $19, $21, $22, $23, $24, $25)`,
     [
       id, number, o.customerId ?? null, o.customerName ?? null, o.phone ?? null, o.status, o.deliveryDate, now(),
       o.pincode ?? null, o.address ?? null, subtotal, o.paymentStatus ?? null, o.paymentMethod ?? null,
-      o.paymentStatus ? subtotal : null, o.holdExpiresAt ?? null, configVersion(), o.replacementFor ?? null, slotId, o.channel ?? 'app',
+      o.paymentStatus ? total : null, o.holdExpiresAt ?? null, configVersion(), o.replacementFor ?? null, slotId, o.channel ?? 'app',
+      total, discount, o.promoCode ?? null, o.gift?.recipientName ?? null, o.gift?.recipientPhone ?? null, o.gift?.message ?? null,
     ],
   )
   for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku) || a.stage.localeCompare(b.stage))) {

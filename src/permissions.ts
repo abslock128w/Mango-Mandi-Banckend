@@ -52,6 +52,7 @@ export type Screen =
   | 'preorders'
   | 'analytics'
   | 'staff'
+  | 'promos'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',

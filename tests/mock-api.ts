@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, Promo, StaffMember } from '../src/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -155,6 +155,7 @@ export function seed() {
                 {
                   id: 'o3', number: 'ORD-1044', customerName: 'Vikram Shah', phone: '9876500000', deliveryAddress: null,
                   status: 'CONFIRMED', packed: false, boxes: 1, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'SEMI_RIPE', quantity: 1 }],
+                  gift: { from: 'Meera Iyer', message: 'Happy Diwali!' },
                 },
               ],
             },
@@ -170,12 +171,16 @@ export function seed() {
         pincode: '400001',
         status: 'PROCESSING',
         slot: { id: 'slt1', label: 'Morning' },
+        gift: { recipientName: 'Asha Rao', recipientPhone: '9876543210', message: 'Happy Diwali!' },
         items: [
           { sku: 'ALP-3', productName: 'Alphonso 3kg Box', quantity: 1, picks: [{ batchId: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', quantity: 1, packed: false }] },
           { sku: 'ALP-5', productName: 'Alphonso 5kg Box', quantity: 1, picks: [] },
         ],
       },
     ],
+    promos: [
+      { code: 'DIWALI10', kind: 'PERCENT', value: 10, maxDiscount: 30000, minSubtotal: 100000, startsOn: null, endsOn: '2026-11-05', maxUses: null, perCustomer: 1, firstOrderOnly: false, active: true, description: 'Diwali offer', uses: 4, discountGiven: 52000, createdBy: 'manager@mandimangoes.test', createdAt: '2026-10-10T05:00:00Z' },
+    ] as Promo[],
     claims: [
       { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
@@ -397,6 +402,20 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/claims\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
 
+    if (path === '/promos' || path.startsWith('/promos/')) {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      if (method === 'GET') return json(route, 200, state.promos)
+      if (method === 'POST') {
+        const b = body as Partial<Promo> & { code: string }
+        if (state.promos.some((x) => x.code === b.code.toUpperCase())) return json(route, 409, { error: { code: 'PROMO_EXISTS', message: 'That code already exists', requestId: 'req_p' } })
+        const promo: Promo = { maxDiscount: null, minSubtotal: 0, startsOn: null, endsOn: null, maxUses: null, perCustomer: 1, firstOrderOnly: false, description: null, kind: 'PERCENT', value: 0, ...b, code: b.code.toUpperCase(), active: true, uses: 0, discountGiven: 0, createdBy: EMAIL.MANAGER, createdAt: '2026-10-17T05:00:00Z' }
+        state.promos = [promo, ...state.promos]
+        return json(route, 201, promo)
+      }
+      const code = decodeURIComponent(path.split('/')[2])
+      state.promos = state.promos.map((x) => (x.code === code ? { ...x, ...(body as object) } : x))
+      return json(route, 200, state.promos.find((x) => x.code === code))
+    }
     if (path === '/pincodes' && method === 'GET') return json(route, 200, state.pincodes)
     if (path === '/pincodes' && method === 'POST') return json(route, 201, { ...(body as object), active: true })
     if (/^\/pincodes\//.test(path)) return route.fulfill({ status: 204 })

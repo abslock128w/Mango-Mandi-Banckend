@@ -21,6 +21,8 @@ import type {
   LedgerEntry,
   Me,
   SignInResult,
+  Promo,
+  NewPromo,
   OrderDetail,
   OrderListItem,
   OrderStatus,
@@ -309,6 +311,10 @@ export const api = {
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
     request<void>('POST', `/claims/${id(claimId)}/resolve`, { resolution }),
 
+  promos: () => request<Promo[]>('GET', '/promos'),
+  addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),
+  updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
+    request<Promo>('PATCH', `/promos/${id(code)}`, patch),
   staff: () => request<StaffMember[]>('GET', '/staff'),
   addStaff: (input: { email: string; role: Role; password: string }) => request<StaffMember>('POST', '/staff', input),
   updateStaff: (staffId: string, patch: { role?: Role; password?: string }) =>
