@@ -1,8 +1,7 @@
 // Validated configuration. In production the app refuses to start with
 // placeholder secrets.
 import { z } from 'zod'
-
-const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
+import { checkProduction, DEV_JWT } from './preflight.js'
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -75,16 +74,12 @@ if (env.SMS_PROVIDER === 'jio') {
   }
 }
 
-if (isProd) {
-  const problems = []
-  if (env.JWT_SECRET.length < 32 || env.JWT_SECRET === DEV_JWT || env.JWT_SECRET.startsWith('dev-only-change-me')) {
-    problems.push('JWT_SECRET too weak: set a random string of 32+ characters')
-  }
-  if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') problems.push('RAZORPAY_WEBHOOK_SECRET is the dev default')
-  if (!env.COOKIE_SECURE) problems.push('COOKIE_SECURE must be true in production')
-  if (env.SMS_PROVIDER !== 'jio') problems.push('SMS_PROVIDER must be jio: customers could not receive login codes')
-  if (problems.length) {
-    console.error(`Refusing to start in production:\n- ${problems.join('\n- ')}`)
+// `npm run preflight` sets PREFLIGHT=1 to print every problem instead of exiting on the first start.
+if (isProd && !process.env.PREFLIGHT) {
+  const { errors, warnings } = checkProduction(env)
+  for (const w of warnings) console.warn(`Warning: ${w}`)
+  if (errors.length) {
+    console.error(`Refusing to start in production:\n- ${errors.join('\n- ')}\nRun npm run preflight for the full list.`)
     process.exit(1)
   }
 }

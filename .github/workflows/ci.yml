@@ -112,3 +112,29 @@ jobs:
           VITE_API_URL: http://localhost:3000
       - if: failure()
         run: cat api.log
+
+  production-images:
+    # Builds the production images and checks the server config, so a broken
+    # Dockerfile or Caddyfile shows up here rather than on deploy day.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy
+    env:
+      SHOP_DOMAIN: example.in
+      ADMIN_DOMAIN: admin.example.in
+      API_DOMAIN: api.example.in
+      ACME_EMAIL: ops@example.in
+      POSTGRES_PASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@v4
+      - run: touch .env
+      - name: Compose file is valid
+        run: docker compose -f compose.yml config -q
+      - name: Caddyfile is valid
+        run: >-
+          docker run --rm -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro"
+          -e SHOP_DOMAIN -e ADMIN_DOMAIN -e API_DOMAIN -e ACME_EMAIL
+          caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Build the API and web images
+        run: docker compose -f compose.yml build api web

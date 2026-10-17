@@ -9,6 +9,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --env-file-if-exists=.env --watch src/index.js",
+    "preflight": "node --env-file-if-exists=.env src/preflight-cli.js",
     "migrate": "node --env-file-if-exists=.env src/migrate.js",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.js\""
   },

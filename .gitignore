@@ -7,3 +7,5 @@ playwright-report
 *.tsbuildinfo
 test-results-shop
 playwright-report-shop
+deploy/.env
+deploy/backups/

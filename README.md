@@ -8,7 +8,8 @@ with a delivered order by sending a replacement, not a refund.
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
 this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
 the ripeness and stock engine. The customer shop is in
-[`customer-app/`](customer-app/README.md) (`npm run shop:dev`).
+[`customer-app/`](customer-app/README.md) (`npm run shop:dev`). Going live on a server is in
+[`deploy/README.md`](deploy/README.md).
 
 ## What it does
 
@@ -125,7 +126,8 @@ fails any test that logs a console error.
 typecheck (panel, tests and customer app), production builds of both apps, then the
 smoke, screens and accessibility specs on Chromium. A second job runs the mango-api tests
 against Postgres 16, and a third starts mango-api with demo data and runs the
-day-in-the-life spec and the customer app's journey against it.
+day-in-the-life spec and the customer app's journey against it. A fourth builds the
+production Docker images and validates the server config in `deploy/`.
 The Playwright report is uploaded as an artifact on failure.
 
 ## Resilience
