@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-route
 import { ApiError, api } from '../api'
 import { useSession } from '../session'
 import { FormError } from '../ui'
+import { GoogleSignIn } from '../google'
 
 export default function Login() {
   const { me, setMe } = useSession()
@@ -42,6 +43,13 @@ export default function Login() {
             Your session has ended. Please sign in again.
           </div>
         )}
+        <GoogleSignIn
+          onSignedIn={(signedIn) => {
+            setMe(signedIn)
+            navigate(from, { replace: true })
+          }}
+          onError={setError}
+        />
         <form onSubmit={onSubmit} noValidate>
           <div className="field">
             <label htmlFor="email">Work email</label>

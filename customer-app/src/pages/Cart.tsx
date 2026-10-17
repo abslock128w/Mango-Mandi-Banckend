@@ -3,7 +3,7 @@ import { STAGE_LABEL, rupees } from '../format'
 import { useStore } from '../store'
 
 export default function Cart() {
-  const { cart, setQty, phone } = useStore()
+  const { cart, setQty, profile } = useStore()
   const navigate = useNavigate()
   const total = cart.reduce((s, l) => s + l.price * l.qty, 0)
 
@@ -52,8 +52,8 @@ export default function Cart() {
         <strong>{rupees(total)}</strong>
       </div>
       <p className="muted small">Delivery is free. Stock is checked again for your delivery day at checkout.</p>
-      <button type="button" className="btn btn-primary btn-block" onClick={() => navigate(phone ? '/checkout' : '/sign-in?next=/checkout')}>
-        {phone ? 'Continue to delivery' : 'Sign in to check out'}
+      <button type="button" className="btn btn-primary btn-block" onClick={() => navigate(profile ? '/checkout' : '/sign-in?next=/checkout')}>
+        {profile ? 'Continue to delivery' : 'Sign in to check out'}
       </button>
       <Link to="/" className="btn btn-block btn-quiet">
         Keep shopping

@@ -20,6 +20,7 @@ import { createGatewayOrder, devGateway, reconcilePendingPayments, refundOrder }
 import { allProducts, findProduct } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
 import { sendOtp } from './sms.js'
+import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 
 export const router = express.Router()
@@ -48,41 +49,69 @@ const hashOtp = (phone, code) => createHash('sha256').update(`${env.JWT_SECRET}:
 
 // ---------------------------------------------------------------- auth
 
+/** Stores a fresh login code for the phone (rate-limited per phone) and sends it. */
+async function issueCode(phone, channel) {
+  const code = String(randomInt(100_000, 1_000_000))
+  const at = now()
+  await tx(async (c) => {
+    const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
+    const prev = rows[0]
+    const fresh = !prev || at.getTime() - prev.window_start.getTime() > 3_600_000
+    if (!fresh && prev.resends >= OTP_MAX_SENDS_PER_HOUR) {
+      throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
+    }
+    await c.query(
+      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0,
+         resends = CASE WHEN $5 THEN 1 ELSE otps.resends + 1 END,
+         window_start = CASE WHEN $5 THEN $4 ELSE otps.window_start END`,
+      [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at, fresh],
+    )
+  })
+  const via = await sendOtp(phone, code, channel)
+  return isProd ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
+}
+
+/** Checks a code inside a transaction. Returns an error to throw after commit (so wrong tries count), or null. */
+async function consumeCode(c, phone, code) {
+  const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
+  const otp = rows[0]
+  if (!otp || otp.expires_at <= now()) return unauthorized('This code has expired. Request a new one.', 'OTP_EXPIRED')
+  if (otp.attempts >= OTP_MAX_ATTEMPTS) return unauthorized('Too many wrong codes. Request a new one.', 'OTP_LOCKED')
+  if (!timingSafeEqual(Buffer.from(otp.code, 'hex'), hashOtp(phone, code))) {
+    await c.query('UPDATE otps SET attempts = attempts + 1 WHERE phone = $1', [phone])
+    return unauthorized('Incorrect code', 'OTP_INVALID')
+  }
+  await c.query('DELETE FROM otps WHERE phone = $1', [phone])
+  return null
+}
+
 router.post(
   '/auth/otp/request',
   otpLimiter,
   asyncHandler(async (req, res) => {
     const { phone, channel } = parse(z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional() }), req.body)
-    const code = String(randomInt(100_000, 1_000_000))
-    const at = now()
-    const out = await tx(async (c) => {
-      const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
-      const prev = rows[0]
-      const fresh = !prev || at.getTime() - prev.window_start.getTime() > 3_600_000
-      if (!fresh && prev.resends >= OTP_MAX_SENDS_PER_HOUR) {
-        throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
-      }
-      await c.query(
-        `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
-         ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0,
-           resends = CASE WHEN $5 THEN 1 ELSE otps.resends + 1 END,
-           window_start = CASE WHEN $5 THEN $4 ELSE otps.window_start END`,
-        [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at, fresh],
-      )
-      return { sent: true }
-    })
-    const via = await sendOtp(phone, code, channel)
-    res.json(isProd ? { ...out, channel: via } : { ...out, channel: via, devCode: code })
+    res.json(await issueCode(phone, channel))
   }),
 )
 
-const tokens = async (customer) => {
+// The web shop keeps the refresh token in an httpOnly cookie (sent with
+// "X-Session: cookie"), out of reach of page scripts. Other clients get it in
+// the response body, as before.
+const RT_COOKIE = 'mm_customer_rt'
+const rtCookie = () => ({ httpOnly: true, secure: env.COOKIE_SECURE, sameSite: env.COOKIE_SAMESITE, path: '/v1/auth' })
+const cookieMode = (req) => req.get('x-session') === 'cookie'
+
+const profile = (cu) => ({ id: cu.id, phone: cu.phone ?? null, name: cu.name ?? null, email: cu.email ?? null })
+
+async function sendTokens(req, res, customer) {
   const refresh = await issueRefresh(customer.id, 'customer')
-  return {
-    accessToken: signAccess({ sub: customer.id, phone: customer.phone, typ: 'customer' }),
-    refreshToken: refresh.token,
-    expiresIn: ACCESS_TTL_S,
+  const body = { accessToken: signAccess({ sub: customer.id, phone: customer.phone ?? null, typ: 'customer' }), expiresIn: ACCESS_TTL_S, customer: profile(customer) }
+  if (cookieMode(req)) {
+    res.cookie(RT_COOKIE, refresh.token, { ...rtCookie(), expires: refresh.expiresAt })
+    return res.json(body)
   }
+  res.json({ ...body, refreshToken: refresh.token })
 }
 
 router.post(
@@ -91,24 +120,43 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, code } = parse(z.object({ phone: phoneSchema, code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code') }), req.body)
     const customer = await tx(async (c) => {
-      const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
-      const otp = rows[0]
-      if (!otp || otp.expires_at <= now()) return { error: unauthorized('This code has expired. Request a new one.', 'OTP_EXPIRED') }
-      if (otp.attempts >= OTP_MAX_ATTEMPTS) return { error: unauthorized('Too many wrong codes. Request a new one.', 'OTP_LOCKED') }
-      if (!timingSafeEqual(Buffer.from(otp.code, 'hex'), hashOtp(phone, code))) {
-        await c.query('UPDATE otps SET attempts = attempts + 1 WHERE phone = $1', [phone])
-        return { error: unauthorized('Incorrect code', 'OTP_INVALID') }
-      }
-      await c.query('DELETE FROM otps WHERE phone = $1', [phone])
+      const error = await consumeCode(c, phone, code)
+      if (error) return { error }
       const up = await c.query(
-        `INSERT INTO customers (id, phone, created_at) VALUES ($1, $2, $3) ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone RETURNING id, phone`,
+        `INSERT INTO customers (id, phone, created_at) VALUES ($1, $2, $3) ON CONFLICT (phone) DO UPDATE SET phone = EXCLUDED.phone
+         RETURNING id, phone, name, email`,
         [newId('cus'), phone, now()],
       )
       return up.rows[0]
     })
     // Failed attempts are counted even though the request fails.
     if (customer.error) throw customer.error
-    res.json(await tokens(customer))
+    await sendTokens(req, res, customer)
+  }),
+)
+
+/** What the sign-in page offers. The Google client ID is public by design. */
+router.get('/auth/config', (_req, res) => res.json({ googleClientId: googleOn() ? env.GOOGLE_CLIENT_ID.split(',')[0].trim() : null }))
+
+router.post(
+  '/auth/google',
+  otpLimiter,
+  asyncHandler(async (req, res) => {
+    const { credential } = parse(z.object({ credential: z.string().min(20).max(4096) }), req.body)
+    const g = await verifyGoogleCredential(credential)
+    const customer = await tx(async (c) => {
+      const { rows } = await c.query('SELECT id, phone, name, email FROM customers WHERE google_sub = $1 FOR UPDATE', [g.sub])
+      if (rows.length) {
+        const up = await c.query('UPDATE customers SET email = $2, name = COALESCE(name, $3) WHERE id = $1 RETURNING id, phone, name, email', [rows[0].id, g.email, g.name])
+        return up.rows[0]
+      }
+      const ins = await c.query(
+        'INSERT INTO customers (id, phone, name, email, google_sub, created_at) VALUES ($1, NULL, $2, $3, $4, $5) RETURNING id, phone, name, email',
+        [newId('cus'), g.name, g.email, g.sub, now()],
+      )
+      return ins.rows[0]
+    })
+    await sendTokens(req, res, customer)
   }),
 )
 
@@ -116,22 +164,25 @@ router.post(
   '/auth/token/refresh',
   otpLimiter,
   asyncHandler(async (req, res) => {
-    const { refreshToken } = parse(z.object({ refreshToken: z.string().min(1) }), req.body)
-    const { userId, refresh } = await rotateRefresh(refreshToken, 'customer')
-    const { rows } = await query('SELECT id, phone FROM customers WHERE id = $1', [userId])
+    const token = req.body?.refreshToken || req.cookies?.[RT_COOKIE]
+    if (!token) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
+    const { userId, refresh } = await rotateRefresh(token, 'customer')
+    const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1', [userId])
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
-    res.json({
-      accessToken: signAccess({ sub: rows[0].id, phone: rows[0].phone, typ: 'customer' }),
-      refreshToken: refresh.token,
-      expiresIn: ACCESS_TTL_S,
-    })
+    const body = { accessToken: signAccess({ sub: rows[0].id, phone: rows[0].phone, typ: 'customer' }), expiresIn: ACCESS_TTL_S, customer: profile(rows[0]) }
+    if (cookieMode(req)) {
+      if (refresh) res.cookie(RT_COOKIE, refresh.token, { ...rtCookie(), expires: refresh.expiresAt })
+      return res.json(body)
+    }
+    res.json({ ...body, refreshToken: refresh.token })
   }),
 )
 
 router.post(
   '/auth/logout',
   asyncHandler(async (req, res) => {
-    await revokeRefresh(req.body?.refreshToken)
+    await revokeRefresh(req.body?.refreshToken || req.cookies?.[RT_COOKIE])
+    res.clearCookie(RT_COOKIE, rtCookie())
     res.status(204).end()
   }),
 )
@@ -218,10 +269,75 @@ router.get(
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders'], requireCustomer)
 
 router.get('/me', asyncHandler(async (req, res) => {
-  const { rows } = await query('SELECT id, phone, name FROM customers WHERE id = $1', [req.customer.id])
+  const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1', [req.customer.id])
   if (!rows.length) throw notFound('Customer not found')
-  res.json(rows[0])
+  res.json(profile(rows[0]))
 }))
+
+/** Orders need a mobile number: the rider calls it and WhatsApp updates go to it. */
+async function requirePhone(c, customerId) {
+  const { rows } = await c.query('SELECT name, phone FROM customers WHERE id = $1', [customerId])
+  if (!rows[0]?.phone) throw conflict('Add your mobile number first, so the rider can reach you.', 'PHONE_REQUIRED')
+  return rows[0]
+}
+
+// Adding a mobile number to an account made with Google, checked by code.
+router.post(
+  '/me/phone/request',
+  otpLimiter,
+  asyncHandler(async (req, res) => {
+    const { phone, channel } = parse(z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional() }), req.body)
+    res.json(await issueCode(phone, channel))
+  }),
+)
+
+/**
+ * Verifies the code and adds the number. If the number already has an account
+ * (they ordered by phone before), the Google sign-in joins that account and the
+ * new, empty one goes away; the response carries tokens for the joined account.
+ */
+router.post(
+  '/me/phone/verify',
+  otpLimiter,
+  asyncHandler(async (req, res) => {
+    const { phone, code } = parse(z.object({ phone: phoneSchema, code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code') }), req.body)
+    const out = await tx(async (c) => {
+      const error = await consumeCode(c, phone, code)
+      if (error) return { error }
+      const { rows: mine } = await c.query('SELECT * FROM customers WHERE id = $1 FOR UPDATE', [req.customer.id])
+      const me = mine[0]
+      if (!me) throw notFound('Customer not found')
+      if (me.phone === phone) return { customer: me }
+      if (me.phone) throw conflict('This account already has a mobile number.', 'PHONE_ALREADY_SET')
+      const { rows: other } = await c.query('SELECT * FROM customers WHERE phone = $1 FOR UPDATE', [phone])
+      if (!other.length) {
+        const up = await c.query('UPDATE customers SET phone = $2 WHERE id = $1 RETURNING *', [me.id, phone])
+        return { customer: up.rows[0] }
+      }
+      const target = other[0]
+      if (target.google_sub && target.google_sub !== me.google_sub) {
+        throw conflict('This number belongs to an account with a different Google login.', 'PHONE_TAKEN')
+      }
+      // Join: the cart comes along; the Google identity moves to the phone account.
+      await c.query(
+        `INSERT INTO carts (customer_id, sku, stage, qty)
+           SELECT $2, sku, stage, qty FROM carts WHERE customer_id = $1
+         ON CONFLICT (customer_id, sku, stage) DO UPDATE SET qty = GREATEST(carts.qty, EXCLUDED.qty)`,
+        [me.id, target.id],
+      )
+      await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
+      await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
+      await c.query('DELETE FROM customers WHERE id = $1', [me.id])
+      const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
+        target.id, me.google_sub, me.email, me.name,
+      ])
+      return { customer: up.rows[0], joined: true }
+    })
+    if (out.error) throw out.error
+    await sendTokens(req, res, out.customer)
+  }),
+)
 
 router.get(
   '/cart',
@@ -338,7 +454,7 @@ router.post(
       if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
-      const cust = (await c.query('SELECT name, phone FROM customers WHERE id = $1', [req.customer.id])).rows[0]
+      const cust = await requirePhone(c, req.customer.id)
       const created = await createOrder(
         c,
         {
@@ -463,7 +579,7 @@ router.post(
       const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [key, 'pending', now()])
       if (!ins.rowCount) return null
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
-      const cust = (await c.query('SELECT name, phone FROM customers WHERE id = $1', [req.customer.id])).rows[0]
+      const cust = await requirePhone(c, req.customer.id)
       const p = await bookPreorder(c, { ...b, customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone }, req.actor)
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, p.id])
       return p

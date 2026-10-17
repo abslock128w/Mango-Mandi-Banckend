@@ -170,6 +170,27 @@ export const api = {
     return request<Me>('GET', '/auth/me')
   },
 
+  /** Whether "Sign in with Google" is set up. */
+  async authConfig(): Promise<{ googleClientId: string | null }> {
+    if (!API_URL) return { googleClientId: null }
+    const res = await fetch(`${BASE}/auth/config`)
+    if (!res.ok) return { googleClientId: null }
+    return (await res.json()) as { googleClientId: string | null }
+  },
+
+  async loginWithGoogle(credential: string): Promise<Me> {
+    const res = await fetch(`${BASE}/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ credential }),
+    })
+    if (!res.ok) throw await toApiError(res)
+    const data = (await res.json()) as { accessToken: string }
+    accessToken = data.accessToken
+    return request<Me>('GET', '/auth/me')
+  },
+
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {
     try {

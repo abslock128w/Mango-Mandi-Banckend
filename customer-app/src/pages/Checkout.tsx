@@ -6,6 +6,7 @@ import { STAGE_LABEL, day, rupees, slotText } from '../format'
 import { openRazorpay, rememberPayment } from '../payment'
 import { useStore, type CartLine } from '../store'
 import { ErrorNote, Spinner } from '../ui'
+import { AddPhoneCard } from '../auth-ui'
 
 function loadAddress() {
   try {
@@ -24,6 +25,13 @@ async function syncCart(cart: CartLine[]) {
 }
 
 export default function Checkout() {
+  const { profile } = useStore()
+  // Accounts made with Google add a checked mobile number before the first order.
+  if (profile && !profile.phone) return <AddPhoneCard />
+  return <CheckoutForm />
+}
+
+function CheckoutForm() {
   const { pincode, date, cart, clearCart } = useStore()
   const navigate = useNavigate()
   const saved = useRef(loadAddress())

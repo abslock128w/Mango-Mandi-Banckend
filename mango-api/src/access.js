@@ -4,6 +4,7 @@
 // routes (requireManager in admin.js). PACKER, QC and RIDER see only their own screens:
 // anything not listed for them below is refused, so a new route is closed to
 // them until someone adds it here.
+import { background } from './background.js'
 import { now } from './clock.js'
 import { query } from './db.js'
 import { forbidden } from './errors.js'
@@ -98,7 +99,7 @@ export function auditStaffChanges(req, res, next) {
     if (res.statusCode >= 400 || !req.admin || !req.route) return
     const p = req.params ?? {}
     const target = p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? null)
-    void audit(req.admin, `${req.method} ${req.route.path}`, { target, detail: clean(req.body), requestId: req.id })
+    background(audit(req.admin, `${req.method} ${req.route.path}`, { target, detail: clean(req.body), requestId: req.id }))
   })
   next()
 }

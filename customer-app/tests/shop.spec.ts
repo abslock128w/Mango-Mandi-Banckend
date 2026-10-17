@@ -55,6 +55,10 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible()
+  // The session survives a reload: the refresh token is in an httpOnly cookie, nothing in localStorage.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible()
+  expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toMatch(/eyJ/)
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Enter the full delivery address')
   await page.getByLabel('Your name').fill('Asha Rao')

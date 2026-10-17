@@ -8,6 +8,7 @@ import { ApiError, api, errorMessage, type Preorder, type PreorderStatus, type P
 import { PREORDER_LABEL, STAGE_HINT, STAGE_LABEL, rupees, week, when } from '../format'
 import { useStore } from '../store'
 import { Dialog, ErrorNote, Spinner } from '../ui'
+import { AddPhoneCard } from '../auth-ui'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
@@ -42,7 +43,9 @@ export function BookAheadCard() {
 }
 
 export default function BookAhead() {
+  const { profile } = useStore()
   const q = useQuery({ queryKey: ['preorder-weeks'], queryFn: api.preorderWeeks })
+  if (profile && !profile.phone) return <AddPhoneCard />
   if (q.isPending) return <Spinner label="Loading open weeks" />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   if (!q.data.weeks.length) {

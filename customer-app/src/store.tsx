@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { SIGNOUT_EVENT, signedInPhone, type Stage } from './api'
+import { PROFILE_EVENT, SIGNOUT_EVENT, signedInProfile, type Profile, type Stage } from './api'
 
 export interface CartLine {
   sku: string
@@ -16,8 +16,8 @@ interface Store {
   cart: CartLine[]
   setQty: (line: Omit<CartLine, 'qty'>, qty: number) => void
   clearCart: () => void
-  phone: string | null
-  refreshPhone: () => void
+  /** Who is signed in on this device, or null. */
+  profile: Profile | null
 }
 
 const Ctx = createContext<Store | null>(null)
@@ -42,14 +42,18 @@ function save(key: string, value: unknown) {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [where, setWhereState] = useState(() => load<{ pincode: string | null; date: string | null }>('mm.where', { pincode: null, date: null }))
   const [cart, setCart] = useState(() => load<CartLine[]>('mm.cart', []))
-  const [phone, setPhone] = useState(signedInPhone)
+  const [profile, setProfile] = useState(signedInProfile)
 
   useEffect(() => save('mm.where', where), [where])
   useEffect(() => save('mm.cart', cart), [cart])
   useEffect(() => {
-    const onOut = () => setPhone(null)
-    window.addEventListener(SIGNOUT_EVENT, onOut)
-    return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
+    const sync = () => setProfile(signedInProfile())
+    window.addEventListener(SIGNOUT_EVENT, sync)
+    window.addEventListener(PROFILE_EVENT, sync)
+    return () => {
+      window.removeEventListener(SIGNOUT_EVENT, sync)
+      window.removeEventListener(PROFILE_EVENT, sync)
+    }
   }, [])
 
   const setWhere = useCallback((pincode: string | null, date: string | null) => setWhereState({ pincode, date }), [])
@@ -64,8 +68,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.name.localeCompare(b.name) || a.stage.localeCompare(b.stage)) : rest
       }),
     clearCart: () => setCart([]),
-    phone,
-    refreshPhone: () => setPhone(signedInPhone()),
+    profile,
   }
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>
 }

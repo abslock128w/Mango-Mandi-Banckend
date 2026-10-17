@@ -1,5 +1,6 @@
+import { attachDatabasePool } from '@vercel/functions'
 import pg from 'pg'
-import { env } from './env.js'
+import { env, onVercel } from './env.js'
 import { logger } from './logger.js'
 
 // DATE columns come back as plain "YYYY-MM-DD" strings, not JS Dates in local time.
@@ -7,11 +8,24 @@ pg.types.setTypeParser(1082, (v) => v)
 // BIGINT counts (COUNT(*)) as numbers.
 pg.types.setTypeParser(20, (v) => Number(v))
 
+/**
+ * Neon's pooler (PgBouncer, transaction mode) hands the server connection back
+ * after every transaction, so session settings don't stick. There the timeout is
+ * set on the role instead: ALTER ROLE mango_app SET statement_timeout = '10s'.
+ * Row locks (FOR UPDATE) and transaction-scoped advisory locks still work.
+ */
+export const isPooledUrl = (url) => /-pooler\./.test(url)
+
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   max: env.DB_POOL_MAX,
-  statement_timeout: env.DB_STATEMENT_TIMEOUT_MS,
+  ...(isPooledUrl(env.DATABASE_URL) ? {} : { statement_timeout: env.DB_STATEMENT_TIMEOUT_MS }),
+  // Serverless instances come and go: don't hold idle connections for long.
+  ...(onVercel ? { idleTimeoutMillis: 5_000 } : {}),
 })
+
+// Lets Vercel close idle connections before it suspends an instance.
+if (onVercel) attachDatabasePool(pool)
 
 pool.on('error', (err) => logger.error({ err }, 'idle pg client error'))
 

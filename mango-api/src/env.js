@@ -3,12 +3,17 @@
 import { z } from 'zod'
 import { checkProduction, DEV_JWT } from './preflight.js'
 
+/** Running as a Vercel Function (Vercel sets VERCEL=1). */
+export const onVercel = Boolean(process.env.VERCEL)
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('postgres://mango:mango@localhost:5432/mango'),
-  DB_POOL_MAX: z.coerce.number().int().positive().default(10),
+  // Neon: DATABASE_URL is the pooled (-pooler) URL; migrations need the direct one.
+  DATABASE_URL_UNPOOLED: z.string().optional(),
+  DB_POOL_MAX: z.coerce.number().int().positive().default(onVercel ? 5 : 10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   JWT_SECRET: z.string().default(DEV_JWT),
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
@@ -17,7 +22,17 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
-  TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  // Vercel's edge sets X-Forwarded-For to the client's address: one hop to trust.
+  TRUST_PROXY: z.coerce.number().int().min(0).default(onVercel ? 1 : 0),
+  // lax when the sites and the API share a domain (shop.x.in, api.x.in); none for *.vercel.app previews.
+  COOKIE_SAMESITE: z.enum(['lax', 'none', 'strict']).default('lax'),
+  // Vercel Cron sends "Authorization: Bearer CRON_SECRET" to /internal/maintenance.
+  CRON_SECRET: z.string().default(''),
+  // Sign in with Google: the OAuth web client ID from Google Cloud console.
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  SENTRY_DSN: z.string().default(''),
+  // Vercel Blob for delivery and claim photos; unset keeps photos in the database.
+  BLOB_READ_WRITE_TOKEN: z.string().default(''),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   RAZORPAY_KEY_ID: z.string().default(''),
@@ -76,7 +91,7 @@ if (env.SMS_PROVIDER === 'jio') {
 
 // `npm run preflight` sets PREFLIGHT=1 to print every problem instead of exiting on the first start.
 if (isProd && !process.env.PREFLIGHT) {
-  const { errors, warnings } = checkProduction(env)
+  const { errors, warnings } = checkProduction(env, { vercel: onVercel })
   for (const w of warnings) console.warn(`Warning: ${w}`)
   if (errors.length) {
     console.error(`Refusing to start in production:\n- ${errors.join('\n- ')}\nRun npm run preflight for the full list.`)

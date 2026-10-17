@@ -252,6 +252,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     state.calls.push({ method, path, body })
 
+    if (path === '/auth/config') return json(route, 200, { googleClientId: null })
     if (path === '/auth/refresh') return state.signedIn ? json(route, 200, { accessToken: 'tok' }) : json(route, 401, { error: { code: 'INVALID_TOKEN', message: 'No session', requestId: 'req_x' } })
     if (path === '/auth/login') {
       const b = body as { email?: string; password?: string }

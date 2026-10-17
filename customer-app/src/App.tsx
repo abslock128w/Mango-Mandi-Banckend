@@ -13,14 +13,14 @@ import ClaimPage from './pages/Claim'
 import BookAhead, { PreorderPage } from './pages/Preorder'
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
-  const { phone } = useStore()
+  const { profile } = useStore()
   const location = useLocation()
-  if (!phone) return <Navigate to={`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+  if (!profile) return <Navigate to={`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
   return children
 }
 
 export default function App() {
-  const { cart, phone, refreshPhone } = useStore()
+  const { cart, profile } = useStore()
   const queryClient = useQueryClient()
   const location = useLocation()
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
@@ -47,7 +47,7 @@ export default function App() {
             <span>MandiMangoes</span>
           </Link>
           <nav aria-label="Main" className="top-nav">
-            {phone && (
+            {profile && (
               <NavLink to="/orders" className="top-link">
                 Orders
               </NavLink>
@@ -55,8 +55,8 @@ export default function App() {
             <NavLink to="/cart" className="top-link cart-link" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
               Cart{boxes > 0 && <span className="count" aria-hidden="true">{boxes}</span>}
             </NavLink>
-            {phone ? (
-              <button type="button" className="top-link link-btn" onClick={() => void api.signOut().then(refreshPhone)}>
+            {profile ? (
+              <button type="button" className="top-link link-btn" onClick={() => void api.signOut()}>
                 Sign out
               </button>
             ) : (

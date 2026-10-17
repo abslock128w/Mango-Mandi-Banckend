@@ -177,14 +177,20 @@ export class ApiError extends Error {
   }
 }
 
-interface Session {
-  accessToken: string
-  refreshToken: string
-  phone: string
+// The refresh token lives in an httpOnly cookie set by the API ("X-Session:
+// cookie"), so page scripts never see it. The short-lived access token is kept
+// in memory only; after a reload the first request refreshes it. What this
+// device remembers is just who is signed in, to show the right screens.
+export interface Profile {
+  id: string
+  phone: string | null
+  name: string | null
+  email: string | null
 }
 
-const SESSION_KEY = 'mm.session'
+const PROFILE_KEY = 'mm.profile'
 export const SIGNOUT_EVENT = 'mm:signout'
+export const PROFILE_EVENT = 'mm:profile'
 
 function load<T>(key: string): T | null {
   try {
@@ -203,26 +209,46 @@ function save(key: string, value: unknown) {
   }
 }
 
-let session: Session | null = load<Session>(SESSION_KEY)
+try {
+  localStorage.removeItem('mm.session') // tokens were kept here before the cookie
+} catch {
+  // ignore
+}
 
-export const signedInPhone = () => session?.phone ?? null
+let accessToken: string | null = null
+let profile: Profile | null = load<Profile>(PROFILE_KEY)
 
-function setSession(s: Session | null) {
-  session = s
-  save(SESSION_KEY, s)
+export const signedInProfile = () => profile
+export const signedInPhone = () => profile?.phone ?? null
+
+interface TokenResponse {
+  accessToken: string
+  customer: Profile
+}
+function signedIn(r: TokenResponse) {
+  accessToken = r.accessToken
+  profile = r.customer
+  save(PROFILE_KEY, profile)
+  window.dispatchEvent(new CustomEvent(PROFILE_EVENT))
+}
+function signedOut() {
+  const was = profile
+  accessToken = null
+  profile = null
+  save(PROFILE_KEY, null)
+  if (was) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT))
 }
 
 let refreshing: Promise<boolean> | null = null
 function refreshOnce(): Promise<boolean> {
-  if (!session) return Promise.resolve(false)
+  if (!profile) return Promise.resolve(false)
   refreshing ??= (async () => {
     try {
-      const r = await raw<{ accessToken: string; refreshToken: string }>('POST', '/auth/token/refresh', { refreshToken: session!.refreshToken })
-      setSession({ ...session!, accessToken: r.accessToken, refreshToken: r.refreshToken })
+      signedIn(await raw<TokenResponse>('POST', '/auth/token/refresh', {}))
       return true
-    } catch {
-      setSession(null)
-      window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT))
+    } catch (err) {
+      // Offline is not signed out: keep the profile and let the request fail.
+      if (err instanceof ApiError) signedOut()
       return false
     } finally {
       refreshing = null
@@ -234,9 +260,11 @@ function refreshOnce(): Promise<boolean> {
 async function raw<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(`${API_URL}/v1${path}`, {
     method,
+    credentials: 'include',
     headers: {
+      'X-Session': 'cookie',
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(session ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...headers,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -252,10 +280,11 @@ async function raw<T>(method: string, path: string, body?: unknown, headers: Rec
 }
 
 async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+  if (!accessToken && profile) await refreshOnce()
   try {
     return await raw<T>(method, path, body, headers)
   } catch (err) {
-    if (err instanceof ApiError && err.status === 401 && session && (await refreshOnce())) {
+    if (err instanceof ApiError && err.status === 401 && profile && (await refreshOnce())) {
       return raw<T>(method, path, body, headers)
     }
     throw err
@@ -274,14 +303,21 @@ export const api = {
   requestCode: (phone: string, channel?: 'sms' | 'whatsapp') =>
     raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', channel ? { phone, channel } : { phone }),
   async verifyCode(phone: string, code: string) {
-    const r = await raw<{ accessToken: string; refreshToken: string }>('POST', '/auth/otp/verify', { phone, code })
-    setSession({ accessToken: r.accessToken, refreshToken: r.refreshToken, phone })
+    signedIn(await raw<TokenResponse>('POST', '/auth/otp/verify', { phone, code }))
+  },
+  authConfig: () => raw<{ googleClientId: string | null }>('GET', '/auth/config'),
+  async signInWithGoogle(credential: string) {
+    signedIn(await raw<TokenResponse>('POST', '/auth/google', { credential }))
+  },
+  /** Adds a mobile number to an account made with Google. */
+  requestPhoneCode: (phone: string, channel?: 'sms' | 'whatsapp') =>
+    request<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/me/phone/request', channel ? { phone, channel } : { phone }),
+  async verifyPhoneCode(phone: string, code: string) {
+    signedIn(await request<TokenResponse>('POST', '/me/phone/verify', { phone, code }))
   },
   async signOut() {
-    const token = session?.refreshToken
-    setSession(null)
-    if (token) await raw('POST', '/auth/logout', { refreshToken: token }).catch(() => undefined)
-    window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT))
+    await raw('POST', '/auth/logout', {}).catch(() => undefined)
+    signedOut()
   },
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
@@ -311,9 +347,10 @@ export const api = {
 
   /** The rider's photo of the handover, as an object URL (it needs the sign-in, so it is fetched). */
   async deliveryPhotoUrl(orderId: string): Promise<string> {
-    const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: session ? { Authorization: `Bearer ${session.accessToken}` } : {} })
+    if (!accessToken && profile) await refreshOnce()
+    const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
     let res = await get()
-    if (res.status === 401 && session && (await refreshOnce())) res = await get()
+    if (res.status === 401 && profile && (await refreshOnce())) res = await get()
     if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
     return URL.createObjectURL(await res.blob())
   },

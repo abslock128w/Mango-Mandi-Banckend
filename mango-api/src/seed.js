@@ -1,5 +1,6 @@
 // Reference data on every start (idempotent), staff logins outside production,
 // and optional demo batches on an empty database.
+import { fileURLToPath } from 'node:url'
 import bcrypt from 'bcryptjs'
 import { addDays, now, todayIST } from './clock.js'
 import { query, tx } from './db.js'
@@ -111,4 +112,16 @@ async function seedDemoBatches() {
     }
   })
   logger.info('demo batches seeded')
+}
+
+// `npm run seed`: reference data (and, outside production, demo logins). On
+// Vercel it runs in the API's build step after the migrations.
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const { pool } = await import('./db.js')
+  seed()
+    .then(() => pool.end())
+    .catch((err) => {
+      logger.error({ err }, 'seed failed')
+      process.exit(1)
+    })
 }

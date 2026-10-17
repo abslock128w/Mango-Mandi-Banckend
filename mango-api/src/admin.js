@@ -1,5 +1,6 @@
 // /admin/v1: the Mango Ops staff panel. Field names follow the panel's
 // src/types.ts exactly.
+import { googleOn, verifyGoogleCredential } from './google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
 import rateLimit from 'express-rate-limit'
@@ -39,7 +40,7 @@ const COOKIE = 'mango_admin_rt'
 const cookieOptions = () => ({
   httpOnly: true,
   secure: env.COOKIE_SECURE,
-  sameSite: 'lax',
+  sameSite: env.COOKIE_SAMESITE,
   path: '/admin/v1/auth',
 })
 
@@ -69,6 +70,26 @@ router.post(
     if (!user || !ok) throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
     const refresh = await issueRefresh(user.id, 'admin')
     await audit(user, 'auth.login', { requestId: req.id })
+    res.cookie(COOKIE, refresh.token, { ...cookieOptions(), expires: refresh.expiresAt })
+    res.json({ accessToken: signAccess({ sub: user.id, email: user.email, role: user.role, typ: 'admin' }), expiresIn: ACCESS_TTL_S })
+  }),
+)
+
+/** What the sign-in page offers. The Google client ID is public by design. */
+router.get('/auth/config', (_req, res) => res.json({ googleClientId: googleOn() ? env.GOOGLE_CLIENT_ID.split(',')[0].trim() : null }))
+
+// Staff sign in with Google when the Google account's verified email is their staff email.
+router.post(
+  '/auth/google',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const { credential } = parse(z.object({ credential: z.string().min(20).max(4096) }), req.body)
+    const g = await verifyGoogleCredential(credential)
+    const { rows } = await query('SELECT id, email, role FROM admin_users WHERE email = $1', [g.email])
+    const user = rows[0]
+    if (!user) throw unauthorized(`${g.email} is not a staff account. Ask a manager to add you.`, 'NOT_STAFF')
+    const refresh = await issueRefresh(user.id, 'admin')
+    await audit(user, 'auth.login', { detail: { method: 'google' }, requestId: req.id })
     res.cookie(COOKIE, refresh.token, { ...cookieOptions(), expires: refresh.expiresAt })
     res.json({ accessToken: signAccess({ sub: user.id, email: user.email, role: user.role, typ: 'admin' }), expiresIn: ACCESS_TTL_S })
   }),
@@ -1095,7 +1116,7 @@ router.put(
   asyncHandler(async (req, res) => {
     const rules = parse(rulesSchema, req.body?.rules ?? req.body)
     const saved = await saveConfig(rules, req.admin.email)
-    triggerRebalanceAll() // new windows can invalidate allocations
+    await triggerRebalanceAll() // new windows can invalidate allocations
     res.json(saved)
   }),
 )

@@ -833,3 +833,25 @@ dl.kv dd {
 .role-hints li + li {
   margin-top: 0.15rem;
 }
+
+/* Sign in with Google */
+.google-btn {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+  margin-bottom: 0.25rem;
+}
+.or {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0.75rem 0;
+}
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}

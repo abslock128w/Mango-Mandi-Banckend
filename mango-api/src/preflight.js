@@ -7,7 +7,7 @@ export const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
 
 const origins = (v) => String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 
-export function checkProduction(env) {
+export function checkProduction(env, { vercel = Boolean(process.env.VERCEL) } = {}) {
   const errors = []
   const warnings = []
 
@@ -37,6 +37,15 @@ export function checkProduction(env) {
   } else if (!env.WHATSAPP_VERIFY_TOKEN || !env.WHATSAPP_APP_SECRET) {
     warnings.push('WHATSAPP_VERIFY_TOKEN or WHATSAPP_APP_SECRET is unset: ordering in the WhatsApp chat is off')
   }
+  if (vercel) {
+    if (env.CRON_SECRET.length < 16) errors.push('CRON_SECRET is unset or short: Vercel Cron could not run the maintenance job (holds, payments, messages)')
+    if (/-pooler\./.test(env.DATABASE_URL) && !env.DATABASE_URL_UNPOOLED) {
+      errors.push('DATABASE_URL_UNPOOLED is unset: migrations need Neon\'s direct connection')
+    }
+    if (!env.BLOB_READ_WRITE_TOKEN) warnings.push('BLOB_READ_WRITE_TOKEN is unset: delivery and claim photos are kept in the database')
+  }
+  if (!env.GOOGLE_CLIENT_ID) warnings.push('GOOGLE_CLIENT_ID is unset: "Sign in with Google" is off')
+  if (!env.SENTRY_DSN) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
 
   return { errors, warnings }

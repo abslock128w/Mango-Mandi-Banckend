@@ -15,11 +15,18 @@ const good = {
   WHATSAPP_VERIFY_TOKEN: 'v',
   WHATSAPP_APP_SECRET: 'a',
   TRUST_PROXY: 1,
+  GOOGLE_CLIENT_ID: 'web.apps.googleusercontent.com',
+  SENTRY_DSN: 'https://k@o1.ingest.sentry.io/1',
+  CRON_SECRET: 'c'.repeat(32),
+  DATABASE_URL: 'postgres://u:p@ep-x-pooler.ap-southeast-1.aws.neon.tech/mango',
+  DATABASE_URL_UNPOOLED: 'postgres://u:p@ep-x.ap-southeast-1.aws.neon.tech/mango',
+  BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_x',
 }
 
 describe('production preflight', () => {
   it('passes a complete live setup', () => {
-    assert.deepEqual(checkProduction(good), { errors: [], warnings: [] })
+    assert.deepEqual(checkProduction(good, { vercel: false }), { errors: [], warnings: [] })
+    assert.deepEqual(checkProduction(good, { vercel: true }), { errors: [], warnings: [] })
   })
 
   it('refuses the launch blockers', () => {
@@ -44,5 +51,13 @@ describe('production preflight', () => {
     assert.deepEqual(errors, [])
     assert.equal(warnings.length, 3)
     assert.match(warnings[0], /test key/)
+  })
+
+  it('on Vercel, needs the cron secret and Neon\'s direct connection', () => {
+    const { errors, warnings } = checkProduction({ ...good, CRON_SECRET: '', DATABASE_URL_UNPOOLED: undefined, BLOB_READ_WRITE_TOKEN: '' }, { vercel: true })
+    assert.equal(errors.length, 2)
+    assert.ok(errors.some((e) => e.startsWith('CRON_SECRET')))
+    assert.ok(errors.some((e) => e.startsWith('DATABASE_URL_UNPOOLED')))
+    assert.ok(warnings.some((w) => w.startsWith('BLOB_READ_WRITE_TOKEN')))
   })
 })
