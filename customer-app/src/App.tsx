@@ -29,7 +29,10 @@ export default function App() {
     window.addEventListener(SIGNOUT_EVENT, onOut)
     return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
   }, [queryClient])
-  useEffect(() => window.scrollTo(0, 0), [location.pathname])
+  // Newer browsers return a promise from scrollTo, so the effect must not return it.
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
 
   return (
     <>
