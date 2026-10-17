@@ -25,7 +25,7 @@ export function createApp() {
   app.use(helmet())
   app.use(
     cors({
-      origin: env.ADMIN_ORIGIN.split(',').map((s) => s.trim()),
+      origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     }),

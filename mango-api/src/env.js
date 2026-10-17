@@ -13,6 +13,7 @@ const schema = z.object({
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   JWT_SECRET: z.string().default(DEV_JWT),
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
+  CUSTOMER_ORIGIN: z.string().default('http://localhost:5174'),
   COOKIE_SECURE: z
     .enum(['true', 'false'])
     .default('true')

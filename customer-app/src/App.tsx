@@ -1,0 +1,93 @@
+import { useEffect } from 'react'
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { SIGNOUT_EVENT, api } from './api'
+import { useStore } from './store'
+import Shop from './pages/Shop'
+import Cart from './pages/Cart'
+import Checkout from './pages/Checkout'
+import SignIn from './pages/SignIn'
+import Orders from './pages/Orders'
+import OrderPage from './pages/Order'
+import ClaimPage from './pages/Claim'
+
+function RequireSignIn({ children }: { children: JSX.Element }) {
+  const { phone } = useStore()
+  const location = useLocation()
+  if (!phone) return <Navigate to={`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+  return children
+}
+
+export default function App() {
+  const { cart, phone, refreshPhone } = useStore()
+  const queryClient = useQueryClient()
+  const location = useLocation()
+  const boxes = cart.reduce((n, l) => n + l.qty, 0)
+
+  useEffect(() => {
+    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims'].includes(String(q.queryKey[0])) })
+    window.addEventListener(SIGNOUT_EVENT, onOut)
+    return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
+  }, [queryClient])
+  useEffect(() => window.scrollTo(0, 0), [location.pathname])
+
+  return (
+    <>
+      <header className="top">
+        <div className="top-inner">
+          <Link to="/" className="brand" aria-label="VMR Mangoes, home">
+            <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+              <path d="M34 14c14 2 22 14 20 28-2 12-14 18-26 16S8 46 10 34c2-12 12-21 24-20z" fill="currentColor" />
+              <path d="M33 14c1-5 5-8 10-8-1 5-5 8-10 8z" fill="var(--leaf)" />
+            </svg>
+            <span>VMR Mangoes</span>
+          </Link>
+          <nav aria-label="Main" className="top-nav">
+            {phone && (
+              <NavLink to="/orders" className="top-link">
+                Orders
+              </NavLink>
+            )}
+            <NavLink to="/cart" className="top-link cart-link" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
+              Cart{boxes > 0 && <span className="count" aria-hidden="true">{boxes}</span>}
+            </NavLink>
+            {phone ? (
+              <button type="button" className="top-link link-btn" onClick={() => void api.signOut().then(refreshPhone)}>
+                Sign out
+              </button>
+            ) : (
+              <NavLink to="/sign-in" className="top-link">
+                Sign in
+              </NavLink>
+            )}
+          </nav>
+        </div>
+      </header>
+      <main className="page">
+        <Routes>
+          <Route path="/" element={<Shop />} />
+          <Route path="/cart" element={<Cart />} />
+          <Route path="/sign-in" element={<SignIn />} />
+          <Route path="/checkout" element={<RequireSignIn><Checkout /></RequireSignIn>} />
+          <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />
+          <Route path="/orders/:id" element={<RequireSignIn><OrderPage /></RequireSignIn>} />
+          <Route path="/orders/:id/claim" element={<RequireSignIn><ClaimPage /></RequireSignIn>} />
+          <Route
+            path="*"
+            element={
+              <section className="card">
+                <h1>Page not found</h1>
+                <Link to="/" className="btn btn-primary">
+                  Back to the shop
+                </Link>
+              </section>
+            }
+          />
+        </Routes>
+      </main>
+      <footer className="foot">
+        <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
+      </footer>
+    </>
+  )
+}

@@ -7,7 +7,8 @@ with a delivered order by sending a replacement, not a refund.
 
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
 this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
-the ripeness and stock engine.
+the ripeness and stock engine. The customer shop is in
+[`customer-app/`](customer-app/README.md) (`npm run shop:dev`).
 
 ## What it does
 
@@ -121,9 +122,10 @@ fails any test that logs a console error.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci`,
-typecheck (app and tests), production build, then the smoke, screens and accessibility
-specs on Chromium. A second job runs the mango-api tests against Postgres 16, and a
-third starts mango-api with demo data and runs the day-in-the-life spec against it.
+typecheck (panel, tests and customer app), production builds of both apps, then the
+smoke, screens and accessibility specs on Chromium. A second job runs the mango-api tests
+against Postgres 16, and a third starts mango-api with demo data and runs the
+day-in-the-life spec and the customer app's journey against it.
 The Playwright report is uploaded as an artifact on failure.
 
 ## Resilience

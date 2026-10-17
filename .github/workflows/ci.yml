@@ -17,6 +17,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Build the customer app
+        run: npm run shop:build
       - run: npx playwright install --with-deps chromium
       - name: Backend-free specs (smoke, screens, accessibility)
         run: npx playwright test tests/smoke.spec.ts tests/screens.spec.ts tests/a11y.spec.ts
@@ -102,5 +104,11 @@ jobs:
           VITE_API_URL: http://localhost:3000
           E2E_EMAIL: manager@vmr.test
           E2E_PASSWORD: manager123
+      - name: Customer app journey against the real API
+        working-directory: customer-app
+        run: npx playwright test
+        env:
+          CI: 'true'
+          VITE_API_URL: http://localhost:3000
       - if: failure()
         run: cat api.log
