@@ -25,6 +25,7 @@ export default function Staff() {
   const [adding, setAdding] = useState(false)
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
+  const [unlocking, setUnlocking] = useState<StaffMember | null>(null)
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['staff'] })
@@ -44,6 +45,15 @@ export default function Staff() {
     onSuccess: () => {
       toast.success(`${removing?.email} removed`)
       setRemoving(null)
+      refresh()
+    },
+  })
+
+  const resetTwoStep = useMutation({
+    mutationFn: (id: string) => api.resetTwoStep(id),
+    onSuccess: () => {
+      toast.success(`Two-step sign-in reset for ${unlocking?.email}. They set it up again when they next sign in.`)
+      setUnlocking(null)
       refresh()
     },
   })
@@ -71,6 +81,7 @@ export default function Staff() {
                 <tr>
                   <th>Email</th>
                   <th>Role</th>
+                  <th>Two-step</th>
                   <th>Added</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -103,9 +114,15 @@ export default function Staff() {
                           ))}
                         </select>
                       </td>
+                      <td>{s.twoStep ? 'On' : 'Off'}</td>
                       <td>{dateTime(s.createdAt)}</td>
                       <td>
                         <div className="btn-row">
+                          {s.twoStep && !self && (
+                            <button type="button" className="btn btn-small" onClick={() => setUnlocking(s)}>
+                              Reset two-step<span className="sr-only"> for {s.email}</span>
+                            </button>
+                          )}
                           <button type="button" className="btn btn-small" onClick={() => setResetting(s)}>
                             Set password<span className="sr-only"> for {s.email}</span>
                           </button>
@@ -136,6 +153,25 @@ export default function Staff() {
 
       {adding && <AddDialog onClose={() => setAdding(false)} onDone={refresh} />}
       {resetting && <PasswordDialog member={resetting} onClose={() => setResetting(null)} />}
+      {unlocking && (
+        <Dialog
+          title={`Reset two-step sign-in for ${unlocking.email}?`}
+          onClose={() => setUnlocking(null)}
+          footer={
+            <>
+              <button type="button" className="btn" onClick={() => setUnlocking(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" disabled={resetTwoStep.isPending} onClick={() => resetTwoStep.mutate(unlocking.id)}>
+                Reset
+              </button>
+            </>
+          }
+        >
+          <p>Use this when they have lost their phone. They are signed out, and set up two-step sign-in again with their new phone.</p>
+          <FormError error={resetTwoStep.error} />
+        </Dialog>
+      )}
       {removing && (
         <Dialog
           title={`Remove ${removing.email}?`}
@@ -275,6 +311,7 @@ function PasswordDialog({ member, onClose }: { member: StaffMember; onClose: () 
 
 const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => string)> = {
   'auth.login': 'Signed in',
+  'auth.two_step_failed': 'Entered a wrong two-step code',
   'POST /batches': 'Received a batch',
   'PATCH /batches/:id/status': (d) => `Moved batch to ${BATCH_STATUS_LABEL[d.status as BatchStatus] ?? d.status}`,
   'POST /batches/:id/qc': 'Logged QC',
@@ -304,6 +341,9 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /staff': 'Added a person',
   'PATCH /staff/:id': 'Changed a person',
   'DELETE /staff/:id': 'Removed a person',
+  'POST /staff/:id/two-step/reset': 'Reset two-step sign-in',
+  'POST /me/two-step/enable': 'Turned on two-step sign-in',
+  'POST /me/two-step/disable': 'Turned off two-step sign-in',
 }
 
 function describe(a: AuditEntry) {

@@ -18,7 +18,14 @@ export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELI
 
 const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:\w+/g, '[^/]+')}$`) })
 
-const COMMON = [route('GET', '/auth/me'), route('GET', '/products'), route('GET', '/summary')]
+const COMMON = [
+  route('GET', '/auth/me'),
+  route('GET', '/products'),
+  route('GET', '/summary'),
+  route('POST', '/me/two-step/setup'),
+  route('POST', '/me/two-step/enable'),
+  route('POST', '/me/two-step/disable'),
+]
 
 const DELIVERY = [
   route('GET', '/manifest'),

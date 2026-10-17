@@ -21,12 +21,14 @@ import Planning from './pages/Planning'
 import Preorders from './pages/Preorders'
 import NotFound from './pages/NotFound'
 import Staff from './pages/Staff'
+import TwoStepPage, { TwoStepGate } from './pages/TwoStep'
 import { canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
 
 function RequireAuth({ me, children }: { me: Me | null; children: ReactNode }) {
   const location = useLocation()
   if (!me) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  if (me.twoStep?.required && !me.twoStep.enabled) return <TwoStepGate />
   return <>{children}</>
 }
 
@@ -110,6 +112,7 @@ export default function App() {
             <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />
             <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />
             <Route path="/staff" element={<Only screen="staff"><Staff /></Only>} />
+            <Route path="/two-step" element={<TwoStepPage />} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

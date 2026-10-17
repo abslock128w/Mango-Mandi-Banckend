@@ -13,6 +13,8 @@ export interface MockOptions {
   /** Signed in already (refresh succeeds) or not (refresh returns 401). */
   signedIn?: boolean
   role?: Role
+  /** Two-step sign-in: on for this person (login asks for code 123456), or required but not set up. */
+  twoStep?: 'on' | 'required'
 }
 
 const json = (route: Route, status: number, body?: unknown) =>
@@ -27,7 +29,7 @@ const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPER
 export function seed() {
   return {
     staff: (['MANAGER', 'OPERATOR', 'PACKER', 'QC'] as Role[]).map(
-      (role, i): StaffMember => ({ id: `adm${i + 1}`, email: EMAIL[role], role, createdAt: '2026-10-01T04:30:00Z' }),
+      (role, i): StaffMember => ({ id: `adm${i + 1}`, email: EMAIL[role], role, createdAt: '2026-10-01T04:30:00Z', twoStep: role === 'OPERATOR' }),
     ),
     audit: [
       { id: 'aud2', at: '2026-10-16T05:10:00Z', email: 'packer@mandimangoes.test', role: 'PACKER', action: 'PATCH /orders/:id/status', target: 'o1', detail: { status: 'PACKED' } },
@@ -236,11 +238,22 @@ export function seed() {
   }
 }
 
-export type MockState = ReturnType<typeof seed> & { signedIn: boolean; role: Role; calls: { method: string; path: string; body: unknown }[] }
+export type MockState = ReturnType<typeof seed> & {
+  signedIn: boolean
+  role: Role
+  twoStep: { enabled: boolean; required: boolean }
+  calls: { method: string; path: string; body: unknown }[]
+}
 
 /** Routes every /admin/v1 call to the mock. Returns the mutable state and call log. */
 export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockState> {
-  const state: MockState = { ...seed(), signedIn: opts.signedIn ?? false, role: opts.role ?? 'MANAGER', calls: [] }
+  const state: MockState = {
+    ...seed(),
+    signedIn: opts.signedIn ?? false,
+    role: opts.role ?? 'MANAGER',
+    twoStep: { enabled: opts.twoStep === 'on', required: opts.twoStep === 'required' },
+    calls: [],
+  }
 
   await page.route('**/admin/v1/**', async (route) => {
     const req = route.request()
@@ -260,17 +273,42 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/auth/login') {
       const b = body as { email?: string; password?: string }
       if (b?.password === 'correct') {
+        if (state.twoStep.enabled) return json(route, 200, { twoStep: true, ticket: 'ticket-0123456789abcdef', expiresIn: 300 })
         state.signedIn = true
         return json(route, 200, { accessToken: 'tok' })
       }
       return json(route, 401, { error: { code: 'INVALID_CREDENTIALS', message: 'Invalid credentials', requestId: 'req_y' } })
+    }
+    if (path === '/auth/two-step') {
+      const b = body as { code: string }
+      if (b.code === '123456' || b.code === 'abcd-efgh') {
+        state.signedIn = true
+        return json(route, 200, { accessToken: 'tok' })
+      }
+      return json(route, 422, { error: { code: 'WRONG_CODE', message: 'That code is not right. Check the app and try again.', requestId: 'req_t', triesLeft: 4 } })
     }
     if (path === '/auth/logout') {
       state.signedIn = false
       return route.fulfill({ status: 204 })
     }
     if (!state.signedIn) return json(route, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized', requestId: 'req_z' } })
-    if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role })
+    if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role, twoStep: state.twoStep })
+    if (path === '/me/two-step/setup') return json(route, 200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', otpauthUrl: 'otpauth://totp/MandiMangoes%20Ops%3Amanager%40mandimangoes.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=MandiMangoes%20Ops' })
+    if (path === '/me/two-step/enable') {
+      if ((body as { code: string }).code !== '123456') return json(route, 422, { error: { code: 'WRONG_CODE', message: 'That code is not right.', requestId: 'req_e' } })
+      state.twoStep = { ...state.twoStep, enabled: true }
+      return json(route, 200, { recoveryCodes: ['abcd-efgh', 'jkmn-pqrs', 'tuvw-xyz2', '3456-789a', 'bcde-fghj', 'kmnp-qrst', 'uvwx-yz23', '4567-89ab', 'cdef-ghjk', 'mnpq-rstu'], accessToken: 'tok', expiresIn: 900 })
+    }
+    if (path === '/me/two-step/disable') {
+      state.twoStep = { ...state.twoStep, enabled: false }
+      return route.fulfill({ status: 204 })
+    }
+    if (state.twoStep.required && !state.twoStep.enabled) return json(route, 403, { error: { code: 'TWO_STEP_SETUP_REQUIRED', message: 'Set up two-step sign-in first', requestId: 'req_s' } })
+    if (/^\/staff\/[^/]+\/two-step\/reset$/.test(path)) {
+      const staffId = path.split('/')[2]
+      state.staff = state.staff.map((s) => (s.id === staffId ? { ...s, twoStep: false } : s))
+      return route.fulfill({ status: 204 })
+    }
 
     if (path === '/staff' && method === 'GET') return json(route, 200, state.staff)
     if (path === '/staff' && method === 'POST') {

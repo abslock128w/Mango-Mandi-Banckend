@@ -20,6 +20,7 @@ import type {
   Condition,
   LedgerEntry,
   Me,
+  SignInResult,
   OrderDetail,
   OrderListItem,
   OrderStatus,
@@ -144,6 +145,21 @@ function qs(params: Record<string, string | number | undefined | null>): string 
 
 const id = encodeURIComponent
 
+/** Password, Google or the second step: either a session or a ticket for the code. */
+async function firstStep(path: string, body: unknown): Promise<SignInResult> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw await toApiError(res)
+  const data = (await res.json()) as { accessToken?: string; twoStep?: boolean; ticket?: string }
+  if (data.twoStep && data.ticket) return { ticket: data.ticket }
+  accessToken = data.accessToken ?? null
+  return { me: await request<Me>('GET', '/auth/me') }
+}
+
 export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
   async bootstrap(): Promise<Me | null> {
@@ -157,17 +173,15 @@ export const api = {
     }
   },
 
-  async login(email: string, password: string): Promise<Me> {
-    const res = await fetch(`${BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email, password }),
-    })
-    if (!res.ok) throw await toApiError(res)
-    const data = (await res.json()) as { accessToken: string }
-    accessToken = data.accessToken
-    return request<Me>('GET', '/auth/me')
+  async login(email: string, password: string): Promise<SignInResult> {
+    return firstStep('/auth/login', { email, password })
+  },
+
+  /** The code from the authenticator app (or a recovery code) after the password or Google. */
+  async twoStep(ticket: string, code: string): Promise<Me> {
+    const r = await firstStep('/auth/two-step', { ticket, code })
+    if (!('me' in r)) throw new ApiError(401, 'TICKET_EXPIRED', 'Sign in again.')
+    return r.me
   },
 
   /** Whether "Sign in with Google" is set up. */
@@ -178,18 +192,21 @@ export const api = {
     return (await res.json()) as { googleClientId: string | null }
   },
 
-  async loginWithGoogle(credential: string): Promise<Me> {
-    const res = await fetch(`${BASE}/auth/google`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ credential }),
-    })
-    if (!res.ok) throw await toApiError(res)
-    const data = (await res.json()) as { accessToken: string }
-    accessToken = data.accessToken
-    return request<Me>('GET', '/auth/me')
+  async loginWithGoogle(credential: string): Promise<SignInResult> {
+    return firstStep('/auth/google', { credential })
   },
+
+  /** Starts setting up two-step sign-in: the secret for the authenticator app. */
+  twoStepSetup: () => request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup'),
+  /** Confirms a code from the app. Returns the recovery codes, shown this once. */
+  async twoStepEnable(code: string): Promise<string[]> {
+    const r = await request<{ recoveryCodes: string[]; accessToken: string }>('POST', '/me/two-step/enable', { code })
+    accessToken = r.accessToken
+    return r.recoveryCodes
+  },
+  twoStepDisable: (code: string) => request<void>('POST', '/me/two-step/disable', { code }),
+  me: () => request<Me>('GET', '/auth/me'),
+  resetTwoStep: (staffId: string) => request<void>('POST', `/staff/${id(staffId)}/two-step/reset`),
 
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {

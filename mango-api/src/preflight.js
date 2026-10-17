@@ -46,6 +46,7 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL) } = 
   }
   if (!env.GOOGLE_CLIENT_ID) warnings.push('GOOGLE_CLIENT_ID is unset: "Sign in with Google" is off')
   if (!env.SENTRY_DSN) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
+  if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: managers can sign in with only a password')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
 
   return { errors, warnings }

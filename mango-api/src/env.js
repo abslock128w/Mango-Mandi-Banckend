@@ -33,6 +33,8 @@ const schema = z.object({
   SENTRY_DSN: z.string().default(''),
   // Vercel Blob for delivery and claim photos; unset keeps photos in the database.
   BLOB_READ_WRITE_TOKEN: z.string().default(''),
+  // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
+  STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   RAZORPAY_KEY_ID: z.string().default(''),
@@ -74,6 +76,7 @@ if (!parsed.success) {
 
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
+env.STAFF_TWO_STEP ??= isProd ? 'managers' : 'optional'
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

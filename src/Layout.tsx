@@ -42,6 +42,9 @@ export default function Layout() {
               {me.email} · {ROLE_LABEL[me.role]}
             </span>
           )}
+          <NavLink to="/two-step" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Two-step sign-in{me?.twoStep && !me.twoStep.enabled ? ' (off)' : ''}
+          </NavLink>
           <button type="button" className="btn btn-small" onClick={() => void api.logout()}>
             Sign out
           </button>

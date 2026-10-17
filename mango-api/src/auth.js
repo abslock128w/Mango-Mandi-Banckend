@@ -94,7 +94,7 @@ function bearer(req, typ) {
 export function requireAdmin(req, _res, next) {
   try {
     const c = bearer(req, 'admin')
-    req.admin = { id: c.sub, email: c.email, role: c.role }
+    req.admin = { id: c.sub, email: c.email, role: c.role, setup: Boolean(c.setup) }
     req.actor = { type: 'admin', id: c.sub, label: c.email }
     next()
   } catch (err) {

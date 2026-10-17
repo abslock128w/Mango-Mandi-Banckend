@@ -2,7 +2,7 @@
 // a Google client ID. The API accepts it when the Google email is a staff email.
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import type { Me } from './types'
+import type { SignInResult } from './types'
 
 declare global {
   interface Window {
@@ -33,7 +33,7 @@ function loadGoogle() {
   return script
 }
 
-export function GoogleSignIn({ onSignedIn, onError }: { onSignedIn: (me: Me) => void; onError: (err: unknown) => void }) {
+export function GoogleSignIn({ onSignedIn, onError }: { onSignedIn: (r: SignInResult) => void; onError: (err: unknown) => void }) {
   const [clientId, setClientId] = useState<string | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const handlers = useRef({ onSignedIn, onError })
@@ -58,7 +58,7 @@ export function GoogleSignIn({ onSignedIn, onError }: { onSignedIn: (me: Me) => 
           context: 'signin',
           callback: ({ credential }) =>
             void api.loginWithGoogle(credential).then(
-              (me) => handlers.current.onSignedIn(me),
+              (r) => handlers.current.onSignedIn(r),
               (err) => handlers.current.onError(err),
             ),
         })

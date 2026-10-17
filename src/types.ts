@@ -7,7 +7,12 @@ export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC' | 'RIDER'
 export interface Me {
   email: string
   role: Role
+  /** Two-step sign-in: whether it is on, and whether this role must use it. */
+  twoStep?: { enabled: boolean; required: boolean }
 }
+
+/** A sign-in either lands, or asks for the code from the authenticator app first. */
+export type SignInResult = { me: Me } | { ticket: string }
 
 export type BatchStatus =
   | 'ARRIVING'
@@ -486,6 +491,7 @@ export interface StaffMember {
   email: string
   role: Role
   createdAt: string
+  twoStep?: boolean
 }
 
 /** One staff change. `action` is the route ("PATCH /orders/:id/status") or "auth.login". */
