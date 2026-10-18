@@ -25,6 +25,24 @@ export function reportProblem(message, context = {}) {
   Sentry.captureMessage(message, { level: 'warning', extra: context })
 }
 
+/**
+ * Sentry cron monitor for the maintenance job: a dead-man's switch. Sentry
+ * expects a check-in every minute and alerts when one is missed or a run
+ * errors, even if nobody is looking at the panel. Returns the check-in id.
+ */
+export function cronCheckIn(status, checkInId = null) {
+  if (!on) return null
+  try {
+    if (checkInId) return Sentry.captureCheckIn({ checkInId, monitorSlug: 'maintenance', status })
+    return Sentry.captureCheckIn(
+      { monitorSlug: 'maintenance', status },
+      { schedule: { type: 'crontab', value: '* * * * *' }, checkinMargin: 3, maxRuntime: 2, timezone: 'Etc/UTC' },
+    )
+  } catch {
+    return null
+  }
+}
+
 /** Sends queued reports before a serverless function is frozen or a server exits. */
 export const flushErrors = () => (on ? Sentry.flush(2000).catch(() => false) : Promise.resolve(true))
 

@@ -66,7 +66,7 @@ export const slotView = (s) => ({
   id: s.id, label: s.label, startsAt: hhmm(s.starts_at), endsAt: hhmm(s.ends_at), maxBoxes: s.max_boxes, active: s.active, sort: s.sort,
 })
 
-/** Active slots in display order. `lock` takes row locks, serialising bookings across slots. */
+/** Active slots in display order. `lock` takes row locks (staff editing slots). */
 export async function activeSlots(c, { lock = false } = {}) {
   const { rows } = await c.query(`SELECT * FROM delivery_slots WHERE active ORDER BY sort, starts_at, id${lock ? ' FOR UPDATE' : ''}`)
   return rows
@@ -100,8 +100,16 @@ export async function slotsForDate(c, date) {
  * order keeps its slot if it has room, else takes the first with room, else
  * the least booked one: a system move never fails because of a slot.
  */
+/** Advisory lock namespace for "booking slot capacity on one date". */
+const SLOT_DAY_LOCK = 427714300
+
 export async function chooseSlot(c, date, boxes, wanted, { strict = false, excludeOrderId = null } = {}) {
-  const slots = await activeSlots(c, { lock: true })
+  // Serialises bookings on this date only (until the transaction ends), so
+  // two checkouts can't both take the last place in a slot, while checkouts
+  // for other dates don't wait. Locking the slot rows would queue every
+  // checkout behind every other.
+  await c.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SLOT_DAY_LOCK, date])
+  const slots = await activeSlots(c)
   if (!slots.length) {
     if (strict && wanted) throw badRequest('Delivery slots are not in use', 'SLOT_INVALID')
     return null

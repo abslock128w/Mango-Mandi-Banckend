@@ -47,6 +47,8 @@ The API runs in Singapore (`sin1`), next to the database.
    ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public
      GRANT USAGE, SELECT ON SEQUENCES TO mango_app;
    ALTER ROLE mango_app SET statement_timeout = '10s';
+   -- A transaction left open (a function stopped mid-request) gives its connection back.
+   ALTER ROLE mango_app SET idle_in_transaction_session_timeout = '30s';
    ALTER ROLE neondb_owner SET statement_timeout = '60s';
    ```
 
@@ -60,7 +62,12 @@ The API runs in Singapore (`sin1`), next to the database.
    Do the same on the `staging` branch for the preview values.
 
 Neon keeps point-in-time history (7 days on Launch), so a bad change can be undone
-by restoring a branch to a minute before it.
+by restoring a branch to a minute before it. See [Backups and restore drill](#backups-and-restore-drill).
+
+The first deploy against each branch records which environment it belongs to
+(production for `main`, preview for `staging`). After that a preview build
+pointed at `main` by mistake fails instead of migrating or serving it, and the
+API refuses to use it; production refuses `staging` the same way.
 
 ## 2. Create the three Vercel projects
 
@@ -81,7 +88,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 
 | Variable | Production | Preview | Notes |
 |----------|-----------|---------|-------|
-| `NODE_ENV` | `production` | `production` | |
+| `NODE_ENV` | `production` | `production` | required: on Vercel the API won't start without it (no fake payments or logged codes on any deploy) |
 | `DATABASE_URL` | Neon `main`, pooled, `mango_app` | Neon `staging`, pooled | |
 | `DATABASE_URL_UNPOOLED` | Neon `main`, direct, owner | Neon `staging`, direct | migrations only |
 | `JWT_SECRET` | random, 64 hex | a different random | |
@@ -89,16 +96,17 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `CUSTOMER_ORIGIN` | `https://mandimangoes.in,https://www.mandimangoes.in` | the shop preview URL | comma-separated |
 | `ADMIN_ORIGIN` | `https://ops.mandimangoes.in` | the panel preview URL | |
 | `COOKIE_SAMESITE` | `lax` | `none` | previews are on different `*.vercel.app` names |
-| `SEED_DEMO_DATA` | `false` | `true` | demo batches only on staging |
+| `SEED_DEMO_DATA` | `false` | `true` | demo batches only on previews; demo staff logins are never made on Vercel |
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | first manager's login | same | used once, on an empty staff table; remove after |
-| `STAFF_TWO_STEP` | `managers` (or `all`) | `optional` | managers must use an authenticator app |
+| `STAFF_TWO_STEP` | `managers` (or `all`) | `optional` | managers and operators must use an authenticator app |
 | `GOOGLE_CLIENT_ID` | from step 4 | same | |
-| `BLOB_READ_WRITE_TOKEN` | added by Vercel Blob (step 5) | same store or a second one | |
+| `BLOB_READ_WRITE_TOKEN` | added by Vercel Blob (step 5) | same store or a second one | required in production |
 | `SENTRY_DSN` | from Sentry | same | |
-| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | live keys | test keys | |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | live keys | test keys | a preview refuses live keys |
 | `RAZORPAY_WEBHOOK_SECRET` | from the Razorpay webhook | test webhook | |
-| `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log` | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio) |
+| `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log` (codes in the Vercel logs) | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio) |
 | `WHATSAPP_*` | Meta's values | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates) |
+| `OTP_DAILY_LIMIT` | `3000` | `200` | login codes per day before sending pauses; Sentry warns at 80% |
 | `METRICS_TOKEN` | random | | protects `/metrics` |
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
@@ -136,7 +144,8 @@ start when one of the hard errors is present.
 
 On `mandi-api`: **Storage → Create → Blob**, choose private access, and connect it
 to the project. Vercel adds `BLOB_READ_WRITE_TOKEN` for you. Delivery and claim
-photos then go there; without it they are kept in the database.
+photos then go there. Production won't start without it, so photos never end up
+in the database; previews may keep them there.
 
 ## 6. Deploy
 
@@ -144,6 +153,12 @@ Push to `main` (or merge the pull request). Vercel builds all three projects. Th
 API build runs the migrations (over `DATABASE_URL_UNPOOLED`) and the
 reference-data seed before it goes live, so a failed migration stops the deploy
 and the old version keeps serving.
+
+For a minute after a deploy the old version still runs against the new schema,
+so migrations only add: a new column or table first, and the removal of the old
+one a release later, once no code uses it. A test refuses a migration that
+drops, renames or narrows something unless the file has a `-- contract:` line
+saying which release stopped using it.
 
 Then point the webhooks at the API:
 
@@ -173,14 +188,43 @@ Then point the webhooks at the API:
 - **Uptime monitor** (Better Stack, UptimeRobot, or Vercel's own): check
   `https://api.mandimangoes.in/ready` every minute and alert by SMS. It fails when the
   database is down or the maintenance job has not run for a few minutes.
-- **Sentry** e-mails you on new errors from the API.
+- **Sentry cron monitor.** The maintenance job checks in with Sentry on every run, and
+  the first run creates the monitor `maintenance`. In Sentry → **Crons**, open it and
+  turn on an alert for missed and failed check-ins. Together with the uptime monitor,
+  someone hears about a stopped job even if nobody opens the panel.
+- **Sentry** e-mails you on new errors from the API, and warns when login codes reach
+  80% of the day's budget.
 - **Vercel → Logs** for request logs; **Neon → Monitoring** for database load.
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
 
+## Backups and restore drill
+
+- **What you can lose (RPO): under a minute.** Neon keeps every change for the
+  history window (7 days on Launch, longer on Scale), so `main` can be restored to
+  any second inside it.
+- **How long it takes (RTO): aim for an hour**, from deciding to restore to the shop
+  taking orders again.
+- **Drill** before launch and monthly in season: make a branch of `main` at a time a
+  few minutes ago, then run `DRILL_URL=<its connection string> ./mango-api/ops/restore-drill.sh`.
+  It checks the schema, row counts and that the stock books balance. Delete the
+  branch afterwards; it holds customer data.
+- **Off-Neon copy** weekly: `mango-api/ops/backup.sh` writes a `pg_dump` you keep
+  somewhere else, and `ops/restore-check.sh` proves it loads.
+
+## Load test
+
+`mango-api/ops/load/shop.js` is a [k6](https://k6.io) script. Run the browse
+scenario against staging, and the checkout spike (50 buyers at once) against a
+local copy, before the season opens. The top of the file has the commands and
+the pass marks.
+
 ## Go-live checks
 
-- [ ] `npm run preflight` shows no errors.
+- [ ] `npm run preflight -- --online` shows no errors.
+- [ ] Razorpay test webhooks sent to the staging API confirm orders.
+- [ ] The Sentry cron monitor and the uptime monitor are set up and alert someone.
+- [ ] One restore drill done.
 - [ ] `https://api.mandimangoes.in/ready` returns `{"ready":true,...}`.
 - [ ] Sign in to the panel as the bootstrap manager, set up two-step, then remove
       `ADMIN_BOOTSTRAP_*`.

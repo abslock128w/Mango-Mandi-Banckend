@@ -7,6 +7,7 @@ import { useToast } from '../ui'
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
   refunds: 'Sending refunds',
+  'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
   notifications: 'Sending WhatsApp updates',
   sweep: 'Releasing unpaid holds',
@@ -38,7 +39,9 @@ export default function NeedsAttention() {
 
   if (!q.data) return null
   const a = q.data
-  const count = (a.loop.stale ? 1 : 0) + a.loop.failingSteps.length + a.failedMessages.length + a.stuckRefunds.length + a.webhookFailures.length
+  const calls = a.failedDeliveries ?? []
+  const count =
+    (a.loop.stale ? 1 : 0) + a.loop.failingSteps.length + a.failedMessages.length + a.stuckRefunds.length + a.webhookFailures.length + calls.length
   if (count === 0) return null
 
   return (
@@ -58,8 +61,15 @@ export default function NeedsAttention() {
             {s.error ? <span className="muted">: {s.error}</span> : null}
           </li>
         ))}
+        {calls.map((o) => (
+          <li key={`call-${o.id}`}>
+            <strong>Call the customer</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>: {o.attempts} deliveries missed
+            {o.name || o.phone ? <span className="muted"> ({[o.name, o.phone].filter(Boolean).join(', ')})</span> : null}. It won't be
+            sent out again until someone dispatches it from the order page.
+          </li>
+        ))}
         {a.stuckRefunds.map((r) => (
-          <li key={r.id}>
+          <li key={`${r.type}-${r.id}-${r.number}`}>
             <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
             for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
           </li>

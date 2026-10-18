@@ -4,10 +4,10 @@ import { googleOn, verifyGoogleCredential } from './google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
 import jwt from 'jsonwebtoken'
-import rateLimit from 'express-rate-limit'
+import { sharedLimiter } from './ratelimit.js'
 import { z } from 'zod'
-import { audit, auditStaffChanges, limitByRole, ROLES } from './access.js'
-import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, signAccess } from './auth.js'
+import { audit, auditStaffChanges, limitByRole, riderScope, ROLES } from './access.js'
+import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
@@ -27,6 +27,7 @@ import {
   cancelOrder,
   createReplacement,
   eatByFor,
+  MAX_DELIVERY_ATTEMPTS,
   placeOnFirstDateWithStock,
   rebalanceBatchOrders,
   rebalanceOrder,
@@ -48,23 +49,21 @@ const cookieOptions = () => ({
   path: '/admin/v1/auth',
 })
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  limit: 30,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  skip: () => env.NODE_ENV === 'test',
-  handler: (req, res) =>
-    res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Try again later.', requestId: req.id } }),
-})
+// Password and two-step tries per address, shared by every instance.
+const authLimiter = sharedLimiter('staff-auth', { windowMs: 15 * 60_000, limit: 30 })
 
 // A real bcrypt hash of a random string, so an unknown email costs the same time.
 const DUMMY_HASH = bcrypt.hashSync(newId('x'), 10)
 
 // ---------------------------------------------------------------- auth
 
-/** Whether this role must use two-step sign-in (STAFF_TWO_STEP). */
-const twoStepRequired = (role) => env.STAFF_TWO_STEP === 'all' || (env.STAFF_TWO_STEP === 'managers' && role === 'MANAGER')
+/**
+ * Whether this role must use two-step sign-in (STAFF_TWO_STEP). "managers"
+ * covers operators too: both can cancel orders, move stock and see every
+ * customer's details.
+ */
+const OFFICE_ROLES = ['MANAGER', 'OPERATOR']
+const twoStepRequired = (role) => env.STAFF_TWO_STEP === 'all' || (env.STAFF_TWO_STEP === 'managers' && OFFICE_ROLES.includes(role))
 
 /** The access token. "setup" marks someone who must set up two-step sign-in before anything else. */
 const staffAccess = (u) =>
@@ -178,6 +177,7 @@ router.post(
 
 router.post(
   '/auth/refresh',
+  sameSiteOnly,
   authLimiter,
   asyncHandler(async (req, res) => {
     const { userId, refresh } = await rotateRefresh(req.cookies?.[COOKIE], 'admin')
@@ -190,6 +190,7 @@ router.post(
 
 router.post(
   '/auth/logout',
+  sameSiteOnly,
   asyncHandler(async (req, res) => {
     await revokeRefresh(req.cookies?.[COOKIE])
     res.clearCookie(COOKIE, cookieOptions())
@@ -202,7 +203,7 @@ const SETUP_ROUTES = new Set(['GET /auth/me', 'POST /me/two-step/setup', 'POST /
 const needsSetupFirst = (req, _res, next) =>
   next(req.admin.setup && !SETUP_ROUTES.has(`${req.method} ${req.path}`) ? new HttpError(403, 'TWO_STEP_SETUP_REQUIRED', 'Set up two-step sign-in first') : undefined)
 
-router.use(requireAdmin, needsSetupFirst, limitByRole, auditStaffChanges)
+router.use(requireAdmin, needsSetupFirst, limitByRole, riderScope, auditStaffChanges)
 
 router.get(
   '/auth/me',
@@ -940,7 +941,7 @@ router.post(
   '/orders/:id/delivery-photos',
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
   asyncHandler(async (req, res) => {
-    const id = await tx((c) => savePhoto(c, req.params.id, req.body, req.actor))
+    const id = await tx((c) => savePhoto(c, req.params.id, req.body, req.actor), { retries: 0 }) // uploads the photo
     res.status(201).json({ id })
   }),
 )
@@ -1008,7 +1009,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1020,10 +1021,20 @@ router.get(
         `SELECT 'order' AS type, id, number, refund_requested_at FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
          SELECT 'preorder', id, number, refund_requested_at FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+         UNION ALL
+         SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' ELSE 'preorder' END, COALESCE(d.order_id, d.preorder_id),
+                COALESCE(o.number, p.number) || ' (second payment)', d.found_at
+           FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
+          WHERE d.found_at < $1 AND d.refunded_at IS NULL
          ORDER BY refund_requested_at LIMIT 50`,
         [new Date(at.getTime() - REFUND_STUCK_MS)],
       ),
       query('SELECT * FROM webhook_failures WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 50', [week]),
+      query(
+        `SELECT id, number, customer_name, phone, gift_recipient_name, gift_recipient_phone, delivery_failures FROM orders
+          WHERE status = 'DELIVERY_FAILED' AND delivery_failures >= $1 ORDER BY placed_at LIMIT 50`,
+        [MAX_DELIVERY_ATTEMPTS],
+      ),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1039,6 +1050,10 @@ router.get(
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
       stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at })),
+      // Missed too many times: someone calls the customer, then sends it out again from the order page.
+      failedDeliveries: calls.rows.map((o) => ({
+        id: o.id, number: o.number, name: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone, attempts: o.delivery_failures,
+      })),
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
     })
   }),

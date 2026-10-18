@@ -491,6 +491,8 @@ export interface Attention {
   }[]
   stuckRefunds: { type: 'order' | 'preorder'; id: string; number: string; requestedAt: string }[]
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
+  /** Orders missed too many times: call the customer before sending them out again. */
+  failedDeliveries?: { id: string; number: string; name: string | null; phone: string | null; attempts: number }[]
 }
 
 export interface StaffMember {

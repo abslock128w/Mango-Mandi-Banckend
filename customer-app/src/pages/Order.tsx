@@ -64,7 +64,7 @@ function OrderView({ order }: { order: Order }) {
   const holdOpen = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() > Date.now() : false
 
   const payAgain = useMutation({
-    mutationFn: () => openRazorpay({ key: remembered!.key!, rzp: order.razorpayOrderId!, total: order.total, number: order.number }, signedInPhone()),
+    mutationFn: () => openRazorpay({ key: remembered!.key!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
     onSettled: refresh,
   })
   const devPay = useMutation({ mutationFn: (outcome: 'captured' | 'failed') => api.devPay(order.id, outcome), onSettled: refresh })

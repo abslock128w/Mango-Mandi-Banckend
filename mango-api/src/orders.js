@@ -32,6 +32,8 @@ const RESTOCKABLE = ['PROCESSING', 'PACKED']
 const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 
 export const SYSTEM = { type: 'system', id: 'system' }
+/** Missed deliveries before an order stops being rescheduled automatically. */
+export const MAX_DELIVERY_ATTEMPTS = 3
 
 export async function addEvent(c, orderId, from, to, actor, reason = null) {
   const id = newId('evt')
@@ -227,18 +229,50 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
 }
 
 /**
+ * Records a second payment captured for something already paid: a double
+ * charge. The payment is refunded (refundDuplicatePayments); the order isn't.
+ * Returns true the first time a payment is seen.
+ */
+export async function recordDuplicatePayment(c, { orderId = null, preorderId = null, paymentId, amount }) {
+  const r = await c.query(
+    `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+    [paymentId, orderId, preorderId, amount, now()],
+  )
+  if (r.rowCount) logger.warn({ orderId, preorderId, paymentId }, 'second payment on an already paid order; refunding it')
+  return r.rowCount > 0
+}
+
+/**
  * Applies a payment outcome. Idempotent: replays are no-ops. A payment that
  * lands after the hold expired still confirms the order (no refunds); its
  * stock is re-allocated, on the next date with stock if need be.
+ *
+ * outcome 'failed' is one failed attempt at Razorpay: the customer can try
+ * again on the same payment page, so the hold stays and only the sweeper
+ * cancels the order when it runs out. 'abandoned' is ours: the payment could
+ * not even be started, so the order is cancelled at once.
  */
 export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
   const o = await lockOrder(c, orderId)
-  if (o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED') return { order: o, result: 'already_paid' }
+  if (o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED') {
+    if (outcome === 'captured' && paymentId && o.payment_id && paymentId !== o.payment_id) {
+      if (await recordDuplicatePayment(c, { orderId: o.id, paymentId, amount })) {
+        await addEvent(c, o.id, o.status, o.status, actor, `A second payment (${paymentId}) was taken for this paid order; it is being refunded`)
+        return { order: o, result: 'duplicate_payment' }
+      }
+    }
+    return { order: o, result: 'already_paid' }
+  }
 
+  if (outcome === 'abandoned') {
+    if (o.status !== 'PAYMENT_PENDING') return { order: o, result: 'ignored' }
+    await cancelInTx(c, o, actor, 'Payment could not be started', 'FAILED')
+    return { order: o, result: 'cancelled' }
+  }
   if (outcome === 'failed') {
     if (o.status !== 'PAYMENT_PENDING') return { order: o, result: 'ignored' }
-    await cancelInTx(c, o, actor, 'Payment failed', 'FAILED')
-    return { order: o, result: 'cancelled' }
+    await addEvent(c, o.id, o.status, o.status, actor, 'A payment attempt failed; the customer can try again until the hold ends')
+    return { order: o, result: 'attempt_failed' }
   }
 
   if (o.status === 'CANCELLED' && o.customer_cancelled_at) {
@@ -355,13 +389,22 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     }
     if (!(await stockRows(c, o.id, ['packed'])).length) throw badRequest('This order has no packed stock', 'NOT_ALLOCATED')
   }
+  let attemptsUsedUp = false
   if (to === 'DELIVERY_FAILED') {
-    // Retry on the next delivery day (user decision): reschedule, don't refund.
-    const date = await nextDeliveryDay(c)
-    const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
-    const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
-    await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
-    reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+    const failures = o.delivery_failures + 1
+    await c.query('UPDATE orders SET delivery_failures = $2 WHERE id = $1', [o.id, failures])
+    if (failures >= MAX_DELIVERY_ATTEMPTS) {
+      // Not rescheduled again on its own: Needs attention asks staff to call the customer first.
+      attemptsUsedUp = true
+      reason = `${opts.reason ?? 'Delivery failed'}; ${failures} attempts failed, call the customer before sending it again`
+    } else {
+      // Retry on the next delivery day (user decision): reschedule, don't refund.
+      const date = await nextDeliveryDay(c)
+      const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
+      const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
+      await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
+      reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+    }
   }
   if (to === 'OUT_FOR_DELIVERY') {
     // The customer gives this code to the rider (delivery-proof.js). A retry keeps the code already sent.
@@ -370,7 +413,11 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     ])
   }
   await c.query('UPDATE orders SET status = $2 WHERE id = $1', [o.id, to])
-  await addEvent(c, o.id, o.status, to, actor, reason)
+  const eventId = await addEvent(c, o.id, o.status, to, actor, reason)
+  if (attemptsUsedUp) {
+    // The usual message promises a retry date; staff call instead.
+    await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'delivery attempts used up: staff call the customer' WHERE event_id = $1`, [eventId])
+  }
   if (to === 'DELIVERY_FAILED') await rebalanceOrder(c, o.id, actor)
   if (['DELIVERED', 'RTO'].includes(to)) await c.query('UPDATE orders SET at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id])
 }

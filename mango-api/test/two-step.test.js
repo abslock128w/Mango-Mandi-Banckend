@@ -98,8 +98,9 @@ describe('two-step sign-in', () => {
     const refreshed = await api.post('/admin/v1/auth/refresh', undefined, { headers: { Cookie: cookie } })
     assert.equal(refreshed.status, 200, JSON.stringify(refreshed.body))
     assert.equal((await api.get('/admin/v1/orders', { token: refreshed.body.accessToken })).status, 403)
-    // Operators are not affected.
-    assert.equal((await api.get('/admin/v1/orders', { token: await adminToken(api, 'ops@mandimangoes.test', 'operator123') })).status, 200)
+    // Operators need it too; packers don't.
+    assert.equal((await api.get('/admin/v1/orders', { token: await adminToken(api, 'ops@mandimangoes.test', 'operator123') })).body.error.code, 'TWO_STEP_SETUP_REQUIRED')
+    assert.equal((await api.get('/admin/v1/pack-list', { token: await adminToken(api, 'packer@mandimangoes.test', 'packer123') })).status, 200)
 
     const setup = await api.post('/admin/v1/me/two-step/setup', undefined, { token })
     const on = await api.post('/admin/v1/me/two-step/enable', { code: code(setup.body.secret) }, { token })

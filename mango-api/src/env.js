@@ -15,6 +15,7 @@ const schema = z.object({
   DATABASE_URL_UNPOOLED: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().positive().default(onVercel ? 5 : 10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
   JWT_SECRET: z.string().default(DEV_JWT),
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
   CUSTOMER_ORIGIN: z.string().default('http://localhost:5174'),
@@ -35,6 +36,8 @@ const schema = z.object({
   BLOB_READ_WRITE_TOKEN: z.string().default(''),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
+  // Login codes sent per day across the shop before sending pauses (SMS pumping guard).
+  OTP_DAILY_LIMIT: z.coerce.number().int().positive().default(3000),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   RAZORPAY_KEY_ID: z.string().default(''),
@@ -76,6 +79,16 @@ if (!parsed.success) {
 
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
+/** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
+export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV
+
+// Fail closed: without NODE_ENV=production the API runs its development
+// stand-ins (a fake payment gateway, login codes in the response, /v1/dev).
+// On Vercel that is never wanted, previews included (vercel dev aside).
+if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
+  console.error('Refusing to start: on Vercel NODE_ENV must be production, previews too (see deploy/VERCEL.md)')
+  process.exit(1)
+}
 env.STAFF_TWO_STEP ??= isProd ? 'managers' : 'optional'
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {

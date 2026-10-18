@@ -605,7 +605,7 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
       await query(`UPDATE wa_sessions SET data = data - 'cart' - 'address' - 'slotId' WHERE phone = $1`, [phone])
     } catch (err) {
       logger.error({ err, orderId: turn.after.pay }, 'could not start the chat payment')
-      await tx((c) => processPayment(c, { orderId: turn.after.pay, outcome: 'failed' }, SYSTEM))
+      await tx((c) => processPayment(c, { orderId: turn.after.pay, outcome: 'abandoned' }, SYSTEM))
       await query(`UPDATE wa_sessions SET state = 'CONFIRM', data = data - 'orderId' WHERE phone = $1`, [phone])
       replies.push(buttons("Sorry, we couldn't start the payment. Please try again.", [['PAY', 'Try again'], ['MENU', 'Menu']]))
     }

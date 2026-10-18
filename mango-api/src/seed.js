@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import bcrypt from 'bcryptjs'
 import { addDays, now, todayIST } from './clock.js'
 import { query, tx } from './db.js'
-import { env, isProd } from './env.js'
+import { deployEnv, env, isProd } from './env.js'
 import { newId } from './ids.js'
 import { ledger } from './inventory.js'
 import { logger } from './logger.js'
@@ -64,7 +64,8 @@ export async function seed() {
     }
   }
 
-  if (env.SEED_DEMO_DATA && !isProd) await seedDemoBatches()
+  // Demo stock: development, and Vercel previews on the staging branch. Never production.
+  if (env.SEED_DEMO_DATA && (!isProd || deployEnv === 'preview')) await seedDemoBatches()
   // Tests set up their own slots; development gets two to click through.
   if (env.SEED_DEMO_DATA && env.NODE_ENV === 'development') await seedDemoSlots()
 }

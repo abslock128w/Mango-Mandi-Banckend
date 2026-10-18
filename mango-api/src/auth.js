@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken'
 import { now } from './clock.js'
 import { query, tx } from './db.js'
 import { env } from './env.js'
-import { forbidden, unauthorized } from './errors.js'
+import { forbidden, HttpError, unauthorized } from './errors.js'
 import { logger } from './logger.js'
 
 export const ACCESS_TTL_S = 15 * 60
@@ -115,4 +115,21 @@ export function requireCustomer(req, _res, next) {
   } catch (err) {
     next(err)
   }
+}
+
+const allowedOrigins = () =>
+  `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean)
+
+/**
+ * For routes that act on the refresh cookie (refresh, logout). Browsers send
+ * an Origin header on cross-site POSTs, and with SameSite=none (previews) the
+ * cookie would go along, so a page on another site could rotate or end a
+ * session. Requests from another origin are refused; apps that send the token
+ * in the body (no Origin header) are unaffected.
+ */
+export function sameSiteOnly(req, _res, next) {
+  const origin = req.get('origin')
+  if (!origin || allowedOrigins().includes(origin)) return next()
+  logger.warn({ origin, path: req.path }, 'cross-site request to a session route refused')
+  next(new HttpError(403, 'CROSS_SITE', 'This request must come from the MandiMangoes site'))
 }

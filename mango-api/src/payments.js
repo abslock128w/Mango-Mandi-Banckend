@@ -1,7 +1,9 @@
 // Razorpay adapter, webhook verification and payment reconciliation.
 // Without API keys (development and tests) an in-memory dev gateway stands in.
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { outOfTime } from './budget.js'
 import { now } from './clock.js'
+import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
@@ -13,6 +15,8 @@ import { findPreorderId, processPreorderPayment, refundPreorder } from './preord
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
+/** Each Razorpay call gives up after 10 seconds; loops stop when less than this is left. */
+const GATEWAY_CALL_MS = 12_000
 
 /** razorpayOrderId or payment link id → { status: 'captured' | 'failed', id, amount } */
 export const devGateway = new Map()
@@ -47,10 +51,19 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
 // After paying a preorder link, Razorpay sends the customer back to the shop.
 const shopOrigin = () => env.CUSTOMER_ORIGIN.split(',')[0]?.trim().replace(/\/$/, '') || null
 
+/**
+ * When a payment link stops taking payments, in unix seconds. The hold is 10
+ * minutes; Razorpay's shortest expiry is 15, so links close 16 minutes after
+ * they are made. A payment in between is a late payment and is honoured (the
+ * order goes to the next date with stock). Without an expiry a link could be
+ * paid days later.
+ */
+export const linkExpiresAt = (at = now()) => Math.floor(at.getTime() / 1000) + Math.max(16 * 60, getConfig().holdMinutes * 60 + 6 * 60)
+
 export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description }) {
   if (hasKeys()) {
     const link = await razorpay('POST', '/payment_links', {
-      amount, currency: 'INR', accept_partial: false, reference_id: number, description: description ?? `MandiMangoes order ${number}`,
+      amount, currency: 'INR', accept_partial: false, reference_id: number, expire_by: linkExpiresAt(), description: description ?? `MandiMangoes order ${number}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
       notes: preorderId ? { preorderId } : { orderId },
       ...(preorderId && shopOrigin() ? { callback_url: `${shopOrigin()}/preorders/${preorderId}`, callback_method: 'get' } : {}),
@@ -144,6 +157,7 @@ export async function handleWebhook(event, eventId) {
   }).then(async (out) => {
     if (out.result === 'refund_due' && out.orderId) await refundOrder(out.orderId).catch(() => {}) // maintenance retries
     if (out.result === 'refund_due' && out.preorderId) await refundPreorder(out.preorderId).catch(() => {})
+    if (out.result === 'duplicate_payment') await refundDuplicatePayments().catch(() => {})
     return out
   })
 }
@@ -161,6 +175,7 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
   )
   let n = 0
   for (const o of rows) {
+    if (outOfTime(GATEWAY_CALL_MS)) break // the next run carries on
     try {
       const payments = o.razorpay_order_id ? await fetchPayments(o.razorpay_order_id) : await fetchLinkPayments(o.payment_link_id)
       const captured = payments.find((p) => p.status === 'captured')
@@ -248,6 +263,7 @@ export async function processDueRefunds() {
   let n = 0
   const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
   for (const p of pre.rows) {
+    if (outOfTime(GATEWAY_CALL_MS)) return n
     try {
       if (await refundPreorder(p.id)) n++
     } catch (err) {
@@ -255,10 +271,52 @@ export async function processDueRefunds() {
     }
   }
   for (const o of rows) {
+    if (outOfTime(GATEWAY_CALL_MS)) return n
     try {
       if (await refundOrder(o.id)) n++
     } catch (err) {
       logger.error({ err, orderId: o.id }, 'refund failed; will retry')
+    }
+  }
+  return n
+}
+
+/**
+ * Refunds second payments taken for orders or preorders that were already
+ * paid (a customer paying twice, two tabs, a retried link). Only that payment
+ * is refunded; the order stays as it is. Each row is leased like order
+ * refunds, and gatewayRefund reuses a refund already made at Razorpay, so a
+ * retry never refunds twice.
+ */
+export async function refundDuplicatePayments(at = now()) {
+  const { rows } = await query(
+    `UPDATE duplicate_payments SET attempted_at = $1
+      WHERE payment_id IN (SELECT payment_id FROM duplicate_payments
+                            WHERE refunded_at IS NULL AND (attempted_at IS NULL OR attempted_at < $2)
+                            ORDER BY found_at LIMIT 20 FOR UPDATE SKIP LOCKED)
+      RETURNING *`,
+    [at, new Date(at.getTime() - REFUND_LEASE_MS)],
+  )
+  let n = 0
+  for (const d of rows) {
+    if (outOfTime(GATEWAY_CALL_MS)) break // leased rows are retried after the lease
+    try {
+      const refundId = await gatewayRefund({
+        paymentId: d.payment_id, amount: d.amount ?? undefined, receipt: `dup-${d.payment_id}`.slice(0, 40),
+        notes: { reason: 'duplicate payment', ...(d.order_id ? { orderId: d.order_id } : { preorderId: d.preorder_id }) },
+      })
+      if (!refundId) continue
+      await tx(async (c) => {
+        await c.query('UPDATE duplicate_payments SET refund_id = $2, refunded_at = $3, last_error = NULL WHERE payment_id = $1', [d.payment_id, refundId, now()])
+        if (d.order_id) {
+          const { rows: o } = await c.query('SELECT status FROM orders WHERE id = $1', [d.order_id])
+          await addEvent(c, d.order_id, o[0].status, o[0].status, SYSTEM, `Second payment ${d.payment_id} refunded (${refundId})`)
+        }
+      })
+      n++
+    } catch (err) {
+      logger.error({ err, paymentId: d.payment_id }, 'duplicate payment refund failed; will retry')
+      await query('UPDATE duplicate_payments SET last_error = $2 WHERE payment_id = $1', [d.payment_id, String(err.message).slice(0, 500)]).catch(() => {})
     }
   }
   return n

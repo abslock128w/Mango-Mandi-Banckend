@@ -2,6 +2,7 @@ import { attachDatabasePool } from '@vercel/functions'
 import pg from 'pg'
 import { env, onVercel } from './env.js'
 import { logger } from './logger.js'
+import { metrics } from './metrics.js'
 
 // DATE columns come back as plain "YYYY-MM-DD" strings, not JS Dates in local time.
 pg.types.setTypeParser(1082, (v) => v)
@@ -22,7 +23,13 @@ export const pool = new pg.Pool({
   ...(isPooledUrl(env.DATABASE_URL) ? {} : { statement_timeout: env.DB_STATEMENT_TIMEOUT_MS }),
   // Serverless instances come and go: don't hold idle connections for long.
   ...(onVercel ? { idleTimeoutMillis: 5_000 } : {}),
+  // Under a burst every instance's few connections can be busy: wait at most
+  // this long, then answer 503 "busy, retry" instead of hanging the request.
+  connectionTimeoutMillis: env.DB_CONNECT_TIMEOUT_MS,
 })
+
+/** The error pg raises when no connection frees up in time. */
+export const isPoolTimeout = (err) => /timeout exceeded when trying to connect/i.test(err?.message ?? '')
 
 // Lets Vercel close idle connections before it suspends an instance.
 if (onVercel) attachDatabasePool(pool)
@@ -31,8 +38,30 @@ pool.on('error', (err) => logger.error({ err }, 'idle pg client error'))
 
 export const query = (text, params) => pool.query(text, params)
 
-/** Runs fn(client) inside a transaction. */
-export async function tx(fn) {
+/** Deadlock and serialization failures: safe to run the whole transaction again. */
+const RETRYABLE = new Set(['40P01', '40001'])
+
+/**
+ * Runs fn(client) inside a transaction. A deadlock or serialization failure
+ * rolls it back and runs it again (up to `retries` more times, with jitter),
+ * so two checkouts that lock the same stock in a different order both finish.
+ * fn must only touch the database (or be safe to repeat) for that to be safe;
+ * pass { retries: 0 } otherwise.
+ */
+export async function tx(fn, { retries = 2 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await txOnce(fn)
+    } catch (err) {
+      if (!RETRYABLE.has(err?.code) || attempt >= retries) throw err
+      metrics.dbRetries.inc({ code: err.code })
+      logger.warn({ code: err.code, attempt: attempt + 1 }, 'transaction retried')
+      await new Promise((r) => setTimeout(r, 10 + Math.random() * 40 * (attempt + 1)))
+    }
+  }
+}
+
+async function txOnce(fn) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')

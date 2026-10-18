@@ -228,7 +228,15 @@ below override both.
   confirms the order. If its stock is gone it moves to the next date that has stock.
 - **Failed deliveries** (user decision): `DELIVERY_FAILED` reschedules the order to the
   next delivery day for a retry. If the packed boxes would pass the 7-day limit by
-  then, the order is flagged at risk.
+  then, the order is flagged at risk. After 3 missed deliveries it is not rescheduled
+  on its own: the Needs attention card asks staff to call the customer, and the usual
+  "we'll retry on" message is not sent.
+- **Failed payment attempts** keep the hold: the customer can try again on the same
+  payment page until the hold ends. Only the hold expiring cancels an unpaid order.
+- **Double charges**: a second payment captured for an order or preorder that is
+  already paid is refunded on its own (`duplicate_payments`); the order is untouched.
+  Payment links expire 16 minutes after they are made, and the shop's payment window
+  closes when the hold ends.
 - **Customer cancels** are allowed until the order is packed. A paid order is refunded
   in full: the refund is requested in the cancel transaction, sent to Razorpay right
   after, and retried by the maintenance loop until it lands (it checks for an existing
@@ -277,13 +285,27 @@ customer picks the stage.
 
 ## Background work
 
-Every 60 seconds, on exactly one instance (`pg_try_advisory_lock(427714202)`):
-reconcile pending payments with Razorpay, send due refunds and WhatsApp updates, cancel unpaid orders whose hold expired,
-prune expired OTPs, quotes, idempotency keys, webhooks and sessions, and retire batches
-at age 8. Hourly it rebalances only the open orders that are at risk; once a day (or right
+Every 60 seconds, on exactly one instance (a lease row in `job_leases`, so no
+connection is held open for the run): reconcile pending payments with Razorpay, cancel
+unpaid orders whose hold expired, send due refunds (and refunds of double charges) and
+WhatsApp updates, prune expired OTPs, quotes, idempotency keys, webhooks, sessions and
+rate-limit counters, and retire batches at age 8. A run has a 45-second budget (Vercel
+stops functions at 60): each loop checks the time before a slow call and leaves the
+rest for the next minute, and the full order re-check saves where it stopped. Each run
+checks in with Sentry's cron monitor, which alerts when a minute is missed. Hourly it rebalances only the open orders that are at risk; once a day (or right
 after a rules change) it rebalances every open order and runs the ledger audit, which
 checks `on_hand` against the ledger and `held`/`committed` against the order allocations.
 Drift is logged and exported as `mango_ledger_drift_lines`.
+
+Transactions that hit a deadlock or serialization failure are retried twice with
+jitter (`tx` in `src/db.js`), and slot capacity is locked per delivery date, so
+checkouts for different days don't queue behind each other. A request that can't get
+a database connection within 5 seconds answers `503 BUSY` with `Retry-After`.
+
+Sign-in rate limits (login codes, staff passwords) are counted in Postgres so every
+instance shares them. Each phone gets 5 codes an hour and 10 a day, and the shop a
+daily budget (`OTP_DAILY_LIMIT`, Sentry warns at 80%) after which codes pause until
+midnight IST. Session refresh and logout refuse requests from other sites' origins.
 
 Every job is also safe if two instances ever run the loop at once. Each WhatsApp message is
 claimed with `FOR UPDATE SKIP LOCKED` before it is sent, each refund is claimed with a
@@ -293,7 +315,10 @@ ignored and an out-of-order `payment.failed` never undoes a capture.
 
 ## Staff roles and the audit trail
 
-Four roles: `MANAGER`, `OPERATOR`, `PACKER` and `QC`. Managers and operators reach every
+Five roles: `MANAGER`, `OPERATOR`, `PACKER`, `QC` and `RIDER`. Riders only reach
+orders on yesterday's, today's or tomorrow's run that are packed or on the road; any
+other order id answers 404. With `STAFF_TWO_STEP=managers` (the production default)
+managers and operators must use two-step sign-in. Managers and operators reach every
 route except the manager-only ones. Packers and QC get an allowlist in
 [`src/access.js`](src/access.js) and are refused everything else, so a new route stays
 closed to them until it is added there. Packers may only move orders through

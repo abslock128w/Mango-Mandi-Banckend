@@ -75,7 +75,7 @@ function CheckoutForm() {
       rememberPayment(c)
       clearCart()
       if (c.razorpayKeyId && c.razorpayOrderId) {
-        await openRazorpay({ key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number }, signedInPhone())
+        await openRazorpay({ key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number, holdExpiresAt: c.holdExpiresAt }, signedInPhone())
       }
       return c
     },

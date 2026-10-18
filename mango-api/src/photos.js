@@ -4,7 +4,7 @@
 // in the row. Either way the image is only ever served through the API, after
 // the staff or customer sign-in is checked.
 import { del, get, put } from '@vercel/blob'
-import { env } from './env.js'
+import { deployEnv, env, isProd, onVercel } from './env.js'
 import { badRequest, HttpError } from './errors.js'
 import { logger } from './logger.js'
 
@@ -49,7 +49,11 @@ export function usePhotoStore(s) {
 
 /** Saves the image. Returns the columns to write: { bytes } or { blobPath }. */
 export async function storePhoto(folder, id, bytes, ext, mime) {
-  if (!store) return { bytes, blobPath: null }
+  if (!store) {
+    // Never quietly fill the production database with images (preflight refuses this setup too).
+    if (onVercel && isProd && deployEnv === 'production') throw new HttpError(503, 'PHOTOS_UNAVAILABLE', 'Photo storage is not set up. Please try again later.')
+    return { bytes, blobPath: null }
+  }
   return { bytes: null, blobPath: await store.put(`${folder}/${id}.${ext}`, bytes, mime) }
 }
 

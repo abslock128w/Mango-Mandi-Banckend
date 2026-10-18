@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import pg from 'pg'
 import { pool as appPool } from './db.js'
-import { env } from './env.js'
+import { deployEnv, env } from './env.js'
 import { logger } from './logger.js'
 
 const MIGRATION_LOCK = 427714201
@@ -23,10 +23,35 @@ export async function runMigrations() {
   }
 }
 
+/**
+ * Every database remembers which environment it belongs to (app_meta), set
+ * by the first migration. A preview or development build pointed at the
+ * production database (an env var copied to the wrong environment) is
+ * refused before it can migrate, seed or serve it, and the other way round.
+ * If a move is intended: UPDATE app_meta SET value = '<env>' WHERE key = 'environment'.
+ */
+export const isProductionEnv = (e) => e === 'production'
+
+export async function checkDatabaseEnvironment(c, target = deployEnv, { claim = false } = {}) {
+  if (claim) await c.query('CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+  else if (!(await c.query(`SELECT to_regclass('public.app_meta') AS t`)).rows[0].t) return target // not migrated yet
+  const { rows } = await c.query(`SELECT value FROM app_meta WHERE key = 'environment'`)
+  const owner = rows[0]?.value
+  if (!owner) {
+    if (claim) await c.query(`INSERT INTO app_meta (key, value) VALUES ('environment', $1) ON CONFLICT DO NOTHING`, [target])
+    return target
+  }
+  if (isProductionEnv(owner) !== isProductionEnv(target)) {
+    throw new Error(`This database belongs to ${owner}, and this is a ${target} deployment: refusing to use it. Point DATABASE_URL at the right Neon branch.`)
+  }
+  return owner
+}
+
 async function migrate(pool) {
   const client = await pool.connect()
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK])
+    await checkDatabaseEnvironment(client, deployEnv, { claim: true })
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
     const done = new Set((await client.query('SELECT version FROM schema_migrations')).rows.map((r) => r.version))

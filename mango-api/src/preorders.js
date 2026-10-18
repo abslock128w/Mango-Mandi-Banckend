@@ -15,7 +15,7 @@ import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
-import { createOrder, customerCancel, SYSTEM } from './orders.js'
+import { createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { claimRefund, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
 import { findProduct } from './products.js'
 
@@ -149,7 +149,11 @@ export async function findPreorderId(c, entity, link) {
  */
 export async function processPreorderPayment(c, { preorderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
   const p = await lock(c, preorderId)
-  if (p.payment_status === 'SUCCEEDED' || p.payment_status === 'REFUNDED') return 'already_paid'
+  if (p.payment_status === 'SUCCEEDED' || p.payment_status === 'REFUNDED') {
+    const second = outcome === 'captured' && paymentId && p.payment_id && paymentId !== p.payment_id
+    if (second && (await recordDuplicatePayment(c, { preorderId: p.id, paymentId, amount }))) return 'duplicate_payment'
+    return 'already_paid'
+  }
   if (outcome !== 'captured') return 'ignored' // a link can be paid again after a failed attempt
   const paid = [paymentId, method, amount ?? p.total, now()]
   if (p.status === 'CANCELLED' && p.customer_cancelled_at) {

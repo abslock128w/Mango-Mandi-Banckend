@@ -5,9 +5,9 @@
 // anything not listed for them below is refused, so a new route is closed to
 // them until someone adds it here.
 import { background } from './background.js'
-import { now } from './clock.js'
+import { addDays, now, todayIST } from './clock.js'
 import { query } from './db.js'
-import { forbidden } from './errors.js'
+import { forbidden, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 
@@ -70,6 +70,43 @@ export function limitByRole(req, _res, next) {
     return next(forbidden('Packers can only move orders through packing and delivery'))
   }
   next()
+}
+
+/** Orders a rider may touch: on the road or ready to go. */
+const RIDER_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED', 'DELIVERED']
+const ORDER_PATH = /^\/orders\/([^/]+)\//
+
+/** A rider's run is yesterday (late finishes), today or tomorrow, IST. */
+const riderDates = () => {
+  const today = todayIST()
+  return [addDays(today, -1), today, addDays(today, 1)]
+}
+
+/**
+ * Object-level checks for riders: limitByRole lets them reach the delivery
+ * routes, this keeps those routes to orders on their run. Any other order id
+ * (an old one, or one not packed yet) answers 404, as if it didn't exist,
+ * and the manifest only opens for the run's dates, so a rider can't page
+ * through every customer's address and phone number.
+ */
+export async function riderScope(req, _res, next) {
+  if (req.admin?.role !== 'RIDER') return next()
+  try {
+    const dates = riderDates()
+    const date = req.method === 'GET' ? req.query.date : req.body?.date
+    if (req.path.startsWith('/manifest') && date !== undefined && !dates.includes(String(date))) {
+      return next(forbidden('Riders can only open the run for today or tomorrow'))
+    }
+    const m = ORDER_PATH.exec(req.path)
+    if (m) {
+      const { rows } = await query('SELECT status, delivery_date FROM orders WHERE id = $1', [m[1]])
+      const o = rows[0]
+      if (!o || !RIDER_STATUSES.includes(o.status) || !dates.includes(o.delivery_date)) return next(notFound('Order not found'))
+    }
+    next()
+  } catch (err) {
+    next(err)
+  }
 }
 
 // The customer's delivery code is a secret too.

@@ -55,9 +55,22 @@ describe('production preflight', () => {
 
   it('on Vercel, needs the cron secret and Neon\'s direct connection', () => {
     const { errors, warnings } = checkProduction({ ...good, CRON_SECRET: '', DATABASE_URL_UNPOOLED: undefined, BLOB_READ_WRITE_TOKEN: '' }, { vercel: true })
-    assert.equal(errors.length, 2)
+    assert.equal(errors.length, 3)
     assert.ok(errors.some((e) => e.startsWith('CRON_SECRET')))
     assert.ok(errors.some((e) => e.startsWith('DATABASE_URL_UNPOOLED')))
-    assert.ok(warnings.some((w) => w.startsWith('BLOB_READ_WRITE_TOKEN')))
+    // Production must not fall back to keeping photos in Postgres.
+    assert.ok(errors.some((e) => e.startsWith('BLOB_READ_WRITE_TOKEN')))
+    assert.deepEqual(warnings, [])
+  })
+
+  it('previews must use test payment keys; Blob is optional there', () => {
+    const live = checkProduction({ ...good, BLOB_READ_WRITE_TOKEN: '' }, { vercel: true, target: 'preview' })
+    assert.equal(live.errors.length, 1)
+    assert.match(live.errors[0], /live key on a preview/)
+    assert.ok(live.warnings.some((w) => w.startsWith('BLOB_READ_WRITE_TOKEN')))
+    assert.deepEqual(checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x' }, { vercel: true, target: 'preview' }), { errors: [], warnings: [] })
+    const logged = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', SMS_PROVIDER: 'log' }, { vercel: true, target: 'preview' })
+    assert.deepEqual(logged.errors, [])
+    assert.match(logged.warnings[0], /only written to the logs/)
   })
 })

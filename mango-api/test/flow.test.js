@@ -359,8 +359,12 @@ describe('orders', () => {
     assert.equal((await line(b, 'ALP-3')).committed, 0)
     const detail = (await api.get(`/admin/v1/orders/${paid.body.orderId}`, { token: admin })).body
     assert.match(detail.payment.refund.id, /^rfnd_dev_/)
-    // A replayed payment can't revive a refunded order.
-    assert.equal((await pay(paid.body.orderId)).body.result, 'already_paid')
+    // A second payment can't revive a refunded order: it is refunded on its own.
+    assert.equal((await pay(paid.body.orderId)).body.result, 'duplicate_payment')
+    const dup = (await query('SELECT * FROM duplicate_payments WHERE order_id = $1', [paid.body.orderId])).rows
+    assert.equal(dup.length, 1)
+    assert.match(dup[0].refund_id, /^rfnd_dev_/)
+    assert.equal((await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body.status, 'CANCELLED')
 
     // Paid after the customer cancelled: stays cancelled and is refunded.
     const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])

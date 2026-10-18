@@ -8,7 +8,7 @@ import helmet from 'helmet'
 import { router as adminRouter } from './admin.js'
 import { devRouter, router as customerRouter } from './customer.js'
 import { loadConfig } from './config.js'
-import { query } from './db.js'
+import { isPoolTimeout, query } from './db.js'
 import { env, isProd, onVercel } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
@@ -19,6 +19,7 @@ import { handleWebhook, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
+import { checkDatabaseEnvironment } from './migrate.js'
 import { flushErrors, reportError, reportProblem } from './sentry.js'
 
 /** /ready fails when the maintenance job hasn't finished a run in this long. */
@@ -32,7 +33,8 @@ let loadedAt = 0
 let loading = null
 async function ensureLoaded() {
   if (Date.now() - loadedAt < RELOAD_MS) return
-  loading ??= Promise.all([loadConfig(), loadProducts()])
+  loading ??= checkedDatabase()
+    .then(() => Promise.all([loadConfig(), loadProducts()]))
     .then(() => {
       loadedAt = Date.now()
     })
@@ -41,6 +43,14 @@ async function ensureLoaded() {
     })
   await loading
 }
+
+// Once per instance: refuse to serve a database that belongs to another environment.
+let dbChecked = null
+const checkedDatabase = () => (dbChecked ??= checkDatabaseEnvironment({ query }).catch((err) => {
+  dbChecked = null
+  logger.fatal({ err }, 'database environment check failed')
+  throw new HttpError(503, 'WRONG_DATABASE', 'Service unavailable')
+}))
 
 const bearer = (req) => (req.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
 const safeEqual = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
@@ -196,8 +206,13 @@ export function createApp() {
     if (err?.code === '23514' && err?.constraint === 'batch_lines_no_oversell') {
       return res.status(409).json({ error: { code: 'STOCK_INSUFFICIENT', message: 'Not enough stock', requestId: req.id } })
     }
-    if (err?.code === '40P01') {
+    if (err?.code === '40P01' || err?.code === '40001') {
       return res.status(409).json({ error: { code: 'CONFLICT', message: 'Busy, please retry', requestId: req.id } })
+    }
+    // No free database connection in time, or Neon refusing more: a short, retryable 503.
+    if (isPoolTimeout(err) || err?.code === '53300') {
+      logger.warn({ reqId: req.id, path: req.path }, 'database busy')
+      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
     }
     logger.error({ err, reqId: req.id }, 'unhandled error')
     reportError(err, { requestId: req.id, method: req.method, path: req.path })

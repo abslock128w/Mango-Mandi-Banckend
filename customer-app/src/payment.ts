@@ -44,8 +44,16 @@ function loadScript() {
   return loading
 }
 
-/** Opens Razorpay for the order. Resolves when the customer finishes or closes it. */
-export async function openRazorpay(p: { key: string; rzp: string; total: number; number: string }, phone: string | null) {
+/**
+ * Opens Razorpay for the order. Resolves when the customer finishes or closes it.
+ * With `holdExpiresAt` the payment window closes when the boxes stop being held,
+ * so nobody pays for stock that has gone back on sale.
+ */
+export async function openRazorpay(
+  p: { key: string; rzp: string; total: number; number: string; holdExpiresAt?: string | null },
+  phone: string | null,
+) {
+  const secondsLeft = p.holdExpiresAt ? Math.floor((new Date(p.holdExpiresAt).getTime() - Date.now()) / 1000) : null
   await loadScript()
   if (!window.Razorpay) throw new Error('Could not load the payment page.')
   await new Promise<void>((resolve) => {
@@ -58,6 +66,7 @@ export async function openRazorpay(p: { key: string; rzp: string; total: number;
       description: `Order ${p.number}`,
       prefill: phone ? { contact: phone } : undefined,
       theme: { color: '#d97706' },
+      ...(secondsLeft != null ? { timeout: Math.max(60, secondsLeft) } : {}),
       handler: () => resolve(),
       modal: { ondismiss: () => resolve() },
     })

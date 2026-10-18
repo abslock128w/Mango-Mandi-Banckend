@@ -2,10 +2,9 @@
 // delivery date, cart, checkout with stock holds, orders and claims.
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
-import rateLimit from 'express-rate-limit'
 import { z } from 'zod'
-import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefresh, signAccess } from './auth.js'
-import { isDate, now } from './clock.js'
+import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
@@ -15,10 +14,13 @@ import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockEr
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
+import { metrics } from './metrics.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { createGatewayOrder, devGateway, reconcilePendingPayments, refundOrder } from './payments.js'
+import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
 import { allProducts, findProduct } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
+import { hit, sharedLimiter } from './ratelimit.js'
+import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
@@ -27,19 +29,34 @@ import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from '.
 
 export const router = express.Router()
 
-const otpLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  // Per address. Outside production it is loose, so test runs don't trip it.
-  limit: isProd ? 30 : 300,
-  standardHeaders: 'draft-7',
-  legacyHeaders: false,
-  skip: () => env.NODE_ENV === 'test',
-  handler: (req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Try again later.', requestId: req.id } }),
-})
+// Per address, counted in Postgres so every serverless instance shares it.
+// Outside production it is loose, so test runs don't trip it.
+const otpLimiter = sharedLimiter('otp-ip', { windowMs: 15 * 60_000, limit: isProd ? 30 : 300 })
 
 const OTP_TTL_MS = 5 * 60_000
 const OTP_MAX_ATTEMPTS = 5
 const OTP_MAX_SENDS_PER_HOUR = 5
+const OTP_MAX_SENDS_PER_DAY = 10
+const DAY_MS = 86_400_000
+
+/**
+ * Stops SMS pumping: every code costs money, and bots request codes for
+ * numbers they don't own. Each number gets 10 codes a day, and the whole shop
+ * a daily budget (OTP_DAILY_LIMIT). Past 80% of the budget Sentry is told;
+ * past 100% no more codes go out until midnight IST (Google sign-in still works).
+ */
+async function checkOtpBudget(phone) {
+  const day = todayIST()
+  const mine = await hit(`otp-phone-day:${phone}:${day}`, DAY_MS)
+  if (mine.hits > OTP_MAX_SENDS_PER_DAY) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Try again tomorrow.')
+  const all = await hit(`otp-day:${day}`, DAY_MS)
+  metrics.otpBudgetUsed.set(all.hits)
+  if (all.hits === Math.ceil(env.OTP_DAILY_LIMIT * 0.8)) reportProblem('Login codes: 80% of the daily SMS budget used', { used: all.hits, limit: env.OTP_DAILY_LIMIT })
+  if (all.hits > env.OTP_DAILY_LIMIT) {
+    if (all.hits === env.OTP_DAILY_LIMIT + 1) reportProblem('Login codes paused: the daily SMS budget is used up', { limit: env.OTP_DAILY_LIMIT })
+    throw new HttpError(503, 'OTP_PAUSED', "We can't send login codes right now. Sign in with Google, or try again later.")
+  }
+}
 
 /** Indian mobile numbers, normalised to +91XXXXXXXXXX. */
 const phoneSchema = z
@@ -71,6 +88,7 @@ async function issueCode(phone, channel) {
       [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at, fresh],
     )
   })
+  await checkOtpBudget(phone)
   const via = await sendOtp(phone, code, channel)
   return isProd ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
@@ -165,6 +183,7 @@ router.post(
 
 router.post(
   '/auth/token/refresh',
+  sameSiteOnly,
   otpLimiter,
   asyncHandler(async (req, res) => {
     const token = req.body?.refreshToken || req.cookies?.[RT_COOKIE]
@@ -183,6 +202,7 @@ router.post(
 
 router.post(
   '/auth/logout',
+  sameSiteOnly,
   asyncHandler(async (req, res) => {
     await revokeRefresh(req.body?.refreshToken || req.cookies?.[RT_COOKIE])
     res.clearCookie(RT_COOKIE, rtCookie())
@@ -298,7 +318,25 @@ router.delete(
         [me.id],
       )
       if (open.rowCount) throw conflict('You have an order or booking that is not finished yet. Cancel it, or wait until it is delivered, then delete your account.', 'OPEN_ORDERS')
-      await c.query(`UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL WHERE customer_id = $1`, [me.id])
+      await c.query(
+        `UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL,
+                gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL WHERE customer_id = $1`,
+        [me.id],
+      )
+      await c.query(
+        `UPDATE delivery_attempts SET received_by = NULL, note = NULL, lat = NULL, lng = NULL
+          WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)`,
+        [me.id],
+      )
+      const deliveryPics = await c.query(
+        `SELECT blob_path FROM delivery_photos WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL FOR UPDATE`,
+        [me.id],
+      )
+      await c.query(
+        `UPDATE delivery_photos SET removed_at = $2, bytes = NULL, blob_path = NULL
+          WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL`,
+        [me.id, now()],
+      )
       await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '' WHERE customer_id = $1`, [me.id])
       await c.query(`UPDATE claims SET description = '(removed when the account was deleted)', photo_url = NULL WHERE customer_id = $1`, [me.id])
       await c.query(
@@ -310,10 +348,14 @@ router.delete(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
-      if (me.phone) await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
+      if (me.phone) {
+        await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
+        await c.query('DELETE FROM wa_inbound WHERE phone = $1', [me.phone])
+        await c.query(`DELETE FROM rate_limits WHERE key LIKE $1`, [`otp-phone-day:${me.phone}:%`])
+      }
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, deleted_at = $2 WHERE id = $1', [me.id, now()])
-      return pics.rows
+      return [...pics.rows, ...deliveryPics.rows]
     })
     for (const p of photos) await dropPhoto(p)
     logger.info({ customerId: req.customer.id }, 'customer deleted their account')
@@ -556,7 +598,7 @@ router.post(
       order.razorpay_order_id = rzp
     } catch (err) {
       logger.error({ err, orderId: order.id }, 'could not create the gateway order')
-      await tx((c) => processPayment(c, { orderId: order.id, outcome: 'failed' }, SYSTEM))
+      await tx((c) => processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM))
       throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
     }
     res.status(201).json(confirmResponse(order))
@@ -795,6 +837,7 @@ devRouter.post(
     const b = parse(z.object({ orderId: z.string().min(1), outcome: z.enum(['captured', 'failed']) }), req.body)
     const r = await tx((c) => processPayment(c, { orderId: b.orderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }))
     if (r.result === 'refund_due') await refundOrder(b.orderId)
+    if (r.result === 'duplicate_payment') await refundDuplicatePayments()
     res.json({ result: r.result })
   }),
 )

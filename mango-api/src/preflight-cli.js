@@ -7,6 +7,7 @@ process.env.PREFLIGHT = '1'
 const { env, isProd } = await import('./env.js')
 const { checkProduction } = await import('./preflight.js')
 const { query, closePool } = await import('./db.js')
+const { checkDatabaseEnvironment } = await import('./migrate.js')
 
 const online = process.argv.includes('--online')
 const { errors, warnings } = checkProduction(env)
@@ -27,6 +28,14 @@ try {
     if (staff === 0 && !bootstrap) {
       errors.push('No staff accounts and no ADMIN_BOOTSTRAP_EMAIL/ADMIN_BOOTSTRAP_PASSWORD: nobody could sign in to the panel')
     } else ok.push(staff ? `${staff} staff account(s)` : 'First manager will be created from ADMIN_BOOTSTRAP_EMAIL')
+    if (staff > 0 && env.ADMIN_BOOTSTRAP_PASSWORD) {
+      warnings.push('ADMIN_BOOTSTRAP_PASSWORD is still set after the first manager was made: remove it from the environment')
+    }
+    try {
+      ok.push(`Database belongs to ${await checkDatabaseEnvironment({ query })}`)
+    } catch (err) {
+      errors.push(err.message)
+    }
     const demo = (await query("SELECT COUNT(*)::int AS n FROM admin_users WHERE email LIKE '%@mandimangoes.test'")).rows[0].n
     if (demo) errors.push(`${demo} demo staff login(s) (@mandimangoes.test) are in this database: use a fresh production database`)
     const pins = (await query('SELECT COUNT(*)::int AS n FROM pincodes WHERE active')).rows[0].n

@@ -2,6 +2,7 @@
 // transaction as the order change that causes it (an outbox), so a rolled-back
 // change sends nothing and a committed one is never lost; the maintenance loop
 // sends due rows and retries failures with backoff.
+import { outOfTime } from './budget.js'
 import { now } from './clock.js'
 import { query } from './db.js'
 import { isProd } from './env.js'
@@ -14,6 +15,7 @@ import { templateName, whatsappSender } from './whatsapp.js'
 const RETRY_MINUTES = [1, 5, 15, 60, 180]
 const MAX_AGE_MS = 24 * 3_600_000 // an update older than a day is no longer news
 const CLAIM_MS = 5 * 60_000 // how long a claimed message is left alone if its sender dies
+const SEND_CALL_MS = 12_000 // a WhatsApp call gives up after 10 seconds
 
 /** The message an order event sends, if any. */
 function kindFor(from, to, order) {
@@ -120,7 +122,12 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
     [claimed.rows.map((r) => r.id)],
   )
   let sent = 0
-  for (const n of rows) {
+  for (const [i, n] of rows.entries()) {
+    if (outOfTime(SEND_CALL_MS)) {
+      // Out of time: hand the rest back so the next run sends them straight away.
+      await query('UPDATE notifications SET next_attempt_at = $2 WHERE id = ANY($1)', [rows.slice(i).map((r) => r.id), at])
+      break
+    }
     if (at - n.created_at > MAX_AGE_MS) {
       await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day' })
       continue
