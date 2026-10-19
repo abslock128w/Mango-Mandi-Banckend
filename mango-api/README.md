@@ -412,6 +412,46 @@ screen.
   Run it weekly and after each schema change; a backup nobody has restored is a guess.
   Set `BACKUP_GPG_RECIPIENT` to encrypt the dump (it holds customers' details); the
   nightly GitHub workflow [`backup.yml`](../.github/workflows/backup.yml) does this for Neon.
+  That workflow fails (red, with an email) when its secrets are missing; a copy with no
+  production database sets the repository variable `BACKUP_DISABLED=true` instead.
+- **Ready.** `GET /ready` answers 503 when the database doesn't answer, when the last
+  maintenance run finished over 5 minutes ago, and, in production, when no run has ever
+  finished (the cron is missing or its secret is wrong). Previews and development may have
+  no run yet.
+- **Retention.** Sent, failed and skipped WhatsApp messages are deleted after 180 days
+  ([`src/retention.js`](src/retention.js)), up to 5,000 a run.
+- **Connections.** `DB_POOL_MAX` sets each instance's pool (default 5 on Vercel, 10
+  elsewhere) and `DB_CONNECT_TIMEOUT_MS` how long a request waits for a connection before
+  answering 503 BUSY (default 5000). On Vercel, keep instances × `DB_POOL_MAX` under the
+  Neon pooler's limit.
+
+### Writing a migration
+
+Migrations run while the previous version is still serving (see
+`test/migrations.test.js`), each in one transaction, with `lock_timeout` 5 s
+(`MIGRATION_LOCK_TIMEOUT`). A migration that can't get its table lock in that time is
+rolled back and tried again twice, 3 s apart; then the build fails and nothing is
+half-applied. Look for a long transaction in `pg_stat_activity` and deploy again.
+Keep the locks short:
+
+- **Add, then remove a release later.** Drops, renames and narrowing need a
+  `-- contract:` line.
+- **New CHECK or FOREIGN KEY on an existing table: `NOT VALID`.** A plain
+  `ADD CONSTRAINT` reads the whole table while nothing else can touch it. Add it
+  `NOT VALID` (new rows are checked from then on) and
+  `ALTER TABLE ... VALIDATE CONSTRAINT ...` in the next migration file, which reads the
+  table without blocking writes. To change a CHECK (a new notification kind):
+  ```sql
+  ALTER TABLE notifications DROP CONSTRAINT notifications_kind_check;
+  ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN (...)) NOT VALID;
+  -- next file: ALTER TABLE notifications VALIDATE CONSTRAINT notifications_kind_check;
+  ```
+- **Indexes on existing tables block writes while they build.** `CONCURRENTLY` can't run
+  inside the migration transaction, so on a big table build it by hand first
+  (`CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`) and keep the same `IF NOT EXISTS`
+  statement in the migration.
+- When a lock is fine (the table is new or small), say why on a `-- locks:` line. The
+  migration test fails without one, from file 021 on.
 - **After a restore.** A restored database has lost the orders, payments and account
   deletions made since the restore point, while Razorpay still holds the money.
   [`ops/replay-payments.js`](ops/replay-payments.js) `--from <restore point>` applies the

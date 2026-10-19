@@ -5,7 +5,8 @@
 # Needs two repository secrets (Settings > Secrets and variables > Actions):
 #   BACKUP_DATABASE_URL     Neon main, direct (no -pooler) connection, read-only role
 #   BACKUP_GPG_PUBLIC_KEY   an ASCII-armoured GPG public key; keep the private key offline
-# Without them the job does nothing. Each dump is kept 30 days as a workflow
+# Without them the job fails (BACKUP_DISABLED=true as a repository variable
+# skips it on purpose). Each dump is kept 30 days as a workflow
 # artifact. Decrypt with: gpg --decrypt mango-....dump.gpg > mango.dump
 name: Backup
 
@@ -25,12 +26,21 @@ jobs:
       BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
       BACKUP_GPG_PUBLIC_KEY: ${{ secrets.BACKUP_GPG_PUBLIC_KEY }}
     steps:
-      - name: Skip when not set up
+      # A missing secret fails the run (red in Actions, an email to the repo
+      # owner): a green run must mean a backup was taken. A fork or a copy
+      # with no production database sets the repository variable
+      # BACKUP_DISABLED=true to skip it on purpose.
+      - name: Check the backup is set up
         id: check
+        env:
+          BACKUP_DISABLED: ${{ vars.BACKUP_DISABLED }}
         run: |
-          if [ -z "$BACKUP_DATABASE_URL" ] || [ -z "$BACKUP_GPG_PUBLIC_KEY" ]; then
-            echo "Backup secrets are not set; nothing to do."
+          if [ "$BACKUP_DISABLED" = "true" ]; then
+            echo "::notice::Backups are turned off (repository variable BACKUP_DISABLED=true)."
             echo "ready=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$BACKUP_DATABASE_URL" ] || [ -z "$BACKUP_GPG_PUBLIC_KEY" ]; then
+            echo "::error::No backup taken: set the BACKUP_DATABASE_URL and BACKUP_GPG_PUBLIC_KEY secrets, or set the repository variable BACKUP_DISABLED=true."
+            exit 1
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi

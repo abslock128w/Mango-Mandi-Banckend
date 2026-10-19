@@ -6,7 +6,7 @@ import { query, tx } from './db.js'
 import { orderableDates } from './delivery.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import { newId } from './ids.js'
-import { availability } from './inventory.js'
+import { availabilityByDate } from './inventory.js'
 import { enqueue, enqueueAlert } from './notify.js'
 import { findProduct, sellable } from './products.js'
 import { readyOnFor, storageTip } from './ripeness.js'
@@ -73,13 +73,10 @@ export async function sendStockAlerts(at = now()) {
     [at],
   )
   if (!open.length) return 0
-  const firstWithStock = await tx(async (c) => {
-    const out = new Map()
-    for (const d of await orderableDates(c, at)) {
-      for (const [key, qty] of await availability(c, d)) if (qty > 0 && !out.has(key)) out.set(key, d)
-    }
-    return out
-  })
+  const firstWithStock = new Map()
+  for (const [d, pool] of await availabilityByDate({ query }, await orderableDates({ query }, at))) {
+    for (const [key, qty] of pool) if (qty > 0 && !firstWithStock.has(key)) firstWithStock.set(key, d)
+  }
   let sent = 0
   for (const a of open) {
     if (outOfTime(2_000)) break

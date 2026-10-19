@@ -4,7 +4,7 @@ import { createApp } from './app.js'
 import { closePool, connectWithRetry } from './db.js'
 import { env } from './env.js'
 import { logger } from './logger.js'
-import { startMaintenance, stopMaintenance } from './maintenance.js'
+import { runMaintenance, startMaintenance, stopMaintenance } from './maintenance.js'
 import { runMigrations } from './migrate.js'
 import { seed } from './seed.js'
 import { flushErrors } from './sentry.js'
@@ -16,6 +16,10 @@ async function main() {
 
   const server = createApp().listen(env.PORT, () => logger.info({ port: env.PORT }, 'mango-api listening'))
   startMaintenance()
+  // One run straight away rather than a minute in: /ready (which the deploy
+  // script waits on) counts a production database that has never had a run as
+  // not ready.
+  runMaintenance().catch((err) => logger.error({ err }, 'first maintenance run failed'))
 
   const shutdown = (signal) => {
     logger.info({ signal }, 'shutting down')
