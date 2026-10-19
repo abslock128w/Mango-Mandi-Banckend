@@ -190,6 +190,82 @@ export interface PreorderInput {
   waitlist?: boolean
 }
 
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN'
+export interface SubRatings {
+  taste: number | null
+  ripenessAccuracy: number | null
+  packaging: number | null
+  delivery: number | null
+}
+export interface MyReview extends SubRatings {
+  id: string
+  orderId: string
+  orderItemId: string
+  status: ReviewStatus
+  rating: number
+  comment: string | null
+  anonymous: boolean
+  displayName: string
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  photos: { id: string; url: string; approved: boolean }[]
+  reply: { body: string; at: string } | null
+  createdAt: string
+  updatedAt: string
+  editableUntil: string
+  canEdit: boolean
+  moderationReason: string | null
+}
+export interface Reviewable {
+  orderItemId: string
+  orderId: string
+  orderNumber: string
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  quantity: number
+  deliveredAt: string
+  reviewableUntil: string
+}
+/** What to offer after 1 or 2 stars: the claim form while it is open, else support. */
+export type FollowUp = { type: 'CLAIM'; orderId: string; claimUntil: string } | { type: 'SUPPORT'; contact: string } | null
+export interface ReviewInput extends Partial<SubRatings> {
+  rating: number
+  comment: string | null
+  anonymous: boolean
+  photoIds: string[]
+}
+export interface PublicReview extends SubRatings {
+  id: string
+  rating: number
+  comment: string | null
+  displayName: string
+  verifiedPurchase: boolean
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  photos: { id: string; url: string; width: number | null; height: number | null }[]
+  reply: { body: string; at: string } | null
+  createdAt: string
+}
+export interface RatingSummary {
+  count: number
+  average: number | null
+  distribution: Record<'1' | '2' | '3' | '4' | '5', number>
+  withPhotos: number
+}
+export interface ReviewPage {
+  product: { sku: string; name: string; variety: string }
+  scope: 'variety' | 'sku'
+  summary: RatingSummary
+  items: PublicReview[]
+  nextCursor: string | null
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -387,6 +463,48 @@ export const api = {
   async deliveryPhotoUrl(orderId: string): Promise<string> {
     if (!accessToken && profile) await refreshOnce()
     const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+    let res = await get()
+    if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+    if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
+    return URL.createObjectURL(await res.blob())
+  },
+
+  myReviews: (orderId?: string) => request<{ reviews: MyReview[]; reviewable: Reviewable[] }>('GET', `/me/reviews${qs({ orderId })}`),
+  sendReview: (input: ReviewInput & { orderItemId: string }, idempotencyKey: string) =>
+    request<{ review: MyReview; followUp: FollowUp }>('POST', '/reviews', input, { 'Idempotency-Key': idempotencyKey }),
+  editReview: (reviewId: string, input: Partial<ReviewInput>) => request<{ review: MyReview; followUp: FollowUp }>('PATCH', `/reviews/${id(reviewId)}`, input),
+  deleteReview: (reviewId: string) => request<void>('DELETE', `/reviews/${id(reviewId)}`),
+  /**
+   * Uploads one review photo (already shrunk on the phone). With Vercel Blob
+   * the photo goes straight to a private upload folder and the API then checks
+   * and cleans it; otherwise it is posted to the API. Returns the photo id.
+   */
+  async uploadReviewPhoto(photo: Blob): Promise<{ id: string }> {
+    const how = await request<{ mode: 'direct' | 'blob'; pathname?: string; clientToken?: string }>('POST', '/reviews/photos/upload-token', {})
+    if (how.mode === 'blob' && how.pathname && how.clientToken) {
+      const { put } = await import('@vercel/blob/client')
+      await put(how.pathname, photo, { access: 'private', token: how.clientToken, contentType: photo.type, multipart: false })
+      return request<{ id: string }>('POST', '/reviews/photos', { pathname: how.pathname })
+    }
+    return request<{ id: string }>('POST', '/reviews/photos', photo)
+  },
+  productReviews: (sku: string, params: { stars?: number | null; withPhotos?: boolean; cursor?: string | null; limit?: number; scope?: 'variety' | 'sku' } = {}) =>
+    raw<ReviewPage>(
+      'GET',
+      `/products/${id(sku)}/reviews${qs({
+        stars: params.stars ? String(params.stars) : null,
+        withPhotos: params.withPhotos ? 'true' : null,
+        cursor: params.cursor,
+        limit: params.limit ? String(params.limit) : null,
+        scope: params.scope,
+      })}`,
+    ),
+  /** An approved review photo: public, so a plain URL. */
+  publicPhotoUrl: (url: string) => `${API_URL}${url}`,
+  /** My own review photo (any status), as an object URL: it needs the sign-in. */
+  async myReviewPhotoUrl(url: string): Promise<string> {
+    if (!accessToken && profile) await refreshOnce()
+    const get = () => fetch(`${API_URL}${url}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
     let res = await get()
     if (res.status === 401 && profile && (await refreshOnce())) res = await get()
     if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')

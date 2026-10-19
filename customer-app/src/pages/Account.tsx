@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { useStore } from '../store'
 import { Dialog, ErrorNote, Spinner } from '../ui'
+import { MyReviews } from './Review'
 
 export default function Account() {
   const { profile } = useStore()
@@ -40,6 +41,8 @@ export default function Account() {
       </section>
 
       <SavedAddresses />
+
+      <MyReviews />
 
       <section className="card narrow" aria-labelledby="delete-account">
         <h2 id="delete-account">Delete your account</h2>

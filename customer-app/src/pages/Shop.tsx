@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Stars } from '../stars'
 import { ApiError, api, type CatalogueItem } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
@@ -199,6 +200,7 @@ function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | 
                 <div className="product-name">
                   <h3 id={`p-${p.sku}`}>{p.name}</h3>
                   {p.description && <p className="muted small">{p.description}</p>}
+                  <ProductRating sku={p.sku} variety={p.variety} />
                 </div>
                 <strong className="price">{rupees(p.price)}</strong>
               </header>
@@ -276,4 +278,19 @@ function groupBySku(items: CatalogueItem[]) {
     map.set(i.sku, p)
   }
   return [...map.values()]
+}
+
+/** The variety's average and review count, linking to its reviews. One request per variety (the 3 and 5 kg boxes share it). */
+function ProductRating({ sku, variety }: { sku: string; variety: string }) {
+  const q = useQuery({ queryKey: ['rating', variety || sku], queryFn: () => api.productReviews(sku, { limit: 1 }), staleTime: 5 * 60_000 })
+  const s = q.data?.summary
+  if (!s || !s.count || s.average == null) return null
+  return (
+    <Link to={`/mangoes/${sku}`} className="product-rating">
+      <Stars value={s.average} small />
+      <span className="small">
+        {s.average.toFixed(1)} · {s.count} {s.count === 1 ? 'review' : 'reviews'}
+      </span>
+    </Link>
+  )
 }
