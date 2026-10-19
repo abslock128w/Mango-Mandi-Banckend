@@ -34,6 +34,13 @@ const schema = z.object({
   SENTRY_DSN: z.string().default(''),
   // Vercel Blob for delivery and claim photos; unset keeps photos in the database.
   BLOB_READ_WRITE_TOKEN: z.string().default(''),
+  // Shown to a customer who gives 1 or 2 stars after the claim window has closed.
+  SUPPORT_CONTACT: z.string().default('Message us on WhatsApp and we will sort it out.'),
+  // "How were your mangoes?" a day after delivery. Turn on once Meta approves mandi_review_request.
+  WHATSAPP_REVIEW_REQUESTS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).

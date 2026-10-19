@@ -3,7 +3,9 @@
 // so the database stays small. Without it (local, Docker) the bytes are kept
 // in the row. Either way the image is only ever served through the API, after
 // the staff or customer sign-in is checked.
-import { del, get, put } from '@vercel/blob'
+import { del, get, list, put } from '@vercel/blob'
+import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
+import sharp from 'sharp'
 import { deployEnv, env, isProd, onVercel } from './env.js'
 import { badRequest, HttpError } from './errors.js'
 import { logger } from './logger.js'
@@ -16,10 +18,10 @@ const MAGIC = [
   ['image/webp', 'webp', (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP'],
 ]
 
-/** Checks the upload is a real JPEG, PNG or WebP of at most 2 MB. Returns { mime, ext }. */
-export function checkPhoto(bytes) {
+/** Checks the upload is a real JPEG, PNG or WebP (by its first bytes, not its name) of at most `max` bytes. Returns { mime, ext }. */
+export function checkPhoto(bytes, max = MAX_PHOTO_BYTES) {
   if (!Buffer.isBuffer(bytes) || !bytes.length) throw badRequest('Send the photo as the request body', 'PHOTO_REQUIRED')
-  if (bytes.length > MAX_PHOTO_BYTES) throw new HttpError(413, 'PAYLOAD_TOO_LARGE', 'The photo is too large (2 MB at most)')
+  if (bytes.length > max) throw new HttpError(413, 'PAYLOAD_TOO_LARGE', `The photo is too large (${Math.round(max / 1048576)} MB at most)`)
   const hit = MAGIC.find(([, , test]) => test(bytes))
   if (!hit) throw badRequest('The photo must be a JPEG, PNG or WebP image', 'PHOTO_INVALID')
   return { mime: hit[0], ext: hit[1] }
@@ -37,6 +39,11 @@ const blobStore = {
   },
   async del(path) {
     await del(path, { token: env.BLOB_READ_WRITE_TOKEN })
+  },
+  /** Paths under `prefix` uploaded before `before`, at most `limit`. */
+  async listOld(prefix, before, limit) {
+    const r = await list({ prefix, limit: 1000, token: env.BLOB_READ_WRITE_TOKEN })
+    return r.blobs.filter((b) => new Date(b.uploadedAt) < before).slice(0, limit).map((b) => b.pathname)
   },
 }
 
@@ -73,4 +80,67 @@ export async function dropPhoto(row) {
 /** Sends a stored photo as the response. */
 export async function sendPhoto(res, row) {
   res.set('Content-Type', row.mime).set('Cache-Control', 'private, max-age=86400').send(await photoBytes(row))
+}
+
+// ---------------------------------------------------------------- review photos
+
+/** The largest photo a customer may upload for a review (before it is shrunk). */
+export const MAX_REVIEW_UPLOAD_BYTES = 5 * 1024 * 1024
+/** Review photos are kept at most this many pixels on the long side. */
+const REVIEW_PHOTO_SIDE = 1600
+/** Where the phone uploads straight to Blob before the API checks the photo. */
+export const UPLOAD_PREFIX = 'review-uploads/'
+
+/**
+ * Re-encodes a checked image as a JPEG of at most 1600 px: a fresh file, so
+ * EXIF, GPS and any other metadata (and anything hidden after the image data)
+ * is left behind. Throws PHOTO_INVALID for a file that only looks like an image.
+ */
+export async function cleanImage(bytes) {
+  try {
+    const { data, info } = await sharp(bytes, { failOn: 'error', limitInputPixels: 50_000_000 })
+      .rotate() // apply the camera's orientation before the tag is dropped
+      .resize({ width: REVIEW_PHOTO_SIDE, height: REVIEW_PHOTO_SIDE, fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true })
+    return { bytes: data, mime: 'image/jpeg', ext: 'jpg', width: info.width, height: info.height }
+  } catch {
+    throw badRequest('The photo could not be read. Try another one.', 'PHOTO_INVALID')
+  }
+}
+
+/** True when photos go to Vercel Blob (so phones can upload straight to it). */
+export const blobUploadsOn = () => Boolean(env.BLOB_READ_WRITE_TOKEN && store === blobStore)
+
+/**
+ * A short-lived token that lets the phone put one image (5 MB at most) at one
+ * private path in the upload folder, without the bytes passing through the
+ * API (Vercel functions refuse bodies over 4.5 MB).
+ */
+export async function reviewUploadToken(pathname) {
+  return generateClientTokenFromReadWriteToken({
+    token: env.BLOB_READ_WRITE_TOKEN,
+    pathname,
+    allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    maximumSizeInBytes: MAX_REVIEW_UPLOAD_BYTES,
+    validUntil: Date.now() + 10 * 60_000,
+    addRandomSuffix: false,
+  })
+}
+
+/** The bytes of a direct upload, or null if nothing is there. */
+export async function readUpload(path) {
+  if (!store) return null
+  return store.get(path)
+}
+
+export async function deleteUpload(path) {
+  if (store) await store.del(path).catch((err) => logger.warn({ err, path }, 'blob delete failed'))
+}
+
+/** Direct uploads older than `before` that were never finished (the phone gave up). */
+export async function staleUploads(before, limit) {
+  if (!store?.listOld) return []
+  return store.listOld(UPLOAD_PREFIX, before, limit)
 }
