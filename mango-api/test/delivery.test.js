@@ -142,7 +142,7 @@ describe('proof of delivery', () => {
     assert.equal(locked.body.error.code, 'CODE_LOCKED')
   })
 
-  test('staff marking delivered from the panel is recorded without proof; unpacked orders are skipped', async () => {
+  test('only a manager, with a reason, marks delivered from the panel without proof; unpacked orders are skipped', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const { id, date } = await packedOrder(cust)
@@ -152,10 +152,21 @@ describe('proof of delivery', () => {
     const run = await api.post('/admin/v1/manifest/dispatch', { date }, { token: admin })
     assert.equal(run.body.dispatched.length, 1)
     assert.deepEqual(run.body.skipped.map((s) => s.reason), ['Not packed yet'])
-    assert.equal((await api.patch(`/admin/v1/orders/${id}/status`, { status: 'DELIVERED' }, { token: admin })).status, 204)
+    // ORD-3 / SEC-7: no proof is refused, for a manager too unless they override with a reason.
+    const status = (body, token = admin) => api.patch(`/admin/v1/orders/${id}/status`, body, { token })
+    assert.equal((await status({ status: 'DELIVERED' })).status, 403)
+    assert.equal((await status({ status: 'DELIVERED', override: true })).body.error.code, 'REASON_REQUIRED')
+    const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
+    assert.equal((await status({ status: 'DELIVERED', override: true, reason: 'x' }, ops)).status, 403)
+    assert.equal((await status({ status: 'DELIVERED', override: true, reason: 'Rider phone died; customer confirmed on a call' })).status, 204)
     const o = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
-    assert.deepEqual(o.deliveryAttempts.map((a) => [a.outcome, a.method]), [['DELIVERED', 'staff']])
+    assert.deepEqual(o.deliveryAttempts.map((a) => [a.outcome, a.method, a.note]), [['DELIVERED', 'staff', 'Rider phone died; customer confirmed on a call']])
+    assert.match(o.events.at(-1).reason, /without proof by a manager: Rider phone died/)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM delivery_attempts')).rows[0].n, 1)
+    // It waits for a second person to check it, like a photo delivery.
+    const queue = (await api.get('/admin/v1/delivery-reviews', { token: admin })).body
+    assert.deepEqual(queue.map((q) => [q.order.id, q.method, q.flags]), [[id, 'staff', ['no proof: marked delivered from the panel']]])
+    assert.equal((await api.post(`/admin/v1/delivery-reviews/${queue[0].id}`, { ok: true }, { token: ops })).status, 204)
   })
 })
 

@@ -20,7 +20,7 @@ import { orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
-import { availability, ledger, SELLABLE_STATUSES } from './inventory.js'
+import { auditLedger, availability, ledger, SELLABLE_STATUSES } from './inventory.js'
 import { triggerRebalanceAll } from './maintenance.js'
 import {
   allocateOrder,
@@ -32,6 +32,7 @@ import {
   placeOnFirstDateWithStock,
   rebalanceBatchOrders,
   rebalanceOrder,
+  recordShortArrival,
   setOrderStatus,
   takeBatchOutOfService,
 } from './orders.js'
@@ -540,21 +541,37 @@ router.get('/batches/:id', asyncHandler(async (req, res) => res.json(await batch
 router.patch(
   '/batches/:id/status',
   asyncHandler(async (req, res, next) => {
-    const { status } = parse(z.object({ status: z.enum(BATCH_STATUSES) }), req.body)
+    const { status, reason } = parse(
+      z.object({ status: z.enum(BATCH_STATUSES), reason: z.string().trim().max(500).optional() }),
+      req.body,
+    )
     if (status === 'CONDEMNED' && req.admin.role !== 'MANAGER') return requireManager(req, res, next)
     const result = await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       const b = rows[0]
       if (['EXHAUSTED', 'CONDEMNED'].includes(b.status)) throw badRequest(`This batch is ${b.status} and cannot change`, 'INVALID_TRANSITION')
+      if (status === 'EXHAUSTED') {
+        // INV-4: exhausting writes off whatever is left, for good. Boxes still on
+        // the shelf need a manager and a reason; an empty batch is just closed.
+        const { rows: left } = await c.query('SELECT COALESCE(SUM(on_hand), 0)::int AS n FROM batch_lines WHERE batch_id = $1', [b.id])
+        if (left[0].n > 0) {
+          if (req.admin.role !== 'MANAGER') {
+            throw new HttpError(403, 'FORBIDDEN', `${left[0].n} boxes are still on hand. Only a manager can write them off.`)
+          }
+          if (!reason) throw badRequest(`Say why the ${left[0].n} boxes still on hand are being written off`, 'REASON_REQUIRED')
+        }
+      }
       if (status !== 'CONDEMNED' && BATCH_FLOW.indexOf(status) <= BATCH_FLOW.indexOf(b.status)) {
         throw badRequest(`Cannot move a batch from ${b.status} back to ${status}`, 'INVALID_TRANSITION')
       }
       const arrivedAt = !b.arrived_at && ARRIVED_OR_LATER.includes(status) ? now() : b.arrived_at
       await c.query('UPDATE batches SET status = $2, arrived_at = $3 WHERE id = $1', [b.id, status, arrivedAt])
-      await ledger(c, { batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.email, reason: `${b.status} → ${status}` })
+      await ledger(c, {
+        batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.email, reason: `${b.status} → ${status}${reason ? `: ${reason}` : ''}`,
+      })
       const actor = req.actor
-      if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor)
+      if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor, reason || null)
       const touched = await rebalanceBatchOrders(c, [b.id], actor)
       return { rebalancedOrders: touched.filter((r) => r.changed && !r.atRisk).map((r) => r.number), atRiskOrders: touched.filter((r) => r.atRisk).map((r) => r.number) }
     })
@@ -578,6 +595,9 @@ router.post(
       const { rows } = await c.query('SELECT id, status FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
+      // Lock the lines before the reading lands: an allocation in flight either
+      // finishes first (and is rebalanced below) or re-checks the stage after us (INV-6).
+      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [req.params.id])
       const today = todayIST()
       const dup = await c.query(
         `SELECT 1 FROM batch_qc WHERE batch_id = $1 AND logged_by = $2 AND (logged_at AT TIME ZONE 'Asia/Kolkata')::date = $3 LIMIT 1`,
@@ -625,7 +645,12 @@ router.patch(
       const onHand = body.onHand ?? l.on_hand
       const buffer = body.reserveBuffer ?? l.reserve_buffer
       if (onHand < l.held + l.committed) {
-        throw badRequest(`On hand cannot go below the ${l.held + l.committed} boxes already promised to orders`, 'BELOW_COMMITTED')
+        throw new HttpError(
+          400,
+          'BELOW_COMMITTED',
+          `On hand cannot go below the ${l.held + l.committed} boxes already promised to orders. If fewer boxes arrived than expected, record a short arrival.`,
+          { promised: l.held + l.committed },
+        )
       }
       if (onHand - l.held - l.committed - buffer < 0) throw badRequest('The reserve buffer is larger than the free stock', 'BUFFER_TOO_LARGE')
       await c.query('UPDATE batch_lines SET on_hand = $2, reserve_buffer = $3 WHERE id = $1', [l.id, onHand, buffer])
@@ -635,6 +660,23 @@ router.patch(
       }
     })
     res.status(204).end()
+  }),
+)
+
+/**
+ * Fewer boxes arrived than were promised (INV-3): lowers on_hand below what
+ * is committed, gives the youngest orders' boxes back and re-fills or moves
+ * those orders (orders.js recordShortArrival).
+ */
+router.post(
+  '/batches/:id/lines/:lineId/short-arrival',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({ onHand: z.number().int().min(0).max(100_000), reason: z.string().trim().min(1, 'reason is required').max(500) }),
+      req.body,
+    )
+    const out = await tx((c) => recordShortArrival(c, { batchId: req.params.id, lineId: req.params.lineId, onHand: b.onHand, reason: b.reason }, req.actor))
+    res.json(out)
   }),
 )
 
@@ -752,10 +794,15 @@ router.get('/orders/:id', asyncHandler(async (req, res) => res.json(await orderD
 router.patch(
   '/orders/:id/status',
   asyncHandler(async (req, res) => {
-    const { status } = parse(z.object({ status: z.enum(ORDER_STATUSES) }), req.body)
+    const b = parse(
+      z.object({ status: z.enum(ORDER_STATUSES), reason: z.string().trim().max(300).optional(), override: z.boolean().optional() }),
+      req.body,
+    )
+    const override = Boolean(b.override)
+    if (override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
     await tx(async (c) => {
-      await setOrderStatus(c, req.params.id, status, req.actor)
-      await recordStaffDelivery(c, req.params.id, status, req.actor)
+      await setOrderStatus(c, req.params.id, b.status, req.actor, { reason: b.reason, override })
+      await recordStaffDelivery(c, req.params.id, b.status, req.actor, b.reason)
     })
     res.status(204).end()
   }),
@@ -947,7 +994,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
     const { rows: orders } = await query(
-      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id,
+      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id, o.delivery_failures,
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message,
               s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
@@ -985,6 +1032,8 @@ router.get(
         customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
         gift: o.gift_recipient_name ? { from: o.customer_name, message: o.gift_message } : null,
         packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,
+        // Sent back with the delivery report, so a late resend for an earlier attempt is refused.
+        attempt: o.delivery_failures + 1,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
       })
       run.orders++
@@ -1041,7 +1090,10 @@ router.post(
 router.post(
   '/orders/:id/dispatch',
   asyncHandler(async (req, res) => {
-    await tx((c) => dispatchOrder(c, req.params.id, req.actor))
+    const b = parse(z.object({ override: z.boolean().optional(), reason: z.string().trim().max(300).optional() }), req.body ?? {})
+    if (b.override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
+    if (b.override && !b.reason) throw badRequest('Say why it is going out anyway', 'REASON_REQUIRED')
+    await tx((c) => dispatchOrder(c, req.params.id, req.actor, { override: Boolean(b.override), reason: b.reason }))
     res.status(204).end()
   }),
 )
@@ -1076,6 +1128,8 @@ router.post(
         note: z.string().trim().max(300).optional(),
         lat: z.number().min(-90).max(90).optional(),
         lng: z.number().min(-180).max(180).optional(),
+        // Which delivery attempt this report is for (the manifest's attempt): a late resend after a re-dispatch is refused.
+        attempt: z.number().int().min(1).max(100).optional(),
       }),
       req.body,
     )
@@ -1131,7 +1185,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos, lowRatings] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1164,6 +1218,8 @@ router.get(
           WHERE r.rating <= 2 AND r.status = 'PENDING' AND r.created_at >= $1 ORDER BY r.created_at DESC LIMIT 50`,
         [week],
       ),
+      // Stock counters that disagree with the ledger (INV-7): until now only a metric and a log line.
+      auditLedger({ query }),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1186,6 +1242,7 @@ router.get(
       // Delivered with only a photo: someone other than the rider checks it.
       photoDeliveries: photos,
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+      ledgerDrift: drift.slice(0, 50),
       lowRatings: lowRatings.rows.map((r) => ({
         id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },
       })),

@@ -11,6 +11,7 @@ import type {
   Attention,
   AuditPage,
   BulkMoveResult,
+  ShortArrivalResult,
   Manifest,
   BatchListItem,
   BatchStatus,
@@ -256,11 +257,11 @@ export const api = {
    * 204 for normal moves. CONDEMNED returns the orders moved to other batches
    * and the ones left at-risk; no order is cancelled.
    */
-  setBatchStatus: (batchId: string, status: BatchStatus) =>
+  setBatchStatus: (batchId: string, status: BatchStatus, reason?: string) =>
     request<{ rebalancedOrders?: string[]; atRiskOrders?: string[] } | undefined>(
       'PATCH',
       `/batches/${id(batchId)}/status`,
-      { status },
+      reason ? { status, reason } : { status },
     ),
   logQc: (batchId: string, input: { ripenessRating: Ripeness; condition: Condition; notes?: string }) =>
     request<{ id: string; warning?: string }>('POST', `/batches/${id(batchId)}/qc`, input),
@@ -269,12 +270,22 @@ export const api = {
     lineId: string,
     input: { onHand?: number; reserveBuffer?: number; reason: string },
   ) => request<void>('PATCH', `/batches/${id(batchId)}/lines/${id(lineId)}`, input),
+  /**
+   * Fewer boxes arrived than were already promised: lowers on hand, takes boxes
+   * back from the youngest orders and re-fills them or moves them to the next date with stock.
+   */
+  shortArrival: (batchId: string, lineId: string, input: { onHand: number; reason: string }) =>
+    request<ShortArrivalResult>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/short-arrival`, input),
 
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
-  setOrderStatus: (orderId: string, status: OrderStatus) =>
-    request<void>('PATCH', `/orders/${id(orderId)}/status`, { status }),
+  /**
+   * A status move. DELIVERED without the customer's code or a photo, sending out
+   * at-risk stock, or a retry after the last attempt need a manager's override with a reason.
+   */
+  setOrderStatus: (orderId: string, status: OrderStatus, override?: { reason: string }) =>
+    request<void>('PATCH', `/orders/${id(orderId)}/status`, override ? { status, override: true, reason: override.reason } : { status }),
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   /** A paid order can only be cancelled by a manager, with a full refund (refund: true). */
   cancelOrder: (orderId: string, reason: string, refund = false) =>
@@ -309,8 +320,8 @@ export const api = {
   recordDelivery: (
     orderId: string,
     body:
-      | { outcome: 'DELIVERED'; code?: string; photoId?: string; receivedBy?: string; lat?: number; lng?: number }
-      | { outcome: 'FAILED'; reason: FailReason; note?: string; photoId?: string; lat?: number; lng?: number },
+      | { outcome: 'DELIVERED'; code?: string; photoId?: string; receivedBy?: string; lat?: number; lng?: number; attempt?: number }
+      | { outcome: 'FAILED'; reason: FailReason; note?: string; photoId?: string; lat?: number; lng?: number; attempt?: number },
   ) => request<{ outcome: 'DELIVERED' | 'FAILED'; method?: string }>('POST', `/orders/${id(orderId)}/delivery`, body),
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
@@ -413,4 +424,9 @@ export function errorMessage(err: unknown): ErrorInfo {
 
 export function isConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409
+}
+
+/** Someone else moved the record first (a plain 409), as opposed to a 409 that explains a business rule. */
+export function isStale(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && err.code === 'CONFLICT'
 }

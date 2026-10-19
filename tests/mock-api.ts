@@ -160,7 +160,7 @@ export function seed() {
               orders: [
                 {
                   id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', deliveryAddress: '12 Marine Drive',
-                  status: 'PACKED', packed: true, boxes: 2, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
+                  status: 'PACKED', packed: true, boxes: 2, attempt: 1, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
                 },
                 {
                   id: 'o3', number: 'ORD-1044', customerName: 'Vikram Shah', phone: '9876500000', deliveryAddress: null,
@@ -384,12 +384,20 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/batches\/[^/]+$/.test(path)) return json(route, 200, state.batch)
     if (/\/ledger$/.test(path)) return json(route, 200, state.ledger)
     if (/^\/batches\/[^/]+\/status$/.test(path)) {
-      const s = (body as { status: string }).status
+      const { status: s, reason } = body as { status: string; reason?: string }
       if (s === 'CONDEMNED') return json(route, 200, { rebalancedOrders: ['ORD-1042'], atRiskOrders: ['ORD-1043'] })
+      // Writing off boxes still on hand needs a manager and a reason (mirrors the API).
+      if (s === 'EXHAUSTED' && state.batch.lines.some((l) => l.onHand > 0)) {
+        if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can write them off.', requestId: 'req_x' } })
+        if (!reason) return json(route, 400, { error: { code: 'REASON_REQUIRED', message: 'Say why', requestId: 'req_x' } })
+      }
       state.batch = { ...state.batch, status: s }
       return route.fulfill({ status: 204 })
     }
     if (/\/qc$/.test(path)) return json(route, 201, { id: 'q2', warning: 'QC already logged today by this user' })
+    if (/\/lines\/[^/]+\/short-arrival$/.test(path)) {
+      return json(route, 200, { refilled: [], moved: [{ number: 'ORD-1044', deliveryDate: '2026-10-17' }], atRisk: [] })
+    }
     if (/\/lines\//.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/orders') return json(route, 200, state.orders)
@@ -408,7 +416,15 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         notMoved: [{ ...picked[1], reason: 'No stock on 2026-10-16 or any later open date' }],
       })
     }
-    if (/^\/orders\/[^/]+\/(status|allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
+    if (/^\/orders\/[^/]+\/status$/.test(path)) {
+      // DELIVERED from the panel is a manager's override with a reason (mirrors the API).
+      const b = body as { status: string; override?: boolean; reason?: string }
+      if (b.override && state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can override this', requestId: 'req_x' } })
+      if (b.status === 'DELIVERED' && !b.override) return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can mark it delivered without proof.', requestId: 'req_x' } })
+      if (b.override && !b.reason) return json(route, 400, { error: { code: 'REASON_REQUIRED', message: 'Say why', requestId: 'req_x' } })
+      return route.fulfill({ status: 204 })
+    }
+    if (/^\/orders\/[^/]+\/(allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)

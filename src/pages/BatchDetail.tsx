@@ -130,13 +130,19 @@ function StatusControls({ batch }: { batch: Batch }) {
   const queryClient = useQueryClient()
   const [confirmCondemn, setConfirmCondemn] = useState(false)
   const [condemned, setCondemned] = useState<{ moved: string[]; atRisk: string[] } | null>(null)
+  // Exhausting a batch with boxes still on hand writes them off: a manager's call, with a reason.
+  const [exhausting, setExhausting] = useState(false)
+  const [exhaustReason, setExhaustReason] = useState('')
+  const left = batch.lines.reduce((n, l) => n + l.onHand, 0)
+  const manager = me?.role === 'MANAGER'
 
   const move = useMutation({
-    mutationFn: (status: BatchStatus) => api.setBatchStatus(batch.id, status),
+    mutationFn: (status: BatchStatus) => api.setBatchStatus(batch.id, status, status === 'EXHAUSTED' && left > 0 ? exhaustReason.trim() : undefined),
     onSuccess: (res, status) => {
       queryClient.invalidateQueries({ queryKey: ['batch', batch.id] })
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['summary'] })
+      setExhausting(false)
       if (status === 'CONDEMNED') {
         setConfirmCondemn(false)
         setCondemned({ moved: res?.rebalancedOrders ?? [], atRisk: res?.atRiskOrders ?? [] })
@@ -145,7 +151,7 @@ function StatusControls({ batch }: { batch: Batch }) {
       }
     },
     onError: (err) => {
-      if (!confirmCondemn) toast.error(err)
+      if (!confirmCondemn && !exhausting) toast.error(err)
     },
   })
 
@@ -161,16 +167,27 @@ function StatusControls({ batch }: { batch: Batch }) {
         </p>
       ) : (
         <div className="btn-row">
-          {next && (
-            <button type="button" className="btn btn-primary" disabled={move.isPending} onClick={() => move.mutate(next)}>
-              Move to {BATCH_STATUS_LABEL[next]}
-            </button>
+          {next &&
+            (next === 'EXHAUSTED' && left > 0 ? (
+              <GatedButton allowed={manager} className="btn btn-primary" disabled={move.isPending} onClick={() => setExhausting(true)}>
+                Move to {BATCH_STATUS_LABEL[next]}
+              </GatedButton>
+            ) : (
+              <button type="button" className="btn btn-primary" disabled={move.isPending} onClick={() => move.mutate(next)}>
+                Move to {BATCH_STATUS_LABEL[next]}
+              </button>
+            ))}
+          {skips.map((s) =>
+            s === 'EXHAUSTED' && left > 0 ? (
+              <GatedButton key={s} allowed={manager} className="btn" disabled={move.isPending} onClick={() => setExhausting(true)}>
+                Skip to {BATCH_STATUS_LABEL[s]}
+              </GatedButton>
+            ) : (
+              <button key={s} type="button" className="btn" disabled={move.isPending} onClick={() => move.mutate(s)}>
+                Skip to {BATCH_STATUS_LABEL[s]}
+              </button>
+            ),
           )}
-          {skips.map((s) => (
-            <button key={s} type="button" className="btn" disabled={move.isPending} onClick={() => move.mutate(s)}>
-              Skip to {BATCH_STATUS_LABEL[s]}
-            </button>
-          ))}
           <span className="spacer" style={{ flex: 1 }} />
           <GatedButton
             allowed={can(me?.role, 'condemnBatch')}
@@ -180,6 +197,47 @@ function StatusControls({ batch }: { batch: Batch }) {
             Condemn batch
           </GatedButton>
         </div>
+      )}
+
+      {exhausting && (
+        <Dialog
+          title="Write off the rest of this batch?"
+          tone="danger"
+          onClose={() => setExhausting(false)}
+          footer={
+            <>
+              <button type="button" className="btn" onClick={() => setExhausting(false)}>
+                Keep batch
+              </button>
+              <button
+                type="submit"
+                form="exhaust-form"
+                className="btn btn-danger"
+                disabled={move.isPending || exhaustReason.trim().length < 3}
+              >
+                {move.isPending ? 'Saving…' : `Write off ${left} boxes`}
+              </button>
+            </>
+          }
+        >
+          <form
+            id="exhaust-form"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (exhaustReason.trim().length >= 3) move.mutate('EXHAUSTED')
+            }}
+          >
+            <p>
+              {left} boxes are still on hand. Marking the batch exhausted writes them off for good; it cannot be undone.
+            </p>
+            <div className="field">
+              <label htmlFor="exhaust-reason">Reason</label>
+              <textarea id="exhaust-reason" value={exhaustReason} onChange={(e) => setExhaustReason(e.target.value)} data-autofocus />
+              <p className="hint">At least 3 characters. Saved in the batch ledger.</p>
+            </div>
+            <FormError error={move.error} />
+          </form>
+        </Dialog>
       )}
 
       {confirmCondemn && (
@@ -425,6 +483,27 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
       onClose()
     },
   })
+  const promised = line.held + line.committed
+  const ohNumber = Number(onHand)
+  // Fewer boxes than customers already hold: a short arrival, which takes boxes back from orders.
+  const short = Number.isInteger(ohNumber) && ohNumber >= 0 && ohNumber < promised
+  const shortArrival = useMutation({
+    mutationFn: (input: { onHand: number; reason: string }) => api.shortArrival(batchId, line.id, input),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
+      queryClient.invalidateQueries({ queryKey: ['ledger', batchId] })
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+      const parts = [
+        r.moved.length ? `moved ${r.moved.map((m) => `${m.number} to ${date(m.deliveryDate)}`).join(', ')}` : null,
+        r.refilled.length ? `refilled ${r.refilled.join(', ')} from other batches` : null,
+        r.atRisk.length ? `${r.atRisk.join(', ')} at risk` : null,
+      ].filter(Boolean)
+      toast.success(`Short arrival recorded${parts.length ? `: ${parts.join('; ')}` : ''}`)
+      onClose()
+    },
+  })
+  const pending = save.isPending || shortArrival.isPending
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -435,6 +514,7 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
       return setFormError('Enter whole numbers of zero or more.')
     }
     if (!reason.trim()) return setFormError('A reason is required.')
+    if (short) return shortArrival.mutate({ onHand: oh, reason: reason.trim() })
     const input: { onHand?: number; reserveBuffer?: number; reason: string } = { reason: reason.trim() }
     if (oh !== line.onHand) input.onHand = oh
     if (rb !== line.reserveBuffer) input.reserveBuffer = rb
@@ -451,15 +531,15 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" form="adjust-form" className="btn btn-primary" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save adjustment'}
+          <button type="submit" form="adjust-form" className={short ? 'btn btn-danger' : 'btn btn-primary'} disabled={pending}>
+            {pending ? 'Saving…' : short ? 'Record short arrival' : 'Save adjustment'}
           </button>
         </>
       }
     >
       <form id="adjust-form" onSubmit={onSubmit} noValidate>
         <p className="muted small">
-          Held {line.held} + committed {line.committed}. On hand can't go below what customers already hold.
+          Held {line.held} + committed {line.committed}. Going below what customers already hold records a short arrival.
         </p>
         <div className="field">
           <label htmlFor="adj-onhand">On hand</label>
@@ -473,7 +553,13 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
           <label htmlFor="adj-reason">Reason</label>
           <input id="adj-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. 4 boxes crushed in unloading" />
         </div>
-        <FormError error={formError ?? save.error} />
+        {short && (
+          <p className="notice notice-warn" role="status">
+            Only {ohNumber} of the {promised} promised boxes. The newest orders give boxes back; each is filled from another
+            batch, or moved to the next date with stock (the customer gets a WhatsApp update), or flagged at risk.
+          </p>
+        )}
+        <FormError error={formError ?? save.error ?? shortArrival.error} />
       </form>
     </Dialog>
   )

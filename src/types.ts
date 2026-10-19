@@ -439,6 +439,13 @@ export interface BulkMoveOrder {
 }
 
 /** What a bulk reschedule matched and did. With dryRun, moved and notMoved are empty. */
+/** What a short arrival did to the orders on the line. */
+export interface ShortArrivalResult {
+  refilled: string[]
+  moved: { number: string; deliveryDate: string }[]
+  atRisk: string[]
+}
+
 export interface BulkMoveResult {
   matched: number
   orders: BulkMoveOrder[]
@@ -456,6 +463,8 @@ export interface ManifestOrder {
   status: OrderStatus
   packed: boolean
   boxes: number
+  /** Which delivery attempt this is; sent back with the delivery report. */
+  attempt?: number
   /** A gift: the name and phone above are the recipient's. */
   gift?: { from: string | null; message: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
@@ -529,12 +538,28 @@ export interface Attention {
   failedDeliveries?: { id: string; number: string; name: string | null; phone: string | null; attempts: number }[]
   /** New 1 and 2 star reviews still waiting for a look. */
   lowRatings?: { id: string; rating: number; comment: string | null; sku: string; productName: string; createdAt: string; order: { id: string; number: string } }[]
-  /** Delivered with only a photo: someone other than the rider checks it. */
+  /** Delivered with only a photo, or marked delivered by a manager without proof: someone else checks it. */
   photoDeliveries?: PhotoDelivery[]
+  /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
+  ledgerDrift?: LedgerDrift[]
+}
+
+export interface LedgerDrift {
+  lineId: string
+  batchId: string
+  sku: string
+  onHand: [number, number]
+  reserveBuffer: [number, number]
+  held: [number, number]
+  committed: [number, number]
 }
 
 export interface PhotoDelivery {
   id: string
+  /** photo: handed over with a photo; staff: a manager marked it delivered without proof. */
+  method?: 'photo' | 'staff'
+  /** The manager's reason, for a delivery marked without proof. */
+  note?: string | null
   receivedBy: string | null
   photoId: string | null
   actor: string

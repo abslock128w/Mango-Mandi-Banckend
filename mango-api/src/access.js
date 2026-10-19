@@ -16,8 +16,12 @@ export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
 /** True when the role may call this route (managers may call all of them). */
 export const roleAllows = (role, method, path) => role === 'MANAGER' || (LIMITED[role] ?? []).some((r) => r.method === method && r.re.test(path))
 
-/** The order steps a packer may make: packing, handing over and delivery. */
-export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED']
+/**
+ * The order steps a packer may make: packing, handing over and a missed
+ * delivery. Not DELIVERED: that needs the customer's code or a photo
+ * (POST /orders/:id/delivery), or a manager's override (ORD-3).
+ */
+export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 
 const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:\w+/g, '[^/]+')}$`) })
 
@@ -49,6 +53,7 @@ export const OPERATOR_ROUTES = [
   route('PATCH', '/batches/:id/status'), // condemning a batch also needs a manager
   route('POST', '/batches/:id/qc'),
   route('PATCH', '/batches/:id/lines/:lineId'),
+  route('POST', '/batches/:id/lines/:lineId/short-arrival'),
   route('GET', '/batches/:id/ledger'),
   route('GET', '/orders'),
   route('GET', '/orders/:id'),
@@ -113,6 +118,7 @@ const LIMITED = {
     route('PATCH', '/batches/:id/status'),
     route('POST', '/batches/:id/qc'),
     route('PATCH', '/batches/:id/lines/:lineId'),
+    route('POST', '/batches/:id/lines/:lineId/short-arrival'),
     // Ripeness accuracy from reviews, per batch and variety (read only).
     route('GET', '/reviews/insights'),
   ],

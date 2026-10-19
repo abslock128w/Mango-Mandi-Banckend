@@ -96,6 +96,7 @@ export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'a
  */
 export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, stage, qty, state, actor, excludeBatchIds = [] }) {
   const col = state === 'held' ? 'held' : 'committed'
+  const cfg = getConfig()
   let left = qty
   for (const line of await candidateLines(c, deliveryDate, { sku, stage, excludeBatchIds })) {
     if (left === 0) break
@@ -108,6 +109,16 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
         [line.id, take, line.factor],
       )
       if (upd.rowCount === 1) {
+        // Now that this transaction holds the line, re-read the batch: a
+        // condemn or QC reading that committed after candidateLines read it
+        // would otherwise leave this stock on a dead batch or a stale stage
+        // (INV-6). Condemn and QC lock the lines first, so they can't slip
+        // in after this check.
+        const fresh = sellableAs(await lineInfo(c, line.id), deliveryDate, cfg)
+        if (!fresh || fresh.stage !== stage) {
+          await c.query(`UPDATE batch_lines SET ${col} = ${col} - $2 WHERE id = $1`, [line.id, take])
+          break
+        }
         await c.query(
           `INSERT INTO order_stock (id, order_id, batch_id, line_id, sku, stage, quantity, state)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
