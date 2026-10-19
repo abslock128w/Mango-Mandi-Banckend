@@ -41,6 +41,11 @@ import type {
   Preorder,
   PreorderCapacity,
   PreorderStatus,
+  Review,
+  ReviewDetail,
+  ReviewFilters,
+  ReviewInsights,
+  ReviewQueue,
   Role,
   StaffMember,
   Summary,
@@ -314,6 +319,33 @@ export const api = {
     const res = await send('GET', `/claims/${id(claimId)}/photos/${id(photoId)}`)
     return URL.createObjectURL(await res.blob())
   },
+  reviews: (f: ReviewFilters) =>
+    request<ReviewQueue>(
+      'GET',
+      `/reviews${qs({
+        status: f.status,
+        stars: f.stars,
+        hasPhotos: f.hasPhotos == null ? null : String(f.hasPhotos),
+        flagged: f.flagged == null ? null : String(f.flagged),
+        variety: f.variety,
+        cursor: f.cursor,
+      })}`,
+    ),
+  review: (reviewId: string) => request<ReviewDetail>('GET', `/reviews/${id(reviewId)}`),
+  approveReview: (reviewId: string, photoIds: string[], reason?: string | null) =>
+    request<Review>('POST', `/reviews/${id(reviewId)}/approve`, { photoIds, reason: reason || null }),
+  rejectReview: (reviewId: string, reason: string) => request<Review>('POST', `/reviews/${id(reviewId)}/reject`, { reason }),
+  hideReview: (reviewId: string, reason: string) => request<Review>('POST', `/reviews/${id(reviewId)}/hide`, { reason }),
+  bulkReviews: (action: 'approve' | 'reject', ids: string[], reason?: string | null) =>
+    request<{ done: string[]; failed: { id: string; code: string; message: string }[] }>('POST', '/reviews/bulk', { action, ids, reason: reason || null }),
+  replyToReview: (reviewId: string, body: string) => request<Review>('PUT', `/reviews/${id(reviewId)}/reply`, { body }),
+  deleteReviewReply: (reviewId: string) => request<void>('DELETE', `/reviews/${id(reviewId)}/reply`),
+  /** An object URL for a review photo (fetched with the staff sign-in; private until approved). */
+  async reviewPhotoUrl(reviewId: string, photoId: string): Promise<string> {
+    const res = await send('GET', `/reviews/${id(reviewId)}/photos/${id(photoId)}`)
+    return URL.createObjectURL(await res.blob())
+  },
+  reviewInsights: (days = 90) => request<ReviewInsights>('GET', `/reviews/insights${qs({ days })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
   /** MandiMangoes doesn't refund: a claim is resolved by a replacement or rejected. */
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>

@@ -5,6 +5,7 @@ import { api, type StockAlert } from '../api'
 import { STAGE_LABEL, day } from '../format'
 import { useStore } from '../store'
 import { Dialog, ErrorNote, Spinner } from '../ui'
+import { MyReviews } from './Review'
 
 export default function Account() {
   const { profile } = useStore()
@@ -43,6 +44,8 @@ export default function Account() {
       <Messages />
 
       <SavedAddresses />
+
+      <MyReviews />
 
       <section className="card narrow" aria-labelledby="delete-account">
         <h2 id="delete-account">Delete your account</h2>

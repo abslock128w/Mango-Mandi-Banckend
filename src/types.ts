@@ -527,6 +527,8 @@ export interface Attention {
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
   /** Orders missed too many times: call the customer before sending them out again. */
   failedDeliveries?: { id: string; number: string; name: string | null; phone: string | null; attempts: number }[]
+  /** New 1 and 2 star reviews still waiting for a look. */
+  lowRatings?: { id: string; rating: number; comment: string | null; sku: string; productName: string; createdAt: string; order: { id: string; number: string } }[]
   /** Delivered with only a photo: someone other than the rider checks it. */
   photoDeliveries?: PhotoDelivery[]
 }
@@ -539,6 +541,79 @@ export interface PhotoDelivery {
   at: string
   order: { id: string; number: string; name: string | null }
   flags: string[]
+}
+
+// ---------- Reviews ----------
+
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'DELETED'
+export type ReviewFlag = 'LINK' | 'EMAIL' | 'PHONE' | 'PROFANITY'
+
+export interface Review {
+  id: string
+  status: ReviewStatus
+  flagged: boolean
+  flagReasons: ReviewFlag[]
+  rating: number
+  taste: number | null
+  ripenessAccuracy: number | null
+  packaging: number | null
+  delivery: number | null
+  comment: string | null
+  displayName: string
+  anonymous: boolean
+  customerName: string | null
+  orderId: string
+  orderNumber: string | null
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Ripeness | null
+  photos: { id: string; url: string; approved: boolean }[]
+  reply: { body: string; at: string; by: string | null } | null
+  deliveredAt: string
+  createdAt: string
+  updatedAt: string
+  moderatedBy: string | null
+  moderatedAt: string | null
+  moderationReason: string | null
+  scrubbed: boolean
+}
+
+export interface ReviewDetail extends Review {
+  events: { from: ReviewStatus | null; to: ReviewStatus; actor: string; reason: string | null; at: string }[]
+  batches: { batchId: string; quantity: number; variety: string; pluckedOn: string; farm: string | null }[]
+}
+
+export interface ReviewQueue {
+  items: Review[]
+  nextCursor: string | null
+  counts: Partial<Record<ReviewStatus, { total: number; flagged: number }>>
+}
+
+export interface ReviewFilters {
+  status: ReviewStatus
+  stars?: number | null
+  hasPhotos?: boolean | null
+  flagged?: boolean | null
+  variety?: string | null
+  cursor?: string | null
+}
+
+export interface ReviewInsights {
+  days: number
+  byVariety: { variety: string; reviews: number; averageRating: number | null; ripenessAnswers: number; ripenessAccuracy: number | null; low: number }[]
+  byBatch: {
+    batchId: string
+    variety: string
+    pluckedOn: string
+    farm: string | null
+    reviews: number
+    averageRating: number | null
+    ripenessAnswers: number
+    ripenessAccuracy: number | null
+    notAsPromised: number
+  }[]
+  lowRatingTrend: { week: string; reviews: number; low: number }[]
 }
 
 export interface StaffMember {

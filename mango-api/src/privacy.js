@@ -3,6 +3,7 @@
 // (ops/reapply-deletions.js), so a restore never brings a deleted account back.
 import { now } from './clock.js'
 import { conflict, notFound } from './errors.js'
+import { scrubCustomerReviews } from './reviews.js'
 
 /**
  * Anything still in progress for the customer: an open order or booking, or
@@ -73,6 +74,8 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
     [me.id],
   )
   await c.query('UPDATE order_ratings SET comment = NULL WHERE customer_id = $1', [me.id])
+  // Reviews keep their stars (anonymous) for the averages; name, text, photos and replies go.
+  const reviewPics = await scrubCustomerReviews(c, me.id)
   await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
@@ -83,5 +86,5 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   }
   await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
   await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, reminders_opt_in = FALSE, deleted_at = $2 WHERE id = $1', [me.id, deletedAt])
-  return [...pics.rows, ...deliveryPics.rows]
+  return [...pics.rows, ...deliveryPics.rows, ...reviewPics]
 }

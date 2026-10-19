@@ -19,6 +19,8 @@ const STEP_LABEL: Record<string, string> = {
   'rebalance-at-risk': 'Re-checking at-risk orders',
   audit: 'Stock audit',
   config: 'Loading rules',
+  'review-requests': 'Queueing review requests',
+  'review-stats': 'Review totals check',
 }
 
 /**
@@ -53,6 +55,7 @@ export default function NeedsAttention() {
   if (!q.data) return null
   const a = q.data
   const calls = a.failedDeliveries ?? []
+  const low = a.lowRatings ?? []
   const photos = a.photoDeliveries ?? []
   const count =
     (a.loop.stale ? 1 : 0) +
@@ -61,6 +64,7 @@ export default function NeedsAttention() {
     a.stuckRefunds.length +
     a.webhookFailures.length +
     calls.length +
+    (low.length ? 1 : 0) +
     photos.length
   if (count === 0) return null
 
@@ -118,6 +122,15 @@ export default function NeedsAttention() {
             </button>
           </li>
         ))}
+        {low.length > 0 && (
+          <li>
+            <strong>
+              {low.length} new {low.length === 1 ? 'review' : 'reviews'} with 1 or 2 stars
+            </strong>{' '}
+            ({low.map((r) => r.order.number).join(', ')}). <Link to="/reviews">Read them</Link> and check whether the customer
+            needs help. A review never opens a claim by itself.
+          </li>
+        )}
         {a.webhookFailures.map((w) => (
           <li key={w.id}>
             <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}

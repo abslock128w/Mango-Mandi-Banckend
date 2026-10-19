@@ -78,6 +78,17 @@ export const OPERATOR_ROUTES = [
   route('GET', '/preorders'),
   route('GET', '/preorder-capacity'),
   route('GET', '/coverage'),
+  // Review moderation: the queue, publishing, rejecting, hiding and replies.
+  route('GET', '/reviews'),
+  route('GET', '/reviews/insights'),
+  route('GET', '/reviews/:id'),
+  route('GET', '/reviews/:id/photos/:photoId'),
+  route('POST', '/reviews/:id/approve'),
+  route('POST', '/reviews/:id/reject'),
+  route('POST', '/reviews/:id/hide'),
+  route('POST', '/reviews/bulk'),
+  route('PUT', '/reviews/:id/reply'),
+  route('DELETE', '/reviews/:id/reply'),
 ]
 
 const LIMITED = {
@@ -102,6 +113,8 @@ const LIMITED = {
     route('PATCH', '/batches/:id/status'),
     route('POST', '/batches/:id/qc'),
     route('PATCH', '/batches/:id/lines/:lineId'),
+    // Ripeness accuracy from reviews, per batch and variety (read only).
+    route('GET', '/reviews/insights'),
   ],
 }
 

@@ -7,6 +7,7 @@ import { openRazorpay, rememberedPayment } from '../payment'
 import { Dialog, ErrorNote, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
+import { OrderReviews } from './Review'
 
 const TONE: Partial<Record<OrderStatus, string>> = {
   PAYMENT_PENDING: 'warn',
@@ -259,7 +260,7 @@ function OrderView({ order }: { order: Order }) {
         </div>
       </section>
 
-      {order.status === 'DELIVERED' && <RateOrder order={order} />}
+      {order.status === 'DELIVERED' && <OrderReviews orderId={order.id} />}
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && stages.length > 0 && <CareTips stages={stages} />}
 
@@ -373,72 +374,6 @@ function CareTips({ stages }: { stages: Stage[] }) {
           </div>
         </div>
       ))}
-    </section>
-  )
-}
-
-const STAR_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Excellent']
-
-/** Stars and a note after delivery. Can be changed later. */
-function RateOrder({ order }: { order: Order }) {
-  const queryClient = useQueryClient()
-  const [editing, setEditing] = useState(!order.rating)
-  const [stars, setStars] = useState(order.rating?.stars ?? 0)
-  const [comment, setComment] = useState(order.rating?.comment ?? '')
-  const save = useMutation({
-    mutationFn: () => api.rate(order.id, stars, comment.trim() || null),
-    onSuccess: () => {
-      setEditing(false)
-      void queryClient.invalidateQueries({ queryKey: ['order', order.id] })
-    },
-  })
-  if (!editing && order.rating) {
-    return (
-      <section className="card" aria-labelledby="rated-title">
-        <h2 id="rated-title">Your rating</h2>
-        <p className="stars-shown" aria-label={`${order.rating.stars} out of 5 stars`}>
-          {'★'.repeat(order.rating.stars)}
-          <span className="stars-off">{'★'.repeat(5 - order.rating.stars)}</span>
-        </p>
-        {order.rating.comment && <p>{order.rating.comment}</p>}
-        <p className="muted small">Thank you. {order.rating.stars <= 2 && 'If something was wrong with the fruit, report it below and we will make it right.'}</p>
-        <button type="button" className="link-btn" onClick={() => setEditing(true)}>
-          Change my rating
-        </button>
-      </section>
-    )
-  }
-  return (
-    <section className="card" aria-labelledby="rate-title">
-      <h2 id="rate-title">How were your mangoes?</h2>
-      <div className="stars" role="radiogroup" aria-labelledby="rate-title">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            role="radio"
-            aria-checked={stars === n}
-            aria-label={`${n} ${n === 1 ? 'star' : 'stars'}, ${STAR_WORDS[n]}`}
-            className={n <= stars ? 'star on' : 'star'}
-            onClick={() => setStars(n)}
-          >
-            ★
-          </button>
-        ))}
-        {stars > 0 && <span className="muted small">{STAR_WORDS[stars]}</span>}
-      </div>
-      {stars > 0 && (
-        <>
-          <div className="field">
-            <label htmlFor="rate-note">Anything to tell us? (optional)</label>
-            <textarea id="rate-note" rows={2} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-          <ErrorNote error={save.error} />
-          <button type="button" className="btn btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Sending…' : 'Send rating'}
-          </button>
-        </>
-      )}
     </section>
   )
 }

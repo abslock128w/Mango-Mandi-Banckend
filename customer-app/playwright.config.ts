@@ -20,12 +20,23 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
   ],
-  webServer: {
-    command: 'npm run shop:dev',
-    cwd: '..',
-    url: 'http://localhost:5174',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-    env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
-  },
+  webServer: [
+    {
+      command: 'npm run shop:dev',
+      cwd: '..',
+      url: 'http://localhost:5174',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
+    },
+    // The staff panel, for the reviews journey (a manager publishes the review).
+    {
+      command: 'npm run dev',
+      cwd: '..',
+      url: 'http://localhost:5173',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
+    },
+  ],
 })

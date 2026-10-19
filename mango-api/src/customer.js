@@ -26,6 +26,7 @@ import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
@@ -326,7 +327,9 @@ router.get(
 
 /** What a box's QR code opens: where the mangoes came from and when they'll be ripe. Public. */
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
+// Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
+router.use(customerReviews)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -486,6 +489,8 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE reviews SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [

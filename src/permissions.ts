@@ -54,14 +54,19 @@ export type Screen =
   | 'staff'
   | 'promos'
   | 'products'
+  | 'reviews'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',
-  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics']),
+  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
-  QC: new Set<Screen>(['batches']),
+  // QC sees the Reviews page's ripeness accuracy only (no moderation).
+  QC: new Set<Screen>(['batches', 'reviews']),
   RIDER: new Set<Screen>(['deliveries']),
 }
+
+/** Approve, reject, hide and reply to reviews: managers and operators (the API refuses everyone else). */
+export const canModerate = (role: Role | null | undefined) => role === 'MANAGER' || role === 'OPERATOR'
 
 export function canSee(role: Role | null | undefined, screen: Screen): boolean {
   if (!role) return false

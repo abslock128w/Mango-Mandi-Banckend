@@ -27,6 +27,8 @@ import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn } from './sentry.js'
+import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
+import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
@@ -121,6 +123,8 @@ export async function cleanupExpired(at = now()) {
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
+  // Review photos uploaded but never sent with a review (bounded per run).
+  await cleanupReviewPhotos(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
@@ -230,10 +234,14 @@ async function steps(forceAll) {
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {
     out.drift = (await step('audit', runAudit))?.length ?? null
   }
+  if (forceAll || t - (last['review-stats'] ?? 0) > HOURLY_MS) {
+    out.reviewStatsDrift = (await step('review-stats', () => tx((c) => auditReviewStats(c))))?.length ?? null
+  }
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
+  out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   await step('cleanup', () => cleanupExpired())
