@@ -10,6 +10,7 @@ import { query, tx } from './db.js'
 import { env } from './env.js'
 import { forbidden, HttpError, unauthorized } from './errors.js'
 import { logger } from './logger.js'
+import { sharedLimiter } from './ratelimit.js'
 
 export const ACCESS_TTL_S = 15 * 60
 const REFRESH_TTL_S = { admin: 7 * 86_400, customer: 30 * 86_400 }
@@ -70,6 +71,34 @@ export async function rotateRefresh(token, userType) {
   })
 }
 
+/**
+ * Refresh has its own limit, kept apart from the sign-in limits: many
+ * customers share one carrier-NAT address, so a per-address count signed
+ * everyone on a busy address out. A valid refresh token is counted per person
+ * (generous: a tab refreshes about once in 15 minutes); anything else (no
+ * token, a forged or expired one) per address.
+ */
+export function refreshLimiter(userType, cookieName, { perUser = 60, perAddress = 300 } = {}) {
+  const who = (req) => {
+    if (req.refreshKey) return req.refreshKey
+    let key = `ip:${req.ip}`
+    try {
+      const c = jwt.verify(req.body?.refreshToken || req.cookies?.[cookieName] || '', env.JWT_SECRET, { algorithms: ['HS256'] })
+      if (c.typ === `${userType}_refresh` && c.sub) key = `user:${c.sub}`
+    } catch {
+      // Not a valid refresh token: counted per address.
+    }
+    req.refreshKey = key
+    return key
+  }
+  return sharedLimiter(`refresh-${userType}`, {
+    windowMs: 15 * 60_000,
+    limit: (req) => (who(req).startsWith('user:') ? perUser : perAddress),
+    keyGenerator: who,
+    message: 'Too many sign-in refreshes. Try again in a few minutes.',
+  })
+}
+
 export async function revokeRefresh(token) {
   try {
     const claims = jwt.verify(token ?? '', env.JWT_SECRET, { algorithms: ['HS256'] })
@@ -91,9 +120,42 @@ function bearer(req, typ) {
   }
 }
 
-export function requireAdmin(req, _res, next) {
+// SEC-8: an access token is checked against the staff row, so removing
+// someone, changing their role or password, or resetting their two-step
+// sign-in ends their access at once rather than when the token lapses. The
+// row is cached briefly per instance (one primary-key read per person every
+// few seconds); a change made on this instance clears it straight away.
+const STAFF_CACHE_MS = 5_000
+const staffCache = new Map()
+
+/** Drops the cached staff row after a change to it (role, password, two-step, removal). */
+export function forgetStaff(id) {
+  staffCache.delete(id)
+}
+
+async function staffRow(id) {
+  const hit = staffCache.get(id)
+  if (hit && Date.now() - hit.at < STAFF_CACHE_MS) return hit.row
+  const { rows } = await query('SELECT role, session_version FROM admin_users WHERE id = $1', [id])
+  const row = rows[0] ?? null
+  staffCache.set(id, { at: Date.now(), row })
+  if (staffCache.size > 1000) staffCache.delete(staffCache.keys().next().value)
+  return row
+}
+
+export async function requireAdmin(req, _res, next) {
   try {
     const c = bearer(req, 'admin')
+    const current = (row) => row && row.role === c.role && row.session_version === (c.sv ?? 0)
+    let row = await staffRow(c.sub)
+    // A token newer than the cached row (signed in again after a change made on another instance).
+    if (!current(row)) {
+      forgetStaff(c.sub)
+      row = await staffRow(c.sub)
+    }
+    if (!current(row)) {
+      throw unauthorized('Your access has changed. Please sign in again.', 'INVALID_TOKEN')
+    }
     req.admin = { id: c.sub, email: c.email, role: c.role, setup: Boolean(c.setup) }
     req.actor = { type: 'admin', id: c.sub, label: c.email }
     next()

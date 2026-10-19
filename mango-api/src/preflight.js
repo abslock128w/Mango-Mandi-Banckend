@@ -35,9 +35,12 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
 
   if (env.SMS_PROVIDER !== 'jio') {
     // A preview may log codes instead (read them in the Vercel logs); production can't.
-    if (preview) warnings.push('SMS_PROVIDER is not jio: login codes are only written to the logs')
-    else errors.push('SMS_PROVIDER must be jio: customers could not receive login codes')
+    if (!preview) errors.push('SMS_PROVIDER must be jio: customers could not receive login codes')
+    else if (env.LOG_OTP_CODES) warnings.push('SMS_PROVIDER is not jio: login codes are only written to the logs')
+    else warnings.push('SMS_PROVIDER is not jio and LOG_OTP_CODES is off: phone sign-in cannot work on this preview (Google sign-in still does)')
   }
+  if (env.LOG_OTP_CODES && !preview) errors.push('LOG_OTP_CODES must be off in production: login codes would be written to the logs')
+  if (env.ENABLE_DEV_ROUTES) errors.push('ENABLE_DEV_ROUTES is set: it is for local development only (it lets anyone mark an order paid)')
 
   for (const key of ['ADMIN_ORIGIN', 'CUSTOMER_ORIGIN']) {
     const list = origins(env[key])
@@ -78,7 +81,8 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (!env.TURNSTILE_SECRET_KEY) warnings.push('TURNSTILE_SECRET_KEY is unset: bots can request login codes for any number (the daily budget still caps the cost)')
   if (!env.GOOGLE_CLIENT_ID) warnings.push('GOOGLE_CLIENT_ID is unset: "Sign in with Google" is off')
   if (!env.SENTRY_DSN) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
-  if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: managers and operators can sign in with only a password')
+  if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
+  else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
 
   return { errors, warnings }

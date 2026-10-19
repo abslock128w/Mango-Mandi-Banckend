@@ -9,7 +9,7 @@ import { router as adminRouter } from './admin.js'
 import { devRouter, router as customerRouter } from './customer.js'
 import { loadConfig } from './config.js'
 import { isPoolTimeout, query } from './db.js'
-import { env, isProd, onVercel } from './env.js'
+import { devRoutesOn, env, onVercel } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
@@ -189,7 +189,8 @@ export function createApp() {
     skip: () => env.NODE_ENV === 'test',
     handler: (req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many requests', requestId: req.id } }),
   })
-  if (!isProd) app.use('/v1/dev', devRouter)
+  // Marks any order paid without paying: only on a developer's machine that asked for it.
+  if (devRoutesOn()) app.use('/v1/dev', devRouter)
   app.use('/v1', apiLimiter, customerRouter)
   app.use('/admin/v1', apiLimiter, adminRouter)
 

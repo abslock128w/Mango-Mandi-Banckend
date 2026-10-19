@@ -13,7 +13,7 @@ confirmation and allocation all commit in the same Postgres transaction.
 cd mango-api
 npm ci
 # Postgres with user/password mango, database mango (docker compose up db works too)
-COOKIE_SECURE=false npm run dev
+COOKIE_SECURE=false ENABLE_DEV_ROUTES=true npm run dev
 ```
 
 On start it migrates, seeds products (Alphonso and Badami, 3 kg and 5 kg), Bengaluru
@@ -35,7 +35,8 @@ through the Jio SMS gateway; production refuses to start without it. Set `JIO_SM
 `JIO_SMS_ENTITY_ID`). `JIO_SMS_TEXT` must match the registered template exactly, with
 `{code}` where the code goes. The request body is in [`src/sms.js`](src/sms.js); check it
 against your Jio account's API docs before going live. Outside production the default
-`SMS_PROVIDER=log` logs the code and returns it as `devCode`.
+`SMS_PROVIDER=log` returns the code as `devCode`; it is written to the log only with
+`LOG_OTP_CODES=true` (for a preview, where `devCode` is off; production refuses it).
 
 If the SMS send fails and WhatsApp is set up (`WHATSAPP_PROVIDER=meta`), the code goes out
 on WhatsApp instead, as the authentication template `mandi_login_code` (code in the body and
@@ -319,7 +320,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Saved addresses | `GET /v1/me/addresses`, `DELETE /v1/me/addresses/:id` (an order saves its address; at most five, gifts are not saved) |
 | Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.captured`, `payment.failed`, `payment_link.paid`) |
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
-| Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (not mounted in production) |
+| Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (mounted only with `ENABLE_DEV_ROUTES=true`, outside production, with no Razorpay keys set) |
 
 Errors are `{ error: { code, message, requestId } }`. Admin routes are the contract in
 the panel's `src/types.ts`; extra fields (`atRisk`, `atRiskReason`, `replacementFor`,
@@ -353,7 +354,12 @@ checkouts for different days don't queue behind each other. A request that can't
 a database connection within 5 seconds answers `503 BUSY` with `Retry-After`.
 
 Sign-in rate limits (login codes, staff passwords) are counted in Postgres so every
-instance shares them. Each phone gets 5 codes an hour and 10 a day, and the shop a
+instance shares them. One address may ask for 5 codes an hour and 10 a day for a number
+(so someone else asking for your number can't use up your allowance), a number gets at
+most 16 codes a day from all addresses, and each code allows 3 tries (at most 48 guesses a
+day at one number). A refused request never replaces the code already sent. Token refresh
+has its own limit, counted per person rather than per address, so customers sharing a
+carrier-NAT address don't sign each other out. The shop has a
 daily budget (`OTP_DAILY_LIMIT`, Sentry warns at 80%) after which codes pause until
 midnight IST. Numbers with no account may use only `OTP_NEW_NUMBER_SHARE` of it (60%),
 so a bot flooding new numbers can't lock existing customers out. With
@@ -375,17 +381,24 @@ ignored and an out-of-order `payment.failed` never undoes a capture.
 
 Five roles: `MANAGER`, `OPERATOR`, `PACKER`, `QC` and `RIDER`. Riders only reach
 orders on yesterday's, today's or tomorrow's run that are packed or on the road; any
-other order id answers 404. With `STAFF_TWO_STEP=managers` (the production default)
-managers and operators must use two-step sign-in. Managers and operators reach every
+other order id answers 404. With `STAFF_TWO_STEP=all` (the production default) every
+staff account must use two-step sign-in; `managers` limits it to managers and operators.
+Where it is required, setting it up needs a one-time setup code from a manager as well as
+the password (shown once when a manager adds someone, resets their two-step sign-in, or
+presses "Setup code" on the Staff page; it lasts 7 days). The first manager to set it up
+needs none. Ten wrong passwords for one account in 15 minutes pause password sign-in for
+that account until the 15 minutes are up (unknown emails are counted the same way);
+Google sign-in still works, and a manager setting a new password lifts the pause. Managers and operators reach every
 route except the manager-only ones. Every role but managers, operators included, gets an
 allowlist in [`src/access.js`](src/access.js) and is refused everything else, so a new
 route stays closed to them until it is added there; a test fails until each route is
 either on the operator list or manager-only. Packers may only move orders through
 `PROCESSING`, `PACKED`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` and `DELIVERY_FAILED`.
 
-Managers add, change and remove staff through `/staff`. A role change, password change or
-removal ends that person's sessions; an access token already issued lapses within 15
-minutes. In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
+Managers add, change and remove staff through `/staff`. A role change, password change,
+two-step reset or removal ends that person's sessions, and their access tokens stop working
+at once: every staff request checks the token's role and session version against the staff
+row (cached for 5 seconds per instance). In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
 `ADMIN_BOOTSTRAP_PASSWORD`; on Vercel previews from `PREVIEW_ADMIN_EMAIL` /
 `PREVIEW_ADMIN_PASSWORD` instead, so the production login never reaches a preview.
 

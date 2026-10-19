@@ -3,7 +3,7 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
-import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { ACCESS_TTL_S, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -25,7 +25,7 @@ import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
-import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { checkPhoto, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
 import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
@@ -42,10 +42,18 @@ const otpLimiter = sharedLimiter('otp-ip', { windowMs: 15 * 60_000, limit: isPro
 const MAX_CLAIMS_PER_MONTH = 3
 
 const OTP_TTL_MS = 5 * 60_000
-const OTP_MAX_ATTEMPTS = 5
+const HOUR_MS = 3_600_000
+const DAY_MS = 86_400_000
+// Wrong tries allowed on one code.
+const OTP_MAX_ATTEMPTS = 3
+// Codes one address may ask for one number. Counted per number and address,
+// so someone else asking for your number can't use up your allowance.
 const OTP_MAX_SENDS_PER_HOUR = 5
 const OTP_MAX_SENDS_PER_DAY = 10
-const DAY_MS = 86_400_000
+// Codes a number gets in a day from every address together. This caps
+// guessing: 16 codes x 3 tries = 48 guesses a day at a 6-digit code, no more
+// than the old 10 codes x 5 tries, however many addresses an attacker uses.
+const OTP_MAX_SENDS_PER_NUMBER_DAY = 16
 
 /**
  * Stops SMS pumping: every code costs money, and bots request codes for
@@ -55,10 +63,16 @@ const DAY_MS = 86_400_000
  * customers out. Past 80% of the budget Sentry is told; past 100% no more
  * codes go out until midnight IST (Google sign-in still works).
  */
-async function checkOtpBudget(phone) {
+async function checkOtpBudget(phone, ip) {
   const day = todayIST()
-  const mine = await hit(`otp-phone-day:${phone}:${day}`, DAY_MS)
+  const hour = await hit(`otp-phone-ip-hour:${phone}:${ip}`, HOUR_MS)
+  if (hour.hits > OTP_MAX_SENDS_PER_HOUR) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
+  const mine = await hit(`otp-phone-ip-day:${phone}:${ip}:${day}`, DAY_MS)
   if (mine.hits > OTP_MAX_SENDS_PER_DAY) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Try again tomorrow.')
+  const number = await hit(`otp-phone-day:${phone}:${day}`, DAY_MS)
+  if (number.hits > OTP_MAX_SENDS_PER_NUMBER_DAY) {
+    throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Sign in with Google, or try again tomorrow.')
+  }
   const known = (await query('SELECT 1 FROM customers WHERE phone = $1 AND deleted_at IS NULL', [phone])).rowCount > 0
   if (!known) {
     const share = Math.ceil(env.OTP_DAILY_LIMIT * env.OTP_NEW_NUMBER_SHARE)
@@ -90,26 +104,19 @@ const hashOtp = (phone, code) => createHash('sha256').update(`${env.JWT_SECRET}:
 
 // ---------------------------------------------------------------- auth
 
-/** Stores a fresh login code for the phone (rate-limited per phone) and sends it. */
-async function issueCode(phone, channel) {
+/**
+ * Stores a fresh login code for the phone and sends it. Every limit is checked
+ * first, so a refused request never replaces the code someone is about to type.
+ */
+async function issueCode(phone, channel, ip) {
+  await checkOtpBudget(phone, ip)
   const code = String(randomInt(100_000, 1_000_000))
   const at = now()
-  await tx(async (c) => {
-    const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
-    const prev = rows[0]
-    const fresh = !prev || at.getTime() - prev.window_start.getTime() > 3_600_000
-    if (!fresh && prev.resends >= OTP_MAX_SENDS_PER_HOUR) {
-      throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
-    }
-    await c.query(
-      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
-       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0,
-         resends = CASE WHEN $5 THEN 1 ELSE otps.resends + 1 END,
-         window_start = CASE WHEN $5 THEN $4 ELSE otps.window_start END`,
-      [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at, fresh],
-    )
-  })
-  await checkOtpBudget(phone)
+  await query(
+    `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+     ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
+    [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
+  )
   const via = await sendOtp(phone, code, channel)
   return isProd ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
@@ -134,7 +141,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     await requireHuman(captchaToken, req.ip)
-    res.json(await issueCode(phone, channel))
+    res.json(await issueCode(phone, channel, req.ip))
   }),
 )
 
@@ -208,7 +215,7 @@ router.post(
 router.post(
   '/auth/token/refresh',
   sameSiteOnly,
-  otpLimiter,
+  refreshLimiter('customer', RT_COOKIE),
   asyncHandler(async (req, res) => {
     const token = req.body?.refreshToken || req.cookies?.[RT_COOKIE]
     if (!token) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
@@ -446,7 +453,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     await requireHuman(captchaToken, req.ip)
-    res.json(await issueCode(phone, channel))
+    res.json(await issueCode(phone, channel, req.ip))
   }),
 )
 
@@ -904,7 +911,8 @@ router.post(
         issueType: z.enum(['DAMAGED', 'WRONG_ITEM', 'NOT_DELIVERED']),
         description: z.string().trim().min(5).max(2000),
         itemSkus: z.array(z.string()).max(20).default([]),
-        photoUrl: z.string().url().startsWith('https://').max(500).optional().nullable(),
+        // Only a link into our own photo store; photos are normally attached by upload (photoIds).
+        photoUrl: z.string().max(500).refine(isOwnPhotoUrl, 'Attach the photo instead of a link').optional().nullable(),
         photoIds: z.array(z.string().max(40)).max(MAX_CLAIM_PHOTOS).default([]),
       }),
       req.body,

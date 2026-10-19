@@ -129,6 +129,7 @@ jobs:
         env:
           NODE_ENV: development
           COOKIE_SECURE: 'false'
+          ENABLE_DEV_ROUTES: 'true'
           LOG_LEVEL: warn
       - run: npx playwright install --with-deps chromium
       - name: Day in the life against the real API
