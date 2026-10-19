@@ -26,6 +26,8 @@ import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutO
 import { sendDueNotifications } from './notify.js'
 import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn } from './sentry.js'
+import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
+import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
@@ -117,6 +119,8 @@ export async function cleanupExpired(at = now()) {
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
+  // Review photos uploaded but never sent with a review (bounded per run).
+  await cleanupReviewPhotos(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
@@ -219,6 +223,7 @@ async function steps(forceAll) {
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.refunded = await step('refunds', processDueRefunds)
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments)
+  out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
   out.notified = await step('notifications', () => sendDueNotifications())
   out.preorders = await step('preorders', runPreorderJobs)
   await step('cleanup', () => cleanupExpired())
@@ -233,6 +238,9 @@ async function steps(forceAll) {
   }
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {
     out.drift = (await step('audit', runAudit))?.length ?? null
+  }
+  if (forceAll || t - (last['review-stats'] ?? 0) > HOURLY_MS) {
+    out.reviewStatsDrift = (await step('review-stats', () => tx((c) => auditReviewStats(c))))?.length ?? null
   }
   const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
   out.atRisk = risk.rows[0].n
