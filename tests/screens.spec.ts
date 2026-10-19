@@ -477,7 +477,7 @@ test('a rider records a missed delivery with a reason, and a handover with a pho
   await dialog.getByLabel('Note (optional)').fill('Called twice')
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('ORD-1042 will be tried again on the next delivery day')).toBeVisible()
-  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery').at(-1)?.body).toEqual({ outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', lat: 18.9438, lng: 72.8231 })
+  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery').at(-1)?.body).toEqual({ outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', lat: 18.9438, lng: 72.8231, attempt: 1 })
 })
 
 test('Analytics: season tiles, weekly charts with hover detail, and the tables', async ({ page }) => {
