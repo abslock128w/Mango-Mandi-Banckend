@@ -243,7 +243,8 @@ function DeliveredDialog({ order, day, onClose }: { order: ManifestOrder; day: s
 
   const save = useMutation({
     mutationFn: async () => {
-      const where = (await currentPosition()) ?? {}
+      // The attempt number lets the API refuse a report resent after the order went out again.
+      const where = { ...((await currentPosition()) ?? {}), ...(order.attempt ? { attempt: order.attempt } : {}) }
       if (mode === 'code') return api.recordDelivery(order.id, { outcome: 'DELIVERED', code, ...where })
       const photoId = await uploadPhoto(order.id, file)
       return api.recordDelivery(order.id, { outcome: 'DELIVERED', photoId, receivedBy: receivedBy.trim(), ...where })
@@ -338,7 +339,7 @@ function MissedDialog({ order, day, onClose }: { order: ManifestOrder; day: stri
 
   const save = useMutation({
     mutationFn: async () => {
-      const where = (await currentPosition()) ?? {}
+      const where = { ...((await currentPosition()) ?? {}), ...(order.attempt ? { attempt: order.attempt } : {}) }
       const photoId = await uploadPhoto(order.id, file)
       return api.recordDelivery(order.id, { outcome: 'FAILED', reason: reason!, note: note.trim() || undefined, photoId, ...where })
     },

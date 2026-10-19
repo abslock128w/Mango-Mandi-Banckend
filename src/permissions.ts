@@ -37,7 +37,8 @@ export function can(role: Role | null | undefined, action: Action): boolean {
 }
 
 /** The order steps a packer may make; mirrors PACKER_STATUSES in the API. */
-export const PACKER_STATUSES: OrderStatus[] = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED']
+/** Mirrors the API: DELIVERED needs the customer's code or a photo (Deliveries page), or a manager's override. */
+export const PACKER_STATUSES: OrderStatus[] = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 
 export type Screen =
   | 'today'

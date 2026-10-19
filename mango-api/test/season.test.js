@@ -130,7 +130,8 @@ describe('analytics', () => {
     await api.patch(`/admin/v1/orders/${a}/status`, { status: 'PROCESSING' }, { token: admin })
     await api.post(`/admin/v1/orders/${a}/allocate`, undefined, { token: admin })
     for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
-      assert.equal((await api.patch(`/admin/v1/orders/${a}/status`, { status: s }, { token: admin })).status, 204)
+      const body = s === 'DELIVERED' ? { status: s, override: true, reason: 'Customer confirmed by phone' } : { status: s }
+      assert.equal((await api.patch(`/admin/v1/orders/${a}/status`, body, { token: admin })).status, 204)
     }
     assert.equal((await api.patch(`/admin/v1/batches/${spare}/status`, { status: 'CONDEMNED' }, { token: admin })).status, 200)
 

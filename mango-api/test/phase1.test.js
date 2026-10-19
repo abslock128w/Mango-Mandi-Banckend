@@ -25,7 +25,9 @@ beforeEach(async () => {
 })
 
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
-const move = (id, status) => api.patch(`/admin/v1/orders/${id}/status`, { status }, { token: admin })
+// DELIVERED from the panel is a manager's override with a reason (ORD-3).
+const move = (id, status) =>
+  api.patch(`/admin/v1/orders/${id}/status`, status === 'DELIVERED' ? { status, override: true, reason: 'Customer confirmed by phone' } : { status }, { token: admin })
 const addSlot = async (body) => {
   const r = await api.post('/admin/v1/slots', body, { token: admin })
   assert.equal(r.status, 201, JSON.stringify(r.body))
