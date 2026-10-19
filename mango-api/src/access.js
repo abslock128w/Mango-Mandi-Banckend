@@ -57,6 +57,8 @@ const LIMITED = {
     route('PATCH', '/batches/:id/status'),
     route('POST', '/batches/:id/qc'),
     route('PATCH', '/batches/:id/lines/:lineId'),
+    // Ripeness accuracy from reviews, per batch and variety (read only).
+    route('GET', '/reviews/insights'),
   ],
 }
 

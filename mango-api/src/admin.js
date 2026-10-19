@@ -39,6 +39,7 @@ import { enqueue } from './notify.js'
 import { isMonday, preorderView, PREORDER_STATUSES, promoteWaitlist } from './preorders.js'
 import { allProducts, findProduct, loadProducts, productName, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
+import { staffReviews } from './review-routes.js'
 
 export const router = express.Router()
 
@@ -205,6 +206,8 @@ const needsSetupFirst = (req, _res, next) =>
   next(req.admin.setup && !SETUP_ROUTES.has(`${req.method} ${req.path}`) ? new HttpError(403, 'TWO_STEP_SETUP_REQUIRED', 'Set up two-step sign-in first') : undefined)
 
 router.use(requireAdmin, needsSetupFirst, limitByRole, riderScope, auditStaffChanges)
+// Review moderation and insights (review-routes.js), behind the same sign-in, roles and audit.
+router.use(staffReviews)
 
 router.get(
   '/auth/me',
@@ -1107,7 +1110,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, lowRatings] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1133,6 +1136,12 @@ router.get(
           WHERE status = 'DELIVERY_FAILED' AND delivery_failures >= $1 ORDER BY placed_at LIMIT 50`,
         [MAX_DELIVERY_ATTEMPTS],
       ),
+      // 1 and 2 star reviews from the last week still waiting for a look (a review never opens a claim by itself).
+      query(
+        `SELECT r.id, r.rating, r.comment, r.sku, r.created_at, r.order_id, o.number FROM reviews r JOIN orders o ON o.id = r.order_id
+          WHERE r.rating <= 2 AND r.status = 'PENDING' AND r.created_at >= $1 ORDER BY r.created_at DESC LIMIT 50`,
+        [week],
+      ),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1153,6 +1162,9 @@ router.get(
         id: o.id, number: o.number, name: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone, attempts: o.delivery_failures,
       })),
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+      lowRatings: lowRatings.rows.map((r) => ({
+        id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },
+      })),
     })
   }),
 )

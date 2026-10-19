@@ -26,6 +26,8 @@ import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { customerReviews } from './review-routes.js'
+import { scrubCustomerReviews } from './reviews.js'
 
 export const router = express.Router()
 
@@ -301,7 +303,9 @@ router.get(
   }),
 )
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/reviews'], requireCustomer)
+// Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
+router.use(customerReviews)
 
 router.get('/me', asyncHandler(async (req, res) => {
   const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1 AND deleted_at IS NULL', [req.customer.id])
@@ -405,6 +409,8 @@ router.delete(
       const pics = await c.query('DELETE FROM claim_photos WHERE customer_id = $1 RETURNING blob_path', [me.id])
       await c.query('DELETE FROM customer_addresses WHERE customer_id = $1', [me.id])
       await c.query('UPDATE order_ratings SET comment = NULL WHERE customer_id = $1', [me.id])
+      // Reviews keep their stars (anonymous) for the averages; name, text, photos and replies go.
+      const reviewPics = await scrubCustomerReviews(c, me.id)
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
@@ -415,7 +421,7 @@ router.delete(
       }
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, deleted_at = $2 WHERE id = $1', [me.id, now()])
-      return [...pics.rows, ...deliveryPics.rows]
+      return [...pics.rows, ...deliveryPics.rows, ...reviewPics]
     })
     for (const p of photos) await dropPhoto(p)
     logger.info({ customerId: req.customer.id }, 'customer deleted their account')
@@ -480,6 +486,8 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE reviews SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
