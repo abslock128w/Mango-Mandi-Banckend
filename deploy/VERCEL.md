@@ -168,7 +168,7 @@ saying which release stopped using it.
 Then point the webhooks at the API:
 
 - Razorpay dashboard → **Webhooks**: `https://api.mandimangoes.in/webhooks/razorpay`,
-  events `payment.captured`, `payment.failed` and `payment_link.paid`.
+  events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed` and `refund.failed`.
 - Meta app → **WhatsApp → Configuration**: callback `https://api.mandimangoes.in/webhooks/whatsapp`
   with your `WHATSAPP_VERIFY_TOKEN`, subscribed to `messages`.
 

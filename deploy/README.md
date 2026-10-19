@@ -59,7 +59,7 @@ These take days to weeks and only the business can do them, so start them now:
    and database. Only when they pass does it start the new version. It then prints the
    commit that is live and how to go back.
 6. **Webhooks.** In Razorpay (Dashboard > Webhooks) add `https://API_DOMAIN/webhooks/razorpay`
-   with events `payment.captured`, `payment.failed` and `payment_link.paid`. Use the same secret as `RAZORPAY_WEBHOOK_SECRET`.
+   with events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed` and `refund.failed`. Use the same secret as `RAZORPAY_WEBHOOK_SECRET`.
    For WhatsApp, set the callback URL `https://API_DOMAIN/webhooks/whatsapp` and your
    `WHATSAPP_VERIFY_TOKEN` in the Meta app.
 7. **Set up the shop.** Sign in to `https://ADMIN_DOMAIN` with `ADMIN_BOOTSTRAP_EMAIL`, then:
