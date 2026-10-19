@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, Product, Promo, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -25,6 +25,15 @@ const json = (route: Route, status: number, body?: unknown) =>
   })
 
 const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
+
+function review(p: Partial<Review> & { id: string; rating: number }): Review {
+  return {
+    status: 'PENDING', flagged: false, flagReasons: [], taste: null, ripenessAccuracy: null, packaging: null, delivery: null, comment: null,
+    displayName: 'Asha R.', anonymous: false, customerName: 'Asha Rao', orderId: 'o2', orderNumber: 'ORD-1043', sku: 'ALP-3', productName: 'Alphonso 3kg Box',
+    variety: 'Alphonso', ripenessOrdered: 'RIPE', photos: [], reply: null, deliveredAt: '2026-10-13T08:00:00Z', createdAt: '2026-10-14T08:00:00Z',
+    updatedAt: '2026-10-14T08:00:00Z', moderatedBy: null, moderatedAt: null, moderationReason: null, scrubbed: false, ...p,
+  }
+}
 
 export function seed() {
   return {
@@ -186,6 +195,17 @@ export function seed() {
       { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
+    reviews: [
+      review({ id: 'rvw1', rating: 5, comment: 'Perfectly ripe on day two. Sweetest Alphonso we have had.', photos: [{ id: 'rph1', url: '/admin/v1/reviews/rvw1/photos/rph1', approved: false }], taste: 5, ripenessAccuracy: 5 }),
+      review({ id: 'rvw2', rating: 2, comment: 'Two were bruised. Call me on 98450 12345', flagged: true, flagReasons: ['PHONE'], orderNumber: 'ORD-1044', displayName: 'Vikram S.', customerName: 'Vikram Shah', ripenessAccuracy: 2 }),
+      review({ id: 'rvw3', rating: 4, comment: 'Good, a bit firm.', status: 'APPROVED', reply: { body: 'Thank you!', at: '2026-10-15T09:00:00Z', by: EMAIL.MANAGER } }),
+    ] as Review[],
+    reviewInsights: {
+      days: 90,
+      byVariety: [{ variety: 'Alphonso', reviews: 3, averageRating: 3.7, ripenessAnswers: 2, ripenessAccuracy: 3.5, low: 1 }],
+      byBatch: [{ batchId: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', farm: 'Ratnagiri', reviews: 3, averageRating: 3.7, ripenessAnswers: 2, ripenessAccuracy: 3.5, notAsPromised: 1 }],
+      lowRatingTrend: [{ week: '2026-10-12', reviews: 3, low: 1 }],
+    } as ReviewInsights,
     pincodes: [
       { pincode: '400001', city: 'Mumbai', zone: 'South', active: true },
       { pincode: '411001', city: 'Pune', zone: null, active: false },
@@ -419,6 +439,64 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
+
+    if (path === '/reviews' || path.startsWith('/reviews/')) {
+      const moderator = state.role === 'MANAGER' || state.role === 'OPERATOR'
+      if (path === '/reviews/insights') return state.role === 'PACKER' || state.role === 'RIDER' ? json(route, 403, { error: { code: 'FORBIDDEN', message: 'Not available', requestId: 'req_f' } }) : json(route, 200, state.reviewInsights)
+      if (!moderator) return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Not available to your role', requestId: 'req_f' } })
+      if (path === '/reviews') {
+        const status = url.searchParams.get('status') ?? 'PENDING'
+        const flagged = url.searchParams.get('flagged')
+        const items = state.reviews.filter((r) => r.status === status && (flagged == null || String(r.flagged) === flagged))
+        const counts: Record<string, { total: number; flagged: number }> = {}
+        for (const r of state.reviews) {
+          counts[r.status] ??= { total: 0, flagged: 0 }
+          counts[r.status].total++
+          if (r.flagged) counts[r.status].flagged++
+        }
+        return json(route, 200, { items, nextCursor: null, counts })
+      }
+      if (path === '/reviews/bulk') {
+        const b = body as { action: 'approve' | 'reject'; ids: string[]; reason?: string }
+        const done: string[] = []
+        for (const r of state.reviews) if (b.ids.includes(r.id) && r.status === 'PENDING') {
+          r.status = b.action === 'approve' ? 'APPROVED' : 'REJECTED'
+          r.moderationReason = b.reason ?? null
+          done.push(r.id)
+        }
+        return json(route, 200, { done, failed: [] })
+      }
+      if (/^\/reviews\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
+      const rid = path.split('/')[2]
+      const r = state.reviews.find((x) => x.id === rid)
+      if (!r) return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Review not found', requestId: 'req_r' } })
+      const act = path.split('/')[3]
+      if (!act) {
+        return json(route, 200, {
+          ...r,
+          events: [{ from: null, to: 'PENDING', actor: 'customer:cus1', reason: r.flagged ? 'flagged: PHONE' : null, at: r.createdAt }],
+          batches: [{ batchId: 'b1', quantity: 1, variety: 'Alphonso', pluckedOn: '2026-10-08', farm: 'Ratnagiri' }],
+        })
+      }
+      if (act === 'approve') {
+        if (r.status !== 'PENDING') return json(route, 409, { error: { code: 'INVALID_TRANSITION', message: 'Not pending', requestId: 'req_t' } })
+        const ids = (body as { photoIds: string[] }).photoIds
+        r.status = 'APPROVED'
+        r.photos = r.photos.map((ph) => ({ ...ph, approved: ids.includes(ph.id) }))
+      }
+      if (act === 'reject' || act === 'hide') {
+        r.status = act === 'reject' ? 'REJECTED' : 'HIDDEN'
+        r.moderationReason = (body as { reason: string }).reason
+      }
+      if (act === 'reply') {
+        if (method === 'DELETE') {
+          r.reply = null
+          return route.fulfill({ status: 204 })
+        }
+        r.reply = { body: (body as { body: string }).body, at: '2026-10-16T06:00:00Z', by: EMAIL[state.role] }
+      }
+      return json(route, 200, r)
+    }
 
     if (path === '/promos' || path.startsWith('/promos/')) {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
