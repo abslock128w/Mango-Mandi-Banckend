@@ -1,7 +1,7 @@
 import { closeAll, checkout, client, customerToken, line, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
-import { tx } from '../src/db.js'
+import { query, tx } from '../src/db.js'
 import { auditLedger } from '../src/inventory.js'
 
 let srv
@@ -43,12 +43,17 @@ test('30 buyers racing for 10 boxes across two batches: exactly 10 win, nothing 
 test('a retried confirm with the same key never creates a second order', async () => {
   const api = client(srv.base)
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'BAD-3': 5 } })
-  const { accessToken: token } = await customerToken(api)
+  const { accessToken: token, customer } = await customerToken(api)
   await api.post('/v1/cart/items', { sku: 'BAD-3', stage: 'RIPE', qty: 1 }, { token })
   const quoteId = (await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })).body.quoteId
-  const tries = await Promise.all(
-    [1, 2, 3, 4, 5].map(() => api.post('/v1/checkout/confirm', { quoteId, address: '12, 4th Cross, Koramangala' }, { token, headers: { 'Idempotency-Key': 'same' } })),
-  )
-  assert.ok(tries.every((r) => r.status === 200 || r.status === 201), JSON.stringify(tries.map((r) => [r.status, r.body])))
-  assert.equal(new Set(tries.map((r) => r.body.orderId)).size, 1)
+  const send = () => api.post('/v1/checkout/confirm', { quoteId, address: '12, 4th Cross, Koramangala' }, { token, headers: { 'Idempotency-Key': 'same' } })
+  const tries = await Promise.all([1, 2, 3, 4, 5].map(send))
+  // A retry that lands while the first is still starting the payment is told to wait (PAY-6), never given an order to pay with nothing to pay.
+  const answered = tries.filter((r) => !(r.status === 409 && r.body.error.code === 'PAYMENT_STARTING'))
+  assert.ok(answered.every((r) => (r.status === 200 || r.status === 201) && r.body.razorpayOrderId), JSON.stringify(tries.map((r) => [r.status, r.body])))
+  assert.equal(answered.filter((r) => r.status === 201).length, 1)
+  const later = await send()
+  assert.equal(later.status, 200)
+  assert.equal(new Set([...answered, later].map((r) => r.body.orderId)).size, 1)
+  assert.equal((await query('SELECT count(*)::int AS n FROM orders WHERE customer_id = $1', [customer.id])).rows[0].n, 1)
 })
