@@ -12,7 +12,18 @@ import { deployEnv, env } from './env.js'
 import { logger } from './logger.js'
 
 const MIGRATION_LOCK = 427714201
-const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
+const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
+
+/**
+ * How long one migration statement may wait for a table lock. An ALTER TABLE
+ * queued behind a long transaction would otherwise hold every order write up
+ * behind it; with this it gives up, the transaction rolls back, and the
+ * runner tries again a little later (then fails the build).
+ */
+export const MIGRATION_LOCK_TIMEOUT = process.env.MIGRATION_LOCK_TIMEOUT || '5s'
+const LOCK_ATTEMPTS = 3
+const LOCK_RETRY_MS = 3_000
+const LOCK_NOT_AVAILABLE = '55P03'
 
 export async function runMigrations() {
   const direct = env.DATABASE_URL_UNPOOLED ? new pg.Pool({ connectionString: env.DATABASE_URL_UNPOOLED, max: 1 }) : null
@@ -47,7 +58,7 @@ export async function checkDatabaseEnvironment(c, target = deployEnv, { claim = 
   return owner
 }
 
-async function migrate(pool) {
+export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TIMEOUT, attempts = LOCK_ATTEMPTS, retryMs = LOCK_RETRY_MS } = {}) {
   const client = await pool.connect()
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK])
@@ -59,15 +70,25 @@ async function migrate(pool) {
     for (const file of files) {
       if (done.has(file)) continue
       const sql = await readFile(path.join(dir, file), 'utf8')
-      try {
-        await client.query('BEGIN')
-        await client.query(sql)
-        await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file])
-        await client.query('COMMIT')
-        logger.info({ file }, 'migration applied')
-      } catch (err) {
-        await client.query('ROLLBACK')
-        throw new Error(`Migration ${file} failed: ${err.message}`)
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await client.query('BEGIN')
+          await client.query(`SELECT set_config('lock_timeout', $1, true)`, [lockTimeout])
+          await client.query(sql)
+          await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file])
+          await client.query('COMMIT')
+          logger.info({ file }, 'migration applied')
+          break
+        } catch (err) {
+          await client.query('ROLLBACK')
+          if (err.code === LOCK_NOT_AVAILABLE && attempt < attempts) {
+            logger.warn({ file, attempt }, 'migration waited too long for a table lock; trying again')
+            await new Promise((r) => setTimeout(r, retryMs))
+            continue
+          }
+          const hint = err.code === LOCK_NOT_AVAILABLE ? ` (a table it changes stayed locked for over ${lockTimeout}, ${attempts} times: look for a long transaction in pg_stat_activity)` : ''
+          throw new Error(`Migration ${file} failed: ${err.message}${hint}`)
+        }
       }
     }
   } finally {

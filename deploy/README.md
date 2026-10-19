@@ -56,8 +56,12 @@ These take days to weeks and only the business can do them, so start them now:
    ./deploy/deploy.sh
    ```
    It builds the images and runs the go-live checks (below) against your real settings
-   and database. Only when they pass does it start the new version. It then prints the
-   commit that is live and how to go back.
+   and database. Only when they pass does it start the new version. It then waits up to
+   90 seconds (`READY_WAIT_S`) for `/ready`; if the new version never gets there, it
+   deploys the previous commit again on its own and exits with an error
+   (`NO_ROLLBACK=1` turns that off). Otherwise it prints the commit that is live and how
+   to go back. The old containers stop before the new ones start, so expect up to a
+   minute of downtime when a deploy goes wrong.
 6. **Webhooks.** In Razorpay (Dashboard > Webhooks) add `https://API_DOMAIN/webhooks/razorpay`
    with events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed` and `refund.failed`. Use the same secret as `RAZORPAY_WEBHOOK_SECRET`.
    For WhatsApp, set the callback URL `https://API_DOMAIN/webhooks/whatsapp` and your

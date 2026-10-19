@@ -533,8 +533,8 @@ router.get(
     const status = req.query.status ? parse(z.enum(BATCH_STATUSES), req.query.status) : null
     const { rows } = await query(
       `${batchListSql} WHERE ($1::text IS NULL OR b.status = $1)
-        GROUP BY b.id, q.ripeness_rating, q.condition ORDER BY b.plucked_on DESC, b.created_at DESC`,
-      [status],
+        GROUP BY b.id, q.ripeness_rating, q.condition ORDER BY b.plucked_on DESC, b.created_at DESC LIMIT $2`,
+      [status, LIST_LIMIT],
     )
     const today = todayIST()
     res.json(
@@ -1575,26 +1575,46 @@ export const CLAIM_MANAGER_AFTER = 2
  * manager to approve.
  */
 async function claimRisk(c, claim) {
+  return (await claimRisks(c, [claim])).get(claim.id)
+}
+
+/** claimRisk for many claims in two queries (the claims list), Map claim id → risk. */
+async function claimRisks(c, claims) {
+  const out = new Map()
+  if (!claims.length) return out
   const since = new Date(now().getTime() - 90 * 86_400_000)
   const [hist, del] = await Promise.all([
     c.query(
-      `SELECT COUNT(*)::int AS claims, COUNT(*) FILTER (WHERE resolution = 'REPLACEMENT_APPROVED')::int AS replacements
-         FROM claims WHERE customer_id = $1 AND created_at >= $2 AND id <> $3`,
-      [claim.customer_id, since, claim.id],
+      `SELECT x.id, COUNT(o.id)::int AS claims, COUNT(o.id) FILTER (WHERE o.resolution = 'REPLACEMENT_APPROVED')::int AS replacements
+         FROM claims x LEFT JOIN claims o ON o.customer_id = x.customer_id AND o.created_at >= $2 AND o.id <> x.id
+        WHERE x.id = ANY($1) GROUP BY x.id`,
+      [claims.map((cl) => cl.id), since],
     ),
-    c.query(`SELECT method, created_at FROM delivery_attempts WHERE order_id = $1 AND outcome = 'DELIVERED' ORDER BY created_at DESC LIMIT 1`, [claim.order_id]),
+    c.query(
+      `SELECT DISTINCT ON (order_id) order_id, method, created_at FROM delivery_attempts
+        WHERE order_id = ANY($1) AND outcome = 'DELIVERED' ORDER BY order_id, created_at DESC`,
+      [[...new Set(claims.map((cl) => cl.order_id))]],
+    ),
   ])
-  const h = hist.rows[0]
-  const d = del.rows[0]
-  const reasons = []
-  if (h.replacements >= CLAIM_MANAGER_AFTER) reasons.push(`${h.replacements} replacements in the last 90 days`)
-  if (claim.issue_type === 'NOT_DELIVERED' && d?.method === 'code') reasons.push("the customer's own code confirmed the delivery")
-  return {
-    history: { claims90d: h.claims, replacements90d: h.replacements },
-    delivery: d ? { method: d.method, at: d.created_at } : null,
-    managerNeeded: reasons.length ? reasons : null,
+  const hists = new Map(hist.rows.map((h) => [h.id, h]))
+  const dels = new Map(del.rows.map((d) => [d.order_id, d]))
+  for (const claim of claims) {
+    const h = hists.get(claim.id) ?? { claims: 0, replacements: 0 }
+    const d = dels.get(claim.order_id)
+    const reasons = []
+    if (h.replacements >= CLAIM_MANAGER_AFTER) reasons.push(`${h.replacements} replacements in the last 90 days`)
+    if (claim.issue_type === 'NOT_DELIVERED' && d?.method === 'code') reasons.push("the customer's own code confirmed the delivery")
+    out.set(claim.id, {
+      history: { claims90d: h.claims, replacements90d: h.replacements },
+      delivery: d ? { method: d.method, at: d.created_at } : null,
+      managerNeeded: reasons.length ? reasons : null,
+    })
   }
+  return out
 }
+
+/** The most rows the claims and batches lists return (resolved claims: the newest). */
+export const LIST_LIMIT = 500
 
 router.get(
   '/claims',
@@ -1604,16 +1624,17 @@ router.get(
       `SELECT c.*, o.number AS order_number, o.total AS order_total, o.phone, r.number AS replacement_number
          FROM claims c JOIN orders o ON o.id = c.order_id LEFT JOIN orders r ON r.id = c.replacement_order_id
         WHERE ($1::text IS NULL AND c.status IN ('SUBMITTED', 'UNDER_REVIEW')) OR c.status = $1
-        ORDER BY c.created_at`,
-      [status],
+        ORDER BY CASE WHEN c.status = 'RESOLVED' THEN -extract(epoch FROM c.created_at) ELSE extract(epoch FROM c.created_at) END, c.id
+        LIMIT $2`,
+      [status, LIST_LIMIT],
     )
     const pics = await query('SELECT id, claim_id FROM claim_photos WHERE claim_id = ANY($1) ORDER BY created_at', [rows.map((c) => c.id)])
-    const risks = new Map()
-    for (const c of rows) if (c.status !== 'RESOLVED') risks.set(c.id, await claimRisk({ query }, c))
+    const photosOf = Map.groupBy(pics.rows, (p) => p.claim_id)
+    const risks = await claimRisks({ query }, rows.filter((c) => c.status !== 'RESOLVED'))
     res.json(
       rows.map((c) => ({
         ...(risks.has(c.id) ? risks.get(c.id) : {}),
-        photos: pics.rows.filter((p) => p.claim_id === c.id).map((p) => ({ id: p.id })),
+        photos: (photosOf.get(c.id) ?? []).map((p) => ({ id: p.id })),
         id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
         issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: isOwnPhotoUrl(c.photo_url) ? c.photo_url : null,
         status: c.status, resolution: c.resolution, createdAt: c.created_at,

@@ -51,15 +51,18 @@ export function sellableAs(row, deliveryDate, cfg = getConfig(), { existing = fa
 
 const sellableQty = (r, factor) => Math.max(0, Math.floor(r.on_hand * factor) - r.held - r.committed - r.reserve_buffer)
 
-/** Every line that could fill an order for `deliveryDate`, oldest batch first (FEFO). */
-export async function candidateLines(c, deliveryDate, { sku = null, stage = null, excludeBatchIds = [] } = {}) {
-  const { rows } = await c.query(
-    `${LINE_SELECT}
-      WHERE b.status = ANY($1) AND ($2::text IS NULL OR l.sku = $2) AND NOT (b.id = ANY($3))
-      ORDER BY b.plucked_on, b.id, l.id`,
-    [SELLABLE_STATUSES, sku, excludeBatchIds],
-  )
-  const cfg = getConfig()
+const sellableRows = async (c, { sku = null, excludeBatchIds = [] } = {}) =>
+  (
+    await c.query(
+      `${LINE_SELECT}
+        WHERE b.status = ANY($1) AND ($2::text IS NULL OR l.sku = $2) AND NOT (b.id = ANY($3))
+        ORDER BY b.plucked_on, b.id, l.id`,
+      [SELLABLE_STATUSES, sku, excludeBatchIds],
+    )
+  ).rows
+
+/** The rows that can be sold for `deliveryDate`, with their stage and sellable quantity. */
+function linesFor(rows, deliveryDate, stage = null, cfg = getConfig()) {
   const out = []
   for (const r of rows) {
     const s = sellableAs(r, deliveryDate, cfg)
@@ -69,14 +72,34 @@ export async function candidateLines(c, deliveryDate, { sku = null, stage = null
   return out
 }
 
-/** Sellable boxes per SKU and stage for one delivery date: Map "sku|stage" → qty. */
-export async function availability(c, deliveryDate) {
+/** Every line that could fill an order for `deliveryDate`, oldest batch first (FEFO). */
+export async function candidateLines(c, deliveryDate, { sku = null, stage = null, excludeBatchIds = [] } = {}) {
+  return linesFor(await sellableRows(c, { sku, excludeBatchIds }), deliveryDate, stage)
+}
+
+function poolOf(lines) {
   const pool = new Map()
-  for (const l of await candidateLines(c, deliveryDate)) {
+  for (const l of lines) {
     const key = `${l.sku}|${l.stage}`
     pool.set(key, (pool.get(key) ?? 0) + l.sellable)
   }
   return pool
+}
+
+/** Sellable boxes per SKU and stage for one delivery date: Map "sku|stage" → qty. */
+export async function availability(c, deliveryDate) {
+  return poolOf(await candidateLines(c, deliveryDate))
+}
+
+/**
+ * availability() for several delivery dates from one read of the stock
+ * (which lines are sellable, and as what, depends on the date; the rows
+ * don't). Map date → Map "sku|stage" → qty.
+ */
+export async function availabilityByDate(c, dates) {
+  const rows = await sellableRows(c)
+  const cfg = getConfig()
+  return new Map(dates.map((d) => [d, poolOf(linesFor(rows, d, null, cfg))]))
 }
 
 export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'admin', actorId, reason = null }) {

@@ -11,6 +11,13 @@
 #      neonctl connection-string drill-$(date +%Y%m%d) --project-id <id>
 # 2. DRILL_URL=<that connection string> ./ops/restore-drill.sh
 # 3. Delete the branch afterwards (it is a full copy of customer data).
+#
+# Docker server, or any dump file: restore it into an empty database and point
+# DRILL_URL there:
+#   psql "$ADMIN_URL" -c 'CREATE DATABASE mango_restore_drill'
+#   pg_restore --no-owner --no-privileges --exit-on-error -d .../mango_restore_drill backups/mango-....dump
+#   DRILL_URL=.../mango_restore_drill ./ops/restore-drill.sh
+# (ops/restore-check.sh does those steps and drops the copy for you.)
 set -euo pipefail
 : "${DRILL_URL:?set DRILL_URL to the connection string of the restored branch}"
 start=$(date +%s)

@@ -12,7 +12,7 @@ import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotVi
 import { env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
-import { availability } from './inventory.js'
+import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { createOrder, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
@@ -294,15 +294,11 @@ router.get(
     if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [] })
     const wanted = req.query.delivery_date || req.query.deliveryDate || null
     const { date, dates } = await deliveryDateFor({ query }, pincode, wanted)
-    const { pool, later } = await tx(async (c) => {
-      const pool = await availability(c, date)
-      // Later days with stock, so a sold-out choice can say when it is back
-      // instead of being a dead end. At most a handful of bookable days.
-      const soldOut = shopProducts().some((p) => STAGES.some((st) => !(pool.get(`${p.sku}|${st}`) > 0)))
-      const later = []
-      if (soldOut) for (const d of dates.filter((x) => x > date)) later.push([d, await availability(c, d)])
-      return { pool, later }
-    })
+    // One read of the stock for the chosen day and the later bookable days, so
+    // a sold-out choice can say when it is back instead of being a dead end.
+    const byDate = await availabilityByDate({ query }, [date, ...dates.filter((x) => x > date)])
+    const pool = byDate.get(date)
+    const later = [...byDate].filter(([d]) => d !== date)
     const items = shopProducts().flatMap((p) =>
       STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
