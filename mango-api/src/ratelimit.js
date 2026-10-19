@@ -47,12 +47,18 @@ export class PgStore {
   }
 }
 
+let limitsInTests = false
+/** Tests that check a limiter turn the shared limiters on (they are off under NODE_ENV=test). */
+export function enforceLimitsInTests(on) {
+  limitsInTests = on
+}
+
 /**
  * A per-address limiter for sign-in routes, shared by every instance. If the
  * database can't be reached the request goes through (it would fail on the
  * database anyway) rather than locking everyone out.
  */
-export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many attempts. Try again later.' }) {
+export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many attempts. Try again later.', keyGenerator }) {
   return rateLimit({
     windowMs,
     limit,
@@ -60,7 +66,8 @@ export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many att
     passOnStoreError: true,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    skip: () => env.NODE_ENV === 'test',
+    ...(keyGenerator ? { keyGenerator } : {}),
+    skip: () => env.NODE_ENV === 'test' && !limitsInTests,
     handler: (req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message, requestId: req.id } }),
   })
 }

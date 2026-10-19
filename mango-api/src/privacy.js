@@ -82,7 +82,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   if (me.phone) {
     await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
     await c.query('DELETE FROM wa_inbound WHERE phone = $1', [me.phone])
-    await c.query(`DELETE FROM rate_limits WHERE key LIKE $1`, [`otp-phone-day:${me.phone}:%`])
+    await c.query(`DELETE FROM rate_limits WHERE key LIKE ANY($1)`, [[`otp-phone-day:${me.phone}:%`, `otp-phone-ip-hour:${me.phone}:%`, `otp-phone-ip-day:${me.phone}:%`]])
   }
   await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
   await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, reminders_opt_in = FALSE, deleted_at = $2 WHERE id = $1', [me.id, deletedAt])

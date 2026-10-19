@@ -64,6 +64,23 @@ export async function storePhoto(folder, id, bytes, ext, mime) {
   return { bytes: null, blobPath: await store.put(`${folder}/${id}.${ext}`, bytes, mime) }
 }
 
+/**
+ * SEC-9: whether a link is one of our own Blob store's (the only photo links
+ * a claim may carry). Claims attach photos by upload now; any other link
+ * would be a customer-chosen URL put in front of staff.
+ */
+export function isOwnPhotoUrl(link) {
+  const store = /^vercel_blob_rw_([a-z0-9]+)_/i.exec(env.BLOB_READ_WRITE_TOKEN)
+  if (!store || typeof link !== 'string') return false
+  try {
+    const u = new URL(link)
+    if (u.protocol !== 'https:' || u.username || u.password || u.port) return false
+    return u.hostname === `${store[1].toLowerCase()}.public.blob.vercel-storage.com` || u.hostname === `${store[1].toLowerCase()}.private.blob.vercel-storage.com`
+  } catch {
+    return false
+  }
+}
+
 /** The image bytes for a row with `bytes` or `blob_path`. */
 export async function photoBytes(row) {
   if (row.bytes) return row.bytes

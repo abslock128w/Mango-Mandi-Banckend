@@ -13,8 +13,11 @@ export interface MockOptions {
   /** Signed in already (refresh succeeds) or not (refresh returns 401). */
   signedIn?: boolean
   role?: Role
-  /** Two-step sign-in: on for this person (login asks for code 123456), or required but not set up. */
-  twoStep?: 'on' | 'required'
+  /**
+   * Two-step sign-in: on for this person (login asks for code 123456), required but not set up,
+   * or required and set-up needs a manager's setup code (k7qd-2mxp).
+   */
+  twoStep?: 'on' | 'required' | 'required-with-code'
 }
 
 const json = (route: Route, status: number, body?: unknown) =>
@@ -192,7 +195,7 @@ export function seed() {
       { code: 'DIWALI10', kind: 'PERCENT', value: 10, maxDiscount: 30000, minSubtotal: 100000, startsOn: null, endsOn: '2026-11-05', maxUses: null, perCustomer: 1, firstOrderOnly: false, active: true, description: 'Diwali offer', uses: 4, discountGiven: 52000, createdBy: 'manager@mandimangoes.test', createdAt: '2026-10-10T05:00:00Z' },
     ] as Promo[],
     claims: [
-      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
+      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.public.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
     reviews: [
@@ -267,7 +270,7 @@ export function seed() {
 export type MockState = ReturnType<typeof seed> & {
   signedIn: boolean
   role: Role
-  twoStep: { enabled: boolean; required: boolean }
+  twoStep: { enabled: boolean; required: boolean; setupCodeNeeded: boolean }
   calls: { method: string; path: string; body: unknown }[]
 }
 
@@ -277,7 +280,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     ...seed(),
     signedIn: opts.signedIn ?? false,
     role: opts.role ?? 'MANAGER',
-    twoStep: { enabled: opts.twoStep === 'on', required: opts.twoStep === 'required' },
+    twoStep: {
+      enabled: opts.twoStep === 'on',
+      required: opts.twoStep === 'required' || opts.twoStep === 'required-with-code',
+      setupCodeNeeded: opts.twoStep === 'required-with-code',
+    },
     calls: [],
   }
 
@@ -319,6 +326,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (!state.signedIn) return json(route, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized', requestId: 'req_z' } })
     if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role, twoStep: state.twoStep })
+    if (path === '/me/two-step/setup' && state.twoStep.setupCodeNeeded && (body as { setupCode?: string })?.setupCode !== 'k7qd-2mxp') {
+      return json(route, 422, { error: { code: 'WRONG_SETUP_CODE', message: 'That setup code is not right, or it has expired. Ask a manager for a new one.', requestId: 'req_c' } })
+    }
     if (path === '/me/two-step/setup') return json(route, 200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', otpauthUrl: 'otpauth://totp/MandiMangoes%20Ops%3Amanager%40mandimangoes.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=MandiMangoes%20Ops' })
     if (path === '/me/two-step/enable') {
       if ((body as { code: string }).code !== '123456') return json(route, 422, { error: { code: 'WRONG_CODE', message: 'That code is not right.', requestId: 'req_e' } })
@@ -333,15 +343,16 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/staff\/[^/]+\/two-step\/reset$/.test(path)) {
       const staffId = path.split('/')[2]
       state.staff = state.staff.map((s) => (s.id === staffId ? { ...s, twoStep: false } : s))
-      return route.fulfill({ status: 204 })
+      return json(route, 200, { setupCode: 'rstu-vwxy' })
     }
+    if (/^\/staff\/[^/]+\/two-step\/setup-code$/.test(path)) return json(route, 200, { setupCode: 'abcd-2345' })
 
     if (path === '/staff' && method === 'GET') return json(route, 200, state.staff)
     if (path === '/staff' && method === 'POST') {
       const b = body as { email: string; role: Role }
       const s: StaffMember = { id: `adm${state.staff.length + 1}`, email: b.email, role: b.role, createdAt: '2026-10-16T06:00:00Z' }
       state.staff = [...state.staff, s]
-      return json(route, 201, s)
+      return json(route, 201, { ...s, setupCode: 'mnpq-7890' })
     }
     if (/^\/staff\/[^/]+$/.test(path)) {
       const staffId = path.split('/')[2]

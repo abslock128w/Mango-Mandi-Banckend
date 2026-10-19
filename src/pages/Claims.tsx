@@ -134,7 +134,7 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
             </dd>
           </>
         )}
-        {claim.photoUrl && (
+        {claim.photoUrl && ownPhotoLink(claim.photoUrl) && (
           <>
             <dt>Photo</dt>
             <dd>
@@ -253,4 +253,14 @@ function ClaimPhoto({ claimId, photoId, n }: { claimId: string; photoId: string;
       <span className="sr-only"> (opens in a new tab)</span>
     </a>
   )
+}
+
+/** The API only passes on links into our own photo store; checked again here before staff are offered one. */
+function ownPhotoLink(link: string) {
+  try {
+    const u = new URL(link)
+    return u.protocol === 'https:' && u.hostname.endsWith('.blob.vercel-storage.com')
+  } catch {
+    return false
+  }
 }

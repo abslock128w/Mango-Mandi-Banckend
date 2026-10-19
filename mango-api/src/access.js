@@ -174,7 +174,7 @@ export async function riderScope(req, _res, next) {
 }
 
 // The customer's delivery code is a secret too.
-const SECRET_KEYS = /password|token|secret|^code$/i
+const SECRET_KEYS = /password|token|secret|^code$|setupcode/i
 
 function clean(body) {
   if (Buffer.isBuffer(body)) return body.length ? { bytes: body.length } : null

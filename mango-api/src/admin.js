@@ -4,14 +4,14 @@ import { googleOn, verifyGoogleCredential } from './google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
 import jwt from 'jsonwebtoken'
-import { sharedLimiter } from './ratelimit.js'
+import { hit, sharedLimiter } from './ratelimit.js'
 import { z } from 'zod'
 import { audit, auditStaffChanges, limitByRole, riderScope, ROLES } from './access.js'
-import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
-import { sendPhoto } from './photos.js'
+import { isOwnPhotoUrl, sendPhoto } from './photos.js'
 import { normaliseCode, promoView } from './promos.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, photoReviews, recordDelivery, recordStaffDelivery, reviewDelivery, savePhoto } from './delivery-proof.js'
@@ -63,16 +63,20 @@ const DUMMY_HASH = bcrypt.hashSync(newId('x'), 10)
 // ---------------------------------------------------------------- auth
 
 /**
- * Whether this role must use two-step sign-in (STAFF_TWO_STEP). "managers"
- * covers operators too: both can cancel orders, move stock and see every
- * customer's details.
+ * Whether this role must use two-step sign-in (STAFF_TWO_STEP). In production
+ * the default is "all": riders and packers see customers' names, phones and
+ * addresses too. "managers" covers operators as well: both can cancel orders,
+ * move stock and see every customer's details.
  */
 const OFFICE_ROLES = ['MANAGER', 'OPERATOR']
 const twoStepRequired = (role) => env.STAFF_TWO_STEP === 'all' || (env.STAFF_TWO_STEP === 'managers' && OFFICE_ROLES.includes(role))
 
 /** The access token. "setup" marks someone who must set up two-step sign-in before anything else. */
 const staffAccess = (u) =>
-  signAccess({ sub: u.id, email: u.email, role: u.role, typ: 'admin', ...(twoStepRequired(u.role) && !u.totp_enabled_at ? { setup: true } : {}) })
+  signAccess({
+    sub: u.id, email: u.email, role: u.role, typ: 'admin', sv: u.session_version ?? 0,
+    ...(twoStepRequired(u.role) && !u.totp_enabled_at ? { setup: true } : {}),
+  })
 
 async function startSession(req, res, user, method) {
   const refresh = await issueRefresh(user.id, 'admin')
@@ -84,7 +88,50 @@ async function startSession(req, res, user, method) {
 const TICKET_TTL_S = 5 * 60
 const TWO_STEP_MAX_FAILURES = 5
 const TWO_STEP_LOCK_MS = 15 * 60_000
-const STAFF_COLUMNS = 'id, email, role, totp_secret, totp_enabled_at, totp_last_step, two_step_failures, two_step_locked_until'
+const STAFF_COLUMNS = 'id, email, role, session_version, totp_secret, totp_enabled_at, totp_last_step, two_step_failures, two_step_locked_until'
+
+// SEC-4: wrong passwords per account (unknown emails too, so the answer never
+// shows whether an account exists), on top of the per-address limit. After 10
+// in 15 minutes the account's password sign-in waits out the rest of the
+// window: slow enough to stop guessing, short enough that someone locking a
+// colleague out on purpose only delays them (Google sign-in still works).
+const PASSWORD_FAILURES = 10
+const PASSWORD_WINDOW_MS = 15 * 60_000
+const pwKey = (email) => `staff-pw:${email}`
+const PW_LOCKED = () =>
+  new HttpError(429, 'ACCOUNT_LOCKED', 'Too many wrong passwords for this account. Try again in 15 minutes, sign in with Google, or ask a manager to set a new password.')
+
+async function passwordLocked(email) {
+  const { rows } = await query('SELECT hits FROM rate_limits WHERE key = $1 AND reset_at > $2', [pwKey(email), now()])
+  return (rows[0]?.hits ?? 0) >= PASSWORD_FAILURES
+}
+
+const passwordFailed = (email) => hit(pwKey(email), PASSWORD_WINDOW_MS)
+
+const clearPasswordFailures = (email, c = { query }) => c.query('DELETE FROM rate_limits WHERE key = $1', [pwKey(email)])
+
+// SEC-6: where two-step is required, setting it up needs a one-time code from
+// a manager as well as the password, so someone holding only the password
+// can't put their own authenticator app on the account. The first manager to
+// set it up (no other manager has it yet) needs none: nobody could give them one.
+const SETUP_CODE_TTL_MS = 7 * 86_400_000
+const SETUP_CODE_TRIES_PER_HOUR = 5
+
+/** Issues a fresh setup code for a staff member (replacing any earlier one). Returns it, to show once. */
+async function issueSetupCode(c, adminId) {
+  const [code] = newRecoveryCodes(1)
+  await c.query('UPDATE admin_users SET setup_code_hash = $2, setup_code_expires_at = $3 WHERE id = $1', [
+    adminId, hashRecovery(code), new Date(now().getTime() + SETUP_CODE_TTL_MS),
+  ])
+  return code
+}
+
+/** Whether this sign-in must give a manager's setup code before setting up two-step. */
+async function setupCodeNeeded(adminId, setupSession) {
+  if (!setupSession) return false
+  const { rows } = await query("SELECT 1 FROM admin_users WHERE role = 'MANAGER' AND totp_enabled_at IS NOT NULL AND id <> $1 LIMIT 1", [adminId])
+  return rows.length > 0
+}
 
 /**
  * After the password or Google: either the session, or, with two-step on, a
@@ -101,10 +148,15 @@ router.post(
   authLimiter,
   asyncHandler(async (req, res) => {
     const { email, password } = parse(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(200) }), req.body)
+    if (await passwordLocked(email)) throw PW_LOCKED()
     const { rows } = await query(`SELECT ${STAFF_COLUMNS}, password_hash FROM admin_users WHERE email = $1`, [email])
     const user = rows[0]
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH)
-    if (!user || !ok) throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
+    if (!user || !ok) {
+      await passwordFailed(email)
+      throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
+    }
+    await clearPasswordFailures(email)
     await passFirstStep(req, res, user, 'password')
   }),
 )
@@ -183,10 +235,10 @@ router.post(
 router.post(
   '/auth/refresh',
   sameSiteOnly,
-  authLimiter,
+  refreshLimiter('admin', COOKIE),
   asyncHandler(async (req, res) => {
     const { userId, refresh } = await rotateRefresh(req.cookies?.[COOKIE], 'admin')
-    const { rows } = await query('SELECT id, email, role, totp_enabled_at FROM admin_users WHERE id = $1', [userId])
+    const { rows } = await query('SELECT id, email, role, session_version, totp_enabled_at FROM admin_users WHERE id = $1', [userId])
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     if (refresh) res.cookie(COOKIE, refresh.token, { ...cookieOptions(), expires: refresh.expiresAt })
     res.json({ accessToken: staffAccess(rows[0]), expiresIn: ACCESS_TTL_S })
@@ -219,7 +271,11 @@ router.get(
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     res.json({
       email: req.admin.email, role: req.admin.role,
-      twoStep: { enabled: Boolean(rows[0].totp_enabled_at), required: twoStepRequired(req.admin.role) },
+      twoStep: {
+        enabled: Boolean(rows[0].totp_enabled_at),
+        required: twoStepRequired(req.admin.role),
+        setupCodeNeeded: !rows[0].totp_enabled_at && (await setupCodeNeeded(req.admin.id, req.admin.setup)),
+      },
     })
   }),
 )
@@ -230,6 +286,19 @@ router.get(
 router.post(
   '/me/two-step/setup',
   asyncHandler(async (req, res) => {
+    const { setupCode } = parse(z.object({ setupCode: z.string().trim().max(20).optional() }), req.body ?? {})
+    if (await setupCodeNeeded(req.admin.id, req.admin.setup)) {
+      if (!setupCode) throw new HttpError(403, 'SETUP_CODE_REQUIRED', 'Enter the setup code a manager gave you. Ask a manager if you don’t have one.')
+      const tries = await hit(`staff-setup-code:${req.admin.id}`, 3_600_000)
+      if (tries.hits > SETUP_CODE_TRIES_PER_HOUR) throw new HttpError(429, 'RATE_LIMITED', 'Too many tries. Try again in an hour.')
+      const { rows } = await query('SELECT setup_code_hash, setup_code_expires_at FROM admin_users WHERE id = $1', [req.admin.id])
+      const u = rows[0]
+      const norm = /^[a-z0-9]{8}$/i.test(setupCode) ? `${setupCode.slice(0, 4)}-${setupCode.slice(4)}` : setupCode
+      if (!u?.setup_code_hash || u.setup_code_expires_at <= now() || hashRecovery(norm) !== u.setup_code_hash) {
+        await audit(req.admin, 'auth.setup_code_failed', { requestId: req.id })
+        throw new HttpError(422, 'WRONG_SETUP_CODE', 'That setup code is not right, or it has expired. Ask a manager for a new one.')
+      }
+    }
     const secret = newSecret()
     const r = await query('UPDATE admin_users SET totp_pending = $2 WHERE id = $1 AND totp_enabled_at IS NULL', [req.admin.id, secret])
     if (!r.rowCount) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
@@ -244,7 +313,7 @@ router.post(
     const { code } = parse(z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') }), req.body)
     const codes = newRecoveryCodes()
     const user = await tx(async (c) => {
-      const { rows } = await c.query('SELECT id, email, role, totp_pending, totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.admin.id])
+      const { rows } = await c.query('SELECT id, email, role, session_version, totp_pending, totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.admin.id])
       const u = rows[0]
       if (u.totp_enabled_at) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
       if (!u.totp_pending) throw badRequest('Start the set-up again', 'NO_SETUP')
@@ -252,7 +321,8 @@ router.post(
       if (step == null) throw new HttpError(422, 'WRONG_CODE', 'That code is not right. Check the time on your phone and try the newest code.')
       const at = now()
       await c.query(
-        'UPDATE admin_users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = $2, totp_last_step = $3, two_step_failures = 0 WHERE id = $1',
+        `UPDATE admin_users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = $2, totp_last_step = $3, two_step_failures = 0,
+           setup_code_hash = NULL, setup_code_expires_at = NULL WHERE id = $1`,
         [u.id, at, step],
       )
       await c.query('DELETE FROM staff_recovery_codes WHERE admin_id = $1', [u.id])
@@ -1368,11 +1438,13 @@ router.post(
     )
     if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
     req.params.id = rows[0].id
-    res.status(201).json(staffDto(rows[0]))
+    // Shown once: they need it to set up two-step sign-in where it is required.
+    const setupCode = await issueSetupCode({ query }, rows[0].id)
+    res.status(201).json({ ...staffDto(rows[0]), setupCode })
   }),
 )
 
-/** Changes a person's role or password. Their open sessions end, so they sign in again under the change. */
+/** Changes a person's role or password. Their open sessions and access tokens end, so they sign in again under the change. */
 router.patch(
   '/staff/:id',
   requireManager,
@@ -1382,34 +1454,58 @@ router.patch(
     const hash = b.password ? await bcrypt.hash(b.password, 10) : null
     const result = await tx(async (c) => {
       const { rows } = await c.query(
-        `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash) WHERE id = $1
-         RETURNING id, email, role, created_at`,
+        `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash), session_version = session_version + 1
+         WHERE id = $1 RETURNING id, email, role, created_at, totp_enabled_at`,
         [req.params.id, b.role ?? null, hash],
       )
       if (!rows.length) throw notFound('No staff member with that id')
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      // A new password also lifts a lock from wrong passwords.
+      if (hash) await clearPasswordFailures(rows[0].email, c)
       return rows[0]
     })
+    forgetStaff(req.params.id)
     res.json(staffDto(result))
   }),
 )
 
-/** For a lost phone: clears someone's two-step sign-in and ends their sessions. They set it up again at next sign-in. */
+/**
+ * For a lost phone: clears someone's two-step sign-in and ends their sessions.
+ * They set it up again at next sign-in, with the setup code returned here (shown once).
+ */
 router.post(
   '/staff/:id/two-step/reset',
   requireManager,
   asyncHandler(async (req, res) => {
-    await tx(async (c) => {
+    const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT id FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('No staff member with that id')
       await clearTwoStep(c, req.params.id)
+      await c.query('UPDATE admin_users SET session_version = session_version + 1 WHERE id = $1', [req.params.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      return issueSetupCode(c, req.params.id)
     })
-    res.status(204).end()
+    forgetStaff(req.params.id)
+    res.json({ setupCode })
   }),
 )
 
-/** Removes someone's access. Their open sessions end; an access token already issued lapses within 15 minutes. */
+/** A new two-step setup code for someone who hasn't set it up (lost the first, or added before codes existed). Shown once. */
+router.post(
+  '/staff/:id/two-step/setup-code',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const setupCode = await tx(async (c) => {
+      const { rows } = await c.query('SELECT totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
+      if (!rows.length) throw notFound('No staff member with that id')
+      if (rows[0].totp_enabled_at) throw conflict('Two-step sign-in is already on for them. Reset it if they lost their phone.', 'TWO_STEP_ON')
+      return issueSetupCode(c, req.params.id)
+    })
+    res.json({ setupCode })
+  }),
+)
+
+/** Removes someone's access. Their open sessions end, and access tokens already issued stop working (see requireAdmin). */
 router.delete(
   '/staff/:id',
   requireManager,
@@ -1420,6 +1516,7 @@ router.delete(
       if (!r.rowCount) throw notFound('No staff member with that id')
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
     })
+    forgetStaff(req.params.id)
     res.status(204).end()
   }),
 )
@@ -1518,7 +1615,7 @@ router.get(
         ...(risks.has(c.id) ? risks.get(c.id) : {}),
         photos: pics.rows.filter((p) => p.claim_id === c.id).map((p) => ({ id: p.id })),
         id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
-        issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: c.photo_url,
+        issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: isOwnPhotoUrl(c.photo_url) ? c.photo_url : null,
         status: c.status, resolution: c.resolution, createdAt: c.created_at,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null,
       })),

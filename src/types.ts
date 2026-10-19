@@ -7,8 +7,11 @@ export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC' | 'RIDER'
 export interface Me {
   email: string
   role: Role
-  /** Two-step sign-in: whether it is on, and whether this role must use it. */
-  twoStep?: { enabled: boolean; required: boolean }
+  /**
+   * Two-step sign-in: whether it is on, whether this role must use it, and
+   * whether setting it up needs the one-time setup code a manager hands over.
+   */
+  twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -647,6 +650,8 @@ export interface StaffMember {
   role: Role
   createdAt: string
   twoStep?: boolean
+  /** Only when the person is added: the one-time code they need to set up two-step sign-in. */
+  setupCode?: string
 }
 
 /** One staff change. `action` is the route ("PATCH /orders/:id/status") or "auth.login". */

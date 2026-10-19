@@ -62,7 +62,7 @@ describe('two-step sign-in', () => {
     const ok = await api.post('/admin/v1/auth/two-step', { ticket, code: c })
     assert.equal(ok.status, 200, JSON.stringify(ok.body))
     const me = await api.get('/admin/v1/auth/me', { token: ok.body.accessToken })
-    assert.deepEqual(me.body.twoStep, { enabled: true, required: false })
+    assert.deepEqual(me.body.twoStep, { enabled: true, required: false, setupCodeNeeded: false })
     // The same code can't be used again.
     assert.equal((await api.post('/admin/v1/auth/two-step', { ticket, code: c })).status, 422)
 
@@ -91,7 +91,8 @@ describe('two-step sign-in', () => {
     const login = await api.post('/admin/v1/auth/login', MANAGER)
     const token = login.body.accessToken
     assert.ok(token)
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token })).body.twoStep, { enabled: false, required: true })
+    // The first manager to set it up needs no setup code: nobody could give them one.
+    assert.deepEqual((await api.get('/admin/v1/auth/me', { token })).body.twoStep, { enabled: false, required: true, setupCodeNeeded: false })
     assert.equal((await api.get('/admin/v1/orders', { token })).body.error.code, 'TWO_STEP_SETUP_REQUIRED')
     // A refresh keeps the restriction.
     const cookie = login.headers.get('set-cookie').split(';')[0]
@@ -117,7 +118,11 @@ describe('two-step sign-in', () => {
     const opsRow = staff.find((u) => u.email === 'ops@mandimangoes.test')
     assert.equal(opsRow.twoStep, true)
     assert.equal((await api.post(`/admin/v1/staff/${opsRow.id}/two-step/reset`, undefined, { token: ops })).status, 403)
-    assert.equal((await api.post(`/admin/v1/staff/${opsRow.id}/two-step/reset`, undefined, { token: manager })).status, 204)
+    const reset = await api.post(`/admin/v1/staff/${opsRow.id}/two-step/reset`, undefined, { token: manager })
+    assert.equal(reset.status, 200)
+    assert.match(reset.body.setupCode, /^[a-z0-9]{4}-[a-z0-9]{4}$/)
+    // Their access token from before the reset stops working at once (SEC-8).
+    assert.equal((await api.get('/admin/v1/orders', { token: ops })).status, 401)
     assert.ok((await api.post('/admin/v1/auth/login', { email: 'ops@mandimangoes.test', password: 'operator123' })).body.accessToken)
 
     const { secret } = await enrol(manager)

@@ -31,14 +31,17 @@ export function jioSender(opts, fetchImpl = fetch) {
       return null
     })
     if (!res?.ok) {
-      if (res) logger.error({ status: res.status, body: (await res.text()).slice(0, 500), phone: mask(phone) }, 'Jio SMS rejected the OTP')
+      // The gateway may echo the message back: never log the code.
+      if (res) logger.error({ status: res.status, body: (await res.text()).slice(0, 500).replaceAll(code, '******'), phone: mask(phone) }, 'Jio SMS rejected the OTP')
       throw new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
     }
   }
 }
 
-async function logOnly(phone, code) {
-  logger.info({ phone }, `OTP for ${phone} is ${code}`)
+/** The "log" provider. The code is written only with LOG_OTP_CODES=true (a preview, say); never the full number. */
+export async function logOnly(phone, code) {
+  if (env.LOG_OTP_CODES) logger.info({ phone: mask(phone) }, `Login code for ${mask(phone)} is ${code}`)
+  else logger.info({ phone: mask(phone) }, 'Login code not sent (SMS_PROVIDER=log); set LOG_OTP_CODES=true to log it')
 }
 
 /**

@@ -26,6 +26,8 @@ export default function Staff() {
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
   const [unlocking, setUnlocking] = useState<StaffMember | null>(null)
+  // A two-step setup code, shown once to hand over in person.
+  const [shownCode, setShownCode] = useState<{ email: string; code: string } | null>(null)
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['staff'] })
@@ -51,11 +53,16 @@ export default function Staff() {
 
   const resetTwoStep = useMutation({
     mutationFn: (id: string) => api.resetTwoStep(id),
-    onSuccess: () => {
-      toast.success(`Two-step sign-in reset for ${unlocking?.email}. They set it up again when they next sign in.`)
+    onSuccess: (r) => {
+      if (unlocking) setShownCode({ email: unlocking.email, code: r.setupCode })
       setUnlocking(null)
       refresh()
     },
+  })
+  const newSetupCode = useMutation({
+    mutationFn: (s: StaffMember) => api.newSetupCode(s.id).then((r) => ({ email: s.email, code: r.setupCode })),
+    onSuccess: (c) => setShownCode(c),
+    onError: (err) => toast.error(err),
   })
 
   return (
@@ -123,6 +130,11 @@ export default function Staff() {
                               Reset two-step<span className="sr-only"> for {s.email}</span>
                             </button>
                           )}
+                          {!s.twoStep && !self && (
+                            <button type="button" className="btn btn-small" disabled={newSetupCode.isPending} onClick={() => newSetupCode.mutate(s)}>
+                              Setup code<span className="sr-only"> for {s.email}</span>
+                            </button>
+                          )}
                           <button type="button" className="btn btn-small" onClick={() => setResetting(s)}>
                             Set password<span className="sr-only"> for {s.email}</span>
                           </button>
@@ -151,7 +163,31 @@ export default function Staff() {
 
       <Activity />
 
-      {adding && <AddDialog onClose={() => setAdding(false)} onDone={refresh} />}
+      {adding && (
+        <AddDialog
+          onClose={() => setAdding(false)}
+          onDone={(s) => {
+            refresh()
+            if (s.setupCode) setShownCode({ email: s.email, code: s.setupCode })
+          }}
+        />
+      )}
+      {shownCode && (
+        <Dialog
+          title={`Setup code for ${shownCode.email}`}
+          onClose={() => setShownCode(null)}
+          footer={
+            <button type="button" className="btn btn-primary" onClick={() => setShownCode(null)}>
+              Done
+            </button>
+          }
+        >
+          <p>They enter this when they set up two-step sign-in. Give it to them in person. It works once, for 7 days, and is not shown again.</p>
+          <p>
+            Setup code: <strong className="secret-key">{shownCode.code}</strong>
+          </p>
+        </Dialog>
+      )}
       {resetting && <PasswordDialog member={resetting} onClose={() => setResetting(null)} />}
       {unlocking && (
         <Dialog
@@ -168,7 +204,10 @@ export default function Staff() {
             </>
           }
         >
-          <p>Use this when they have lost their phone. They are signed out, and set up two-step sign-in again with their new phone.</p>
+          <p>
+            Use this when they have lost their phone. They are signed out, and set up two-step sign-in again with their new phone, using the setup code
+            shown next.
+          </p>
           <FormError error={resetTwoStep.error} />
         </Dialog>
       )}
@@ -196,7 +235,7 @@ export default function Staff() {
   )
 }
 
-function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: StaffMember) => void }) {
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('PACKER')
@@ -206,8 +245,8 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: () => voi
     mutationFn: () => api.addStaff({ email: email.trim(), role, password }),
     onSuccess: (s) => {
       toast.success(`${s.email} added as ${ROLE_LABEL[s.role]}`)
-      onDone()
       onClose()
+      onDone(s)
     },
   })
 
@@ -312,6 +351,7 @@ function PasswordDialog({ member, onClose }: { member: StaffMember; onClose: () 
 const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => string)> = {
   'auth.login': 'Signed in',
   'auth.two_step_failed': 'Entered a wrong two-step code',
+  'auth.setup_code_failed': 'Entered a wrong two-step setup code',
   'POST /batches': 'Received a batch',
   'PATCH /batches/:id/status': (d) => `Moved batch to ${BATCH_STATUS_LABEL[d.status as BatchStatus] ?? d.status}`,
   'POST /batches/:id/qc': 'Logged QC',
@@ -342,6 +382,7 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'PATCH /staff/:id': 'Changed a person',
   'DELETE /staff/:id': 'Removed a person',
   'POST /staff/:id/two-step/reset': 'Reset two-step sign-in',
+  'POST /staff/:id/two-step/setup-code': 'Gave out a two-step setup code',
   'POST /me/two-step/enable': 'Turned on two-step sign-in',
   'POST /me/two-step/disable': 'Turned off two-step sign-in',
 }

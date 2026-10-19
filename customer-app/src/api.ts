@@ -1,6 +1,7 @@
 // Every call to mango-api's customer routes (/v1) goes through request() here.
-// Tokens live in localStorage: the access token is short-lived and refreshed
-// once on a 401; a failed refresh signs the customer out.
+// The access token lives in memory and the refresh token in an httpOnly
+// cookie. The access token is short-lived and refreshed once on a 401; a
+// refresh the API refuses (401) signs the customer out.
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -363,8 +364,9 @@ function refreshOnce(): Promise<boolean> {
       signedIn(await raw<TokenResponse>('POST', '/auth/token/refresh', {}))
       return true
     } catch (err) {
-      // Offline is not signed out: keep the profile and let the request fail.
-      if (err instanceof ApiError) signedOut()
+      // Only a refused session (401) is a sign-out. Offline, busy (429) or a
+      // server error keeps the profile and lets this request fail.
+      if (err instanceof ApiError && err.status === 401) signedOut()
       return false
     } finally {
       refreshing = null

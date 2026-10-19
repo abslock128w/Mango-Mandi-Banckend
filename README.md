@@ -100,7 +100,7 @@ npx playwright test tests/smoke.spec.ts tests/screens.spec.ts tests/a11y.spec.ts
 PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 
 # Full day-in-the-life script against a local mango-api with demo data
-# (start it first: cd mango-api && COOKIE_SECURE=false npm start):
+# (start it first: cd mango-api && COOKIE_SECURE=false ENABLE_DEV_ROUTES=true npm start):
 E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \
   npx playwright test tests/day-in-the-life.spec.ts
 ```
