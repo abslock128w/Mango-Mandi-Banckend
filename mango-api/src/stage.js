@@ -6,7 +6,7 @@ import { diffDays, istParts } from './clock.js'
 
 export const STAGES = ['RAW', 'SEMI_RIPE', 'RIPE']
 
-const profileFor = (config, variety) => config.stageProfiles[variety] ?? config.stageProfiles.default
+export const profileFor = (config, variety) => config.stageProfiles[variety] ?? config.stageProfiles.default
 
 /** Stage index a profile predicts at an age: -1 before the first window, STAGES.length after the last. */
 function predictedIndex(profile, age) {

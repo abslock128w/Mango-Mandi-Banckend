@@ -63,6 +63,8 @@ export function seed() {
       ageDays: 7,
       farm: 'Ratnagiri',
       status: 'SELLING',
+      traceCode: '3f9a1c7e20',
+      traceUrl: 'http://localhost:5174/t/3f9a1c7e20',
       lines: [
         { id: 'l1', sku: 'ALP-3', onHand: 20, held: 2, committed: 3, reserveBuffer: 1, available: 14 },
         { id: 'l2', sku: 'ALP-5', onHand: 10, held: 0, committed: 6, reserveBuffer: 1, available: 3 },
@@ -520,6 +522,16 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/preorders') {
       const status = url.searchParams.get('status')
       return json(route, 200, status ? state.preorders.filter((p) => p.status === status) : state.preorders)
+    }
+    if (/^\/preorders\/[^/]+\/cancel$/.test(path)) {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      const p = state.preorders.find((x) => x.id === path.split('/')[2])
+      if (p) p.status = 'CANCELLED'
+      return json(route, 200, { refunded: p?.paymentStatus === 'SUCCEEDED' })
+    }
+    if (/^\/delivery-reviews\/[^/]+$/.test(path)) {
+      state.attention = { ...state.attention, photoDeliveries: (state.attention.photoDeliveries ?? []).filter((d) => d.id !== path.split('/')[2]) }
+      return route.fulfill({ status: 204 })
     }
     if (path === '/preorder-capacity') return json(route, 200, state.preorderCapacity)
     if (path.startsWith('/preorder-capacity/')) {

@@ -114,14 +114,15 @@ CREATE TABLE review_stats (
   PRIMARY KEY (scope, key)
 );
 
--- The same Idempotency-Key sent again with a different body is refused.
-ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT;
+-- idempotency_keys.request_hash (018_launch_review) refuses a reused
+-- Idempotency-Key with a different body; review sends use it too.
 
 -- "How were your mangoes?" about a day after delivery (template mandi_review_request).
 ALTER TABLE notifications DROP CONSTRAINT notifications_kind_check;
 ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN (
   'ORDER_CONFIRMED','REPLACEMENT_CONFIRMED','OUT_FOR_DELIVERY','DELIVERED','DELIVERY_FAILED','CANCELLED','REFUNDED',
-  'PREORDER_BOOKED','PREORDER_SPOT_OPEN','PREORDER_MOVED','DATE_MOVED','REVIEW_REQUEST'));
+  'PREORDER_BOOKED','PREORDER_SPOT_OPEN','PREORDER_MOVED','DATE_MOVED','GIFT_OUT_FOR_DELIVERY',
+  'RIPENESS_GUIDE','BACK_IN_STOCK','REORDER_REMINDER','REVIEW_REQUEST'));
 
 -- The review-request job looks up deliveries from a day or two ago.
 CREATE INDEX order_events_delivered_idx ON order_events (created_at) WHERE status = 'DELIVERED';

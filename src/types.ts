@@ -150,6 +150,10 @@ export interface BatchDetail {
   createdAt?: string
   lines: BatchLine[]
   qc: QcEntry[]
+  /** The short public code printed as a QR on each box. */
+  traceCode?: string | null
+  /** The shop page the QR opens. */
+  traceUrl?: string | null
 }
 
 export interface LedgerEntry {
@@ -335,6 +339,11 @@ export interface Claim {
   resolution?: ClaimResolution | null
   createdAt?: string
   replacementOrder?: { id: string; number: string } | null
+  /** Open claims only: the customer's last 90 days, and how the order was delivered. */
+  history?: { claims90d: number; replacements90d: number }
+  delivery?: { method: 'code' | 'photo' | 'staff'; at: string } | null
+  /** Why a replacement needs a manager's approval, if it does. */
+  managerNeeded?: string[] | null
 }
 
 export interface Pincode {
@@ -524,6 +533,18 @@ export interface Attention {
   failedDeliveries?: { id: string; number: string; name: string | null; phone: string | null; attempts: number }[]
   /** New 1 and 2 star reviews still waiting for a look. */
   lowRatings?: { id: string; rating: number; comment: string | null; sku: string; productName: string; createdAt: string; order: { id: string; number: string } }[]
+  /** Delivered with only a photo: someone other than the rider checks it. */
+  photoDeliveries?: PhotoDelivery[]
+}
+
+export interface PhotoDelivery {
+  id: string
+  receivedBy: string | null
+  photoId: string | null
+  actor: string
+  at: string
+  order: { id: string; number: string; name: string | null }
+  flags: string[]
 }
 
 // ---------- Reviews ----------
