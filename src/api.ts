@@ -69,7 +69,7 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null
-let refreshPromise: Promise<boolean> | null = null
+let refreshPromise: Promise<'ok' | 'refused' | 'unavailable'> | null = null
 
 async function toApiError(res: Response): Promise<ApiError> {
   let body: ApiErrorBody | null = null
@@ -86,19 +86,26 @@ async function toApiError(res: Response): Promise<ApiError> {
   )
 }
 
-/** One shared refresh: a burst of parallel 401s issues a single refresh call. */
-function refreshOnce(): Promise<boolean> {
+/**
+ * One shared refresh: a burst of parallel 401s issues a single refresh call.
+ * 'refused' only when the API says the refresh cookie is no good (401); a busy
+ * API (503), a proxy error or being offline is 'unavailable', which must not
+ * sign anyone out.
+ */
+type Refresh = 'ok' | 'refused' | 'unavailable'
+function refreshOnce(): Promise<Refresh> {
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    refreshPromise = (async (): Promise<Refresh> => {
       try {
         const res = await fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
-        if (!res.ok) return false
+        if (res.status === 401) return 'refused'
+        if (!res.ok) return 'unavailable'
         const data = (await res.json()) as { accessToken?: string }
-        if (!data.accessToken) return false
+        if (!data.accessToken) return 'refused'
         accessToken = data.accessToken
-        return true
+        return 'ok'
       } catch {
-        return false
+        return 'unavailable'
       }
     })().finally(() => {
       refreshPromise = null
@@ -127,7 +134,9 @@ async function send(method: string, path: string, body?: unknown, retried = fals
   })
 
   if (res.status === 401 && !retried) {
-    if (await refreshOnce()) return send(method, path, body, true)
+    const refreshed = await refreshOnce()
+    if (refreshed === 'ok') return send(method, path, body, true)
+    if (refreshed === 'unavailable') throw new ApiError(503, 'UNAVAILABLE', 'The server is busy or unreachable. Please try again in a minute.')
     signOutLocally()
     throw new ApiError(401, 'SESSION_ENDED', 'Your session has ended. Please sign in again.')
   }
@@ -172,7 +181,7 @@ export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
   async bootstrap(): Promise<Me | null> {
     if (!API_URL) return null
-    if (!(await refreshOnce())) return null
+    if ((await refreshOnce()) !== 'ok') return null
     try {
       return await request<Me>('GET', '/auth/me')
     } catch {

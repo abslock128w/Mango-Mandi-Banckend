@@ -1312,3 +1312,9 @@ button.bar-row:hover,
   margin: 1.25rem 0 0.5rem;
   font-size: 1rem;
 }
+
+/* Review screen: a cart price that changed since the box was added. */
+.price-changed {
+  display: block;
+  color: var(--warn-ink);
+}

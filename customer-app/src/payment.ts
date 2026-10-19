@@ -1,5 +1,3 @@
-import type { Confirmed } from './api'
-
 // Razorpay Checkout: the script is loaded on first use. Payment is confirmed by
 // Razorpay's webhook to the API, never by this page; the order page polls.
 
@@ -9,25 +7,14 @@ declare global {
   }
 }
 
-const KEY = 'mm.pay'
+try {
+  sessionStorage.removeItem('mm.pay') // checkout details were kept here before the order API returned them
+} catch {
+  // ignore
+}
 
-/** Keeps what's needed to reopen checkout for an unpaid order on this device. */
-export function rememberPayment(c: Confirmed) {
-  try {
-    const all = JSON.parse(sessionStorage.getItem(KEY) ?? '{}')
-    all[c.orderId] = { key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number }
-    sessionStorage.setItem(KEY, JSON.stringify(all))
-  } catch {
-    // ignore
-  }
-}
-export function rememberedPayment(orderId: string): { key: string | null; rzp: string | null; total: number; number: string } | null {
-  try {
-    return JSON.parse(sessionStorage.getItem(KEY) ?? '{}')[orderId] ?? null
-  } catch {
-    return null
-  }
-}
+/** Below this many seconds of hold, checkout is not worth opening: the boxes are about to go back on sale. */
+export const MIN_PAY_SECONDS = 60
 
 let loading: Promise<void> | null = null
 function loadScript() {
@@ -66,7 +53,8 @@ export async function openRazorpay(
       description: `Order ${p.number}`,
       prefill: phone ? { contact: phone } : undefined,
       theme: { color: '#d97706' },
-      ...(secondsLeft != null ? { timeout: Math.max(60, secondsLeft) } : {}),
+      // The window closes with the hold, never later (a payment that still lands late is honoured on the server).
+      ...(secondsLeft != null ? { timeout: Math.max(1, secondsLeft) } : {}),
       handler: () => resolve(),
       modal: { ondismiss: () => resolve() },
     })

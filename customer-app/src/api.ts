@@ -1,6 +1,7 @@
 // Every call to mango-api's customer routes (/v1) goes through request() here.
-// Tokens live in localStorage: the access token is short-lived and refreshed
-// once on a 401; a failed refresh signs the customer out.
+// The access token is kept in memory and the refresh token in an httpOnly
+// cookie (see below). The access token is refreshed once on a 401; only a
+// refresh the API refuses (401) signs the customer out.
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -115,6 +116,8 @@ export interface Order {
   paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
+  /** Razorpay's public key id, while the order waits for payment, so checkout can be reopened anywhere. */
+  razorpayKeyId?: string | null
   holdExpiresAt: string | null
   slot: Slot | null
   items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null; readyOn?: string | null }[]
@@ -347,12 +350,20 @@ function signedIn(r: TokenResponse) {
   save(PROFILE_KEY, profile)
   window.dispatchEvent(new CustomEvent(PROFILE_EVENT))
 }
-function signedOut() {
+/** What this device keeps about the customer, removed on sign-out and account deletion. */
+const PERSONAL_KEYS = ['mm.address', 'mm.cart']
+
+/**
+ * `forget`: the customer chose to sign out (or deleted the account), so their
+ * address and cart go too. An expired session keeps them for the next sign-in.
+ */
+function signedOut(forget = false) {
   const was = profile
   accessToken = null
   profile = null
   save(PROFILE_KEY, null)
-  if (was) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT))
+  if (forget) for (const key of PERSONAL_KEYS) save(key, null)
+  if (was || forget) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { forget } }))
 }
 
 let refreshing: Promise<boolean> | null = null
@@ -363,8 +374,9 @@ function refreshOnce(): Promise<boolean> {
       signedIn(await raw<TokenResponse>('POST', '/auth/token/refresh', {}))
       return true
     } catch (err) {
-      // Offline is not signed out: keep the profile and let the request fail.
-      if (err instanceof ApiError) signedOut()
+      // Only a refused refresh token signs out. Offline, a 503 BUSY or a 5xx
+      // from a proxy is not signed out: keep the profile and let the request fail.
+      if (err instanceof ApiError && err.status === 401) signedOut()
       return false
     } finally {
       refreshing = null
@@ -389,8 +401,17 @@ async function raw<T>(method: string, path: string, body?: unknown, headers: Rec
   })
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  const json = text ? JSON.parse(text) : null
+  let json: { error?: { code?: string; message?: string } & Record<string, unknown> } | null = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    // Not JSON: a proxy's or host's own error page.
+    if (res.ok) throw new ApiError(res.status, 'BAD_RESPONSE', 'MandiMangoes sent an answer we could not read. Please try again.')
+  }
   if (!res.ok) {
+    if (json === null && res.status >= 500) {
+      throw new ApiError(res.status, 'UNAVAILABLE', 'MandiMangoes is busy right now. Please try again in a minute.')
+    }
     const e = json?.error
     throw new ApiError(res.status, e?.code ?? 'ERROR', e?.message ?? `Request failed (${res.status})`, e ?? {})
   }
@@ -436,11 +457,11 @@ export const api = {
   /** Deletes the account and its personal details, then signs out. */
   async deleteAccount() {
     await request<void>('DELETE', '/me')
-    signedOut()
+    signedOut(true)
   },
   async signOut() {
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
-    signedOut()
+    signedOut(true)
   },
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),

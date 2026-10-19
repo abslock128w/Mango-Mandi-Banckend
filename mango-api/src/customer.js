@@ -617,6 +617,16 @@ async function replayFor(key, hash, table) {
   return r ?? null
 }
 
+/**
+ * A replay of a request whose first try is still starting the payment (no
+ * Razorpay order or link yet): 409, so the shop retries shortly instead of
+ * opening a checkout with nothing to pay.
+ */
+function startingPayment() {
+  return new HttpError(409, 'PAYMENT_STARTING', 'Your payment is still being set up. Please try again in a moment.', { retryAfterSeconds: 2 })
+}
+const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
+
 const confirmResponse = (o) => ({
   orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
   razorpayOrderId: o.razorpay_order_id, razorpayKeyId: env.RAZORPAY_KEY_ID || null, holdExpiresAt: o.hold_expires_at,
@@ -647,6 +657,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) throw startingPayment()
     if (replay) return res.status(200).json(confirmResponse(replay))
 
     const order = await tx(async (c) => {
@@ -682,7 +693,11 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
       return (await c.query('SELECT * FROM orders WHERE id = $1', [created.id])).rows[0]
     })
-    if (!order) return res.status(200).json(confirmResponse(await existing()))
+    if (!order) {
+      const first = await existing()
+      if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
+      return res.status(200).json(confirmResponse(first))
+    }
 
     try {
       const rzp = await createGatewayOrder({ amount: order.total, receipt: order.number, orderId: order.id })
@@ -832,6 +847,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'preorders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
     if (replay) return res.status(200).json(preorderView(replay))
     const pre = await tx(async (c) => {
       const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
@@ -842,7 +858,11 @@ router.post(
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, p.id])
       return p
     })
-    if (!pre) return res.status(200).json(preorderView(await existing()))
+    if (!pre) {
+      const first = await existing()
+      if (stillStarting(first, 'payment_link_url')) throw startingPayment()
+      return res.status(200).json(preorderView(first))
+    }
     if (pre.status !== 'PAYMENT_PENDING') return res.status(201).json(preorderView(pre))
     try {
       res.status(201).json(preorderView(await ensurePaymentLink(pre.id)))
