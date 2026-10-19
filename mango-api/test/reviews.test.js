@@ -456,6 +456,7 @@ describe('photos', () => {
     await api.post(`/admin/v1/reviews/${r.id}/approve`, { photoIds: [p1] }, { token: manager })
     const pub = await api.get(`/v1/review-photos/${p1}`)
     assert.equal(pub.status, 200)
+    assert.equal(pub.headers.get('cross-origin-resource-policy'), 'cross-origin', 'the shop on another origin can show it')
     assert.equal(pub.headers.get('content-type'), 'image/jpeg')
     assert.equal((await api.get(`/v1/review-photos/${p2}`)).status, 404, 'photo not approved')
     const list = await publicList()

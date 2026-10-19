@@ -460,7 +460,13 @@ customerReviews.get(
       [req.params.id],
     )
     if (!rows.length) throw notFound('Photo not found')
-    res.set('Content-Type', rows[0].mime).set('Cache-Control', PUBLIC_CACHE).set('X-Content-Type-Options', 'nosniff').send(await photoBytes(rows[0]))
+    res
+      .set('Content-Type', rows[0].mime)
+      .set('Cache-Control', PUBLIC_CACHE)
+      .set('X-Content-Type-Options', 'nosniff')
+      // Public by design: the shop, on another origin, shows it in an <img>.
+      .set('Cross-Origin-Resource-Policy', 'cross-origin')
+      .send(await photoBytes(rows[0]))
   }),
 )
 

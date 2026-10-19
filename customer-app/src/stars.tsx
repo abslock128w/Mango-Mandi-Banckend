@@ -28,7 +28,10 @@ export function StarInput({
     refs.current[n - 1]?.focus()
   }
   const onKey = (e: KeyboardEvent) => {
-    const cur = value ?? 0
+    // Move from the chosen star, or from the focused one when none is chosen
+    // (like native radios: focus on star 1, then ArrowRight picks 2).
+    const focused = refs.current.findIndex((el) => el === document.activeElement)
+    const cur = value ?? (focused >= 0 ? focused + 1 : 0)
     if (e.key === 'ArrowRight' || e.key === 'ArrowUp') pick(Math.min(5, cur + 1))
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') pick(Math.max(1, cur - 1))
     else if (e.key === 'Home') pick(1)

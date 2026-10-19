@@ -16,6 +16,8 @@ const SUBS: { key: keyof SubRatings; label: string }[] = [
   { key: 'delivery', label: 'Delivery' },
 ]
 
+type SentResult = { review: MyReview; followUp: FollowUp }
+
 interface Pic {
   id: string
   preview: string | null
@@ -34,6 +36,10 @@ function shownAs(name: string | null | undefined, anonymous: boolean) {
 export default function ReviewPage() {
   const { itemId, reviewId } = useParams()
   const q = useQuery({ queryKey: ['my-reviews'], queryFn: () => api.myReviews() })
+  // Kept here, not in the form: once sent, the refreshed list no longer has
+  // this item as reviewable, and the thank-you screen must stay.
+  const [done, setDone] = useState<SentResult | null>(null)
+  if (done) return <Sent result={done} />
   if (q.isPending) return <Spinner label="Loading" />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   const item = itemId ? q.data.reviewable.find((i) => i.orderItemId === itemId) : undefined
@@ -60,10 +66,10 @@ export default function ReviewPage() {
       </section>
     )
   }
-  return <ReviewForm item={item} existing={existing} />
+  return <ReviewForm item={item} existing={existing} onSent={setDone} />
 }
 
-function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview }) {
+function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: MyReview; onSent: (r: SentResult) => void }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [rating, setRating] = useState<number | null>(existing?.rating ?? null)
@@ -79,7 +85,6 @@ function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview
   const [uploading, setUploading] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
-  const [done, setDone] = useState<{ review: MyReview; followUp: FollowUp } | null>(null)
   // One key per form: a retry after a dropped connection can't make a second review.
   const [idemKey] = useState(() => crypto.randomUUID())
   const previews = useRef(photos)
@@ -111,7 +116,7 @@ function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview
       return existing ? api.editReview(existing.id, body) : api.sendReview({ ...body, orderItemId: item!.orderItemId }, idemKey)
     },
     onSuccess: (r) => {
-      setDone(r)
+      onSent(r)
       void queryClient.invalidateQueries({ queryKey: ['my-reviews'] })
       void queryClient.invalidateQueries({ queryKey: ['order-reviews', orderId] })
       window.scrollTo(0, 0)
@@ -152,7 +157,6 @@ function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview
     send.mutate()
   }
 
-  if (done) return <Sent result={done} />
 
   const left = MAX_COMMENT - comment.length
   return (
@@ -164,7 +168,15 @@ function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview
         {item && <> · delivered {when(item.deliveredAt)}</>}
       </p>
       <form onSubmit={submit} noValidate>
-        <StarInput label="Your rating" value={rating} onChange={setRating} />
+        <StarInput
+          label="Your rating"
+          value={rating}
+          onChange={(n) => {
+            setRating(n)
+            // A "choose stars" message is answered once stars are chosen.
+            if (formError?.startsWith('Choose')) setFormError(null)
+          }}
+        />
         <fieldset className="field sub-ratings">
           <legend>More detail (optional)</legend>
           {SUBS.map((s) => (
@@ -249,7 +261,7 @@ function ReviewForm({ item, existing }: { item?: Reviewable; existing?: MyReview
   )
 }
 
-function Sent({ result }: { result: { review: MyReview; followUp: FollowUp } }) {
+function Sent({ result }: { result: SentResult }) {
   const { review, followUp } = result
   return (
     <section className="card narrow" aria-labelledby="sent-title">
