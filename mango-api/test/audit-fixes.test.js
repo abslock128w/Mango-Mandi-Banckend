@@ -2,7 +2,7 @@
 // does its work (C1), a captured payment must match what we charged (H1),
 // refunds follow Razorpay's outcome (PAY-3), reconciliation reaches new
 // orders first (PAY-4), and WhatsApp sends are recorded truthfully (OPS-2/3).
-import { checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { canStartCall, withBudget, withSlice } from '../src/budget.js'
@@ -222,5 +222,28 @@ describe('WhatsApp sends are recorded truthfully', () => {
     const n = (await query('SELECT status, delivery_status, last_error FROM notifications WHERE order_id = $1', [o.orderId])).rows[0]
     assert.equal(n.status, 'FAILED')
     assert.match(n.last_error, /131026/)
+  })
+})
+
+describe('limited promo codes', () => {
+  test('a checkout swept for non-payment keeps its use for half an hour, since a late payment revives it', async () => {
+    const admin = await adminToken(api)
+    assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1 }, { token: admin })).status, 201)
+    const a = await customerToken(api)
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: a.accessToken })
+    const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: a.accessToken })
+    assert.equal(q.status, 200, JSON.stringify(q.body))
+    const c = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }, { token: a.accessToken, headers: { 'Idempotency-Key': 'promo-once-1' } })
+    assert.equal(c.status, 201)
+    later(12 * 60_000)
+    await runMaintenance({ forceAll: true }) // the hold runs out: cancelled, unpaid
+    assert.equal((await order(c.body.orderId)).status, 'CANCELLED')
+
+    const b = await customerToken(api)
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: b.accessToken })
+    const soon = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: b.accessToken })
+    assert.equal(soon.body.error?.code, 'PROMO_USED_UP')
+    later(45 * 60_000)
+    assert.equal((await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: b.accessToken })).status, 200)
   })
 })

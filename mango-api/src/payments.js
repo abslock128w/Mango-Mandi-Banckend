@@ -179,6 +179,7 @@ export async function recordWebhookFailure(source, reason, eventKey = null, c = 
 export async function handleWebhook(event, eventId) {
   const kind = event?.event
   if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId)
+  if (kind === 'payment.authorized') return captureAuthorized(event.payload?.payment?.entity ?? {})
   if (kind !== 'payment.captured' && kind !== 'payment.failed' && kind !== 'payment_link.paid') return { ignored: true }
   const entity = event.payload?.payment?.entity ?? {}
   const link = kind === 'payment_link.paid' ? (event.payload?.payment_link?.entity ?? {}) : null
@@ -222,6 +223,29 @@ export async function handleWebhook(event, eventId) {
     if (out.result === 'duplicate_payment' || out.result === 'rejected') await refundDuplicatePayments().catch(() => {})
     return out
   })
+}
+
+/**
+ * If the Razorpay account is set to capture payments by hand, a payment stops
+ * at "authorized" and Razorpay refunds it on its own days later. We capture
+ * any authorized payment that matches an order in full, so confirmation never
+ * depends on that dashboard setting. (With automatic capture, which is the
+ * expected setting, Razorpay answers that it is already captured.) The
+ * payment.captured webhook that follows confirms the order as usual.
+ */
+async function captureAuthorized(entity) {
+  if (!entity.id || !entity.order_id) return { ignored: true }
+  const { rows } = await query('SELECT id, total FROM orders WHERE razorpay_order_id = $1', [entity.order_id])
+  const o = rows[0]
+  if (!o || entity.amount !== o.total || (entity.currency ?? 'INR') !== 'INR') return { ignored: true }
+  if (!hasKeys()) return { ignored: true }
+  try {
+    await razorpay('POST', `/payments/${encodeURIComponent(entity.id)}/capture`, { amount: entity.amount, currency: 'INR' })
+    return { result: 'capture_requested', orderId: o.id }
+  } catch (err) {
+    logger.info({ err, paymentId: entity.id }, 'capture of an authorized payment not needed or not possible')
+    return { result: 'capture_skipped', orderId: o.id }
+  }
 }
 
 /**
