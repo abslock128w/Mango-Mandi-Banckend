@@ -54,7 +54,7 @@ test('deliver an order, review it with a photo, publish it in the panel, see it 
     () => request.post(`${API}/admin/v1/orders/${orderId}/allocate`, staff),
     () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PACKED' }, ...staff }),
     () => request.post(`${API}/admin/v1/orders/${orderId}/dispatch`, staff),
-    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'DELIVERED' }, ...staff }),
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'DELIVERED', override: true, reason: 'Test run: handed over in person' }, ...staff }),
   ]) {
     const r = await step()
     expect(r.ok(), await r.text()).toBeTruthy()
