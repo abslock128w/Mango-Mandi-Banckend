@@ -166,7 +166,7 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
   expect(item, 'something in stock').toBeTruthy()
   await request.post(`${API}/v1/cart/items`, { data: { sku: item.sku, stage: item.stage, qty: 1 }, ...as(tokens.accessToken) })
   const slots = await (await request.get(`${API}/v1/delivery/slots?pincode=560034&delivery_date=${cat.deliveryDate}`, as(tokens.accessToken))).json()
-  const slotId = slots.slots.find((s: { full?: boolean }) => !s.full)?.id ?? null
+  const slotId = slots.slots.find((s: { available: boolean }) => s.available)?.id ?? null
   const q = await request.post(`${API}/v1/checkout/quote`, { data: { pincode: '560034', deliveryDate: cat.deliveryDate, slotId }, ...as(tokens.accessToken) })
   expect(q.ok(), await q.text()).toBeTruthy()
   const quote = await q.json()
@@ -292,4 +292,36 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
 
   const promos = await (await request.get(`${API}/admin/v1/promos`, staff)).json()
   expect(promos.find((p: { code: string }) => p.code === code).uses).toBe(1)
+})
+
+test('the QR on a box opens its batch page; reminders are a choice on the account page', async ({ page, request }, info) => {
+  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const staff = { headers: { Authorization: `Bearer ${login.accessToken}` } }
+  const [batch] = await (await request.get(`${API}/admin/v1/batches`, staff)).json()
+  const detail = await (await request.get(`${API}/admin/v1/batches/${batch.id}`, staff)).json()
+  expect(detail.traceUrl).toMatch(/\/t\/[0-9a-f]{10}$/)
+
+  await page.goto(`/t/${detail.traceCode}`)
+  await expect(page.getByRole('heading', { name: `Your ${detail.variety} mangoes` })).toBeVisible()
+  await expect(page.getByText('Picked on')).toBeVisible()
+  await expect(page.getByText('Ripe to eat')).toBeVisible()
+  await noA11yViolations(page)
+  await page.goto('/t/0000000000')
+  await expect(page.getByRole('alert')).toContainText("We couldn't find this box")
+
+  const phone = `7${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
+  await page.goto('/sign-in?next=/account')
+  await page.getByLabel('Mobile number').fill(phone)
+  await page.getByRole('button', { name: 'Send code' }).click()
+  const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
+  await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'WhatsApp messages' })).toBeVisible()
+  const remind = page.getByLabel('Remind me to order again a week after a delivery')
+  await expect(remind).not.toBeChecked()
+  await remind.check()
+  await page.reload()
+  await expect(page.getByLabel('Remind me to order again a week after a delivery')).toBeChecked()
+  await expect(page.getByText(/tap "Tell me when it's back"/)).toBeVisible()
+  await noA11yViolations(page)
 })

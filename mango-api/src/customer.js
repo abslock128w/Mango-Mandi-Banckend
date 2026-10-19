@@ -28,6 +28,8 @@ import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
+import { cancelAlert, createAlert, listAlerts, traceView } from './engagement.js'
+import { readyOnFor } from './ripeness.js'
 
 export const router = express.Router()
 
@@ -322,13 +324,50 @@ router.get(
   }),
 )
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders'], requireCustomer)
+/** What a box's QR code opens: where the mangoes came from and when they'll be ripe. Public. */
+router.get('/trace/:code', asyncHandler(async (req, res) => res.json(await traceView({ query }, String(req.params.code).toLowerCase()))))
+
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts'], requireCustomer)
+
+const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
 router.get('/me', asyncHandler(async (req, res) => {
-  const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1 AND deleted_at IS NULL', [req.customer.id])
+  const { rows } = await query('SELECT id, phone, name, email, reminders_opt_in FROM customers WHERE id = $1 AND deleted_at IS NULL', [req.customer.id])
   if (!rows.length) throw notFound('Customer not found')
-  res.json(profile(rows[0]))
+  res.json(meView(rows[0]))
 }))
+
+/** Settings the customer controls: for now, the WhatsApp reminder a week after delivery. */
+router.patch('/me', asyncHandler(async (req, res) => {
+  const b = parse(z.object({ remindersOptIn: z.boolean() }).strict(), req.body ?? {})
+  const { rows } = await query(
+    'UPDATE customers SET reminders_opt_in = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING id, phone, name, email, reminders_opt_in',
+    [req.customer.id, b.remindersOptIn],
+  )
+  if (!rows.length) throw notFound('Customer not found')
+  res.json(meView(rows[0]))
+}))
+
+// ---------------------------------------------------------------- back-in-stock alerts
+
+router.get('/stock-alerts', asyncHandler(async (req, res) => res.json(await listAlerts({ query }, req.customer.id))))
+
+router.post(
+  '/stock-alerts',
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ sku: z.string().min(1).max(20), stage: z.enum(STAGES), pincode: PIN }), req.body)
+    if (!(await serviceable({ query }, b.pincode))) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
+    res.status(201).json(await tx((c) => createAlert(c, req.customer.id, b)))
+  }),
+)
+
+router.delete(
+  '/stock-alerts/:id',
+  asyncHandler(async (req, res) => {
+    await tx((c) => cancelAlert(c, req.customer.id, req.params.id))
+    res.status(204).end()
+  }),
+)
 
 // ---------------------------------------------------------------- saved addresses
 
@@ -694,7 +733,7 @@ router.get(
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
       holdExpiresAt: o.hold_expires_at,
-      items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null })),
+      items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       ...proof,
     })

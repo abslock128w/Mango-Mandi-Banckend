@@ -473,6 +473,8 @@ router.get(
   }),
 )
 
+const shopOrigin = () => env.CUSTOMER_ORIGIN.split(',')[0]?.trim().replace(/\/$/, '') || 'https://mandimangoes.in'
+
 async function batchDetail(c, batchId) {
   const { rows } = await c.query('SELECT * FROM batches WHERE id = $1', [batchId])
   if (!rows.length) throw notFound('Batch not found')
@@ -484,6 +486,8 @@ async function batchDetail(c, batchId) {
   return {
     id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(todayIST(), b.plucked_on), farm: b.farm,
     status: b.status, etaDate: b.eta_date, arrivedAt: b.arrived_at, createdAt: b.created_at,
+    // The QR printed on each box opens this page in the shop.
+    traceCode: b.trace_code, traceUrl: b.trace_code ? `${shopOrigin()}/t/${b.trace_code}` : null,
     lines: lines.rows.map((l) => ({
       id: l.id, sku: l.sku, productName: productName(l.sku), onHand: l.on_hand, held: l.held, committed: l.committed,
       reserveBuffer: l.reserve_buffer, available: available(l),

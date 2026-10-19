@@ -51,6 +51,12 @@ function BatchView({ batch }: { batch: Batch }) {
         <BatchBadge status={batch.status} />
         <span className={batch.ageDays >= 5 ? 'text-warn' : 'muted'}>{batch.ageDays} days old</span>
         {batch.farm && <span className="muted">Farm: {batch.farm}</span>}
+        <span className="spacer" />
+        {batch.traceUrl && (
+          <Link to={`/batches/${batch.id}/labels`} className="btn btn-small">
+            Box labels
+          </Link>
+        )}
       </div>
 
       <StatusControls batch={batch} />

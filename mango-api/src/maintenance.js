@@ -24,6 +24,7 @@ import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
+import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn } from './sentry.js'
 import { now } from './clock.js'
@@ -53,7 +54,7 @@ async function lastRuns() {
 }
 
 /** The most of the run each outside-calling step may use, in ms. */
-export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, notifications: 10_000, preorders: 8_000 }
+export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, alerts: 3_000, notifications: 10_000, preorders: 8_000 }
 
 /** Steps that need this much time left are put off to the next run. */
 const STEP_MIN_MS = 3_000
@@ -231,6 +232,8 @@ async function steps(forceAll) {
   }
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
+  out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
+  out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   await step('cleanup', () => cleanupExpired())

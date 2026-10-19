@@ -587,4 +587,4 @@ export async function sweepExpiredHolds(c, at = now()) {
   return n
 }
 
-export const eatByFor = (stage, date) => addDays(date, ({ RAW: 5, SEMI_RIPE: 2, RIPE: 0 }[stage] ?? 0) + 3)
+export { eatByFor } from './ripeness.js'

@@ -12,6 +12,7 @@ import OrderPage from './pages/Order'
 import ClaimPage from './pages/Claim'
 import Account from './pages/Account'
 import Privacy from './pages/Privacy'
+import Trace from './pages/Trace'
 import BookAhead, { PreorderPage } from './pages/Preorder'
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
@@ -80,6 +81,7 @@ export default function App() {
           <Route path="/cart" element={<Cart />} />
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/t/:code" element={<Trace />} />
           <Route path="/account" element={<RequireSignIn><Account /></RequireSignIn>} />
           <Route path="/checkout" element={<RequireSignIn><Checkout /></RequireSignIn>} />
           <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />

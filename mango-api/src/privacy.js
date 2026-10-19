@@ -66,6 +66,12 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   )
   const pics = await c.query('DELETE FROM claim_photos WHERE customer_id = $1 RETURNING blob_path', [me.id])
   await c.query('DELETE FROM customer_addresses WHERE customer_id = $1', [me.id])
+  await c.query('UPDATE stock_alerts SET cancelled_at = COALESCE(cancelled_at, $2) WHERE customer_id = $1', [me.id, now()])
+  await c.query(
+    `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END
+      WHERE stock_alert_id IN (SELECT id FROM stock_alerts WHERE customer_id = $1)`,
+    [me.id],
+  )
   await c.query('UPDATE order_ratings SET comment = NULL WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
@@ -76,6 +82,6 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
     await c.query(`DELETE FROM rate_limits WHERE key LIKE $1`, [`otp-phone-day:${me.phone}:%`])
   }
   await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
-  await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, deleted_at = $2 WHERE id = $1', [me.id, deletedAt])
+  await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, reminders_opt_in = FALSE, deleted_at = $2 WHERE id = $1', [me.id, deletedAt])
   return [...pics.rows, ...deliveryPics.rows]
 }

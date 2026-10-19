@@ -117,7 +117,7 @@ export interface Order {
   razorpayOrderId: string | null
   holdExpiresAt: string | null
   slot: Slot | null
-  items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null }[]
+  items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null; readyOn?: string | null }[]
   timeline: { status: OrderStatus; at: string }[]
   /** Give this to the rider; set while the order is out for delivery. */
   deliveryCode?: string | null
@@ -132,6 +132,33 @@ export interface SavedAddress {
   address: string
   pincode: string
   lastUsedAt: string
+}
+export interface StockAlert {
+  id: string
+  sku: string
+  name: string
+  stage: Stage
+  pincode: string
+  createdAt: string
+  expiresAt: string
+  /** Set once we have sent the WhatsApp message. */
+  notifiedAt: string | null
+  /** The first delivery day with stock, as told in the message. */
+  availableOn: string | null
+}
+export interface Settings {
+  remindersOptIn: boolean
+}
+/** What the QR code on a box opens. */
+export interface Trace {
+  variety: string
+  farm: string | null
+  pluckedOn: string
+  ripeFrom: string
+  ripeUntil: string | null
+  checked: { ripeness: Stage; at: string } | null
+  products: string[]
+  tip: string
 }
 export type IssueType = 'DAMAGED' | 'WRONG_ITEM' | 'NOT_DELIVERED'
 export interface Claim {
@@ -368,6 +395,13 @@ export const api = {
   reschedule: (orderId: string, deliveryDate: string, slotId: string | null) =>
     request<void>('POST', `/orders/${id(orderId)}/reschedule`, { deliveryDate, slotId }),
   rate: (orderId: string, stars: number, comment: string | null) => request<void>('PUT', `/orders/${id(orderId)}/rating`, { stars, comment }),
+  settings: () => request<Settings>('GET', '/me'),
+  saveSettings: (settings: Settings) => request<Settings>('PATCH', '/me', settings),
+  stockAlerts: () => request<StockAlert[]>('GET', '/stock-alerts'),
+  addStockAlert: (input: { sku: string; stage: Stage; pincode: string }) => request<StockAlert>('POST', '/stock-alerts', input),
+  removeStockAlert: (alertId: string) => request<void>('DELETE', `/stock-alerts/${id(alertId)}`),
+  /** Public: no sign-in needed, it is printed on the box. */
+  trace: (code: string) => raw<Trace>('GET', `/trace/${id(code)}`),
   addresses: () => request<SavedAddress[]>('GET', '/me/addresses'),
   forgetAddress: (addressId: string) => request<void>('DELETE', `/me/addresses/${id(addressId)}`),
   claims: () => request<Claim[]>('GET', '/claims'),

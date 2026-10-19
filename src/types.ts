@@ -150,6 +150,10 @@ export interface BatchDetail {
   createdAt?: string
   lines: BatchLine[]
   qc: QcEntry[]
+  /** The short public code printed as a QR on each box. */
+  traceCode?: string | null
+  /** The shop page the QR opens. */
+  traceUrl?: string | null
 }
 
 export interface LedgerEntry {

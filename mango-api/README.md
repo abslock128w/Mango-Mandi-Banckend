@@ -70,6 +70,9 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
+| `mandi_ripeness_guide` | a minute after `order_confirmed` or `replacement_confirmed`, only when a box arrives raw or semi-ripe (utility) | name, order number, when each box is ready ("Alphonso 3kg Box (raw): ready around Mon, 19 Oct"), storage tip |
+| `mandi_back_in_stock` | a box the customer asked about is in stock again (they tapped "Tell me when it's back") | name, box ("Alphonso 3kg Box (ripe)"), first day ("Fri, 16 Oct"), shop link |
+| `mandi_reorder_reminder` | a week after a delivery, only for customers who turned reminders on, between 10 AM and 7 PM, not if they ordered since (marketing) | name, box they had, shop link |
 
 An order without a slot says "during the day" in place of the slot.
 
@@ -108,6 +111,27 @@ deduplicated by id, so Meta's retries are safe.
 and address, then pay by Razorpay link. A full week offers the waitlist instead (no
 payment until a spot opens). Bookings show in My orders and can be cancelled there for a
 full refund until packing.
+
+## After the order: ripeness guide, alerts, reminders, box QR
+
+- **Ripeness guide.** A minute after the confirmation, an order with a raw or semi-ripe box gets
+  `mandi_ripeness_guide`: the day each box will be ready to eat (raw +3 days, semi-ripe +1 from
+  the delivery date) and how to keep them. Ripe-only orders skip it. The shop's order page shows
+  the same "ready to eat around" date.
+- **Back in stock.** A box sold out on every open day shows "Tell me when it's back" in the shop
+  (signed in). The alert lasts 14 days, at most 10 open per customer, one per box and ripeness.
+  The background loop checks open alerts every run and sends `mandi_back_in_stock` once, with
+  the first day it can be delivered. Customers see and stop alerts on the Account page
+  (`GET/POST/DELETE /v1/stock-alerts`).
+- **Reorder reminder.** Off by default. A customer turns it on under Account > WhatsApp messages
+  (`PATCH /v1/me {remindersOptIn}`). Seven days after a delivery, between 10 AM and 7 PM IST,
+  they get `mandi_reorder_reminder`, unless they ordered again since. One per order.
+- **Box QR.** Every batch has a random 10-character trace code. Batches > a batch > Box labels
+  prints labels with a QR code that opens `CUSTOMER_ORIGIN/t/<code>`: the variety, farm, picking
+  day, the days it is ripe to eat, the last QC check and care tips. The page is public
+  (`GET /v1/trace/:code`) and shows nothing about customers or orders.
+
+Deleting an account cancels its alerts and turns reminders off.
 
 ## Promo codes and gifts
 
