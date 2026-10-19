@@ -620,6 +620,16 @@ async function replayFor(key, hash, table) {
   return r ?? null
 }
 
+/**
+ * A replay of a request whose first try is still starting the payment (no
+ * Razorpay order or link yet): 409, so the shop retries shortly instead of
+ * opening a checkout with nothing to pay.
+ */
+function startingPayment() {
+  return new HttpError(409, 'PAYMENT_STARTING', 'Your payment is still being set up. Please try again in a moment.', { retryAfterSeconds: 2 })
+}
+const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
+
 const confirmResponse = (o) => ({
   orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
   razorpayOrderId: o.razorpay_order_id, razorpayKeyId: env.RAZORPAY_KEY_ID || null, holdExpiresAt: o.hold_expires_at,
@@ -650,6 +660,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) throw startingPayment()
     if (replay) return res.status(200).json(confirmResponse(replay))
 
     const order = await tx(async (c) => {
@@ -685,7 +696,11 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
       return (await c.query('SELECT * FROM orders WHERE id = $1', [created.id])).rows[0]
     })
-    if (!order) return res.status(200).json(confirmResponse(await existing()))
+    if (!order) {
+      const first = await existing()
+      if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
+      return res.status(200).json(confirmResponse(first))
+    }
 
     try {
       const rzp = await createGatewayOrder({ amount: order.total, receipt: order.number, orderId: order.id })
@@ -693,7 +708,12 @@ router.post(
       order.razorpay_order_id = rzp
     } catch (err) {
       logger.error({ err, orderId: order.id }, 'could not create the gateway order')
-      await tx((c) => processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM))
+      await tx(async (c) => {
+        await processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM)
+        // Let the key go, so a retry is a fresh attempt rather than a replay of
+        // the cancelled order (the quote is spent: the shop quotes again).
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
       throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
     }
     res.status(201).json(confirmResponse(order))
@@ -739,6 +759,8 @@ router.get(
       deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
+      // The public key id, so checkout can be reopened from any device while unpaid.
+      razorpayKeyId: o.status === 'PAYMENT_PENDING' && o.razorpay_order_id ? env.RAZORPAY_KEY_ID || null : null,
       holdExpiresAt: o.hold_expires_at,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
@@ -828,6 +850,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'preorders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
     if (replay) return res.status(200).json(preorderView(replay))
     const pre = await tx(async (c) => {
       const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
@@ -838,13 +861,21 @@ router.post(
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, p.id])
       return p
     })
-    if (!pre) return res.status(200).json(preorderView(await existing()))
+    if (!pre) {
+      const first = await existing()
+      if (stillStarting(first, 'payment_link_url')) throw startingPayment()
+      return res.status(200).json(preorderView(first))
+    }
     if (pre.status !== 'PAYMENT_PENDING') return res.status(201).json(preorderView(pre))
     try {
       res.status(201).json(preorderView(await ensurePaymentLink(pre.id)))
     } catch (err) {
       logger.error({ err, preorderId: pre.id }, 'could not create the preorder payment link')
-      await tx((c) => cancelPreorder(c, pre.id, req.customer.id, SYSTEM))
+      await tx(async (c) => {
+        await cancelPreorder(c, pre.id, req.customer.id, SYSTEM)
+        // A retry with the same key books again instead of replaying the cancelled preorder.
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
       throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
     }
   }),

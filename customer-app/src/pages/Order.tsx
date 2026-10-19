@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, rupees, slotText, when } from '../format'
-import { openRazorpay, rememberedPayment } from '../payment'
+import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { Dialog, ErrorNote, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
@@ -74,11 +74,16 @@ function OrderView({ order }: { order: Order }) {
     void queryClient.invalidateQueries({ queryKey: ['order', order.id] })
     void queryClient.invalidateQueries({ queryKey: ['orders'] })
   }
-  const remembered = rememberedPayment(order.id)
-  const holdOpen = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() > Date.now() : false
+  // Checkout comes from the order itself, so it reopens on any device or tab.
+  const payKey = order.razorpayKeyId ?? null
+  const holdLeftMs = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() - Date.now() : 0
+  const holdOpen = holdLeftMs > 0
+  const canPay = holdLeftMs > MIN_PAY_SECONDS * 1000
+  // A payment sheet that failed to open straight after checkout.
+  const sheetError = (useLocation().state as { payError?: string } | null)?.payError ?? null
 
   const payAgain = useMutation({
-    mutationFn: () => openRazorpay({ key: remembered!.key!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
+    mutationFn: () => openRazorpay({ key: payKey!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
     onSettled: refresh,
   })
   const devPay = useMutation({ mutationFn: (outcome: 'captured' | 'failed') => api.devPay(order.id, outcome), onSettled: refresh })
@@ -104,12 +109,15 @@ function OrderView({ order }: { order: Order }) {
             <strong>Waiting for your payment to be confirmed.</strong> This page updates on its own.
             {order.holdExpiresAt && holdOpen && <> Your boxes are held until {when(order.holdExpiresAt)}.</>}
           </p>
-          {remembered?.key && order.razorpayOrderId && holdOpen && (
+          {payKey && order.razorpayOrderId && canPay && (
             <button type="button" className="btn btn-primary" disabled={payAgain.isPending} onClick={() => payAgain.mutate()}>
               Pay {rupees(order.total)}
             </button>
           )}
-          {import.meta.env.DEV && !remembered?.key && (
+          {payKey && holdOpen && !canPay && (
+            <p className="small">The hold on your boxes is about to end. If your payment hasn't gone through, place the order again from the shop.</p>
+          )}
+          {import.meta.env.DEV && !payKey && (
             <div className="dev-pay">
               <p className="small muted">Test mode: Razorpay isn't set up, so choose how the payment ends.</p>
               <div className="row">
@@ -122,7 +130,7 @@ function OrderView({ order }: { order: Order }) {
               </div>
             </div>
           )}
-          <ErrorNote error={payAgain.error ?? devPay.error} />
+          <ErrorNote error={payAgain.error ?? devPay.error ?? (payAgain.isIdle ? sheetError : null)} />
         </section>
       )}
 

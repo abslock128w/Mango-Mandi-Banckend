@@ -1,0 +1,275 @@
+import AxeBuilder from '@axe-core/playwright'
+import type { APIRequestContext, Page, Route } from '@playwright/test'
+import { expect, test } from '../../tests/fixtures'
+
+// Paying and the session, against the real API, with the outside world stood
+// in for: Razorpay's checkout script is replaced by a fake that records what
+// it was opened with, and the odd response (a gateway 502, a busy 503, an HTML
+// error page) is injected with page.route.
+
+const API = process.env.VITE_API_URL ?? 'http://localhost:3000'
+
+test.beforeAll(async ({ request }) => {
+  const ok = await request.get(`${API}/ready`).then((r) => r.ok()).catch(() => false)
+  if (process.env.CI) expect(ok, `mango-api is not reachable at ${API}`).toBe(true)
+  test.skip(!ok, `mango-api is not reachable at ${API}`)
+})
+
+async function noA11yViolations(page: Page) {
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+  expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
+}
+
+let seq = 0
+const newPhone = (first: string, project: string) => `${first}${String(Date.now()).slice(-7)}${seq++ % 10}${project === 'phone' ? 1 : 2}`
+
+async function signIn(page: Page, phone: string, next = '/') {
+  await page.goto(`/sign-in?next=${encodeURIComponent(next)}`)
+  await page.getByLabel('Mobile number').fill(phone)
+  await page.getByRole('button', { name: 'Send code' }).click()
+  const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
+  await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+}
+
+/** Something in stock for the earliest day, from the real catalogue. */
+async function inStock(request: APIRequestContext) {
+  const cat = await (await request.get(`${API}/v1/catalogue?pincode=560034`)).json()
+  const item = cat.items.find((i: { qty: number }) => i.qty > 0)
+  expect(item, 'something in stock').toBeTruthy()
+  return { item: item as { sku: string; stage: string; name: string; price: number }, date: cat.deliveryDate as string }
+}
+
+/** An unpaid order placed through the API for this phone. */
+async function unpaidOrder(request: APIRequestContext, phone: string) {
+  const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })
+  const tokens = await (await request.post(`${API}/v1/auth/otp/verify`, { data: { phone, code: (await asked.json()).devCode } })).json()
+  const auth = { Authorization: `Bearer ${tokens.accessToken}` }
+  const { item, date } = await inStock(request)
+  await request.post(`${API}/v1/cart/items`, { data: { sku: item.sku, stage: item.stage, qty: 1 }, headers: auth })
+  const slots = await (await request.get(`${API}/v1/delivery/slots?pincode=560034&delivery_date=${date}`, { headers: auth })).json()
+  const slotId = slots.slots.find((s: { available: boolean }) => s.available)?.id ?? null
+  const quote = await (await request.post(`${API}/v1/checkout/quote`, { data: { pincode: '560034', deliveryDate: date, slotId }, headers: auth })).json()
+  const c = await request.post(`${API}/v1/checkout/confirm`, {
+    data: { quoteId: quote.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' },
+    headers: { ...auth, 'Idempotency-Key': `e2e-${phone}` },
+  })
+  expect(c.ok(), await c.text()).toBeTruthy()
+  return (await c.json()) as { orderId: string; razorpayOrderId: string; total: number }
+}
+
+/** Replaces Razorpay's checkout.js with a stand-in that records its options and closes at once. */
+async function fakeRazorpay(page: Page) {
+  await page.route('https://checkout.razorpay.com/v1/checkout.js', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.Razorpay = function (o) {
+        window.__rzp = { key: o.key, order_id: o.order_id, amount: o.amount, timeout: o.timeout }
+        return { on() {}, open() { setTimeout(() => o.modal.ondismiss(), 0) } }
+      }`,
+    }),
+  )
+}
+
+/** The real response, with some fields changed. */
+const patchJson = (patch: (body: Record<string, unknown>) => Record<string, unknown>) => async (route: Route) => {
+  if (route.request().method() === 'OPTIONS') return route.continue()
+  try {
+    const res = await route.fetch()
+    await route.fulfill({ response: res, json: patch(await res.json()) })
+  } catch {
+    // The page polls; a request still in flight when the test ends is cut off.
+  }
+}
+
+/** Takes the browser's own lines for responses a test sent on purpose out of the console-error check. */
+const expected = (errors: string[], pattern: RegExp) => {
+  for (let i = errors.length - 1; i >= 0; i--) if (pattern.test(errors[i])) errors.splice(i, 1)
+}
+
+test('FE-1: an unpaid order can be paid from another tab or device', async ({ page, request }, info) => {
+  const phone = newPhone('9', info.project.name)
+  const order = await unpaidOrder(request, phone)
+  // A different browser context: nothing from the tab that placed the order.
+  await fakeRazorpay(page)
+  // The dev API has no Razorpay keys, so stand in for the key id the API returns while unpaid.
+  await page.route(`${API}/v1/orders/${order.orderId}`, patchJson((b) => ({ ...b, razorpayKeyId: 'rzp_test_e2e' })))
+  await signIn(page, phone, `/orders/${order.orderId}`)
+
+  await expect(page.getByText('Waiting for your payment to be confirmed.')).toBeVisible()
+  await noA11yViolations(page)
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __rzp?: unknown }).__rzp)).toMatchObject({
+    key: 'rzp_test_e2e',
+    order_id: order.razorpayOrderId,
+    amount: order.total,
+  })
+  const { timeout } = (await page.evaluate(() => (window as unknown as { __rzp: { timeout: number } }).__rzp))
+  // FE-9: the payment window closes with the hold (10 minutes at most), never later.
+  expect(timeout).toBeGreaterThan(0)
+  expect(timeout).toBeLessThanOrEqual(10 * 60)
+})
+
+test('FE-9: with under a minute of hold left, Pay is not offered', async ({ page, request }, info) => {
+  const phone = newPhone('9', info.project.name)
+  const order = await unpaidOrder(request, phone)
+  await page.route(
+    `${API}/v1/orders/${order.orderId}`,
+    patchJson((b) => ({ ...b, razorpayKeyId: 'rzp_test_e2e', holdExpiresAt: new Date(Date.now() + 30_000).toISOString() })),
+  )
+  await signIn(page, phone, `/orders/${order.orderId}`)
+  await expect(page.getByText('The hold on your boxes is about to end.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Pay ₹/ })).toHaveCount(0)
+})
+
+/** Waits for the delivery times, then takes the first one open (if the day has times). */
+async function pickSlot(page: Page) {
+  await expect(page.getByText(/^Arrives /)).toBeVisible()
+  const slots = page.getByRole('group', { name: 'Delivery time' })
+  if (await slots.count()) await slots.locator('input:not([disabled])').first().check()
+}
+
+/** Signs in, fills the cart with one box and gets to the review screen. */
+async function toReview(page: Page, request: APIRequestContext, phone: string) {
+  const { item, date } = await inStock(request)
+  await page.goto('/')
+  await page.evaluate(
+    ([item, date]) => {
+      localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date }))
+      localStorage.setItem('mm.cart', JSON.stringify([{ sku: item.sku, stage: item.stage, qty: 1, name: item.name, price: item.price }]))
+    },
+    [item, date] as const,
+  )
+  await signIn(page, phone, '/checkout')
+  await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible()
+  await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
+  await pickSlot(page)
+  await page.getByRole('button', { name: 'Review order' }).click()
+  // Syncing the cart and quoting is a few calls in a row: allow for a busy test API.
+  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible({ timeout: 15_000 })
+}
+
+test('FE-2: after a gateway error, Pay again is a fresh attempt, not the cancelled order', async ({ page, request, consoleErrors }, info) => {
+  const phone = newPhone('8', info.project.name)
+  const keys: string[] = []
+  let quotes = 0
+  await page.route(`${API}/v1/checkout/quote`, (route) => {
+    if (route.request().method() === 'POST') quotes++
+    return route.continue()
+  })
+  await page.route(`${API}/v1/checkout/confirm`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    keys.push(route.request().headers()['idempotency-key'])
+    if (keys.length === 1) {
+      return route.fulfill({
+        status: 502,
+        json: { error: { code: 'PAYMENT_GATEWAY_ERROR', message: 'Could not start the payment. Please try again.' } },
+      })
+    }
+    return route.continue()
+  })
+  await toReview(page, request, phone)
+  expect(quotes).toBe(1)
+
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  await expect(page.getByRole('alert')).toContainText("We couldn't start the payment, and nothing was charged.")
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+
+  await expect(page.getByRole('heading', { name: /^Order ORD-/ })).toBeVisible()
+  await expect(page.getByText('Waiting for your payment to be confirmed.')).toBeVisible()
+  expect(quotes).toBe(2)
+  expect(keys).toHaveLength(2)
+  expect(keys[1]).not.toBe(keys[0])
+  expected(consoleErrors, /status of 502/)
+})
+
+test('FE-4: a payment sheet that fails to load lands on the order page, not an empty cart', async ({ page, request, consoleErrors }, info) => {
+  const phone = newPhone('8', info.project.name)
+  await page.route('https://checkout.razorpay.com/v1/checkout.js', (route) => route.abort())
+  await page.route(`${API}/v1/checkout/confirm`, patchJson((b) => ({ ...b, razorpayKeyId: 'rzp_test_e2e' })))
+  await toReview(page, request, phone)
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  await expect(page.getByRole('heading', { name: /^Order ORD-/ })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Could not load the payment page.')
+  expected(consoleErrors, /checkout\.razorpay\.com|ERR_FAILED/)
+})
+
+test('FE-7 and FE-8: changed prices are shown, a box no longer sold is named and removed, a stale day falls back', async ({ page, request }, info) => {
+  const phone = newPhone('7', info.project.name)
+  const { item } = await inStock(request)
+  await page.goto('/')
+  await page.evaluate((item) => {
+    // A day long gone, a price seen weeks ago, and a box we stopped selling.
+    localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date: '2020-01-01' }))
+    localStorage.setItem(
+      'mm.cart',
+      JSON.stringify([
+        { sku: item.sku, stage: item.stage, qty: 1, name: item.name, price: item.price - 100 },
+        { sku: 'GONE-9', stage: 'RIPE', qty: 1, name: 'Old Favourite Box', price: 50000 },
+      ]),
+    )
+  }, item)
+  await signIn(page, phone, '/checkout')
+  await expect(page.getByText(/^Arrives /)).toBeVisible()
+  await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
+  await pickSlot(page)
+  await page.getByRole('button', { name: 'Review order' }).click()
+  await expect(page.getByRole('alert')).toContainText('Old Favourite Box is no longer sold, so we took it out of your cart.')
+
+  await page.getByRole('button', { name: 'Review order' }).click()
+  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'A price has changed since you added it' })).toBeVisible()
+  await expect(page.getByText(/^Now ₹[\d,.]+ each \(was ₹[\d,.]+\)$/)).toBeVisible()
+  await noA11yViolations(page)
+})
+
+test('FE-3: a busy API does not sign the customer out; a refused refresh does', async ({ page, request, consoleErrors }, info) => {
+  const phone = newPhone('6', info.project.name)
+  await signIn(page, phone, '/account')
+  await page.route(`${API}/v1/auth/token/refresh`, (route) =>
+    route.fulfill({ status: 503, json: { error: { code: 'BUSY', message: 'Busy, try again shortly' } } }),
+  )
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  expect(await page.evaluate(() => localStorage.getItem('mm.profile'))).not.toBeNull()
+
+  await page.unroute(`${API}/v1/auth/token/refresh`)
+  await page.route(`${API}/v1/auth/token/refresh`, (route) =>
+    route.fulfill({ status: 401, json: { error: { code: 'INVALID_TOKEN', message: 'Sign in again' } } }),
+  )
+  await page.reload()
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+  expected(consoleErrors, /status of 503/)
+  void request
+})
+
+test('FE-5: an HTML error page from a proxy reads as a message, not a SyntaxError', async ({ page, consoleErrors }, info) => {
+  const phone = newPhone('6', info.project.name)
+  await signIn(page, phone, '/')
+  await page.route(`${API}/v1/orders`, (route) =>
+    route.fulfill({ status: 502, contentType: 'text/html', body: '<html><body><h1>502 Bad Gateway</h1></body></html>' }),
+  )
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('MandiMangoes is busy right now.')
+  await expect(page.getByRole('alert')).not.toContainText('JSON')
+  expected(consoleErrors, /status of 502/)
+})
+
+test('FE-6: signing out forgets the saved address and cart on this device', async ({ page }, info) => {
+  const phone = newPhone('6', info.project.name)
+  await signIn(page, phone, '/')
+  await page.evaluate(() => {
+    localStorage.setItem('mm.address', JSON.stringify({ name: 'Asha Rao', address: 'Flat 4B, Lake View Apartments' }))
+    localStorage.setItem('mm.cart', JSON.stringify([{ sku: 'ALP-3', stage: 'RIPE', qty: 1, name: 'Alphonso 3kg Box', price: 189900 }]))
+  })
+  await page.reload()
+  await expect(page.getByRole('link', { name: /Cart, 1 box/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Cart, 0 boxes/ })).toBeVisible()
+  const kept = await page.evaluate(() => ({ address: localStorage.getItem('mm.address'), profile: localStorage.getItem('mm.profile'), cart: localStorage.getItem('mm.cart') }))
+  expect(kept.address).toBeNull()
+  expect(kept.profile).toBeNull()
+  expect(kept.cart ?? '[]').toBe('[]')
+})

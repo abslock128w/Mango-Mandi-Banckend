@@ -1,9 +1,9 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ApiError, api, errorMessage, signedInPhone, type Quote } from '../api'
+import { ApiError, api, errorMessage, signedInPhone, type Confirmed, type Quote } from '../api'
 import { STAGE_LABEL, day, rupees, slotText } from '../format'
-import { openRazorpay, rememberPayment } from '../payment'
+import { openRazorpay } from '../payment'
 import { useStore, type CartLine } from '../store'
 import { ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
@@ -16,13 +16,29 @@ function loadAddress() {
   }
 }
 
-/** Makes the account's cart match this device's cart, which the quote reads. */
-async function syncCart(cart: CartLine[]) {
+/**
+ * Makes the account's cart match this device's cart, which the quote reads.
+ * A box we no longer sell is refused with the same PRODUCT_UNAVAILABLE the
+ * quote uses, naming it, rather than the API's "Unknown SKU".
+ */
+export async function syncCart(cart: CartLine[]) {
   const server = await api.serverCart()
   const want = new Set(cart.map((l) => `${l.sku}|${l.stage}`))
   for (const l of server.lines) if (!want.has(`${l.sku}|${l.stage}`)) await api.setCartLine(l.sku, l.stage, 0)
-  for (const l of cart) await api.setCartLine(l.sku, l.stage, l.qty)
+  for (const l of cart) {
+    try {
+      await api.setCartLine(l.sku, l.stage, l.qty)
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'INVALID_SKU') {
+        throw new ApiError(409, 'PRODUCT_UNAVAILABLE', `${l.name} is no longer sold`, { sku: l.sku, stage: l.stage })
+      }
+      throw err
+    }
+  }
 }
+
+/** A short pause, for retrying a confirm whose first try is still starting the payment. */
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export default function Checkout() {
   const { profile } = useStore()
@@ -32,7 +48,7 @@ export default function Checkout() {
 }
 
 function CheckoutForm() {
-  const { pincode, date, cart, clearCart } = useStore()
+  const { pincode, date, cart, clearCart, setQty, setWhere } = useStore()
   const navigate = useNavigate()
   const saved = useRef(loadAddress())
   const [name, setName] = useState(saved.current.name ?? '')
@@ -44,6 +60,8 @@ function CheckoutForm() {
   const [formError, setFormError] = useState<string | null>(null)
   const [quote, setQuote] = useState<Quote | null>(null)
   const idemKey = useRef<string | null>(null)
+  // After the gateway failed to start a payment, the quote is spent: the next Pay quotes again with a new key.
+  const quoteSpent = useRef(false)
 
   // Addresses this account has ordered to before, for this pincode.
   const book = useQuery({ queryKey: ['addresses'], queryFn: api.addresses, staleTime: 60_000 })
@@ -73,36 +91,76 @@ function CheckoutForm() {
     queryFn: () => api.slots(pincode!, date ?? ''),
     enabled: Boolean(pincode),
   })
+  // A saved day that has passed or closed: fall back to the earliest open one, as the shop page does.
+  const staleDate = Boolean(date) && slots.error instanceof ApiError && slots.error.code === 'INVALID_DATE'
+  useEffect(() => {
+    if (staleDate) setWhere(pincode, null)
+  }, [staleDate, pincode, setWhere])
 
+  const fetchQuote = async () => {
+    await syncCart(cart)
+    return api.quote({ pincode: pincode!, deliveryDate: slots.data?.deliveryDate ?? date!, slotId, promoCode: promoCode.trim() || null })
+  }
+  const dropUnsold = (err: unknown) => {
+    // Take a box we no longer sell out of the cart, so the next review goes through.
+    if (err instanceof ApiError && err.code === 'PRODUCT_UNAVAILABLE' && typeof err.detail.sku === 'string') {
+      for (const l of cart) if (l.sku === err.detail.sku) setQty(l, 0)
+    }
+  }
   const review = useMutation({
-    mutationFn: async () => {
-      await syncCart(cart)
-      return api.quote({ pincode: pincode!, deliveryDate: slots.data?.deliveryDate ?? date!, slotId, promoCode: promoCode.trim() || null })
-    },
+    mutationFn: fetchQuote,
     onSuccess: (q) => {
       idemKey.current = crypto.randomUUID()
+      quoteSpent.current = false
       setQuote(q)
     },
+    onError: dropUnsold,
   })
   const pay = useMutation({
     mutationFn: async () => {
-      const c = await api.confirm(
-        {
-          quoteId: quote!.quoteId,
-          address: address.trim(),
-          name: name.trim() || undefined,
-          gift: isGift ? { recipientName: gift.recipientName.trim(), recipientPhone: gift.recipientPhone.trim(), message: gift.message.trim() || null } : null,
-        },
-        idemKey.current!,
-      )
-      rememberPayment(c)
-      clearCart()
-      if (c.razorpayKeyId && c.razorpayOrderId) {
-        await openRazorpay({ key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number, holdExpiresAt: c.holdExpiresAt }, signedInPhone())
+      let q = quote!
+      if (quoteSpent.current) {
+        // A fresh attempt: new quote, new key. If the price moved, show it before taking money.
+        q = await fetchQuote()
+        idemKey.current = crypto.randomUUID()
+        quoteSpent.current = false
+        setQuote(q)
+        if (q.total !== quote!.total) throw new Error(`The total is now ${rupees(q.total)}. Check it and tap Pay again.`)
       }
-      return c
+      const input = {
+        quoteId: q.quoteId,
+        address: address.trim(),
+        name: name.trim() || undefined,
+        gift: isGift ? { recipientName: gift.recipientName.trim(), recipientPhone: gift.recipientPhone.trim(), message: gift.message.trim() || null } : null,
+      }
+      let c: Confirmed
+      for (let attempt = 1; ; attempt++) {
+        try {
+          c = await api.confirm(input, idemKey.current!)
+          break
+        } catch (err) {
+          if (err instanceof ApiError && err.code === 'PAYMENT_STARTING' && attempt < 5) {
+            await pause(2000)
+            continue
+          }
+          if (err instanceof ApiError && err.code === 'PAYMENT_GATEWAY_ERROR') quoteSpent.current = true
+          throw err
+        }
+      }
+      clearCart()
+      // From here the order exists: whatever happens to the payment sheet, go to the order page, which can reopen it.
+      let sheetError: string | null = null
+      if (c.razorpayKeyId && c.razorpayOrderId) {
+        try {
+          await openRazorpay({ key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number, holdExpiresAt: c.holdExpiresAt }, signedInPhone())
+        } catch (err) {
+          sheetError = errorMessage(err)
+        }
+      }
+      return { c, sheetError }
     },
-    onSuccess: (c) => navigate(`/orders/${c.orderId}`, { replace: true }),
+    onSuccess: ({ c, sheetError }) => navigate(`/orders/${c.orderId}`, { replace: true, state: sheetError ? { payError: sheetError } : null }),
+    onError: dropUnsold,
   })
 
   if (!pincode) return <Navigate to="/" replace />
@@ -126,6 +184,12 @@ function CheckoutForm() {
   }
 
   if (quote) {
+    // The cart shows the price seen when the box was added; the quote is today's.
+    const wasPrice = (l: Quote['lines'][number]) => {
+      const seen = cart.find((c) => c.sku === l.sku && c.stage === l.stage)?.price
+      return seen != null && seen !== l.unitPrice ? seen : null
+    }
+    const changed = quote.lines.filter((l) => wasPrice(l) != null)
     return (
       <section className="card">
         <h1>Review and pay</h1>
@@ -156,6 +220,11 @@ function CheckoutForm() {
             </div>
           )}
         </dl>
+        {changed.length > 0 && (
+          <p className="note small" role="status">
+            {changed.length === 1 ? 'A price has' : 'Some prices have'} changed since you added {changed.length === 1 ? 'it' : 'them'} to your cart. The total below is what you pay.
+          </p>
+        )}
         <ul className="lines">
           {quote.lines.map((l) => (
             <li key={`${l.sku}-${l.stage}`} className="line">
@@ -166,6 +235,11 @@ function CheckoutForm() {
                 <span className="muted small">
                   {STAGE_LABEL[l.stage]} · eat by {day(l.eatBy)}
                 </span>
+                {wasPrice(l) != null && (
+                  <span className="small price-changed">
+                    Now {rupees(l.unitPrice)} each (was {rupees(wasPrice(l)!)})
+                  </span>
+                )}
               </div>
               <strong className="line-price">{rupees(l.linePrice)}</strong>
             </li>
@@ -358,6 +432,9 @@ function quoteProblem(err: unknown, cart: CartLine[] = []) {
   }
   if (err.code === 'SLOT_FULL') return 'That delivery time just filled up. Choose another one.'
   if (err.code.startsWith('PROMO_')) return `${err.message}. Change or clear the promo code to go on.`
+  if (err.code === 'PAYMENT_GATEWAY_ERROR') return "We couldn't start the payment, and nothing was charged. Tap Pay to try again."
+  if (err.code === 'PAYMENT_STARTING') return 'Your payment is still being set up. Tap Pay again in a moment.'
+  if (err.code === 'PRODUCT_UNAVAILABLE') return `${err.message}, so we took it out of your cart. Review the order again.`
   if (err.code === 'QUOTE_EXPIRED') return 'This took a little long and the price hold ended. Tap Change details and review again.'
   return err.message
 }
