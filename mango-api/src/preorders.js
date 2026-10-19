@@ -17,7 +17,7 @@ import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { claimRefund, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
-import { findProduct } from './products.js'
+import { findProduct, sellable } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
 export const SPOT_HOLD_HOURS = 12
@@ -90,7 +90,7 @@ export function preorderView(p) {
  * Without: WAITLISTED when the customer asked for it, else 409 PREORDER_FULL.
  */
 export async function bookPreorder(c, b, actor) {
-  const p = findProduct(b.sku)
+  const p = sellable(b.sku)
   if (!p) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
   if (!isMonday(b.weekStart)) throw badRequest('weekStart must be a Monday', 'INVALID_WEEK')
   const weeks = await openWeeks(c, b.sku)

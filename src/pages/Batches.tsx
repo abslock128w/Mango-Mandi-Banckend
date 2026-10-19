@@ -115,10 +115,12 @@ function ReceiveDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const products = useQuery({ queryKey: ['products'], queryFn: api.products, staleTime: Infinity })
+  // Removed products can't take new stock.
+  const onSale = useMemo(() => (products.data ?? []).filter((p) => p.active !== false), [products.data])
 
   const varieties = useMemo(
-    () => Array.from(new Set((products.data ?? []).map((p) => p.variety).filter(Boolean))).sort(),
-    [products.data],
+    () => Array.from(new Set(onSale.map((p) => p.variety).filter(Boolean))).sort(),
+    [onSale],
   )
   const [variety, setVariety] = useState('')
   const [pluckedOn, setPluckedOn] = useState(istDate())
@@ -127,7 +129,7 @@ function ReceiveDialog({ onClose }: { onClose: () => void }) {
   const [formError, setFormError] = useState<unknown>(null)
 
   const activeVariety = variety || varieties[0] || ''
-  const skus = (products.data ?? []).filter((p) => p.variety === activeVariety)
+  const skus = onSale.filter((p) => p.variety === activeVariety)
   const today = istDate()
 
   const create = useMutation({

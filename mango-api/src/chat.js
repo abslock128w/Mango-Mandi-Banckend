@@ -18,7 +18,7 @@ import { dateWords, rupees, timeWords, weekWords } from './notify.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { createPaymentLink, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
-import { findProduct, allProducts } from './products.js'
+import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
 
@@ -69,7 +69,7 @@ async function attempt(c, fn) {
 
 async function catalogue(c, s) {
   const pool = await availability(c, s.data.date)
-  const rows = allProducts()
+  const rows = shopProducts()
     .flatMap((p) => STAGES.map((stage) => ({ p, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 })))
     .filter((r) => r.qty > 0)
     .slice(0, 10)
@@ -219,6 +219,10 @@ async function placeOrder(c, s, cust) {
     if (!s.data.date) return { replies: [text('No delivery dates are open right now. Please try again later.')] }
     return { replies: [text('The delivery date has moved on since you started, so stock may have changed. Please pick again.'), ...(await catalogue(c, s))] }
   }
+  if (s.data.cart.some((l) => !sellable(l.sku))) {
+    s.data.cart = []
+    return { replies: [text('Sorry, one of those boxes is no longer sold. Please pick again.'), ...(await catalogue(c, s))] }
+  }
   const r = await attempt(c, () =>
     createOrder(
       c,
@@ -271,7 +275,7 @@ async function cancelChosen(c, s, orderId) {
 
 /** Weeks open for booking, one row per week and box, with what is left. */
 async function bookWeeks(c, s) {
-  const weeks = (await openWeeks(c)).filter((w) => findProduct(w.sku)).slice(0, 10)
+  const weeks = (await openWeeks(c)).filter((w) => sellable(w.sku)).slice(0, 10)
   s.data = { pincode: s.data.pincode, pre: {} }
   if (!weeks.length) {
     s.state = 'IDLE'
@@ -384,7 +388,7 @@ async function bookStep(c, s, cust, id, said) {
     case 'PRE_WEEK': {
       if (!id?.startsWith('week:')) return bookWeeks(c, s)
       const [weekStart, sku] = id.slice(5).split('|')
-      if (!findProduct(sku)) return bookWeeks(c, s)
+      if (!sellable(sku)) return bookWeeks(c, s)
       s.data.pre = { weekStart, sku }
       s.state = 'PRE_STAGE'
       return [buttons(`How ripe should ${findProduct(sku).name} be when it reaches you?`, STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
@@ -501,7 +505,7 @@ async function step(c, s, cust, input) {
     case 'PICK': {
       if (!id?.startsWith('item:')) return { replies: [text('Tap *See mangoes* and pick a box.'), ...(await catalogue(c, s))] }
       const [sku, stage] = id.slice(5).split('|')
-      const p = findProduct(sku)
+      const p = sellable(sku)
       if (!p || !STAGES.includes(stage)) return { replies: await catalogue(c, s) }
       d.pending = { sku, stage }
       s.state = 'QTY'

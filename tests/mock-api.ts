@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, Promo, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, Product, Promo, StaffMember } from '../src/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -42,10 +42,11 @@ export function seed() {
       lowStock: [{ sku: 'ALP-5', productName: 'Alphonso 5kg Box', available: 3 }],
     },
     products: [
-      { sku: 'ALP-3', name: 'Alphonso 3kg Box', variety: 'Alphonso', boxSize: '3kg' },
-      { sku: 'ALP-5', name: 'Alphonso 5kg Box', variety: 'Alphonso', boxSize: '5kg' },
-      { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', boxSize: '3kg' },
-    ],
+      { sku: 'ALP-3', name: 'Alphonso 3kg Box', variety: 'Alphonso', boxSize: '3kg', price: 189900, gstRate: 0, hsnCode: '08045020', description: 'Saffron flesh, rich and sweet.', active: true, sortOrder: 0 },
+      { sku: 'ALP-5', name: 'Alphonso 5kg Box', variety: 'Alphonso', boxSize: '5kg', price: 299900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0 },
+      { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', boxSize: '3kg', price: 159900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0 },
+      { sku: 'TOT-3', name: 'Totapuri 3kg Box', variety: 'Totapuri', boxSize: '3kg', price: 79900, gstRate: 0, hsnCode: '08045020', description: '', active: false, sortOrder: 0 },
+    ] as Product[],
     batch: {
       id: 'b1',
       variety: 'Alphonso',
@@ -340,7 +341,24 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/summary') return json(route, 200, state.summary)
     if (path === '/attention') return json(route, 200, state.attention)
     if (/^\/notifications\/[^/]+\/retry$/.test(path)) return route.fulfill({ status: 204 })
-    if (path === '/products') return json(route, 200, state.products)
+    if (path === '/products' && method === 'GET') return json(route, 200, state.products)
+    if (path === '/products' && method === 'POST') {
+      const b = body as Product
+      if (state.products.some((x) => x.sku === b.sku)) return json(route, 409, { error: { code: 'PRODUCT_EXISTS', message: 'A product with that SKU already exists', requestId: 'req_p' } })
+      const made: Product = { ...b, active: true }
+      state.products = [...state.products, made]
+      return json(route, 201, made)
+    }
+    if (/^\/products\/[^/]+$/.test(path)) {
+      const sku = decodeURIComponent(path.split('/')[2])
+      if (method === 'DELETE') {
+        const used = sku !== 'KES-3'
+        state.products = used ? state.products.map((x) => (x.sku === sku ? { ...x, active: false } : x)) : state.products.filter((x) => x.sku !== sku)
+        return json(route, 200, { sku, outcome: used ? 'hidden' : 'deleted' })
+      }
+      state.products = state.products.map((x) => (x.sku === sku ? { ...x, ...(body as object) } : x))
+      return json(route, 200, state.products.find((x) => x.sku === sku))
+    }
     if (path === '/batches' && method === 'GET') return json(route, 200, state.batches)
     if (path === '/batches' && method === 'POST') return json(route, 201, { ...state.batch, id: 'b-new', status: 'ARRIVING', qc: [] })
     if (/^\/batches\/[^/]+$/.test(path)) return json(route, 200, state.batch)

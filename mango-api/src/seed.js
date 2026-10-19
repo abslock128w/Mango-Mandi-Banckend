@@ -38,13 +38,17 @@ const DEMO_USERS = [
 ]
 
 export async function seed() {
-  for (const [sku, name, variety, box, price, description] of PRODUCTS) {
-    // A description is filled in once; after that it is the shop's to change.
-    await query(
-      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description) VALUES ($1, $2, $3, $4, $5, 0, '08045020', $6)
-       ON CONFLICT (sku) DO UPDATE SET description = EXCLUDED.description WHERE products.description = ''`,
-      [sku, name, variety, box, price, description],
-    )
+  // The starter products go in once, on a new database. After that the
+  // catalogue is the managers' (Products page): a deploy never brings back a
+  // product they removed or undoes a rename.
+  const { rows: existing } = await query('SELECT COUNT(*)::int AS n FROM products')
+  if (!existing[0].n) {
+    for (const [sku, name, variety, box, price, description] of PRODUCTS) {
+      await query(
+        `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description) VALUES ($1, $2, $3, $4, $5, 0, '08045020', $6)`,
+        [sku, name, variety, box, price, description],
+      )
+    }
   }
   for (const [pin, city, zone] of PINCODES) {
     await query('INSERT INTO pincodes (pincode, city, zone) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pin, city, zone])

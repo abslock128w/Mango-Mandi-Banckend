@@ -917,3 +917,7 @@ dl.kv dd {
   padding: 0.5rem 0;
   border-top: 1px solid var(--border);
 }
+
+td.actions {
+  white-space: nowrap;
+}

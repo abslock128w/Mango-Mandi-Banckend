@@ -74,6 +74,26 @@ export interface Product {
   name: string
   variety: string
   boxSize: string
+  /** Paise, GST included. */
+  price?: number
+  /** A fraction: 0 for fresh mangoes. */
+  gstRate?: number
+  hsnCode?: string | null
+  description?: string
+  /** False once a manager removes it from sale; it stays for old orders and batches. */
+  active?: boolean
+  sortOrder?: number
+}
+
+export interface ProductInput {
+  name: string
+  variety: string
+  boxSize: string
+  price: number
+  gstRate: number
+  hsnCode: string | null
+  description: string
+  sortOrder: number
 }
 
 export interface Summary {

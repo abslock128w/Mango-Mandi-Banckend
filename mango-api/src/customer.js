@@ -17,7 +17,7 @@ import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { createOrder, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
-import { allProducts, findProduct } from './products.js'
+import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
 import { hit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
@@ -267,12 +267,12 @@ router.get(
       const pool = await availability(c, date)
       // Later days with stock, so a sold-out choice can say when it is back
       // instead of being a dead end. At most a handful of bookable days.
-      const soldOut = allProducts().some((p) => STAGES.some((st) => !(pool.get(`${p.sku}|${st}`) > 0)))
+      const soldOut = shopProducts().some((p) => STAGES.some((st) => !(pool.get(`${p.sku}|${st}`) > 0)))
       const later = []
       if (soldOut) for (const d of dates.filter((x) => x > date)) later.push([d, await availability(c, d)])
       return { pool, later }
     })
-    const items = allProducts().flatMap((p) =>
+    const items = shopProducts().flatMap((p) =>
       STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
         const qty = pool.get(key) ?? 0
@@ -294,7 +294,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const sku = req.query.sku ? String(req.query.sku) : null
     const weeks = (await openWeeks({ query }, sku)).flatMap((w) => {
-      const p = findProduct(w.sku)
+      const p = sellable(w.sku)
       return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
     })
     res.json({ weeks, stages: STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
@@ -503,7 +503,8 @@ router.get(
     })
     const lines = rows.map((l) => {
       const p = findProduct(l.sku)
-      const avail = pool.get(`${l.sku}|${l.stage}`) ?? 0
+      // A product taken off sale stays in the cart, shown as unavailable, until removed.
+      const avail = p?.active ? (pool.get(`${l.sku}|${l.stage}`) ?? 0) : 0
       return { sku: l.sku, name: p?.name ?? l.sku, stage: l.stage, qty: l.qty, unitPrice: p?.price ?? 0, available: avail, insufficient: avail < l.qty }
     })
     res.json({ deliveryDate: date, lines, subtotal: lines.reduce((s, l) => s + l.unitPrice * l.qty, 0) })
@@ -514,7 +515,7 @@ router.post(
   '/cart/items',
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(0).max(20) }), req.body)
-    if (!findProduct(b.sku)) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
+    if (b.qty > 0 && !sellable(b.sku)) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
     if (b.qty === 0) {
       await query('DELETE FROM carts WHERE customer_id = $1 AND sku = $2 AND stage = $3', [req.customer.id, b.sku, b.stage])
     } else {
@@ -555,6 +556,7 @@ router.post(
       if (!rows.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
       const pool = await availability(c, date)
       const lines = rows.map((l) => {
+        if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
         if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty) throw new StockError(l.sku)
         const price = findProduct(l.sku).price
         return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }

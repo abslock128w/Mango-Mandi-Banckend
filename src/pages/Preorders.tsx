@@ -113,7 +113,8 @@ function CapacityDialog({ onClose }: { onClose: () => void }) {
   const [sku, setSku] = useState('')
   const [capacity, setCapacity] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
-  const chosen = sku || products.data?.[0]?.sku || ''
+  const onSale = (products.data ?? []).filter((p) => p.active !== false)
+  const chosen = sku || onSale[0]?.sku || ''
 
   const save = useMutation({
     mutationFn: () => api.setPreorderCapacity(week, chosen, Number(capacity)),
@@ -159,7 +160,7 @@ function CapacityDialog({ onClose }: { onClose: () => void }) {
         <div className="field">
           <label htmlFor="cap-sku">Product</label>
           <select id="cap-sku" value={chosen} onChange={(e) => setSku(e.target.value)}>
-            {(products.data ?? []).map((p) => (
+            {onSale.map((p) => (
               <option key={p.sku} value={p.sku}>
                 {p.name}
               </option>

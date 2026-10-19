@@ -37,7 +37,7 @@ import {
 } from './orders.js'
 import { enqueue } from './notify.js'
 import { isMonday, preorderView, PREORDER_STATUSES, promoteWaitlist } from './preorders.js'
-import { allProducts, findProduct, productName } from './products.js'
+import { allProducts, findProduct, loadProducts, productName, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 
 export const router = express.Router()
@@ -321,7 +321,7 @@ router.get(
       orders: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
       openClaims: claims.rows[0].n,
       batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), available: b.available })),
-      lowStock: allProducts()
+      lowStock: shopProducts()
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
       atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
@@ -329,7 +329,111 @@ router.get(
   }),
 )
 
-router.get('/products', (_req, res) => res.json(allProducts().map(({ sku, name, variety, boxSize }) => ({ sku, name, variety, boxSize }))))
+// ---------------------------------------------------------------- products
+
+/** Every product, hidden ones included (marked active: false), in display order. */
+router.get('/products', (_req, res) => res.json(allProducts()))
+
+const productFields = {
+  name: z.string().trim().min(2, 'Give the product a name').max(80),
+  variety: z.string().trim().min(2, 'Give the variety').max(40),
+  boxSize: z.string().trim().max(20),
+  price: z.number().int().positive('Price must be more than zero').max(10_000_000),
+  gstRate: z.number().min(0).max(0.28),
+  hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN is 4 to 8 digits').nullable(),
+  description: z.string().trim().max(300),
+  sortOrder: z.number().int().min(0).max(10_000),
+}
+// Fresh mangoes: HSN 0804 50, nil GST.
+const productDefaults = { boxSize: '', gstRate: 0, hsnCode: '08045020', description: '', sortOrder: 0 }
+
+/** Adds a product. It goes on sale at once; stock arrives with the next batch. */
+router.post(
+  '/products',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        sku: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9-]{1,19}$/, 'Use 2 to 20 letters, digits and dashes, like KES-3'),
+        ...Object.fromEntries(Object.entries(productFields).map(([k, v]) => [k, k in productDefaults ? v.default(productDefaults[k]) : v])),
+      }),
+      req.body,
+    )
+    const { rows } = await query(
+      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description, sort_order, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (sku) DO NOTHING RETURNING sku`,
+      [b.sku, b.name, b.variety, b.boxSize, b.price, b.gstRate, b.hsnCode, b.description, b.sortOrder, now()],
+    )
+    if (!rows.length) throw conflict('A product with that SKU already exists', 'PRODUCT_EXISTS')
+    await loadProducts()
+    req.params.id = b.sku
+    res.status(201).json(findProduct(b.sku))
+  }),
+)
+
+/**
+ * Renames or edits a product, or puts a removed one back on sale. The SKU never
+ * changes. The variety is fixed once a batch holds the product, because a
+ * batch is one variety. A new price applies to quotes from now on; orders
+ * already placed keep theirs.
+ */
+router.patch(
+  '/products/:sku',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const fields = Object.fromEntries(Object.entries(productFields).map(([k, v]) => [k, v.optional()]))
+    const b = parse(z.object({ ...fields, active: z.boolean().optional() }).strict(), req.body)
+    const sku = req.params.sku
+    await tx(async (c) => {
+      const { rows } = await c.query('SELECT variety FROM products WHERE sku = $1 FOR UPDATE', [sku])
+      if (!rows.length) throw notFound('No product with that SKU')
+      if (b.variety !== undefined && b.variety !== rows[0].variety) {
+        const used = await c.query('SELECT 1 FROM batch_lines WHERE sku = $1 LIMIT 1', [sku])
+        if (used.rows.length) throw conflict('The variety cannot change once a batch holds this product. Add a new product instead.', 'VARIETY_LOCKED')
+      }
+      const cols = { name: 'name', variety: 'variety', boxSize: 'box_size', price: 'price', gstRate: 'gst_rate', hsnCode: 'hsn_code', description: 'description', sortOrder: 'sort_order', active: 'active' }
+      const set = Object.entries(cols).filter(([k]) => b[k] !== undefined)
+      await c.query(
+        `UPDATE products SET ${set.map(([, col], i) => `${col} = $${i + 2}`).concat(`updated_at = $${set.length + 2}`).join(', ')} WHERE sku = $1`,
+        [sku, ...set.map(([k]) => b[k]), now()],
+      )
+    })
+    await loadProducts()
+    res.json(findProduct(sku))
+  }),
+)
+
+/**
+ * Removes a product. One that was never stocked, ordered or offered for
+ * preorder is deleted outright. Otherwise it is taken off sale (hidden from
+ * the shop, WhatsApp, preorders and new batches) and kept, so past orders and
+ * batches keep its name; it can be put back on sale later.
+ */
+router.delete(
+  '/products/:sku',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const sku = req.params.sku
+    const outcome = await tx(async (c) => {
+      const { rows } = await c.query('SELECT 1 FROM products WHERE sku = $1 FOR UPDATE', [sku])
+      if (!rows.length) throw notFound('No product with that SKU')
+      const { rows: used } = await c.query(
+        `SELECT EXISTS (SELECT 1 FROM batch_lines WHERE sku = $1) OR EXISTS (SELECT 1 FROM order_items WHERE sku = $1)
+             OR EXISTS (SELECT 1 FROM preorders WHERE sku = $1) OR EXISTS (SELECT 1 FROM preorder_capacity WHERE sku = $1) AS used`,
+        [sku],
+      )
+      if (used[0].used) {
+        await c.query('UPDATE products SET active = FALSE, updated_at = $2 WHERE sku = $1', [sku, now()])
+        return 'hidden'
+      }
+      await c.query('DELETE FROM carts WHERE sku = $1', [sku])
+      await c.query('DELETE FROM products WHERE sku = $1', [sku])
+      return 'deleted'
+    })
+    await loadProducts()
+    res.json({ sku, outcome })
+  }),
+)
 
 // ---------------------------------------------------------------- batches
 
@@ -405,6 +509,7 @@ router.post(
     for (const l of body.lines) {
       const p = findProduct(l.sku)
       if (!p) throw badRequest(`Unknown SKU ${l.sku}`, 'INVALID_SKU')
+      if (!p.active) throw badRequest(`${p.name} has been removed from sale`, 'PRODUCT_INACTIVE')
       if (p.variety !== body.variety) throw badRequest(`${l.sku} is not a ${body.variety} SKU`, 'INVALID_SKU')
       if (seen.has(l.sku)) throw badRequest(`${l.sku} is listed twice`)
       seen.add(l.sku)
@@ -1528,7 +1633,7 @@ router.put(
   requireManager,
   asyncHandler(async (req, res) => {
     const weekStart = parse(z.string().refine((d) => isDate(d) && isMonday(d), 'weekStart must be a Monday (YYYY-MM-DD)'), req.params.weekStart)
-    if (!findProduct(req.params.sku)) throw badRequest(`Unknown SKU ${req.params.sku}`, 'INVALID_SKU')
+    if (!sellable(req.params.sku)) throw badRequest(`Unknown SKU ${req.params.sku}`, 'INVALID_SKU')
     const { capacity } = parse(z.object({ capacity: z.number().int().min(0).max(100_000) }), req.body)
     const { rows } = await query(
       `INSERT INTO preorder_capacity (sku, week_start, capacity) VALUES ($1, $2, $3)
@@ -1552,7 +1657,7 @@ router.get(
         grid.push({
           date,
           slots: (await slotsForDate(c, date)).map(({ id, label, booked, maxBoxes }) => ({ id, label, booked, maxBoxes })),
-          stock: allProducts().flatMap((p) => STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
+          stock: shopProducts().flatMap((p) => STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
         })
       }
       return grid

@@ -263,6 +263,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | System | `GET /health`, `GET /ready`, `GET /metrics` (optional bearer `METRICS_TOKEN`) |
 | Staff auth | `POST /admin/v1/auth/login`, `/refresh`, `/logout`, `GET /auth/me`. Refresh token is the httpOnly `mango_admin_rt` cookie, rotated on each use. |
 | Dashboard | `GET /admin/v1/summary` (adds `atRiskOrders`), `GET /products` |
+| Products (manager) | `POST /products`, `PATCH /products/:sku` (rename, reprice, `active: true` to put back on sale; the variety is fixed once a batch holds it), `DELETE /products/:sku` (deletes a never-used product, otherwise takes it off sale and keeps it for history). Starter products are seeded only into an empty database. |
 | Batches | `GET/POST /batches`, `GET /batches/:id`, `PATCH /batches/:id/status`, `POST /batches/:id/qc`, `PATCH /batches/:id/lines/:lineId`, `GET /batches/:id/ledger` |
 | Orders | `GET /orders` (`?status&from&to&q&atRisk&page`), `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/rebalance`, `/reschedule` |
 | Fulfilment | `GET /pack-list?date=`, `GET /manifest?date=` |

@@ -30,6 +30,7 @@ import type {
   Paged,
   Pincode,
   Product,
+  ProductInput,
   Ripeness,
   Rules,
   RulesVersion,
@@ -229,6 +230,10 @@ export const api = {
   attention: () => request<Attention>('GET', '/attention'),
   retryMessage: (notificationId: string) => request<void>('POST', `/notifications/${id(notificationId)}/retry`),
   products: () => request<Product[]>('GET', '/products'),
+  addProduct: (p: ProductInput & { sku: string }) => request<Product>('POST', '/products', p),
+  updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean }) => request<Product>('PATCH', `/products/${id(sku)}`, patch),
+  /** Deletes a product never stocked or sold; otherwise takes it off sale and keeps it. */
+  removeProduct: (sku: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`),
 
   batches: (status?: BatchStatus | null) =>
     request<BatchListItem[]>('GET', `/batches${qs({ status })}`),
