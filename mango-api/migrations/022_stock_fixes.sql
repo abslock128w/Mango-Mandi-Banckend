@@ -1,4 +1,6 @@
 -- Stock integrity (audit INV-7). Add-only: a trigger, constraints added
+-- locks: the batch_lines index blocks writes on batch_lines while it builds; the table
+-- holds one row per SKU per batch (hundreds per season), so that takes milliseconds.
 -- NOT VALID and validated separately, and a unique index backing a new FK.
 
 -- The ledger is the record every stock counter is audited against: rows are

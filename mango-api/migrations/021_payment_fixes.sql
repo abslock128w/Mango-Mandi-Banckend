@@ -1,4 +1,6 @@
 -- Payment fixes from the 2026-10-19 audit.
+-- locks: the three indexes lock writes on orders, preorders and notifications while
+-- they build. This ships before launch, when those tables are small (seconds at most).
 
 -- How each refund ended at Razorpay: 'pending' when it is created,
 -- 'processed' or 'failed' from Razorpay's refund webhooks. A failed refund is

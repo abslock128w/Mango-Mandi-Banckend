@@ -20,10 +20,9 @@ import { verifyMetaSignature } from './whatsapp.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
 import { checkDatabaseEnvironment } from './migrate.js'
+import { maintenanceReady } from './readiness.js'
 import { flushErrors, reportError } from './sentry.js'
 
-/** /ready fails when the maintenance job hasn't finished a run in this long. */
-const MAINTENANCE_STALE_S = 300
 const RELOAD_MS = 60_000
 
 // Rules and products are cached in memory. A serverless instance can start at
@@ -96,8 +95,8 @@ export function createApp() {
     try {
       await query('SELECT 1')
       const age = await lastTickAgeSeconds()
-      const stale = age !== null && age > MAINTENANCE_STALE_S
-      res.status(stale ? 503 : 200).json({ ready: !stale, maintenanceAgeSeconds: age })
+      const ready = maintenanceReady(age)
+      res.status(ready ? 200 : 503).json({ ready, maintenanceAgeSeconds: age })
     } catch {
       res.status(503).json({ ready: false })
     }

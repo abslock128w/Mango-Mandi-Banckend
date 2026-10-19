@@ -28,6 +28,7 @@ import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
+import { pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 
@@ -132,6 +133,8 @@ export async function cleanupExpired(at = now()) {
   for (const row of loose.rows) await dropPhoto(row)
   // Review photos uploaded but never sent with a review (bounded per run).
   await cleanupReviewPhotos(at)
+  // Finished messages older than 180 days (bounded per run; never PENDING ones).
+  await pruneNotifications(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
