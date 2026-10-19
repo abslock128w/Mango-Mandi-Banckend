@@ -7,11 +7,13 @@ import { expect, test } from '../../tests/fixtures'
 // the staff panel, and the review shows on the product page.
 
 const API = process.env.VITE_API_URL ?? 'http://localhost:3000'
-const PANEL = process.env.PANEL_URL ?? 'http://localhost:5173'
+const PANEL = process.env.PANEL_URL ?? `http://localhost:${process.env.PANEL_PORT ?? 5173}`
 const PHOTO = path.join(__dirname, 'fixtures', 'mango.jpg')
 
 test.beforeAll(async ({ request }) => {
   const ok = await request.get(`${API}/ready`).then((r) => r.ok()).catch(() => false)
+  // In CI the API is part of the job: a dead API is a failure, not a skip.
+  if (process.env.CI) expect(ok, `mango-api is not reachable at ${API}`).toBe(true)
   test.skip(!ok, `mango-api is not reachable at ${API}`)
 })
 
@@ -36,7 +38,7 @@ test('deliver an order, review it with a photo, publish it in the panel, see it 
   expect(item, 'something in stock').toBeTruthy()
   await request.post(`${API}/v1/cart/items`, { data: { sku: item.sku, stage: item.stage, qty: 1 }, ...as(tokens.accessToken) })
   const slots = await (await request.get(`${API}/v1/delivery/slots?pincode=560034&delivery_date=${cat.deliveryDate}`, as(tokens.accessToken))).json()
-  const slotId = slots.slots.find((s: { full?: boolean }) => !s.full)?.id ?? null
+  const slotId = slots.slots.find((s: { available: boolean }) => s.available)?.id ?? null
   const quote = await (await request.post(`${API}/v1/checkout/quote`, { data: { pincode: '560034', deliveryDate: cat.deliveryDate, slotId }, ...as(tokens.accessToken) })).json()
   const confirm = await request.post(`${API}/v1/checkout/confirm`, {
     data: { quoteId: quote.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru', name: `${first} Kumar` },

@@ -93,8 +93,12 @@ npm run typecheck             # tsc --noEmit
 npx playwright install chromium   # once, if not already present
 npm run test:e2e              # all specs at both viewports
 
-# Just the backend-free gate (smoke + screens + accessibility):
-npx playwright test tests/smoke.spec.ts tests/screens.spec.ts tests/a11y.spec.ts
+# The backend-free gate CI runs: every spec against the mocked API
+# (day-in-the-life and contract skip without E2E_EMAIL):
+npx playwright test
+
+# Another dev server already on 5173? Move ours:
+PANEL_PORT=5310 npx playwright test
 
 # Using an already-installed Chromium instead of Playwright's download:
 PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
@@ -102,8 +106,14 @@ PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 # Full day-in-the-life script against a local mango-api with demo data
 # (start it first: cd mango-api && COOKIE_SECURE=false npm start):
 E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \
-  npx playwright test tests/day-in-the-life.spec.ts
+  npx playwright test tests/day-in-the-life.spec.ts tests/contract.spec.ts
 ```
+
+- **Contract** (`tests/contract.spec.ts`) — calls the real API for every read the mock
+  answers and fails if the mock has a field the API lacks or types differently, so the
+  mock cannot drift from the server.
+- **CSP** (`tests/csp.spec.ts`) — the Content-Security-Policy in `scripts/csp.ts` matches
+  `vercel.json`; every spec runs under the dev server's policy and fails on a violation.
 
 - **Smoke** (`tests/smoke.spec.ts`) — auth guard, session-ended banner, offline
   banner, config banner. Runs without a backend.

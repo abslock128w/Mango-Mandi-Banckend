@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tests && tsc --noEmit -p customer-app",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests && tsc --noEmit -p customer-app && tsc --noEmit -p customer-app/tests",
     "test:e2e": "playwright test",
     "shop:dev": "vite --config customer-app/vite.config.ts",
     "shop:build": "tsc --noEmit -p customer-app && vite build --config customer-app/vite.config.ts",

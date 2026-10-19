@@ -4,6 +4,9 @@ import { defineConfig, devices } from '@playwright/test'
 // spec additionally needs a seeded backend reachable at VITE_API_URL and admin
 // credentials in E2E_EMAIL / E2E_PASSWORD; without them it skips (see the spec).
 
+// PANEL_PORT moves the dev server off 5173 (for example when another one runs there).
+const port = Number(process.env.PANEL_PORT ?? 5173)
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -11,7 +14,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? `http://localhost:${port}`,
     trace: 'on-first-retry',
     // Optional: point at a preinstalled Chromium instead of Playwright's download.
     launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
@@ -28,8 +31,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+    command: `npm run dev -- --port ${port} --strictPort`,
+    url: `http://localhost:${port}`,
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     // The backend-free specs intercept every /admin/v1 call, so any API URL works.

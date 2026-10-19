@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { ApiError, api, errorMessage, signedInPhone, type Quote } from '../api'
+import { ApiError, api, errorMessage, signedInPhone, type Confirmed, type Quote } from '../api'
 import { STAGE_LABEL, day, rupees, slotText } from '../format'
 import { openRazorpay } from '../payment'
 import { useStore, type CartLine } from '../store'
@@ -133,7 +133,7 @@ function CheckoutForm() {
         name: name.trim() || undefined,
         gift: isGift ? { recipientName: gift.recipientName.trim(), recipientPhone: gift.recipientPhone.trim(), message: gift.message.trim() || null } : null,
       }
-      let c
+      let c: Confirmed
       for (let attempt = 1; ; attempt++) {
         try {
           c = await api.confirm(input, idemKey.current!)
