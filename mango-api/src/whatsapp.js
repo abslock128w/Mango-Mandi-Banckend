@@ -28,8 +28,16 @@ export function metaSender(opts, fetchImpl = fetch) {
       signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
-    return body?.messages?.[0]?.id ?? null
+    if (!res.ok) {
+      const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+      // 4xx other than rate limits and auth (which ops can fix) won't succeed on a retry.
+      err.permanent = res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
+      throw err
+    }
+    const id = body?.messages?.[0]?.id
+    // A 200 without a message id is not an accepted message: retry it.
+    if (!id) throw new Error('WhatsApp answered without a message id')
+    return id
   }
 }
 

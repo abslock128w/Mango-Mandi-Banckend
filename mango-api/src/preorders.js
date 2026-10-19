@@ -16,7 +16,8 @@ import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { cancelOrder, createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
-import { claimRefund, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
+import { canStartCall } from './budget.js'
+import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
 import { findProduct, sellable } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
@@ -235,7 +236,7 @@ export async function refundPreorder(id) {
   if (!refundId) return null
   return tx(async (c) => {
     const r = await c.query(
-      `UPDATE preorders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3 WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
+      `UPDATE preorders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3, refund_status = 'pending' WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
       [p.id, refundId, now()],
     )
     if (r.rowCount) {
@@ -309,17 +310,22 @@ export async function retryMissingLinks() {
 
 /** Catches missed link payments (webhook lost) for unpaid or just-expired preorders. */
 export async function reconcilePreorderPayments() {
+  const at = now()
   const { rows } = await query(
     `SELECT id, payment_link_id FROM preorders WHERE payment_link_id IS NOT NULL AND payment_status IN ('INITIATED', 'CANCELLED')
-        AND created_at > $1 ORDER BY created_at LIMIT 100`,
-    [new Date(now().getTime() - 3 * 86_400_000)],
+        AND created_at > $1 AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $2)
+      ORDER BY (payment_status = 'INITIATED') DESC, reconcile_checked_at NULLS FIRST, created_at DESC LIMIT 100`,
+    [new Date(at.getTime() - 3 * 86_400_000), new Date(at.getTime() - 15 * 60_000)],
   )
   let n = 0
   for (const p of rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) break // the next run carries on
     try {
+      await query('UPDATE preorders SET reconcile_checked_at = $2 WHERE id = $1', [p.id, now()])
       const captured = (await fetchLinkPayments(p.payment_link_id)).find((x) => x.status === 'captured')
       if (!captured) continue
-      const r = await tx((c) => processPreorderPayment(c, { preorderId: p.id, outcome: 'captured', paymentId: captured.id, amount: captured.amount, method: captured.method }))
+      const r = await tx((c) => applyCapture(c, 'preorders', p.id, captured))
+      if (r === 'rejected') continue
       if (r === 'refund_due') await refundPreorder(p.id).catch(() => {})
       n++
     } catch (err) {

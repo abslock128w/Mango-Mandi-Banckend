@@ -2,7 +2,7 @@
 // transaction as the order change that causes it (an outbox), so a rolled-back
 // change sends nothing and a committed one is never lost; the maintenance loop
 // sends due rows and retries failures with backoff.
-import { outOfTime } from './budget.js'
+import { canStartCall } from './budget.js'
 import { now } from './clock.js'
 import { query } from './db.js'
 import { env, isProd } from './env.js'
@@ -17,6 +17,7 @@ const RETRY_MINUTES = [1, 5, 15, 60, 180]
 const MAX_AGE_MS = 24 * 3_600_000 // an update older than a day is no longer news
 const CLAIM_MS = 5 * 60_000 // how long a claimed message is left alone if its sender dies
 const SEND_CALL_MS = 12_000 // a WhatsApp call gives up after 10 seconds
+const SEND_CONCURRENCY = 5
 
 /** The message an order event sends, if any. */
 function kindFor(from, to, order) {
@@ -160,7 +161,7 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
   )
   if (!claimed.rows.length) return 0
   const { rows } = await query(
-    `SELECT n.*, COALESCE(o.number, p.number) AS number,
+    `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.gift_recipient_name, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url,
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
@@ -174,43 +175,95 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
     [claimed.rows.map((r) => r.id)],
   )
   let sent = 0
-  for (const [i, n] of rows.entries()) {
-    if (outOfTime(SEND_CALL_MS)) {
+  // A few at a time: a dispatch burst queues hundreds of delivery codes, and one
+  // by one at Meta's latency they would arrive late.
+  for (let i = 0; i < rows.length; i += SEND_CONCURRENCY) {
+    if (!canStartCall(SEND_CALL_MS)) {
       // Out of time: hand the rest back so the next run sends them straight away.
       await query('UPDATE notifications SET next_attempt_at = $2 WHERE id = ANY($1)', [rows.slice(i).map((r) => r.id), at])
       break
     }
-    if (at - n.created_at > MAX_AGE_MS) {
-      await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day' })
-      continue
-    }
-    if (!sender) {
-      if (isProd) {
-        logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
-        await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
-      } else {
-        logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
-        await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
-        sent++
-      }
-      continue
-    }
-    try {
-      const providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n) })
-      await mark(n.id, { status: 'SENT', sent_at: at, provider_id: providerId, attempts: n.attempts + 1, last_error: null })
-      metrics.notificationsSent.inc({ kind: n.kind })
-      sent++
-    } catch (err) {
-      const attempts = n.attempts + 1
-      const wait = RETRY_MINUTES.at(attempts - 1)
-      logger.warn({ err, orderId: n.order_id, kind: n.kind, attempts }, 'WhatsApp update failed')
-      if (wait == null) {
-        await mark(n.id, { status: 'FAILED', attempts, last_error: String(err.message).slice(0, 500) })
-        metrics.notificationsFailed.inc({ kind: n.kind })
-      } else {
-        await mark(n.id, { attempts, last_error: String(err.message).slice(0, 500), next_attempt_at: new Date(at.getTime() + wait * 60_000) })
-      }
-    }
+    const results = await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map((n) => sendOne(n, sender, at)))
+    sent += results.filter(Boolean).length
   }
   return sent
+}
+
+/**
+ * A message about an order that has moved on is no longer true: a "confirmed"
+ * for an order since cancelled, or a delivery code for an order no longer out
+ * for delivery. Those are skipped, not sent late.
+ */
+function staleReason(n) {
+  const s = n.order_status
+  if (!s) return null
+  if ((n.kind === 'ORDER_CONFIRMED' || n.kind === 'REPLACEMENT_CONFIRMED' || n.kind === 'DATE_MOVED') && s === 'CANCELLED') return 'order cancelled since'
+  if (n.kind === 'OUT_FOR_DELIVERY' && s !== 'OUT_FOR_DELIVERY') return `order is ${s} now`
+  if (n.kind === 'DELIVERY_FAILED' && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
+  return null
+}
+
+/** Sends one claimed message and records the outcome. Returns true when sent. */
+async function sendOne(n, sender, at) {
+  if (at - n.created_at > MAX_AGE_MS) {
+    await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day' })
+    return false
+  }
+  const stale = staleReason(n)
+  if (stale) {
+    await mark(n.id, { status: 'SKIPPED', last_error: stale })
+    return false
+  }
+  if (!sender) {
+    if (isProd) {
+      logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
+      await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
+      return false
+    }
+    logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
+    await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
+    return true
+  }
+  let providerId
+  try {
+    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n) })
+  } catch (err) {
+    const attempts = n.attempts + 1
+    // Meta refusing the request itself (bad number, unknown or paused template) won't change on a retry.
+    const wait = err?.permanent ? null : RETRY_MINUTES.at(attempts - 1)
+    logger.warn({ err, orderId: n.order_id, kind: n.kind, attempts }, 'WhatsApp update failed')
+    if (wait == null) {
+      await mark(n.id, { status: 'FAILED', attempts, last_error: String(err.message).slice(0, 500) })
+      metrics.notificationsFailed.inc({ kind: n.kind })
+    } else {
+      await mark(n.id, { attempts, last_error: String(err.message).slice(0, 500), next_attempt_at: new Date(at.getTime() + wait * 60_000) })
+    }
+    return false
+  }
+  // Sent: record it outside the send's error handling, so a database hiccup
+  // here can't schedule a second copy of a message that already went out.
+  const fields = { status: 'SENT', sent_at: at, provider_id: providerId ?? null, attempts: n.attempts + 1, last_error: null }
+  await mark(n.id, fields).catch(() => mark(n.id, fields)).catch((err) => logger.error({ err, id: n.id }, 'message sent but not recorded'))
+  metrics.notificationsSent.inc({ kind: n.kind })
+  return true
+}
+
+/**
+ * Meta's delivery reports for messages we sent. "Accepted" at send time does
+ * not mean delivered: a number not on WhatsApp, a paused template or a closed
+ * window comes back later as a failed status. Returns how many rows changed.
+ */
+export async function recordDeliveryStatus(st) {
+  if (!st?.id || !['delivered', 'read', 'failed'].includes(st.status)) return 0
+  if (st.status === 'failed') {
+    const why = (st.errors ?? []).map((e) => `${e.code ?? ''} ${e.title ?? e.message ?? ''}`.trim()).join('; ') || 'failed at WhatsApp'
+    const r = await query(
+      `UPDATE notifications SET status = 'FAILED', delivery_status = 'failed', last_error = $2 WHERE provider_id = $1 AND status = 'SENT'`,
+      [st.id, `Not delivered: ${why}`.slice(0, 500)],
+    )
+    if (r.rowCount) metrics.notificationsFailed.inc({ kind: 'delivery' })
+    return r.rowCount
+  }
+  const r = await query(`UPDATE notifications SET delivery_status = $2 WHERE provider_id = $1 AND (delivery_status IS DISTINCT FROM 'read')`, [st.id, st.status])
+  return r.rowCount
 }

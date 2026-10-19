@@ -14,9 +14,9 @@ import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
-import { dateWords, rupees, timeWords, weekWords } from './notify.js'
+import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { createPaymentLink, refundOrder } from './payments.js'
+import { applyCapture, createPaymentLink, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
@@ -671,13 +671,17 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
         handled++
       }
       for (const st of v.statuses ?? []) {
+        if (st.type !== 'payment') {
+          handled += await recordDeliveryStatus(st)
+          continue
+        }
         if (st.type === 'payment' && st.status === 'captured' && st.payment?.reference_id) {
           const { rows } = await query('SELECT id FROM orders WHERE number = $1', [st.payment.reference_id])
           if (rows.length) {
-            await tx((c) => processPayment(c, {
-              orderId: rows[0].id, outcome: 'captured', paymentId: st.payment.transaction?.id ?? null,
-              amount: st.payment.amount?.value ?? null, method: st.payment.transaction?.method?.type ?? 'whatsapp',
-            }))
+            // Same checks as a Razorpay capture: a payment id, the right currency, the full amount.
+            // (Meta's amount is { value, offset: 100 }, so value is in paise like our totals.)
+            const pay = { id: st.payment.transaction?.id ?? null, amount: st.payment.amount?.value ?? null, currency: st.payment.currency ?? null, method: st.payment.transaction?.method?.type ?? 'whatsapp' }
+            await tx((c) => applyCapture(c, 'orders', rows[0].id, pay))
             handled++
           }
         }

@@ -63,7 +63,7 @@ describe('maintenance within the time limit', () => {
     assert.equal(out.reconciled, null)
     assert.equal(out.expired, null)
     const { rows } = await query(`SELECT step FROM maintenance_runs WHERE last_ok_at IS NOT NULL OR last_err_at IS NOT NULL ORDER BY step`)
-    assert.deepEqual(rows.map((r) => r.step), ['tick'])
+    assert.deepEqual(rows.map((r) => r.step), ['health', 'tick'])
     const full = await runMaintenance()
     assert.equal(full.reconciled, 0)
   })

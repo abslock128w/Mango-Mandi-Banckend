@@ -1,6 +1,6 @@
 // Messages that bring customers back: back-in-stock alerts and the reorder
 // reminder a week after delivery (opt-in only).
-import { outOfTime } from './budget.js'
+import { canStartCall } from './budget.js'
 import { addDays, istParts, now } from './clock.js'
 import { query, tx } from './db.js'
 import { orderableDates } from './delivery.js'
@@ -82,7 +82,7 @@ export async function sendStockAlerts(at = now()) {
   })
   let sent = 0
   for (const a of open) {
-    if (outOfTime(2_000)) break
+    if (!canStartCall(2_000)) break
     const date = firstWithStock.get(`${a.sku}|${a.stage}`)
     if (!date || !sellable(a.sku)) continue
     await tx(async (c) => {
@@ -113,7 +113,7 @@ export async function sendReorderReminders(at = now()) {
   )
   let n = 0
   for (const o of rows) {
-    if (outOfTime(2_000)) break
+    if (!canStartCall(2_000)) break
     await tx(async (c) => {
       const r = await c.query('UPDATE orders SET reorder_reminded_at = $2 WHERE id = $1 AND reorder_reminded_at IS NULL', [o.id, at])
       // A customer with two deliveries that day gets one reminder.

@@ -20,7 +20,7 @@ import { verifyMetaSignature } from './whatsapp.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
 import { checkDatabaseEnvironment } from './migrate.js'
-import { flushErrors, reportError, reportProblem } from './sentry.js'
+import { flushErrors, reportError } from './sentry.js'
 
 /** /ready fails when the maintenance job hasn't finished a run in this long. */
 const MAINTENANCE_STALE_S = 300
@@ -84,6 +84,11 @@ export function createApp() {
     next()
   })
 
+  // Products and rules are cached per instance. Every route that reads them
+  // waits for the load, webhooks and the cron included: on a fresh serverless
+  // instance a webhook can be the very first request.
+  const loaded = (_req, _res, next) => ensureLoaded().then(() => next(), next)
+
   app.get('/health', (_req, res) => res.json({ ok: true }))
   // One check for the uptime monitor: the database answers and the maintenance
   // job (holds, payments, messages) ran in the last 5 minutes.
@@ -99,13 +104,12 @@ export function createApp() {
   })
 
   // Vercel Cron calls this every minute (vercel.json) with the cron secret.
-  app.get('/internal/maintenance', async (req, res) => {
+  app.get('/internal/maintenance', loaded, async (req, res) => {
     if (!env.CRON_SECRET || !safeEqual(bearer(req), env.CRON_SECRET)) {
       return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Bad cron secret', requestId: req.id } })
     }
     try {
       const out = await runMaintenance()
-      if (!out.skipped) await reportStuck()
       res.json(out)
     } catch (err) {
       logger.error({ err, reqId: req.id }, 'maintenance run failed')
@@ -124,7 +128,7 @@ export function createApp() {
     res.send(await registry.metrics())
   })
 
-  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
     if (!verifySignature(raw, req.get('x-razorpay-signature'))) {
       return res.status(400).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
@@ -154,7 +158,7 @@ export function createApp() {
     if (!ok) return res.status(403).end()
     res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''))
   })
-  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
     if (!verifyMetaSignature(raw, req.get('x-hub-signature-256'))) {
       return res.status(401).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
@@ -176,7 +180,7 @@ export function createApp() {
   })
 
   app.use(express.json({ limit: '100kb' }))
-  app.use((_req, _res, next) => ensureLoaded().then(() => next(), next))
+  app.use(loaded)
 
   // Per address. Indian mobile networks put many customers behind one address
   // (carrier NAT), so this is a flood guard, not a per-person limit: floods
@@ -226,20 +230,4 @@ export function createApp() {
   return app
 }
 
-/** At most hourly: alerts for payments stuck in PAYMENT_PENDING or customer messages failing. */
-async function reportStuck() {
-  const { rows } = await query(
-    `SELECT (SELECT COUNT(*)::int FROM orders WHERE status = 'PAYMENT_PENDING' AND placed_at < NOW() - INTERVAL '30 minutes') AS stuck,
-            (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > NOW() - INTERVAL '24 hours') AS failed,
-            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > NOW() - INTERVAL '24 hours') AS done,
-            (SELECT last_ok_at FROM maintenance_runs WHERE step = 'alerts') AS last_alert`,
-  )
-  const { stuck, failed, done, last_alert: lastAlert } = rows[0]
-  const payments = stuck > 10
-  const messages = done >= 20 && failed / done > 0.05
-  if (!payments && !messages) return
-  if (lastAlert && Date.now() - lastAlert.getTime() < 3_600_000) return
-  if (payments) reportProblem('Orders stuck waiting for payment: check Razorpay webhook deliveries', { stuck })
-  if (messages) reportProblem('WhatsApp messages failing: check the Meta token, template status and number quality', { failed, done })
-  await query(`INSERT INTO maintenance_runs (step, last_ok_at) VALUES ('alerts', NOW()) ON CONFLICT (step) DO UPDATE SET last_ok_at = NOW()`)
-}
+
