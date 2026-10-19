@@ -103,6 +103,64 @@ test('Adjust stock requires a reason', async ({ page }) => {
   expect(api.calls.find((c) => c.method === 'PATCH' && c.path === '/batches/b1/lines/l1')?.body).toEqual({ onHand: 18, reason: '2 crushed' })
 })
 
+test('Adjusting below what is promised records a short arrival', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await page.goto('/batches/b1')
+  await page.getByRole('button', { name: 'Adjust ALP-3' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('On hand').fill('3')
+  await expect(dialog.getByText('Only 3 of the 5 promised boxes.')).toBeVisible()
+  await dialog.getByLabel('Reason').fill('2 boxes short off the truck')
+  await dialog.getByRole('button', { name: 'Record short arrival' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByText('Short arrival recorded: moved ORD-1044')).toBeVisible()
+  expect(api.calls.find((c) => c.path === '/batches/b1/lines/l1/short-arrival')?.body).toEqual({ onHand: 3, reason: '2 boxes short off the truck' })
+  expect(api.calls.some((c) => c.method === 'PATCH' && c.path === '/batches/b1/lines/l1')).toBe(false)
+})
+
+test('Exhausting a batch with boxes left is a manager write-off with a reason', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/batches/b1')
+  await page.getByRole('button', { name: 'Move to Exhausted' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Write off the rest of this batch?' })
+  await expect(dialog.getByRole('button', { name: 'Write off 30 boxes' })).toBeDisabled()
+  await dialog.getByLabel('Reason').fill('Sold off at the gate')
+  await dialog.getByRole('button', { name: 'Write off 30 boxes' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.find((c) => c.path === '/batches/b1/status')?.body).toEqual({ status: 'EXHAUSTED', reason: 'Sold off at the gate' })
+})
+
+test('Operators cannot write off a batch with boxes left', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await page.goto('/batches/b1')
+  const exhaust = page.getByRole('button', { name: 'Move to Exhausted' })
+  await expect(exhaust).toBeDisabled()
+  await expect(exhaust).toHaveAttribute('title', 'Requires manager role')
+})
+
+test('Marking delivered without proof is a manager override with a reason; others use the Deliveries page', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  api.order = { ...api.order, status: 'OUT_FOR_DELIVERY' }
+  await page.goto('/orders/o1')
+  await page.getByRole('button', { name: 'Mark delivered', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Mark ORD-1042 delivered without proof?' })
+  await dialog.getByLabel('Reason').fill('Rider phone died; customer confirmed on a call')
+  await dialog.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(api.calls.find((c) => c.path === '/orders/o1/status')?.body).toEqual({
+    status: 'DELIVERED', override: true, reason: 'Rider phone died; customer confirmed on a call',
+  })
+})
+
+test('Operators are not offered Mark delivered', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  api.order = { ...api.order, status: 'OUT_FOR_DELIVERY' }
+  await page.goto('/orders/o1')
+  await expect(page.getByRole('button', { name: 'Delivery failed' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Mark delivered', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Record the delivery on the Deliveries page')).toBeVisible()
+})
+
 test('Orders list filters and opens a detail page', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   await page.goto('/orders')
@@ -380,7 +438,8 @@ test('a rider starts the run and proves each delivery with the code, or says why
   await expect(page.getByText('ORD-1042 delivered')).toBeVisible()
   const sent = api.calls.filter((c) => c.path === '/orders/o1/delivery').map((c) => c.body)
   const at = { lat: 18.9438, lng: 72.8231 }
-  expect(sent).toEqual([{ outcome: 'DELIVERED', code: '1111', ...at }, { outcome: 'DELIVERED', code: '4821', ...at }])
+  // The attempt number from the manifest goes back with each report, so a late resend can be refused.
+  expect(sent).toEqual([{ outcome: 'DELIVERED', code: '1111', ...at, attempt: 1 }, { outcome: 'DELIVERED', code: '4821', ...at, attempt: 1 }])
   await expect(stop.getByRole('listitem', { name: 'ORD-1042' })).toContainText('Delivered')
 })
 
@@ -406,7 +465,7 @@ test('a rider records a missed delivery with a reason, and a handover with a pho
   await dialog.getByRole('button', { name: 'Mark delivered' }).click()
   await expect(dialog).toHaveCount(0)
   expect(api.calls.filter((c) => c.path === '/orders/o1/delivery-photos')).toHaveLength(1)
-  expect(api.calls.find((c) => c.path === '/orders/o1/delivery')?.body).toEqual({ outcome: 'DELIVERED', photoId: 'dph9', receivedBy: 'Security at the gate', lat: 18.9438, lng: 72.8231 })
+  expect(api.calls.find((c) => c.path === '/orders/o1/delivery')?.body).toEqual({ outcome: 'DELIVERED', photoId: 'dph9', receivedBy: 'Security at the gate', lat: 18.9438, lng: 72.8231, attempt: 1 })
 
   api.manifest.runs[0].stops[0].orders[0].status = 'OUT_FOR_DELIVERY'
   await page.reload()
@@ -418,7 +477,7 @@ test('a rider records a missed delivery with a reason, and a handover with a pho
   await dialog.getByLabel('Note (optional)').fill('Called twice')
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText('ORD-1042 will be tried again on the next delivery day')).toBeVisible()
-  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery').at(-1)?.body).toEqual({ outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', lat: 18.9438, lng: 72.8231 })
+  expect(api.calls.filter((c) => c.path === '/orders/o1/delivery').at(-1)?.body).toEqual({ outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', lat: 18.9438, lng: 72.8231, attempt: 1 })
 })
 
 test('Analytics: season tiles, weekly charts with hover detail, and the tables', async ({ page }) => {
@@ -505,6 +564,9 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
   await dialog.getByRole('button', { name: 'Add' }).click()
   await expect(page.getByText('ravi@mandimangoes.test added as Packer')).toBeVisible()
   expect(api.calls.find((c) => c.method === 'POST' && c.path === '/staff')?.body).toEqual({ email: 'ravi@mandimangoes.test', role: 'PACKER', password: 'long-enough-1' })
+  // Their two-step setup code is shown once, to hand over with the password.
+  await expect(page.getByRole('dialog', { name: 'Setup code for ravi@mandimangoes.test' })).toContainText('mnpq-7890')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
 
   await page.getByLabel('Role for ops@mandimangoes.test').selectOption('QC')
   await expect(page.getByText('ops@mandimangoes.test is now QC. They will need to sign in again.')).toBeVisible()

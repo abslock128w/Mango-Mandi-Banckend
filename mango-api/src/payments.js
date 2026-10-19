@@ -1,7 +1,7 @@
 // Razorpay adapter, webhook verification and payment reconciliation.
 // Without API keys (development and tests) an in-memory dev gateway stands in.
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { outOfTime } from './budget.js'
+import { canStartCall } from './budget.js'
 import { now } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -16,7 +16,7 @@ import { findPreorderId, processPreorderPayment, refundPreorder } from './preord
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
 /** Each Razorpay call gives up after 10 seconds; loops stop when less than this is left. */
-const GATEWAY_CALL_MS = 12_000
+export const GATEWAY_CALL_MS = 12_000
 
 /** razorpayOrderId or payment link id → { status: 'captured' | 'failed', id, amount } */
 export const devGateway = new Map()
@@ -98,16 +98,69 @@ export function verifySignature(raw, signature) {
   return timingSafeEqual(expected, Buffer.from(signature, 'hex'))
 }
 
+/**
+ * Finds our order for a Razorpay payment. Only ids Razorpay itself assigned
+ * are trusted: our Razorpay order id, or the payment link's id. The payment's
+ * `notes` are set by whoever opens Checkout, so a notes-only match is used
+ * just for payment-link orders (Razorpay copies the link's notes onto its
+ * payments), and the amount check in checkCapture still has to pass.
+ */
 async function findOrderId(c, entity, link = null) {
-  if (link) {
-    const { rows } = await c.query('SELECT id FROM orders WHERE payment_link_id = $1 OR id = $2 LIMIT 1', [link.id ?? null, link.notes?.orderId ?? null])
+  if (link?.id) {
+    const { rows } = await c.query('SELECT id FROM orders WHERE payment_link_id = $1', [link.id])
     if (rows.length) return rows[0].id
   }
-  const { rows } = await c.query('SELECT id FROM orders WHERE razorpay_order_id = $1 OR id = $2 LIMIT 1', [
-    entity.order_id ?? null,
-    entity.notes?.orderId ?? null,
-  ])
-  return rows[0]?.id ?? null
+  if (entity.order_id) {
+    const { rows } = await c.query('SELECT id FROM orders WHERE razorpay_order_id = $1', [entity.order_id])
+    if (rows.length) return rows[0].id
+  }
+  const noted = link?.notes?.orderId ?? entity.notes?.orderId
+  if (typeof noted === 'string' && noted) {
+    const { rows } = await c.query('SELECT id FROM orders WHERE id = $1 AND payment_link_id IS NOT NULL', [noted])
+    if (rows.length) return rows[0].id
+  }
+  return null
+}
+
+/**
+ * Applies one captured payment found by polling Razorpay (reconcile, replay)
+ * after the same checks a webhook gets. Returns the result, or 'rejected'.
+ */
+export async function applyCapture(c, table, id, p) {
+  if (await checkCapture(c, { table, id, paymentId: p.id, amount: p.amount, currency: p.currency })) return 'rejected'
+  if (table === 'preorders') {
+    return processPreorderPayment(c, { preorderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
+  }
+  return (await processPayment(c, { orderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+}
+
+/**
+ * Checks a captured payment against what we charged before it may confirm
+ * anything: it has a payment id, it is in rupees, and it is for the full
+ * amount. A payment that fails the check confirms nothing; it is logged for
+ * the Needs attention view and, when it has an id, refunded like a duplicate
+ * (it bought nothing). Returns null when the payment is fine, else a reason.
+ */
+export async function checkCapture(c, { table, id, paymentId, amount, currency }) {
+  const { rows } = await c.query(`SELECT total, payment_id FROM ${table === 'preorders' ? 'preorders' : 'orders'} WHERE id = $1`, [id])
+  const total = rows[0]?.total
+  let reason = null
+  if (!paymentId) reason = 'captured payment has no payment id'
+  else if (currency != null && currency !== 'INR') reason = `captured payment is in ${currency}, not INR`
+  else if (typeof amount !== 'number') reason = 'captured payment has no amount'
+  else if (amount !== total) reason = `captured ${amount} but the total is ${total}`
+  if (!reason) return null
+  // Already rejected once (a webhook retry, or the reconcile loop seeing it again): don't log it twice.
+  if (paymentId && (await c.query('SELECT 1 FROM duplicate_payments WHERE payment_id = $1', [paymentId])).rowCount) return reason
+  logger.error({ table, id, paymentId, amount, currency, total }, `payment rejected: ${reason}`)
+  await recordWebhookFailure('razorpay', `Payment ${paymentId ?? '(no id)'} for ${id} not accepted: ${reason}`, paymentId, c)
+  if (paymentId && paymentId !== rows[0]?.payment_id) {
+    await c.query(
+      `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+      [paymentId, table === 'preorders' ? null : id, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
+    )
+  }
+  return reason
 }
 
 /** Records a webhook that failed or could not be matched, for the Needs attention view. Never throws. */
@@ -125,6 +178,8 @@ export async function recordWebhookFailure(source, reason, eventKey = null, c = 
  */
 export async function handleWebhook(event, eventId) {
   const kind = event?.event
+  if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId)
+  if (kind === 'payment.authorized') return captureAuthorized(event.payload?.payment?.entity ?? {})
   if (kind !== 'payment.captured' && kind !== 'payment.failed' && kind !== 'payment_link.paid') return { ignored: true }
   const entity = event.payload?.payment?.entity ?? {}
   const link = kind === 'payment_link.paid' ? (event.payload?.payment_link?.entity ?? {}) : null
@@ -136,6 +191,10 @@ export async function handleWebhook(event, eventId) {
     if (!orderId) {
       const preorderId = await findPreorderId(c, entity, link)
       if (preorderId) {
+        if (kind !== 'payment.failed') {
+          const bad = await checkCapture(c, { table: 'preorders', id: preorderId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+          if (bad) return { result: 'rejected', preorderId, reason: bad }
+        }
         const r = await processPreorderPayment(c, {
           preorderId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
           amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
@@ -145,6 +204,10 @@ export async function handleWebhook(event, eventId) {
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
       await recordWebhookFailure('razorpay', `${kind} for an order we don't have (${entity.order_id ?? link?.id ?? 'no id'})`, dedupeKey, c)
       return { unknownOrder: true }
+    }
+    if (kind !== 'payment.failed') {
+      const bad = await checkCapture(c, { table: 'orders', id: orderId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+      if (bad) return { result: 'rejected', orderId, reason: bad }
     }
     const r = await processPayment(c, {
       orderId,
@@ -157,31 +220,108 @@ export async function handleWebhook(event, eventId) {
   }).then(async (out) => {
     if (out.result === 'refund_due' && out.orderId) await refundOrder(out.orderId).catch(() => {}) // maintenance retries
     if (out.result === 'refund_due' && out.preorderId) await refundPreorder(out.preorderId).catch(() => {})
-    if (out.result === 'duplicate_payment') await refundDuplicatePayments().catch(() => {})
+    if (out.result === 'duplicate_payment' || out.result === 'rejected') await refundDuplicatePayments().catch(() => {})
     return out
   })
 }
 
-/** Catches up on missed webhooks for orders stuck in PAYMENT_PENDING. */
+/**
+ * If the Razorpay account is set to capture payments by hand, a payment stops
+ * at "authorized" and Razorpay refunds it on its own days later. We capture
+ * any authorized payment that matches an order in full, so confirmation never
+ * depends on that dashboard setting. (With automatic capture, which is the
+ * expected setting, Razorpay answers that it is already captured.) The
+ * payment.captured webhook that follows confirms the order as usual.
+ */
+async function captureAuthorized(entity) {
+  if (!entity.id || !entity.order_id) return { ignored: true }
+  const { rows } = await query('SELECT id, total FROM orders WHERE razorpay_order_id = $1', [entity.order_id])
+  const o = rows[0]
+  if (!o || entity.amount !== o.total || (entity.currency ?? 'INR') !== 'INR') return { ignored: true }
+  if (!hasKeys()) return { ignored: true }
+  try {
+    await razorpay('POST', `/payments/${encodeURIComponent(entity.id)}/capture`, { amount: entity.amount, currency: 'INR' })
+    return { result: 'capture_requested', orderId: o.id }
+  } catch (err) {
+    logger.info({ err, paymentId: entity.id }, 'capture of an authorized payment not needed or not possible')
+    return { result: 'capture_skipped', orderId: o.id }
+  }
+}
+
+/**
+ * Razorpay tells us how a refund ended. A refund is recorded as done when
+ * Razorpay accepts it (refunded_at), because most finish within days; if one
+ * later fails, the record is reopened so the maintenance loop sends a new one,
+ * and it shows in Needs attention.
+ */
+async function handleRefundEvent(event, eventId) {
+  const r = event.payload?.refund?.entity ?? {}
+  if (!r.id) return { ignored: true }
+  const dedupeKey = eventId || `${event.event}:${r.id}`
+  const failed = event.event === 'refund.failed'
+  return tx(async (c) => {
+    const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    if (!ins.rowCount) return { duplicate: true }
+    let hit = 0
+    for (const table of ['orders', 'preorders']) {
+      const { rows } = await c.query(`SELECT id, status FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [r.id])
+      for (const row of rows) {
+        hit++
+        if (!failed) {
+          await c.query(`UPDATE ${table} SET refund_status = 'processed' WHERE id = $1`, [row.id])
+          continue
+        }
+        await c.query(
+          `UPDATE ${table} SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, refund_attempted_at = NULL,
+                  payment_status = 'SUCCEEDED' WHERE id = $1`,
+          [row.id],
+        )
+        if (table === 'orders') await addEvent(c, row.id, row.status, row.status, SYSTEM, `Refund ${r.id} failed at Razorpay; sending it again`)
+      }
+    }
+    const d = await c.query(
+      failed
+        ? `UPDATE duplicate_payments SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, attempted_at = NULL WHERE refund_id = $1`
+        : `UPDATE duplicate_payments SET refund_status = 'processed' WHERE refund_id = $1`,
+      [r.id],
+    )
+    hit += d.rowCount
+    if (failed) {
+      logger.error({ refundId: r.id, paymentId: r.payment_id }, 'refund failed at Razorpay; will retry')
+      await recordWebhookFailure('razorpay', `Refund ${r.id} for payment ${r.payment_id ?? '?'} failed at Razorpay; a new refund will be sent`, r.id, c)
+    }
+    return { result: failed ? 'refund_failed' : 'refund_processed', matched: hit }
+  })
+}
+
+/**
+ * Catches up on missed webhooks. Orders still waiting for payment come first,
+ * newest first; orders the sweeper already cancelled (a payment can still land
+ * after the hold) are checked for a day with a back-off of 15 minutes, so a
+ * day of abandoned checkouts can't crowd out the orders that matter.
+ */
 export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
   if (!hasKeys() && isProd) return 0
+  const at = now()
   const { rows } = await query(
     `SELECT id, razorpay_order_id, payment_link_id FROM orders
       WHERE (razorpay_order_id IS NOT NULL OR payment_link_id IS NOT NULL) AND placed_at < $1
-        AND (status = 'PAYMENT_PENDING'
-             OR (status = 'CANCELLED' AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at > $2))
-      ORDER BY placed_at LIMIT 100`,
-    [new Date(now().getTime() - minAgeSeconds * 1000), new Date(now().getTime() - 86_400_000)],
+        AND ((status = 'PAYMENT_PENDING' AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $4))
+             OR (status = 'CANCELLED' AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at > $2
+                 AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $3)))
+      ORDER BY (status = 'PAYMENT_PENDING') DESC, reconcile_checked_at NULLS FIRST, placed_at DESC LIMIT 100`,
+    [new Date(at.getTime() - minAgeSeconds * 1000), new Date(at.getTime() - 86_400_000), new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 50_000)],
   )
   let n = 0
   for (const o of rows) {
-    if (outOfTime(GATEWAY_CALL_MS)) break // the next run carries on
+    if (!canStartCall(GATEWAY_CALL_MS)) break // the next run carries on
     try {
+      await query('UPDATE orders SET reconcile_checked_at = $2 WHERE id = $1', [o.id, now()])
       const payments = o.razorpay_order_id ? await fetchPayments(o.razorpay_order_id) : await fetchLinkPayments(o.payment_link_id)
       const captured = payments.find((p) => p.status === 'captured')
       if (captured) {
-        await tx((c) => processPayment(c, { orderId: o.id, outcome: 'captured', paymentId: captured.id, amount: captured.amount, method: captured.method }))
-        n++
+        const r = await tx((c) => applyCapture(c, 'orders', o.id, captured))
+        if (r !== 'rejected') n++
       }
     } catch (err) {
       logger.error({ err, orderId: o.id }, 'payment reconciliation failed for order')
@@ -219,8 +359,13 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
   if (hasKeys()) {
     if (!paymentId) throw new Error(`${receipt} has no payment id to refund`)
     const pid = encodeURIComponent(paymentId)
-    const existing = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).find((r) => r.status !== 'failed')
-    return (existing ?? (await razorpay('POST', `/payments/${pid}/refund`, { amount, receipt, notes }))).id
+    // Refunds already made for this payment (by an earlier attempt, or by hand
+    // in the Razorpay dashboard) count; only what is still owed is sent.
+    const live = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).filter((r) => r.status !== 'failed')
+    const done = live.reduce((sum, r) => sum + (r.amount ?? 0), 0)
+    const owed = amount == null ? null : amount - done
+    if (live.length && (owed == null || owed <= 0)) return live[0].id
+    return (await razorpay('POST', `/payments/${pid}/refund`, { ...(owed == null ? {} : { amount: owed }), receipt, notes })).id
   }
   if (isProd) return null
   return `rfnd_dev_${newId('r').slice(2)}`
@@ -240,7 +385,7 @@ export async function refundOrder(orderId) {
   try {
     return await tx(async (c) => {
       const r = await c.query(
-        `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3 WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
+        `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3, refund_status = 'pending' WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
         [o.id, refundId, now()],
       )
       if (r.rowCount) {
@@ -263,7 +408,7 @@ export async function processDueRefunds() {
   let n = 0
   const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
   for (const p of pre.rows) {
-    if (outOfTime(GATEWAY_CALL_MS)) return n
+    if (!canStartCall(GATEWAY_CALL_MS)) return n
     try {
       if (await refundPreorder(p.id)) n++
     } catch (err) {
@@ -271,7 +416,7 @@ export async function processDueRefunds() {
     }
   }
   for (const o of rows) {
-    if (outOfTime(GATEWAY_CALL_MS)) return n
+    if (!canStartCall(GATEWAY_CALL_MS)) return n
     try {
       if (await refundOrder(o.id)) n++
     } catch (err) {
@@ -299,7 +444,7 @@ export async function refundDuplicatePayments(at = now()) {
   )
   let n = 0
   for (const d of rows) {
-    if (outOfTime(GATEWAY_CALL_MS)) break // leased rows are retried after the lease
+    if (!canStartCall(GATEWAY_CALL_MS)) break // leased rows are retried after the lease
     try {
       const refundId = await gatewayRefund({
         paymentId: d.payment_id, amount: d.amount ?? undefined, receipt: `dup-${d.payment_id}`.slice(0, 40),
@@ -307,7 +452,7 @@ export async function refundDuplicatePayments(at = now()) {
       })
       if (!refundId) continue
       await tx(async (c) => {
-        await c.query('UPDATE duplicate_payments SET refund_id = $2, refunded_at = $3, last_error = NULL WHERE payment_id = $1', [d.payment_id, refundId, now()])
+        await c.query(`UPDATE duplicate_payments SET refund_id = $2, refunded_at = $3, refund_status = 'pending', last_error = NULL WHERE payment_id = $1`, [d.payment_id, refundId, now()])
         if (d.order_id) {
           const { rows: o } = await c.query('SELECT status FROM orders WHERE id = $1', [d.order_id])
           await addEvent(c, d.order_id, o[0].status, o[0].status, SYSTEM, `Second payment ${d.payment_id} refunded (${refundId})`)
@@ -369,8 +514,7 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
     const payments = o.razorpay_order_id ? await fetchPayments(o.razorpay_order_id) : await fetchLinkPayments(o.payment_link_id)
     for (const p of payments.filter((x) => x.status === 'captured' && x.id !== o.payment_id)) {
       if (await knownPayment(p.id)) continue
-      await tx((c) => processPayment(c, { orderId: o.id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method }))
-      out.applied++
+      if ((await tx((c) => applyCapture(c, 'orders', o.id, p))) !== 'rejected') out.applied++
     }
   }
   const pre = await query(
@@ -381,8 +525,7 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
     out.checked++
     for (const pay of (await fetchLinkPayments(p.payment_link_id)).filter((x) => x.status === 'captured' && x.id !== p.payment_id)) {
       if (await knownPayment(pay.id)) continue
-      await tx((c) => processPreorderPayment(c, { preorderId: p.id, outcome: 'captured', paymentId: pay.id, amount: pay.amount, method: pay.method }))
-      out.applied++
+      if ((await tx((c) => applyCapture(c, 'preorders', p.id, pay))) !== 'rejected') out.applied++
     }
   }
 
@@ -391,10 +534,7 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
     const orderId = await findOrderId({ query }, p)
     const preorderId = orderId ? null : await findPreorderId({ query }, p, null)
     if (orderId || preorderId) {
-      await tx((c) => orderId
-        ? processPayment(c, { orderId, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
-        : processPreorderPayment(c, { preorderId, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method }))
-      out.applied++
+      if ((await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))) !== 'rejected') out.applied++
       continue
     }
     out.lost.push({ paymentId: p.id, amount: p.amount, contact: p.contact ?? null })

@@ -18,10 +18,17 @@ export async function applyPromo(c, rawCode, customerId, subtotal, { lock = fals
   if (p.starts_on && today < p.starts_on) throw fail('That promo code is not active yet', 'PROMO_NOT_STARTED')
   if (p.ends_on && today > p.ends_on) throw fail('That promo code has expired', 'PROMO_EXPIRED')
   if (subtotal < p.min_subtotal) throw fail(`This code needs an order of at least ₹${Math.ceil(p.min_subtotal / 100)}`, 'PROMO_MIN_SUBTOTAL')
+  // A checkout cancelled for non-payment still counts for half an hour: its
+  // payment can land late (links stay open 16 minutes) and revive the order,
+  // which would otherwise push a limited code past its limit.
   const used = await c.query(
     `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE r.customer_id = $2)::int AS mine
-       FROM promo_redemptions r JOIN orders o ON o.id = r.order_id WHERE r.code = $1 AND o.status <> 'CANCELLED'`,
-    [code, customerId],
+       FROM promo_redemptions r JOIN orders o ON o.id = r.order_id
+      WHERE r.code = $1
+        AND (o.status <> 'CANCELLED'
+             OR (o.payment_status IN ('INITIATED', 'CANCELLED') AND o.customer_cancelled_at IS NULL
+                 AND o.staff_cancelled_at IS NULL AND o.placed_at > $3))`,
+    [code, customerId, new Date(now().getTime() - 30 * 60_000)],
   )
   if (p.max_uses != null && used.rows[0].total >= p.max_uses) throw fail('That promo code has been fully used', 'PROMO_USED_UP')
   if (used.rows[0].mine >= p.per_customer) throw fail("You've already used this promo code", 'PROMO_ALREADY_USED')

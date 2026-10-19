@@ -19,6 +19,8 @@ const STEP_LABEL: Record<string, string> = {
   'rebalance-at-risk': 'Re-checking at-risk orders',
   audit: 'Stock audit',
   config: 'Loading rules',
+  'review-requests': 'Queueing review requests',
+  'review-stats': 'Review totals check',
 }
 
 /**
@@ -53,7 +55,9 @@ export default function NeedsAttention() {
   if (!q.data) return null
   const a = q.data
   const calls = a.failedDeliveries ?? []
+  const low = a.lowRatings ?? []
   const photos = a.photoDeliveries ?? []
+  const drift = a.ledgerDrift ?? []
   const count =
     (a.loop.stale ? 1 : 0) +
     a.loop.failingSteps.length +
@@ -61,7 +65,9 @@ export default function NeedsAttention() {
     a.stuckRefunds.length +
     a.webhookFailures.length +
     calls.length +
-    photos.length
+    (low.length ? 1 : 0) +
+    photos.length +
+    drift.length
   if (count === 0) return null
 
   return (
@@ -85,14 +91,15 @@ export default function NeedsAttention() {
           <li key={`call-${o.id}`}>
             <strong>Call the customer</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>: {o.attempts} deliveries missed
             {o.name || o.phone ? <span className="muted"> ({[o.name, o.phone].filter(Boolean).join(', ')})</span> : null}. It won't be
-            sent out again until someone dispatches it from the order page.
+            sent out again until a manager sends it from the order page.
           </li>
         ))}
         {photos.map((d) => (
           <li key={`photo-${d.id}`}>
-            <strong>Check a photo delivery</strong> of <Link to={`/orders/${d.order.id}`}>{d.order.number}</Link> by {d.actor} at{' '}
-            {dateTime(d.at)}
+            <strong>{d.method === 'staff' ? 'Check a delivery marked without proof' : 'Check a photo delivery'}</strong> of{' '}
+            <Link to={`/orders/${d.order.id}`}>{d.order.number}</Link> by {d.actor} at {dateTime(d.at)}
             {d.receivedBy ? <span className="muted">, left with {d.receivedBy}</span> : null}
+            {d.method === 'staff' && d.note ? <span className="muted">: {d.note}</span> : null}
             {d.flags.length ? <span className="badge badge-warn"> {d.flags.join(', ')}</span> : null}{' '}
             <button type="button" className="btn btn-small" disabled={check.isPending} onClick={() => check.mutate({ d, ok: true })}>
               Looks right<span className="sr-only"> for {d.order.number}</span>
@@ -100,6 +107,16 @@ export default function NeedsAttention() {
             <button type="button" className="btn btn-small" onClick={() => setDoubting(d)}>
               Doubtful<span className="sr-only"> for {d.order.number}</span>
             </button>
+          </li>
+        ))}
+        {drift.map((l) => (
+          <li key={`drift-${l.lineId}`}>
+            <strong>Stock counts disagree with the ledger</strong> for {l.sku} in batch <Link to={`/batches/${l.batchId}`}>{l.batchId}</Link>
+            <span className="muted">
+              {' '}
+              (on hand {l.onHand[0]} vs {l.onHand[1]}, held {l.held[0]} vs {l.held[1]}, committed {l.committed[0]} vs {l.committed[1]})
+            </span>
+            . Check the batch before selling more from it.
           </li>
         ))}
         {a.stuckRefunds.map((r) => (
@@ -118,6 +135,15 @@ export default function NeedsAttention() {
             </button>
           </li>
         ))}
+        {low.length > 0 && (
+          <li>
+            <strong>
+              {low.length} new {low.length === 1 ? 'review' : 'reviews'} with 1 or 2 stars
+            </strong>{' '}
+            ({low.map((r) => r.order.number).join(', ')}). <Link to="/reviews">Read them</Link> and check whether the customer
+            needs help. A review never opens a claim by itself.
+          </li>
+        )}
         {a.webhookFailures.map((w) => (
           <li key={w.id}>
             <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}

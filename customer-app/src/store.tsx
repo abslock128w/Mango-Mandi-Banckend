@@ -48,10 +48,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => save('mm.cart', cart), [cart])
   useEffect(() => {
     const sync = () => setProfile(signedInProfile())
-    window.addEventListener(SIGNOUT_EVENT, sync)
+    // A shared phone or laptop: the next person should not find this cart.
+    const signedOut = (e: Event) => {
+      sync()
+      if ((e as CustomEvent<{ forget?: boolean }>).detail?.forget) setCart([])
+    }
+    window.addEventListener(SIGNOUT_EVENT, signedOut)
     window.addEventListener(PROFILE_EVENT, sync)
     return () => {
-      window.removeEventListener(SIGNOUT_EVENT, sync)
+      window.removeEventListener(SIGNOUT_EVENT, signedOut)
       window.removeEventListener(PROFILE_EVENT, sync)
     }
   }, [])

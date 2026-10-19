@@ -109,6 +109,8 @@ async function main() {
     DATABASE_URL: `postgres://mango:mango@localhost:${DB_PORT}/mango`,
     NODE_ENV: 'development',
     COOKIE_SECURE: 'false',
+    // The shop's test-mode pay buttons use /v1/dev.
+    ENABLE_DEV_ROUTES: 'true',
     LOG_LEVEL: 'warn',
   })
   await waitFor(`${API}/ready`)

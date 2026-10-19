@@ -26,7 +26,10 @@ import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutO
 import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
-import { cronCheckIn } from './sentry.js'
+import { cronCheckIn, reportError, reportProblem } from './sentry.js'
+import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
+import { pruneNotifications } from './retention.js'
+import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
@@ -37,6 +40,8 @@ const TICK_MS = 60_000
 const HOURLY_MS = 3_600_000
 
 let timer = null
+/** Steps that failed in the current run (for the Sentry check-in). */
+let failedSteps = null
 const DAILY_MS = 24 * HOURLY_MS
 
 /** Asks the next run to re-check every open order (after a rules change). */
@@ -82,6 +87,11 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
   } catch (err) {
     metrics.maintenanceErrors.inc({ step: name })
     logger.error({ err, step: name }, 'maintenance step failed')
+    failedSteps?.add(name)
+    // To Sentry too (on Vercel there is no Prometheus), at most hourly per step.
+    const prev = await query('SELECT last_err_at FROM maintenance_runs WHERE step = $1', [name]).catch(() => ({ rows: [] }))
+    const lastErr = prev.rows[0]?.last_err_at
+    if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
     await query(
       `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
        ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
@@ -121,6 +131,10 @@ export async function cleanupExpired(at = now()) {
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
+  // Review photos uploaded but never sent with a review (bounded per run).
+  await cleanupReviewPhotos(at)
+  // Finished messages older than 180 days (bounded per run; never PENDING ones).
+  await pruneNotifications(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
@@ -203,14 +217,18 @@ export async function runMaintenance({ forceAll = false, budgetMs = RUN_BUDGET_M
     const holder = await takeLease('maintenance')
     if (!holder) return { skipped: true }
     const checkIn = cronCheckIn('in_progress')
+    failedSteps = new Set()
     try {
       const out = await steps(forceAll)
-      cronCheckIn('ok', checkIn)
+      out.failed = [...failedSteps]
+      // A run where a step failed is an error run, so Sentry's monitor alerts on it.
+      cronCheckIn(failedSteps.size ? 'error' : 'ok', checkIn)
       return out
     } catch (err) {
       cronCheckIn('error', checkIn)
       throw err
     } finally {
+      failedSteps = null
       await releaseLease('maintenance', holder).catch((err) => logger.warn({ err }, 'could not release the maintenance lease'))
     }
   })
@@ -230,10 +248,14 @@ async function steps(forceAll) {
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {
     out.drift = (await step('audit', runAudit))?.length ?? null
   }
+  if (forceAll || t - (last['review-stats'] ?? 0) > HOURLY_MS) {
+    out.reviewStatsDrift = (await step('review-stats', () => tx((c) => auditReviewStats(c))))?.length ?? null
+  }
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
+  out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   await step('cleanup', () => cleanupExpired())
@@ -243,6 +265,7 @@ async function steps(forceAll) {
   } else if (t - Math.max(lastFull, last['rebalance-at-risk'] ?? 0) > HOURLY_MS) {
     out.rebalanced = await step('rebalance-at-risk', () => rebalanceAllOpen({ atRiskOnly: true }))
   }
+  await step('health', () => checkHealth(out), { minMs: 0 })
   const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
   out.atRisk = risk.rows[0].n
   metrics.ordersAtRisk.set(out.atRisk)
@@ -251,6 +274,41 @@ async function steps(forceAll) {
   // Needs attention card show whether the loop itself is alive.
   await markRun('tick')
   return out
+}
+
+/**
+ * Alerts (to Sentry, at most hourly each) when work is piling up that the run
+ * should have done: the loop can be alive and every step "ok" while doing
+ * nothing, which is exactly what a tick check can't see. Also flags payments
+ * found only by polling, which means Razorpay's webhooks aren't arriving.
+ */
+export async function checkHealth(out = {}, at = now()) {
+  const { rows } = await query(
+    `SELECT (SELECT COUNT(*)::int FROM notifications WHERE status = 'PENDING' AND next_attempt_at < $1) AS messages,
+            (SELECT COUNT(*)::int FROM orders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
+          + (SELECT COUNT(*)::int FROM preorders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
+          + (SELECT COUNT(*)::int FROM duplicate_payments WHERE found_at < $2 AND refunded_at IS NULL) AS refunds,
+            (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'razorpay' AND created_at > $3) AS webhooks,
+            (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > $4) AS failed,
+            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done`,
+    [new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS)],
+  )
+  const h = rows[0]
+  const problems = []
+  if (h.messages > 0) problems.push(['messages', 'WhatsApp messages are overdue: the maintenance run is not sending them', { overdue: h.messages }])
+  if (h.refunds > 0) problems.push(['refunds', 'Refunds are overdue: check the Razorpay keys and the refunds step', { overdue: h.refunds }])
+  if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
+  if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
+  if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  const last = await lastRuns()
+  for (const [key, message, extra] of problems) {
+    const name = `alert-${key}`
+    if (at.getTime() - (last[name] ?? 0) < HOURLY_MS) continue
+    logger.error(extra, message)
+    reportProblem(message, extra)
+    await markRun(name)
+  }
+  return problems.map(([key]) => key)
 }
 
 /** How long ago the last full run finished, in seconds (null = never). Used by /ready. */

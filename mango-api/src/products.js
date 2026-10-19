@@ -31,3 +31,8 @@ export const sellable = (sku) => {
   return p?.active ? p : null
 }
 export const productName = (sku) => bySku.get(sku)?.name ?? sku
+
+/** Test hook: an instance that has not loaded anything yet (a cold start). */
+export const forgetProductsForTests = () => {
+  bySku = new Map()
+}

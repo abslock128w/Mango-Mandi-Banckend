@@ -34,6 +34,13 @@ const schema = z.object({
   SENTRY_DSN: z.string().default(''),
   // Vercel Blob for delivery and claim photos; unset keeps photos in the database.
   BLOB_READ_WRITE_TOKEN: z.string().default(''),
+  // Shown to a customer who gives 1 or 2 stars after the claim window has closed.
+  SUPPORT_CONTACT: z.string().default('Message us on WhatsApp and we will sort it out.'),
+  // "How were your mangoes?" a day after delivery. Turn on once Meta approves mandi_review_request.
+  WHATSAPP_REVIEW_REQUESTS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).
@@ -58,6 +65,17 @@ const schema = z.object({
   PREVIEW_ADMIN_EMAIL: z.string().email().optional(),
   PREVIEW_ADMIN_PASSWORD: z.string().min(12).optional(),
   SMS_PROVIDER: z.enum(['log', 'jio']).default('log'),
+  // With SMS_PROVIDER=log, write login codes to the log. Off unless asked for: outside
+  // production the API already returns the code as devCode; on a preview it is the only way in.
+  LOG_OTP_CODES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // /v1/dev (pay any order without paying). Needs this, NODE_ENV other than production and no Razorpay keys.
+  ENABLE_DEV_ROUTES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   JIO_SMS_URL: z.string().url().optional(),
   JIO_SMS_API_KEY: z.string().optional(),
   JIO_SMS_SENDER_ID: z.string().optional(),
@@ -91,6 +109,8 @@ if (!parsed.success) {
 
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
+/** /v1/dev pays orders for free: never in production, never with Razorpay keys set, and only when asked for. */
+export const devRoutesOn = () => !isProd && env.ENABLE_DEV_ROUTES && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET
 /** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
 export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV
 
@@ -101,7 +121,7 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   console.error('Refusing to start: on Vercel NODE_ENV must be production, previews too (see deploy/VERCEL.md)')
   process.exit(1)
 }
-env.STAFF_TWO_STEP ??= isProd ? 'managers' : 'optional'
+env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

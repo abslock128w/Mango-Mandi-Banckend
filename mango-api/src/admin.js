@@ -4,14 +4,14 @@ import { googleOn, verifyGoogleCredential } from './google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
 import jwt from 'jsonwebtoken'
-import { sharedLimiter } from './ratelimit.js'
+import { hit, sharedLimiter } from './ratelimit.js'
 import { z } from 'zod'
 import { audit, auditStaffChanges, limitByRole, riderScope, ROLES } from './access.js'
-import { ACCESS_TTL_S, issueRefresh, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
-import { sendPhoto } from './photos.js'
+import { isOwnPhotoUrl, sendPhoto } from './photos.js'
 import { normaliseCode, promoView } from './promos.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, photoReviews, recordDelivery, recordStaffDelivery, reviewDelivery, savePhoto } from './delivery-proof.js'
@@ -20,7 +20,7 @@ import { orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
-import { availability, ledger, SELLABLE_STATUSES } from './inventory.js'
+import { auditLedger, availability, ledger, SELLABLE_STATUSES } from './inventory.js'
 import { triggerRebalanceAll } from './maintenance.js'
 import {
   allocateOrder,
@@ -32,6 +32,7 @@ import {
   placeOnFirstDateWithStock,
   rebalanceBatchOrders,
   rebalanceOrder,
+  recordShortArrival,
   setOrderStatus,
   takeBatchOutOfService,
 } from './orders.js'
@@ -41,6 +42,7 @@ import { refundOrder } from './payments.js'
 import { logger } from './logger.js'
 import { allProducts, findProduct, loadProducts, productName, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
+import { staffReviews } from './review-routes.js'
 
 export const router = express.Router()
 
@@ -61,16 +63,20 @@ const DUMMY_HASH = bcrypt.hashSync(newId('x'), 10)
 // ---------------------------------------------------------------- auth
 
 /**
- * Whether this role must use two-step sign-in (STAFF_TWO_STEP). "managers"
- * covers operators too: both can cancel orders, move stock and see every
- * customer's details.
+ * Whether this role must use two-step sign-in (STAFF_TWO_STEP). In production
+ * the default is "all": riders and packers see customers' names, phones and
+ * addresses too. "managers" covers operators as well: both can cancel orders,
+ * move stock and see every customer's details.
  */
 const OFFICE_ROLES = ['MANAGER', 'OPERATOR']
 const twoStepRequired = (role) => env.STAFF_TWO_STEP === 'all' || (env.STAFF_TWO_STEP === 'managers' && OFFICE_ROLES.includes(role))
 
 /** The access token. "setup" marks someone who must set up two-step sign-in before anything else. */
 const staffAccess = (u) =>
-  signAccess({ sub: u.id, email: u.email, role: u.role, typ: 'admin', ...(twoStepRequired(u.role) && !u.totp_enabled_at ? { setup: true } : {}) })
+  signAccess({
+    sub: u.id, email: u.email, role: u.role, typ: 'admin', sv: u.session_version ?? 0,
+    ...(twoStepRequired(u.role) && !u.totp_enabled_at ? { setup: true } : {}),
+  })
 
 async function startSession(req, res, user, method) {
   const refresh = await issueRefresh(user.id, 'admin')
@@ -82,7 +88,50 @@ async function startSession(req, res, user, method) {
 const TICKET_TTL_S = 5 * 60
 const TWO_STEP_MAX_FAILURES = 5
 const TWO_STEP_LOCK_MS = 15 * 60_000
-const STAFF_COLUMNS = 'id, email, role, totp_secret, totp_enabled_at, totp_last_step, two_step_failures, two_step_locked_until'
+const STAFF_COLUMNS = 'id, email, role, session_version, totp_secret, totp_enabled_at, totp_last_step, two_step_failures, two_step_locked_until'
+
+// SEC-4: wrong passwords per account (unknown emails too, so the answer never
+// shows whether an account exists), on top of the per-address limit. After 10
+// in 15 minutes the account's password sign-in waits out the rest of the
+// window: slow enough to stop guessing, short enough that someone locking a
+// colleague out on purpose only delays them (Google sign-in still works).
+const PASSWORD_FAILURES = 10
+const PASSWORD_WINDOW_MS = 15 * 60_000
+const pwKey = (email) => `staff-pw:${email}`
+const PW_LOCKED = () =>
+  new HttpError(429, 'ACCOUNT_LOCKED', 'Too many wrong passwords for this account. Try again in 15 minutes, sign in with Google, or ask a manager to set a new password.')
+
+async function passwordLocked(email) {
+  const { rows } = await query('SELECT hits FROM rate_limits WHERE key = $1 AND reset_at > $2', [pwKey(email), now()])
+  return (rows[0]?.hits ?? 0) >= PASSWORD_FAILURES
+}
+
+const passwordFailed = (email) => hit(pwKey(email), PASSWORD_WINDOW_MS)
+
+const clearPasswordFailures = (email, c = { query }) => c.query('DELETE FROM rate_limits WHERE key = $1', [pwKey(email)])
+
+// SEC-6: where two-step is required, setting it up needs a one-time code from
+// a manager as well as the password, so someone holding only the password
+// can't put their own authenticator app on the account. The first manager to
+// set it up (no other manager has it yet) needs none: nobody could give them one.
+const SETUP_CODE_TTL_MS = 7 * 86_400_000
+const SETUP_CODE_TRIES_PER_HOUR = 5
+
+/** Issues a fresh setup code for a staff member (replacing any earlier one). Returns it, to show once. */
+async function issueSetupCode(c, adminId) {
+  const [code] = newRecoveryCodes(1)
+  await c.query('UPDATE admin_users SET setup_code_hash = $2, setup_code_expires_at = $3 WHERE id = $1', [
+    adminId, hashRecovery(code), new Date(now().getTime() + SETUP_CODE_TTL_MS),
+  ])
+  return code
+}
+
+/** Whether this sign-in must give a manager's setup code before setting up two-step. */
+async function setupCodeNeeded(adminId, setupSession) {
+  if (!setupSession) return false
+  const { rows } = await query("SELECT 1 FROM admin_users WHERE role = 'MANAGER' AND totp_enabled_at IS NOT NULL AND id <> $1 LIMIT 1", [adminId])
+  return rows.length > 0
+}
 
 /**
  * After the password or Google: either the session, or, with two-step on, a
@@ -99,10 +148,15 @@ router.post(
   authLimiter,
   asyncHandler(async (req, res) => {
     const { email, password } = parse(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(200) }), req.body)
+    if (await passwordLocked(email)) throw PW_LOCKED()
     const { rows } = await query(`SELECT ${STAFF_COLUMNS}, password_hash FROM admin_users WHERE email = $1`, [email])
     const user = rows[0]
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH)
-    if (!user || !ok) throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
+    if (!user || !ok) {
+      await passwordFailed(email)
+      throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
+    }
+    await clearPasswordFailures(email)
     await passFirstStep(req, res, user, 'password')
   }),
 )
@@ -181,10 +235,10 @@ router.post(
 router.post(
   '/auth/refresh',
   sameSiteOnly,
-  authLimiter,
+  refreshLimiter('admin', COOKIE),
   asyncHandler(async (req, res) => {
     const { userId, refresh } = await rotateRefresh(req.cookies?.[COOKIE], 'admin')
-    const { rows } = await query('SELECT id, email, role, totp_enabled_at FROM admin_users WHERE id = $1', [userId])
+    const { rows } = await query('SELECT id, email, role, session_version, totp_enabled_at FROM admin_users WHERE id = $1', [userId])
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     if (refresh) res.cookie(COOKIE, refresh.token, { ...cookieOptions(), expires: refresh.expiresAt })
     res.json({ accessToken: staffAccess(rows[0]), expiresIn: ACCESS_TTL_S })
@@ -207,6 +261,8 @@ const needsSetupFirst = (req, _res, next) =>
   next(req.admin.setup && !SETUP_ROUTES.has(`${req.method} ${req.path}`) ? new HttpError(403, 'TWO_STEP_SETUP_REQUIRED', 'Set up two-step sign-in first') : undefined)
 
 router.use(requireAdmin, needsSetupFirst, limitByRole, riderScope, auditStaffChanges)
+// Review moderation and insights (review-routes.js), behind the same sign-in, roles and audit.
+router.use(staffReviews)
 
 router.get(
   '/auth/me',
@@ -215,7 +271,11 @@ router.get(
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     res.json({
       email: req.admin.email, role: req.admin.role,
-      twoStep: { enabled: Boolean(rows[0].totp_enabled_at), required: twoStepRequired(req.admin.role) },
+      twoStep: {
+        enabled: Boolean(rows[0].totp_enabled_at),
+        required: twoStepRequired(req.admin.role),
+        setupCodeNeeded: !rows[0].totp_enabled_at && (await setupCodeNeeded(req.admin.id, req.admin.setup)),
+      },
     })
   }),
 )
@@ -226,6 +286,19 @@ router.get(
 router.post(
   '/me/two-step/setup',
   asyncHandler(async (req, res) => {
+    const { setupCode } = parse(z.object({ setupCode: z.string().trim().max(20).optional() }), req.body ?? {})
+    if (await setupCodeNeeded(req.admin.id, req.admin.setup)) {
+      if (!setupCode) throw new HttpError(403, 'SETUP_CODE_REQUIRED', 'Enter the setup code a manager gave you. Ask a manager if you don’t have one.')
+      const tries = await hit(`staff-setup-code:${req.admin.id}`, 3_600_000)
+      if (tries.hits > SETUP_CODE_TRIES_PER_HOUR) throw new HttpError(429, 'RATE_LIMITED', 'Too many tries. Try again in an hour.')
+      const { rows } = await query('SELECT setup_code_hash, setup_code_expires_at FROM admin_users WHERE id = $1', [req.admin.id])
+      const u = rows[0]
+      const norm = /^[a-z0-9]{8}$/i.test(setupCode) ? `${setupCode.slice(0, 4)}-${setupCode.slice(4)}` : setupCode
+      if (!u?.setup_code_hash || u.setup_code_expires_at <= now() || hashRecovery(norm) !== u.setup_code_hash) {
+        await audit(req.admin, 'auth.setup_code_failed', { requestId: req.id })
+        throw new HttpError(422, 'WRONG_SETUP_CODE', 'That setup code is not right, or it has expired. Ask a manager for a new one.')
+      }
+    }
     const secret = newSecret()
     const r = await query('UPDATE admin_users SET totp_pending = $2 WHERE id = $1 AND totp_enabled_at IS NULL', [req.admin.id, secret])
     if (!r.rowCount) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
@@ -240,7 +313,7 @@ router.post(
     const { code } = parse(z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') }), req.body)
     const codes = newRecoveryCodes()
     const user = await tx(async (c) => {
-      const { rows } = await c.query('SELECT id, email, role, totp_pending, totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.admin.id])
+      const { rows } = await c.query('SELECT id, email, role, session_version, totp_pending, totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.admin.id])
       const u = rows[0]
       if (u.totp_enabled_at) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
       if (!u.totp_pending) throw badRequest('Start the set-up again', 'NO_SETUP')
@@ -248,7 +321,8 @@ router.post(
       if (step == null) throw new HttpError(422, 'WRONG_CODE', 'That code is not right. Check the time on your phone and try the newest code.')
       const at = now()
       await c.query(
-        'UPDATE admin_users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = $2, totp_last_step = $3, two_step_failures = 0 WHERE id = $1',
+        `UPDATE admin_users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled_at = $2, totp_last_step = $3, two_step_failures = 0,
+           setup_code_hash = NULL, setup_code_expires_at = NULL WHERE id = $1`,
         [u.id, at, step],
       )
       await c.query('DELETE FROM staff_recovery_codes WHERE admin_id = $1', [u.id])
@@ -459,8 +533,8 @@ router.get(
     const status = req.query.status ? parse(z.enum(BATCH_STATUSES), req.query.status) : null
     const { rows } = await query(
       `${batchListSql} WHERE ($1::text IS NULL OR b.status = $1)
-        GROUP BY b.id, q.ripeness_rating, q.condition ORDER BY b.plucked_on DESC, b.created_at DESC`,
-      [status],
+        GROUP BY b.id, q.ripeness_rating, q.condition ORDER BY b.plucked_on DESC, b.created_at DESC LIMIT $2`,
+      [status, LIST_LIMIT],
     )
     const today = todayIST()
     res.json(
@@ -537,21 +611,37 @@ router.get('/batches/:id', asyncHandler(async (req, res) => res.json(await batch
 router.patch(
   '/batches/:id/status',
   asyncHandler(async (req, res, next) => {
-    const { status } = parse(z.object({ status: z.enum(BATCH_STATUSES) }), req.body)
+    const { status, reason } = parse(
+      z.object({ status: z.enum(BATCH_STATUSES), reason: z.string().trim().max(500).optional() }),
+      req.body,
+    )
     if (status === 'CONDEMNED' && req.admin.role !== 'MANAGER') return requireManager(req, res, next)
     const result = await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       const b = rows[0]
       if (['EXHAUSTED', 'CONDEMNED'].includes(b.status)) throw badRequest(`This batch is ${b.status} and cannot change`, 'INVALID_TRANSITION')
+      if (status === 'EXHAUSTED') {
+        // INV-4: exhausting writes off whatever is left, for good. Boxes still on
+        // the shelf need a manager and a reason; an empty batch is just closed.
+        const { rows: left } = await c.query('SELECT COALESCE(SUM(on_hand), 0)::int AS n FROM batch_lines WHERE batch_id = $1', [b.id])
+        if (left[0].n > 0) {
+          if (req.admin.role !== 'MANAGER') {
+            throw new HttpError(403, 'FORBIDDEN', `${left[0].n} boxes are still on hand. Only a manager can write them off.`)
+          }
+          if (!reason) throw badRequest(`Say why the ${left[0].n} boxes still on hand are being written off`, 'REASON_REQUIRED')
+        }
+      }
       if (status !== 'CONDEMNED' && BATCH_FLOW.indexOf(status) <= BATCH_FLOW.indexOf(b.status)) {
         throw badRequest(`Cannot move a batch from ${b.status} back to ${status}`, 'INVALID_TRANSITION')
       }
       const arrivedAt = !b.arrived_at && ARRIVED_OR_LATER.includes(status) ? now() : b.arrived_at
       await c.query('UPDATE batches SET status = $2, arrived_at = $3 WHERE id = $1', [b.id, status, arrivedAt])
-      await ledger(c, { batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.email, reason: `${b.status} → ${status}` })
+      await ledger(c, {
+        batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.email, reason: `${b.status} → ${status}${reason ? `: ${reason}` : ''}`,
+      })
       const actor = req.actor
-      if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor)
+      if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor, reason || null)
       const touched = await rebalanceBatchOrders(c, [b.id], actor)
       return { rebalancedOrders: touched.filter((r) => r.changed && !r.atRisk).map((r) => r.number), atRiskOrders: touched.filter((r) => r.atRisk).map((r) => r.number) }
     })
@@ -575,6 +665,9 @@ router.post(
       const { rows } = await c.query('SELECT id, status FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
+      // Lock the lines before the reading lands: an allocation in flight either
+      // finishes first (and is rebalanced below) or re-checks the stage after us (INV-6).
+      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [req.params.id])
       const today = todayIST()
       const dup = await c.query(
         `SELECT 1 FROM batch_qc WHERE batch_id = $1 AND logged_by = $2 AND (logged_at AT TIME ZONE 'Asia/Kolkata')::date = $3 LIMIT 1`,
@@ -622,7 +715,12 @@ router.patch(
       const onHand = body.onHand ?? l.on_hand
       const buffer = body.reserveBuffer ?? l.reserve_buffer
       if (onHand < l.held + l.committed) {
-        throw badRequest(`On hand cannot go below the ${l.held + l.committed} boxes already promised to orders`, 'BELOW_COMMITTED')
+        throw new HttpError(
+          400,
+          'BELOW_COMMITTED',
+          `On hand cannot go below the ${l.held + l.committed} boxes already promised to orders. If fewer boxes arrived than expected, record a short arrival.`,
+          { promised: l.held + l.committed },
+        )
       }
       if (onHand - l.held - l.committed - buffer < 0) throw badRequest('The reserve buffer is larger than the free stock', 'BUFFER_TOO_LARGE')
       await c.query('UPDATE batch_lines SET on_hand = $2, reserve_buffer = $3 WHERE id = $1', [l.id, onHand, buffer])
@@ -632,6 +730,23 @@ router.patch(
       }
     })
     res.status(204).end()
+  }),
+)
+
+/**
+ * Fewer boxes arrived than were promised (INV-3): lowers on_hand below what
+ * is committed, gives the youngest orders' boxes back and re-fills or moves
+ * those orders (orders.js recordShortArrival).
+ */
+router.post(
+  '/batches/:id/lines/:lineId/short-arrival',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({ onHand: z.number().int().min(0).max(100_000), reason: z.string().trim().min(1, 'reason is required').max(500) }),
+      req.body,
+    )
+    const out = await tx((c) => recordShortArrival(c, { batchId: req.params.id, lineId: req.params.lineId, onHand: b.onHand, reason: b.reason }, req.actor))
+    res.json(out)
   }),
 )
 
@@ -749,10 +864,15 @@ router.get('/orders/:id', asyncHandler(async (req, res) => res.json(await orderD
 router.patch(
   '/orders/:id/status',
   asyncHandler(async (req, res) => {
-    const { status } = parse(z.object({ status: z.enum(ORDER_STATUSES) }), req.body)
+    const b = parse(
+      z.object({ status: z.enum(ORDER_STATUSES), reason: z.string().trim().max(300).optional(), override: z.boolean().optional() }),
+      req.body,
+    )
+    const override = Boolean(b.override)
+    if (override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
     await tx(async (c) => {
-      await setOrderStatus(c, req.params.id, status, req.actor)
-      await recordStaffDelivery(c, req.params.id, status, req.actor)
+      await setOrderStatus(c, req.params.id, b.status, req.actor, { reason: b.reason, override })
+      await recordStaffDelivery(c, req.params.id, b.status, req.actor, b.reason)
     })
     res.status(204).end()
   }),
@@ -944,7 +1064,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
     const { rows: orders } = await query(
-      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id,
+      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id, o.delivery_failures,
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message,
               s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
@@ -982,6 +1102,8 @@ router.get(
         customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
         gift: o.gift_recipient_name ? { from: o.customer_name, message: o.gift_message } : null,
         packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,
+        // Sent back with the delivery report, so a late resend for an earlier attempt is refused.
+        attempt: o.delivery_failures + 1,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
       })
       run.orders++
@@ -1038,7 +1160,10 @@ router.post(
 router.post(
   '/orders/:id/dispatch',
   asyncHandler(async (req, res) => {
-    await tx((c) => dispatchOrder(c, req.params.id, req.actor))
+    const b = parse(z.object({ override: z.boolean().optional(), reason: z.string().trim().max(300).optional() }), req.body ?? {})
+    if (b.override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
+    if (b.override && !b.reason) throw badRequest('Say why it is going out anyway', 'REASON_REQUIRED')
+    await tx((c) => dispatchOrder(c, req.params.id, req.actor, { override: Boolean(b.override), reason: b.reason }))
     res.status(204).end()
   }),
 )
@@ -1073,6 +1198,8 @@ router.post(
         note: z.string().trim().max(300).optional(),
         lat: z.number().min(-90).max(90).optional(),
         lng: z.number().min(-180).max(180).optional(),
+        // Which delivery attempt this report is for (the manifest's attempt): a late resend after a re-dispatch is refused.
+        attempt: z.number().int().min(1).max(100).optional(),
       }),
       req.body,
     )
@@ -1128,7 +1255,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1155,6 +1282,14 @@ router.get(
         [MAX_DELIVERY_ATTEMPTS],
       ),
       photoReviews({ query }),
+      // 1 and 2 star reviews from the last week still waiting for a look (a review never opens a claim by itself).
+      query(
+        `SELECT r.id, r.rating, r.comment, r.sku, r.created_at, r.order_id, o.number FROM reviews r JOIN orders o ON o.id = r.order_id
+          WHERE r.rating <= 2 AND r.status = 'PENDING' AND r.created_at >= $1 ORDER BY r.created_at DESC LIMIT 50`,
+        [week],
+      ),
+      // Stock counters that disagree with the ledger (INV-7): until now only a metric and a log line.
+      auditLedger({ query }),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1177,6 +1312,10 @@ router.get(
       // Delivered with only a photo: someone other than the rider checks it.
       photoDeliveries: photos,
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+      ledgerDrift: drift.slice(0, 50),
+      lowRatings: lowRatings.rows.map((r) => ({
+        id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },
+      })),
     })
   }),
 )
@@ -1299,11 +1438,13 @@ router.post(
     )
     if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
     req.params.id = rows[0].id
-    res.status(201).json(staffDto(rows[0]))
+    // Shown once: they need it to set up two-step sign-in where it is required.
+    const setupCode = await issueSetupCode({ query }, rows[0].id)
+    res.status(201).json({ ...staffDto(rows[0]), setupCode })
   }),
 )
 
-/** Changes a person's role or password. Their open sessions end, so they sign in again under the change. */
+/** Changes a person's role or password. Their open sessions and access tokens end, so they sign in again under the change. */
 router.patch(
   '/staff/:id',
   requireManager,
@@ -1313,34 +1454,58 @@ router.patch(
     const hash = b.password ? await bcrypt.hash(b.password, 10) : null
     const result = await tx(async (c) => {
       const { rows } = await c.query(
-        `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash) WHERE id = $1
-         RETURNING id, email, role, created_at`,
+        `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash), session_version = session_version + 1
+         WHERE id = $1 RETURNING id, email, role, created_at, totp_enabled_at`,
         [req.params.id, b.role ?? null, hash],
       )
       if (!rows.length) throw notFound('No staff member with that id')
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      // A new password also lifts a lock from wrong passwords.
+      if (hash) await clearPasswordFailures(rows[0].email, c)
       return rows[0]
     })
+    forgetStaff(req.params.id)
     res.json(staffDto(result))
   }),
 )
 
-/** For a lost phone: clears someone's two-step sign-in and ends their sessions. They set it up again at next sign-in. */
+/**
+ * For a lost phone: clears someone's two-step sign-in and ends their sessions.
+ * They set it up again at next sign-in, with the setup code returned here (shown once).
+ */
 router.post(
   '/staff/:id/two-step/reset',
   requireManager,
   asyncHandler(async (req, res) => {
-    await tx(async (c) => {
+    const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT id FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('No staff member with that id')
       await clearTwoStep(c, req.params.id)
+      await c.query('UPDATE admin_users SET session_version = session_version + 1 WHERE id = $1', [req.params.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      return issueSetupCode(c, req.params.id)
     })
-    res.status(204).end()
+    forgetStaff(req.params.id)
+    res.json({ setupCode })
   }),
 )
 
-/** Removes someone's access. Their open sessions end; an access token already issued lapses within 15 minutes. */
+/** A new two-step setup code for someone who hasn't set it up (lost the first, or added before codes existed). Shown once. */
+router.post(
+  '/staff/:id/two-step/setup-code',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const setupCode = await tx(async (c) => {
+      const { rows } = await c.query('SELECT totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
+      if (!rows.length) throw notFound('No staff member with that id')
+      if (rows[0].totp_enabled_at) throw conflict('Two-step sign-in is already on for them. Reset it if they lost their phone.', 'TWO_STEP_ON')
+      return issueSetupCode(c, req.params.id)
+    })
+    res.json({ setupCode })
+  }),
+)
+
+/** Removes someone's access. Their open sessions end, and access tokens already issued stop working (see requireAdmin). */
 router.delete(
   '/staff/:id',
   requireManager,
@@ -1351,6 +1516,7 @@ router.delete(
       if (!r.rowCount) throw notFound('No staff member with that id')
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
     })
+    forgetStaff(req.params.id)
     res.status(204).end()
   }),
 )
@@ -1409,26 +1575,46 @@ export const CLAIM_MANAGER_AFTER = 2
  * manager to approve.
  */
 async function claimRisk(c, claim) {
+  return (await claimRisks(c, [claim])).get(claim.id)
+}
+
+/** claimRisk for many claims in two queries (the claims list), Map claim id → risk. */
+async function claimRisks(c, claims) {
+  const out = new Map()
+  if (!claims.length) return out
   const since = new Date(now().getTime() - 90 * 86_400_000)
   const [hist, del] = await Promise.all([
     c.query(
-      `SELECT COUNT(*)::int AS claims, COUNT(*) FILTER (WHERE resolution = 'REPLACEMENT_APPROVED')::int AS replacements
-         FROM claims WHERE customer_id = $1 AND created_at >= $2 AND id <> $3`,
-      [claim.customer_id, since, claim.id],
+      `SELECT x.id, COUNT(o.id)::int AS claims, COUNT(o.id) FILTER (WHERE o.resolution = 'REPLACEMENT_APPROVED')::int AS replacements
+         FROM claims x LEFT JOIN claims o ON o.customer_id = x.customer_id AND o.created_at >= $2 AND o.id <> x.id
+        WHERE x.id = ANY($1) GROUP BY x.id`,
+      [claims.map((cl) => cl.id), since],
     ),
-    c.query(`SELECT method, created_at FROM delivery_attempts WHERE order_id = $1 AND outcome = 'DELIVERED' ORDER BY created_at DESC LIMIT 1`, [claim.order_id]),
+    c.query(
+      `SELECT DISTINCT ON (order_id) order_id, method, created_at FROM delivery_attempts
+        WHERE order_id = ANY($1) AND outcome = 'DELIVERED' ORDER BY order_id, created_at DESC`,
+      [[...new Set(claims.map((cl) => cl.order_id))]],
+    ),
   ])
-  const h = hist.rows[0]
-  const d = del.rows[0]
-  const reasons = []
-  if (h.replacements >= CLAIM_MANAGER_AFTER) reasons.push(`${h.replacements} replacements in the last 90 days`)
-  if (claim.issue_type === 'NOT_DELIVERED' && d?.method === 'code') reasons.push("the customer's own code confirmed the delivery")
-  return {
-    history: { claims90d: h.claims, replacements90d: h.replacements },
-    delivery: d ? { method: d.method, at: d.created_at } : null,
-    managerNeeded: reasons.length ? reasons : null,
+  const hists = new Map(hist.rows.map((h) => [h.id, h]))
+  const dels = new Map(del.rows.map((d) => [d.order_id, d]))
+  for (const claim of claims) {
+    const h = hists.get(claim.id) ?? { claims: 0, replacements: 0 }
+    const d = dels.get(claim.order_id)
+    const reasons = []
+    if (h.replacements >= CLAIM_MANAGER_AFTER) reasons.push(`${h.replacements} replacements in the last 90 days`)
+    if (claim.issue_type === 'NOT_DELIVERED' && d?.method === 'code') reasons.push("the customer's own code confirmed the delivery")
+    out.set(claim.id, {
+      history: { claims90d: h.claims, replacements90d: h.replacements },
+      delivery: d ? { method: d.method, at: d.created_at } : null,
+      managerNeeded: reasons.length ? reasons : null,
+    })
   }
+  return out
 }
+
+/** The most rows the claims and batches lists return (resolved claims: the newest). */
+export const LIST_LIMIT = 500
 
 router.get(
   '/claims',
@@ -1438,18 +1624,19 @@ router.get(
       `SELECT c.*, o.number AS order_number, o.total AS order_total, o.phone, r.number AS replacement_number
          FROM claims c JOIN orders o ON o.id = c.order_id LEFT JOIN orders r ON r.id = c.replacement_order_id
         WHERE ($1::text IS NULL AND c.status IN ('SUBMITTED', 'UNDER_REVIEW')) OR c.status = $1
-        ORDER BY c.created_at`,
-      [status],
+        ORDER BY CASE WHEN c.status = 'RESOLVED' THEN -extract(epoch FROM c.created_at) ELSE extract(epoch FROM c.created_at) END, c.id
+        LIMIT $2`,
+      [status, LIST_LIMIT],
     )
     const pics = await query('SELECT id, claim_id FROM claim_photos WHERE claim_id = ANY($1) ORDER BY created_at', [rows.map((c) => c.id)])
-    const risks = new Map()
-    for (const c of rows) if (c.status !== 'RESOLVED') risks.set(c.id, await claimRisk({ query }, c))
+    const photosOf = Map.groupBy(pics.rows, (p) => p.claim_id)
+    const risks = await claimRisks({ query }, rows.filter((c) => c.status !== 'RESOLVED'))
     res.json(
       rows.map((c) => ({
         ...(risks.has(c.id) ? risks.get(c.id) : {}),
-        photos: pics.rows.filter((p) => p.claim_id === c.id).map((p) => ({ id: p.id })),
+        photos: (photosOf.get(c.id) ?? []).map((p) => ({ id: p.id })),
         id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
-        issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: c.photo_url,
+        issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: isOwnPhotoUrl(c.photo_url) ? c.photo_url : null,
         status: c.status, resolution: c.resolution, createdAt: c.created_at,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null,
       })),

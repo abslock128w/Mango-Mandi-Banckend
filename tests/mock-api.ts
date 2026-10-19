@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, Product, Promo, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -13,8 +13,11 @@ export interface MockOptions {
   /** Signed in already (refresh succeeds) or not (refresh returns 401). */
   signedIn?: boolean
   role?: Role
-  /** Two-step sign-in: on for this person (login asks for code 123456), or required but not set up. */
-  twoStep?: 'on' | 'required'
+  /**
+   * Two-step sign-in: on for this person (login asks for code 123456), required but not set up,
+   * or required and set-up needs a manager's setup code (k7qd-2mxp).
+   */
+  twoStep?: 'on' | 'required' | 'required-with-code'
 }
 
 const json = (route: Route, status: number, body?: unknown) =>
@@ -25,6 +28,15 @@ const json = (route: Route, status: number, body?: unknown) =>
   })
 
 const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
+
+function review(p: Partial<Review> & { id: string; rating: number }): Review {
+  return {
+    status: 'PENDING', flagged: false, flagReasons: [], taste: null, ripenessAccuracy: null, packaging: null, delivery: null, comment: null,
+    displayName: 'Asha R.', anonymous: false, customerName: 'Asha Rao', orderId: 'o2', orderNumber: 'ORD-1043', sku: 'ALP-3', productName: 'Alphonso 3kg Box',
+    variety: 'Alphonso', ripenessOrdered: 'RIPE', photos: [], reply: null, deliveredAt: '2026-10-13T08:00:00Z', createdAt: '2026-10-14T08:00:00Z',
+    updatedAt: '2026-10-14T08:00:00Z', moderatedBy: null, moderatedAt: null, moderationReason: null, scrubbed: false, ...p,
+  }
+}
 
 export function seed() {
   return {
@@ -151,7 +163,7 @@ export function seed() {
               orders: [
                 {
                   id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', deliveryAddress: '12 Marine Drive',
-                  status: 'PACKED', packed: true, boxes: 2, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
+                  status: 'PACKED', packed: true, boxes: 2, attempt: 1, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
                 },
                 {
                   id: 'o3', number: 'ORD-1044', customerName: 'Vikram Shah', phone: '9876500000', deliveryAddress: null,
@@ -183,9 +195,20 @@ export function seed() {
       { code: 'DIWALI10', kind: 'PERCENT', value: 10, maxDiscount: 30000, minSubtotal: 100000, startsOn: null, endsOn: '2026-11-05', maxUses: null, perCustomer: 1, firstOrderOnly: false, active: true, description: 'Diwali offer', uses: 4, discountGiven: 52000, createdBy: 'manager@mandimangoes.test', createdAt: '2026-10-10T05:00:00Z' },
     ] as Promo[],
     claims: [
-      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://example.com/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
+      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.public.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
+    reviews: [
+      review({ id: 'rvw1', rating: 5, comment: 'Perfectly ripe on day two. Sweetest Alphonso we have had.', photos: [{ id: 'rph1', url: '/admin/v1/reviews/rvw1/photos/rph1', approved: false }], taste: 5, ripenessAccuracy: 5 }),
+      review({ id: 'rvw2', rating: 2, comment: 'Two were bruised. Call me on 98450 12345', flagged: true, flagReasons: ['PHONE'], orderNumber: 'ORD-1044', displayName: 'Vikram S.', customerName: 'Vikram Shah', ripenessAccuracy: 2 }),
+      review({ id: 'rvw3', rating: 4, comment: 'Good, a bit firm.', status: 'APPROVED', reply: { body: 'Thank you!', at: '2026-10-15T09:00:00Z', by: EMAIL.MANAGER } }),
+    ] as Review[],
+    reviewInsights: {
+      days: 90,
+      byVariety: [{ variety: 'Alphonso', reviews: 3, averageRating: 3.7, ripenessAnswers: 2, ripenessAccuracy: 3.5, low: 1 }],
+      byBatch: [{ batchId: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', farm: 'Ratnagiri', reviews: 3, averageRating: 3.7, ripenessAnswers: 2, ripenessAccuracy: 3.5, notAsPromised: 1 }],
+      lowRatingTrend: [{ week: '2026-10-12', reviews: 3, low: 1 }],
+    } as ReviewInsights,
     pincodes: [
       { pincode: '400001', city: 'Mumbai', zone: 'South', active: true },
       { pincode: '411001', city: 'Pune', zone: null, active: false },
@@ -247,7 +270,7 @@ export function seed() {
 export type MockState = ReturnType<typeof seed> & {
   signedIn: boolean
   role: Role
-  twoStep: { enabled: boolean; required: boolean }
+  twoStep: { enabled: boolean; required: boolean; setupCodeNeeded: boolean }
   calls: { method: string; path: string; body: unknown }[]
 }
 
@@ -257,7 +280,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     ...seed(),
     signedIn: opts.signedIn ?? false,
     role: opts.role ?? 'MANAGER',
-    twoStep: { enabled: opts.twoStep === 'on', required: opts.twoStep === 'required' },
+    twoStep: {
+      enabled: opts.twoStep === 'on',
+      required: opts.twoStep === 'required' || opts.twoStep === 'required-with-code',
+      setupCodeNeeded: opts.twoStep === 'required-with-code',
+    },
     calls: [],
   }
 
@@ -299,6 +326,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     }
     if (!state.signedIn) return json(route, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized', requestId: 'req_z' } })
     if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role, twoStep: state.twoStep })
+    if (path === '/me/two-step/setup' && state.twoStep.setupCodeNeeded && (body as { setupCode?: string })?.setupCode !== 'k7qd-2mxp') {
+      return json(route, 422, { error: { code: 'WRONG_SETUP_CODE', message: 'That setup code is not right, or it has expired. Ask a manager for a new one.', requestId: 'req_c' } })
+    }
     if (path === '/me/two-step/setup') return json(route, 200, { secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', otpauthUrl: 'otpauth://totp/MandiMangoes%20Ops%3Amanager%40mandimangoes.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=MandiMangoes%20Ops' })
     if (path === '/me/two-step/enable') {
       if ((body as { code: string }).code !== '123456') return json(route, 422, { error: { code: 'WRONG_CODE', message: 'That code is not right.', requestId: 'req_e' } })
@@ -313,15 +343,16 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/staff\/[^/]+\/two-step\/reset$/.test(path)) {
       const staffId = path.split('/')[2]
       state.staff = state.staff.map((s) => (s.id === staffId ? { ...s, twoStep: false } : s))
-      return route.fulfill({ status: 204 })
+      return json(route, 200, { setupCode: 'rstu-vwxy' })
     }
+    if (/^\/staff\/[^/]+\/two-step\/setup-code$/.test(path)) return json(route, 200, { setupCode: 'abcd-2345' })
 
     if (path === '/staff' && method === 'GET') return json(route, 200, state.staff)
     if (path === '/staff' && method === 'POST') {
       const b = body as { email: string; role: Role }
       const s: StaffMember = { id: `adm${state.staff.length + 1}`, email: b.email, role: b.role, createdAt: '2026-10-16T06:00:00Z' }
       state.staff = [...state.staff, s]
-      return json(route, 201, s)
+      return json(route, 201, { ...s, setupCode: 'mnpq-7890' })
     }
     if (/^\/staff\/[^/]+$/.test(path)) {
       const staffId = path.split('/')[2]
@@ -364,12 +395,20 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (/^\/batches\/[^/]+$/.test(path)) return json(route, 200, state.batch)
     if (/\/ledger$/.test(path)) return json(route, 200, state.ledger)
     if (/^\/batches\/[^/]+\/status$/.test(path)) {
-      const s = (body as { status: string }).status
+      const { status: s, reason } = body as { status: string; reason?: string }
       if (s === 'CONDEMNED') return json(route, 200, { rebalancedOrders: ['ORD-1042'], atRiskOrders: ['ORD-1043'] })
+      // Writing off boxes still on hand needs a manager and a reason (mirrors the API).
+      if (s === 'EXHAUSTED' && state.batch.lines.some((l) => l.onHand > 0)) {
+        if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can write them off.', requestId: 'req_x' } })
+        if (!reason) return json(route, 400, { error: { code: 'REASON_REQUIRED', message: 'Say why', requestId: 'req_x' } })
+      }
       state.batch = { ...state.batch, status: s }
       return route.fulfill({ status: 204 })
     }
     if (/\/qc$/.test(path)) return json(route, 201, { id: 'q2', warning: 'QC already logged today by this user' })
+    if (/\/lines\/[^/]+\/short-arrival$/.test(path)) {
+      return json(route, 200, { refilled: [], moved: [{ number: 'ORD-1044', deliveryDate: '2026-10-17' }], atRisk: [] })
+    }
     if (/\/lines\//.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/orders') return json(route, 200, state.orders)
@@ -388,7 +427,15 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         notMoved: [{ ...picked[1], reason: 'No stock on 2026-10-16 or any later open date' }],
       })
     }
-    if (/^\/orders\/[^/]+\/(status|allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
+    if (/^\/orders\/[^/]+\/status$/.test(path)) {
+      // DELIVERED from the panel is a manager's override with a reason (mirrors the API).
+      const b = body as { status: string; override?: boolean; reason?: string }
+      if (b.override && state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can override this', requestId: 'req_x' } })
+      if (b.status === 'DELIVERED' && !b.override) return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can mark it delivered without proof.', requestId: 'req_x' } })
+      if (b.override && !b.reason) return json(route, 400, { error: { code: 'REASON_REQUIRED', message: 'Say why', requestId: 'req_x' } })
+      return route.fulfill({ status: 204 })
+    }
+    if (/^\/orders\/[^/]+\/(allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)
@@ -419,6 +466,64 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })
+
+    if (path === '/reviews' || path.startsWith('/reviews/')) {
+      const moderator = state.role === 'MANAGER' || state.role === 'OPERATOR'
+      if (path === '/reviews/insights') return state.role === 'PACKER' || state.role === 'RIDER' ? json(route, 403, { error: { code: 'FORBIDDEN', message: 'Not available', requestId: 'req_f' } }) : json(route, 200, state.reviewInsights)
+      if (!moderator) return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Not available to your role', requestId: 'req_f' } })
+      if (path === '/reviews') {
+        const status = url.searchParams.get('status') ?? 'PENDING'
+        const flagged = url.searchParams.get('flagged')
+        const items = state.reviews.filter((r) => r.status === status && (flagged == null || String(r.flagged) === flagged))
+        const counts: Record<string, { total: number; flagged: number }> = {}
+        for (const r of state.reviews) {
+          counts[r.status] ??= { total: 0, flagged: 0 }
+          counts[r.status].total++
+          if (r.flagged) counts[r.status].flagged++
+        }
+        return json(route, 200, { items, nextCursor: null, counts })
+      }
+      if (path === '/reviews/bulk') {
+        const b = body as { action: 'approve' | 'reject'; ids: string[]; reason?: string }
+        const done: string[] = []
+        for (const r of state.reviews) if (b.ids.includes(r.id) && r.status === 'PENDING') {
+          r.status = b.action === 'approve' ? 'APPROVED' : 'REJECTED'
+          r.moderationReason = b.reason ?? null
+          done.push(r.id)
+        }
+        return json(route, 200, { done, failed: [] })
+      }
+      if (/^\/reviews\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
+      const rid = path.split('/')[2]
+      const r = state.reviews.find((x) => x.id === rid)
+      if (!r) return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Review not found', requestId: 'req_r' } })
+      const act = path.split('/')[3]
+      if (!act) {
+        return json(route, 200, {
+          ...r,
+          events: [{ from: null, to: 'PENDING', actor: 'customer:cus1', reason: r.flagged ? 'flagged: PHONE' : null, at: r.createdAt }],
+          batches: [{ batchId: 'b1', quantity: 1, variety: 'Alphonso', pluckedOn: '2026-10-08', farm: 'Ratnagiri' }],
+        })
+      }
+      if (act === 'approve') {
+        if (r.status !== 'PENDING') return json(route, 409, { error: { code: 'INVALID_TRANSITION', message: 'Not pending', requestId: 'req_t' } })
+        const ids = (body as { photoIds: string[] }).photoIds
+        r.status = 'APPROVED'
+        r.photos = r.photos.map((ph) => ({ ...ph, approved: ids.includes(ph.id) }))
+      }
+      if (act === 'reject' || act === 'hide') {
+        r.status = act === 'reject' ? 'REJECTED' : 'HIDDEN'
+        r.moderationReason = (body as { reason: string }).reason
+      }
+      if (act === 'reply') {
+        if (method === 'DELETE') {
+          r.reply = null
+          return route.fulfill({ status: 204 })
+        }
+        r.reply = { body: (body as { body: string }).body, at: '2026-10-16T06:00:00Z', by: EMAIL[state.role] }
+      }
+      return json(route, 200, r)
+    }
 
     if (path === '/promos' || path.startsWith('/promos/')) {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })

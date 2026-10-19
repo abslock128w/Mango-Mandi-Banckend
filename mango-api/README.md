@@ -13,7 +13,7 @@ confirmation and allocation all commit in the same Postgres transaction.
 cd mango-api
 npm ci
 # Postgres with user/password mango, database mango (docker compose up db works too)
-COOKIE_SECURE=false npm run dev
+COOKIE_SECURE=false ENABLE_DEV_ROUTES=true npm run dev
 ```
 
 On start it migrates, seeds products (Alphonso and Badami, 3 kg and 5 kg), Bengaluru
@@ -35,7 +35,8 @@ through the Jio SMS gateway; production refuses to start without it. Set `JIO_SM
 `JIO_SMS_ENTITY_ID`). `JIO_SMS_TEXT` must match the registered template exactly, with
 `{code}` where the code goes. The request body is in [`src/sms.js`](src/sms.js); check it
 against your Jio account's API docs before going live. Outside production the default
-`SMS_PROVIDER=log` logs the code and returns it as `devCode`.
+`SMS_PROVIDER=log` returns the code as `devCode`; it is written to the log only with
+`LOG_OTP_CODES=true` (for a preview, where `devCode` is off; production refuses it).
 
 If the SMS send fails and WhatsApp is set up (`WHATSAPP_PROVIDER=meta`), the code goes out
 on WhatsApp instead, as the authentication template `mandi_login_code` (code in the body and
@@ -70,6 +71,7 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
+| `mandi_review_request` | about a day after delivery, once per order, if nothing on it is reviewed yet (marketing category). **Needs Meta approval; only sent once `WHATSAPP_REVIEW_REQUESTS=true`** | name, order number |
 | `mandi_ripeness_guide` | a minute after `order_confirmed` or `replacement_confirmed`, only when a box arrives raw or semi-ripe (utility) | name, order number, when each box is ready ("Alphonso 3kg Box (raw): ready around Mon, 19 Oct"), storage tip |
 | `mandi_back_in_stock` | a box the customer asked about is in stock again (they tapped "Tell me when it's back") | name, box ("Alphonso 3kg Box (ripe)"), first day ("Fri, 16 Oct"), shop link |
 | `mandi_reorder_reminder` | a week after a delivery, only for customers who turned reminders on, between 10 AM and 7 PM, not if they ordered since (marketing) | name, box they had, shop link |
@@ -316,9 +318,9 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel` |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `POST /v1/orders/:id/reschedule` (confirmed orders, before packing), `PUT /v1/orders/:id/rating` (delivered orders), `GET/POST /v1/claims` |
 | Saved addresses | `GET /v1/me/addresses`, `DELETE /v1/me/addresses/:id` (an order saves its address; at most five, gifts are not saved) |
-| Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.captured`, `payment.failed`, `payment_link.paid`) |
+| Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed`, `refund.failed`) |
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
-| Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (not mounted in production) |
+| Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (mounted only with `ENABLE_DEV_ROUTES=true`, outside production, with no Razorpay keys set) |
 
 Errors are `{ error: { code, message, requestId } }`. Admin routes are the contract in
 the panel's `src/types.ts`; extra fields (`atRisk`, `atRiskReason`, `replacementFor`,
@@ -352,7 +354,12 @@ checkouts for different days don't queue behind each other. A request that can't
 a database connection within 5 seconds answers `503 BUSY` with `Retry-After`.
 
 Sign-in rate limits (login codes, staff passwords) are counted in Postgres so every
-instance shares them. Each phone gets 5 codes an hour and 10 a day, and the shop a
+instance shares them. One address may ask for 5 codes an hour and 10 a day for a number
+(so someone else asking for your number can't use up your allowance), a number gets at
+most 16 codes a day from all addresses, and each code allows 3 tries (at most 48 guesses a
+day at one number). A refused request never replaces the code already sent. Token refresh
+has its own limit, counted per person rather than per address, so customers sharing a
+carrier-NAT address don't sign each other out. The shop has a
 daily budget (`OTP_DAILY_LIMIT`, Sentry warns at 80%) after which codes pause until
 midnight IST. Numbers with no account may use only `OTP_NEW_NUMBER_SHARE` of it (60%),
 so a bot flooding new numbers can't lock existing customers out. With
@@ -374,17 +381,24 @@ ignored and an out-of-order `payment.failed` never undoes a capture.
 
 Five roles: `MANAGER`, `OPERATOR`, `PACKER`, `QC` and `RIDER`. Riders only reach
 orders on yesterday's, today's or tomorrow's run that are packed or on the road; any
-other order id answers 404. With `STAFF_TWO_STEP=managers` (the production default)
-managers and operators must use two-step sign-in. Managers and operators reach every
+other order id answers 404. With `STAFF_TWO_STEP=all` (the production default) every
+staff account must use two-step sign-in; `managers` limits it to managers and operators.
+Where it is required, setting it up needs a one-time setup code from a manager as well as
+the password (shown once when a manager adds someone, resets their two-step sign-in, or
+presses "Setup code" on the Staff page; it lasts 7 days). The first manager to set it up
+needs none. Ten wrong passwords for one account in 15 minutes pause password sign-in for
+that account until the 15 minutes are up (unknown emails are counted the same way);
+Google sign-in still works, and a manager setting a new password lifts the pause. Managers and operators reach every
 route except the manager-only ones. Every role but managers, operators included, gets an
 allowlist in [`src/access.js`](src/access.js) and is refused everything else, so a new
 route stays closed to them until it is added there; a test fails until each route is
 either on the operator list or manager-only. Packers may only move orders through
 `PROCESSING`, `PACKED`, `SHIPPED`, `OUT_FOR_DELIVERY`, `DELIVERED` and `DELIVERY_FAILED`.
 
-Managers add, change and remove staff through `/staff`. A role change, password change or
-removal ends that person's sessions; an access token already issued lapses within 15
-minutes. In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
+Managers add, change and remove staff through `/staff`. A role change, password change,
+two-step reset or removal ends that person's sessions, and their access tokens stop working
+at once: every staff request checks the token's role and session version against the staff
+row (cached for 5 seconds per instance). In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
 `ADMIN_BOOTSTRAP_PASSWORD`; on Vercel previews from `PREVIEW_ADMIN_EMAIL` /
 `PREVIEW_ADMIN_PASSWORD` instead, so the production login never reaches a preview.
 
@@ -411,6 +425,46 @@ screen.
   Run it weekly and after each schema change; a backup nobody has restored is a guess.
   Set `BACKUP_GPG_RECIPIENT` to encrypt the dump (it holds customers' details); the
   nightly GitHub workflow [`backup.yml`](../.github/workflows/backup.yml) does this for Neon.
+  That workflow fails (red, with an email) when its secrets are missing; a copy with no
+  production database sets the repository variable `BACKUP_DISABLED=true` instead.
+- **Ready.** `GET /ready` answers 503 when the database doesn't answer, when the last
+  maintenance run finished over 5 minutes ago, and, in production, when no run has ever
+  finished (the cron is missing or its secret is wrong). Previews and development may have
+  no run yet.
+- **Retention.** Sent, failed and skipped WhatsApp messages are deleted after 180 days
+  ([`src/retention.js`](src/retention.js)), up to 5,000 a run.
+- **Connections.** `DB_POOL_MAX` sets each instance's pool (default 5 on Vercel, 10
+  elsewhere) and `DB_CONNECT_TIMEOUT_MS` how long a request waits for a connection before
+  answering 503 BUSY (default 5000). On Vercel, keep instances × `DB_POOL_MAX` under the
+  Neon pooler's limit.
+
+### Writing a migration
+
+Migrations run while the previous version is still serving (see
+`test/migrations.test.js`), each in one transaction, with `lock_timeout` 5 s
+(`MIGRATION_LOCK_TIMEOUT`). A migration that can't get its table lock in that time is
+rolled back and tried again twice, 3 s apart; then the build fails and nothing is
+half-applied. Look for a long transaction in `pg_stat_activity` and deploy again.
+Keep the locks short:
+
+- **Add, then remove a release later.** Drops, renames and narrowing need a
+  `-- contract:` line.
+- **New CHECK or FOREIGN KEY on an existing table: `NOT VALID`.** A plain
+  `ADD CONSTRAINT` reads the whole table while nothing else can touch it. Add it
+  `NOT VALID` (new rows are checked from then on) and
+  `ALTER TABLE ... VALIDATE CONSTRAINT ...` in the next migration file, which reads the
+  table without blocking writes. To change a CHECK (a new notification kind):
+  ```sql
+  ALTER TABLE notifications DROP CONSTRAINT notifications_kind_check;
+  ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN (...)) NOT VALID;
+  -- next file: ALTER TABLE notifications VALIDATE CONSTRAINT notifications_kind_check;
+  ```
+- **Indexes on existing tables block writes while they build.** `CONCURRENTLY` can't run
+  inside the migration transaction, so on a big table build it by hand first
+  (`CREATE INDEX CONCURRENTLY IF NOT EXISTS ...`) and keep the same `IF NOT EXISTS`
+  statement in the migration.
+- When a lock is fine (the table is new or small), say why on a `-- locks:` line. The
+  migration test fails without one, from file 021 on.
 - **After a restore.** A restored database has lost the orders, payments and account
   deletions made since the restore point, while Razorpay still holds the money.
   [`ops/replay-payments.js`](ops/replay-payments.js) `--from <restore point>` applies the

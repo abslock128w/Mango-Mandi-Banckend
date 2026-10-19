@@ -3,7 +3,7 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
-import { ACCESS_TTL_S, issueRefresh, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { ACCESS_TTL_S, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -12,7 +12,7 @@ import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotVi
 import { env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
-import { availability } from './inventory.js'
+import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { createOrder, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
@@ -25,7 +25,8 @@ import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
-import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { checkPhoto, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
@@ -41,10 +42,18 @@ const otpLimiter = sharedLimiter('otp-ip', { windowMs: 15 * 60_000, limit: isPro
 const MAX_CLAIMS_PER_MONTH = 3
 
 const OTP_TTL_MS = 5 * 60_000
-const OTP_MAX_ATTEMPTS = 5
+const HOUR_MS = 3_600_000
+const DAY_MS = 86_400_000
+// Wrong tries allowed on one code.
+const OTP_MAX_ATTEMPTS = 3
+// Codes one address may ask for one number. Counted per number and address,
+// so someone else asking for your number can't use up your allowance.
 const OTP_MAX_SENDS_PER_HOUR = 5
 const OTP_MAX_SENDS_PER_DAY = 10
-const DAY_MS = 86_400_000
+// Codes a number gets in a day from every address together. This caps
+// guessing: 16 codes x 3 tries = 48 guesses a day at a 6-digit code, no more
+// than the old 10 codes x 5 tries, however many addresses an attacker uses.
+const OTP_MAX_SENDS_PER_NUMBER_DAY = 16
 
 /**
  * Stops SMS pumping: every code costs money, and bots request codes for
@@ -54,10 +63,16 @@ const DAY_MS = 86_400_000
  * customers out. Past 80% of the budget Sentry is told; past 100% no more
  * codes go out until midnight IST (Google sign-in still works).
  */
-async function checkOtpBudget(phone) {
+async function checkOtpBudget(phone, ip) {
   const day = todayIST()
-  const mine = await hit(`otp-phone-day:${phone}:${day}`, DAY_MS)
+  const hour = await hit(`otp-phone-ip-hour:${phone}:${ip}`, HOUR_MS)
+  if (hour.hits > OTP_MAX_SENDS_PER_HOUR) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
+  const mine = await hit(`otp-phone-ip-day:${phone}:${ip}:${day}`, DAY_MS)
   if (mine.hits > OTP_MAX_SENDS_PER_DAY) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Try again tomorrow.')
+  const number = await hit(`otp-phone-day:${phone}:${day}`, DAY_MS)
+  if (number.hits > OTP_MAX_SENDS_PER_NUMBER_DAY) {
+    throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Sign in with Google, or try again tomorrow.')
+  }
   const known = (await query('SELECT 1 FROM customers WHERE phone = $1 AND deleted_at IS NULL', [phone])).rowCount > 0
   if (!known) {
     const share = Math.ceil(env.OTP_DAILY_LIMIT * env.OTP_NEW_NUMBER_SHARE)
@@ -89,26 +104,19 @@ const hashOtp = (phone, code) => createHash('sha256').update(`${env.JWT_SECRET}:
 
 // ---------------------------------------------------------------- auth
 
-/** Stores a fresh login code for the phone (rate-limited per phone) and sends it. */
-async function issueCode(phone, channel) {
+/**
+ * Stores a fresh login code for the phone and sends it. Every limit is checked
+ * first, so a refused request never replaces the code someone is about to type.
+ */
+async function issueCode(phone, channel, ip) {
+  await checkOtpBudget(phone, ip)
   const code = String(randomInt(100_000, 1_000_000))
   const at = now()
-  await tx(async (c) => {
-    const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
-    const prev = rows[0]
-    const fresh = !prev || at.getTime() - prev.window_start.getTime() > 3_600_000
-    if (!fresh && prev.resends >= OTP_MAX_SENDS_PER_HOUR) {
-      throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
-    }
-    await c.query(
-      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
-       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0,
-         resends = CASE WHEN $5 THEN 1 ELSE otps.resends + 1 END,
-         window_start = CASE WHEN $5 THEN $4 ELSE otps.window_start END`,
-      [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at, fresh],
-    )
-  })
-  await checkOtpBudget(phone)
+  await query(
+    `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+     ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
+    [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
+  )
   const via = await sendOtp(phone, code, channel)
   return isProd ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
@@ -133,7 +141,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     await requireHuman(captchaToken, req.ip)
-    res.json(await issueCode(phone, channel))
+    res.json(await issueCode(phone, channel, req.ip))
   }),
 )
 
@@ -207,7 +215,7 @@ router.post(
 router.post(
   '/auth/token/refresh',
   sameSiteOnly,
-  otpLimiter,
+  refreshLimiter('customer', RT_COOKIE),
   asyncHandler(async (req, res) => {
     const token = req.body?.refreshToken || req.cookies?.[RT_COOKIE]
     if (!token) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
@@ -286,15 +294,11 @@ router.get(
     if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [] })
     const wanted = req.query.delivery_date || req.query.deliveryDate || null
     const { date, dates } = await deliveryDateFor({ query }, pincode, wanted)
-    const { pool, later } = await tx(async (c) => {
-      const pool = await availability(c, date)
-      // Later days with stock, so a sold-out choice can say when it is back
-      // instead of being a dead end. At most a handful of bookable days.
-      const soldOut = shopProducts().some((p) => STAGES.some((st) => !(pool.get(`${p.sku}|${st}`) > 0)))
-      const later = []
-      if (soldOut) for (const d of dates.filter((x) => x > date)) later.push([d, await availability(c, d)])
-      return { pool, later }
-    })
+    // One read of the stock for the chosen day and the later bookable days, so
+    // a sold-out choice can say when it is back instead of being a dead end.
+    const byDate = await availabilityByDate({ query }, [date, ...dates.filter((x) => x > date)])
+    const pool = byDate.get(date)
+    const later = [...byDate].filter(([d]) => d !== date)
     const items = shopProducts().flatMap((p) =>
       STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
@@ -326,7 +330,9 @@ router.get(
 
 /** What a box's QR code opens: where the mangoes came from and when they'll be ripe. Public. */
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
+// Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
+router.use(customerReviews)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -443,7 +449,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     await requireHuman(captchaToken, req.ip)
-    res.json(await issueCode(phone, channel))
+    res.json(await issueCode(phone, channel, req.ip))
   }),
 )
 
@@ -486,6 +492,8 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE reviews SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
@@ -612,6 +620,16 @@ async function replayFor(key, hash, table) {
   return r ?? null
 }
 
+/**
+ * A replay of a request whose first try is still starting the payment (no
+ * Razorpay order or link yet): 409, so the shop retries shortly instead of
+ * opening a checkout with nothing to pay.
+ */
+function startingPayment() {
+  return new HttpError(409, 'PAYMENT_STARTING', 'Your payment is still being set up. Please try again in a moment.', { retryAfterSeconds: 2 })
+}
+const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
+
 const confirmResponse = (o) => ({
   orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
   razorpayOrderId: o.razorpay_order_id, razorpayKeyId: env.RAZORPAY_KEY_ID || null, holdExpiresAt: o.hold_expires_at,
@@ -642,6 +660,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) throw startingPayment()
     if (replay) return res.status(200).json(confirmResponse(replay))
 
     const order = await tx(async (c) => {
@@ -677,7 +696,11 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
       return (await c.query('SELECT * FROM orders WHERE id = $1', [created.id])).rows[0]
     })
-    if (!order) return res.status(200).json(confirmResponse(await existing()))
+    if (!order) {
+      const first = await existing()
+      if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
+      return res.status(200).json(confirmResponse(first))
+    }
 
     try {
       const rzp = await createGatewayOrder({ amount: order.total, receipt: order.number, orderId: order.id })
@@ -685,7 +708,12 @@ router.post(
       order.razorpay_order_id = rzp
     } catch (err) {
       logger.error({ err, orderId: order.id }, 'could not create the gateway order')
-      await tx((c) => processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM))
+      await tx(async (c) => {
+        await processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM)
+        // Let the key go, so a retry is a fresh attempt rather than a replay of
+        // the cancelled order (the quote is spent: the shop quotes again).
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
       throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
     }
     res.status(201).json(confirmResponse(order))
@@ -731,6 +759,8 @@ router.get(
       deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
+      // The public key id, so checkout can be reopened from any device while unpaid.
+      razorpayKeyId: o.status === 'PAYMENT_PENDING' && o.razorpay_order_id ? env.RAZORPAY_KEY_ID || null : null,
       holdExpiresAt: o.hold_expires_at,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
@@ -820,6 +850,7 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'preorders')
     const replay = await existing()
+    if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
     if (replay) return res.status(200).json(preorderView(replay))
     const pre = await tx(async (c) => {
       const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
@@ -830,13 +861,21 @@ router.post(
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, p.id])
       return p
     })
-    if (!pre) return res.status(200).json(preorderView(await existing()))
+    if (!pre) {
+      const first = await existing()
+      if (stillStarting(first, 'payment_link_url')) throw startingPayment()
+      return res.status(200).json(preorderView(first))
+    }
     if (pre.status !== 'PAYMENT_PENDING') return res.status(201).json(preorderView(pre))
     try {
       res.status(201).json(preorderView(await ensurePaymentLink(pre.id)))
     } catch (err) {
       logger.error({ err, preorderId: pre.id }, 'could not create the preorder payment link')
-      await tx((c) => cancelPreorder(c, pre.id, req.customer.id, SYSTEM))
+      await tx(async (c) => {
+        await cancelPreorder(c, pre.id, req.customer.id, SYSTEM)
+        // A retry with the same key books again instead of replaying the cancelled preorder.
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
       throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
     }
   }),
@@ -899,7 +938,8 @@ router.post(
         issueType: z.enum(['DAMAGED', 'WRONG_ITEM', 'NOT_DELIVERED']),
         description: z.string().trim().min(5).max(2000),
         itemSkus: z.array(z.string()).max(20).default([]),
-        photoUrl: z.string().url().startsWith('https://').max(500).optional().nullable(),
+        // Only a link into our own photo store; photos are normally attached by upload (photoIds).
+        photoUrl: z.string().max(500).refine(isOwnPhotoUrl, 'Attach the photo instead of a link').optional().nullable(),
         photoIds: z.array(z.string().max(40)).max(MAX_CLAIM_PHOTOS).default([]),
       }),
       req.body,

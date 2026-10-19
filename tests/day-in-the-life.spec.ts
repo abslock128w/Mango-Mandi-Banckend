@@ -78,10 +78,16 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: 'Start processing' }).click()
   await page.getByRole('button', { name: 'Allocate and pack' }).click()
   await expect(page.getByText('Stock allocated. Pick list is ready.')).toBeVisible()
-  for (const label of ['Mark packed', 'Mark shipped', 'Out for delivery', 'Mark delivered']) {
+  for (const label of ['Mark packed', 'Mark shipped', 'Out for delivery']) {
     await page.getByRole('button', { name: label, exact: true }).click()
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveCount(0)
   }
+  // Without the customer's code or a photo, only a manager marks it delivered, saying why.
+  await page.getByRole('button', { name: 'Mark delivered', exact: true }).click()
+  const proof = page.getByRole('dialog', { name: `Mark ${placed.number} delivered without proof?` })
+  await proof.getByLabel('Reason').fill('Customer confirmed on a call')
+  await proof.getByRole('button', { name: 'Mark delivered' }).click()
+  await expect(page.getByRole('button', { name: 'Mark delivered', exact: true })).toHaveCount(0)
   await expect(page.getByText('No actions available.')).toBeVisible()
 
   // 10–12. The customer claims damage; ops approve a free replacement (MandiMangoes never refunds).

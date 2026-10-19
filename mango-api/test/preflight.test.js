@@ -79,9 +79,26 @@ describe('production preflight', () => {
     assert.match(live.errors[0], /live key on a preview/)
     assert.ok(live.warnings.some((w) => w.startsWith('BLOB_READ_WRITE_TOKEN')))
     assert.deepEqual(checkProduction(staging, { vercel: true, target: 'preview' }), { errors: [], warnings: [] })
-    const logged = checkProduction({ ...staging, SMS_PROVIDER: 'log' }, { vercel: true, target: 'preview' })
+    const logged = checkProduction({ ...staging, SMS_PROVIDER: 'log', LOG_OTP_CODES: true }, { vercel: true, target: 'preview' })
     assert.deepEqual(logged.errors, [])
     assert.match(logged.warnings[0], /only written to the logs/)
+    const quiet = checkProduction({ ...staging, SMS_PROVIDER: 'log' }, { vercel: true, target: 'preview' })
+    assert.deepEqual(quiet.errors, [])
+    assert.match(quiet.warnings[0], /LOG_OTP_CODES is off/)
+  })
+
+  it('refuses logged login codes and the dev routes in production (SEC-11, PAY-7)', () => {
+    const { errors } = checkProduction({ ...good, LOG_OTP_CODES: true, ENABLE_DEV_ROUTES: true })
+    assert.equal(errors.length, 2)
+    assert.ok(errors.some((e) => e.startsWith('LOG_OTP_CODES must be off')))
+    assert.ok(errors.some((e) => e.startsWith('ENABLE_DEV_ROUTES is set')))
+  })
+
+  it('warns when only managers must use two-step sign-in (SEC-4)', () => {
+    const { warnings } = checkProduction({ ...good, STAFF_TWO_STEP: 'managers' })
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /packers, QC and riders/)
+    assert.deepEqual(checkProduction({ ...good, STAFF_TWO_STEP: 'all' }).warnings, [])
   })
 
   it('production must use the production database, and previews must not', () => {

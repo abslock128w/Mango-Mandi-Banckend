@@ -23,6 +23,7 @@ import NotFound from './pages/NotFound'
 import Staff from './pages/Staff'
 import Products from './pages/Products'
 import Promos from './pages/Promos'
+import Reviews from './pages/Reviews'
 import TwoStepPage, { TwoStepGate } from './pages/TwoStep'
 import { canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="/deliveries" element={<Only screen="deliveries"><Deliveries /></Only>} />
             <Route path="/analytics" element={<Only screen="analytics"><Analytics /></Only>} />
             <Route path="/claims" element={<Only screen="claims"><Claims /></Only>} />
+            <Route path="/reviews" element={<Only screen="reviews"><Reviews /></Only>} />
             <Route path="/pincodes" element={<Only screen="pincodes"><Pincodes /></Only>} />
             <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />
             <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />

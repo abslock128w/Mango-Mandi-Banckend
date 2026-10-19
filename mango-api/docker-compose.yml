@@ -21,6 +21,7 @@ services:
       NODE_ENV: development
       DATABASE_URL: postgres://mango:mango@db:5432/mango
       COOKIE_SECURE: 'false'
+      ENABLE_DEV_ROUTES: 'true'
       ADMIN_ORIGIN: http://localhost:5173
     ports: ['3000:3000']
 volumes:

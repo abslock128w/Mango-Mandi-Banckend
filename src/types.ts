@@ -7,8 +7,11 @@ export type Role = 'MANAGER' | 'OPERATOR' | 'PACKER' | 'QC' | 'RIDER'
 export interface Me {
   email: string
   role: Role
-  /** Two-step sign-in: whether it is on, and whether this role must use it. */
-  twoStep?: { enabled: boolean; required: boolean }
+  /**
+   * Two-step sign-in: whether it is on, whether this role must use it, and
+   * whether setting it up needs the one-time setup code a manager hands over.
+   */
+  twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -439,6 +442,13 @@ export interface BulkMoveOrder {
 }
 
 /** What a bulk reschedule matched and did. With dryRun, moved and notMoved are empty. */
+/** What a short arrival did to the orders on the line. */
+export interface ShortArrivalResult {
+  refilled: string[]
+  moved: { number: string; deliveryDate: string }[]
+  atRisk: string[]
+}
+
 export interface BulkMoveResult {
   matched: number
   orders: BulkMoveOrder[]
@@ -456,6 +466,8 @@ export interface ManifestOrder {
   status: OrderStatus
   packed: boolean
   boxes: number
+  /** Which delivery attempt this is; sent back with the delivery report. */
+  attempt?: number
   /** A gift: the name and phone above are the recipient's. */
   gift?: { from: string | null; message: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
@@ -527,12 +539,30 @@ export interface Attention {
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
   /** Orders missed too many times: call the customer before sending them out again. */
   failedDeliveries?: { id: string; number: string; name: string | null; phone: string | null; attempts: number }[]
-  /** Delivered with only a photo: someone other than the rider checks it. */
+  /** New 1 and 2 star reviews still waiting for a look. */
+  lowRatings?: { id: string; rating: number; comment: string | null; sku: string; productName: string; createdAt: string; order: { id: string; number: string } }[]
+  /** Delivered with only a photo, or marked delivered by a manager without proof: someone else checks it. */
   photoDeliveries?: PhotoDelivery[]
+  /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
+  ledgerDrift?: LedgerDrift[]
+}
+
+export interface LedgerDrift {
+  lineId: string
+  batchId: string
+  sku: string
+  onHand: [number, number]
+  reserveBuffer: [number, number]
+  held: [number, number]
+  committed: [number, number]
 }
 
 export interface PhotoDelivery {
   id: string
+  /** photo: handed over with a photo; staff: a manager marked it delivered without proof. */
+  method?: 'photo' | 'staff'
+  /** The manager's reason, for a delivery marked without proof. */
+  note?: string | null
   receivedBy: string | null
   photoId: string | null
   actor: string
@@ -541,12 +571,87 @@ export interface PhotoDelivery {
   flags: string[]
 }
 
+// ---------- Reviews ----------
+
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN' | 'DELETED'
+export type ReviewFlag = 'LINK' | 'EMAIL' | 'PHONE' | 'PROFANITY'
+
+export interface Review {
+  id: string
+  status: ReviewStatus
+  flagged: boolean
+  flagReasons: ReviewFlag[]
+  rating: number
+  taste: number | null
+  ripenessAccuracy: number | null
+  packaging: number | null
+  delivery: number | null
+  comment: string | null
+  displayName: string
+  anonymous: boolean
+  customerName: string | null
+  orderId: string
+  orderNumber: string | null
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Ripeness | null
+  photos: { id: string; url: string; approved: boolean }[]
+  reply: { body: string; at: string; by: string | null } | null
+  deliveredAt: string
+  createdAt: string
+  updatedAt: string
+  moderatedBy: string | null
+  moderatedAt: string | null
+  moderationReason: string | null
+  scrubbed: boolean
+}
+
+export interface ReviewDetail extends Review {
+  events: { from: ReviewStatus | null; to: ReviewStatus; actor: string; reason: string | null; at: string }[]
+  batches: { batchId: string; quantity: number; variety: string; pluckedOn: string; farm: string | null }[]
+}
+
+export interface ReviewQueue {
+  items: Review[]
+  nextCursor: string | null
+  counts: Partial<Record<ReviewStatus, { total: number; flagged: number }>>
+}
+
+export interface ReviewFilters {
+  status: ReviewStatus
+  stars?: number | null
+  hasPhotos?: boolean | null
+  flagged?: boolean | null
+  variety?: string | null
+  cursor?: string | null
+}
+
+export interface ReviewInsights {
+  days: number
+  byVariety: { variety: string; reviews: number; averageRating: number | null; ripenessAnswers: number; ripenessAccuracy: number | null; low: number }[]
+  byBatch: {
+    batchId: string
+    variety: string
+    pluckedOn: string
+    farm: string | null
+    reviews: number
+    averageRating: number | null
+    ripenessAnswers: number
+    ripenessAccuracy: number | null
+    notAsPromised: number
+  }[]
+  lowRatingTrend: { week: string; reviews: number; low: number }[]
+}
+
 export interface StaffMember {
   id: string
   email: string
   role: Role
   createdAt: string
   twoStep?: boolean
+  /** Only when the person is added: the one-time code they need to set up two-step sign-in. */
+  setupCode?: string
 }
 
 /** One staff change. `action` is the route ("PATCH /orders/:id/status") or "auth.login". */

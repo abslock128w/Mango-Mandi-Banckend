@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, isConflict } from '../api'
+import { ApiError, api, isConflict, isStale } from '../api'
 import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
 import type { DeliveryAttempt, NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
 import { PACKER_STATUSES, can, canSee } from '../permissions'
@@ -66,6 +66,11 @@ const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'
 /** A paid order a manager can cancel with a full refund: anything not yet delivered (mirrors MANAGER_REFUNDABLE in the API). */
 const REFUNDABLE: OrderStatus[] = [...CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 const ALLOCATABLE: OrderStatus[] = ['CONFIRMED', 'PROCESSING']
+/** 409s a manager can override with a reason: at-risk stock going out, or a retry after the last attempt. */
+const OVERRIDABLE = ['AT_RISK', 'ATTEMPTS_USED_UP']
+
+/** A status move that needs a manager's reason: DELIVERED without proof, or an override of a refusal. */
+type Override = { to: OrderStatus; why: string | null }
 
 export default function OrderDetail() {
   const { id = '' } = useParams()
@@ -104,6 +109,7 @@ function OrderView({ order }: { order: Order }) {
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
   const [dialog, setDialog] = useState<'cancel' | 'reschedule' | null>(null)
+  const [override, setOverride] = useState<Override | null>(null)
 
   const awaitingPack = order.stock.some((s) => s.state === 'committed')
   const paid = order.payment?.status === 'SUCCEEDED'
@@ -112,18 +118,22 @@ function OrderView({ order }: { order: Order }) {
   const canCancel = changeOrder && (paid ? REFUNDABLE : CANCELLABLE).includes(order.status)
 
   function onActionError(err: unknown) {
-    if (isConflict(err)) toast.error(CONFLICT_MESSAGE)
+    if (isStale(err)) toast.error(CONFLICT_MESSAGE)
     else toast.error(err)
     refresh()
   }
 
   const move = useMutation({
     mutationFn: (to: OrderStatus) => api.setOrderStatus(order.id, to),
+    onError: (err, to) => {
+      // A manager can send it anyway, saying why; everyone else sees the reason it was refused.
+      if (manager && err instanceof ApiError && OVERRIDABLE.includes(err.code)) setOverride({ to, why: err.message })
+      else onActionError(err)
+    },
     onSuccess: (_r, to) => {
       toast.success(`Order ${order.number} is now ${ORDER_STATUS_LABEL[to]}`)
       refresh()
     },
-    onError: onActionError,
   })
   const allocate = useMutation({
     mutationFn: () => api.allocate(order.id),
@@ -135,7 +145,11 @@ function OrderView({ order }: { order: Order }) {
   })
 
   const busy = move.isPending || allocate.isPending
-  const moves = movesFor(order.status).filter((m) => me?.role !== 'PACKER' || PACKER_STATUSES.includes(m.to))
+  // Marking delivered from here skips the customer's code and photo, so only a manager can, with a reason.
+  // Everyone else records the delivery on the Deliveries page.
+  const moves = movesFor(order.status).filter(
+    (m) => (me?.role !== 'PACKER' || PACKER_STATUSES.includes(m.to)) && (m.to !== 'DELIVERED' || manager),
+  )
 
   return (
     <>
@@ -183,12 +197,15 @@ function OrderView({ order }: { order: Order }) {
               type="button"
               className={`btn${m.primary ? ' btn-primary' : ''}`}
               disabled={busy || blocked}
-              onClick={() => move.mutate(m.to)}
+              onClick={() => (m.to === 'DELIVERED' ? setOverride({ to: 'DELIVERED', why: null }) : move.mutate(m.to))}
             >
               {blocked ? 'Mark packed (allocate first)' : m.label}
             </button>
           )
         })}
+        {order.status === 'OUT_FOR_DELIVERY' && !manager && (
+          <span className="muted">Record the delivery on the Deliveries page, with the customer's code or a photo.</span>
+        )}
         {changeOrder && ALLOCATABLE.includes(order.status) && (
           <button type="button" className="btn" disabled={busy} onClick={() => setDialog('reschedule')}>
             Move delivery date
@@ -439,6 +456,7 @@ function OrderView({ order }: { order: Order }) {
 
       {dialog === 'cancel' && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === 'reschedule' && <RescheduleDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+      {override && <OverrideDialog order={order} override={override} onClose={() => setOverride(null)} onDone={refresh} />}
     </>
   )
 }
@@ -500,6 +518,69 @@ function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
           <p className="hint">At least 3 characters. Saved on the order timeline.</p>
         </div>
         <FormError error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null} />
+      </form>
+    </Dialog>
+  )
+}
+
+/** A manager's override with a reason: marking delivered without proof, or sending out an order the API refused. */
+function OverrideDialog({ order, override, onClose, onDone }: { order: Order; override: Override; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [reason, setReason] = useState('')
+  const delivered = override.to === 'DELIVERED'
+  const save = useMutation({
+    mutationFn: () => api.setOrderStatus(order.id, override.to, { reason: reason.trim() }),
+    onSuccess: () => {
+      toast.success(`Order ${order.number} is now ${ORDER_STATUS_LABEL[override.to]}`)
+      onDone()
+      onClose()
+    },
+    onError: (err) => {
+      if (isStale(err)) {
+        toast.error(CONFLICT_MESSAGE)
+        onDone()
+        onClose()
+      }
+    },
+  })
+  const valid = reason.trim().length >= 3
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (valid) save.mutate()
+  }
+
+  return (
+    <Dialog
+      title={delivered ? `Mark ${order.number} delivered without proof?` : `Send ${order.number} out anyway?`}
+      tone="danger"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Go back
+          </button>
+          <button type="submit" form="override-form" className="btn btn-danger" disabled={!valid || save.isPending}>
+            {save.isPending ? 'Saving…' : delivered ? 'Mark delivered' : 'Send it anyway'}
+          </button>
+        </>
+      }
+    >
+      <form id="override-form" onSubmit={onSubmit}>
+        {delivered ? (
+          <p>
+            Riders prove a delivery with the customer's code or a photo on the Deliveries page. Marking it here skips that, so
+            someone else checks it on Needs attention.
+          </p>
+        ) : (
+          <p>{override.why}</p>
+        )}
+        <div className="field">
+          <label htmlFor="override-reason">Reason</label>
+          <textarea id="override-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-autofocus />
+          <p className="hint">At least 3 characters. Saved on the order timeline.</p>
+        </div>
+        <FormError error={save.isError && !isStale(save.error) ? save.error : null} />
       </form>
     </Dialog>
   )

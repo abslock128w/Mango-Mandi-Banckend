@@ -26,7 +26,9 @@ beforeEach(async () => {
 const at = (iso) => setNow(iso)
 const order = async (id) => (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
 const pay = (orderId, outcome = 'captured') => api.post('/v1/dev/pay', { orderId, outcome })
-const move = (id, status) => api.patch(`/admin/v1/orders/${id}/status`, { status }, { token: admin })
+// DELIVERED from the panel is a manager's override with a reason (ORD-3).
+const move = (id, status) =>
+  api.patch(`/admin/v1/orders/${id}/status`, status === 'DELIVERED' ? { status, override: true, reason: 'Customer confirmed by phone' } : { status }, { token: admin })
 const noDrift = async () => assert.deepEqual(await tx((c) => auditLedger(c)), [])
 
 // Today is 2026-10-15 (10:00 IST); the earliest delivery is 2026-10-16.
@@ -66,11 +68,20 @@ describe('staff auth', () => {
     assert.equal((await api.get('/admin/v1/summary')).status, 401)
 
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, { email: 'ops@mandimangoes.test', role: 'OPERATOR', twoStep: { enabled: false, required: false } })
+    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, { email: 'ops@mandimangoes.test', role: 'OPERATOR', twoStep: { enabled: false, required: false, setupCodeNeeded: false } })
     const b = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'CONDEMNED' }, { token: ops })).status, 403)
     assert.equal((await api.del('/admin/v1/pincodes/560034', { token: ops })).status, 403)
-    assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'EXHAUSTED' }, { token: ops })).status, 204)
+    // INV-4: writing off boxes still on hand needs a manager and a reason.
+    const opsExhaust = await api.patch(`/admin/v1/batches/${b}/status`, { status: 'EXHAUSTED' }, { token: ops })
+    assert.equal(opsExhaust.status, 403)
+    assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'EXHAUSTED' }, { token: admin })).body.error.code, 'REASON_REQUIRED')
+    assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'EXHAUSTED', reason: 'Sold at the gate' }, { token: admin })).status, 204)
+    const writeOff = (await api.get(`/admin/v1/batches/${b}/ledger`, { token: admin })).body.find((e) => e.eventType === 'RETIRE')
+    assert.equal(writeOff.reason, 'EXHAUSTED write-off: Sold at the gate')
+    // An empty batch is just closed, by anyone who can move batches.
+    const empty = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 0 } })
+    assert.equal((await api.patch(`/admin/v1/batches/${empty}/status`, { status: 'EXHAUSTED' }, { token: ops })).status, 204)
   })
 })
 

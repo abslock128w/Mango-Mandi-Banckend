@@ -3,8 +3,9 @@
 // rider marks it delivered by typing the code the customer reads out, or, when
 // nobody can give the code (left with security, at the door), with a photo and
 // who received it. A missed delivery needs a reason. Every attempt is a row in
-// delivery_attempts, and staff marking an order delivered from the panel is
-// recorded too, as "staff" with no proof.
+// delivery_attempts. Marking an order delivered from the panel without proof
+// is a manager's override with a reason (orders.js setOrderStatus), recorded
+// as "staff" and queued for a second person to check, like a photo.
 import { timingSafeEqual } from 'node:crypto'
 import { now } from './clock.js'
 import { badRequest, conflict, HttpError, notFound } from './errors.js'
@@ -29,16 +30,20 @@ async function lockOrder(c, orderId) {
   return rows[0]
 }
 
-/** Puts a packed order (or one retrying after a missed delivery) on the road. */
-export async function dispatchOrder(c, orderId, actor) {
+/**
+ * Puts a packed order (or one retrying after a missed delivery) on the road.
+ * Refused (409) when its packed stock is condemned or too old, or its
+ * attempts are used up, unless a manager overrides (opts.override, opts.reason).
+ */
+export async function dispatchOrder(c, orderId, actor, opts = {}) {
   const o = await lockOrder(c, orderId)
   if (o.status === 'OUT_FOR_DELIVERY') return false
   if (!['PACKED', 'SHIPPED', 'DELIVERY_FAILED'].includes(o.status)) {
     const why = ['CONFIRMED', 'PROCESSING'].includes(o.status) ? 'is not packed yet' : `is ${o.status.toLowerCase().replace(/_/g, ' ')}`
     throw badRequest(`Order ${o.number} ${why}`, 'INVALID_TRANSITION')
   }
-  if (o.status === 'PACKED') await setOrderStatus(c, orderId, 'SHIPPED', actor)
-  await setOrderStatus(c, orderId, 'OUT_FOR_DELIVERY', actor)
+  if (o.status === 'PACKED') await setOrderStatus(c, orderId, 'SHIPPED', actor, opts)
+  await setOrderStatus(c, orderId, 'OUT_FOR_DELIVERY', actor, opts)
   return true
 }
 
@@ -86,6 +91,10 @@ export async function recordDelivery(c, orderId, input, actor) {
     if (['DELIVERED', 'DELIVERY_FAILED'].includes(o.status)) throw conflict('This delivery was already recorded.')
     throw badRequest(`Order ${o.number} is not out for delivery`, 'INVALID_TRANSITION')
   }
+  // ORD-4: a report for an earlier attempt (resent after the order went out again) must not count against this one.
+  if (input.attempt !== undefined && input.attempt !== o.delivery_failures + 1) {
+    throw conflict(`This report is for delivery attempt ${input.attempt}; the order is now on attempt ${o.delivery_failures + 1}.`, 'STALE_ATTEMPT')
+  }
   if (input.photoId) {
     const { rows } = await c.query('SELECT 1 FROM delivery_photos WHERE id = $1 AND order_id = $2', [input.photoId, orderId])
     if (!rows.length) throw badRequest('That photo is not from this order', 'PHOTO_INVALID')
@@ -117,14 +126,14 @@ export async function recordDelivery(c, orderId, input, actor) {
     throw badRequest("Enter the customer's code, or take a photo of the handover", 'PROOF_REQUIRED')
   }
   await insertAttempt(c, orderId, { outcome: 'DELIVERED', method, receivedBy: input.receivedBy?.trim() || null, note: input.note, photoId: input.photoId, ...where }, actor)
-  await setOrderStatus(c, orderId, 'DELIVERED', actor)
+  await setOrderStatus(c, orderId, 'DELIVERED', actor, { proof: method })
   return { outcome: 'DELIVERED', method }
 }
 
-/** Staff moved the order from the panel: recorded as an attempt without proof. */
-export async function recordStaffDelivery(c, orderId, status, actor) {
-  if (status === 'DELIVERED') await insertAttempt(c, orderId, { outcome: 'DELIVERED', method: 'staff' }, actor)
-  if (status === 'DELIVERY_FAILED') await insertAttempt(c, orderId, { outcome: 'FAILED', method: 'staff', reason: 'OTHER' }, actor)
+/** Staff moved the order from the panel: recorded as an attempt without proof, with the reason given. */
+export async function recordStaffDelivery(c, orderId, status, actor, note = null) {
+  if (status === 'DELIVERED') await insertAttempt(c, orderId, { outcome: 'DELIVERED', method: 'staff', note: note?.trim() || null }, actor)
+  if (status === 'DELIVERY_FAILED') await insertAttempt(c, orderId, { outcome: 'FAILED', method: 'staff', reason: 'OTHER', note: note?.trim() || null }, actor)
 }
 
 const attemptView = (a) => ({
@@ -161,15 +170,15 @@ export async function customerPhoto(c, o) {
 }
 
 /**
- * Deliveries proven only by a photo, not yet checked by someone other than the
- * rider. A photo after wrong codes, or with no location, is flagged: those are
- * how a delivery would be faked.
+ * Deliveries proven only by a photo, or marked delivered by a manager with no
+ * proof at all ("staff"), not yet checked by someone else. A photo after wrong
+ * codes, or with no location, is flagged: those are how a delivery would be faked.
  */
 export async function photoReviews(c, limit = 50) {
   const { rows } = await c.query(
     `SELECT a.*, o.number, o.delivery_code_tries, o.customer_name, o.gift_recipient_name
        FROM delivery_attempts a JOIN orders o ON o.id = a.order_id
-      WHERE a.outcome = 'DELIVERED' AND a.method = 'photo' AND a.reviewed_at IS NULL
+      WHERE a.outcome = 'DELIVERED' AND a.method IN ('photo', 'staff') AND a.reviewed_at IS NULL
       ORDER BY a.created_at LIMIT $1`,
     [limit],
   )
@@ -177,8 +186,9 @@ export async function photoReviews(c, limit = 50) {
     ...attemptView(a),
     order: { id: a.order_id, number: a.number, name: a.gift_recipient_name ?? a.customer_name },
     flags: [
+      ...(a.method === 'staff' ? ['no proof: marked delivered from the panel'] : []),
       ...(a.delivery_code_tries > 0 ? [`${a.delivery_code_tries} wrong code${a.delivery_code_tries === 1 ? '' : 's'} first`] : []),
-      ...(a.lat === null ? ['no location'] : []),
+      ...(a.lat === null && a.method === 'photo' ? ['no location'] : []),
     ],
   }))
 }
@@ -190,7 +200,7 @@ export async function reviewDelivery(c, attemptId, { ok, note }, actor) {
     [attemptId],
   )
   const a = rows[0]
-  if (!a || a.method !== 'photo' || a.outcome !== 'DELIVERED') throw notFound('Photo delivery not found')
+  if (!a || !['photo', 'staff'].includes(a.method) || a.outcome !== 'DELIVERED') throw notFound('Photo delivery not found')
   if (a.reviewed_at) throw conflict('This delivery was already checked.')
   if (a.actor === (actor.label ?? actor.id)) throw new HttpError(403, 'FORBIDDEN', 'Someone other than the rider has to check this delivery.')
   if (!ok && !note?.trim()) throw badRequest('Say what looks wrong', 'NOTE_REQUIRED')

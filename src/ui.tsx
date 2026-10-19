@@ -163,12 +163,15 @@ export function Dialog({
   children,
   footer,
   tone,
+  variant,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
   tone?: 'danger'
+  /** "drawer": slides in from the right, full height (detail panels). */
+  variant?: 'drawer'
 }) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
@@ -209,14 +212,14 @@ export function Dialog({
 
   return (
     <div
-      className="backdrop"
+      className={variant === 'drawer' ? 'backdrop backdrop-drawer' : 'backdrop'}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
       <div
         ref={ref}
-        className={`dialog${tone === 'danger' ? ' dialog-danger' : ''}`}
+        className={`dialog${tone === 'danger' ? ' dialog-danger' : ''}${variant === 'drawer' ? ' dialog-drawer' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

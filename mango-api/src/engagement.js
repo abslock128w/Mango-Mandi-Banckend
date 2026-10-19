@@ -1,12 +1,12 @@
 // Messages that bring customers back: back-in-stock alerts and the reorder
 // reminder a week after delivery (opt-in only).
-import { outOfTime } from './budget.js'
+import { canStartCall } from './budget.js'
 import { addDays, istParts, now } from './clock.js'
 import { query, tx } from './db.js'
 import { orderableDates } from './delivery.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import { newId } from './ids.js'
-import { availability } from './inventory.js'
+import { availabilityByDate } from './inventory.js'
 import { enqueue, enqueueAlert } from './notify.js'
 import { findProduct, sellable } from './products.js'
 import { readyOnFor, storageTip } from './ripeness.js'
@@ -73,16 +73,13 @@ export async function sendStockAlerts(at = now()) {
     [at],
   )
   if (!open.length) return 0
-  const firstWithStock = await tx(async (c) => {
-    const out = new Map()
-    for (const d of await orderableDates(c, at)) {
-      for (const [key, qty] of await availability(c, d)) if (qty > 0 && !out.has(key)) out.set(key, d)
-    }
-    return out
-  })
+  const firstWithStock = new Map()
+  for (const [d, pool] of await availabilityByDate({ query }, await orderableDates({ query }, at))) {
+    for (const [key, qty] of pool) if (qty > 0 && !firstWithStock.has(key)) firstWithStock.set(key, d)
+  }
   let sent = 0
   for (const a of open) {
-    if (outOfTime(2_000)) break
+    if (!canStartCall(2_000)) break
     const date = firstWithStock.get(`${a.sku}|${a.stage}`)
     if (!date || !sellable(a.sku)) continue
     await tx(async (c) => {
@@ -113,7 +110,7 @@ export async function sendReorderReminders(at = now()) {
   )
   let n = 0
   for (const o of rows) {
-    if (outOfTime(2_000)) break
+    if (!canStartCall(2_000)) break
     await tx(async (c) => {
       const r = await c.query('UPDATE orders SET reorder_reminded_at = $2 WHERE id = $1 AND reorder_reminded_at IS NULL', [o.id, at])
       // A customer with two deliveries that day gets one reminder.

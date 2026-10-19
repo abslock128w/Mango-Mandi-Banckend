@@ -100,13 +100,13 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | first manager's login | **not set** | tick only Production; used once, on an empty staff table; remove after |
 | `PREVIEW_ADMIN_EMAIL` / `PREVIEW_ADMIN_PASSWORD` | | a different login | the first manager on the staging branch, so the production password never reaches a preview |
 | `PRODUCTION_DB_HOST` | the Neon `main` host, e.g. `ep-cool-sun-123456.ap-southeast-1.aws.neon.tech` | the same value | required: production refuses any other database, and a preview refuses this one, even on its first deploy |
-| `STAFF_TWO_STEP` | `managers` (or `all`) | `optional` | managers and operators must use an authenticator app |
+| `STAFF_TWO_STEP` | leave unset (`all`) | leave unset (`all`) | every staff account uses an authenticator app; `managers` limits it to managers and operators (preflight warns) |
 | `GOOGLE_CLIENT_ID` | from step 4 | same | |
 | `BLOB_READ_WRITE_TOKEN` | added by Vercel Blob (step 5) | same store or a second one | required in production |
 | `SENTRY_DSN` | from Sentry | same | |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | live keys | test keys | a preview refuses live keys |
 | `RAZORPAY_WEBHOOK_SECRET` | from the Razorpay webhook | test webhook | |
-| `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log` (codes in the Vercel logs) | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio) |
+| `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log`, with `LOG_OTP_CODES=true` to read codes in the Vercel logs | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio); production refuses `LOG_OTP_CODES` |
 | `WHATSAPP_*` | Meta's values | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates) |
 | `OTP_DAILY_LIMIT` | `3000` | `200` | login codes per day before sending pauses; Sentry warns at 80% |
 | `OTP_NEW_NUMBER_SHARE` | `0.6` | | the part of that budget numbers with no account may use; the rest is kept for existing customers |
@@ -168,7 +168,7 @@ saying which release stopped using it.
 Then point the webhooks at the API:
 
 - Razorpay dashboard → **Webhooks**: `https://api.mandimangoes.in/webhooks/razorpay`,
-  events `payment.captured`, `payment.failed` and `payment_link.paid`.
+  events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed` and `refund.failed`.
 - Meta app → **WhatsApp → Configuration**: callback `https://api.mandimangoes.in/webhooks/whatsapp`
   with your `WHATSAPP_VERIFY_TOKEN`, subscribed to `messages`.
 

@@ -8,6 +8,8 @@ const API = process.env.VITE_API_URL ?? 'http://localhost:3000'
 
 test.beforeAll(async ({ request }) => {
   const ok = await request.get(`${API}/ready`).then((r) => r.ok()).catch(() => false)
+  // In CI the API is part of the job: a dead API is a failure, not a skip.
+  if (process.env.CI) expect(ok, `mango-api is not reachable at ${API}`).toBe(true)
   test.skip(!ok, `mango-api is not reachable at ${API}`)
 })
 
@@ -46,8 +48,11 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
   await page.getByRole('button', { name: `One less ${second}` }).click()
   await expect(page.getByRole('group', { name: `${second} quantity` })).toHaveCount(0)
+  await noA11yViolations(page)
   await page.getByRole('button', { name: 'Sign in to check out' }).click()
 
+  await expect(page.getByLabel('Mobile number')).toBeVisible()
+  await noA11yViolations(page)
   await page.getByLabel('Mobile number').fill(phone)
   await page.getByRole('button', { name: 'Send code' }).click()
   const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
@@ -70,6 +75,7 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
 
   await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
   await expect(page.getByText(`2 × ${first.split(', ')[0]}`)).toBeVisible()
+  await noA11yViolations(page)
   await page.getByRole('button', { name: /^Pay ₹/ }).click()
 
   await expect(page.getByRole('heading', { name: /^Order ORD-/ })).toBeVisible()
@@ -89,6 +95,7 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
 
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
   await expect(page.getByRole('link', { name: /Order ORD-.*Cancelled/ })).toBeVisible()
+  await noA11yViolations(page)
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible()
 })
@@ -184,7 +191,7 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
     () => request.post(`${API}/admin/v1/orders/${orderId}/allocate`, staff),
     () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PACKED' }, ...staff }),
     () => request.post(`${API}/admin/v1/orders/${orderId}/dispatch`, staff),
-    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'DELIVERED' }, ...staff }),
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'DELIVERED', override: true, reason: 'Test run: handed over in person' }, ...staff }),
   ]) {
     const r = await step()
     expect(r.ok(), await r.text()).toBeTruthy()

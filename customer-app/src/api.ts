@@ -1,6 +1,7 @@
 // Every call to mango-api's customer routes (/v1) goes through request() here.
-// Tokens live in localStorage: the access token is short-lived and refreshed
-// once on a 401; a failed refresh signs the customer out.
+// The access token lives in memory and the refresh token in an httpOnly
+// cookie. The access token is short-lived and refreshed once on a 401; a
+// refresh the API refuses (401) signs the customer out.
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -115,6 +116,8 @@ export interface Order {
   paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
+  /** Razorpay's public key id, while the order waits for payment, so checkout can be reopened anywhere. */
+  razorpayKeyId?: string | null
   holdExpiresAt: string | null
   slot: Slot | null
   items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null; readyOn?: string | null }[]
@@ -206,6 +209,82 @@ export interface PreorderInput {
   waitlist?: boolean
 }
 
+export type ReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'HIDDEN'
+export interface SubRatings {
+  taste: number | null
+  ripenessAccuracy: number | null
+  packaging: number | null
+  delivery: number | null
+}
+export interface MyReview extends SubRatings {
+  id: string
+  orderId: string
+  orderItemId: string
+  status: ReviewStatus
+  rating: number
+  comment: string | null
+  anonymous: boolean
+  displayName: string
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  photos: { id: string; url: string; approved: boolean }[]
+  reply: { body: string; at: string } | null
+  createdAt: string
+  updatedAt: string
+  editableUntil: string
+  canEdit: boolean
+  moderationReason: string | null
+}
+export interface Reviewable {
+  orderItemId: string
+  orderId: string
+  orderNumber: string
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  quantity: number
+  deliveredAt: string
+  reviewableUntil: string
+}
+/** What to offer after 1 or 2 stars: the claim form while it is open, else support. */
+export type FollowUp = { type: 'CLAIM'; orderId: string; claimUntil: string } | { type: 'SUPPORT'; contact: string } | null
+export interface ReviewInput extends Partial<SubRatings> {
+  rating: number
+  comment: string | null
+  anonymous: boolean
+  photoIds: string[]
+}
+export interface PublicReview extends SubRatings {
+  id: string
+  rating: number
+  comment: string | null
+  displayName: string
+  verifiedPurchase: boolean
+  sku: string
+  productName: string
+  variety: string
+  ripenessOrdered: Stage | null
+  photos: { id: string; url: string; width: number | null; height: number | null }[]
+  reply: { body: string; at: string } | null
+  createdAt: string
+}
+export interface RatingSummary {
+  count: number
+  average: number | null
+  distribution: Record<'1' | '2' | '3' | '4' | '5', number>
+  withPhotos: number
+}
+export interface ReviewPage {
+  product: { sku: string; name: string; variety: string }
+  scope: 'variety' | 'sku'
+  summary: RatingSummary
+  items: PublicReview[]
+  nextCursor: string | null
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -271,12 +350,20 @@ function signedIn(r: TokenResponse) {
   save(PROFILE_KEY, profile)
   window.dispatchEvent(new CustomEvent(PROFILE_EVENT))
 }
-function signedOut() {
+/** What this device keeps about the customer, removed on sign-out and account deletion. */
+const PERSONAL_KEYS = ['mm.address', 'mm.cart']
+
+/**
+ * `forget`: the customer chose to sign out (or deleted the account), so their
+ * address and cart go too. An expired session keeps them for the next sign-in.
+ */
+function signedOut(forget = false) {
   const was = profile
   accessToken = null
   profile = null
   save(PROFILE_KEY, null)
-  if (was) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT))
+  if (forget) for (const key of PERSONAL_KEYS) save(key, null)
+  if (was || forget) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { forget } }))
 }
 
 let refreshing: Promise<boolean> | null = null
@@ -287,8 +374,9 @@ function refreshOnce(): Promise<boolean> {
       signedIn(await raw<TokenResponse>('POST', '/auth/token/refresh', {}))
       return true
     } catch (err) {
-      // Offline is not signed out: keep the profile and let the request fail.
-      if (err instanceof ApiError) signedOut()
+      // Only a refused session (401) is a sign-out. Offline, busy (429) or a
+      // server error keeps the profile and lets this request fail.
+      if (err instanceof ApiError && err.status === 401) signedOut()
       return false
     } finally {
       refreshing = null
@@ -313,8 +401,17 @@ async function raw<T>(method: string, path: string, body?: unknown, headers: Rec
   })
   if (res.status === 204) return undefined as T
   const text = await res.text()
-  const json = text ? JSON.parse(text) : null
+  let json: { error?: { code?: string; message?: string } & Record<string, unknown> } | null = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    // Not JSON: a proxy's or host's own error page.
+    if (res.ok) throw new ApiError(res.status, 'BAD_RESPONSE', 'MandiMangoes sent an answer we could not read. Please try again.')
+  }
   if (!res.ok) {
+    if (json === null && res.status >= 500) {
+      throw new ApiError(res.status, 'UNAVAILABLE', 'MandiMangoes is busy right now. Please try again in a minute.')
+    }
     const e = json?.error
     throw new ApiError(res.status, e?.code ?? 'ERROR', e?.message ?? `Request failed (${res.status})`, e ?? {})
   }
@@ -360,11 +457,11 @@ export const api = {
   /** Deletes the account and its personal details, then signs out. */
   async deleteAccount() {
     await request<void>('DELETE', '/me')
-    signedOut()
+    signedOut(true)
   },
   async signOut() {
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
-    signedOut()
+    signedOut(true)
   },
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
@@ -408,6 +505,48 @@ export const api = {
   async deliveryPhotoUrl(orderId: string): Promise<string> {
     if (!accessToken && profile) await refreshOnce()
     const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/delivery-photo`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+    let res = await get()
+    if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+    if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
+    return URL.createObjectURL(await res.blob())
+  },
+
+  myReviews: (orderId?: string) => request<{ reviews: MyReview[]; reviewable: Reviewable[] }>('GET', `/me/reviews${qs({ orderId })}`),
+  sendReview: (input: ReviewInput & { orderItemId: string }, idempotencyKey: string) =>
+    request<{ review: MyReview; followUp: FollowUp }>('POST', '/reviews', input, { 'Idempotency-Key': idempotencyKey }),
+  editReview: (reviewId: string, input: Partial<ReviewInput>) => request<{ review: MyReview; followUp: FollowUp }>('PATCH', `/reviews/${id(reviewId)}`, input),
+  deleteReview: (reviewId: string) => request<void>('DELETE', `/reviews/${id(reviewId)}`),
+  /**
+   * Uploads one review photo (already shrunk on the phone). With Vercel Blob
+   * the photo goes straight to a private upload folder and the API then checks
+   * and cleans it; otherwise it is posted to the API. Returns the photo id.
+   */
+  async uploadReviewPhoto(photo: Blob): Promise<{ id: string }> {
+    const how = await request<{ mode: 'direct' | 'blob'; pathname?: string; clientToken?: string }>('POST', '/reviews/photos/upload-token', {})
+    if (how.mode === 'blob' && how.pathname && how.clientToken) {
+      const { put } = await import('@vercel/blob/client')
+      await put(how.pathname, photo, { access: 'private', token: how.clientToken, contentType: photo.type, multipart: false })
+      return request<{ id: string }>('POST', '/reviews/photos', { pathname: how.pathname })
+    }
+    return request<{ id: string }>('POST', '/reviews/photos', photo)
+  },
+  productReviews: (sku: string, params: { stars?: number | null; withPhotos?: boolean; cursor?: string | null; limit?: number; scope?: 'variety' | 'sku' } = {}) =>
+    raw<ReviewPage>(
+      'GET',
+      `/products/${id(sku)}/reviews${qs({
+        stars: params.stars ? String(params.stars) : null,
+        withPhotos: params.withPhotos ? 'true' : null,
+        cursor: params.cursor,
+        limit: params.limit ? String(params.limit) : null,
+        scope: params.scope,
+      })}`,
+    ),
+  /** An approved review photo: public, so a plain URL. */
+  publicPhotoUrl: (url: string) => `${API_URL}${url}`,
+  /** My own review photo (any status), as an object URL: it needs the sign-in. */
+  async myReviewPhotoUrl(url: string): Promise<string> {
+    if (!accessToken && profile) await refreshOnce()
+    const get = () => fetch(`${API_URL}${url}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
     let res = await get()
     if (res.status === 401 && profile && (await refreshOnce())) res = await get()
     if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')

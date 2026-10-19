@@ -11,6 +11,7 @@ import type {
   Attention,
   AuditPage,
   BulkMoveResult,
+  ShortArrivalResult,
   Manifest,
   BatchListItem,
   BatchStatus,
@@ -41,6 +42,11 @@ import type {
   Preorder,
   PreorderCapacity,
   PreorderStatus,
+  Review,
+  ReviewDetail,
+  ReviewFilters,
+  ReviewInsights,
+  ReviewQueue,
   Role,
   StaffMember,
   Summary,
@@ -64,7 +70,7 @@ export class ApiError extends Error {
 }
 
 let accessToken: string | null = null
-let refreshPromise: Promise<boolean> | null = null
+let refreshPromise: Promise<'ok' | 'refused' | 'unavailable'> | null = null
 
 async function toApiError(res: Response): Promise<ApiError> {
   let body: ApiErrorBody | null = null
@@ -81,19 +87,26 @@ async function toApiError(res: Response): Promise<ApiError> {
   )
 }
 
-/** One shared refresh: a burst of parallel 401s issues a single refresh call. */
-function refreshOnce(): Promise<boolean> {
+/**
+ * One shared refresh: a burst of parallel 401s issues a single refresh call.
+ * 'refused' only when the API says the refresh cookie is no good (401); a busy
+ * API (503), a proxy error or being offline is 'unavailable', which must not
+ * sign anyone out.
+ */
+type Refresh = 'ok' | 'refused' | 'unavailable'
+function refreshOnce(): Promise<Refresh> {
   if (!refreshPromise) {
-    refreshPromise = (async () => {
+    refreshPromise = (async (): Promise<Refresh> => {
       try {
         const res = await fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'include' })
-        if (!res.ok) return false
+        if (res.status === 401) return 'refused'
+        if (!res.ok) return 'unavailable'
         const data = (await res.json()) as { accessToken?: string }
-        if (!data.accessToken) return false
+        if (!data.accessToken) return 'refused'
         accessToken = data.accessToken
-        return true
+        return 'ok'
       } catch {
-        return false
+        return 'unavailable'
       }
     })().finally(() => {
       refreshPromise = null
@@ -122,7 +135,9 @@ async function send(method: string, path: string, body?: unknown, retried = fals
   })
 
   if (res.status === 401 && !retried) {
-    if (await refreshOnce()) return send(method, path, body, true)
+    const refreshed = await refreshOnce()
+    if (refreshed === 'ok') return send(method, path, body, true)
+    if (refreshed === 'unavailable') throw new ApiError(503, 'UNAVAILABLE', 'The server is busy or unreachable. Please try again in a minute.')
     signOutLocally()
     throw new ApiError(401, 'SESSION_ENDED', 'Your session has ended. Please sign in again.')
   }
@@ -167,7 +182,7 @@ export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
   async bootstrap(): Promise<Me | null> {
     if (!API_URL) return null
-    if (!(await refreshOnce())) return null
+    if ((await refreshOnce()) !== 'ok') return null
     try {
       return await request<Me>('GET', '/auth/me')
     } catch {
@@ -200,7 +215,8 @@ export const api = {
   },
 
   /** Starts setting up two-step sign-in: the secret for the authenticator app. */
-  twoStepSetup: () => request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup'),
+  twoStepSetup: (setupCode?: string) =>
+    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', setupCode ? { setupCode } : {}),
   /** Confirms a code from the app. Returns the recovery codes, shown this once. */
   async twoStepEnable(code: string): Promise<string[]> {
     const r = await request<{ recoveryCodes: string[]; accessToken: string }>('POST', '/me/two-step/enable', { code })
@@ -209,7 +225,10 @@ export const api = {
   },
   twoStepDisable: (code: string) => request<void>('POST', '/me/two-step/disable', { code }),
   me: () => request<Me>('GET', '/auth/me'),
-  resetTwoStep: (staffId: string) => request<void>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  /** Clears someone's two-step sign-in. Returns the setup code they need to set it up again (shown once). */
+  resetTwoStep: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  /** A new setup code for someone who hasn't set up two-step sign-in yet (shown once). */
+  newSetupCode: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`),
 
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {
@@ -251,11 +270,11 @@ export const api = {
    * 204 for normal moves. CONDEMNED returns the orders moved to other batches
    * and the ones left at-risk; no order is cancelled.
    */
-  setBatchStatus: (batchId: string, status: BatchStatus) =>
+  setBatchStatus: (batchId: string, status: BatchStatus, reason?: string) =>
     request<{ rebalancedOrders?: string[]; atRiskOrders?: string[] } | undefined>(
       'PATCH',
       `/batches/${id(batchId)}/status`,
-      { status },
+      reason ? { status, reason } : { status },
     ),
   logQc: (batchId: string, input: { ripenessRating: Ripeness; condition: Condition; notes?: string }) =>
     request<{ id: string; warning?: string }>('POST', `/batches/${id(batchId)}/qc`, input),
@@ -264,12 +283,22 @@ export const api = {
     lineId: string,
     input: { onHand?: number; reserveBuffer?: number; reason: string },
   ) => request<void>('PATCH', `/batches/${id(batchId)}/lines/${id(lineId)}`, input),
+  /**
+   * Fewer boxes arrived than were already promised: lowers on hand, takes boxes
+   * back from the youngest orders and re-fills them or moves them to the next date with stock.
+   */
+  shortArrival: (batchId: string, lineId: string, input: { onHand: number; reason: string }) =>
+    request<ShortArrivalResult>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/short-arrival`, input),
 
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
-  setOrderStatus: (orderId: string, status: OrderStatus) =>
-    request<void>('PATCH', `/orders/${id(orderId)}/status`, { status }),
+  /**
+   * A status move. DELIVERED without the customer's code or a photo, sending out
+   * at-risk stock, or a retry after the last attempt need a manager's override with a reason.
+   */
+  setOrderStatus: (orderId: string, status: OrderStatus, override?: { reason: string }) =>
+    request<void>('PATCH', `/orders/${id(orderId)}/status`, override ? { status, override: true, reason: override.reason } : { status }),
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   /** A paid order can only be cancelled by a manager, with a full refund (refund: true). */
   cancelOrder: (orderId: string, reason: string, refund = false) =>
@@ -304,8 +333,8 @@ export const api = {
   recordDelivery: (
     orderId: string,
     body:
-      | { outcome: 'DELIVERED'; code?: string; photoId?: string; receivedBy?: string; lat?: number; lng?: number }
-      | { outcome: 'FAILED'; reason: FailReason; note?: string; photoId?: string; lat?: number; lng?: number },
+      | { outcome: 'DELIVERED'; code?: string; photoId?: string; receivedBy?: string; lat?: number; lng?: number; attempt?: number }
+      | { outcome: 'FAILED'; reason: FailReason; note?: string; photoId?: string; lat?: number; lng?: number; attempt?: number },
   ) => request<{ outcome: 'DELIVERED' | 'FAILED'; method?: string }>('POST', `/orders/${id(orderId)}/delivery`, body),
 
   claims: (status?: ClaimStatus | null) => request<Claim[]>('GET', `/claims${qs({ status })}`),
@@ -314,6 +343,33 @@ export const api = {
     const res = await send('GET', `/claims/${id(claimId)}/photos/${id(photoId)}`)
     return URL.createObjectURL(await res.blob())
   },
+  reviews: (f: ReviewFilters) =>
+    request<ReviewQueue>(
+      'GET',
+      `/reviews${qs({
+        status: f.status,
+        stars: f.stars,
+        hasPhotos: f.hasPhotos == null ? null : String(f.hasPhotos),
+        flagged: f.flagged == null ? null : String(f.flagged),
+        variety: f.variety,
+        cursor: f.cursor,
+      })}`,
+    ),
+  review: (reviewId: string) => request<ReviewDetail>('GET', `/reviews/${id(reviewId)}`),
+  approveReview: (reviewId: string, photoIds: string[], reason?: string | null) =>
+    request<Review>('POST', `/reviews/${id(reviewId)}/approve`, { photoIds, reason: reason || null }),
+  rejectReview: (reviewId: string, reason: string) => request<Review>('POST', `/reviews/${id(reviewId)}/reject`, { reason }),
+  hideReview: (reviewId: string, reason: string) => request<Review>('POST', `/reviews/${id(reviewId)}/hide`, { reason }),
+  bulkReviews: (action: 'approve' | 'reject', ids: string[], reason?: string | null) =>
+    request<{ done: string[]; failed: { id: string; code: string; message: string }[] }>('POST', '/reviews/bulk', { action, ids, reason: reason || null }),
+  replyToReview: (reviewId: string, body: string) => request<Review>('PUT', `/reviews/${id(reviewId)}/reply`, { body }),
+  deleteReviewReply: (reviewId: string) => request<void>('DELETE', `/reviews/${id(reviewId)}/reply`),
+  /** An object URL for a review photo (fetched with the staff sign-in; private until approved). */
+  async reviewPhotoUrl(reviewId: string, photoId: string): Promise<string> {
+    const res = await send('GET', `/reviews/${id(reviewId)}/photos/${id(photoId)}`)
+    return URL.createObjectURL(await res.blob())
+  },
+  reviewInsights: (days = 90) => request<ReviewInsights>('GET', `/reviews/insights${qs({ days })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
   /** MandiMangoes doesn't refund: a claim is resolved by a replacement or rejected. */
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
@@ -381,4 +437,9 @@ export function errorMessage(err: unknown): ErrorInfo {
 
 export function isConflict(err: unknown): boolean {
   return err instanceof ApiError && err.status === 409
+}
+
+/** Someone else moved the record first (a plain 409), as opposed to a 409 that explains a business rule. */
+export function isStale(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && err.code === 'CONFLICT'
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, rupees, slotText, when } from '../format'
-import { openRazorpay, rememberedPayment } from '../payment'
+import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { Dialog, ErrorNote, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
+import { OrderReviews } from './Review'
 
 const TONE: Partial<Record<OrderStatus, string>> = {
   PAYMENT_PENDING: 'warn',
@@ -73,11 +74,16 @@ function OrderView({ order }: { order: Order }) {
     void queryClient.invalidateQueries({ queryKey: ['order', order.id] })
     void queryClient.invalidateQueries({ queryKey: ['orders'] })
   }
-  const remembered = rememberedPayment(order.id)
-  const holdOpen = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() > Date.now() : false
+  // Checkout comes from the order itself, so it reopens on any device or tab.
+  const payKey = order.razorpayKeyId ?? null
+  const holdLeftMs = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() - Date.now() : 0
+  const holdOpen = holdLeftMs > 0
+  const canPay = holdLeftMs > MIN_PAY_SECONDS * 1000
+  // A payment sheet that failed to open straight after checkout.
+  const sheetError = (useLocation().state as { payError?: string } | null)?.payError ?? null
 
   const payAgain = useMutation({
-    mutationFn: () => openRazorpay({ key: remembered!.key!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
+    mutationFn: () => openRazorpay({ key: payKey!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
     onSettled: refresh,
   })
   const devPay = useMutation({ mutationFn: (outcome: 'captured' | 'failed') => api.devPay(order.id, outcome), onSettled: refresh })
@@ -103,12 +109,15 @@ function OrderView({ order }: { order: Order }) {
             <strong>Waiting for your payment to be confirmed.</strong> This page updates on its own.
             {order.holdExpiresAt && holdOpen && <> Your boxes are held until {when(order.holdExpiresAt)}.</>}
           </p>
-          {remembered?.key && order.razorpayOrderId && holdOpen && (
+          {payKey && order.razorpayOrderId && canPay && (
             <button type="button" className="btn btn-primary" disabled={payAgain.isPending} onClick={() => payAgain.mutate()}>
               Pay {rupees(order.total)}
             </button>
           )}
-          {import.meta.env.DEV && !remembered?.key && (
+          {payKey && holdOpen && !canPay && (
+            <p className="small">The hold on your boxes is about to end. If your payment hasn't gone through, place the order again from the shop.</p>
+          )}
+          {import.meta.env.DEV && !payKey && (
             <div className="dev-pay">
               <p className="small muted">Test mode: Razorpay isn't set up, so choose how the payment ends.</p>
               <div className="row">
@@ -121,7 +130,7 @@ function OrderView({ order }: { order: Order }) {
               </div>
             </div>
           )}
-          <ErrorNote error={payAgain.error ?? devPay.error} />
+          <ErrorNote error={payAgain.error ?? devPay.error ?? (payAgain.isIdle ? sheetError : null)} />
         </section>
       )}
 
@@ -259,7 +268,7 @@ function OrderView({ order }: { order: Order }) {
         </div>
       </section>
 
-      {order.status === 'DELIVERED' && <RateOrder order={order} />}
+      {order.status === 'DELIVERED' && <OrderReviews orderId={order.id} />}
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && stages.length > 0 && <CareTips stages={stages} />}
 
@@ -373,72 +382,6 @@ function CareTips({ stages }: { stages: Stage[] }) {
           </div>
         </div>
       ))}
-    </section>
-  )
-}
-
-const STAR_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Excellent']
-
-/** Stars and a note after delivery. Can be changed later. */
-function RateOrder({ order }: { order: Order }) {
-  const queryClient = useQueryClient()
-  const [editing, setEditing] = useState(!order.rating)
-  const [stars, setStars] = useState(order.rating?.stars ?? 0)
-  const [comment, setComment] = useState(order.rating?.comment ?? '')
-  const save = useMutation({
-    mutationFn: () => api.rate(order.id, stars, comment.trim() || null),
-    onSuccess: () => {
-      setEditing(false)
-      void queryClient.invalidateQueries({ queryKey: ['order', order.id] })
-    },
-  })
-  if (!editing && order.rating) {
-    return (
-      <section className="card" aria-labelledby="rated-title">
-        <h2 id="rated-title">Your rating</h2>
-        <p className="stars-shown" aria-label={`${order.rating.stars} out of 5 stars`}>
-          {'★'.repeat(order.rating.stars)}
-          <span className="stars-off">{'★'.repeat(5 - order.rating.stars)}</span>
-        </p>
-        {order.rating.comment && <p>{order.rating.comment}</p>}
-        <p className="muted small">Thank you. {order.rating.stars <= 2 && 'If something was wrong with the fruit, report it below and we will make it right.'}</p>
-        <button type="button" className="link-btn" onClick={() => setEditing(true)}>
-          Change my rating
-        </button>
-      </section>
-    )
-  }
-  return (
-    <section className="card" aria-labelledby="rate-title">
-      <h2 id="rate-title">How were your mangoes?</h2>
-      <div className="stars" role="radiogroup" aria-labelledby="rate-title">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            role="radio"
-            aria-checked={stars === n}
-            aria-label={`${n} ${n === 1 ? 'star' : 'stars'}, ${STAR_WORDS[n]}`}
-            className={n <= stars ? 'star on' : 'star'}
-            onClick={() => setStars(n)}
-          >
-            ★
-          </button>
-        ))}
-        {stars > 0 && <span className="muted small">{STAR_WORDS[stars]}</span>}
-      </div>
-      {stars > 0 && (
-        <>
-          <div className="field">
-            <label htmlFor="rate-note">Anything to tell us? (optional)</label>
-            <textarea id="rate-note" rows={2} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-          <ErrorNote error={save.error} />
-          <button type="button" className="btn btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Sending…' : 'Send rating'}
-          </button>
-        </>
-      )}
     </section>
   )
 }
