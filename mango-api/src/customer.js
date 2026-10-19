@@ -29,7 +29,7 @@ import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from '.
 import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
-import { cancelAlert, createAlert, listAlerts, traceView } from './engagement.js'
+import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
 
 export const router = express.Router()
@@ -326,7 +326,6 @@ router.get(
 )
 
 /** What a box's QR code opens: where the mangoes came from and when they'll be ripe. Public. */
-router.get('/trace/:code', asyncHandler(async (req, res) => res.json(await traceView({ query }, String(req.params.code).toLowerCase()))))
 
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.

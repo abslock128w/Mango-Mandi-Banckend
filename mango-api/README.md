@@ -113,11 +113,11 @@ and address, then pay by Razorpay link. A full week offers the waitlist instead 
 payment until a spot opens). Bookings show in My orders and can be cancelled there for a
 full refund until packing.
 
-## After the order: ripeness guide, alerts, reminders, box QR
+## After the order: ripeness guide, alerts, reminders
 
 - **Ripeness guide.** A minute after the confirmation, an order with a raw or semi-ripe box gets
-  `mandi_ripeness_guide`: the day each box will be ready to eat (raw +3 days, semi-ripe +1 from
-  the delivery date) and how to keep them. Ripe-only orders skip it. The shop's order page shows
+  `mandi_ripeness_guide`: the day each box will be ready to eat (raw +5 days, semi-ripe +2 from
+  the delivery date, the same days the eat-by date assumes) and how to keep them. Ripe-only orders skip it. The shop's order page shows
   the same "ready to eat around" date.
 - **Back in stock.** A box sold out on every open day shows "Tell me when it's back" in the shop
   (signed in). The alert lasts 14 days, at most 10 open per customer, one per box and ripeness.
@@ -127,10 +127,6 @@ full refund until packing.
 - **Reorder reminder.** Off by default. A customer turns it on under Account > WhatsApp messages
   (`PATCH /v1/me {remindersOptIn}`). Seven days after a delivery, between 10 AM and 7 PM IST,
   they get `mandi_reorder_reminder`, unless they ordered again since. One per order.
-- **Box QR.** Every batch has a random 10-character trace code. Batches > a batch > Box labels
-  prints labels with a QR code that opens `CUSTOMER_ORIGIN/t/<code>`: the variety, farm, picking
-  day, the days it is ripe to eat, the last QC check and care tips. The page is public
-  (`GET /v1/trace/:code`) and shows nothing about customers or orders.
 
 Deleting an account cancels its alerts and turns reminders off.
 

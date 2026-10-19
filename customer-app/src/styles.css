@@ -1303,7 +1303,7 @@ button.bar-row:hover,
   min-height: 0;
 }
 
-/* Quick wins: alerts, account messages, the box trace page */
+/* Back-in-stock alerts and account messages */
 .ok-text {
   color: var(--leaf);
   font-weight: 600;
@@ -1311,17 +1311,4 @@ button.bar-row:hover,
 .sub-title {
   margin: 1.25rem 0 0.5rem;
   font-size: 1rem;
-}
-.trace-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.4rem 1rem;
-  margin: 1rem 0;
-}
-.trace-facts dt {
-  color: var(--muted);
-}
-.trace-facts dd {
-  margin: 0;
-  font-weight: 600;
 }

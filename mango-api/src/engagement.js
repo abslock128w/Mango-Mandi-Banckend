@@ -1,9 +1,7 @@
-// Messages that bring customers back: back-in-stock alerts, the reorder
-// reminder a week after delivery (opt-in only), and the public page a box's
-// QR code opens (where the mangoes came from and when they'll be ripe).
+// Messages that bring customers back: back-in-stock alerts and the reorder
+// reminder a week after delivery (opt-in only).
 import { outOfTime } from './budget.js'
 import { addDays, istParts, now } from './clock.js'
-import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { orderableDates } from './delivery.js'
 import { badRequest, conflict, notFound } from './errors.js'
@@ -12,7 +10,7 @@ import { availability } from './inventory.js'
 import { enqueue, enqueueAlert } from './notify.js'
 import { findProduct, sellable } from './products.js'
 import { readyOnFor, storageTip } from './ripeness.js'
-import { profileFor, STAGES } from './stage.js'
+import { STAGES } from './stage.js'
 
 export const MAX_OPEN_ALERTS = 10
 export const ALERT_DAYS = 14
@@ -125,30 +123,4 @@ export async function sendReorderReminders(at = now()) {
     n++
   }
   return n
-}
-
-/** What a box's QR code shows: the farm, the pluck date and when it is ripe. No customer data. */
-export async function traceView(c, code) {
-  if (!/^[0-9a-f]{6,16}$/.test(code)) throw notFound('We could not find that box')
-  const { rows } = await c.query(
-    `SELECT b.variety, b.farm, b.plucked_on, b.arrived_at,
-            (SELECT array_agg(DISTINCT l.sku) FROM batch_lines l WHERE l.batch_id = b.id) AS skus,
-            (SELECT q.ripeness_rating FROM batch_qc q WHERE q.batch_id = b.id ORDER BY q.logged_at DESC LIMIT 1) AS last_qc,
-            (SELECT q.logged_at FROM batch_qc q WHERE q.batch_id = b.id ORDER BY q.logged_at DESC LIMIT 1) AS last_qc_at
-       FROM batches b WHERE b.trace_code = $1`,
-    [code],
-  )
-  const b = rows[0]
-  if (!b) throw notFound('We could not find that box')
-  const ripe = profileFor(getConfig(), b.variety).find((p) => p.stage === 'RIPE')
-  return {
-    variety: b.variety,
-    farm: b.farm,
-    pluckedOn: b.plucked_on,
-    ripeFrom: ripe ? addDays(b.plucked_on, ripe.minAge) : readyOnFor('RAW', b.plucked_on),
-    ripeUntil: ripe ? addDays(b.plucked_on, ripe.maxAge) : null,
-    checked: b.last_qc ? { ripeness: b.last_qc, at: b.last_qc_at } : null,
-    products: (b.skus ?? []).map((s) => findProduct(s)?.name ?? s),
-    tip: storageTip(['RAW']),
-  }
 }

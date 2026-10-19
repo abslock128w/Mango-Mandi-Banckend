@@ -294,21 +294,7 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   expect(promos.find((p: { code: string }) => p.code === code).uses).toBe(1)
 })
 
-test('the QR on a box opens its batch page; reminders are a choice on the account page', async ({ page, request }, info) => {
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
-  const staff = { headers: { Authorization: `Bearer ${login.accessToken}` } }
-  const [batch] = await (await request.get(`${API}/admin/v1/batches`, staff)).json()
-  const detail = await (await request.get(`${API}/admin/v1/batches/${batch.id}`, staff)).json()
-  expect(detail.traceUrl).toMatch(/\/t\/[0-9a-f]{10}$/)
-
-  await page.goto(`/t/${detail.traceCode}`)
-  await expect(page.getByRole('heading', { name: `Your ${detail.variety} mangoes` })).toBeVisible()
-  await expect(page.getByText('Picked on')).toBeVisible()
-  await expect(page.getByText('Ripe to eat')).toBeVisible()
-  await noA11yViolations(page)
-  await page.goto('/t/0000000000')
-  await expect(page.getByRole('alert')).toContainText("We couldn't find this box")
-
+test('reminders are a choice on the account page', async ({ page }, info) => {
   const phone = `7${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
   await page.goto('/sign-in?next=/account')
   await page.getByLabel('Mobile number').fill(phone)

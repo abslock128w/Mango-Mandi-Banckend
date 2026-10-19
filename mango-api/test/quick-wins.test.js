@@ -50,7 +50,7 @@ describe('ripeness guide', () => {
     assert.ok(!/\n/.test(guide.params.join(' ')), 'WhatsApp template values cannot hold new lines')
     // The shop shows the same date.
     const o = (await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })).body
-    assert.equal(o.items.find((i) => i.stage === 'RAW').readyOn, addDays(d, 3))
+    assert.equal(o.items.find((i) => i.stage === 'RAW').readyOn, addDays(d, 5))
     assert.equal(readyWords([], d), '')
   })
 
@@ -133,23 +133,5 @@ describe('reorder reminder', () => {
     await api.patch('/v1/me', { remindersOptIn: true }, { token: cust.accessToken })
     await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     assert.equal(await sendReorderReminders(weekLater(o.deliveryDate)), 0)
-  })
-})
-
-describe('box traceability', () => {
-  test('the QR code opens the farm, pluck date and ripe window, with no customer data', async () => {
-    const r = await api.post('/admin/v1/batches', { variety: 'Alphonso', pluckedOn: addDays(todayIST(), -2), farm: 'Ratnagiri, Patil farm', lines: [{ sku: 'ALP-3', onHand: 10 }] }, { token: admin })
-    assert.equal(r.status, 201, JSON.stringify(r.body))
-    const b = (await api.get(`/admin/v1/batches/${r.body.id}`, { token: admin })).body
-    assert.match(b.traceCode, /^[0-9a-f]{10}$/)
-    assert.ok(b.traceUrl.endsWith(`/t/${b.traceCode}`))
-    const t = await api.get(`/v1/trace/${b.traceCode}`)
-    assert.equal(t.status, 200)
-    assert.deepEqual([t.body.variety, t.body.farm, t.body.pluckedOn], ['Alphonso', 'Ratnagiri, Patil farm', addDays(todayIST(), -2)])
-    assert.equal(t.body.ripeFrom, addDays(t.body.pluckedOn, 6))
-    assert.deepEqual(t.body.products, ['Alphonso 3kg Box'])
-    assert.ok(!JSON.stringify(t.body).includes(r.body.id), 'the internal batch id stays private')
-    assert.equal((await api.get('/v1/trace/0000000000')).status, 404)
-    assert.equal((await api.get('/v1/trace/not-a-code')).status, 404)
   })
 })
