@@ -45,6 +45,8 @@ const schema = z.object({
   TURNSTILE_SITE_KEY: z.string().default(''),
   // The production database's host (Neon main). Production must use it; previews and staging must not.
   PRODUCTION_DB_HOST: z.string().default(''),
+  // Requests per address per 15 minutes before 429 (shared by everyone behind one carrier NAT).
+  API_RATE_LIMIT: z.coerce.number().int().positive().default(3000),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   RAZORPAY_KEY_ID: z.string().default(''),
