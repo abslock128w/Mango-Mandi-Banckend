@@ -1048,3 +1048,9 @@ textarea:focus {
   flex-direction: column;
   min-width: 0;
 }
+
+/* Cloudflare security check under the sign-in form */
+.turnstile {
+  margin-top: 12px;
+  min-height: 0;
+}

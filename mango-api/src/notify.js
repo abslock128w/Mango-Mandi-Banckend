@@ -28,15 +28,22 @@ function kindFor(from, to, order) {
 }
 
 export async function enqueue(c, orderId, eventId, kind) {
-  const { rows } = await c.query('SELECT phone FROM orders WHERE id = $1', [orderId])
-  if (!rows[0]?.phone) return
+  const { rows } = await c.query('SELECT phone, gift_recipient_phone FROM orders WHERE id = $1', [orderId])
+  const o = rows[0]
   const at = now()
-  await c.query(
-    `INSERT INTO notifications (id, order_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)
-     ON CONFLICT (event_id, kind) DO NOTHING`,
-    [newId('ntf'), orderId, eventId, kind, rows[0].phone, at],
-  )
+  const add = (k, phone) =>
+    c.query(
+      `INSERT INTO notifications (id, order_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)
+       ON CONFLICT (event_id, kind) DO NOTHING`,
+      [newId('ntf'), orderId, eventId, k, phone, at],
+    )
+  if (o?.phone) await add(kind, o.phone)
+  // A gift: the recipient is at the door, so they get the delivery code too.
+  if (kind === 'OUT_FOR_DELIVERY' && o?.gift_recipient_phone && o.gift_recipient_phone !== o.phone) await add('GIFT_OUT_FOR_DELIVERY', o.gift_recipient_phone)
 }
+
+/** The Meta template a kind is sent with. The gift message reuses the out-for-delivery one, addressed to the recipient. */
+export const templateFor = (kind) => templateName(kind === 'GIFT_OUT_FOR_DELIVERY' ? 'OUT_FOR_DELIVERY' : kind)
 
 /** Queues a preorder message (booked, spot open, moved, refunded). */
 export async function enqueuePreorder(c, preorderId, kind) {
@@ -77,6 +84,8 @@ export function paramsFor(n) {
       return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'OUT_FOR_DELIVERY':
       return [name, n.number, slotWords(n), n.delivery_code ?? '']
+    case 'GIFT_OUT_FOR_DELIVERY':
+      return [n.gift_recipient_name?.trim() || 'there', n.number, slotWords(n), n.delivery_code ?? '']
     case 'DATE_MOVED':
       return [name, n.number, dateWords(n.delivery_date), slotWords(n)]
     case 'DELIVERY_FAILED':
@@ -114,7 +123,7 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
   if (!claimed.rows.length) return 0
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, COALESCE(o.customer_name, p.customer_name) AS customer_name,
-            o.delivery_date, o.delivery_code, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
+            o.delivery_date, o.delivery_code, o.gift_recipient_name, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
@@ -137,14 +146,14 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
         logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
         await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
       } else {
-        logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateName(n.kind)}`)
+        logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
         await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
         sent++
       }
       continue
     }
     try {
-      const providerId = await sender({ phone: n.phone, template: templateName(n.kind), params: paramsFor(n) })
+      const providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n) })
       await mark(n.id, { status: 'SENT', sent_at: at, provider_id: providerId, attempts: n.attempts + 1, last_error: null })
       metrics.notificationsSent.inc({ kind: n.kind })
       sent++

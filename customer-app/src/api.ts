@@ -326,18 +326,18 @@ const qs = (params: Record<string, string | null | undefined>) => {
 const id = encodeURIComponent
 
 export const api = {
-  requestCode: (phone: string, channel?: 'sms' | 'whatsapp') =>
-    raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', channel ? { phone, channel } : { phone }),
+  requestCode: (phone: string, channel?: 'sms' | 'whatsapp', captchaToken?: string) =>
+    raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', { phone, ...(channel ? { channel } : {}), ...(captchaToken ? { captchaToken } : {}) }),
   async verifyCode(phone: string, code: string) {
     signedIn(await raw<TokenResponse>('POST', '/auth/otp/verify', { phone, code }))
   },
-  authConfig: () => raw<{ googleClientId: string | null }>('GET', '/auth/config'),
+  authConfig: () => raw<{ googleClientId: string | null; turnstileSiteKey?: string | null }>('GET', '/auth/config'),
   async signInWithGoogle(credential: string) {
     signedIn(await raw<TokenResponse>('POST', '/auth/google', { credential }))
   },
   /** Adds a mobile number to an account made with Google. */
-  requestPhoneCode: (phone: string, channel?: 'sms' | 'whatsapp') =>
-    request<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/me/phone/request', channel ? { phone, channel } : { phone }),
+  requestPhoneCode: (phone: string, channel?: 'sms' | 'whatsapp', captchaToken?: string) =>
+    request<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/me/phone/request', { phone, ...(channel ? { channel } : {}), ...(captchaToken ? { captchaToken } : {}) }),
   async verifyPhoneCode(phone: string, code: string) {
     signedIn(await request<TokenResponse>('POST', '/me/phone/verify', { phone, code }))
   },
