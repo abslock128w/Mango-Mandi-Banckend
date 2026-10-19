@@ -245,6 +245,14 @@ below override both.
   cancel up to out-for-delivery without a refund; boxes not yet shipped go back on the
   shelf.
 
+- **Customers can move their own order** to another open day (and slot) while it is
+  confirmed and not yet being packed, if that day has stock at the ripeness they chose.
+  Staff can still move processing orders too.
+- **Ratings**: after delivery a customer gives 1 to 5 stars and a note. Staff see it on the
+  order, and Analytics shows the average and lists 1 and 2 star orders to call back.
+- **Sold-out choices** in the catalogue carry `nextAvailableDate`, the next bookable day
+  with stock for that box and ripeness, so the shop can offer that day instead.
+
 All the numbers above live in the versioned `app_config` table (`GET/PUT
 /admin/v1/config`). Each order records the version it was placed under.
 
@@ -270,7 +278,8 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
 | Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel` |
-| Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `GET/POST /v1/claims` |
+| Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status`, `POST /v1/orders/:id/cancel`, `POST /v1/orders/:id/reschedule` (confirmed orders, before packing), `PUT /v1/orders/:id/rating` (delivered orders), `GET/POST /v1/claims` |
+| Saved addresses | `GET /v1/me/addresses`, `DELETE /v1/me/addresses/:id` (an order saves its address; at most five, gifts are not saved) |
 | Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.captured`, `payment.failed`, `payment_link.paid`) |
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
 | Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (not mounted in production) |

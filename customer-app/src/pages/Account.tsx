@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { useStore } from '../store'
-import { Dialog, ErrorNote } from '../ui'
+import { Dialog, ErrorNote, Spinner } from '../ui'
 
 export default function Account() {
   const { profile } = useStore()
@@ -39,6 +39,8 @@ export default function Account() {
         </p>
       </section>
 
+      <SavedAddresses />
+
       <section className="card narrow" aria-labelledby="delete-account">
         <h2 id="delete-account">Delete your account</h2>
         <p>
@@ -70,5 +72,42 @@ export default function Account() {
         </Dialog>
       )}
     </>
+  )
+}
+
+function SavedAddresses() {
+  const queryClient = useQueryClient()
+  const q = useQuery({ queryKey: ['addresses'], queryFn: api.addresses })
+  const forget = useMutation({
+    mutationFn: api.forgetAddress,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['addresses'] }),
+  })
+  return (
+    <section className="card narrow" aria-labelledby="addresses">
+      <h2 id="addresses">Saved addresses</h2>
+      {q.isPending ? (
+        <Spinner label="Loading addresses" />
+      ) : q.isError ? (
+        <ErrorNote error={q.error} onRetry={() => q.refetch()} />
+      ) : q.data.length === 0 ? (
+        <p className="muted">Addresses you order to are kept here, so next time you can pick one instead of typing it.</p>
+      ) : (
+        <ul className="address-list">
+          {q.data.map((a) => (
+            <li key={a.id}>
+              <div>
+                {a.name && <strong>{a.name}</strong>}
+                <span>{a.address}</span>
+                <span className="muted small">Pincode {a.pincode}</span>
+              </div>
+              <button type="button" className="link-btn" disabled={forget.isPending} onClick={() => forget.mutate(a.id)} aria-label={`Remove ${a.address}`}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ErrorNote error={forget.error} />
+    </section>
   )
 }

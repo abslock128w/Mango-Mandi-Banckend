@@ -42,6 +42,10 @@ export interface CatalogueItem {
   stage: Stage
   qty: number
   eatBy: string
+  /** A line about the fruit. */
+  description?: string
+  /** When sold out on this day: the next bookable day it is in stock, if any. */
+  nextAvailableDate?: string | null
 }
 export interface Catalogue {
   serviceable: boolean
@@ -119,6 +123,15 @@ export interface Order {
   deliveryCode?: string | null
   /** How the order was handed over, once delivered. */
   delivery?: { at: string; method: 'code' | 'photo' | 'staff' | null; receivedBy: string | null; hasPhoto: boolean } | null
+  /** The customer's stars once delivered. */
+  rating?: { stars: number; comment: string | null; at: string } | null
+}
+export interface SavedAddress {
+  id: string
+  name: string | null
+  address: string
+  pincode: string
+  lastUsedAt: string
 }
 export type IssueType = 'DAMAGED' | 'WRONG_ITEM' | 'NOT_DELIVERED'
 export interface Claim {
@@ -352,6 +365,11 @@ export const api = {
   orders: () => request<OrderSummary[]>('GET', '/orders'),
   order: (orderId: string) => request<Order>('GET', `/orders/${id(orderId)}`),
   cancel: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/cancel`),
+  reschedule: (orderId: string, deliveryDate: string, slotId: string | null) =>
+    request<void>('POST', `/orders/${id(orderId)}/reschedule`, { deliveryDate, slotId }),
+  rate: (orderId: string, stars: number, comment: string | null) => request<void>('PUT', `/orders/${id(orderId)}/rating`, { stars, comment }),
+  addresses: () => request<SavedAddress[]>('GET', '/me/addresses'),
+  forgetAddress: (addressId: string) => request<void>('DELETE', `/me/addresses/${id(addressId)}`),
   claims: () => request<Claim[]>('GET', '/claims'),
   raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoIds: string[] }) =>
     request<{ id: string; status: string }>('POST', '/claims', input),

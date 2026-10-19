@@ -16,7 +16,7 @@ import { normaliseCode, promoView } from './promos.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, recordDelivery, recordStaffDelivery, savePhoto } from './delivery-proof.js'
 import { query, tx } from './db.js'
-import { chooseSlot, orderableDates, slotsForDate, slotView } from './delivery.js'
+import { orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
@@ -28,6 +28,7 @@ import {
   createReplacement,
   eatByFor,
   MAX_DELIVERY_ATTEMPTS,
+  moveOrderToDate,
   placeOnFirstDateWithStock,
   rebalanceBatchOrders,
   rebalanceOrder,
@@ -597,7 +598,7 @@ export async function orderDetail(c, orderId) {
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events, notes, deliveryAttempts] = await Promise.all([
+  const [items, stock, events, notes, deliveryAttempts, rating] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -607,8 +608,11 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM order_events WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
+    c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
   ])
+  const r = rating.rows[0]
   return {
+    rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
@@ -681,21 +685,10 @@ router.post(
       req.body,
     )
     await tx(async (c) => {
-      const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [req.params.id])
-      if (!rows.length) throw notFound('Order not found')
-      const o = rows[0]
-      if (!['CONFIRMED', 'PROCESSING'].includes(o.status)) throw badRequest(`A ${o.status} order cannot be rescheduled`, 'INVALID_TRANSITION')
-      if (!(await orderableDates(c)).includes(deliveryDate)) throw badRequest(`${deliveryDate} is not an open delivery date`, 'INVALID_DATE')
-      if (slotId) {
-        const { rows: q } = await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [o.id])
-        o.slot_id = await chooseSlot(c, deliveryDate, q[0].n, slotId, { strict: true, excludeOrderId: o.id })
-        await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
-      }
-      const from = o.delivery_date
-      const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], req.actor, `Rescheduled by ${req.admin.email}`)
-      if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
-      if (date !== from) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
-      await rebalanceOrder(c, o.id, req.actor)
+      const from = await moveOrderToDate(c, req.params.id, {
+        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why: `Rescheduled by ${req.admin.email}`,
+      })
+      if (deliveryDate !== from) await enqueue(c, req.params.id, newId('mov'), 'DATE_MOVED')
     })
     res.status(204).end()
   }),

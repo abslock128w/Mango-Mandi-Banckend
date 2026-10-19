@@ -123,9 +123,9 @@ a {
   color: var(--ink);
   text-decoration: none;
 }
-/* Signed in, the nav has four links: on a phone the logo stands alone. */
+/* Signed in, the nav has four links: on a phone the logo stands alone. Signed out there is room for the name. */
 @media (max-width: 479px) {
-  .brand span {
+  .signed-in .brand span {
     display: none;
   }
 }
@@ -852,4 +852,199 @@ textarea:focus {
 .gift-fields {
   border-left: 3px solid var(--mango);
   padding-left: 0.85rem;
+}
+
+/* shop: how it works, ripeness guide, promises */
+.how {
+  list-style: none;
+  counter-reset: how;
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.75rem 0 1rem;
+  padding: 0;
+}
+.how li {
+  counter-increment: how;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-left: 2.6rem;
+}
+.how li::before {
+  content: counter(how);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--mango-soft);
+  color: var(--mango-strong);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+@media (min-width: 640px) {
+  .how {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.guide {
+  margin-top: 1.5rem;
+}
+.guide-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+.guide-list li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.5rem;
+}
+.promises {
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+@media (min-width: 640px) {
+  .promises {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.promises li {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9rem;
+  color: var(--muted);
+  border-left: 3px solid var(--leaf);
+  padding: 0.15rem 0 0.15rem 0.75rem;
+}
+.promises strong {
+  color: var(--ink);
+}
+.mango-art {
+  flex: 0 0 auto;
+}
+.product-head {
+  align-items: flex-start;
+}
+.product-name {
+  flex: 1;
+  min-width: 0;
+}
+.product-name p {
+  margin-top: 0.15rem;
+}
+.stage-text {
+  flex: 1;
+}
+.stage-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  align-self: flex-start;
+  margin-top: 0.4rem;
+}
+.stage-raw {
+  background: #5f9e3a;
+}
+.stage-semi_ripe {
+  background: #c9a93a;
+}
+.stage-ripe {
+  background: #f0a020;
+}
+.line-art > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* order page: times on the steps, care tips, ratings */
+.step-time {
+  display: flex;
+  flex-direction: column;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+.care {
+  display: flex;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+}
+.care + .care {
+  border-top: 1px solid var(--line);
+  margin-top: 0.5rem;
+}
+.care ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+}
+.care li {
+  margin-bottom: 0.25rem;
+}
+.stars {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+.star {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 1.8rem;
+  line-height: 1;
+  border: 0;
+  background: none;
+  color: var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+.star.on {
+  color: var(--mango);
+}
+.stars-shown {
+  font-size: 1.5rem;
+  color: var(--mango);
+  letter-spacing: 0.1em;
+  margin-bottom: 0.25rem;
+}
+.stars-off {
+  color: var(--line);
+}
+
+/* account: saved addresses */
+.address-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.address-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+.address-list li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }

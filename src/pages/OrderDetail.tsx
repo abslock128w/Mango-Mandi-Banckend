@@ -352,6 +352,19 @@ function OrderView({ order }: { order: Order }) {
               <p className="muted">No payment recorded.</p>
             )}
           </section>
+          {order.rating && (
+            <section className="card">
+              <h2>Customer rating</h2>
+              <p>
+                <strong aria-label={`${order.rating.stars} out of 5 stars`}>
+                  {'★'.repeat(order.rating.stars)}
+                  <span className="muted">{'☆'.repeat(5 - order.rating.stars)}</span>
+                </strong>{' '}
+                <span className="muted small">{dateTime(order.rating.at)}</span>
+              </p>
+              {order.rating.comment ? <p>{order.rating.comment}</p> : <p className="muted small">No comment.</p>}
+            </section>
+          )}
           {order.deliveryAttempts && order.deliveryAttempts.length > 0 && (
             <section className="card">
               <h2>Proof of delivery</h2>

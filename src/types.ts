@@ -226,6 +226,8 @@ export interface OrderDetail {
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
   deliveryAttempts?: DeliveryAttempt[]
+  /** The customer's rating after delivery. */
+  rating?: { stars: number; comment: string | null; at: string } | null
 }
 
 export type FailReason = 'NOT_HOME' | 'WRONG_ADDRESS' | 'REFUSED' | 'UNREACHABLE' | 'OTHER'
@@ -464,6 +466,11 @@ export interface AnalyticsWeek {
   atRisk: number
   claims: number
   claimsReplaced: number
+  /** Customer ratings of orders delivered that week, and their stars added up. */
+  ratings?: number
+  ratingStars?: number
+  /** Average stars (1 to 5), one decimal; null when nobody rated. */
+  averageRating?: number | null
   wastageRate: number | null
   atRiskRate: number | null
 }
@@ -474,6 +481,8 @@ export interface Analytics {
   weeks: AnalyticsWeek[]
   bySku: { sku: string; productName: string; boxes: number; revenue: number; received: number; wasted: number; wastageRate: number | null }[]
   totals: Omit<AnalyticsWeek, 'weekStart'>
+  /** Ratings of 1 or 2 stars, newest first, to call back. */
+  lowRatings?: { orderId: string; number: string; deliveryDate: string; stars: number; comment: string | null; at: string }[]
 }
 
 /** Problems nobody would otherwise notice: the background loop, failed sends, stuck refunds, bad webhooks. */

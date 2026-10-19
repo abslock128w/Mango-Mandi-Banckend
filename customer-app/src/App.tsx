@@ -39,7 +39,7 @@ export default function App() {
 
   return (
     <>
-      <header className="top">
+      <header className={profile ? 'top signed-in' : 'top'}>
         <div className="top-inner">
           <Link to="/" className="brand" aria-label="MandiMangoes, home">
             <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">

@@ -6,6 +6,8 @@ import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
 import { ErrorNote, Spinner } from '../ui'
 import { BookAheadCard } from './Preorder'
+import { MangoArt } from '../mango'
+import type { Stage } from '../api'
 
 export default function Shop() {
   const { pincode, date, setWhere, cart } = useStore()
@@ -41,6 +43,7 @@ export default function Shop() {
       )}
       {pincode && !editing && <Catalogue pincode={pincode} date={date} onDate={pickDate} />}
       <BookAheadCard />
+      <Promises />
       {boxes > 0 && (
         <div className="sticky-cart">
           <Link to="/cart" className="btn btn-primary btn-block">
@@ -95,7 +98,63 @@ function PincodeForm({ initial, onDone }: { initial: string; onDone: (pincode: s
           </p>
         )}
       </form>
+      <ol className="how" aria-label="How it works">
+        <li>
+          <strong>Pick the ripeness and the day</strong>
+          <span className="muted small">Raw to ripen at home, semi-ripe for later this week, or ripe to eat on arrival.</span>
+        </li>
+        <li>
+          <strong>We pack from the right batch</strong>
+          <span className="muted small">We track every batch from the day it was picked, so your box is at the ripeness you chose on that day.</span>
+        </li>
+        <li>
+          <strong>It arrives at your door</strong>
+          <span className="muted small">Free delivery in your chosen time slot, with updates on WhatsApp.</span>
+        </li>
+      </ol>
+      <RipenessGuide />
     </section>
+  )
+}
+
+const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
+
+function RipenessGuide() {
+  return (
+    <section className="guide" aria-labelledby="guide-title">
+      <h2 id="guide-title" className="section-title">
+        Which ripeness?
+      </h2>
+      <ul className="guide-list">
+        {STAGES.map((st) => (
+          <li key={st}>
+            <MangoArt stage={st} size={48} />
+            <strong>{STAGE_LABEL[st]}</strong>
+            <span className="muted small">{STAGE_HINT[st]}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+/** What every customer can count on. */
+function Promises() {
+  return (
+    <ul className="promises" aria-label="Our promises">
+      <li>
+        <strong>Free delivery</strong>
+        <span>Paid online, nothing to pay at the door.</span>
+      </li>
+      <li>
+        <strong>Changed your mind?</strong>
+        <span>Cancel before packing for a full refund, or move the day.</span>
+      </li>
+      <li>
+        <strong>Damaged or wrong?</strong>
+        <span>Tell us with a photo and we send a free replacement.</span>
+      </li>
+    </ul>
   )
 }
 
@@ -136,12 +195,16 @@ function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | 
           {products.map((p) => (
             <article key={p.sku} className="card product" aria-labelledby={`p-${p.sku}`}>
               <header className="product-head">
-                <h3 id={`p-${p.sku}`}>{p.name}</h3>
+                <MangoArt stage="RIPE" size={52} />
+                <div className="product-name">
+                  <h3 id={`p-${p.sku}`}>{p.name}</h3>
+                  {p.description && <p className="muted small">{p.description}</p>}
+                </div>
                 <strong className="price">{rupees(p.price)}</strong>
               </header>
               <ul className="stages">
                 {p.stages.map((item) => (
-                  <StageRow key={item.stage} item={item} />
+                  <StageRow key={item.stage} item={item} onDate={onDate} />
                 ))}
               </ul>
             </article>
@@ -152,7 +215,7 @@ function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | 
   )
 }
 
-function StageRow({ item }: { item: CatalogueItem }) {
+function StageRow({ item, onDate }: { item: CatalogueItem; onDate: (d: string | null) => void }) {
   const { cart, setQty } = useStore()
   const inCart = cart.find((l) => l.sku === item.sku && l.stage === item.stage)?.qty ?? 0
   const max = Math.min(20, item.qty)
@@ -160,12 +223,23 @@ function StageRow({ item }: { item: CatalogueItem }) {
   const label = `${item.name}, ${STAGE_LABEL[item.stage]}`
   return (
     <li className="stage">
+      <span className={`stage-dot stage-${item.stage.toLowerCase()}`} aria-hidden="true" />
       <div className="stage-text">
         <strong>{STAGE_LABEL[item.stage]}</strong>
         <span className="muted small">{STAGE_HINT[item.stage]}</span>
         <span className="small">
           {item.qty === 0 ? (
-            <span className="sold-out">Sold out for this day</span>
+            <span className="sold-out">
+              Sold out for this day
+              {item.nextAvailableDate && (
+                <>
+                  {' · '}
+                  <button type="button" className="link-btn" onClick={() => onDate(item.nextAvailableDate!)}>
+                    Available {day(item.nextAvailableDate)}
+                  </button>
+                </>
+              )}
+            </span>
           ) : (
             <>
               Eat by {day(item.eatBy)}
@@ -195,9 +269,9 @@ function StageRow({ item }: { item: CatalogueItem }) {
 }
 
 function groupBySku(items: CatalogueItem[]) {
-  const map = new Map<string, { sku: string; name: string; variety: string; boxSize: string; price: number; stages: CatalogueItem[] }>()
+  const map = new Map<string, { sku: string; name: string; variety: string; boxSize: string; price: number; description: string; stages: CatalogueItem[] }>()
   for (const i of items) {
-    const p = map.get(i.sku) ?? { sku: i.sku, name: i.name, variety: i.variety, boxSize: i.boxSize, price: i.price, stages: [] }
+    const p = map.get(i.sku) ?? { sku: i.sku, name: i.name, variety: i.variety, boxSize: i.boxSize, price: i.price, description: i.description ?? '', stages: [] }
     p.stages.push(i)
     map.set(i.sku, p)
   }

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus } from '../api'
+import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, rupees, slotText, when } from '../format'
 import { openRazorpay, rememberedPayment } from '../payment'
 import { Dialog, ErrorNote, Spinner } from '../ui'
+import { CARE, MangoArt } from '../mango'
+import { useStore } from '../store'
 
 const TONE: Partial<Record<OrderStatus, string>> = {
   PAYMENT_PENDING: 'warn',
@@ -17,12 +19,14 @@ export function StatusPill({ status }: { status: OrderStatus }) {
   return <span className={`pill pill-${TONE[status] ?? 'info'}`}>{STATUS_LABEL[status]}</span>
 }
 
-const STEPS: { label: string; reached: OrderStatus[] }[] = [
-  { label: 'Confirmed', reached: ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Packed', reached: ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Out for delivery', reached: ['OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Delivered', reached: ['DELIVERED'] },
+const STEPS: { label: string; status: OrderStatus; reached: OrderStatus[] }[] = [
+  { label: 'Confirmed', status: 'CONFIRMED', reached: ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'Packed', status: 'PACKED', reached: ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'Out for delivery', status: 'OUT_FOR_DELIVERY', reached: ['OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'Delivered', status: 'DELIVERED', reached: ['DELIVERED'] },
 ]
+/** Orders a customer can still move to another day: confirmed, before packing starts. Mirrors the API. */
+const MOVABLE: OrderStatus[] = ['CONFIRMED']
 const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
 
 export default function OrderPage() {
@@ -54,6 +58,15 @@ export default function OrderPage() {
 function OrderView({ order }: { order: Order }) {
   const queryClient = useQueryClient()
   const [cancelling, setCancelling] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const { setQty, setWhere } = useStore()
+  const navigate = useNavigate()
+  const buyAgain = () => {
+    for (const i of order.items) if (i.stage) setQty({ sku: i.sku, stage: i.stage, name: i.name, price: i.unitPrice }, i.quantity)
+    setWhere(order.pincode, null)
+    navigate('/cart')
+  }
+  const stages = [...new Set(order.items.map((i) => i.stage).filter((x): x is Stage => Boolean(x)))]
   const claims = useQuery({ queryKey: ['claims'], queryFn: api.claims, enabled: order.status === 'DELIVERED' })
   const claim = claims.data?.find((c) => c.orderId === order.id)
   const refresh = () => {
@@ -162,6 +175,8 @@ function OrderView({ order }: { order: Order }) {
         <ol className="steps" aria-label="Progress">
           {STEPS.map((s) => {
             const done = s.reached.includes(order.status)
+            // The latest time the order reached this step (a retried delivery goes out more than once).
+            const at = done ? order.timeline.filter((e) => e.status === s.status).slice(-1)[0]?.at : undefined
             return (
               <li key={s.label} className={done ? 'done' : ''}>
                 <span className="dot" aria-hidden="true" />
@@ -169,6 +184,16 @@ function OrderView({ order }: { order: Order }) {
                   {s.label}
                   <span className="sr-only">{done ? ', done' : ', not yet'}</span>
                 </span>
+                {at && (
+                  // "19 Oct" over "10:27 am", so four steps fit side by side on a phone.
+                  <span className="step-time">
+                    {when(at)
+                      .split(', ')
+                      .map((part) => (
+                        <span key={part}>{part}</span>
+                      ))}
+                  </span>
+                )}
               </li>
             )
           })}
@@ -233,6 +258,10 @@ function OrderView({ order }: { order: Order }) {
         </div>
       </section>
 
+      {order.status === 'DELIVERED' && <RateOrder order={order} />}
+
+      {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && stages.length > 0 && <CareTips stages={stages} />}
+
       {order.status === 'DELIVERED' &&
         (claim ? (
           <section className="card">
@@ -254,6 +283,18 @@ function OrderView({ order }: { order: Order }) {
           </Link>
         ))}
 
+      {MOVABLE.includes(order.status) && (
+        <button type="button" className="btn btn-block" onClick={() => setMoving(true)}>
+          Change delivery day
+        </button>
+      )}
+
+      {['DELIVERED', 'CANCELLED'].includes(order.status) && (
+        <button type="button" className="btn btn-block btn-primary" onClick={buyAgain}>
+          Buy these again
+        </button>
+      )}
+
       {CANCELLABLE.includes(order.status) && (
         <button type="button" className="btn btn-block btn-danger-quiet" onClick={() => setCancelling(true)}>
           Cancel order
@@ -263,6 +304,8 @@ function OrderView({ order }: { order: Order }) {
       <Link to="/orders" className="btn btn-block btn-quiet">
         All my orders
       </Link>
+
+      {moving && <MoveDialog order={order} onClose={() => setMoving(false)} onMoved={refresh} />}
 
       {cancelling && (
         <Dialog
@@ -309,4 +352,168 @@ function DeliveryPhoto({ orderId }: { orderId: string }) {
   if (failed) return <p className="muted small">The photo could not be loaded.</p>
   if (!url) return <p className="muted small">Loading the rider's photo…</p>
   return <img className="delivery-photo" src={url} alt="The rider's photo of your delivery" />
+}
+
+/** How to look after what arrived, for each ripeness in the order. */
+function CareTips({ stages }: { stages: Stage[] }) {
+  return (
+    <section className="card" aria-labelledby="care-title">
+      <h2 id="care-title">Looking after your mangoes</h2>
+      {stages.map((st) => (
+        <div key={st} className="care">
+          <MangoArt stage={st} size={40} />
+          <div>
+            <h3>{CARE[st].title}</h3>
+            <ul>
+              {CARE[st].tips.map((t) => (
+                <li key={t}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+const STAR_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Excellent']
+
+/** Stars and a note after delivery. Can be changed later. */
+function RateOrder({ order }: { order: Order }) {
+  const queryClient = useQueryClient()
+  const [editing, setEditing] = useState(!order.rating)
+  const [stars, setStars] = useState(order.rating?.stars ?? 0)
+  const [comment, setComment] = useState(order.rating?.comment ?? '')
+  const save = useMutation({
+    mutationFn: () => api.rate(order.id, stars, comment.trim() || null),
+    onSuccess: () => {
+      setEditing(false)
+      void queryClient.invalidateQueries({ queryKey: ['order', order.id] })
+    },
+  })
+  if (!editing && order.rating) {
+    return (
+      <section className="card" aria-labelledby="rated-title">
+        <h2 id="rated-title">Your rating</h2>
+        <p className="stars-shown" aria-label={`${order.rating.stars} out of 5 stars`}>
+          {'★'.repeat(order.rating.stars)}
+          <span className="stars-off">{'★'.repeat(5 - order.rating.stars)}</span>
+        </p>
+        {order.rating.comment && <p>{order.rating.comment}</p>}
+        <p className="muted small">Thank you. {order.rating.stars <= 2 && 'If something was wrong with the fruit, report it below and we will make it right.'}</p>
+        <button type="button" className="link-btn" onClick={() => setEditing(true)}>
+          Change my rating
+        </button>
+      </section>
+    )
+  }
+  return (
+    <section className="card" aria-labelledby="rate-title">
+      <h2 id="rate-title">How were your mangoes?</h2>
+      <div className="stars" role="radiogroup" aria-labelledby="rate-title">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            role="radio"
+            aria-checked={stars === n}
+            aria-label={`${n} ${n === 1 ? 'star' : 'stars'}, ${STAR_WORDS[n]}`}
+            className={n <= stars ? 'star on' : 'star'}
+            onClick={() => setStars(n)}
+          >
+            ★
+          </button>
+        ))}
+        {stars > 0 && <span className="muted small">{STAR_WORDS[stars]}</span>}
+      </div>
+      {stars > 0 && (
+        <>
+          <div className="field">
+            <label htmlFor="rate-note">Anything to tell us? (optional)</label>
+            <textarea id="rate-note" rows={2} maxLength={500} value={comment} onChange={(e) => setComment(e.target.value)} />
+          </div>
+          <ErrorNote error={save.error} />
+          <button type="button" className="btn btn-primary" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Sending…' : 'Send rating'}
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
+
+/** Pick another open day (and time) for an order that isn't being packed yet. */
+function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => void; onMoved: () => void }) {
+  const days = useQuery({ queryKey: ['delivery-check', order.pincode], queryFn: () => api.checkPincode(order.pincode) })
+  const [date, setDate] = useState<string | null>(null)
+  const [slotId, setSlotId] = useState<string | null>(null)
+  const slots = useQuery({ queryKey: ['slots', order.pincode, date], queryFn: () => api.slots(order.pincode, date!), enabled: Boolean(date) })
+  const move = useMutation({
+    mutationFn: () => api.reschedule(order.id, date!, slotId),
+    onSuccess: () => {
+      onMoved()
+      onClose()
+    },
+  })
+  const choices = (days.data?.deliveryDates ?? []).filter((d) => d !== order.deliveryDate)
+  const needSlot = Boolean(slots.data?.slots.length)
+  const problem = move.error instanceof ApiError && move.error.code === 'STOCK_INSUFFICIENT'
+    ? "We don't have enough of these mangoes at the right ripeness for that day. Try another day."
+    : move.error instanceof ApiError && move.error.code === 'SLOT_FULL'
+      ? 'That time just filled up. Choose another one.'
+      : move.error
+
+  return (
+    <Dialog
+      title="Change delivery day"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn btn-quiet" onClick={onClose}>
+            Keep {day(order.deliveryDate)}
+          </button>
+          <button type="button" className="btn btn-primary" disabled={!date || (needSlot && !slotId) || move.isPending} onClick={() => move.mutate()}>
+            {move.isPending ? 'Moving…' : 'Move my order'}
+          </button>
+        </>
+      }
+    >
+      {days.isPending ? (
+        <Spinner label="Loading delivery days" />
+      ) : days.isError ? (
+        <ErrorNote error={days.error} onRetry={() => days.refetch()} />
+      ) : choices.length === 0 ? (
+        <p>There are no other delivery days open right now.</p>
+      ) : (
+        <>
+          <p className="muted small">Your boxes are packed for the ripeness you chose on the new day.</p>
+          <div className="chips" role="radiogroup" aria-label="New delivery day">
+            {choices.map((d) => (
+              <button key={d} type="button" role="radio" aria-checked={d === date} className="chip" onClick={() => { setDate(d); setSlotId(null) }}>
+                {day(d)}
+              </button>
+            ))}
+          </div>
+          {date && slots.isPending && <Spinner label="Loading delivery times" />}
+          {needSlot && (
+            <fieldset className="field">
+              <legend>Delivery time</legend>
+              <div className="options">
+                {slots.data!.slots.map((sl) => (
+                  <label key={sl.id} className={`option${sl.available ? '' : ' option-off'}`}>
+                    <input type="radio" name="move-slot" checked={slotId === sl.id} disabled={!sl.available} onChange={() => setSlotId(sl.id)} />
+                    <span>
+                      {slotText(sl)}
+                      {!sl.available && <span className="muted small"> · Full</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+        </>
+      )}
+      <ErrorNote error={problem} />
+    </Dialog>
+  )
 }

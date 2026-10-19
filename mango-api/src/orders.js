@@ -229,6 +229,29 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
 }
 
 /**
+ * Moves a not-yet-packed order to another open delivery date (and optionally
+ * a slot), taking stock for that date. Used by staff and by customers who
+ * change their own delivery day. Returns the previous date.
+ */
+export async function moveOrderToDate(c, orderId, { deliveryDate, slotId = null, statuses, actor, why, customerId = null }) {
+  const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
+  const o = rows[0]
+  if (!o || (customerId && o.customer_id !== customerId)) throw notFound('Order not found')
+  if (!statuses.includes(o.status)) throw badRequest(`A ${o.status} order cannot be moved to another day`, 'INVALID_TRANSITION')
+  if (!(await orderableDates(c)).includes(deliveryDate)) throw badRequest(`${deliveryDate} is not an open delivery date`, 'INVALID_DATE')
+  if (slotId) {
+    const { rows: q } = await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [o.id])
+    o.slot_id = await chooseSlot(c, deliveryDate, q[0].n, slotId, { strict: true, excludeOrderId: o.id })
+    await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
+  }
+  const from = o.delivery_date
+  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why)
+  if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  await rebalanceOrder(c, o.id, actor)
+  return from
+}
+
+/**
  * Records a second payment captured for something already paid: a double
  * charge. The payment is refunded (refundDuplicatePayments); the order isn't.
  * Returns true the first time a payment is seen.

@@ -45,6 +45,29 @@ function CheckoutForm() {
   const [quote, setQuote] = useState<Quote | null>(null)
   const idemKey = useRef<string | null>(null)
 
+  // Addresses this account has ordered to before, for this pincode.
+  const book = useQuery({ queryKey: ['addresses'], queryFn: api.addresses, staleTime: 60_000 })
+  const savedHere = (book.data ?? []).filter((a) => a.pincode === pincode)
+  const [picked, setPicked] = useState<string | null>(null)
+  const typedOwn = useRef(false)
+  // Start from the address used last time (or the most recent saved one), until the customer types their own.
+  const squash = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!typedOwn.current && picked === null && savedHere.length) {
+    const match = address.trim() ? savedHere.find((a) => squash(a.address) === squash(address)) : savedHere[0]
+    if (match) {
+      setPicked(match.id)
+      setAddress(match.address)
+      if (match.name && !name) setName(match.name)
+    }
+  }
+  const choose = (id: string | null) => {
+    typedOwn.current = true
+    setPicked(id)
+    const a = savedHere.find((x) => x.id === id)
+    setAddress(a ? a.address : '')
+    if (a?.name) setName(a.name)
+  }
+
   const slots = useQuery({
     queryKey: ['slots', pincode, date],
     queryFn: () => api.slots(pincode!, date ?? ''),
@@ -213,7 +236,19 @@ function CheckoutForm() {
           </>
         )}
         <label className="option gift-toggle">
-          <input type="checkbox" checked={isGift} onChange={(e) => setIsGift(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={isGift}
+            onChange={(e) => {
+              setIsGift(e.target.checked)
+              // A gift goes to their address, not one of ours.
+              if (e.target.checked && picked !== null) {
+                typedOwn.current = true
+                setPicked(null)
+                setAddress('')
+              }
+            }}
+          />
           <span>This is a gift for someone else</span>
         </label>
         {isGift && (
@@ -251,7 +286,27 @@ function CheckoutForm() {
           <label htmlFor="name">Your name</label>
           <input id="name" autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div className="field">
+        {!isGift && savedHere.length > 0 && (
+          <fieldset className="field">
+            <legend>Deliver to</legend>
+            <div className="options">
+              {savedHere.map((a) => (
+                <label key={a.id} className="option">
+                  <input type="radio" name="saved-address" checked={picked === a.id} onChange={() => choose(a.id)} />
+                  <span className="option-text">
+                    {a.name && <strong>{a.name}</strong>}
+                    <span>{a.address}</span>
+                  </span>
+                </label>
+              ))}
+              <label className="option">
+                <input type="radio" name="saved-address" checked={picked === null} onChange={() => choose(null)} />
+                <span>A new address</span>
+              </label>
+            </div>
+          </fieldset>
+        )}
+        <div className="field" hidden={!isGift && picked !== null}>
           <label htmlFor="address">Delivery address</label>
           <textarea
             id="address"
@@ -259,7 +314,10 @@ function CheckoutForm() {
             rows={3}
             maxLength={500}
             value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={(e) => {
+              typedOwn.current = true
+              setAddress(e.target.value)
+            }}
             aria-describedby="address-hint"
           />
           <p id="address-hint" className="muted small">

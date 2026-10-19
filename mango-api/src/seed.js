@@ -10,11 +10,13 @@ import { ledger } from './inventory.js'
 import { logger } from './logger.js'
 
 // Fresh mangoes: HSN 0804 50, nil GST. Prices are GST-inclusive paise.
+const ALPHONSO = 'Alphonso (Hapus): saffron flesh, rich and sweet, with almost no fibre.'
+const BADAMI = "Badami, Karnataka's Alphonso: sweet and juicy, a little lighter, at a friendlier price."
 const PRODUCTS = [
-  ['ALP-3', 'Alphonso 3kg Box', 'Alphonso', '3kg', 189_900],
-  ['ALP-5', 'Alphonso 5kg Box', 'Alphonso', '5kg', 299_900],
-  ['BAD-3', 'Badami 3kg Box', 'Badami', '3kg', 129_900],
-  ['BAD-5', 'Badami 5kg Box', 'Badami', '5kg', 199_900],
+  ['ALP-3', 'Alphonso 3kg Box', 'Alphonso', '3kg', 189_900, ALPHONSO],
+  ['ALP-5', 'Alphonso 5kg Box', 'Alphonso', '5kg', 299_900, ALPHONSO],
+  ['BAD-3', 'Badami 3kg Box', 'Badami', '3kg', 129_900, BADAMI],
+  ['BAD-5', 'Badami 5kg Box', 'Badami', '5kg', 199_900, BADAMI],
 ]
 
 const PINCODES = [
@@ -36,11 +38,12 @@ const DEMO_USERS = [
 ]
 
 export async function seed() {
-  for (const [sku, name, variety, box, price] of PRODUCTS) {
+  for (const [sku, name, variety, box, price, description] of PRODUCTS) {
+    // A description is filled in once; after that it is the shop's to change.
     await query(
-      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code) VALUES ($1, $2, $3, $4, $5, 0, '08045020')
-       ON CONFLICT (sku) DO NOTHING`,
-      [sku, name, variety, box, price],
+      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description) VALUES ($1, $2, $3, $4, $5, 0, '08045020', $6)
+       ON CONFLICT (sku) DO UPDATE SET description = EXCLUDED.description WHERE products.description = ''`,
+      [sku, name, variety, box, price, description],
     )
   }
   for (const [pin, city, zone] of PINCODES) {

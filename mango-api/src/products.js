@@ -5,11 +5,11 @@ import { query } from './db.js'
 let bySku = new Map()
 
 export async function loadProducts() {
-  const { rows } = await query('SELECT sku, name, variety, box_size, price, gst_rate, hsn_code FROM products ORDER BY sku')
+  const { rows } = await query('SELECT sku, name, variety, box_size, price, gst_rate, hsn_code, description FROM products ORDER BY sku')
   bySku = new Map(
     rows.map((r) => [
       r.sku,
-      { sku: r.sku, name: r.name, variety: r.variety, boxSize: r.box_size, price: r.price, gstRate: Number(r.gst_rate), hsnCode: r.hsn_code },
+      { sku: r.sku, name: r.name, variety: r.variety, boxSize: r.box_size, price: r.price, gstRate: Number(r.gst_rate), hsnCode: r.hsn_code, description: r.description },
     ]),
   )
 }

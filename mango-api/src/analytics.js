@@ -20,7 +20,7 @@ export function mondayOf(d) {
 
 export async function analytics({ from, to }) {
   const p = [from, to]
-  const [sold, delivered, failed, cancels, refunds, stock, risk, claims, skuSold, skuStock] = await Promise.all([
+  const [sold, delivered, failed, cancels, refunds, stock, risk, claims, skuSold, skuStock, ratings, lowRatings] = await Promise.all([
     query(
       `SELECT ${WEEK('o.delivery_date')} AS week,
               COUNT(*) FILTER (WHERE o.replacement_for IS NULL)::int AS orders,
@@ -74,10 +74,22 @@ export async function analytics({ from, to }) {
          FROM batch_ledger WHERE sku IS NOT NULL AND ${IST('created_at')} BETWEEN $1 AND $2 GROUP BY 1`,
       p,
     ),
+    query(
+      `SELECT ${WEEK('o.delivery_date')} AS week, COUNT(*)::int AS n, SUM(r.stars)::int AS stars
+         FROM order_ratings r JOIN orders o ON o.id = r.order_id WHERE o.delivery_date BETWEEN $1 AND $2 GROUP BY 1`,
+      p,
+    ),
+    // The unhappy ones, newest first, so someone can call them back.
+    query(
+      `SELECT o.id, o.number, o.delivery_date, r.stars, r.comment, r.updated_at
+         FROM order_ratings r JOIN orders o ON o.id = r.order_id
+        WHERE r.stars <= 2 AND o.delivery_date BETWEEN $1 AND $2 ORDER BY r.updated_at DESC LIMIT 20`,
+      p,
+    ),
   ])
 
   const byWeek = (r) => new Map(r.rows.map((x) => [x.week, x]))
-  const [s, d, f, c, rf, st, rk, cl] = [sold, delivered, failed, cancels, refunds, stock, risk, claims].map(byWeek)
+  const [s, d, f, c, rf, st, rk, cl, rt] = [sold, delivered, failed, cancels, refunds, stock, risk, claims, ratings].map(byWeek)
   const weeks = []
   for (let w = mondayOf(from); w <= to; w = addDays(w, 7)) {
     const row = {
@@ -96,6 +108,8 @@ export async function analytics({ from, to }) {
       atRisk: rk.get(w)?.n ?? 0,
       claims: cl.get(w)?.n ?? 0,
       claimsReplaced: cl.get(w)?.replaced ?? 0,
+      ratings: rt.get(w)?.n ?? 0,
+      ratingStars: rt.get(w)?.stars ?? 0,
     }
     weeks.push({ ...row, wastageRate: ratio(row.wasted, row.received), atRiskRate: ratio(row.atRisk, row.orders) })
   }
@@ -110,5 +124,10 @@ export async function analytics({ from, to }) {
   const totals = Object.fromEntries(Object.keys(weeks[0] ?? {}).filter((k) => typeof weeks[0][k] === 'number' && !k.endsWith('Rate')).map((k) => [k, sum(k)]))
   totals.wastageRate = ratio(totals.wasted ?? 0, totals.received ?? 0)
   totals.atRiskRate = ratio(totals.atRisk ?? 0, totals.orders ?? 0)
-  return { from, to, weeks, bySku, totals }
+  // Average stars (1 to 5), one decimal; null when nobody rated.
+  const stars = (n, sum) => (n ? Math.round((sum / n) * 10) / 10 : null)
+  for (const w of weeks) w.averageRating = stars(w.ratings, w.ratingStars)
+  totals.averageRating = stars(totals.ratings ?? 0, totals.ratingStars ?? 0)
+  const unhappy = lowRatings.rows.map((r) => ({ orderId: r.id, number: r.number, deliveryDate: r.delivery_date, stars: r.stars, comment: r.comment, at: r.updated_at }))
+  return { from, to, weeks, bySku, totals, lowRatings: unhappy }
 }

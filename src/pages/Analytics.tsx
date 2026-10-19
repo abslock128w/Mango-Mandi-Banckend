@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { date, rupees } from '../format'
@@ -55,7 +55,28 @@ export default function Analytics() {
             <Tile value={pct(q.data.totals.wastageRate)} label="Boxes wasted" hint={`${q.data.totals.wasted} of ${q.data.totals.received} received`} />
             <Tile value={pct(q.data.totals.atRiskRate)} label="Orders at risk" hint={`${q.data.totals.atRisk} of ${q.data.totals.orders}`} />
             <Tile value={String(q.data.totals.claims)} label="Claims" hint={`${q.data.totals.claimsReplaced} replaced`} />
+            <Tile
+              value={q.data.totals.averageRating != null ? `${q.data.totals.averageRating.toFixed(1)} ★` : '—'}
+              label="Customer rating"
+              hint={`${q.data.totals.ratings ?? 0} ${q.data.totals.ratings === 1 ? 'rating' : 'ratings'}`}
+            />
           </div>
+
+          {(q.data.lowRatings ?? []).length > 0 && (
+            <section className="card">
+              <h2>Unhappy customers</h2>
+              <p className="muted small">Orders rated 1 or 2 stars, newest first. Worth a call.</p>
+              <ul className="plain-list">
+                {q.data.lowRatings!.map((r) => (
+                  <li key={r.orderId}>
+                    <Link to={`/orders/${r.orderId}`}>{r.number}</Link> <span aria-label={`${r.stars} out of 5 stars`}>{'★'.repeat(r.stars)}</span>{' '}
+                    <span className="muted small">delivered {date(r.deliveryDate)}</span>
+                    {r.comment && <div className="small">{r.comment}</div>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {q.data.totals.orders === 0 && q.data.totals.received === 0 ? (
             <EmptyState>Nothing sold or received between {date(q.data.from)} and {date(q.data.to)}.</EmptyState>
