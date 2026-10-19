@@ -149,17 +149,6 @@ export interface StockAlert {
 export interface Settings {
   remindersOptIn: boolean
 }
-/** What the QR code on a box opens. */
-export interface Trace {
-  variety: string
-  farm: string | null
-  pluckedOn: string
-  ripeFrom: string
-  ripeUntil: string | null
-  checked: { ripeness: Stage; at: string } | null
-  products: string[]
-  tip: string
-}
 export type IssueType = 'DAMAGED' | 'WRONG_ITEM' | 'NOT_DELIVERED'
 export interface Claim {
   id: string
@@ -400,8 +389,6 @@ export const api = {
   stockAlerts: () => request<StockAlert[]>('GET', '/stock-alerts'),
   addStockAlert: (input: { sku: string; stage: Stage; pincode: string }) => request<StockAlert>('POST', '/stock-alerts', input),
   removeStockAlert: (alertId: string) => request<void>('DELETE', `/stock-alerts/${id(alertId)}`),
-  /** Public: no sign-in needed, it is printed on the box. */
-  trace: (code: string) => raw<Trace>('GET', `/trace/${id(code)}`),
   addresses: () => request<SavedAddress[]>('GET', '/me/addresses'),
   forgetAddress: (addressId: string) => request<void>('DELETE', `/me/addresses/${id(addressId)}`),
   claims: () => request<Claim[]>('GET', '/claims'),

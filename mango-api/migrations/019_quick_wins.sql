@@ -1,6 +1,6 @@
 -- Quick wins (19 October): the ripeness guide after ordering, back-in-stock
--- alerts, reorder reminders and box traceability. (Gift recipients getting the
--- delivery code shipped in 018.)
+-- alerts and reorder reminders. (Gift recipients getting the delivery code
+-- shipped in 018; box QR labels are their own feature.)
 
 -- "Tell me when it's back": one open alert per customer, box and ripeness.
 CREATE TABLE stock_alerts (
@@ -32,8 +32,3 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_kind_check CHECK (kind IN
   'ORDER_CONFIRMED','REPLACEMENT_CONFIRMED','OUT_FOR_DELIVERY','DELIVERED','DELIVERY_FAILED','CANCELLED','REFUNDED',
   'PREORDER_BOOKED','PREORDER_SPOT_OPEN','PREORDER_MOVED','DATE_MOVED','GIFT_OUT_FOR_DELIVERY',
   'RIPENESS_GUIDE','BACK_IN_STOCK','REORDER_REMINDER'));
-
--- Traceability: a short public code per batch, printed as a QR on each box.
--- Random, so codes can't be guessed in order. Existing batches get one each.
-ALTER TABLE batches ADD COLUMN trace_code TEXT DEFAULT substr(md5(random()::text || clock_timestamp()::text), 1, 10);
-CREATE UNIQUE INDEX batches_trace_code_idx ON batches (trace_code);

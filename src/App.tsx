@@ -10,7 +10,6 @@ import Login from './pages/Login'
 import Today from './pages/Today'
 import Batches from './pages/Batches'
 import BatchDetail from './pages/BatchDetail'
-import BoxLabels from './pages/BoxLabels'
 import Orders from './pages/Orders'
 import OrderDetail from './pages/OrderDetail'
 import PackList from './pages/PackList'
@@ -105,7 +104,6 @@ export default function App() {
             <Route path="/today" element={<Only screen="today"><Today /></Only>} />
             <Route path="/batches" element={<Only screen="batches"><Batches /></Only>} />
             <Route path="/batches/:id" element={<Only screen="batches"><BatchDetail /></Only>} />
-            <Route path="/batches/:id/labels" element={<Only screen="batches"><BoxLabels /></Only>} />
             <Route path="/orders" element={<Only screen="orders"><Orders /></Only>} />
             <Route path="/orders/:id" element={<Only screen="orderDetail"><OrderDetail /></Only>} />
             <Route path="/pack-list" element={<Only screen="packList"><PackList /></Only>} />
