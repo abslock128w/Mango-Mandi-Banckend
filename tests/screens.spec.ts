@@ -505,6 +505,9 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
   await dialog.getByRole('button', { name: 'Add' }).click()
   await expect(page.getByText('ravi@mandimangoes.test added as Packer')).toBeVisible()
   expect(api.calls.find((c) => c.method === 'POST' && c.path === '/staff')?.body).toEqual({ email: 'ravi@mandimangoes.test', role: 'PACKER', password: 'long-enough-1' })
+  // Their two-step setup code is shown once, to hand over with the password.
+  await expect(page.getByRole('dialog', { name: 'Setup code for ravi@mandimangoes.test' })).toContainText('mnpq-7890')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
 
   await page.getByLabel('Role for ops@mandimangoes.test').selectOption('QC')
   await expect(page.getByText('ops@mandimangoes.test is now QC. They will need to sign in again.')).toBeVisible()

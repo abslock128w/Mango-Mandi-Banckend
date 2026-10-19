@@ -53,6 +53,22 @@ test('a manager who must use two-step sets it up before seeing the panel', async
   expect(api.twoStep.enabled).toBe(true)
 })
 
+test('where a setup code is needed, the password alone does not start set-up', async ({ page }) => {
+  const api = await mockApi(page, { twoStep: 'required-with-code' })
+  await signIn(page)
+  await expect(page.getByRole('heading', { name: 'Set up two-step sign-in' })).toBeVisible()
+  const start = page.getByRole('button', { name: 'Set up two-step sign-in' })
+  await expect(start).toBeDisabled()
+  await page.getByLabel('Setup code from your manager').fill('zzzz-zzzz')
+  await start.click()
+  await expect(page.getByRole('alert')).toContainText('setup code is not right')
+  await noViolations(page)
+  await page.getByLabel('Setup code from your manager').fill('k7qd-2mxp')
+  await start.click()
+  await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible()
+  expect(api.calls.filter((c) => c.path === '/me/two-step/setup').map((c) => (c.body as { setupCode?: string }).setupCode)).toEqual(['zzzz-zzzz', 'k7qd-2mxp'])
+})
+
 test('anyone can turn it on from the menu; a manager resets someone who lost their phone', async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/staff')
@@ -61,7 +77,14 @@ test('anyone can turn it on from the menu; a manager resets someone who lost the
   await opsRow.getByRole('button', { name: 'Reset two-step for ops@mandimangoes.test' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Reset' }).click()
   await expect.poll(() => api.calls.some((c) => c.path === '/staff/adm2/two-step/reset')).toBe(true)
+  // The setup code they need next is shown once.
+  await expect(page.getByRole('dialog', { name: 'Setup code for ops@mandimangoes.test' })).toContainText('rstu-vwxy')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
   await expect(opsRow.getByRole('cell', { name: 'Off', exact: true })).toBeVisible()
+  // Someone without two-step can be given a new code.
+  await opsRow.getByRole('button', { name: 'Setup code for ops@mandimangoes.test' }).click()
+  await expect(page.getByRole('dialog', { name: 'Setup code for ops@mandimangoes.test' })).toContainText('abcd-2345')
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click()
 
   await page.getByRole('link', { name: 'Two-step sign-in (off)' }).click()
   await expect(page.getByRole('heading', { name: 'Two-step sign-in' })).toBeVisible()

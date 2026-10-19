@@ -205,7 +205,8 @@ export const api = {
   },
 
   /** Starts setting up two-step sign-in: the secret for the authenticator app. */
-  twoStepSetup: () => request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup'),
+  twoStepSetup: (setupCode?: string) =>
+    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', setupCode ? { setupCode } : {}),
   /** Confirms a code from the app. Returns the recovery codes, shown this once. */
   async twoStepEnable(code: string): Promise<string[]> {
     const r = await request<{ recoveryCodes: string[]; accessToken: string }>('POST', '/me/two-step/enable', { code })
@@ -214,7 +215,10 @@ export const api = {
   },
   twoStepDisable: (code: string) => request<void>('POST', '/me/two-step/disable', { code }),
   me: () => request<Me>('GET', '/auth/me'),
-  resetTwoStep: (staffId: string) => request<void>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  /** Clears someone's two-step sign-in. Returns the setup code they need to set it up again (shown once). */
+  resetTwoStep: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  /** A new setup code for someone who hasn't set up two-step sign-in yet (shown once). */
+  newSetupCode: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`),
 
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {

@@ -13,8 +13,8 @@ export function TwoStepGate() {
       <div className="card">
         <h1>Set up two-step sign-in</h1>
         <p>
-          Managers sign in with a code from an authenticator app as well as their password. It keeps orders, stock and staff safe if a password
-          leaks. This takes about a minute.
+          Your role signs in with a code from an authenticator app as well as a password. It keeps orders, stock and customers' details safe if a
+          password leaks. This takes about a minute.
         </p>
         <Setup />
         <p className="small">
@@ -58,7 +58,9 @@ export default function TwoStepPage() {
 }
 
 function Setup() {
-  const { setMe } = useSession()
+  const { me, setMe } = useSession()
+  const needsCode = Boolean(me?.twoStep?.setupCodeNeeded)
+  const [setupCode, setSetupCode] = useState('')
   const [secret, setSecret] = useState<{ secret: string; otpauthUrl: string } | null>(null)
   const [qr, setQr] = useState<string | null>(null)
   const [code, setCode] = useState('')
@@ -79,7 +81,7 @@ function Setup() {
     setBusy(true)
     setError(null)
     try {
-      setSecret(await api.twoStepSetup())
+      setSecret(await api.twoStepSetup(needsCode ? setupCode.trim() : undefined))
     } catch (err) {
       setError(err)
     } finally {
@@ -127,12 +129,36 @@ function Setup() {
   }
   if (!secret) {
     return (
-      <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          void start()
+        }}
+        noValidate
+      >
+        {needsCode && (
+          <div className="field">
+            <label htmlFor="setup-code-from-manager">Setup code from your manager</label>
+            <input
+              id="setup-code-from-manager"
+              autoComplete="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={9}
+              value={setupCode}
+              aria-describedby="setup-code-hint"
+              onChange={(e) => setSetupCode(e.target.value)}
+            />
+            <p className="hint" id="setup-code-hint">
+              Like k7qd-2mxp. A manager gives you one when they add you or reset your two-step sign-in.
+            </p>
+          </div>
+        )}
         <FormError error={error} />
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void start()}>
+        <button type="submit" className="btn btn-primary" disabled={busy || (needsCode && setupCode.trim().length < 8)}>
           {busy ? 'Starting…' : 'Set up two-step sign-in'}
         </button>
-      </>
+      </form>
     )
   }
   return (
