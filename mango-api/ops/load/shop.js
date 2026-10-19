@@ -59,7 +59,9 @@ export function checkout() {
   if (!item) return
   note(http.post(`${API}/v1/cart/items`, JSON.stringify({ sku: item.sku, stage: item.stage, qty: 1 }), auth))
   const slots = note(http.get(`${API}/v1/delivery/slots?pincode=${PIN}`)).json('slots') || []
-  const q = note(http.post(`${API}/v1/checkout/quote`, JSON.stringify({ pincode: PIN, slotId: slots[0]?.id ?? null }), auth))
+  // The first slot with room, as a customer would pick (slots[0] fills after 40 boxes).
+  const slot = slots.find((s) => s.available) ?? slots[0]
+  const q = note(http.post(`${API}/v1/checkout/quote`, JSON.stringify({ pincode: PIN, slotId: slot?.id ?? null }), auth))
   if (q.status !== 200) return
   const c = note(
     http.post(`${API}/v1/checkout/confirm`, JSON.stringify({ quoteId: q.json('quoteId'), address: '12, 4th Cross, Koramangala, Bengaluru' }), {
