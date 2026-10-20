@@ -178,8 +178,10 @@ async function startPhoneLink() {
   }
   if (!bin || !existsSync(bin)) return null
   say('Making the phone link')
+  // 127.0.0.1, not localhost: on Windows localhost can mean the IPv6 address, which the shop
+  // (listening on 0.0.0.0 for the Wi-Fi) does not answer, and the link shows a 502.
   return new Promise((resolve) => {
-    const p = spawn(bin, ['tunnel', '--no-autoupdate', '--url', SHOP], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const p = spawn(bin, ['tunnel', '--no-autoupdate', '--url', 'http://127.0.0.1:5174'], { stdio: ['ignore', 'pipe', 'pipe'] })
     children.push(p)
     const timer = setTimeout(() => resolve(null), 60_000)
     const read = (chunk) => {
