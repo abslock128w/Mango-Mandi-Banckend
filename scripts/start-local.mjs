@@ -17,18 +17,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const local = path.join(root, '.local')
 const DB_PORT = 54329
-/** This computer's address on the home Wi-Fi (a private 192.168.x / 10.x / 172.16-31.x address), or null. */
-function wifiAddress() {
+/** This computer's private addresses (192.168.x / 10.x / 172.16-31.x): a phone on the same Wi-Fi uses one. */
+function wifiAddresses() {
   const all = Object.values(networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal)
   const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : 9)
-  const best = all.map((a) => a.address).sort((a, b) => rank(a) - rank(b))[0]
-  return best && rank(best) < 9 ? best : null
+  return [...new Set(all.map((a) => a.address))].filter((ip) => rank(ip) < 9).sort((a, b) => rank(a) - rank(b))
 }
-const HOST = (!process.argv.includes('--no-wifi') && wifiAddress()) || 'localhost'
-const SHOP = `http://${HOST}:5174`
-const PANEL = `http://${HOST}:5173`
-const API = `http://${HOST}:3000`
-const LOCAL_API = 'http://localhost:3000'
+const WIFI = process.argv.includes('--no-wifi') ? [] : wifiAddresses()
+const SHOP = 'http://localhost:5174'
+const PANEL = 'http://localhost:5173'
+const API = 'http://localhost:3000'
 const children = []
 
 const say = (msg) => console.log(`\n==> ${msg}`)
@@ -124,18 +122,18 @@ async function main() {
     // The shop's test-mode pay buttons use /v1/dev.
     ENABLE_DEV_ROUTES: 'true',
     LOG_LEVEL: 'warn',
-    // Pages opened by Wi-Fi address and by localhost are both allowed.
-    ADMIN_ORIGIN: [PANEL, 'http://localhost:5173'].join(','),
-    CUSTOMER_ORIGIN: [SHOP, 'http://localhost:5174'].join(','),
+    // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
+    CUSTOMER_ORIGIN: [SHOP, ...WIFI.map((ip) => `http://${ip}:5174`)].join(','),
   })
-  await waitFor(`${LOCAL_API}/ready`)
+  await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')
-  const lan = HOST === 'localhost' ? '' : ' --host 0.0.0.0'
-  start(`npx vite --port 5173 --strictPort${lan}`, root, { VITE_API_URL: API }, true)
-  start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort${lan}`, root, { VITE_API_URL: API }, true)
-  await waitFor('http://localhost:5174')
-  await waitFor('http://localhost:5173')
+  start('npx vite --port 5173 --strictPort', root, { VITE_API_URL: API }, true)
+  // The shop calls its own address and Vite passes /v1 to the API, so phones need only port 5174.
+  const shopEnv = WIFI.length ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
+  start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort${WIFI.length ? ' --host 0.0.0.0' : ''}`, root, shopEnv, true)
+  await waitFor(SHOP)
+  await waitFor(PANEL)
 
   if (!process.argv.includes('--no-open')) {
     openBrowser(SHOP)
@@ -147,12 +145,14 @@ MandiMangoes is running.
   Staff panel:  ${PANEL}   (manager@mandimangoes.test / manager123)
 
 ${
-    HOST === 'localhost'
-      ? ''
-      : `
-On your phone: join the same Wi-Fi as this computer, then open ${SHOP} in the browser.
-(If Windows asks whether Node.js may use the network, tick Private networks and click Allow.)
+    WIFI.length
+      ? `
+On your phone: join the same Wi-Fi as this computer, then open this in the browser:
+${WIFI.map((ip) => `  http://${ip}:5174`).join('\n')}
+(If more than one is listed, try the first. If Windows asks whether Node.js may use
+the network, tick Private networks and click Allow.)
 `
+      : ''
   }
 Leave this window open. Press Ctrl+C or close it to stop.`)
 }
