@@ -5,8 +5,8 @@
 //   node scripts/start-local.mjs            (add --no-open to skip the browser)
 //
 // Ctrl+C or closing the window stops everything. Data is kept in .local/ between runs.
-// It also shares the shop and panel on this Wi-Fi, so a phone on the same Wi-Fi can open them
-// (add --no-wifi to keep everything on this computer only).
+// It also makes a temporary phone link (https://….trycloudflare.com) to the shop that works on any
+// network, and shares the shop on this Wi-Fi. Add --no-phone to keep everything on this computer.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -23,7 +23,8 @@ function wifiAddresses() {
   const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : 9)
   return [...new Set(all.map((a) => a.address))].filter((ip) => rank(ip) < 9).sort((a, b) => rank(a) - rank(b))
 }
-const WIFI = process.argv.includes('--no-wifi') ? [] : wifiAddresses()
+const PHONE = !process.argv.includes('--no-phone') && !process.argv.includes('--no-wifi')
+const WIFI = PHONE ? wifiAddresses() : []
 const SHOP = 'http://localhost:5174'
 const PANEL = 'http://localhost:5173'
 const API = 'http://localhost:3000'
@@ -100,8 +101,12 @@ async function main() {
   mkdirSync(local, { recursive: true })
   if (!existsSync(path.join(local, 'node_modules', 'embedded-postgres'))) {
     say('Downloading the database (first run only)')
-    writeFileSync(path.join(local, 'package.json'), '{ "private": true }\n')
+    if (!existsSync(path.join(local, 'package.json'))) writeFileSync(path.join(local, 'package.json'), '{ "private": true }\n')
     await run('npm install embedded-postgres@16.14.0-beta.17 --no-audit --no-fund --loglevel=error', local)
+  }
+  if (PHONE && !existsSync(path.join(local, 'node_modules', 'cloudflared'))) {
+    say('Downloading the phone link tool (first run only)')
+    await run('npm install cloudflared@0.7.3 --no-audit --no-fund --loglevel=error', local).catch(() => console.log('   (could not download it; the phone link is skipped)'))
   }
 
   say('Starting the database')
@@ -130,10 +135,11 @@ async function main() {
   say('Starting the shop and the staff panel')
   start('npx vite --port 5173 --strictPort', root, { VITE_API_URL: API }, true)
   // The shop calls its own address and Vite passes /v1 to the API, so phones need only port 5174.
-  const shopEnv = WIFI.length ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
+  const shopEnv = PHONE ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
   start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort${WIFI.length ? ' --host 0.0.0.0' : ''}`, root, shopEnv, true)
   await waitFor(SHOP)
   await waitFor(PANEL)
+  const phoneLink = PHONE ? await startPhoneLink() : null
 
   if (!process.argv.includes('--no-open')) {
     openBrowser(SHOP)
@@ -145,16 +151,51 @@ MandiMangoes is running.
   Staff panel:  ${PANEL}   (manager@mandimangoes.test / manager123)
 
 ${
+    phoneLink
+      ? `
+On your phone (Wi-Fi or mobile data), open:  ${phoneLink}
+(A new link is made each time this starts. Anyone with the link can see this demo shop.)
+`
+      : ''
+  }${
     WIFI.length
       ? `
-On your phone: join the same Wi-Fi as this computer, then open this in the browser:
-${WIFI.map((ip) => `  http://${ip}:5174`).join('\n')}
-(If more than one is listed, try the first. If Windows asks whether Node.js may use
-the network, tick Private networks and click Allow.)
+Or, on the same Wi-Fi as this computer: ${WIFI.map((ip) => `http://${ip}:5174`).join('  or  ')}
 `
       : ''
   }
 Leave this window open. Press Ctrl+C or close it to stop.`)
+}
+
+/** Opens a temporary public https link to the shop with Cloudflare's free quick tunnel; null if it fails. */
+async function startPhoneLink() {
+  let bin
+  try {
+    const req = createRequire(path.join(local, 'package.json'))
+    ;({ bin } = await import(pathToFileURL(req.resolve('cloudflared')).href))
+  } catch {
+    return null
+  }
+  if (!bin || !existsSync(bin)) return null
+  say('Making the phone link')
+  return new Promise((resolve) => {
+    const p = spawn(bin, ['tunnel', '--no-autoupdate', '--url', SHOP], { stdio: ['ignore', 'pipe', 'pipe'] })
+    children.push(p)
+    const timer = setTimeout(() => resolve(null), 60_000)
+    const read = (chunk) => {
+      const m = String(chunk).match(/https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/)
+      if (m) {
+        clearTimeout(timer)
+        resolve(m[0])
+      }
+    }
+    p.stdout.on('data', read)
+    p.stderr.on('data', read)
+    p.on('exit', () => {
+      clearTimeout(timer)
+      resolve(null)
+    })
+  })
 }
 
 main().catch((err) => {

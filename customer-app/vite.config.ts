@@ -13,9 +13,20 @@ export default defineConfig(({ mode }) => {
       port: 5174,
       // The shared design tokens live in ../design, outside this folder.
       fs: { allow: [path.resolve(__dirname, '..')] },
-      // Local runs for phones: the shop calls its own address and Vite passes /v1 on to the API,
-      // so a phone on the Wi-Fi only needs to reach this one port.
-      ...(env.SHOP_API_PROXY ? { proxy: { '/v1': { target: env.SHOP_API_PROXY, changeOrigin: false } } } : {}),
+      // Local runs for phones (scripts/start-local.mjs): the shop calls its own address and Vite
+      // passes /v1 on to the API, so a phone needs to reach only this server, by Wi-Fi address or
+      // through the temporary phone link. The API then sees the request as coming from the shop.
+      ...(env.SHOP_API_PROXY
+        ? {
+            allowedHosts: true,
+            proxy: {
+              '/v1': {
+                target: env.SHOP_API_PROXY,
+                configure: (proxy) => proxy.on('proxyReq', (req) => req.getHeader('origin') && req.setHeader('origin', 'http://localhost:5174')),
+              },
+            },
+          }
+        : {}),
     },
     preview: { port: 5174 },
     build: { outDir: 'dist', emptyOutDir: true },
