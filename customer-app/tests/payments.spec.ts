@@ -256,6 +256,22 @@ test('FE-5: an HTML error page from a proxy reads as a message, not a SyntaxErro
   expected(consoleErrors, /status of 502/)
 })
 
+test('a sign-out while a token refresh is on its way stays signed out', async ({ page }, info) => {
+  await signIn(page, newPhone('7', info.project.name), '/')
+  // The refresh answers only after the customer has signed out (seen once in CI on a busy runner).
+  await page.route('**/auth/token/refresh', async (route) => {
+    const res = await route.fetch()
+    await new Promise((r) => setTimeout(r, 1500))
+    await route.fulfill({ response: res })
+  })
+  await page.reload()
+  await page.getByRole('link', { name: 'Account', exact: true }).click()
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await page.waitForTimeout(2000)
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Account', exact: true })).toHaveCount(0)
+})
+
 test('FE-6: signing out forgets the saved address and cart on this device', async ({ page }, info) => {
   const phone = newPhone('6', info.project.name)
   await signIn(page, phone, '/')

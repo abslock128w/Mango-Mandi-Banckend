@@ -358,6 +358,7 @@ const PERSONAL_KEYS = ['mm.address', 'mm.cart']
  * address and cart go too. An expired session keeps them for the next sign-in.
  */
 function signedOut(forget = false) {
+  epoch++
   const was = profile
   accessToken = null
   profile = null
@@ -366,12 +367,17 @@ function signedOut(forget = false) {
   if (was || forget) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { forget } }))
 }
 
+/** Goes up on every sign-out, so a refresh that was already on its way cannot sign the customer back in. */
+let epoch = 0
 let refreshing: Promise<boolean> | null = null
 function refreshOnce(): Promise<boolean> {
   if (!profile) return Promise.resolve(false)
   refreshing ??= (async () => {
+    const started = epoch
     try {
-      signedIn(await raw<TokenResponse>('POST', '/auth/token/refresh', {}))
+      const r = await raw<TokenResponse>('POST', '/auth/token/refresh', {})
+      if (epoch !== started) return false
+      signedIn(r)
       return true
     } catch (err) {
       // Only a refused session (401) is a sign-out. Offline, busy (429) or a
