@@ -55,7 +55,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 15px/1.5 var(--font-sans);
 }
 
 a {
@@ -887,12 +887,12 @@ dl.kv dd {
   image-rendering: pixelated;
 }
 .secret-key {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.05em;
   word-break: break-all;
 }
 .recovery-codes {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   display: grid;
   grid-template-columns: repeat(2, max-content);
   gap: 0.25rem 2rem;

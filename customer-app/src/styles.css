@@ -1,40 +1,26 @@
 :root {
-  --bg: #fffaf0;
-  --surface: #ffffff;
-  --ink: #1f1a14;
-  --muted: #6b5f52;
-  --line: #eadfcd;
-  --mango: #d97706;
-  --mango-strong: #b45309;
-  --mango-soft: #fef3c7;
-  --leaf: #15803d;
-  --leaf-soft: #dcfce7;
-  --warn-soft: #ffedd5;
-  --warn-ink: #9a3412;
-  --info-soft: #e0f2fe;
-  --info-ink: #075985;
-  --danger: #b91c1c;
-  --radius: 14px;
+  /* Aliases onto the shared tokens in design/tokens.css (imported in main.tsx). */
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --line: var(--color-line);
+  --mango: var(--color-accent);
+  --mango-strong: var(--color-accent-strong);
+  --mango-soft: var(--color-accent-soft);
+  --leaf: var(--color-success);
+  --leaf-soft: var(--color-success-soft);
+  --warn-soft: var(--color-warning-soft);
+  --warn-ink: var(--color-warning);
+  --info-soft: var(--color-info-soft);
+  --info-ink: var(--color-info);
+  --danger: var(--color-error);
+  --radius: var(--radius-md);
   --shadow: 0 1px 2px rgb(60 40 10 / 6%), 0 4px 16px rgb(60 40 10 / 6%);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17130e;
-    --surface: #221c15;
-    --ink: #f6efe4;
-    --muted: #bcae9b;
-    --line: #3a3026;
-    --mango: #f59e0b;
-    --mango-strong: #fbbf24;
-    --mango-soft: #3b2a10;
-    --leaf: #4ade80;
-    --leaf-soft: #14301d;
-    --warn-soft: #3d2410;
-    --warn-ink: #fdba74;
-    --info-soft: #102a3a;
-    --info-ink: #7dd3fc;
-    --danger: #f87171;
     --shadow: none;
     color-scheme: dark;
   }
@@ -50,7 +36,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink);
-  font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font: 16px/1.5 var(--font-sans);
 }
 h1 {
   font-size: 1.6rem;
