@@ -10,6 +10,25 @@ export function Spinner({ label = 'Loading' }: { label?: string }) {
   )
 }
 
+/** Grey placeholder cards shaped like what is loading, so nothing jumps when it arrives. */
+export function Skeleton({ label, cards = 3, tall = false }: { label: string; cards?: number; tall?: boolean }) {
+  return (
+    <div className="skeletons" role="status" aria-busy="true">
+      <span className="sr-only">{label}…</span>
+      {Array.from({ length: cards }, (_, i) => (
+        <div key={i} className={tall ? 'card skeleton skeleton-tall' : 'card skeleton'} aria-hidden="true">
+          <span className="sk sk-round" />
+          <span className="sk-lines">
+            <span className="sk sk-line" />
+            <span className="sk sk-line sk-short" />
+            <span className="sk sk-line sk-shorter" />
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   if (!error) return null
   return (

@@ -1509,3 +1509,190 @@ a.chip {
   display: block;
   padding: 0 0.75rem 0.65rem 2.6rem;
 }
+
+/* loading placeholders shaped like the cards */
+.skeletons {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.skeleton {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 112px;
+}
+.skeleton-tall {
+  min-height: 260px;
+  align-items: flex-start;
+}
+.sk {
+  display: block;
+  background: var(--line);
+  border-radius: var(--radius-sm);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+}
+.sk-round {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.sk-lines {
+  flex: 1;
+  display: grid;
+  gap: var(--space-2);
+}
+.sk-line {
+  height: 14px;
+}
+.sk-short {
+  width: 70%;
+}
+.sk-shorter {
+  width: 40%;
+}
+@keyframes sk-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk {
+    animation: none;
+  }
+}
+
+/* home shelves: a short row that scrolls sideways on phones */
+.shelf {
+  margin-bottom: var(--space-4);
+}
+.shelf .section-title {
+  margin-bottom: var(--space-1);
+}
+.shelf > .muted {
+  margin: 0 0 var(--space-2);
+}
+.shelf-row {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(150px, 44%);
+  gap: var(--space-3);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+@media (min-width: 640px) {
+  .shelf-row {
+    grid-auto-columns: minmax(160px, 1fr);
+  }
+}
+.shelf-card {
+  position: relative;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+}
+.shelf-card:hover,
+.shelf-card:focus-within {
+  border-color: var(--mango);
+}
+.shelf-card:has(.card-link:focus-visible) {
+  outline: 3px solid var(--mango);
+  outline-offset: 2px;
+}
+.shelf-name {
+  font-weight: 600;
+  line-height: 1.3;
+}
+.gift-banner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  background: var(--mango-soft);
+  border-color: transparent;
+}
+.gift-banner h2 {
+  font-size: 1.1rem;
+  margin: 0 0 var(--space-1);
+}
+.gift-banner p {
+  margin: 0;
+}
+
+/* variety story and the quality page */
+.story h2 {
+  font-size: 1.15rem;
+}
+.story-facts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.story-facts dt {
+  font-weight: 600;
+}
+.story-facts dd {
+  margin: 0;
+  color: var(--muted);
+}
+.steps-list {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  counter-reset: step;
+}
+.steps-list li {
+  counter-increment: step;
+  position: relative;
+  padding-left: calc(var(--space-4) + 2.25rem);
+}
+.steps-list li::before {
+  content: counter(step);
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-4);
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--mango);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.steps-list h2 {
+  font-size: 1.05rem;
+  margin: 0 0 var(--space-1);
+}
+.steps-list p {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* the cart count gives one small bounce when a box is added */
+.count.bump {
+  animation: bump var(--motion-slow) ease-out;
+}
+@keyframes bump {
+  40% {
+    transform: scale(1.35);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .count.bump {
+    animation: none;
+  }
+}
+.shelf-card .stage-dot {
+  display: inline-block;
+  margin: 0 0.2rem 0 0;
+  vertical-align: middle;
+}

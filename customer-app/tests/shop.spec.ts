@@ -384,3 +384,36 @@ test('the top bar changes the pincode and searches; the bottom tabs move between
   await expect(page).toHaveURL(/\/sign-in/)
   await noA11yViolations(page)
 })
+
+test('home shelves open a box at that ripeness; the variety story and quality page', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Your delivery pincode').fill('560034')
+  await page.getByRole('button', { name: 'Show mangoes' }).click()
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
+  await noA11yViolations(page)
+
+  // Whichever shelf has stock today: its card opens the product page with that ripeness chosen.
+  const shelves = [
+    { title: 'Ripe to eat now', stage: 'Ripe' },
+    { title: 'Ripen at home this week', stage: null },
+  ]
+  let opened = false
+  for (const s of shelves) {
+    const shelf = page.getByRole('region', { name: s.title })
+    if (!(await shelf.count())) continue
+    const card = shelf.getByRole('listitem').first()
+    const stage = s.stage ?? ((await card.textContent())!.includes('Semi-ripe') ? 'Semi-ripe' : 'Raw')
+    await card.getByRole('link').click()
+    await expect(page.getByRole('radio', { name: stage, exact: true })).toBeChecked()
+    opened = true
+    break
+  }
+  expect(opened).toBe(true)
+
+  await expect(page.getByRole('heading', { name: /^About / })).toBeVisible()
+  await noA11yViolations(page)
+  await page.getByRole('link', { name: 'How we pick and check every box' }).click()
+  await expect(page.getByRole('heading', { name: 'How we pick and check every box' })).toBeVisible()
+  await expect(page.getByText('refund')).toHaveCount(0)
+  await noA11yViolations(page)
+})

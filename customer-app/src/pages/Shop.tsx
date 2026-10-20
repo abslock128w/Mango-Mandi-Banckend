@@ -5,7 +5,7 @@ import { Stars } from '../stars'
 import { ApiError, api, errorMessage, type CatalogueItem } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
-import { ErrorNote, Spinner } from '../ui'
+import { ErrorNote, Skeleton } from '../ui'
 import { BookAheadCard } from './Preorder'
 import { MangoArt } from '../mango'
 import type { Stage } from '../api'
@@ -171,7 +171,7 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   useEffect(() => {
     if (stale) onDate(null)
   }, [stale, onDate])
-  if (q.isPending) return <Spinner label="Loading mangoes" />
+  if (q.isPending) return <Skeleton label="Loading mangoes" />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   if (!q.data.serviceable) return <ErrorNote error={`We don't deliver to ${pincode} yet.`} />
   const all = groupBySku(q.data.items)
@@ -181,6 +181,7 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
 
   return (
     <>
+      {!search && <Shelves products={all} />}
       <section aria-labelledby="pick">
         <h2 id="pick" className="section-title">
           {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
@@ -198,6 +199,63 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
         </div>
       </section>
     </>
+  )
+}
+
+type ShelfItem = { product: ProductGroup; stage: Stage; line: string }
+
+/** Browse-first home: a few short shelves above the full list, each opening the box at that ripeness. */
+function Shelves({ products }: { products: ProductGroup[] }) {
+  const inStock = (p: ProductGroup, st: Stage) => p.stages.find((s) => s.stage === st && s.qty > 0)
+  const ripe: ShelfItem[] = products.flatMap((p) => {
+    const s = inStock(p, 'RIPE')
+    return s ? [{ product: p, stage: 'RIPE' as Stage, line: `Eat by ${day(s.eatBy)}` }] : []
+  })
+  const later: ShelfItem[] = products.flatMap((p) => {
+    const s = inStock(p, 'SEMI_RIPE') ?? inStock(p, 'RAW')
+    return s ? [{ product: p, stage: s.stage, line: s.stage === 'RAW' ? 'Ripens at home in 3 to 4 days' : 'Ready in 1 to 2 days' }] : []
+  })
+  if (!ripe.length && !later.length) return null
+  return (
+    <>
+      {ripe.length > 0 && <Shelf id="shelf-ripe" title="Ripe to eat now" note="Ready the day it arrives." items={ripe} />}
+      {later.length > 0 && <Shelf id="shelf-later" title="Ripen at home this week" note="Firm on arrival, at their best a few days later." items={later} />}
+      <section className="card gift-banner" aria-labelledby="gift-title">
+        <div>
+          <h2 id="gift-title">Send a box as a gift</h2>
+          <p className="muted small">Pick any box, then tick "This is a gift" at checkout. We add your note and message them on WhatsApp.</p>
+        </div>
+        <Link to="/quality" className="link-btn">
+          How we pick and check
+        </Link>
+      </section>
+    </>
+  )
+}
+
+function Shelf({ id, title, note, items }: { id: string; title: string; note: string; items: ShelfItem[] }) {
+  return (
+    <section className="shelf" aria-labelledby={id}>
+      <h2 id={id} className="section-title">
+        {title}
+      </h2>
+      <p className="muted small">{note}</p>
+      <ul className="shelf-row">
+        {items.map(({ product: p, stage, line }) => (
+          <li key={`${p.sku}-${stage}`} className="card shelf-card">
+            <MangoArt stage={stage} size={44} />
+            <Link to={`/mangoes/${p.sku}?stage=${stage}`} className="card-link shelf-name">
+              {p.name}
+            </Link>
+            <span className="small">
+              <span className={`stage-dot stage-${stage.toLowerCase()}`} aria-hidden="true" /> {STAGE_LABEL[stage]}
+            </span>
+            <span className="muted small">{line}</span>
+            <strong>{rupees(p.price)}</strong>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

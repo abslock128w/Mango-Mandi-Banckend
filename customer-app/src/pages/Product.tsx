@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ApiError, api, type PublicReview, type Stage } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
@@ -7,7 +7,8 @@ import { MangoArt } from '../mango'
 import { useStore } from '../store'
 import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
-import { Dialog, ErrorNote, Spinner } from '../ui'
+import { Dialog, ErrorNote, Skeleton } from '../ui'
+import { storyFor } from '../varieties'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packaging: 'Packaging', delivery: 'Delivery' } as const
@@ -25,7 +26,7 @@ export default function ProductPage() {
   })
   const [open, setOpen] = useState<{ review: PublicReview; index: number } | null>(null)
 
-  if (q.isPending) return <Spinner label="Loading reviews" />
+  if (q.isPending) return <Skeleton label="Loading this box" cards={2} tall />
   if (q.isError) {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
@@ -44,6 +45,7 @@ export default function ProductPage() {
   return (
     <>
       <BuyBox sku={sku} fallbackName={first.product.name} />
+      <VarietyStoryCard variety={first.product.variety} name={first.product.name} />
       <section className="card" aria-labelledby="ratings-title" id="reviews">
         <h2 id="ratings-title">Ratings and reviews</h2>
         <p className="muted small">From verified buyers of every {variety} box.</p>
@@ -143,14 +145,55 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
   )
 }
 
+/** Where the variety comes from and what it is best for (only for varieties we have a story for). */
+function VarietyStoryCard({ variety, name }: { variety: string; name: string }) {
+  const story = storyFor(variety, name)
+  if (!story) return null
+  return (
+    <section className="card story" aria-labelledby="story-title">
+      <h2 id="story-title">About {story.name}</h2>
+      <dl className="story-facts">
+        <div>
+          <dt>Where it grows</dt>
+          <dd>{story.from}</dd>
+        </div>
+        <div>
+          <dt>Taste</dt>
+          <dd>{story.taste}</dd>
+        </div>
+        <div>
+          <dt>Best for</dt>
+          <dd>{story.bestFor}</dd>
+        </div>
+        <div>
+          <dt>Season</dt>
+          <dd>{story.season}</dd>
+        </div>
+      </dl>
+      <Link to="/quality" className="link-btn">
+        How we pick and check every box
+      </Link>
+    </section>
+  )
+}
+
 /** The Amazon-style buy box: ripeness, how many, Add to cart. Stock is for the day the shop is showing. */
 function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   const { pincode, date, setWhere, cart, setQty } = useStore()
   const q = useQuery({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode!, date), enabled: Boolean(pincode) })
-  const [picked, setPicked] = useState<Stage | null>(null)
+  // A home shelf opens the box at its ripeness with ?stage=.
+  const [params] = useSearchParams()
+  const asked = params.get('stage')
+  const [picked, setPicked] = useState<Stage | null>(asked === 'RAW' || asked === 'SEMI_RIPE' || asked === 'RIPE' ? asked : null)
   const [count, setCount] = useState(1)
   const [added, setAdded] = useState<string | null>(null)
+  const first = useRef(true)
   useEffect(() => {
+    // Keep the shelf's ripeness on first load; reset when the box or day changes.
+    if (first.current) {
+      first.current = false
+      return
+    }
     setPicked(null)
     setCount(1)
     setAdded(null)
@@ -167,7 +210,7 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
       </section>
     )
   }
-  if (q.isPending) return <Spinner label="Loading this box" />
+  if (q.isPending) return <Skeleton label="Loading this box" cards={1} tall />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   const all = groupBySku(q.data.items)
   const p = all.find((x) => x.sku === sku)

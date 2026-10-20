@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SIGNOUT_EVENT } from './api'
@@ -15,6 +15,7 @@ import Privacy from './pages/Privacy'
 import BookAhead, { PreorderPage } from './pages/Preorder'
 import ReviewPage from './pages/Review'
 import ProductPage from './pages/Product'
+import Quality from './pages/Quality'
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
   const { profile } = useStore()
@@ -28,6 +29,7 @@ export default function App() {
   const queryClient = useQueryClient()
   const location = useLocation()
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
+  const bump = useBump(boxes)
   // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
   const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
 
@@ -69,6 +71,7 @@ export default function App() {
           <Route path="/cart" element={<Cart />} />
           <Route path="/sign-in" element={<SignIn />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/quality" element={<Quality />} />
           <Route path="/account" element={<RequireSignIn><Account /></RequireSignIn>} />
           <Route path="/checkout" element={<RequireSignIn><Checkout /></RequireSignIn>} />
           <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />
@@ -95,7 +98,7 @@ export default function App() {
       <footer className={focused ? 'foot foot-flat' : 'foot'}>
         <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
         <p>
-          <Link to="/privacy">Privacy notice</Link>
+          <Link to="/quality">How we pick and check</Link> · <Link to="/privacy">Privacy notice</Link>
         </p>
       </footer>
       {!focused && (
@@ -115,7 +118,11 @@ export default function App() {
         <NavLink to="/cart" className="tab" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
           <span className="tab-icon-wrap">
             <TabIcon d="M3 4h2l2.4 11h11.2L21 7H6.2M9 20a1 1 0 1 0 0-.01M18 20a1 1 0 1 0 0-.01" />
-            {boxes > 0 && <span className="count" aria-hidden="true">{boxes}</span>}
+            {boxes > 0 && (
+              <span key={bump} className={bump ? 'count bump' : 'count'} aria-hidden="true">
+                {boxes}
+              </span>
+            )}
           </span>
           <span aria-hidden="true">Cart</span>
         </NavLink>
@@ -123,6 +130,17 @@ export default function App() {
       )}
     </>
   )
+}
+
+/** Changes each time the count goes up, so the badge replays its bounce. */
+function useBump(count: number) {
+  const [bump, setBump] = useState(0)
+  const last = useRef(count)
+  useEffect(() => {
+    if (count > last.current) setBump((b) => b + 1)
+    last.current = count
+  }, [count])
+  return bump
 }
 
 function TabIcon({ d }: { d: string }) {
