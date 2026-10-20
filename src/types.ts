@@ -86,6 +86,8 @@ export interface Product {
   /** False once a manager removes it from sale; it stays for old orders and batches. */
   active?: boolean
   sortOrder?: number
+  /** The shop photo, a path on the API (add API_URL), or null for the drawn mango. */
+  photoUrl?: string | null
 }
 
 export interface ProductInput {

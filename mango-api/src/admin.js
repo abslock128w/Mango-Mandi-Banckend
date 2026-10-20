@@ -11,7 +11,7 @@ import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, requireAdmin, 
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
 import { currentConfig, rulesSchema, saveConfig } from './config.js'
-import { isOwnPhotoUrl, sendPhoto } from './photos.js'
+import { checkPhoto, cleanImage, dropPhoto, isOwnPhotoUrl, MAX_REVIEW_UPLOAD_BYTES, sendPhoto, storePhoto } from './photos.js'
 import { normaliseCode, promoView } from './promos.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js'
 import { attemptsFor, dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, photoReviews, recordDelivery, recordStaffDelivery, reviewDelivery, savePhoto } from './delivery-proof.js'
@@ -508,6 +508,52 @@ router.delete(
     })
     await loadProducts()
     res.json({ sku, outcome })
+  }),
+)
+
+/**
+ * Sets the product's photo: the image (JPEG, PNG or WebP) is the request body.
+ * It is checked by its first bytes, re-encoded as a JPEG of at most 1200 px
+ * without metadata, and replaces any earlier photo. The shop shows it at once.
+ */
+router.put(
+  '/products/:sku/photo',
+  requireManager,
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_REVIEW_UPLOAD_BYTES }),
+  asyncHandler(async (req, res) => {
+    const sku = req.params.sku
+    if (!findProduct(sku)) throw notFound('No product with that SKU')
+    checkPhoto(req.body, MAX_REVIEW_UPLOAD_BYTES)
+    const img = await cleanImage(req.body, 1200)
+    const { rows: old } = await query('SELECT version, blob_path FROM product_photos WHERE sku = $1', [sku])
+    const version = (old[0]?.version ?? 0) + 1
+    const saved = await storePhoto('products', `${sku}-${version}`, img.bytes, img.ext, img.mime)
+    const { rows } = await query(
+      `INSERT INTO product_photos (sku, mime, bytes, blob_path, version, updated_at, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (sku) DO UPDATE SET mime = EXCLUDED.mime, bytes = EXCLUDED.bytes, blob_path = EXCLUDED.blob_path,
+         version = EXCLUDED.version, updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by
+       RETURNING version`,
+      [sku, img.mime, saved.bytes, saved.blobPath, version, now(), req.admin.id],
+    ).catch(async (err) => {
+      await dropPhoto({ blob_path: saved.blobPath })
+      throw err.code === '23503' ? notFound('No product with that SKU') : err
+    })
+    if (old[0]?.blob_path && old[0].blob_path !== saved.blobPath) await dropPhoto(old[0])
+    await loadProducts()
+    res.json({ ...findProduct(sku), photoUrl: `/v1/products/${encodeURIComponent(sku)}/photo?v=${rows[0].version}` })
+  }),
+)
+
+/** Removes the product's photo; the shop goes back to the drawn mango. */
+router.delete(
+  '/products/:sku/photo',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const { rows } = await query('DELETE FROM product_photos WHERE sku = $1 RETURNING blob_path', [req.params.sku])
+    if (!rows.length) throw notFound('This product has no photo')
+    await dropPhoto(rows[0])
+    await loadProducts()
+    res.json(findProduct(req.params.sku))
   }),
 )
 

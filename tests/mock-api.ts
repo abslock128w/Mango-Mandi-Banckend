@@ -54,10 +54,10 @@ export function seed() {
       lowStock: [{ sku: 'ALP-5', productName: 'Alphonso 5kg Box', available: 3 }],
     },
     products: [
-      { sku: 'ALP-3', name: 'Alphonso 3kg Box', variety: 'Alphonso', boxSize: '3kg', price: 189900, gstRate: 0, hsnCode: '08045020', description: 'Saffron flesh, rich and sweet.', active: true, sortOrder: 0 },
-      { sku: 'ALP-5', name: 'Alphonso 5kg Box', variety: 'Alphonso', boxSize: '5kg', price: 299900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0 },
-      { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', boxSize: '3kg', price: 159900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0 },
-      { sku: 'TOT-3', name: 'Totapuri 3kg Box', variety: 'Totapuri', boxSize: '3kg', price: 79900, gstRate: 0, hsnCode: '08045020', description: '', active: false, sortOrder: 0 },
+      { sku: 'ALP-3', name: 'Alphonso 3kg Box', variety: 'Alphonso', boxSize: '3kg', price: 189900, gstRate: 0, hsnCode: '08045020', description: 'Saffron flesh, rich and sweet.', active: true, sortOrder: 0, photoUrl: '/v1/products/ALP-3/photo?v=1' },
+      { sku: 'ALP-5', name: 'Alphonso 5kg Box', variety: 'Alphonso', boxSize: '5kg', price: 299900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0, photoUrl: null },
+      { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', boxSize: '3kg', price: 159900, gstRate: 0, hsnCode: '08045020', description: '', active: true, sortOrder: 0, photoUrl: null },
+      { sku: 'TOT-3', name: 'Totapuri 3kg Box', variety: 'Totapuri', boxSize: '3kg', price: 79900, gstRate: 0, hsnCode: '08045020', description: '', active: false, sortOrder: 0, photoUrl: null },
     ] as Product[],
     batch: {
       id: 'b1',
@@ -288,6 +288,9 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     calls: [],
   }
 
+  // Product photos are served by the customer API (public).
+  await page.route('**/v1/products/*/photo**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TINY_PNG }))
+
   await page.route('**/admin/v1/**', async (route) => {
     const req = route.request()
     const url = new URL(req.url())
@@ -379,6 +382,12 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       const made: Product = { ...b, active: true }
       state.products = [...state.products, made]
       return json(route, 201, made)
+    }
+    if (/^\/products\/[^/]+\/photo$/.test(path)) {
+      const sku = decodeURIComponent(path.split('/')[2])
+      const photoUrl = method === 'DELETE' ? null : `/v1/products/${sku}/photo?v=${Date.now()}`
+      state.products = state.products.map((x) => (x.sku === sku ? { ...x, photoUrl } : x))
+      return json(route, 200, state.products.find((x) => x.sku === sku))
     }
     if (/^\/products\/[^/]+$/.test(path)) {
       const sku = decodeURIComponent(path.split('/')[2])
@@ -589,3 +598,6 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
   return state
 }
+
+/** A 1x1 orange PNG. */
+export const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64')

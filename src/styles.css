@@ -1025,3 +1025,40 @@ tr.row-flagged td {
   height: 100%;
   background: var(--red-600);
 }
+
+/* Product photos (Products page) */
+.field-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.25rem;
+}
+.photo-pick {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+.product-photo-preview {
+  width: 96px;
+  height: 96px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.product-photo-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+}
+.product-thumb {
+  display: block;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.photo-pick:has(input[type='file']:focus-visible) label.btn {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}

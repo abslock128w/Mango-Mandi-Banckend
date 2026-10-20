@@ -7,7 +7,7 @@ import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
 import { ErrorNote, Skeleton } from '../ui'
 import { BookAheadCard } from './Preorder'
-import { MangoArt } from '../mango'
+import { MangoArt, ProductImage } from '../mango'
 import type { Stage } from '../api'
 
 export default function Shop() {
@@ -181,7 +181,6 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
 
   return (
     <>
-      {!search && <Shelves products={all} />}
       <section aria-labelledby="pick">
         <h2 id="pick" className="section-title">
           {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
@@ -192,115 +191,56 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
             No mangoes match “{search}”. Try another name, such as Alphonso.
           </p>
         )}
-        <div className="products">
+        <ul className="tiles">
           {products.map((p) => (
-            <ProductCard key={p.sku} product={p} />
+            <ProductTile key={p.sku} product={p} />
           ))}
-        </div>
+        </ul>
       </section>
+      {!search && <GiftBanner />}
     </>
   )
 }
 
-type ShelfItem = { product: ProductGroup; stage: Stage; line: string }
-
-/** Browse-first home: a few short shelves above the full list, each opening the box at that ripeness. */
-function Shelves({ products }: { products: ProductGroup[] }) {
-  const inStock = (p: ProductGroup, st: Stage) => p.stages.find((s) => s.stage === st && s.qty > 0)
-  const ripe: ShelfItem[] = products.flatMap((p) => {
-    const s = inStock(p, 'RIPE')
-    return s ? [{ product: p, stage: 'RIPE' as Stage, line: `Eat by ${day(s.eatBy)}` }] : []
-  })
-  const later: ShelfItem[] = products.flatMap((p) => {
-    const s = inStock(p, 'SEMI_RIPE') ?? inStock(p, 'RAW')
-    return s ? [{ product: p, stage: s.stage, line: s.stage === 'RAW' ? 'Ripens at home in 3 to 4 days' : 'Ready in 1 to 2 days' }] : []
-  })
-  if (!ripe.length && !later.length) return null
-  return (
-    <>
-      {ripe.length > 0 && <Shelf id="shelf-ripe" title="Ripe to eat now" note="Ready the day it arrives." items={ripe} />}
-      {later.length > 0 && <Shelf id="shelf-later" title="Ripen at home this week" note="Firm on arrival, at their best a few days later." items={later} />}
-      <section className="card gift-banner" aria-labelledby="gift-title">
-        <div>
-          <h2 id="gift-title">Send a box as a gift</h2>
-          <p className="muted small">Pick any box, then tick "This is a gift" at checkout. We add your note and message them on WhatsApp.</p>
-        </div>
-        <Link to="/quality" className="link-btn">
-          How we pick and check
-        </Link>
-      </section>
-    </>
-  )
-}
-
-function Shelf({ id, title, note, items }: { id: string; title: string; note: string; items: ShelfItem[] }) {
-  return (
-    <section className="shelf" aria-labelledby={id}>
-      <h2 id={id} className="section-title">
-        {title}
-      </h2>
-      <p className="muted small">{note}</p>
-      <ul className="shelf-row">
-        {items.map(({ product: p, stage, line }) => (
-          <li key={`${p.sku}-${stage}`} className="card shelf-card">
-            <MangoArt stage={stage} size={44} />
-            <Link to={`/mangoes/${p.sku}?stage=${stage}`} className="card-link shelf-name">
-              {p.name}
-            </Link>
-            <span className="small">
-              <span className={`stage-dot stage-${stage.toLowerCase()}`} aria-hidden="true" /> {STAGE_LABEL[stage]}
-            </span>
-            <span className="muted small">{line}</span>
-            <strong>{rupees(p.price)}</strong>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/** One box on the home page. The whole card opens the product page, where the customer picks the ripeness. */
-function ProductCard({ product: p }: { product: ProductGroup }) {
+/** One tile per box on the home page. Tapping it opens the product page, where the customer picks the ripeness. */
+function ProductTile({ product: p }: { product: ProductGroup }) {
   const { cart } = useStore()
   const inCart = cart.filter((l) => l.sku === p.sku).reduce((n, l) => n + l.qty, 0)
-  const open = p.stages.filter((s) => s.qty > 0)
+  const soldOut = !p.stages.some((s) => s.qty > 0)
   const soonest = p.stages.map((s) => s.nextAvailableDate).filter(Boolean).sort()[0]
   return (
-    <article className="card product product-card" aria-labelledby={`p-${p.sku}`}>
-      <MangoArt stage="RIPE" size={56} />
-      <div className="product-name">
-        <h3 id={`p-${p.sku}`}>
+    <li className={soldOut ? 'card tile tile-sold-out' : 'card tile'}>
+      <div className="tile-img">
+        <ProductImage photoUrl={p.photoUrl} name={p.name} size={88} />
+        {inCart > 0 && <span className="tile-badge">{inCart} in cart</span>}
+      </div>
+      <div className="tile-body">
+        <h3 id={`p-${p.sku}`} className="tile-name">
           <Link to={`/mangoes/${p.sku}`} className="card-link">
             {p.name}
           </Link>
         </h3>
-        {p.description && <p className="muted small clamp-2">{p.description}</p>}
         <ProductRating sku={p.sku} variety={p.variety} />
-        <p className="product-meta">
+        <p className="tile-foot">
           <strong className="price">{rupees(p.price)}</strong>
-          {open.length > 0 ? (
-            <span className="small stage-list">
-              {open.map((s) => (
-                <span key={s.stage} className="stage-pill">
-                  <span className={`stage-dot stage-${s.stage.toLowerCase()}`} aria-hidden="true" />
-                  {STAGE_LABEL[s.stage]}
-                </span>
-              ))}
-            </span>
-          ) : (
-            <span className="small sold-out">Sold out{soonest ? `, back ${day(soonest)}` : ''}</span>
-          )}
+          {soldOut && <span className="small sold-out">Sold out{soonest ? `, back ${day(soonest)}` : ''}</span>}
         </p>
-        {inCart > 0 && (
-          <p className="small ok-text">
-            {inCart} in your cart
-          </p>
-        )}
       </div>
-      <svg className="card-chevron" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-        <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </article>
+    </li>
+  )
+}
+
+function GiftBanner() {
+  return (
+    <section className="card gift-banner" aria-labelledby="gift-title">
+      <div>
+        <h2 id="gift-title">Send a box as a gift</h2>
+        <p className="muted small">Pick any box, then tick "This is a gift" at checkout. We add your note and message them on WhatsApp.</p>
+      </div>
+      <Link to="/quality" className="link-btn">
+        How we pick and check
+      </Link>
+    </section>
   )
 }
 
@@ -338,12 +278,21 @@ export function NotifyMe({ item, label }: { item: CatalogueItem; label: string }
   )
 }
 
-export type ProductGroup = { sku: string; name: string; variety: string; boxSize: string; price: number; description: string; stages: CatalogueItem[] }
+export type ProductGroup = {
+  sku: string
+  name: string
+  variety: string
+  boxSize: string
+  price: number
+  description: string
+  photoUrl: string | null
+  stages: CatalogueItem[]
+}
 
 export function groupBySku(items: CatalogueItem[]) {
   const map = new Map<string, ProductGroup>()
   for (const i of items) {
-    const p = map.get(i.sku) ?? { sku: i.sku, name: i.name, variety: i.variety, boxSize: i.boxSize, price: i.price, description: i.description ?? '', stages: [] }
+    const p = map.get(i.sku) ?? { sku: i.sku, name: i.name, variety: i.variety, boxSize: i.boxSize, price: i.price, description: i.description ?? '', photoUrl: i.photoUrl ?? null, stages: [] }
     p.stages.push(i)
     map.set(i.sku, p)
   }

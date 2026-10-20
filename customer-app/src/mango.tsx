@@ -1,4 +1,4 @@
-import type { Stage } from './api'
+import { API_URL, type Stage } from './api'
 
 /** Skin colours by ripeness: green when raw, blushing as it softens, golden when ripe. */
 const SKIN: Record<Stage, { base: string; blush: string }> = {
@@ -53,4 +53,10 @@ export const CARE: Record<Stage, { title: string; tips: string[] }> = {
       'Take them out half an hour before eating for the best flavour.',
     ],
   },
+}
+
+/** The product's photo when the shop team has added one, else the drawn mango. */
+export function ProductImage({ photoUrl, name, stage = 'RIPE', size = 56, className }: { photoUrl?: string | null; name: string; stage?: Stage; size?: number; className?: string }) {
+  if (!photoUrl) return <MangoArt stage={stage} size={size} />
+  return <img src={`${API_URL}${photoUrl}`} alt={`Photo of ${name}`} className={className ?? 'product-photo'} loading="lazy" decoding="async" />
 }

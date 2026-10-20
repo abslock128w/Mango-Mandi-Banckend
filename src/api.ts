@@ -255,6 +255,9 @@ export const api = {
   updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean }) => request<Product>('PATCH', `/products/${id(sku)}`, patch),
   /** Deletes a product never stocked or sold; otherwise takes it off sale and keeps it. */
   removeProduct: (sku: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`),
+  /** Sets the product's shop photo (replacing any earlier one). */
+  setProductPhoto: (sku: string, photo: Blob) => request<Product>('PUT', `/products/${id(sku)}/photo`, photo),
+  removeProductPhoto: (sku: string) => request<Product>('DELETE', `/products/${id(sku)}/photo`),
 
   batches: (status?: BatchStatus | null) =>
     request<BatchListItem[]>('GET', `/batches${qs({ status })}`),

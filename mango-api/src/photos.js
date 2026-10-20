@@ -95,8 +95,9 @@ export async function dropPhoto(row) {
 }
 
 /** Sends a stored photo as the response. */
-export async function sendPhoto(res, row) {
-  res.set('Content-Type', row.mime).set('Cache-Control', 'private, max-age=86400').send(await photoBytes(row))
+export async function sendPhoto(res, row, cache = 'private, max-age=86400') {
+  const bytes = await photoBytes(row)
+  res.set('Content-Type', row.mime).set('Cache-Control', cache).send(bytes)
 }
 
 // ---------------------------------------------------------------- review photos
@@ -113,11 +114,11 @@ export const UPLOAD_PREFIX = 'review-uploads/'
  * EXIF, GPS and any other metadata (and anything hidden after the image data)
  * is left behind. Throws PHOTO_INVALID for a file that only looks like an image.
  */
-export async function cleanImage(bytes) {
+export async function cleanImage(bytes, side = REVIEW_PHOTO_SIDE) {
   try {
     const { data, info } = await sharp(bytes, { failOn: 'error', limitInputPixels: 50_000_000 })
       .rotate() // apply the camera's orientation before the tag is dropped
-      .resize({ width: REVIEW_PHOTO_SIDE, height: REVIEW_PHOTO_SIDE, fit: 'inside', withoutEnlargement: true })
+      .resize({ width: side, height: side, fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
       .jpeg({ quality: 82, mozjpeg: true })
       .toBuffer({ resolveWithObject: true })

@@ -45,6 +45,8 @@ export interface CatalogueItem {
   eatBy: string
   /** A line about the fruit. */
   description?: string
+  /** The product photo the shop team added (a path on the API), or null for the drawn mango. */
+  photoUrl?: string | null
   /** When sold out on this day: the next bookable day it is in stock, if any. */
   nextAvailableDate?: string | null
 }

@@ -1,9 +1,10 @@
 // Products: managers add boxes to the shop, rename or reprice them, and take
 // them off sale. The shop, WhatsApp ordering, batches and preorders all read
 // this list, so nothing else needs changing when a product is added.
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { API_URL, api } from '../api'
+import { shrinkPhoto } from '../photo'
 import { rupees } from '../format'
 import type { Product, ProductInput } from '../types'
 import { Badge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
@@ -58,6 +59,9 @@ export default function Products() {
             <table>
               <thead>
                 <tr>
+                  <th>
+                    <span className="sr-only">Photo</span>
+                  </th>
                   <th>Product</th>
                   <th>SKU</th>
                   <th>Variety</th>
@@ -74,6 +78,9 @@ export default function Products() {
                   const onSale = p.active !== false
                   return (
                     <tr key={p.sku} className={onSale ? undefined : 'muted'}>
+                      <td>
+                        <ProductThumb product={p} />
+                      </td>
                       <td>
                         <strong>{p.name}</strong>
                         {p.description && <div className="small muted">{p.description}</div>}
@@ -161,13 +168,36 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
   const [f, setF] = useState(() => toForm(product))
   const [formError, setFormError] = useState<string | null>(null)
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
+  // The photo is sent after the product is saved (a new product needs its SKU first).
+  const [photo, setPhoto] = useState<Blob | null>(null)
+  const [dropPhoto, setDropPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const preview = useObjectUrl(photo)
+  const current = !dropPhoto && product?.photoUrl ? `${API_URL}${product.photoUrl}` : null
+  async function pickPhoto(file: File | undefined) {
+    setPhotoError(null)
+    if (!file) return
+    try {
+      setPhoto(await shrinkPhoto(file))
+      setDropPhoto(false)
+    } catch {
+      setPhotoError('That file is not a photo. Choose a JPEG, PNG or WebP image.')
+    }
+  }
   const save = useMutation({
-    mutationFn: ({ sku, ...input }: ProductInput & { sku: string }) => (product ? api.updateProduct(product.sku, input) : api.addProduct({ sku, ...input })),
+    mutationFn: async ({ sku, ...input }: ProductInput & { sku: string }) => {
+      let saved = product ? await api.updateProduct(product.sku, input) : await api.addProduct({ sku, ...input })
+      if (photo) saved = await api.setProductPhoto(saved.sku, photo)
+      else if (dropPhoto && product?.photoUrl) saved = await api.removeProductPhoto(saved.sku)
+      return saved
+    },
     onSuccess: (p) => {
       toast.success(product ? `${p.name} saved` : `${p.name} added to the shop`)
       onDone()
       onClose()
     },
+    // A new product that saved but whose photo failed still shows up in the list.
+    onError: () => onDone(),
   })
 
   function onSubmit(e: FormEvent) {
@@ -243,6 +273,47 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
           <input id="product-price" inputMode="decimal" value={f.price} onChange={set('price')} />
         </div>
         <div className="field">
+          <span className="field-label" id="product-photo-label">
+            Photo (optional)
+          </span>
+          <div className="photo-pick">
+            {preview || current ? (
+              <img src={preview ?? current!} alt={`Photo of ${f.name || 'this product'}`} className="product-photo-preview" />
+            ) : (
+              <span className="product-photo-preview product-photo-empty small muted">No photo</span>
+            )}
+            <div>
+              <label htmlFor="product-photo" className="btn btn-small">
+                {preview || current ? 'Change photo' : 'Choose photo'}
+              </label>
+              <input
+                id="product-photo"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                aria-describedby="product-photo-label product-photo-hint"
+                onChange={(e) => void pickPhoto(e.target.files?.[0])}
+              />{' '}
+              {(preview || current) && (
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  onClick={() => {
+                    setPhoto(null)
+                    setDropPhoto(Boolean(product?.photoUrl))
+                  }}
+                >
+                  Remove photo
+                </button>
+              )}
+              <p className="hint" id="product-photo-hint">
+                Shown on the product's tile and page in the shop. A square photo of the fruit or the box works best.
+              </p>
+            </div>
+          </div>
+          <FormError error={photoError} />
+        </div>
+        <div className="field">
           <label htmlFor="product-description">Description (optional)</label>
           <textarea id="product-description" rows={2} maxLength={300} value={f.description} onChange={set('description')} />
           <p className="hint">One or two lines for the product card in the shop.</p>
@@ -268,4 +339,21 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
       </form>
     </Dialog>
   )
+}
+
+/** A temporary URL for a picked file, released when it changes. */
+function useObjectUrl(blob: Blob | null) {
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!blob) return setUrl(null)
+    const u = URL.createObjectURL(blob)
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [blob])
+  return url
+}
+
+function ProductThumb({ product: p }: { product: Product }) {
+  if (!p.photoUrl) return <span className="product-thumb product-photo-empty" aria-hidden="true" />
+  return <img src={`${API_URL}${p.photoUrl}`} alt="" className="product-thumb" loading="lazy" />
 }

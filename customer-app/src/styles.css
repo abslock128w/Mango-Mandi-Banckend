@@ -1563,52 +1563,95 @@ a.chip {
   }
 }
 
-/* home shelves: a short row that scrolls sideways on phones */
-.shelf {
-  margin-bottom: var(--space-4);
-}
-.shelf .section-title {
-  margin-bottom: var(--space-1);
-}
-.shelf > .muted {
-  margin: 0 0 var(--space-2);
-}
-.shelf-row {
+/* home tiles: one per box, two across on phones; the ripeness is picked on the product page */
+.tiles {
   list-style: none;
-  margin: 0;
-  padding: var(--space-1) var(--space-1) var(--space-2);
+  margin: var(--space-3) 0 var(--space-4);
+  padding: 0;
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(150px, 44%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
 }
 @media (min-width: 640px) {
-  .shelf-row {
-    grid-auto-columns: minmax(160px, 1fr);
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-.shelf-card {
+.tile {
   position: relative;
-  scroll-snap-align: start;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
+  transition: border-color var(--motion-fast), transform var(--motion-fast);
 }
-.shelf-card:hover,
-.shelf-card:focus-within {
+.tile:hover,
+.tile:focus-within {
   border-color: var(--mango);
 }
-.shelf-card:has(.card-link:focus-visible) {
+.tile:active {
+  transform: scale(0.98);
+}
+.tile:has(.card-link:focus-visible) {
   outline: 3px solid var(--mango);
   outline-offset: 2px;
 }
-.shelf-name {
+.tile-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mango-soft);
+}
+.tile-img .product-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.tile-sold-out .tile-img > :first-child {
+  opacity: 0.55;
+}
+.tile-badge {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-success);
+  font-size: 0.8rem;
   font-weight: 600;
+}
+.tile-body {
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+}
+.tile-name {
+  margin: 0;
+  font-size: 1rem;
   line-height: 1.3;
+}
+.tile-foot {
+  margin: auto 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.product-hero {
+  display: block;
+  width: calc(100% + 2 * var(--card-pad, 1rem));
+  max-width: none;
+  margin: calc(-1 * var(--card-pad, 1rem)) calc(-1 * var(--card-pad, 1rem)) var(--space-3);
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: inherit;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 .gift-banner {
   display: flex;
@@ -1690,9 +1733,4 @@ a.chip {
   .count.bump {
     animation: none;
   }
-}
-.shelf-card .stage-dot {
-  display: inline-block;
-  margin: 0 0.2rem 0 0;
-  vertical-align: middle;
 }

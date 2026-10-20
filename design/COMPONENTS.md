@@ -26,7 +26,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | TopBar | `App.tsx` header + `WhereButton`, `SearchBar` | pincode set / not set, signed in / out | Pincode chip left, profile right, search below. Cart lives in the bottom tabs (user's choice, 20 Oct) |
 | Bottom tabs | `App.tsx` `nav.tabbar` | active tab, cart count | Hidden on checkout, claim and review forms so they never cover the submit button |
 | PincodeSheet | `Shop.tsx` `PincodeForm` | empty, checking, not served, no open days | Opens from the chip with `?where=1` |
-| ProductCard | `Shop.tsx` `ProductCard` | in stock (ripeness listed), sold out with next day, in cart count | Whole card opens the product page (user's Amazon-style choice, 20 Oct) |
+| ProductCard | `Shop.tsx` `ProductTile` | photo or drawn mango, sold out with next day, in cart count | Two-across tiles; no ripeness on the tile, it is picked on the product page (user's choice, 20 Oct) |
 | Product detail / buy box | `Product.tsx` `BuyBox` | no pincode, not on sale here, each ripeness in stock / sold out / low stock, cart already at max | Ripe chosen first when in stock |
 | QuantityStepper | `.stepper` in `BuyBox` and `Cart.tsx` | min 1, max from stock (cap 20 until API gap G5) | 40px buttons inside a 44px row |
 | Notify me | `Shop.tsx` `NotifyMe` | signed out, waiting, sent | WhatsApp back-in-stock alert |
@@ -41,7 +41,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | Reviews | `Product.tsx`, `Review.tsx`, `stars.tsx` | none, list, filtered, photos, brand reply | |
 | Dialog | `ui.tsx` `Dialog` | open / closed | Focus trapped, Escape closes, focus returns |
 | Loading / error | `ui.tsx` `Spinner`, `ErrorNote` | loading, error with retry | Skeletons replace spinners in milestone 2 |
-| MangoArt | `mango.tsx` | raw, semi-ripe, ripe | Drawn icon until real photos (API gap G1) |
+| MangoArt / ProductImage | `mango.tsx` | photo set, no photo | Managers add a photo per product on the panel's Products page; without one the drawn mango shows |
 
 ## Staff panel
 

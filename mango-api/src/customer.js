@@ -304,12 +304,28 @@ router.get(
         const key = `${p.sku}|${stage}`
         const qty = pool.get(key) ?? 0
         return {
-          sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', stage,
+          sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', photoUrl: p.photoUrl, stage,
           qty, eatBy: eatByFor(stage, date), nextAvailableDate: qty > 0 ? null : (later.find(([, lp]) => lp.get(key) > 0)?.[0] ?? null),
         }
       }),
     )
     res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items })
+  }),
+)
+
+/**
+ * A product's photo, for the shop's tiles and product page. Public: product
+ * photos are not private. Each new photo has a new ?v=, so it can be cached for a year.
+ */
+router.get(
+  '/products/:sku/photo',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query('SELECT mime, bytes, blob_path, version FROM product_photos WHERE sku = $1', [req.params.sku])
+    if (!rows.length) throw notFound('Photo not found')
+    // The shop and panel are other sites than the API, so the image may be shown cross-origin.
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin')
+    const current = String(rows[0].version) === String(req.query.v ?? '')
+    await sendPhoto(res, rows[0], current ? 'public, max-age=31536000, immutable' : 'public, max-age=60')
   }),
 )
 

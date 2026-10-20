@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ApiError, api, type PublicReview, type Stage } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
-import { MangoArt } from '../mango'
+import { MangoArt, ProductImage } from '../mango'
 import { useStore } from '../store'
 import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
@@ -242,8 +242,9 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
 
   return (
     <section className="card buy" aria-labelledby="product-title">
+      {p.photoUrl && <ProductImage photoUrl={p.photoUrl} name={p.name} className="product-hero" />}
       <header className="product-head">
-        <MangoArt stage={item?.stage ?? 'RIPE'} size={72} />
+        {!p.photoUrl && <MangoArt stage={item?.stage ?? 'RIPE'} size={72} />}
         <div className="product-name">
           <h1 id="product-title">{p.name}</h1>
           <ProductRating sku={p.sku} variety={p.variety} href="#reviews" />
