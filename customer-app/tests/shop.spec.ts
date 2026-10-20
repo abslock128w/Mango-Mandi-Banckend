@@ -100,7 +100,7 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByLabel('Your name').fill('Asha Rao')
   await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
-  if (await slots.count()) await slots.getByRole('radio').first().check()
+  if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
   await noA11yViolations(page)
   await page.getByRole('button', { name: 'Review order' }).click()
 
@@ -292,6 +292,8 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   await page.goto('/')
   await page.getByLabel('Your delivery pincode').fill('560034')
   await page.getByRole('button', { name: 'Show mangoes' }).click()
+  // Wait for the pincode to be saved before the helper reloads the page.
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
   await addFromProductPage(page, 1, 0)
   await page.goto('/')
   await page.getByRole('link', { name: /View cart · 1 box/ }).click()
@@ -310,7 +312,7 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   await page.getByLabel('A note in the box (optional)').fill('Happy Diwali!')
   await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
-  if (await slots.count()) await slots.getByRole('radio').first().check()
+  if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
   await page.getByLabel('Promo code (optional)').fill('NOSUCHCODE')
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Change or clear the promo code')
