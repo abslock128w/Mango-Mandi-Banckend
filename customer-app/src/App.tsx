@@ -28,6 +28,8 @@ export default function App() {
   const queryClient = useQueryClient()
   const location = useLocation()
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
+  // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
+  const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
 
   useEffect(() => {
     const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating'].includes(String(q.queryKey[0])) })
@@ -90,12 +92,13 @@ export default function App() {
           />
         </Routes>
       </main>
-      <footer className="foot">
+      <footer className={focused ? 'foot foot-flat' : 'foot'}>
         <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
         <p>
           <Link to="/privacy">Privacy notice</Link>
         </p>
       </footer>
+      {!focused && (
       <nav aria-label="Main" className="tabbar">
         <NavLink to="/" end className="tab">
           <TabIcon d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
@@ -117,6 +120,7 @@ export default function App() {
           <span aria-hidden="true">Cart</span>
         </NavLink>
       </nav>
+      )}
     </>
   )
 }

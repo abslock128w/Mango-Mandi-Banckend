@@ -1,10 +1,10 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { STAGE_LABEL, day, rupees } from '../format'
+import { STAGE_LABEL, rupees } from '../format'
 import { MangoArt } from '../mango'
 import { useStore } from '../store'
 
 export default function Cart() {
-  const { cart, setQty, profile, date } = useStore()
+  const { cart, setQty, profile } = useStore()
   const navigate = useNavigate()
   const total = cart.reduce((s, l) => s + l.price * l.qty, 0)
 
@@ -23,14 +23,7 @@ export default function Cart() {
   return (
     <section className="card">
       <h1>Your cart</h1>
-      {date && (
-        <p className="where">
-          <span>
-            Arrives <strong>{day(date)}</strong>
-          </span>
-          <Link to="/">Change day</Link>
-        </p>
-      )}
+      <p className="muted small">You choose the delivery day and time at checkout.</p>
       <ul className="lines">
         {cart.map((l) => {
           const label = `${l.name}, ${STAGE_LABEL[l.stage]}`

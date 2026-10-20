@@ -125,7 +125,7 @@ test('FE-9: with under a minute of hold left, Pay is not offered', async ({ page
 
 /** Waits for the delivery times, then takes the first one open (if the day has times). */
 async function pickSlot(page: Page) {
-  await expect(page.getByText(/^Arrives /)).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio', { checked: true })).toBeVisible()
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.locator('input:not([disabled])').first().check()
 }
@@ -211,7 +211,7 @@ test('FE-7 and FE-8: changed prices are shown, a box no longer sold is named and
     )
   }, item)
   await signIn(page, phone, '/checkout')
-  await expect(page.getByText(/^Arrives /)).toBeVisible()
+  await expect(page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio', { checked: true })).toBeVisible()
   await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   await pickSlot(page)
   await page.getByRole('button', { name: 'Review order' }).click()

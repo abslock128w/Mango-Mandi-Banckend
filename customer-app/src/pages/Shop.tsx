@@ -181,24 +181,11 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
 
   return (
     <>
-      <section aria-labelledby="when">
-        <h2 id="when" className="section-title">
-          When should it arrive?
-        </h2>
-        <div className="chips" role="radiogroup" aria-labelledby="when">
-          {q.data.deliveryDates!.map((d) => (
-            <button key={d} type="button" role="radio" aria-checked={d === chosen} className="chip" onClick={() => onDate(d)}>
-              {day(d)}
-            </button>
-          ))}
-        </div>
-        <p className="muted small">Orders for the next day close at {q.data.cutoffTime!.replace(' IST', '')} (India time).</p>
-      </section>
-
       <section aria-labelledby="pick">
         <h2 id="pick" className="section-title">
-          {search ? `Mangoes matching “${search}” for ${day(chosen)}` : `Pick your mangoes for ${day(chosen)}`}
+          {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
         </h2>
+        <p className="muted small">Showing what we have for {day(chosen)}. You choose the delivery day at checkout.</p>
         {products.length === 0 && (
           <p className="card empty">
             No mangoes match “{search}”. Try another name, such as Alphonso.
@@ -206,22 +193,7 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
         )}
         <div className="products">
           {products.map((p) => (
-            <article key={p.sku} className="card product" aria-labelledby={`p-${p.sku}`}>
-              <header className="product-head">
-                <MangoArt stage="RIPE" size={52} />
-                <div className="product-name">
-                  <h3 id={`p-${p.sku}`}>{p.name}</h3>
-                  {p.description && <p className="muted small">{p.description}</p>}
-                  <ProductRating sku={p.sku} variety={p.variety} />
-                </div>
-                <strong className="price">{rupees(p.price)}</strong>
-              </header>
-              <ul className="stages">
-                {p.stages.map((item) => (
-                  <StageRow key={item.stage} item={item} onDate={onDate} />
-                ))}
-              </ul>
-            </article>
+            <ProductCard key={p.sku} product={p} />
           ))}
         </div>
       </section>
@@ -229,66 +201,53 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   )
 }
 
-function StageRow({ item, onDate }: { item: CatalogueItem; onDate: (d: string | null) => void }) {
-  const { cart, setQty } = useStore()
-  const inCart = cart.find((l) => l.sku === item.sku && l.stage === item.stage)?.qty ?? 0
-  const max = Math.min(20, item.qty)
-  const set = (n: number) => setQty({ sku: item.sku, stage: item.stage, name: item.name, price: item.price }, Math.max(0, Math.min(max, n)))
-  const label = `${item.name}, ${STAGE_LABEL[item.stage]}`
+/** One box on the home page. The whole card opens the product page, where the customer picks the ripeness. */
+function ProductCard({ product: p }: { product: ProductGroup }) {
+  const { cart } = useStore()
+  const inCart = cart.filter((l) => l.sku === p.sku).reduce((n, l) => n + l.qty, 0)
+  const open = p.stages.filter((s) => s.qty > 0)
+  const soonest = p.stages.map((s) => s.nextAvailableDate).filter(Boolean).sort()[0]
   return (
-    <li className="stage">
-      <span className={`stage-dot stage-${item.stage.toLowerCase()}`} aria-hidden="true" />
-      <div className="stage-text">
-        <strong>{STAGE_LABEL[item.stage]}</strong>
-        <span className="muted small">{STAGE_HINT[item.stage]}</span>
-        <span className="small">
-          {item.qty === 0 ? (
-            <span className="sold-out">
-              Sold out for this day
-              {item.nextAvailableDate ? (
-                <>
-                  {' · '}
-                  <button type="button" className="link-btn" onClick={() => onDate(item.nextAvailableDate!)}>
-                    Available {day(item.nextAvailableDate)}
-                  </button>
-                </>
-              ) : (
-                <>
-                  {' · '}
-                  <NotifyMe item={item} label={label} />
-                </>
-              )}
+    <article className="card product product-card" aria-labelledby={`p-${p.sku}`}>
+      <MangoArt stage="RIPE" size={56} />
+      <div className="product-name">
+        <h3 id={`p-${p.sku}`}>
+          <Link to={`/mangoes/${p.sku}`} className="card-link">
+            {p.name}
+          </Link>
+        </h3>
+        {p.description && <p className="muted small clamp-2">{p.description}</p>}
+        <ProductRating sku={p.sku} variety={p.variety} />
+        <p className="product-meta">
+          <strong className="price">{rupees(p.price)}</strong>
+          {open.length > 0 ? (
+            <span className="small stage-list">
+              {open.map((s) => (
+                <span key={s.stage} className="stage-pill">
+                  <span className={`stage-dot stage-${s.stage.toLowerCase()}`} aria-hidden="true" />
+                  {STAGE_LABEL[s.stage]}
+                </span>
+              ))}
             </span>
           ) : (
-            <>
-              Eat by {day(item.eatBy)}
-              {item.qty <= 5 && <span className="low"> · Only {item.qty} left</span>}
-            </>
+            <span className="small sold-out">Sold out{soonest ? `, back ${day(soonest)}` : ''}</span>
           )}
-        </span>
+        </p>
+        {inCart > 0 && (
+          <p className="small ok-text">
+            {inCart} in your cart
+          </p>
+        )}
       </div>
-      {item.qty > 0 &&
-        (inCart === 0 ? (
-          <button type="button" className="btn btn-small" onClick={() => set(1)} aria-label={`Add ${label}`}>
-            Add
-          </button>
-        ) : (
-          <div className="stepper" role="group" aria-label={`${label} quantity`}>
-            <button type="button" onClick={() => set(inCart - 1)} aria-label={`One less ${label}`}>
-              −
-            </button>
-            <span aria-live="polite">{inCart}</span>
-            <button type="button" onClick={() => set(inCart + 1)} disabled={inCart >= max} aria-label={`One more ${label}`}>
-              +
-            </button>
-          </div>
-        ))}
-    </li>
+      <svg className="card-chevron" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </article>
   )
 }
 
 /** Sold out on every open day: a WhatsApp message when it is back. */
-function NotifyMe({ item, label }: { item: CatalogueItem; label: string }) {
+export function NotifyMe({ item, label }: { item: CatalogueItem; label: string }) {
   const { profile, pincode } = useStore()
   const location = useLocation()
   const queryClient = useQueryClient()
@@ -321,8 +280,10 @@ function NotifyMe({ item, label }: { item: CatalogueItem; label: string }) {
   )
 }
 
-function groupBySku(items: CatalogueItem[]) {
-  const map = new Map<string, { sku: string; name: string; variety: string; boxSize: string; price: number; description: string; stages: CatalogueItem[] }>()
+export type ProductGroup = { sku: string; name: string; variety: string; boxSize: string; price: number; description: string; stages: CatalogueItem[] }
+
+export function groupBySku(items: CatalogueItem[]) {
+  const map = new Map<string, ProductGroup>()
   for (const i of items) {
     const p = map.get(i.sku) ?? { sku: i.sku, name: i.name, variety: i.variety, boxSize: i.boxSize, price: i.price, description: i.description ?? '', stages: [] }
     p.stages.push(i)
@@ -331,17 +292,24 @@ function groupBySku(items: CatalogueItem[]) {
   return [...map.values()]
 }
 
-/** The variety's average and review count, linking to its reviews. One request per variety (the 3 and 5 kg boxes share it). */
-function ProductRating({ sku, variety }: { sku: string; variety: string }) {
+/** The variety's average and review count. One request per variety (the 3 and 5 kg boxes share it). */
+export function ProductRating({ sku, variety, href }: { sku: string; variety: string; href?: string }) {
   const q = useQuery({ queryKey: ['rating', variety || sku], queryFn: () => api.productReviews(sku, { limit: 1 }), staleTime: 5 * 60_000 })
   const s = q.data?.summary
   if (!s || !s.count || s.average == null) return null
-  return (
-    <Link to={`/mangoes/${sku}`} className="product-rating">
+  const body = (
+    <>
       <Stars value={s.average} small />
       <span className="small">
         {s.average.toFixed(1)} · {s.count} {s.count === 1 ? 'review' : 'reviews'}
       </span>
-    </Link>
+    </>
+  )
+  return href ? (
+    <a href={href} className="product-rating">
+      {body}
+    </a>
+  ) : (
+    <span className="product-rating">{body}</span>
   )
 }

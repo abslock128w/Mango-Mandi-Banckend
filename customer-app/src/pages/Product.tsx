@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useInfiniteQuery } from '@tanstack/react-query'
-import { ApiError, api, type PublicReview } from '../api'
-import { STAGE_LABEL } from '../format'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { ApiError, api, type PublicReview, type Stage } from '../api'
+import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { MangoArt } from '../mango'
+import { useStore } from '../store'
+import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
 import { Dialog, ErrorNote, Spinner } from '../ui'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packaging: 'Packaging', delivery: 'Delivery' } as const
 
-/** /mangoes/:sku — what buyers say about a variety: totals, filters and approved reviews. */
+/** /mangoes/:sku — the box: pick the ripeness and how many, add to cart; then what buyers say about the variety. */
 export default function ProductPage() {
   const { sku = '' } = useParams()
   const [stars, setStars] = useState<number | null>(null)
@@ -38,16 +40,13 @@ export default function ProductPage() {
   const first = q.data.pages[0]
   const items = q.data.pages.flatMap((p) => p.items)
   const filtered = stars != null || withPhotos
+  const variety = first.product.variety || first.product.name
   return (
     <>
-      <section className="card" aria-labelledby="product-title">
-        <header className="product-head">
-          <MangoArt stage="RIPE" size={52} />
-          <div className="product-name">
-            <h1 id="product-title">{first.product.variety || first.product.name}</h1>
-            <p className="muted small">Reviews from verified buyers of every {first.product.variety || first.product.name} box.</p>
-          </div>
-        </header>
+      <BuyBox sku={sku} fallbackName={first.product.name} />
+      <section className="card" aria-labelledby="ratings-title" id="reviews">
+        <h2 id="ratings-title">Ratings and reviews</h2>
+        <p className="muted small">From verified buyers of every {variety} box.</p>
         <RatingBars summary={first.summary} active={stars} onPick={setStars} />
         <div className="review-filters">
           <label className="option">
@@ -67,9 +66,6 @@ export default function ProductPage() {
             </button>
           )}
         </div>
-        <Link to="/" className="btn btn-primary">
-          Shop {first.product.variety || 'mangoes'}
-        </Link>
       </section>
 
       <section aria-labelledby="reviews-title">
@@ -144,6 +140,175 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
         </div>
       )}
     </article>
+  )
+}
+
+/** The Amazon-style buy box: ripeness, how many, Add to cart. Stock is for the day the shop is showing. */
+function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
+  const { pincode, date, setWhere, cart, setQty } = useStore()
+  const q = useQuery({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode!, date), enabled: Boolean(pincode) })
+  const [picked, setPicked] = useState<Stage | null>(null)
+  const [count, setCount] = useState(1)
+  const [added, setAdded] = useState<string | null>(null)
+  useEffect(() => {
+    setPicked(null)
+    setCount(1)
+    setAdded(null)
+  }, [sku, date])
+
+  if (!pincode) {
+    return (
+      <section className="card" aria-labelledby="product-title">
+        <h1 id="product-title">{fallbackName}</h1>
+        <p>Tell us your pincode to see the ripeness we have and add a box.</p>
+        <Link to="/" className="btn btn-primary">
+          Enter your pincode
+        </Link>
+      </section>
+    )
+  }
+  if (q.isPending) return <Spinner label="Loading this box" />
+  if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
+  const all = groupBySku(q.data.items)
+  const p = all.find((x) => x.sku === sku)
+  if (!q.data.serviceable || !p) {
+    return (
+      <section className="card" aria-labelledby="product-title">
+        <h1 id="product-title">{fallbackName}</h1>
+        <p>{q.data.serviceable ? `This box isn't on sale for ${pincode} right now.` : `We don't deliver to ${pincode} yet.`}</p>
+        <Link to="/">See all mangoes</Link>
+      </section>
+    )
+  }
+  const sizes = all.filter((x) => x.variety && x.variety === p.variety)
+  const open = p.stages.filter((s) => s.qty > 0)
+  // Ripe is the usual pick, so it is chosen first when it is in stock.
+  const stage = picked && open.some((s) => s.stage === picked) ? picked : (open.find((s) => s.stage === 'RIPE') ?? open[0])?.stage ?? null
+  const item = p.stages.find((s) => s.stage === stage) ?? null
+  const inCart = item ? cart.find((l) => l.sku === sku && l.stage === item.stage)?.qty ?? 0 : 0
+  const room = item ? Math.max(0, Math.min(20, item.qty) - inCart) : 0
+  const n = Math.max(1, Math.min(count, room))
+  const label = item ? `${p.name}, ${STAGE_LABEL[item.stage]}` : ''
+
+  function add() {
+    if (!item || room === 0) return
+    setQty({ sku: item.sku, stage: item.stage, name: item.name, price: item.price }, inCart + n)
+    setAdded(`Added ${n} ${n === 1 ? 'box' : 'boxes'} of ${label}.`)
+    setCount(1)
+  }
+
+  return (
+    <section className="card buy" aria-labelledby="product-title">
+      <header className="product-head">
+        <MangoArt stage={item?.stage ?? 'RIPE'} size={72} />
+        <div className="product-name">
+          <h1 id="product-title">{p.name}</h1>
+          <ProductRating sku={p.sku} variety={p.variety} href="#reviews" />
+          <p className="buy-price">
+            <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>
+          </p>
+        </div>
+      </header>
+      {p.description && <p>{p.description}</p>}
+
+      {sizes.length > 1 && (
+        <div className="field">
+          <span className="field-label" id="size-label">
+            Box size
+          </span>
+          <div className="chips" role="group" aria-labelledby="size-label">
+            {sizes.map((x) => (
+              <Link key={x.sku} to={`/mangoes/${x.sku}`} replace className="chip" aria-current={x.sku === sku ? 'true' : undefined}>
+                {x.boxSize || x.name} · {rupees(x.price)}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <fieldset className="field">
+        <legend>Choose ripeness</legend>
+        <ul className="ripe-options">
+          {p.stages.map((s) => {
+            const id = `st-${s.stage}`
+            const sold = s.qty === 0
+            return (
+              <li key={s.stage} className={`ripe-option${s.stage === stage ? ' is-picked' : ''}${sold ? ' is-sold' : ''}`}>
+                <label>
+                  <input
+                    type="radio"
+                    name="stage"
+                    value={s.stage}
+                    checked={s.stage === stage}
+                    disabled={sold}
+                    onChange={() => {
+                      setPicked(s.stage)
+                      setAdded(null)
+                    }}
+                    aria-labelledby={`${id}-name`}
+                    aria-describedby={`${id}-info`}
+                  />
+                  <span className={`stage-dot stage-${s.stage.toLowerCase()}`} aria-hidden="true" />
+                  <span className="stage-text">
+                    <strong id={`${id}-name`}>{STAGE_LABEL[s.stage]}</strong>
+                    <span id={`${id}-info`} className="muted small">
+                      {STAGE_HINT[s.stage]} {sold ? 'Sold out for this day.' : `Eat by ${day(s.eatBy)}.`}
+                      {!sold && s.qty <= 5 && <span className="low"> Only {s.qty} left.</span>}
+                    </span>
+                  </span>
+                </label>
+                {sold && (
+                  <span className="small ripe-extra">
+                    {s.nextAvailableDate ? (
+                      <button type="button" className="link-btn" onClick={() => setWhere(pincode, s.nextAvailableDate!)}>
+                        Available {day(s.nextAvailableDate)}
+                      </button>
+                    ) : (
+                      <NotifyMe item={s} label={`${p.name}, ${STAGE_LABEL[s.stage]}`} />
+                    )}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      </fieldset>
+
+      {item ? (
+        <>
+          <div className="field">
+            <span className="field-label" id="qty-label">
+              How many boxes
+            </span>
+            <div className="stepper" role="group" aria-labelledby="qty-label">
+              <button type="button" onClick={() => setCount(n - 1)} disabled={n <= 1} aria-label="One box fewer">
+                −
+              </button>
+              <span aria-live="polite">{room === 0 ? 0 : n}</span>
+              <button type="button" onClick={() => setCount(n + 1)} disabled={n >= room} aria-label="One box more">
+                +
+              </button>
+            </div>
+            {inCart > 0 && (
+              <p className="muted small">
+                {inCart} already in your cart{room === 0 ? ', the most we can send for this day.' : '.'}
+              </p>
+            )}
+          </div>
+          <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
+            Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
+          </button>
+        </>
+      ) : (
+        <p className="sold-out">Every ripeness is sold out for {day(q.data.deliveryDate!)}.</p>
+      )}
+      {added && (
+        <p className="note" role="status">
+          {added} <Link to="/cart">View cart</Link>
+        </p>
+      )}
+      <p className="muted small">Showing stock for {day(q.data.deliveryDate!)}. You choose the delivery day at checkout.</p>
+    </section>
   )
 }
 

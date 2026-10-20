@@ -18,6 +18,30 @@ async function noA11yViolations(page: import('@playwright/test').Page) {
   expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(' ')}`)).toEqual([])
 }
 
+/**
+ * From the home page, opens the in-stock boxes in turn (skipping the first `skip` with stock),
+ * adds `boxes` of the ripeness picked on the product page and returns "Name, Ripeness".
+ */
+async function addFromProductPage(page: import('@playwright/test').Page, boxes: number, skip: number) {
+  await page.goto('/')
+  const links = page.getByRole('region', { name: 'Pick your mangoes' }).getByRole('heading', { level: 3 }).getByRole('link')
+  await expect(links.first()).toBeVisible()
+  const total = await links.count()
+  for (let i = 0; i < total; i++) {
+    await page.goto('/')
+    await links.nth(i).click()
+    await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
+    const add = page.getByRole('button', { name: /^Add to cart/ })
+    if (!(await add.count()) || (await add.isDisabled())) continue
+    if (skip-- > 0) continue
+    for (let n = 1; n < boxes; n++) await page.getByRole('button', { name: 'One box more' }).click()
+    await add.click()
+    const done = await page.getByRole('status').filter({ hasText: /^Added / }).textContent()
+    return done!.match(/of (.+)\. View cart/)![1]
+  }
+  throw new Error('no box in stock')
+}
+
 test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   const phone = `9${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
 
@@ -30,19 +54,17 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByLabel('Your delivery pincode').fill('560034')
   await page.getByRole('button', { name: 'Show mangoes' }).click()
 
-  await expect(page.getByRole('heading', { name: /^Pick your mangoes for/ })).toBeVisible()
-  const dates = page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio')
-  await dates.nth(1).click()
-  await expect(dates.nth(1)).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
+  // The delivery day is picked at checkout, not here.
+  await expect(page.getByRole('radiogroup', { name: 'When should it arrive?' })).toHaveCount(0)
   await noA11yViolations(page)
 
-  // Stock differs by day, so take whatever is in stock: two of one box, one of another.
-  const adds = page.getByRole('button', { name: /^Add / })
-  const first = (await adds.first().getAttribute('aria-label'))!.slice(4)
-  await adds.first().click()
-  await page.getByRole('button', { name: `One more ${first}` }).click()
-  const second = (await adds.first().getAttribute('aria-label'))!.slice(4)
-  await adds.first().click()
+  // Tapping a box opens its page, where the ripeness and count are picked. Stock differs by day, so take
+  // whatever is in stock: two of one box, one of another.
+  const first = await addFromProductPage(page, 2, 0)
+  await noA11yViolations(page)
+  const second = await addFromProductPage(page, 1, 1)
+  await page.goto('/')
   await page.getByRole('link', { name: /View cart · 3 boxes/ }).click()
 
   await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
@@ -66,6 +88,15 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toMatch(/eyJ/)
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Enter the full delivery address')
+  const days = page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio')
+  await expect(days.first()).toHaveAttribute('aria-checked', 'true')
+  if ((await days.count()) > 1) {
+    // Switching day reloads its delivery times; switch back to the day the boxes were picked for.
+    await days.nth(1).click()
+    await expect(days.nth(1)).toHaveAttribute('aria-checked', 'true')
+    await days.first().click()
+    await expect(days.first()).toHaveAttribute('aria-checked', 'true')
+  }
   await page.getByLabel('Your name').fill('Asha Rao')
   await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
@@ -261,8 +292,8 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   await page.goto('/')
   await page.getByLabel('Your delivery pincode').fill('560034')
   await page.getByRole('button', { name: 'Show mangoes' }).click()
-  await page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio').nth(1).click()
-  await page.getByRole('button', { name: /^Add / }).first().click()
+  await addFromProductPage(page, 1, 0)
+  await page.goto('/')
   await page.getByRole('link', { name: /View cart · 1 box/ }).click()
   await page.getByRole('button', { name: 'Sign in to check out' }).click()
   await page.getByLabel('Mobile number').fill(phone)
@@ -334,13 +365,13 @@ test('the top bar changes the pincode and searches; the bottom tabs move between
   await page.getByRole('searchbox', { name: 'Search mangoes' }).fill('papaya')
   await expect(page.getByText('No mangoes match “papaya”')).toBeVisible()
   await page.getByRole('searchbox', { name: 'Search mangoes' }).fill('')
-  await expect(page.getByRole('heading', { name: /Pick your mangoes for/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
 
   // The address button opens the pincode form; "Keep" goes back without a change.
   await page.getByRole('link', { name: 'Delivering to 560034, change' }).click()
   await expect(page.getByLabel('Your delivery pincode')).toHaveValue('560034')
   await page.getByRole('button', { name: 'Keep 560034' }).click()
-  await expect(page.getByRole('heading', { name: /Pick your mangoes for/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
 
   const tabs = page.getByRole('navigation', { name: 'Main' })
   await tabs.getByRole('link', { name: /Cart, 0 boxes/ }).click()

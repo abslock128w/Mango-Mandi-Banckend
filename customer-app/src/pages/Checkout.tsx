@@ -86,6 +86,8 @@ function CheckoutForm() {
     if (a?.name) setName(a.name)
   }
 
+  // The delivery day is chosen here, at checkout.
+  const days = useQuery({ queryKey: ['delivery-days', pincode], queryFn: () => api.checkPincode(pincode!), enabled: Boolean(pincode) })
   const slots = useQuery({
     queryKey: ['slots', pincode, date],
     queryFn: () => api.slots(pincode!, date ?? ''),
@@ -288,9 +290,28 @@ function CheckoutForm() {
           <ErrorNote error={slots.error} onRetry={() => slots.refetch()} />
         ) : (
           <>
-            <p>
-              Arrives <strong>{day(slots.data.deliveryDate)}</strong>
-            </p>
+            <fieldset className="field">
+              <legend>When should it arrive?</legend>
+              <div className="chips" role="radiogroup" aria-label="When should it arrive?">
+                {(days.data?.deliveryDates ?? [slots.data.deliveryDate]).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    role="radio"
+                    aria-checked={d === slots.data.deliveryDate}
+                    className="chip"
+                    onClick={() => {
+                      if (d === slots.data.deliveryDate) return
+                      setSlotId(null)
+                      setWhere(pincode, d)
+                    }}
+                  >
+                    {day(d)}
+                  </button>
+                ))}
+              </div>
+              {days.data?.cutoffTime && <p className="muted small">Orders for the next day close at {days.data.cutoffTime.replace(' IST', '')} (India time).</p>}
+            </fieldset>
             {slots.data.slots.length > 0 && (
               <fieldset className="field">
                 <legend>Delivery time</legend>
