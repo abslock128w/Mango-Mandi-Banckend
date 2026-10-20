@@ -30,7 +30,7 @@ async function signIn(page: Page, phone: string, next = '/') {
   const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
   await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Account', exact: true })).toBeVisible()
 }
 
 /** Something in stock for the earliest day, from the real catalogue. */
@@ -231,7 +231,7 @@ test('FE-3: a busy API does not sign the customer out; a refused refresh does', 
     route.fulfill({ status: 503, json: { error: { code: 'BUSY', message: 'Busy, try again shortly' } } }),
   )
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Account', exact: true })).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('mm.profile'))).not.toBeNull()
 
   await page.unroute(`${API}/v1/auth/token/refresh`)
@@ -239,7 +239,7 @@ test('FE-3: a busy API does not sign the customer out; a refused refresh does', 
     route.fulfill({ status: 401, json: { error: { code: 'INVALID_TOKEN', message: 'Sign in again' } } }),
   )
   await page.reload()
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
   expected(consoleErrors, /status of 503/)
   void request
 })
@@ -265,8 +265,9 @@ test('FE-6: signing out forgets the saved address and cart on this device', asyn
   })
   await page.reload()
   await expect(page.getByRole('link', { name: /Cart, 1 box/ })).toBeVisible()
+  await page.getByRole('link', { name: 'Account', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out' }).click()
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /Cart, 0 boxes/ })).toBeVisible()
   const kept = await page.evaluate(() => ({ address: localStorage.getItem('mm.address'), profile: localStorage.getItem('mm.profile'), cart: localStorage.getItem('mm.cart') }))
   expect(kept.address).toBeNull()

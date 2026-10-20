@@ -96,8 +96,9 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
   await expect(page.getByRole('link', { name: /Order ORD-.*Cancelled/ })).toBeVisible()
   await noA11yViolations(page)
+  await page.getByRole('link', { name: 'Account', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out' }).click()
-  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
 })
 
 /** A Monday a few weeks out, past the regular booking days. */
@@ -239,14 +240,14 @@ test('the privacy notice, and deleting an account', async ({ page }, info) => {
   await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Account' }).click()
+  await page.getByRole('link', { name: 'Account', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Your account', exact: true })).toBeVisible()
   await expect(page.getByText(`+91 ${phone}`)).toBeVisible()
   await noA11yViolations(page)
   await page.getByRole('button', { name: 'Delete my account' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'Delete account' }).click()
   await expect(page.getByText('Your account is deleted.')).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in', exact: true })).toBeVisible()
 })
 
 test('send a gift with a promo code', async ({ page, request }, info) => {
@@ -316,5 +317,37 @@ test('reminders are a choice on the account page', async ({ page }, info) => {
   await page.reload()
   await expect(page.getByLabel('Remind me to order again a week after a delivery')).toBeChecked()
   await expect(page.getByText(/tap "Tell me when it's back"/)).toBeVisible()
+  await noA11yViolations(page)
+})
+
+test('the top bar changes the pincode and searches; the bottom tabs move between pages', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Your delivery pincode').fill('560034')
+  await page.getByRole('button', { name: 'Show mangoes' }).click()
+  await expect(page.getByRole('link', { name: 'Delivering to 560034, change' })).toBeVisible()
+
+  // Search keeps only the matching mangoes, and says so when nothing matches.
+  await page.getByRole('searchbox', { name: 'Search mangoes' }).fill('alphonso')
+  await expect(page.getByRole('heading', { name: /Mangoes matching “alphonso”/ })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: /Alphonso/ }).first()).toBeVisible()
+  await expect(page.getByRole('heading', { level: 3, name: /Badami/ })).toHaveCount(0)
+  await page.getByRole('searchbox', { name: 'Search mangoes' }).fill('papaya')
+  await expect(page.getByText('No mangoes match “papaya”')).toBeVisible()
+  await page.getByRole('searchbox', { name: 'Search mangoes' }).fill('')
+  await expect(page.getByRole('heading', { name: /Pick your mangoes for/ })).toBeVisible()
+
+  // The address button opens the pincode form; "Keep" goes back without a change.
+  await page.getByRole('link', { name: 'Delivering to 560034, change' }).click()
+  await expect(page.getByLabel('Your delivery pincode')).toHaveValue('560034')
+  await page.getByRole('button', { name: 'Keep 560034' }).click()
+  await expect(page.getByRole('heading', { name: /Pick your mangoes for/ })).toBeVisible()
+
+  const tabs = page.getByRole('navigation', { name: 'Main' })
+  await tabs.getByRole('link', { name: /Cart, 0 boxes/ }).click()
+  await expect(page).toHaveURL(/\/cart$/)
+  await tabs.getByRole('link', { name: 'Home' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await page.getByRole('link', { name: 'Sign in', exact: true }).click()
+  await expect(page).toHaveURL(/\/sign-in/)
   await noA11yViolations(page)
 })

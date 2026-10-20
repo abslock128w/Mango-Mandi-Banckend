@@ -12,10 +12,17 @@ import type { Stage } from '../api'
 
 export default function Shop() {
   const { pincode, date, setWhere, cart } = useStore()
-  const [editing, setEditing] = useState(!pincode)
+  const [params, setParams] = useSearchParams()
+  // The header's address button opens the pincode form with ?where=1.
+  const editing = params.get('where') === '1'
+  const search = (params.get('q') ?? '').trim()
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
   const pickDate = useCallback((d: string | null) => setWhere(pincode, d), [setWhere, pincode])
-  const [params] = useSearchParams()
+  const closeForm = () => {
+    const next = new URLSearchParams(params)
+    next.delete('where')
+    setParams(next, { replace: true })
+  }
 
   return (
     <>
@@ -27,24 +34,17 @@ export default function Shop() {
       {editing || !pincode ? (
         <PincodeForm
           initial={pincode ?? ''}
+          onCancel={pincode ? closeForm : undefined}
           onDone={(pin, first) => {
             setWhere(pin, first)
-            setEditing(false)
+            closeForm()
           }}
         />
       ) : (
-        <div className="where">
-          <span>
-            Delivering to <strong>{pincode}</strong>
-          </span>
-          <button type="button" className="link-btn" onClick={() => setEditing(true)}>
-            Change
-          </button>
-        </div>
+        <Catalogue pincode={pincode} date={date} onDate={pickDate} search={search} />
       )}
-      {pincode && !editing && <Catalogue pincode={pincode} date={date} onDate={pickDate} />}
-      <BookAheadCard />
-      <Promises />
+      {!search && <BookAheadCard />}
+      {!search && <Promises />}
       {boxes > 0 && (
         <div className="sticky-cart">
           <Link to="/cart" className="btn btn-primary btn-block">
@@ -56,7 +56,7 @@ export default function Shop() {
   )
 }
 
-function PincodeForm({ initial, onDone }: { initial: string; onDone: (pincode: string, firstDate: string | null) => void }) {
+function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (pincode: string, firstDate: string | null) => void; onCancel?: () => void }) {
   const [pin, setPin] = useState(initial)
   const [error, setError] = useState<string | null>(null)
   const check = useMutation({
@@ -93,6 +93,11 @@ function PincodeForm({ initial, onDone }: { initial: string; onDone: (pincode: s
             {check.isPending ? 'Checking…' : 'Show mangoes'}
           </button>
         </div>
+        {onCancel && (
+          <button type="button" className="link-btn" onClick={onCancel}>
+            Keep {initial}
+          </button>
+        )}
         {(error || check.error) && (
           <p id="pin-error" className="field-error" role="alert">
             {error ?? (check.error as Error).message}
@@ -159,7 +164,7 @@ function Promises() {
   )
 }
 
-function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | null; onDate: (d: string | null) => void }) {
+function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: string | null; onDate: (d: string | null) => void; search: string }) {
   const q = useQuery({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode, date) })
   // A saved day that has passed or closed: fall back to the earliest open one.
   const stale = q.error instanceof ApiError && q.error.code === 'INVALID_DATE'
@@ -169,7 +174,9 @@ function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | 
   if (q.isPending) return <Spinner label="Loading mangoes" />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   if (!q.data.serviceable) return <ErrorNote error={`We don't deliver to ${pincode} yet.`} />
-  const products = groupBySku(q.data.items)
+  const all = groupBySku(q.data.items)
+  const words = search.toLowerCase()
+  const products = words ? all.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : all
   const chosen = q.data.deliveryDate!
 
   return (
@@ -190,8 +197,13 @@ function Catalogue({ pincode, date, onDate }: { pincode: string; date: string | 
 
       <section aria-labelledby="pick">
         <h2 id="pick" className="section-title">
-          Pick your mangoes for {day(chosen)}
+          {search ? `Mangoes matching “${search}” for ${day(chosen)}` : `Pick your mangoes for ${day(chosen)}`}
         </h2>
+        {products.length === 0 && (
+          <p className="card empty">
+            No mangoes match “{search}”. Try another name, such as Alphonso.
+          </p>
+        )}
         <div className="products">
           {products.map((p) => (
             <article key={p.sku} className="card product" aria-labelledby={`p-${p.sku}`}>

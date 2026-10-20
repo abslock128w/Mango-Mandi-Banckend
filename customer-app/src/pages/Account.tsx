@@ -39,6 +39,9 @@ export default function Account() {
         <p className="small muted">
           How we use these details is in our <Link to="/privacy">privacy notice</Link>.
         </p>
+        <button type="button" className="btn btn-quiet" onClick={() => void api.signOut()}>
+          Sign out
+        </button>
       </section>
 
       <Messages />
