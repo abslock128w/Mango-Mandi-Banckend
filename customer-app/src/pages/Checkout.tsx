@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Confirmed, type Quote } from '../api'
 import { STAGE_LABEL, day, rupees, slotText } from '../format'
@@ -38,8 +38,29 @@ export async function syncCart(cart: CartLine[]) {
   }
 }
 
-/** A form problem, shown under the field it is about. */
-type Problem = { at: 'slot' | 'gift-name' | 'gift-phone' | 'address'; message: string }
+/** Where a form problem shows: under its field. */
+type At = 'slot' | 'gift-name' | 'gift-phone' | 'address' | 'promo'
+/** The fields in page order, so the first one with a problem gets focus. */
+const FIELD_ORDER: At[] = ['slot', 'gift-name', 'gift-phone', 'address', 'promo']
+
+/** Moves focus to a field: a text box by its id, the delivery times to the first one that can be picked. */
+function focusField(at: At) {
+  const el =
+    at === 'slot'
+      ? document.querySelector<HTMLInputElement>('input[name="slot"]:checked, input[name="slot"]:not(:disabled)')
+      : at === 'address' && document.getElementById('address')?.closest('[hidden]')
+        ? document.querySelector<HTMLInputElement>('input[name="saved-address"]:checked')
+        : document.getElementById(at)
+  el?.focus()
+}
+
+/** A refusal from the API that belongs to one field. */
+function problemAt(err: unknown): At | null {
+  if (!(err instanceof ApiError)) return null
+  if (err.code === 'SLOT_FULL') return 'slot'
+  if (err.code.startsWith('PROMO_')) return 'promo'
+  return null
+}
 
 /** A short pause, for retrying a confirm whose first try is still starting the payment. */
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -54,6 +75,8 @@ export default function Checkout() {
 function CheckoutForm() {
   const { pincode, date, cart, clearCart, setQty, setWhere } = useStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const [params] = useSearchParams()
   const saved = useRef(loadAddress())
   const [name, setName] = useState(saved.current.name ?? '')
   const [address, setAddress] = useState(saved.current.address ?? '')
@@ -61,7 +84,7 @@ function CheckoutForm() {
   const [promoCode, setPromoCode] = useState('')
   const [isGift, setIsGift] = useState(false)
   const [gift, setGift] = useState({ recipientName: '', recipientPhone: '', message: '' })
-  const [formError, setFormError] = useState<Problem | null>(null)
+  const [problems, setProblems] = useState<Partial<Record<At, string>>>({})
   const [quote, setQuote] = useState<Quote | null>(null)
   const idemKey = useRef<string | null>(null)
   // After the gateway failed to start a payment, the quote is spent: the next Pay quotes again with a new key.
@@ -119,9 +142,45 @@ function CheckoutForm() {
       idemKey.current = crypto.randomUUID()
       quoteSpent.current = false
       setQuote(q)
+      // The review is its own step in the history, so the browser's Back returns to this form.
+      navigate({ search: '?step=review' }, { state: { fromForm: true } })
     },
-    onError: dropUnsold,
+    onError: (err) => {
+      dropUnsold(err)
+      const at = problemAt(err)
+      // A time that just filled up shows as Full.
+      if (at === 'slot') void slots.refetch()
+      if (at) {
+        setProblems({ [at]: quoteProblem(err, cart) })
+        // Wait for the error to render, so the field reads it out with focus.
+        requestAnimationFrame(() => focusField(at))
+      }
+    },
   })
+  // The review shows only at ?step=review; without a quote (a reload) the form shows instead.
+  const reviewing = Boolean(quote) && params.get('step') === 'review'
+  const backToForm = () => {
+    if ((location.state as { fromForm?: boolean } | null)?.fromForm) navigate(-1)
+    else navigate({ search: '' }, { replace: true })
+  }
+  // Each step starts at the top, with focus on its heading.
+  const heading = useRef<HTMLHeadingElement>(null)
+  const firstStep = useRef(true)
+  useEffect(() => {
+    if (firstStep.current) {
+      firstStep.current = false
+      return
+    }
+    window.scrollTo(0, 0)
+    heading.current?.focus()
+    // Back on the form, the details may change: the next Review order quotes again.
+    if (!reviewing) setQuote(null)
+  }, [reviewing])
+  // ?step=review with nothing to review (a reload, or Forward after changing details): stay on the form.
+  const orphanStep = params.get('step') === 'review' && !quote
+  useEffect(() => {
+    if (orphanStep) navigate({ search: '' }, { replace: true })
+  }, [orphanStep, navigate])
   const pay = useMutation({
     mutationFn: async () => {
       let q = quote!
@@ -165,7 +224,7 @@ function CheckoutForm() {
       }
       return { c, sheetError }
     },
-    onSuccess: ({ c, sheetError }) => navigate(`/orders/${c.orderId}`, { replace: true, state: sheetError ? { payError: sheetError } : null }),
+    onSuccess: ({ c, sheetError }) => navigate(`/orders/${c.orderId}`, { replace: true, state: { placed: true, ...(sheetError && { payError: sheetError }) } }),
     onError: dropUnsold,
   })
 
@@ -174,12 +233,18 @@ function CheckoutForm() {
 
   function submit(e: FormEvent) {
     e.preventDefault()
-    setFormError(null)
-    if (address.trim().length < 10) return setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
-    if (slots.data?.slots.length && !slotId) return setFormError({ at: 'slot', message: 'Choose a delivery time.' })
-    if (isGift && !gift.recipientName.trim()) return setFormError({ at: 'gift-name', message: "Enter the name of the person you're sending it to." })
+    const found: Partial<Record<At, string>> = {}
+    if (slots.data?.slots.length && !slotId) found.slot = 'Choose a delivery time.'
+    if (isGift && !gift.recipientName.trim()) found['gift-name'] = "Enter the name of the person you're sending it to."
     if (isGift && !/^(\+?91|0)?[6-9]\d{9}$/.test(gift.recipientPhone.replace(/[\s-]/g, ''))) {
-      return setFormError({ at: 'gift-phone', message: 'Enter their 10-digit mobile number, so the rider can reach them.' })
+      found['gift-phone'] = 'Enter their 10-digit mobile number, so the rider can reach them.'
+    }
+    if (address.trim().length < 10) found.address = 'Enter the full delivery address, with house number and landmark.'
+    setProblems(found)
+    const first = FIELD_ORDER.find((at) => found[at])
+    if (first) {
+      requestAnimationFrame(() => focusField(first))
+      return
     }
     try {
       localStorage.setItem('mm.address', JSON.stringify({ name: name.trim(), address: address.trim() }))
@@ -189,7 +254,7 @@ function CheckoutForm() {
     review.mutate()
   }
 
-  if (quote) {
+  if (quote && reviewing) {
     // The cart shows the price seen when the box was added; the quote is today's.
     const wasPrice = (l: Quote['lines'][number]) => {
       const seen = cart.find((c) => c.sku === l.sku && c.stage === l.stage)?.price
@@ -198,7 +263,9 @@ function CheckoutForm() {
     const changed = quote.lines.filter((l) => wasPrice(l) != null)
     return (
       <section className="card">
-        <h1>Review and pay</h1>
+        <h1 ref={heading} tabIndex={-1}>
+          Review and pay
+        </h1>
         <dl className="facts">
           <div>
             <dt>Arrives</dt>
@@ -277,7 +344,7 @@ function CheckoutForm() {
         <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()}>
           {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
         </button>
-        <button type="button" className="btn btn-block btn-quiet" disabled={pay.isPending} onClick={() => setQuote(null)}>
+        <button type="button" className="btn btn-block btn-quiet" disabled={pay.isPending} onClick={backToForm}>
           Change details
         </button>
       </section>
@@ -286,10 +353,14 @@ function CheckoutForm() {
 
   // A saved address hides the address box: a problem with it then shows above the button.
   const addressShown = isGift || picked === null
-  const errorAt = (at: Problem['at']) => (formError?.at === at && (at !== 'address' || addressShown) ? formError.message : null)
+  const errorAt = (at: At) => (at !== 'address' || addressShown ? problems[at] ?? null : null)
+  // A field's problem from the API is shown at the field, not again above the button.
+  const reviewError = review.error && !(problemAt(review.error) && problems[problemAt(review.error)!]) ? quoteProblem(review.error, cart) : null
   return (
     <section className="card">
-      <h1>Delivery details</h1>
+      <h1 ref={heading} tabIndex={-1}>
+        Delivery details
+      </h1>
       <form onSubmit={submit} noValidate>
         {slots.isPending ? (
           <Spinner label="Loading delivery times" />
@@ -312,7 +383,16 @@ function CheckoutForm() {
               />
               {days.data?.cutoffTime && <p className="muted small">Orders for the next day close at {days.data.cutoffTime.replace(' IST', '')} (India time).</p>}
             </fieldset>
-            <SlotPicker name="slot" slots={slots.data.slots} value={slotId} onChange={setSlotId} error={errorAt('slot')} />
+            <SlotPicker
+              name="slot"
+              slots={slots.data.slots}
+              value={slotId}
+              onChange={(id) => {
+                setSlotId(id)
+                if (problems.slot) setProblems({ ...problems, slot: undefined })
+              }}
+              error={errorAt('slot')}
+            />
           </>
         )}
         <label className="option gift-toggle">
@@ -384,15 +464,24 @@ function CheckoutForm() {
             }}
           />
         </Field>
-        <Field id="promo" label="Promo code (optional)">
-          <input autoComplete="off" autoCapitalize="characters" maxLength={20} value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())} />
+        <Field id="promo" label="Promo code (optional)" error={errorAt('promo')}>
+          <input
+            autoComplete="off"
+            autoCapitalize="characters"
+            maxLength={20}
+            value={promoCode}
+            onChange={(e) => {
+              setPromoCode(e.target.value.toUpperCase())
+              if (problems.promo) setProblems({ ...problems, promo: undefined })
+            }}
+          />
         </Field>
-        {formError && !errorAt(formError.at) && (
+        {problems.address && !addressShown && (
           <p className="field-error" role="alert">
-            {formError.message}
+            {problems.address}
           </p>
         )}
-        <ErrorNote error={review.error ? quoteProblem(review.error, cart) : null} />
+        <ErrorNote error={reviewError} />
         <button type="submit" className="btn btn-primary btn-block" disabled={review.isPending || slots.isPending}>
           {review.isPending ? 'Checking stock…' : 'Review order'}
         </button>

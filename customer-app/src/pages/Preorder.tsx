@@ -1,13 +1,13 @@
 // Booking ahead: a box for a delivery week before the fruit is in, at today's
 // price, paid in full by a Razorpay payment link. We pick the day in that week
 // once the fruit is in, and the booking becomes a normal order.
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, errorMessage, type Preorder, type PreorderStatus, type PreorderWeek, type Stage } from '../api'
+import { ApiError, api, errorMessage, type Preorder, type PreorderStatus, type PreorderWeek, type SavedAddress, type Stage } from '../api'
 import { PREORDER_LABEL, STAGE_HINT, STAGE_LABEL, rupees, week, when } from '../format'
 import { useStore } from '../store'
-import { DayChips, Field, Stepper } from '../forms'
+import { AddressPicker, DayChips, Field, Stepper } from '../forms'
 import { ConfirmDialog, ErrorNote, PageHeader, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 
@@ -18,6 +18,33 @@ function loadAddress() {
     return JSON.parse(localStorage.getItem('mm.address') ?? '{}') as { name?: string; address?: string }
   } catch {
     return {}
+  }
+}
+
+/** What a signed-out visitor filled in, kept for this tab while they sign in, then put back. */
+interface Draft {
+  weekStart: string
+  sku: string
+  stage: Stage
+  qty: number
+  name: string
+  address: string
+  pincode: string
+}
+const DRAFT_KEY = 'mm.bookDraft'
+function readDraft(): Draft | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY)
+    return raw ? (JSON.parse(raw) as Draft) : null
+  } catch {
+    return null
+  }
+}
+function keepDraft(d: Draft) {
+  try {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d))
+  } catch {
+    // ignore: the form starts empty after sign-in
   }
 }
 
@@ -66,26 +93,68 @@ export default function BookAhead() {
 function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; cancelPolicy: string; onStale: () => void }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { pincode: shopPincode } = useStore()
+  const { pincode: shopPincode, profile } = useStore()
   const saved = useRef(loadAddress())
   const starts = useMemo(() => [...new Set(weeks.map((w) => w.weekStart))], [weeks])
-  const [weekStart, setWeekStart] = useState(starts[0])
+  // Back from signing in: the visitor's choices, if their week is still open.
+  const [d] = useState(() => {
+    const draft = readDraft()
+    return draft && starts.includes(draft.weekStart) ? draft : null
+  })
+  // Used once: read during render, removed after.
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(DRAFT_KEY)
+    } catch {
+      // ignore
+    }
+  }, [])
+  const [weekStart, setWeekStart] = useState(d?.weekStart ?? starts[0])
   const inWeek = weeks.filter((w) => w.weekStart === weekStart)
-  const [sku, setSku] = useState(inWeek[0]?.sku ?? '')
+  const [sku, setSku] = useState(d && inWeek.some((w) => w.sku === d.sku) ? d.sku : (inWeek[0]?.sku ?? ''))
   const pick = inWeek.find((w) => w.sku === sku) ?? inWeek[0]
-  const [stage, setStage] = useState<Stage>('SEMI_RIPE')
-  const [qty, setQty] = useState(1)
-  const [name, setName] = useState(saved.current.name ?? '')
-  const [address, setAddress] = useState(saved.current.address ?? '')
-  const [pincode, setPincode] = useState(shopPincode ?? '')
+  const [stage, setStage] = useState<Stage>(d?.stage ?? 'SEMI_RIPE')
+  const [qty, setQty] = useState(d?.qty ?? 1)
+  const [name, setName] = useState(d?.name ?? saved.current.name ?? '')
+  const [address, setAddress] = useState(d?.address ?? saved.current.address ?? '')
+  const [pincode, setPincode] = useState(d?.pincode ?? shopPincode ?? '')
   const [formError, setFormError] = useState<{ at: 'pincode' | 'address'; message: string } | null>(null)
+
+  // The addresses this account ordered to before, as at checkout. Picking one fills in its pincode too.
+  const book = useQuery({ queryKey: ['addresses'], queryFn: api.addresses, staleTime: 60_000, enabled: Boolean(profile) })
+  const addresses = book.data ?? []
+  const [picked, setPicked] = useState<string | null>(null)
+  const typedOwn = useRef(Boolean(d))
+  const squash = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim()
+  if (!typedOwn.current && picked === null && addresses.length) {
+    // Start from the address used last time (or the most recent saved one).
+    const here = addresses.filter((a) => !/^\d{6}$/.test(pincode) || a.pincode === pincode)
+    const match = address.trim() ? here.find((a) => squash(a.address) === squash(address)) : here[0]
+    typedOwn.current = true
+    if (match) fillFrom(match)
+  }
+  function fillFrom(a: SavedAddress) {
+    setPicked(a.id)
+    setAddress(a.address)
+    setPincode(a.pincode)
+    if (a.name && !name) setName(a.name)
+  }
+  const chooseAddress = (id: string | null) => {
+    typedOwn.current = true
+    const a = addresses.find((x) => x.id === id)
+    if (a) return fillFrom(a)
+    setPicked(null)
+    setAddress('')
+  }
+  // The picker names the pincode, since saved addresses can be in different places.
+  const shownAddresses = addresses.map((a) => ({ ...a, address: `${a.address}, ${a.pincode}` }))
   const idemKey = useRef(crypto.randomUUID())
 
   const waitlist = pick.remaining === 0
   const max = waitlist ? 20 : Math.min(20, pick.remaining)
   const boxes = Math.min(qty, max)
 
-  const book = useMutation({
+  const bookIt = useMutation({
     mutationFn: () =>
       api.bookPreorder(
         { sku: pick.sku, stage, qty: boxes, weekStart, pincode, address: address.trim(), name: name.trim() || undefined, waitlist },
@@ -126,9 +195,20 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
   function submit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
-    if (!/^\d{6}$/.test(pincode)) return setFormError({ at: 'pincode', message: 'Enter your 6-digit pincode.' })
-    if (address.trim().length < 10) return setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
-    book.mutate()
+    if (address.trim().length < 10) {
+      setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
+      return requestAnimationFrame(() => document.getElementById('pre-address')?.focus())
+    }
+    if (!/^\d{6}$/.test(pincode)) {
+      setFormError({ at: 'pincode', message: 'Enter your 6-digit pincode.' })
+      return requestAnimationFrame(() => document.getElementById('pre-pincode')?.focus())
+    }
+    if (!profile) {
+      // Signing in comes only now, when booking: keep what was filled in for the way back.
+      keepDraft({ weekStart, sku: pick.sku, stage, qty: boxes, name: name.trim(), address: address.trim(), pincode })
+      return navigate(`/sign-in?next=${encodeURIComponent('/preorder')}`)
+    }
+    bookIt.mutate()
   }
 
   return (
@@ -184,10 +264,26 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         <Field id="pre-name" label="Your name">
           <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field id="pre-address" label="Delivery address" error={formError?.at === 'address' ? formError.message : null}>
-          <textarea autoComplete="street-address" rows={3} maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
+        <AddressPicker addresses={shownAddresses} value={picked} onChange={chooseAddress} />
+        <Field
+          id="pre-address"
+          label="Delivery address"
+          hint="House or flat number, street, area and a landmark."
+          error={formError?.at === 'address' ? formError.message : null}
+          hidden={picked !== null}
+        >
+          <textarea
+            autoComplete="street-address"
+            rows={3}
+            maxLength={500}
+            value={address}
+            onChange={(e) => {
+              typedOwn.current = true
+              setAddress(e.target.value)
+            }}
+          />
         </Field>
-        <Field id="pre-pincode" label="Pincode" error={formError?.at === 'pincode' ? formError.message : null}>
+        <Field id="pre-pincode" label="Pincode" error={formError?.at === 'pincode' ? formError.message : null} hidden={picked !== null}>
           <input inputMode="numeric" autoComplete="postal-code" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} />
         </Field>
 
@@ -202,14 +298,23 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         ) : (
           <p className="muted small">{cancelPolicy}</p>
         )}
-        {book.error && (
+        {bookIt.error && (
           <p className="field-error" role="alert">
-            {errorMessage(book.error)}
+            {errorMessage(bookIt.error)}
           </p>
         )}
-        <button type="submit" className="btn btn-primary btn-block" disabled={book.isPending}>
-          {book.isPending ? 'Booking…' : waitlist ? 'Join the waitlist' : `Book and pay ${rupees(pick.price * boxes)}`}
+        <button type="submit" className="btn btn-primary btn-block" disabled={bookIt.isPending}>
+          {!profile
+            ? waitlist
+              ? 'Sign in to join the waitlist'
+              : 'Sign in to book'
+            : bookIt.isPending
+              ? 'Booking…'
+              : waitlist
+                ? 'Join the waitlist'
+                : `Book and pay ${rupees(pick.price * boxes)}`}
         </button>
+        {!profile && <p className="muted small center">You sign in with your mobile number, then come back here to book and pay.</p>}
       </form>
     </section>
   )

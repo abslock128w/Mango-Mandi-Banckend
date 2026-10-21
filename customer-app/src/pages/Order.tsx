@@ -29,6 +29,14 @@ const STEPS: { label: string; status: OrderStatus; reached: OrderStatus[] }[] = 
 ]
 /** Orders a customer can still move to another day: confirmed, before packing starts. Mirrors the API. */
 const MOVABLE: OrderStatus[] = ['CONFIRMED']
+/** Packed and on its way: too late to cancel or move. */
+const PACKED_ON: OrderStatus[] = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
+/**
+ * Hours after delivery a damaged box can be reported for a free replacement. Mirrors the API's
+ * default claimWindowHours (mango-api/src/config.js); the order API does not send it yet, so the
+ * report link stays offered after it and the API has the last word.
+ */
+const CLAIM_WINDOW_HOURS = 24
 const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
 
 export default function OrderPage() {
@@ -80,8 +88,9 @@ function OrderView({ order }: { order: Order }) {
   const holdLeftMs = order.holdExpiresAt ? new Date(order.holdExpiresAt).getTime() - Date.now() : 0
   const holdOpen = holdLeftMs > 0
   const canPay = holdLeftMs > MIN_PAY_SECONDS * 1000
-  // A payment sheet that failed to open straight after checkout.
-  const sheetError = (useLocation().state as { payError?: string } | null)?.payError ?? null
+  // Straight after checkout: the order was just placed, and maybe the payment sheet failed to open.
+  const arrived = useLocation().state as { payError?: string; placed?: boolean } | null
+  const sheetError = arrived?.payError ?? null
 
   const payAgain = useMutation({
     mutationFn: () => openRazorpay({ key: payKey!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
@@ -97,19 +106,44 @@ function OrderView({ order }: { order: Order }) {
   })
   const paid = order.paymentStatus === 'SUCCEEDED'
   const help = helpLink(`Help with order ${order.number}`)
-  // After a cancel the button that opened the dialog is gone: move focus to the outcome.
+  // A thank-you once the payment goes through: seen here, or already done when checkout hands over.
+  const [thanks, setThanks] = useState(() => Boolean(arrived?.placed) && paid && order.status !== 'CANCELLED')
+  // After a cancel or a payment the button that was pressed is gone: move focus to the outcome.
   const cancelledNote = useRef<HTMLElement>(null)
+  const thanksNote = useRef<HTMLElement>(null)
   const wasStatus = useRef(order.status)
   useEffect(() => {
     if (order.status === 'CANCELLED' && wasStatus.current !== 'CANCELLED') cancelledNote.current?.focus()
+    if (wasStatus.current === 'PAYMENT_PENDING' && order.status !== 'PAYMENT_PENDING' && order.status !== 'CANCELLED') setThanks(true)
     wasStatus.current = order.status
   }, [order.status])
+  useEffect(() => {
+    if (thanks) thanksNote.current?.focus()
+  }, [thanks])
+  const canMove = MOVABLE.includes(order.status)
+  const canCancel = CANCELLABLE.includes(order.status)
+  const refund = paid ? ' for a full refund' : ''
+  const policy =
+    order.status === 'CONFIRMED'
+      ? `You can change the day until we start preparing it, and cancel${refund} until it's packed.`
+      : order.status === 'PROCESSING'
+        ? `We're preparing your boxes. You can still cancel${refund} until they're packed.`
+        : `You can cancel${refund} until it's packed.`
 
   return (
     <>
       <PageHeader title={`Order ${order.number}`}>
         <StatusPill status={order.status} />
       </PageHeader>
+
+      {thanks && order.status !== 'CANCELLED' && (
+        <section className="card note-card thanks-card" ref={thanksNote} tabIndex={-1} aria-labelledby="thanks-title">
+          <p id="thanks-title">
+            <strong>Thank you, your order is placed.</strong> We'll deliver it on {day(order.deliveryDate)}
+            {order.slot && `, ${slotText(order.slot)}`}.
+          </p>
+        </section>
+      )}
 
       {order.status === 'PAYMENT_PENDING' && (
         <section className="card note-card" aria-live="polite">
@@ -180,12 +214,53 @@ function OrderView({ order }: { order: Order }) {
         </section>
       )}
 
+      {order.status === 'DELIVERED' &&
+        (claim ? (
+          <section className="card">
+            <h2>Your report</h2>
+            <p>
+              {ISSUE_LABEL[claim.issueType]}:{' '}
+              {claim.status === 'RESOLVED'
+                ? claim.resolution === 'REPLACEMENT_APPROVED'
+                  ? 'a free replacement is on its way'
+                  : 'we looked into it and could not offer a replacement'
+                : 'we are looking into it'}
+              .
+            </p>
+            {claim.replacementOrder && <Link to={`/orders/${claim.replacementOrder.id}`}>See replacement order {claim.replacementOrder.number}</Link>}
+          </section>
+        ) : (
+          <ClaimPrompt order={order} loading={claims.isPending} />
+        ))}
+
       {order.status === 'DELIVERY_FAILED' && (
         <section className="card note-card">
           <p>
             <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
           </p>
         </section>
+      )}
+
+      {(canMove || canCancel) && (
+        <section className="card order-actions" aria-label="Change or cancel">
+          <p className="small">{policy}</p>
+          <div className="order-actions-row">
+            {canMove && (
+              <button type="button" className="btn" onClick={() => setMoving(true)}>
+                Change delivery day
+              </button>
+            )}
+            <button type="button" className="btn btn-danger-quiet" onClick={() => setCancelling(true)}>
+              Cancel order
+            </button>
+          </div>
+        </section>
+      )}
+      {PACKED_ON.includes(order.status) && (
+        <p className="muted small order-policy">
+          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {CLAIM_WINDOW_HOURS} hours of delivery
+          for a free replacement.
+        </p>
       )}
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && (
@@ -280,42 +355,9 @@ function OrderView({ order }: { order: Order }) {
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && stages.length > 0 && <CareTips stages={stages} />}
 
-      {order.status === 'DELIVERED' &&
-        (claim ? (
-          <section className="card">
-            <h2>Your report</h2>
-            <p>
-              {ISSUE_LABEL[claim.issueType]}:{' '}
-              {claim.status === 'RESOLVED'
-                ? claim.resolution === 'REPLACEMENT_APPROVED'
-                  ? 'a free replacement is on its way'
-                  : 'we looked into it and could not offer a replacement'
-                : 'we are looking into it'}
-              .
-            </p>
-            {claim.replacementOrder && <Link to={`/orders/${claim.replacementOrder.id}`}>See replacement order {claim.replacementOrder.number}</Link>}
-          </section>
-        ) : (
-          <Link to={`/orders/${order.id}/claim`} className="btn btn-block">
-            Report a problem with this order
-          </Link>
-        ))}
-
-      {MOVABLE.includes(order.status) && (
-        <button type="button" className="btn btn-block" onClick={() => setMoving(true)}>
-          Change delivery day
-        </button>
-      )}
-
       {['DELIVERED', 'CANCELLED'].includes(order.status) && (
         <button type="button" className="btn btn-block btn-primary" onClick={buyAgain}>
           Buy these again
-        </button>
-      )}
-
-      {CANCELLABLE.includes(order.status) && (
-        <button type="button" className="btn btn-block btn-danger-quiet" onClick={() => setCancelling(true)}>
-          Cancel order
         </button>
       )}
 
@@ -349,6 +391,31 @@ function OrderView({ order }: { order: Order }) {
         </ConfirmDialog>
       )}
     </>
+  )
+}
+
+/** On a delivered order: until when a problem can be reported for a free replacement, and the way to do it. */
+function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
+  // The window runs from the latest delivery, as the API counts it.
+  const deliveredAt = order.timeline.filter((e) => e.status === 'DELIVERED').slice(-1)[0]?.at ?? order.delivery?.at ?? null
+  const deadline = deliveredAt ? new Date(new Date(deliveredAt).getTime() + CLAIM_WINDOW_HOURS * 3_600_000) : null
+  const open = deadline != null && deadline.getTime() > Date.now()
+  // Until the reports load we don't know whether one was sent: keep the space, show nothing.
+  if (loading) return null
+  const report = (
+    <Link to={`/orders/${order.id}/claim`} className="btn btn-block">
+      Report a problem with this order
+    </Link>
+  )
+  // Past our count of the window the link stays: the API has the last word on a late report.
+  if (!open) return report
+  return (
+    <section className="card claim-prompt" aria-label="Report a problem">
+      <p>
+        <strong>Something wrong?</strong> Report it by {when(deadline!.toISOString())} for a free replacement.
+      </p>
+      {report}
+    </section>
   )
 }
 

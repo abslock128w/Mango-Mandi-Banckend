@@ -12,6 +12,8 @@ import { Dialog, ErrorNote, Skeleton } from '../ui'
 import { storyFor } from '../varieties'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
+/** Reviews shown before "See all", so the page stays short. */
+const FIRST_REVIEWS = 3
 const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packaging: 'Packaging', delivery: 'Delivery' } as const
 
 /** /mangoes/:sku — the box: pick the ripeness and how many, add to cart; then what buyers say about the variety. */
@@ -26,6 +28,8 @@ export default function ProductPage() {
     getNextPageParam: (last) => last.nextCursor,
   })
   const [open, setOpen] = useState<{ review: PublicReview; index: number } | null>(null)
+  // The first three reviews show; "See all" opens the rest (a filter shows every match).
+  const [showAll, setShowAll] = useState(false)
 
   if (q.isPending) return <Skeleton label="Loading this box" cards={2} tall />
   if (q.isError) {
@@ -43,6 +47,9 @@ export default function ProductPage() {
   const items = q.data.pages.flatMap((p) => p.items)
   const filtered = stars != null || withPhotos
   const variety = first.product.variety || first.product.name
+  const expanded = showAll || filtered
+  const shown = expanded ? items : items.slice(0, FIRST_REVIEWS)
+  const more = !expanded && (items.length > FIRST_REVIEWS || q.hasNextPage)
   return (
     <>
       <BuyBox sku={sku} fallbackName={first.product.name} />
@@ -79,14 +86,19 @@ export default function ProductPage() {
           <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
         ) : (
           <ul className="review-list">
-            {items.map((r) => (
+            {shown.map((r) => (
               <li key={r.id} className="card review">
                 <ReviewCard review={r} onPhoto={(index) => setOpen({ review: r, index })} />
               </li>
             ))}
           </ul>
         )}
-        {q.hasNextPage && (
+        {more && (
+          <button type="button" className="btn btn-block" onClick={() => setShowAll(true)}>
+            See all {first.summary.count} reviews
+          </button>
+        )}
+        {expanded && q.hasNextPage && (
           <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
             {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
           </button>
@@ -188,6 +200,11 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   const [picked, setPicked] = useState<Stage | null>(asked === 'RAW' || asked === 'SEMI_RIPE' || asked === 'RIPE' ? asked : null)
   const [count, setCount] = useState(1)
   const [added, setAdded] = useState<string | null>(null)
+  // After "Show stock for" another day: the day the shop showed before, to go back to.
+  const [switched, setSwitched] = useState<{ date: string | null; shown: string } | null>(null)
+  const switchedNote = useRef<HTMLParagraphElement>(null)
+  // The ripeness that was sold out, so it is the one picked on the new day.
+  const wanted = useRef<Stage | null>(null)
   const first = useRef(true)
   useEffect(() => {
     // Keep the shelf's ripeness on first load; reset when the box or day changes.
@@ -195,10 +212,16 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
       first.current = false
       return
     }
-    setPicked(null)
+    setPicked(wanted.current)
+    wanted.current = null
     setCount(1)
     setAdded(null)
   }, [sku, date])
+  // The link that switched the day is gone once that ripeness is in stock: move focus to the news.
+  const switchedReady = Boolean(switched) && q.isSuccess
+  useEffect(() => {
+    if (switchedReady) switchedNote.current?.focus()
+  }, [switchedReady])
 
   if (!pincode) {
     return (
@@ -233,6 +256,7 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   const room = item ? Math.max(0, Math.min(20, item.qty) - inCart) : 0
   const n = Math.max(1, Math.min(count, room))
   const label = item ? `${p.name}, ${STAGE_LABEL[item.stage]}` : ''
+  const shownDay = q.data.deliveryDate!
 
   function add() {
     if (!item || room === 0) return
@@ -305,8 +329,16 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
                 {sold && (
                   <span className="small ripe-extra">
                     {s.nextAvailableDate ? (
-                      <button type="button" className="link-btn" onClick={() => setWhere(pincode, s.nextAvailableDate!)}>
-                        Available {day(s.nextAvailableDate)}
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() => {
+                          wanted.current = s.stage
+                          setSwitched({ date, shown: shownDay })
+                          setWhere(pincode, s.nextAvailableDate!)
+                        }}
+                      >
+                        Show stock for {day(s.nextAvailableDate)}
                       </button>
                     ) : (
                       <NotifyMe item={s} label={`${p.name}, ${STAGE_LABEL[s.stage]}`} />
@@ -339,19 +371,37 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
               </p>
             )}
           </div>
-          <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
-            Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
-          </button>
+          {/* Sticks to the bottom of a phone screen (above the tabs) until the buy box scrolls past. */}
+          <div className="buy-bar">
+            <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
+              Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
+            </button>
+          </div>
         </>
       ) : (
-        <p className="sold-out">Every ripeness is sold out for {day(q.data.deliveryDate!)}.</p>
+        <p className="sold-out">Every ripeness is sold out for {day(shownDay)}.</p>
+      )}
+      {switched && (
+        <p className="note" role="status" tabIndex={-1} ref={switchedNote}>
+          Now showing stock for {day(shownDay)}.{' '}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => {
+              setWhere(pincode, switched.date)
+              setSwitched(null)
+            }}
+          >
+            Back to {day(switched.shown)}
+          </button>
+        </p>
       )}
       {added && (
         <p className="note" role="status">
           {added} <Link to="/cart">View cart</Link>
         </p>
       )}
-      <p className="muted small">Showing stock for {day(q.data.deliveryDate!)}. You choose the delivery day at checkout.</p>
+      <p className="muted small">Showing stock for {day(shownDay)}. You choose the delivery day at checkout.</p>
     </section>
   )
 }

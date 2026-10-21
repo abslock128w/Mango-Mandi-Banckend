@@ -82,7 +82,7 @@ export default function App() {
           <Route path="/mangoes/:sku" element={<ProductPage />} />
           <Route path="/review/:itemId" element={<RequireSignIn><ReviewPage /></RequireSignIn>} />
           <Route path="/reviews/:reviewId/edit" element={<RequireSignIn><ReviewPage /></RequireSignIn>} />
-          <Route path="/preorder" element={<RequireSignIn><BookAhead /></RequireSignIn>} />
+          <Route path="/preorder" element={<BookAhead />} />
           <Route path="/preorders/:id" element={<RequireSignIn><PreorderPage /></RequireSignIn>} />
           <Route
             path="*"

@@ -93,7 +93,17 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   // The row of delivery days scrolls inside itself; the page never scrolls sideways.
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('alert')).toContainText('Enter the full delivery address')
+  // Each problem shows under its field, and the first one has focus.
+  const address = page.getByLabel('Delivery address')
+  await expect(address).toHaveAttribute('aria-invalid', 'true')
+  await expect(address).toHaveAccessibleDescription(/Enter the full delivery address/)
+  const slotGroup = page.getByRole('group', { name: 'Delivery time' })
+  if (await slotGroup.count()) {
+    await expect(slotGroup.getByText('Choose a delivery time.')).toBeVisible()
+    await expect(slotGroup.getByRole('radio', { disabled: false }).first()).toBeFocused()
+  } else {
+    await expect(address).toBeFocused()
+  }
   const days = page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio')
   await expect(days.first()).toHaveAttribute('aria-checked', 'true')
   if ((await days.count()) > 1) {
@@ -111,6 +121,17 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Review order' }).click()
 
   await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  // The review is a step of its own: at the top, with focus on its heading, and in the URL.
+  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeFocused()
+  expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  await expect(page).toHaveURL(/\/checkout\?step=review$/)
+  // The browser's Back returns to the form with everything still filled in, then on again.
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeFocused()
+  await expect(page.getByLabel('Your name')).toHaveValue('Asha Rao')
+  await expect(page.getByLabel('Delivery address')).toHaveValue('Flat 4B, Lake View Apartments, 5th Main, near the park')
+  await page.getByRole('button', { name: 'Review order' }).click()
+  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
   await expect(page.getByText(`2 × ${first.split(', ')[0]}`)).toBeVisible()
   await noA11yViolations(page)
   await page.getByRole('button', { name: /^Pay ₹/ }).click()
@@ -119,7 +140,17 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await expect(page.getByText('Waiting for your payment to be confirmed.')).toBeVisible()
   await page.getByRole('button', { name: 'Payment succeeds' }).click()
   await expect(page.getByText('Confirmed', { exact: true }).first()).toBeVisible()
+  // A thank-you once the payment is through; the pressed button is gone, so focus lands on it.
+  const thanks = page.locator('.note-card', { hasText: 'Thank you, your order is placed.' })
+  await expect(thanks).toBeVisible()
+  await expect(thanks).toBeFocused()
   await expect(page.getByRole('list', { name: 'Progress' })).toContainText('Confirmed, done')
+  // Change day and Cancel, with the rule for them, are in the first screen of a 375 × 812 phone.
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await expect(page.getByText("You can change the day until we start preparing it, and cancel for a full refund until it's packed.")).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Change delivery day' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Cancel order' })).toBeInViewport({ ratio: 1 })
   await noA11yViolations(page)
 
   await page.getByRole('link', { name: 'Cart, 0 boxes' }).waitFor()
@@ -139,7 +170,10 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await expect(page.getByText(/refund of ₹[\d,]+ (has been sent|is on its way)/)).toBeVisible()
 
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
-  await expect(page.getByRole('link', { name: /Order ORD-.*Cancelled/ })).toBeVisible()
+  // The card names the boxes, and a cancelled order "was due", not "arrives".
+  const card = page.getByRole('link', { name: /Order ORD-.*Cancelled/ }).first()
+  await expect(card).toContainText(first.split(', ')[0])
+  await expect(card).toContainText('was due')
   await noA11yViolations(page)
   await page.getByRole('link', { name: 'Account', exact: true }).click()
   await page.getByRole('button', { name: 'Sign out' }).click()
@@ -169,23 +203,38 @@ test('book a box ahead, pay, then cancel for a refund', async ({ page, request }
   const phone = `8${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
   await page.goto('/')
   await page.getByRole('link', { name: 'Book a box ahead' }).click()
+
+  // A signed-out visitor sees the weeks and the form; signing in comes when they book.
+  await expect(page.getByRole('heading', { name: 'Book ahead' })).toBeVisible()
+  const weeks = page.getByRole('radiogroup', { name: 'Delivery week' }).getByRole('radio')
+  await expect(weeks.first()).toBeVisible()
+  const label = new Intl.DateTimeFormat('en-IN', { day: 'numeric', timeZone: 'UTC' }).format(new Date(`${week}T00:00:00Z`))
+  const myWeek = weeks.filter({ hasText: new RegExp(`^${label} `) }).first()
+  await myWeek.click()
+  await page.getByRole('radio', { name: /Alphonso 3kg Box/ }).check()
+  await page.getByRole('radio', { name: /^Ripe/ }).check()
+  await page.getByRole('button', { name: 'One box more' }).click()
+  await page.getByLabel('Your name').fill('Asha Rao')
+  await page.getByRole('button', { name: 'Sign in to book' }).click()
+  // A problem shows at its field, which gets focus.
+  await expect(page.getByLabel('Delivery address')).toBeFocused()
+  await expect(page.getByLabel('Delivery address')).toHaveAccessibleDescription(/Enter the full delivery address/)
+  await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
+  await page.getByLabel('Pincode').fill('560034')
+  await noA11yViolations(page)
+  await page.getByRole('button', { name: 'Sign in to book' }).click()
+
   await page.getByLabel('Mobile number').fill(phone)
   await page.getByRole('button', { name: 'Send code' }).click()
   const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
   await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
   await page.getByRole('button', { name: 'Sign in' }).click()
 
+  // Back on the form with every choice kept.
   await expect(page.getByRole('heading', { name: 'Book ahead' })).toBeVisible()
-  const weeks = page.getByRole('radiogroup', { name: 'Delivery week' }).getByRole('radio')
-  const label = new Intl.DateTimeFormat('en-IN', { day: 'numeric', timeZone: 'UTC' }).format(new Date(`${week}T00:00:00Z`))
-  await weeks.filter({ hasText: new RegExp(`^${label} `) }).first().click()
-  await page.getByRole('radio', { name: /Alphonso 3kg Box/ }).check()
-  await page.getByRole('radio', { name: /^Ripe/ }).check()
-  await page.getByRole('button', { name: 'One box more' }).click()
-  await page.getByLabel('Your name').fill('Asha Rao')
-  await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
-  await page.getByLabel('Pincode').fill('560034')
-  await noA11yViolations(page)
+  await expect(myWeek).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('radio', { name: /^Ripe/ })).toBeChecked()
+  await expect(page.getByLabel('Delivery address')).toHaveValue('Flat 4B, Lake View Apartments, 5th Main, near the park')
   await page.getByRole('button', { name: /^Book and pay ₹/ }).click()
 
   await expect(page.getByRole('heading', { name: /^Booking PRE-/ })).toBeVisible()
@@ -251,6 +300,11 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
   await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
   await page.getByRole('button', { name: 'Sign in' }).click()
 
+  await expect(page.getByRole('heading', { name: 'Report a problem' })).toBeVisible()
+  // The delivered order says until when a problem can be reported, near the top.
+  await page.goto(`/orders/${orderId}`)
+  await expect(page.getByText(/^Something wrong\? Report it by .+ for a free replacement\.$/)).toBeVisible()
+  await page.getByRole('link', { name: 'Report a problem with this order' }).click()
   await expect(page.getByRole('heading', { name: 'Report a problem' })).toBeVisible()
   await page.getByLabel('Damaged or spoilt mangoes').check()
   await page.getByLabel('What happened?').fill('Two mangoes were crushed in the box.')
@@ -330,6 +384,7 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   await page.getByLabel('Promo code (optional)').fill('NOSUCHCODE')
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Change or clear the promo code')
+  await expect(page.getByLabel('Promo code (optional)')).toBeFocused()
   await page.getByLabel('Promo code (optional)').fill(code)
   await noA11yViolations(page)
   await page.getByRole('button', { name: 'Review order' }).click()
@@ -443,4 +498,46 @@ test('home shows one tile per box; the ripeness is picked on the product page; v
   await expect(page.getByRole('heading', { name: 'How we pick and check every box' })).toBeVisible()
   await expect(page.getByText('refund')).toHaveCount(0)
   await noA11yViolations(page)
+})
+
+test('product page: Add to cart in the first screen, three reviews then See all, Show stock for another day', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/')
+  await page.getByLabel('Your delivery pincode').fill('560034')
+  await page.getByRole('button', { name: 'Show mangoes' }).click()
+  const pick = page.getByRole('region', { name: 'Pick your mangoes' })
+  await pick.getByRole('listitem').filter({ hasNotText: 'Sold out' }).first().getByRole('heading', { level: 3 }).getByRole('link').click()
+  await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
+
+  // The buy bar sits above the tabs without scrolling, and is not covered by them.
+  const add = page.getByRole('button', { name: /^Add to cart · ₹/ })
+  await expect(add).toBeInViewport({ ratio: 1 })
+  const covered = await add.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return !(hit && (hit === el || el.contains(hit)))
+  })
+  expect(covered, 'Add to cart is covered').toBe(false)
+  await noA11yViolations(page)
+
+  // Three reviews, then See all for the rest.
+  const reviews = page.getByRole('region', { name: 'Reviews', exact: true }).getByRole('article')
+  await expect(page.getByRole('heading', { name: 'Ratings and reviews' })).toBeVisible()
+  expect(await reviews.count()).toBeLessThanOrEqual(3)
+  const seeAll = page.getByRole('button', { name: /^See all \d+ reviews$/ })
+  if (await seeAll.count()) {
+    await seeAll.click()
+    expect(await reviews.count()).toBeGreaterThan(3)
+  }
+
+  // A sold-out ripeness offers another day's stock; the switch is announced and can be undone.
+  const other = page.getByRole('button', { name: /^Show stock for / })
+  if (await other.count()) {
+    const was = (await page.getByText(/^Showing stock for /).textContent())!.match(/for (.+)\. You/)![1]
+    await other.first().click()
+    const note = page.getByRole('status').filter({ hasText: /^Now showing stock for / })
+    await expect(note).toBeFocused()
+    await note.getByRole('button', { name: `Back to ${was}` }).click()
+    await expect(page.getByText(`Showing stock for ${was}. You choose the delivery day at checkout.`)).toBeVisible()
+  }
 })
