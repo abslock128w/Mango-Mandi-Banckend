@@ -33,6 +33,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   // 3. Advance the batch to Selling and log QC Ripe/Good.
   await page.goto(batchUrl)
   await page.getByRole('button', { name: 'Skip to Selling' }).click()
+  await page.getByRole('dialog', { name: 'Skip to Selling?' }).getByRole('button', { name: 'Move to Selling' }).click()
   await expect(page.getByText('Batch moved to Selling')).toBeVisible()
   await page.getByLabel('Ripe', { exact: true }).check()
   await page.getByLabel('Good').check()
@@ -95,6 +96,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await page.getByRole('link', { name: 'Claims' }).click()
   await page.getByRole('button', { name: `Start review for ${placed.number}` }).click()
   await page.getByRole('button', { name: `Resolve ${placed.number}` }).click()
+  await page.getByRole('dialog').getByLabel(/Replacement/).check()
   await page.getByRole('dialog').getByRole('button', { name: 'Approve replacement' }).click()
   await page.getByRole('button', { name: 'Resolved', exact: true }).click()
   // Both viewports run at once against one API, so pick this run's claim card.

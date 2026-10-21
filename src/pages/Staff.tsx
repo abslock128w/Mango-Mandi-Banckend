@@ -6,7 +6,7 @@ import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime } from '../format'
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
-import { Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 const ROLE_HINT: Record<Role, string> = {
   MANAGER: 'Everything, including staff, rules and condemning batches',
@@ -26,6 +26,8 @@ export default function Staff() {
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
   const [unlocking, setUnlocking] = useState<StaffMember | null>(null)
+  // A role picked in the table, waiting for the manager to confirm it (the select shows it meanwhile).
+  const [changing, setChanging] = useState<{ staff: StaffMember; role: Role } | null>(null)
   // A two-step setup code, shown once to hand over in person.
   const [shownCode, setShownCode] = useState<{ email: string; code: string } | null>(null)
 
@@ -38,9 +40,9 @@ export default function Staff() {
     mutationFn: (p: { id: string; role: Role }) => api.updateStaff(p.id, { role: p.role }),
     onSuccess: (s) => {
       toast.success(`${s.email} is now ${ROLE_LABEL[s.role]}. They will need to sign in again.`)
+      setChanging(null)
       refresh()
     },
-    onError: (err) => toast.error(err),
   })
   const remove = useMutation({
     mutationFn: (id: string) => api.removeStaff(id),
@@ -110,9 +112,13 @@ export default function Staff() {
                         </label>
                         <select
                           id={`role-${s.id}`}
-                          value={s.role}
+                          value={changing?.staff.id === s.id ? changing.role : s.role}
                           disabled={self || setRole.isPending}
-                          onChange={(e) => setRole.mutate({ id: s.id, role: e.target.value as Role })}
+                          onChange={(e) => {
+                            const role = e.target.value as Role
+                            setRole.reset()
+                            setChanging(role === s.role ? null : { staff: s, role })
+                          }}
                         >
                           {ALL_ROLES.map((r) => (
                             <option key={r} value={r}>
@@ -162,6 +168,22 @@ export default function Staff() {
       </section>
 
       <Activity />
+
+      {changing && (
+        <ConfirmDialog
+          title={`Make ${changing.staff.email} ${/^[AEIOU]/.test(ROLE_LABEL[changing.role]) ? 'an' : 'a'} ${ROLE_LABEL[changing.role]}?`}
+          confirmLabel={`Make ${ROLE_LABEL[changing.role]}`}
+          busy={setRole.isPending}
+          error={setRole.error}
+          onClose={() => setChanging(null)}
+          onConfirm={() => setRole.mutate({ id: changing.staff.id, role: changing.role })}
+        >
+          <p>
+            They go from {ROLE_LABEL[changing.staff.role]} to {ROLE_LABEL[changing.role]}: {ROLE_HINT[changing.role].charAt(0).toLowerCase() + ROLE_HINT[changing.role].slice(1)}.
+            They'll be signed out and need to sign in again.
+          </p>
+        </ConfirmDialog>
+      )}
 
       {adding && (
         <AddDialog

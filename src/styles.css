@@ -20,6 +20,8 @@
   --focus: #2563eb;
   --radius: 8px;
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
+  /* Smallest touch target for buttons a rider or packer hits on the move. */
+  --tap-min: 44px;
   color-scheme: light;
 }
 
@@ -359,6 +361,17 @@ textarea {
 textarea {
   min-height: 4.5rem;
 }
+/* Checkboxes and radios keep their own size, not the full-width text-box look. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  accent-color: var(--green-700);
+}
 .hint {
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -391,9 +404,31 @@ legend {
   align-items: center;
   margin: 0;
 }
-.radio-row input {
-  width: auto;
-  min-height: 0;
+/* Full-width option rows: an easy thumb target for each choice. */
+.option-list {
+  display: grid;
+  gap: 0.35rem;
+}
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--tap-min, 44px);
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-weight: 400;
+  cursor: pointer;
+}
+.option-row:has(input:checked) {
+  border-color: var(--green-700);
+  background: var(--green-100);
+}
+.option-row:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* ---------- Tables ---------- */
@@ -768,8 +803,63 @@ dl.kv dd {
   gap: 0.5rem;
   align-items: center;
 }
-.stop .btn {
-  min-height: 2.75rem;
+.stop .btn,
+.folded .btn {
+  min-height: var(--tap-min, 44px);
+}
+.segmented .btn {
+  min-height: var(--tap-min, 44px);
+}
+/* Stays in view while the rider scrolls the run. */
+.run-summary {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 1rem;
+  padding: 0.25rem 1rem;
+  margin: 0 -1rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.folded {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.folded > div {
+  min-width: 0;
+}
+.stops-compact {
+  margin-top: 0.35rem;
+}
+.stop-line .badge {
+  flex: none;
+}
+.stop-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  min-width: 0;
+}
+.stop-line:first-child {
+  border-top: none;
+}
+.stop-line-who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
 }
 .delivery-photo {
   display: block;

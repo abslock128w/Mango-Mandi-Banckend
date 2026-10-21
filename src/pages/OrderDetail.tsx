@@ -5,8 +5,9 @@ import { ApiError, api, isConflict, isStale } from '../api'
 import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
 import type { DeliveryAttempt, NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
 import { PACKER_STATUSES, can, canSee } from '../permissions'
+import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
-import { Badge, Dialog, FormError, GatedButton, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, ConfirmDialog, Dialog, FormError, GatedButton, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
 
@@ -99,6 +100,7 @@ function useOrderRefresh(orderId: string) {
     queryClient.invalidateQueries({ queryKey: ['summary'] })
     queryClient.invalidateQueries({ queryKey: ['pack-list'] })
     queryClient.invalidateQueries({ queryKey: ['batch'] })
+    queryClient.invalidateQueries({ queryKey: ['manifest'] })
   }
 }
 
@@ -108,7 +110,7 @@ function OrderView({ order }: { order: Order }) {
   const openBatches = canSee(me?.role, 'batches')
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
-  const [dialog, setDialog] = useState<'cancel' | 'reschedule' | null>(null)
+  const [dialog, setDialog] = useState<'cancel' | 'reschedule' | 'missed' | 'returned' | null>(null)
   const [override, setOverride] = useState<Override | null>(null)
 
   const awaitingPack = order.stock.some((s) => s.state === 'committed')
@@ -197,7 +199,13 @@ function OrderView({ order }: { order: Order }) {
               type="button"
               className={`btn${m.primary ? ' btn-primary' : ''}`}
               disabled={busy || blocked}
-              onClick={() => (m.to === 'DELIVERED' ? setOverride({ to: 'DELIVERED', why: null }) : move.mutate(m.to))}
+              onClick={() => {
+                // Delivered needs a manager's reason, a missed delivery needs the rider's reason, and a return is confirmed first.
+                if (m.to === 'DELIVERED') setOverride({ to: 'DELIVERED', why: null })
+                else if (m.to === 'DELIVERY_FAILED') setDialog('missed')
+                else if (m.to === 'RTO') setDialog('returned')
+                else move.mutate(m.to)
+              }}
             >
               {blocked ? 'Mark packed (allocate first)' : m.label}
             </button>
@@ -456,6 +464,19 @@ function OrderView({ order }: { order: Order }) {
 
       {dialog === 'cancel' && <CancelDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === 'reschedule' && <RescheduleDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+      {dialog === 'missed' && <MissedDialog order={order} onClose={() => setDialog(null)} onDone={refresh} />}
+      {dialog === 'returned' && (
+        <ConfirmDialog
+          title={`Mark ${order.number} as returned?`}
+          confirmLabel="Mark as returned"
+          cancelLabel="Go back"
+          busy={move.isPending}
+          onClose={() => setDialog(null)}
+          onConfirm={() => move.mutate('RTO', { onSettled: () => setDialog(null) })}
+        >
+          <p>The order is back with us and won't go out again. This can't be undone from here.</p>
+        </ConfirmDialog>
+      )}
       {override && <OverrideDialog order={order} override={override} onClose={() => setOverride(null)} onDone={refresh} />}
     </>
   )

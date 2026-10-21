@@ -232,6 +232,53 @@ export function Dialog({
   )
 }
 
+/**
+ * A yes/no check before a step that is hard to take back. Says what happens;
+ * the safe choice (Cancel) gets the focus.
+ */
+export function ConfirmDialog({
+  title,
+  children,
+  confirmLabel,
+  cancelLabel = 'Cancel',
+  onConfirm,
+  onClose,
+  busy,
+  error,
+  tone,
+}: {
+  title: string
+  children: ReactNode
+  confirmLabel: string
+  cancelLabel?: string
+  onConfirm: () => void
+  onClose: () => void
+  busy?: boolean
+  error?: unknown
+  tone?: 'danger'
+}) {
+  return (
+    <Dialog
+      title={title}
+      tone={tone}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose} data-autofocus>
+            {cancelLabel}
+          </button>
+          <button type="button" className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} disabled={busy} onClick={onConfirm}>
+            {busy ? 'Saving…' : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {children}
+      <FormError error={error} />
+    </Dialog>
+  )
+}
+
 // ---------- Toasts ----------
 
 type ToastKind = 'success' | 'error' | 'info'

@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, istDate } from '../format'
 import { MANAGER_ONLY_HINT, can } from '../permissions'
 import { useSession } from '../session'
 import type { BulkMoveResult, CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
-import { Badge, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, scrollRegion, useToast } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, scrollRegion, useToast } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
@@ -112,6 +112,7 @@ function Calendar() {
   const q = useQuery({ queryKey: ['calendar'], queryFn: api.calendar })
   const [editing, setEditing] = useState<CalendarDay | null>(null)
   const [moving, setMoving] = useState(false)
+  const [resetting, setResetting] = useState<CalendarDay | null>(null)
   const canMove = can(me?.role, 'moveDay')
 
   const refresh = () => {
@@ -122,9 +123,9 @@ function Calendar() {
     mutationFn: (d: string) => api.clearCalendarDay(d),
     onSuccess: (_r, d) => {
       toast.success(`${date(d)} is back to normal`)
+      setResetting(null)
       refresh()
     },
-    onError: (err) => toast.error(err),
   })
 
   return (
@@ -138,7 +139,7 @@ function Calendar() {
         <button
           type="button"
           className="btn"
-          onClick={() => setEditing({ date: istDate(1), isOpen: false, maxBoxes: null, note: null })}
+          onClick={() => setEditing({ date: istDate(1), isOpen: true, maxBoxes: null, note: null })}
         >
           Change a day
         </button>
@@ -182,7 +183,10 @@ function Calendar() {
                         type="button"
                         className="btn btn-small"
                         disabled={clear.isPending}
-                        onClick={() => clear.mutate(d.date)}
+                        onClick={() => {
+                          clear.reset()
+                          setResetting(d)
+                        }}
                       >
                         Reset<span className="sr-only"> {date(d.date)}</span>
                       </button>
@@ -197,6 +201,21 @@ function Calendar() {
       {!canMove && <p className="hint">Moving a day's orders: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
       {editing && <DayDialog day={editing} onClose={() => setEditing(null)} onDone={refresh} />}
       {moving && <MoveDayDialog onClose={() => setMoving(false)} />}
+      {resetting && (
+        <ConfirmDialog
+          title={`Reset ${date(resetting.date)}?`}
+          confirmLabel="Reset day"
+          busy={clear.isPending}
+          error={clear.error}
+          onClose={() => setResetting(null)}
+          onConfirm={() => clear.mutate(resetting.date)}
+        >
+          <p>
+            {resetting.isOpen ? 'Its box limit' : 'Its closure'}
+            {resetting.note ? ` ("${resetting.note}")` : ''} is removed: the day goes back to open, with no box limit, and customers can book it.
+          </p>
+        </ConfirmDialog>
+      )}
     </section>
   )
 }
@@ -456,6 +475,7 @@ function Slots() {
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['slots'], queryFn: api.slots })
   const [editing, setEditing] = useState<DeliverySlot | 'new' | null>(null)
+  const [switchingOff, setSwitchingOff] = useState<DeliverySlot | null>(null)
   const allowed = can(me?.role, 'editRules')
 
   const refresh = () => {
@@ -466,9 +486,12 @@ function Slots() {
     mutationFn: (s: DeliverySlot) => api.updateSlot(s.id, { active: !s.active }),
     onSuccess: (_r, s) => {
       toast.success(s.active ? `${s.label} switched off` : `${s.label} switched on`)
+      setSwitchingOff(null)
       refresh()
     },
-    onError: (err) => toast.error(err),
+    onError: (err, s) => {
+      if (!s.active) toast.error(err)
+    },
   })
 
   return (
@@ -521,7 +544,13 @@ function Slots() {
                         allowed={allowed}
                         className="btn btn-small"
                         disabled={toggle.isPending}
-                        onClick={() => toggle.mutate(s)}
+                        onClick={() => {
+                          // Switching on is safe; switching off takes the slot away from checkout, so it asks first.
+                          if (s.active) {
+                            toggle.reset()
+                            setSwitchingOff(s)
+                          } else toggle.mutate(s)
+                        }}
                       >
                         {s.active ? 'Switch off' : 'Switch on'}
                         <span className="sr-only"> {s.label}</span>
@@ -535,6 +564,21 @@ function Slots() {
         </div>
       )}
       {!allowed && <p className="hint">Changing slots: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
+      {switchingOff && (
+        <ConfirmDialog
+          title={`Switch off ${switchingOff.label}?`}
+          confirmLabel="Switch off"
+          tone="danger"
+          busy={toggle.isPending}
+          error={toggle.error}
+          onClose={() => setSwitchingOff(null)}
+          onConfirm={() => toggle.mutate(switchingOff)}
+        >
+          <p>
+            Customers can no longer pick {switchingOff.label} ({slotTime(switchingOff)}) at checkout. Orders already booked in it keep their slot.
+          </p>
+        </ConfirmDialog>
+      )}
       {editing && (
         <SlotDialog slot={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onDone={refresh} />
       )}

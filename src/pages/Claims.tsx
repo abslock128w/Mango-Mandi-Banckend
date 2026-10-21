@@ -169,12 +169,12 @@ type Resolution = 'REPLACEMENT_APPROVED' | 'REJECTED'
 function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }) {
   const toast = useToast()
   const refresh = useClaimsRefresh()
-  const [resolution, setResolution] = useState<Resolution>('REPLACEMENT_APPROVED')
+  const [resolution, setResolution] = useState<Resolution | null>(null)
 
   const resolve = useMutation({
-    mutationFn: () => api.resolveClaim(claim.id, resolution),
-    onSuccess: () => {
-      toast.success(`Claim on ${claim.orderNumber} resolved: ${RESOLUTION_LABEL[resolution]}`)
+    mutationFn: (r: Resolution) => api.resolveClaim(claim.id, r),
+    onSuccess: (_x, r) => {
+      toast.success(`Claim on ${claim.orderNumber} resolved: ${RESOLUTION_LABEL[r]}`)
       refresh()
       onClose()
     },
@@ -182,7 +182,7 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    resolve.mutate()
+    if (resolution) resolve.mutate(resolution)
   }
 
   return (
@@ -194,8 +194,8 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" form="resolve-form" className="btn btn-primary" disabled={resolve.isPending}>
-            {resolve.isPending ? 'Saving…' : resolution === 'REPLACEMENT_APPROVED' ? 'Approve replacement' : 'Reject claim'}
+          <button type="submit" form="resolve-form" className="btn btn-primary" disabled={!resolution || resolve.isPending}>
+            {resolve.isPending ? 'Saving…' : resolution === 'REPLACEMENT_APPROVED' ? 'Approve replacement' : resolution === 'REJECTED' ? 'Reject claim' : 'Resolve claim'}
           </button>
         </>
       }
@@ -203,8 +203,8 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
       <form id="resolve-form" onSubmit={onSubmit}>
         <fieldset>
           <legend>Resolution</legend>
-          <div className="radio-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-            <label>
+          <div className="option-list">
+            <label className="option-row">
               <input
                 type="radio"
                 name="resolution"
@@ -213,7 +213,7 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
               />
               Replacement: send the customer {claim.affectedItems.length ? claim.affectedItems.join(', ') : 'the affected items'} again
             </label>
-            <label>
+            <label className="option-row">
               <input type="radio" name="resolution" checked={resolution === 'REJECTED'} onChange={() => setResolution('REJECTED')} />
               Reject
             </label>

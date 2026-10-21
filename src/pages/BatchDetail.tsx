@@ -6,7 +6,7 @@ import { BATCH_STATUS_LABEL, CONDITION_LABEL, RIPENESS_LABEL, date, dateTime } f
 import { MANAGER_ONLY_HINT, can } from '../permissions'
 import { useSession } from '../session'
 import { BATCH_FLOW, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type Ripeness } from '../types'
-import { BatchBadge, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { BatchBadge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 /** Forward-only: every later step in the flow is reachable; the next one is primary. */
 function forwardSteps(status: BatchStatus): BatchStatus[] {
@@ -133,6 +133,8 @@ function StatusControls({ batch }: { batch: Batch }) {
   // Exhausting a batch with boxes still on hand writes them off: a manager's call, with a reason.
   const [exhausting, setExhausting] = useState(false)
   const [exhaustReason, setExhaustReason] = useState('')
+  // Skipping steps (Arriving straight to Selling) asks first, naming the steps it jumps over.
+  const [skipping, setSkipping] = useState<BatchStatus | null>(null)
   const left = batch.lines.reduce((n, l) => n + l.onHand, 0)
   const manager = me?.role === 'MANAGER'
 
@@ -143,6 +145,7 @@ function StatusControls({ batch }: { batch: Batch }) {
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['summary'] })
       setExhausting(false)
+      setSkipping(null)
       if (status === 'CONDEMNED') {
         setConfirmCondemn(false)
         setCondemned({ moved: res?.rebalancedOrders ?? [], atRisk: res?.atRiskOrders ?? [] })
@@ -151,7 +154,7 @@ function StatusControls({ batch }: { batch: Batch }) {
       }
     },
     onError: (err) => {
-      if (!confirmCondemn && !exhausting) toast.error(err)
+      if (!confirmCondemn && !exhausting && !skipping) toast.error(err)
     },
   })
 
@@ -183,7 +186,16 @@ function StatusControls({ batch }: { batch: Batch }) {
                 Skip to {BATCH_STATUS_LABEL[s]}
               </GatedButton>
             ) : (
-              <button key={s} type="button" className="btn" disabled={move.isPending} onClick={() => move.mutate(s)}>
+              <button
+                key={s}
+                type="button"
+                className="btn"
+                disabled={move.isPending}
+                onClick={() => {
+                  move.reset()
+                  setSkipping(s)
+                }}
+              >
                 Skip to {BATCH_STATUS_LABEL[s]}
               </button>
             ),
@@ -197,6 +209,22 @@ function StatusControls({ batch }: { batch: Batch }) {
             Condemn batch
           </GatedButton>
         </div>
+      )}
+
+      {skipping && (
+        <ConfirmDialog
+          title={`Skip to ${BATCH_STATUS_LABEL[skipping]}?`}
+          confirmLabel={`Move to ${BATCH_STATUS_LABEL[skipping]}`}
+          busy={move.isPending}
+          error={move.error}
+          onClose={() => setSkipping(null)}
+          onConfirm={() => move.mutate(skipping)}
+        >
+          <p>
+            This jumps over {steps.slice(0, steps.indexOf(skipping)).map((x) => BATCH_STATUS_LABEL[x]).join(', ')}. Batches only move forward, so it can't
+            be undone.
+          </p>
+        </ConfirmDialog>
       )}
 
       {exhausting && (

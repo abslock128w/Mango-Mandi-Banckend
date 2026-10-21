@@ -368,6 +368,8 @@ function ReviewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [approvePhotos, setApprovePhotos] = useState<Set<string>>(new Set())
   const [ask, setAsk] = useState<'reject' | 'hide' | null>(null)
   const [reply, setReply] = useState<string | null>(null)
+  // Removing a public reply asks first, inline (this is already a dialog).
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   const done = (msg: string) => {
     toast.success(msg)
@@ -389,7 +391,14 @@ function ReviewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onError: (e) => toast.error(e),
   })
-  const removeReply = useMutation({ mutationFn: () => api.deleteReviewReply(id), onSuccess: () => done('Reply removed'), onError: (e) => toast.error(e) })
+  const removeReply = useMutation({
+    mutationFn: () => api.deleteReviewReply(id),
+    onSuccess: () => {
+      setConfirmRemove(false)
+      done('Reply removed')
+    },
+    onError: (e) => toast.error(e),
+  })
 
   const r = q.data
   return (
@@ -528,14 +537,28 @@ function ReviewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     <p className="muted small">
                       {r.reply.by ?? 'Staff'}, {dateTime(r.reply.at)}
                     </p>
-                    <div className="btn-row">
-                      <button type="button" className="btn btn-small" onClick={() => setReply(r.reply!.body)}>
-                        Change reply
-                      </button>
-                      <button type="button" className="btn btn-small" disabled={removeReply.isPending} onClick={() => removeReply.mutate()}>
-                        Remove reply
-                      </button>
-                    </div>
+                    {confirmRemove ? (
+                      <div className="notice notice-warn" role="group" aria-label="Remove reply?">
+                        <p style={{ marginTop: 0 }}>Remove this reply? Customers stop seeing it under the review.</p>
+                        <div className="btn-row">
+                          <button type="button" className="btn btn-small btn-danger" disabled={removeReply.isPending} onClick={() => removeReply.mutate()}>
+                            {removeReply.isPending ? 'Removing…' : 'Yes, remove reply'}
+                          </button>
+                          <button type="button" className="btn btn-small" onClick={() => setConfirmRemove(false)}>
+                            Keep reply
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="btn-row">
+                        <button type="button" className="btn btn-small" onClick={() => setReply(r.reply!.body)}>
+                          Change reply
+                        </button>
+                        <button type="button" className="btn btn-small" onClick={() => setConfirmRemove(true)}>
+                          Remove reply
+                        </button>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <button type="button" className="btn btn-small" onClick={() => setReply('')}>
