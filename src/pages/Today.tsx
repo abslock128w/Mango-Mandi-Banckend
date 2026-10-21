@@ -1,10 +1,10 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, istTime } from '../format'
 import type { OrderStatus } from '../types'
 import NeedsAttention from './NeedsAttention'
-import { ClickableRow, EmptyState, QueryError, Spinner, scrollRegion } from '../ui'
+import { EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion } from '../ui'
 
 const TILE_STATUSES: OrderStatus[] = [
   'CONFIRMED',
@@ -19,7 +19,6 @@ const TILE_STATUSES: OrderStatus[] = [
 const MAX_SELLABLE_AGE = 7
 
 export default function Today() {
-  const navigate = useNavigate()
   const q = useQuery({ queryKey: ['summary'], queryFn: api.summary, refetchInterval: 60_000 })
 
   if (q.isPending) return <Spinner />
@@ -70,11 +69,13 @@ export default function Today() {
               </thead>
               <tbody>
                 {atRisk.map((o) => (
-                  <ClickableRow key={o.id} label={`Open order ${o.number}`} onActivate={() => navigate(`/orders/${o.id}`)}>
-                    <td>{o.number}</td>
+                  <LinkRow key={o.id}>
+                    <td>
+                      <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink>
+                    </td>
                     <td>{date(o.deliveryDate)}</td>
                     <td>{o.reason ?? '—'}</td>
-                  </ClickableRow>
+                  </LinkRow>
                 ))}
               </tbody>
             </table>
@@ -104,19 +105,19 @@ export default function Today() {
                   </thead>
                   <tbody>
                     {s.batchesNearLimit.map((b) => (
-                      <ClickableRow
-                        key={b.id}
-                        label={`Open ${b.variety} batch, ${b.ageDays} days old`}
-                        onActivate={() => navigate(`/batches/${b.id}`)}
-                      >
-                        <td>{b.variety}</td>
+                      <LinkRow key={b.id}>
+                        <td>
+                          <RowLink to={`/batches/${b.id}`} more="batch">
+                            {b.variety}
+                          </RowLink>
+                        </td>
                         <td className={`num ${b.ageDays >= MAX_SELLABLE_AGE ? 'text-danger' : 'text-warn'}`}>
                           {b.ageDays >= MAX_SELLABLE_AGE && <span aria-hidden="true">⚠ </span>}
                           {b.ageDays} days
                           {b.ageDays >= MAX_SELLABLE_AGE && <span className="sr-only"> (past sell limit)</span>}
                         </td>
                         <td className="num">{b.available}</td>
-                      </ClickableRow>
+                      </LinkRow>
                     ))}
                   </tbody>
                 </table>

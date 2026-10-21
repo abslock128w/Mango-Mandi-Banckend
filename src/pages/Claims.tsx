@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, rupees } from '../format'
 import type { Claim, ClaimStatus } from '../types'
-import { Badge, ClaimBadge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast } from '../ui'
+import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast } from '../ui'
 
 const FILTERS: { value: ClaimStatus | null; label: string }[] = [
   { value: null, label: 'All open' },
@@ -32,7 +32,7 @@ export default function Claims() {
       <div className="topbar">
         <h1>Claims</h1>
       </div>
-      <div className="segmented" role="group" aria-label="Filter claims" style={{ marginBottom: '1rem' }}>
+      <div className="segmented mb-4" role="group" aria-label="Filter claims">
         {FILTERS.map((f) => (
           <button
             key={f.label}
@@ -75,11 +75,11 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
 
   return (
     <article className="card">
-      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>
+      <div className="topbar section-head">
+        <h2>
           <Link to={`/orders/${claim.orderId}`}>{claim.orderNumber}</Link>
         </h2>
-        <Badge tone="warn">{ISSUE_LABEL[claim.issueType] ?? claim.issueType}</Badge>
+        <Badge>{ISSUE_LABEL[claim.issueType] ?? claim.issueType}</Badge>
         <ClaimBadge status={claim.status} />
         {claim.createdAt && <span className="muted small">{dateTime(claim.createdAt)}</span>}
         <span className="spacer" />
@@ -159,7 +159,7 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
           </>
         )}
       </dl>
-      <p style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>{claim.description}</p>
+      <p className="mb-0 pre-wrap">{claim.description}</p>
     </article>
   )
 }
@@ -227,31 +227,14 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
 }
 
 function ClaimPhoto({ claimId, photoId, n }: { claimId: string; photoId: string; n: number }) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    let made: string | null = null
-    let live = true
-    api
-      .claimPhotoUrl(claimId, photoId)
-      .then((u) => {
-        made = u
-        if (live) setUrl(u)
-        else URL.revokeObjectURL(u)
-      })
-      .catch(() => live && setFailed(true))
-    return () => {
-      live = false
-      if (made) URL.revokeObjectURL(made)
-    }
-  }, [claimId, photoId])
-  if (failed) return <span className="small muted">Photo {n} could not be loaded.</span>
-  if (!url) return <span className="small muted">Loading photo {n}…</span>
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      <img src={url} alt={`Customer's photo ${n}`} />
-      <span className="sr-only"> (opens in a new tab)</span>
-    </a>
+    <AuthedPhoto
+      photoKey={`${claimId}/${photoId}`}
+      load={() => api.claimPhotoUrl(claimId, photoId)}
+      alt={`Customer's photo ${n}`}
+      what={`photo ${n}`}
+      openInTab
+    />
   )
 }
 

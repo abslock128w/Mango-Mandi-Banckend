@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, dateTime, rupees } from '../format'
 import { ALL_ORDER_STATUSES, type OrderStatus } from '../types'
-import { ClickableRow, EmptyState, OrderBadge, QueryError, Spinner, scrollRegion } from '../ui'
+import { EmptyState, LinkRow, OrderBadge, QueryError, RowLink, Spinner, scrollRegion } from '../ui'
 
 export default function Orders() {
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const status = (params.get('status') as OrderStatus | null) || null
   const from = params.get('from') ?? ''
@@ -49,7 +48,7 @@ export default function Orders() {
         <h1>Orders</h1>
       </div>
 
-      <div className="segmented" role="group" aria-label="Filter by status" style={{ marginBottom: '0.75rem' }}>
+      <div className="segmented mb-3" role="group" aria-label="Filter by status">
         <button type="button" className="btn btn-small" aria-pressed={status === null} onClick={() => update({ status: null })}>
           All
         </button>
@@ -60,7 +59,7 @@ export default function Orders() {
         ))}
       </div>
 
-      <div className="field-inline" style={{ marginBottom: '1rem' }}>
+      <div className="field-inline mb-4">
         <div className="field">
           <label htmlFor="o-from">Placed from</label>
           <input id="o-from" type="date" value={from} onChange={(e) => update({ from: e.target.value || null })} />
@@ -69,7 +68,7 @@ export default function Orders() {
           <label htmlFor="o-to">Placed to</label>
           <input id="o-to" type="date" value={to} onChange={(e) => update({ to: e.target.value || null })} />
         </div>
-        <div className="field" style={{ flex: 1, minWidth: 200 }}>
+        <div className="field field-grow">
           <label htmlFor="o-q">Search order number or phone</label>
           <input
             id="o-q"
@@ -106,9 +105,9 @@ export default function Orders() {
               </thead>
               <tbody>
                 {list.data.items.map((o) => (
-                  <ClickableRow key={o.id} label={`Open order ${o.number}`} onActivate={() => navigate(`/orders/${o.id}`)}>
+                  <LinkRow key={o.id}>
                     <td>
-                      <strong>{o.number}</strong>
+                      <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink>
                       {o.channel === 'whatsapp' && <div className="muted small">via WhatsApp</div>}
                     </td>
                     <td>
@@ -122,7 +121,7 @@ export default function Orders() {
                     </td>
                     <td>{date(o.deliveryDate)}</td>
                     <td>{dateTime(o.placedAt)}</td>
-                  </ClickableRow>
+                  </LinkRow>
                 ))}
               </tbody>
             </table>

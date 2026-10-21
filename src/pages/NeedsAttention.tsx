@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { dateTime } from '../format'
 import type { PhotoDelivery } from '../types'
-import { Dialog, FormError, useToast } from '../ui'
+import { ReasonDialog, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
@@ -157,28 +157,19 @@ export default function NeedsAttention() {
 }
 
 function DoubtDialog({ d, pending, error, onClose, onSave }: { d: PhotoDelivery; pending: boolean; error: unknown; onClose: () => void; onSave: (note: string) => void }) {
-  const [note, setNote] = useState('')
   return (
-    <Dialog
+    <ReasonDialog
       title={`What looks wrong with ${d.order.number}?`}
+      tone="primary"
+      label="Note for the order history"
+      hint="Say what looks wrong. The order stays delivered. Someone calls the customer to check they got it."
+      minLength={1}
+      maxLength={300}
+      confirmLabel="Flag for a call"
+      busy={pending}
+      error={error}
       onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn-primary" disabled={pending || !note.trim()} onClick={() => onSave(note.trim())}>
-            Flag for a call
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label htmlFor="doubt-note">Note for the order history</label>
-        <textarea id="doubt-note" rows={3} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
-        <p className="hint">The order stays delivered. Someone calls the customer to check they got it.</p>
-      </div>
-      <FormError error={error} />
-    </Dialog>
+      onSubmit={onSave}
+    />
   )
 }

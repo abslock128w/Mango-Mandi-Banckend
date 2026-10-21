@@ -80,7 +80,7 @@ export default function Deliveries() {
       </div>
       <div className="topbar no-print">
         <h1>Deliveries</h1>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="dl-date" className="sr-only">
             Delivery date
           </label>
@@ -219,8 +219,8 @@ function RunSection({
 
   return (
     <section className="card pack-order" aria-label={runTitle(run)}>
-      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>{runTitle(run)}</h2>
+      <div className="topbar section-head">
+        <h2>{runTitle(run)}</h2>
         <span className="muted small">
           {count(run.orders, 'order', 'orders')}, {count(run.boxes, 'box', 'boxes')}
           {out + done > 0 && ` · ${done} of ${out + done} delivered`}
@@ -234,8 +234,8 @@ function RunSection({
       </div>
       {focus && stops.length === 0 && <p className="muted">Nothing left to deliver in this slot.</p>}
       {stops.map((s) => (
-        <div key={s.pincode} style={{ marginTop: '0.75rem' }}>
-          <h3 style={{ margin: '0 0 0.25rem' }}>
+        <div key={s.pincode} className="mt-3">
+          <h3 className="mb-1">
             {s.pincode}
             {s.city ? ` · ${s.city}` : ''}
             {s.zone ? ` · ${s.zone}` : ''}
@@ -317,7 +317,7 @@ function StopCard({
       </div>
       {o.gift && (
         <div className="small">
-          <Badge tone="info">Gift</Badge> from {o.gift.from ?? 'a customer'}
+          <Badge>Gift</Badge> from {o.gift.from ?? 'a customer'}
           {o.gift.message && <> · “{o.gift.message}”</>}
         </div>
       )}
@@ -325,7 +325,7 @@ function StopCard({
       <div className="small muted">
         {o.items.map((i) => `${i.quantity} × ${i.productName}${i.stage ? ` (${RIPENESS_LABEL[i.stage]})` : ''}`).join(', ')}
       </div>
-      <div className="btn-row no-print" style={{ marginTop: '0.5rem' }}>
+      <div className="btn-row no-print mt-2">
         {o.status === 'OUT_FOR_DELIVERY' && (
           <>
             <button type="button" className="btn btn-primary" onClick={() => onDelivered(o)}>
@@ -410,7 +410,7 @@ function DeliveredDialog({ order, day, onClose }: { order: ManifestOrder; day: s
       }
     >
       <form id="deliver-form" onSubmit={onSubmit} noValidate>
-        <p style={{ marginTop: 0 }}>
+        <p className="mt-0">
           {order.customerName ?? 'Customer'} · {count(order.items.reduce((n, i) => n + i.quantity, 0), 'box', 'boxes')}
         </p>
         {mode === 'code' ? (
@@ -431,7 +431,7 @@ function DeliveredDialog({ order, day, onClose }: { order: ManifestOrder; day: s
                 The customer has it in the MandiMangoes app and on WhatsApp.
               </p>
             </div>
-            <button type="button" className="btn-link" onClick={() => switchMode('photo')}>
+            <button type="button" className="link-btn" onClick={() => switchMode('photo')}>
               No code? Leave it with someone and take a photo
             </button>
           </>
@@ -442,7 +442,7 @@ function DeliveredDialog({ order, day, onClose }: { order: ManifestOrder; day: s
               <label htmlFor="dl-who">Who took it, or where you left it</label>
               <input id="dl-who" value={receivedBy} maxLength={80} onChange={(e) => setReceivedBy(e.target.value)} placeholder="Security at the gate" />
             </div>
-            <button type="button" className="btn-link" onClick={() => switchMode('code')}>
+            <button type="button" className="link-btn" onClick={() => switchMode('code')}>
               Use the customer's code instead
             </button>
           </>

@@ -84,7 +84,7 @@ export default function PackList() {
       </div>
       <div className="topbar no-print">
         <h1>Pack list</h1>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="pl-date" className="sr-only">
             Delivery date
           </label>
@@ -138,14 +138,14 @@ function ByOrder({ orders, day }: { orders: PackListOrder[]; day: string }) {
         const needsPacking = o.items.some((it) => it.picks.some((p) => !p.packed))
         return (
           <article key={o.id} className="card pack-order">
-            <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-              <h2 style={{ margin: 0 }}>
+            <div className="topbar section-head">
+              <h2>
                 <Link to={`/orders/${o.id}`}>{o.number}</Link>
               </h2>
               <span>{o.customerName ?? '—'}</span>
               {o.pincode && <span className="muted">{o.pincode}</span>}
-              {o.slot && <Badge tone="info">{o.slot.label}</Badge>}
-              {o.gift && <Badge tone="info">Gift</Badge>}
+              {o.slot && <Badge>{o.slot.label}</Badge>}
+              {o.gift && <Badge>Gift</Badge>}
               <OrderBadge status={o.status} />
               <span className="spacer" />
               {needsPacking && (o.status === 'CONFIRMED' || o.status === 'PROCESSING') && (
@@ -186,7 +186,7 @@ function ByOrder({ orders, day }: { orders: PackListOrder[]; day: string }) {
                         {it.picks.length === 0 ? (
                           <span className="text-warn">Not allocated yet</span>
                         ) : (
-                          <ul style={{ margin: 0, paddingLeft: '1rem' }}>
+                          <ul className="sub-list">
                             {it.picks.map((p, i) => (
                               <li key={i}>
                                 {p.quantity} × {p.variety} plucked {date(p.pluckedOn)}{' '}

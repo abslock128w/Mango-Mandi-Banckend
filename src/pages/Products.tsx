@@ -7,7 +7,7 @@ import { API_URL, api } from '../api'
 import { shrinkPhoto } from '../photo'
 import { rupees } from '../format'
 import type { Product, ProductInput } from '../types'
-import { Badge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
 
 export default function Products() {
   const toast = useToast()
@@ -124,28 +124,22 @@ export default function Products() {
       )}
 
       {removing && (
-        <Dialog
+        <ConfirmDialog
           title={`Remove ${removing.name}?`}
           tone="danger"
+          confirmLabel="Remove product"
+          cancelLabel="Keep it"
+          busy={remove.isPending}
+          error={remove.error}
           onClose={() => setRemoving(null)}
-          footer={
-            <>
-              <button type="button" className="btn" onClick={() => setRemoving(null)}>
-                Keep it
-              </button>
-              <button type="button" className="btn btn-danger" disabled={remove.isPending} onClick={() => remove.mutate(removing)}>
-                Remove product
-              </button>
-            </>
-          }
+          onConfirm={() => remove.mutate(removing)}
         >
           <p>Customers stop seeing it in the shop and on WhatsApp, and it can't be added to new batches or preorders.</p>
           <p className="small muted">
             If it has never been stocked or sold, it is deleted. Otherwise it is kept as removed, so past orders and batches keep its name, and you
             can put it back on sale later. Orders already placed are not affected.
           </p>
-          <FormError error={remove.error} />
-        </Dialog>
+        </ConfirmDialog>
       )}
     </>
   )

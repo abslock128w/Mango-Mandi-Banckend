@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict, isStale } from '../api'
@@ -7,7 +7,22 @@ import type { DeliveryAttempt, NotificationKind, OrderDetail as Order, OrderNoti
 import { PACKER_STATUSES, can, canSee } from '../permissions'
 import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
-import { Badge, ConfirmDialog, Dialog, FormError, GatedButton, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import {
+  AuthedPhoto,
+  Badge,
+  ConfirmDialog,
+  Dialog,
+  DisabledReason,
+  FormError,
+  GatedButton,
+  ManagerOnlyNote,
+  OrderBadge,
+  QueryError,
+  ReasonDialog,
+  Spinner,
+  useToast,
+  scrollRegion,
+} from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
 
@@ -191,6 +206,7 @@ function OrderView({ order }: { order: Order }) {
             Allocate and pack
           </button>
         )}
+        {ALLOCATABLE.includes(order.status) && !awaitingPack && <DisabledReason>Nothing left to allocate.</DisabledReason>}
         {moves.map((m) => {
           const blocked = m.to === 'PACKED' && awaitingPack
           return (
@@ -229,6 +245,7 @@ function OrderView({ order }: { order: Order }) {
               Cancel order
             </button>
           ))}
+        {canCancel && paid && !manager && <ManagerOnlyNote what="Cancelling a paid order" />}
         {moves.length === 0 && !canCancel && (
           <span className="muted">No actions available.</span>
         )}
@@ -448,9 +465,9 @@ function OrderView({ order }: { order: Order }) {
           {order.notifications && order.notifications.length > 0 && (
             <section className="card">
               <h2>WhatsApp updates</h2>
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              <ul className="bare-list">
                 {order.notifications.map((n, i) => (
-                  <li key={i} style={{ marginBottom: '0.5rem' }}>
+                  <li key={i}>
                     {MESSAGE_LABEL[n.kind] ?? n.kind} {messageState(n)}{' '}
                     <span className="muted small">{dateTime(n.sentAt ?? n.createdAt)}</span>
                     {n.error && n.status !== 'SENT' && <div className="small muted">{n.error}</div>}
@@ -484,10 +501,9 @@ function OrderView({ order }: { order: Order }) {
 
 function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
-  const [reason, setReason] = useState('')
   const paid = order.payment?.status === 'SUCCEEDED'
   const cancel = useMutation({
-    mutationFn: () => api.cancelOrder(order.id, reason.trim(), paid),
+    mutationFn: (reason: string) => api.cancelOrder(order.id, reason, paid),
     onSuccess: () => {
       toast.success(paid ? `Order ${order.number} cancelled; ${rupees(order.payment?.amount ?? order.total)} is being refunded` : `Order ${order.number} cancelled`)
       onDone()
@@ -502,55 +518,36 @@ function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
     },
   })
   const holdsStock = order.stock.some((s) => s.state !== 'released')
-  const valid = reason.trim().length >= 3
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (valid) cancel.mutate()
-  }
 
   return (
-    <Dialog
+    <ReasonDialog
       title={paid ? `Cancel and refund order ${order.number}?` : `Cancel order ${order.number}?`}
-      tone="danger"
+      confirmLabel={paid ? 'Cancel and refund' : 'Cancel order'}
+      cancelLabel="Keep order"
+      busyLabel="Cancelling…"
+      hint="At least 3 characters. Saved on the order timeline."
+      busy={cancel.isPending}
+      error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null}
       onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Keep order
-          </button>
-          <button type="submit" form="cancel-form" className="btn btn-danger" disabled={!valid || cancel.isPending}>
-            {cancel.isPending ? 'Cancelling…' : paid ? 'Cancel and refund' : 'Cancel order'}
-          </button>
-        </>
-      }
+      onSubmit={(reason) => cancel.mutate(reason)}
     >
-      <form id="cancel-form" onSubmit={onSubmit}>
-        {paid && (
-          <p>
-            The customer paid <strong>{rupees(order.payment?.amount ?? order.total)}</strong>. It goes back to them in full, and they get a WhatsApp
-            message when it is sent. Use this only when we can't deliver the order; problems with delivered fruit get a replacement instead.
-          </p>
-        )}
-        <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
-        <div className="field">
-          <label htmlFor="cancel-reason">Reason</label>
-          <textarea id="cancel-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-autofocus />
-          <p className="hint">At least 3 characters. Saved on the order timeline.</p>
-        </div>
-        <FormError error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null} />
-      </form>
-    </Dialog>
+      {paid && (
+        <p>
+          The customer paid <strong>{rupees(order.payment?.amount ?? order.total)}</strong>. It goes back to them in full, and they get a WhatsApp
+          message when it is sent. Use this only when we can't deliver the order; problems with delivered fruit get a replacement instead.
+        </p>
+      )}
+      <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
+    </ReasonDialog>
   )
 }
 
 /** A manager's override with a reason: marking delivered without proof, or sending out an order the API refused. */
 function OverrideDialog({ order, override, onClose, onDone }: { order: Order; override: Override; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
-  const [reason, setReason] = useState('')
   const delivered = override.to === 'DELIVERED'
   const save = useMutation({
-    mutationFn: () => api.setOrderStatus(order.id, override.to, { reason: reason.trim() }),
+    mutationFn: (reason: string) => api.setOrderStatus(order.id, override.to, { reason }),
     onSuccess: () => {
       toast.success(`Order ${order.number} is now ${ORDER_STATUS_LABEL[override.to]}`)
       onDone()
@@ -564,46 +561,27 @@ function OverrideDialog({ order, override, onClose, onDone }: { order: Order; ov
       }
     },
   })
-  const valid = reason.trim().length >= 3
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    if (valid) save.mutate()
-  }
 
   return (
-    <Dialog
+    <ReasonDialog
       title={delivered ? `Mark ${order.number} delivered without proof?` : `Send ${order.number} out anyway?`}
-      tone="danger"
+      confirmLabel={delivered ? 'Mark delivered' : 'Send it anyway'}
+      cancelLabel="Go back"
+      hint="At least 3 characters. Saved on the order timeline."
+      busy={save.isPending}
+      error={save.isError && !isStale(save.error) ? save.error : null}
       onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Go back
-          </button>
-          <button type="submit" form="override-form" className="btn btn-danger" disabled={!valid || save.isPending}>
-            {save.isPending ? 'Saving…' : delivered ? 'Mark delivered' : 'Send it anyway'}
-          </button>
-        </>
-      }
+      onSubmit={(reason) => save.mutate(reason)}
     >
-      <form id="override-form" onSubmit={onSubmit}>
-        {delivered ? (
-          <p>
-            Riders prove a delivery with the customer's code or a photo on the Deliveries page. Marking it here skips that, so
-            someone else checks it on Needs attention.
-          </p>
-        ) : (
-          <p>{override.why}</p>
-        )}
-        <div className="field">
-          <label htmlFor="override-reason">Reason</label>
-          <textarea id="override-reason" value={reason} onChange={(e) => setReason(e.target.value)} data-autofocus />
-          <p className="hint">At least 3 characters. Saved on the order timeline.</p>
-        </div>
-        <FormError error={save.isError && !isStale(save.error) ? save.error : null} />
-      </form>
-    </Dialog>
+      {delivered ? (
+        <p>
+          Riders prove a delivery with the customer's code or a photo on the Deliveries page. Marking it here skips that, so
+          someone else checks it on Needs attention.
+        </p>
+      ) : (
+        <p>{override.why}</p>
+      )}
+    </ReasonDialog>
   )
 }
 
@@ -679,25 +657,14 @@ function proofText(a: DeliveryAttempt): string {
 }
 
 function ProofPhoto({ orderId, photoId }: { orderId: string; photoId: string }) {
-  const [url, setUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
-    let made: string | null = null
-    let live = true
-    api
-      .deliveryPhotoUrl(orderId, photoId)
-      .then((u) => {
-        made = u
-        if (live) setUrl(u)
-        else URL.revokeObjectURL(u)
-      })
-      .catch(() => live && setFailed(true))
-    return () => {
-      live = false
-      if (made) URL.revokeObjectURL(made)
-    }
-  }, [orderId, photoId])
-  if (failed) return <div className="small muted">The photo could not be loaded.</div>
-  if (!url) return <div className="small muted">Loading photo…</div>
-  return <img className="delivery-photo" src={url} alt="Delivery photo taken by the rider" />
+  return (
+    <div>
+      <AuthedPhoto
+        className="delivery-photo"
+        photoKey={`${orderId}/${photoId}`}
+        load={() => api.deliveryPhotoUrl(orderId, photoId)}
+        alt="Delivery photo taken by the rider"
+      />
+    </div>
+  )
 }

@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate } from '../format'
-import { MANAGER_ONLY_HINT, can } from '../permissions'
+import { can } from '../permissions'
 import { useSession } from '../session'
 import type { BulkMoveResult, CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
-import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, scrollRegion, useToast } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
@@ -48,10 +48,10 @@ function Coverage() {
           const skus = [...new Set(day.stock.map((s) => s.sku))]
           const qty = (sku: string, stage: Ripeness) => day.stock.find((s) => s.sku === sku && s.stage === stage)?.qty ?? 0
           return (
-            <div key={day.date} style={{ marginTop: '1rem' }}>
+            <div key={day.date} className="mt-4">
               <h3>{date(day.date)}</h3>
               {day.slots && day.slots.length > 0 && (
-                <p className="muted small" style={{ marginTop: 0 }}>
+                <p className="muted small mt-0">
                   Booked:{' '}
                   {day.slots
                     .map((sl) => `${sl.label} ${sl.booked}${sl.maxBoxes == null ? '' : ` of ${sl.maxBoxes}`} boxes`)
@@ -130,8 +130,8 @@ function Calendar() {
 
   return (
     <section className="card">
-      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Delivery calendar</h2>
+      <div className="topbar section-head">
+        <h2>Delivery calendar</h2>
         <span className="spacer" />
         <GatedButton allowed={canMove} className="btn" onClick={() => setMoving(true)}>
           Move a day's orders
@@ -198,7 +198,7 @@ function Calendar() {
           </table>
         </div>
       )}
-      {!canMove && <p className="hint">Moving a day's orders: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
+      {!canMove && <ManagerOnlyNote what="Moving a day's orders" />}
       {editing && <DayDialog day={editing} onClose={() => setEditing(null)} onDone={refresh} />}
       {moving && <MoveDayDialog onClose={() => setMoving(false)} />}
       {resetting && (
@@ -496,8 +496,8 @@ function Slots() {
 
   return (
     <section className="card">
-      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Delivery slots</h2>
+      <div className="topbar section-head">
+        <h2>Delivery slots</h2>
         <span className="spacer" />
         <GatedButton allowed={allowed} className="btn" onClick={() => setEditing('new')}>
           Add slot
@@ -563,7 +563,7 @@ function Slots() {
           </table>
         </div>
       )}
-      {!allowed && <p className="hint">Changing slots: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
+      {!allowed && <ManagerOnlyNote what="Changing slots" />}
       {switchingOff && (
         <ConfirmDialog
           title={`Switch off ${switchingOff.label}?`}
@@ -672,8 +672,8 @@ function RulesCard() {
 
   return (
     <section className="card">
-      <div className="topbar" style={{ marginBottom: '0.5rem' }}>
-        <h2 style={{ margin: 0 }}>Selling rules</h2>
+      <div className="topbar section-head">
+        <h2>Selling rules</h2>
         {q.data && <span className="muted small">Version {q.data.version}</span>}
         <span className="spacer" />
         <GatedButton allowed={allowed} className="btn" onClick={() => setEditing(true)}>
@@ -688,13 +688,13 @@ function RulesCard() {
         <>
           <dl className="kv">
             {RULE_FIELDS.map((f) => (
-              <div key={f.key} style={{ display: 'contents' }}>
+              <div key={f.key} className="contents">
                 <dt>{f.label}</dt>
                 <dd>{String(q.data.rules[f.key])}</dd>
               </div>
             ))}
           </dl>
-          <h3 style={{ marginTop: '1.25rem' }}>Ripeness by age on the delivery date</h3>
+          <h3 className="mt-5">Ripeness by age on the delivery date</h3>
           <p className="muted small">
             The latest QC reading can move a batch up to {q.data.rules.maxQcShift} day either way.
           </p>
@@ -721,7 +721,7 @@ function RulesCard() {
               </tbody>
             </table>
           </div>
-          {!allowed && <p className="hint">Changing rules: {MANAGER_ONLY_HINT.toLowerCase()}.</p>}
+          {!allowed && <ManagerOnlyNote what="Changing rules" />}
         </>
       )}
       {editing && q.data && <RulesDialog rules={q.data.rules} onClose={() => setEditing(false)} />}
@@ -799,7 +799,7 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
         <fieldset>
           <legend>Ripeness by age, all varieties</legend>
           {windows.map((w, i) => (
-            <div className="btn-row" key={w.stage} style={{ alignItems: 'flex-end' }}>
+            <div className="btn-row align-end" key={w.stage}>
               <div className="field">
                 <label htmlFor={`win-${w.stage}-min`}>{RIPENESS_LABEL[w.stage]} from day</label>
                 <input

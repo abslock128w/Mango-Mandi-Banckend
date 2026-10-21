@@ -31,7 +31,7 @@ export default function TwoStepPage() {
   const { me } = useSession()
   const on = me?.twoStep?.enabled
   return (
-    <section className="card" style={{ maxWidth: 640 }}>
+    <section className="card narrow">
       <h1>Two-step sign-in</h1>
       {on ? (
         <>
@@ -116,7 +116,7 @@ function Setup() {
             <li key={c}>{c}</li>
           ))}
         </ul>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <div className="btn-row">
           <a className="btn" href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download="mandimangoes-recovery-codes.txt">
             Download codes
           </a>

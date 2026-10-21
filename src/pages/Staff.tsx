@@ -212,46 +212,32 @@ export default function Staff() {
       )}
       {resetting && <PasswordDialog member={resetting} onClose={() => setResetting(null)} />}
       {unlocking && (
-        <Dialog
+        <ConfirmDialog
           title={`Reset two-step sign-in for ${unlocking.email}?`}
+          confirmLabel="Reset"
+          busy={resetTwoStep.isPending}
+          error={resetTwoStep.error}
           onClose={() => setUnlocking(null)}
-          footer={
-            <>
-              <button type="button" className="btn" onClick={() => setUnlocking(null)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-primary" disabled={resetTwoStep.isPending} onClick={() => resetTwoStep.mutate(unlocking.id)}>
-                Reset
-              </button>
-            </>
-          }
+          onConfirm={() => resetTwoStep.mutate(unlocking.id)}
         >
           <p>
             Use this when they have lost their phone. They are signed out, and set up two-step sign-in again with their new phone, using the setup code
             shown next.
           </p>
-          <FormError error={resetTwoStep.error} />
-        </Dialog>
+        </ConfirmDialog>
       )}
       {removing && (
-        <Dialog
+        <ConfirmDialog
           title={`Remove ${removing.email}?`}
           tone="danger"
+          confirmLabel="Remove"
+          busy={remove.isPending}
+          error={remove.error}
           onClose={() => setRemoving(null)}
-          footer={
-            <>
-              <button type="button" className="btn" onClick={() => setRemoving(null)}>
-                Cancel
-              </button>
-              <button type="button" className="btn btn-danger" disabled={remove.isPending} onClick={() => remove.mutate(removing.id)}>
-                Remove
-              </button>
-            </>
-          }
+          onConfirm={() => remove.mutate(removing.id)}
         >
           <p>They are signed out and can no longer sign in. What they did stays in the activity log.</p>
-          <FormError error={remove.error} />
-        </Dialog>
+        </ConfirmDialog>
       )}
     </>
   )
@@ -456,8 +442,8 @@ function Activity() {
     <section className="card">
       <h2>Activity</h2>
       <p className="muted small">Every change made in the panel, newest first, and each sign-in.</p>
-      <div className="btn-row" style={{ marginBottom: '0.75rem' }}>
-        <div className="field" style={{ margin: 0 }}>
+      <div className="btn-row mb-3">
+        <div className="field m-0">
           <label htmlFor="act-staff" className="sr-only">
             Person
           </label>
@@ -470,13 +456,13 @@ function Activity() {
             ))}
           </select>
         </div>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="act-from" className="sr-only">
             From
           </label>
           <input id="act-from" type="date" value={from ?? ''} onChange={(e) => set('from', e.target.value)} />
         </div>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="act-to" className="sr-only">
             To
           </label>

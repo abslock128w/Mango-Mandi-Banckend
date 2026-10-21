@@ -1,4 +1,5 @@
-// Shared UI primitives: badges, dialog, toasts, spinner, empty/error states.
+// Shared UI primitives: badges, buttons, row links, photos, dialogs, toasts, spinner,
+// empty/error states. Pages build from these rather than their own copies.
 
 import {
   Component,
@@ -10,9 +11,10 @@ import {
   useRef,
   useState,
   type ErrorInfo as ReactErrorInfo,
-  type KeyboardEvent,
+  type FormEvent,
   type ReactNode,
 } from 'react'
+import { Link } from 'react-router-dom'
 import { errorMessage } from './api'
 import {
   BATCH_STATUS_LABEL,
@@ -27,6 +29,10 @@ import type { BatchStatus, ClaimStatus, OrderStatus } from './types'
 
 // ---------- Badges ----------
 
+/**
+ * Colour means status only: good, warn, bad, info. Categories (slot, gift, issue type,
+ * ripeness) use the default neutral chip.
+ */
 export function Badge({ tone = 'neutral', children }: { tone?: Tone; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>
 }
@@ -89,7 +95,10 @@ export function FormError({ error }: { error: unknown }) {
 
 // ---------- Buttons ----------
 
-/** A manager-only button: rendered disabled with a hint for operators. */
+/**
+ * A manager-only button, shown disabled to operators (roles that never get the action do not
+ * see it at all). Put a ManagerOnlyNote near it so the reason is visible, not only in a tooltip.
+ */
 export function GatedButton({
   allowed,
   className = 'btn',
@@ -118,6 +127,20 @@ export function GatedButton({
   )
 }
 
+/** The visible reason beside a disabled control, for example "Nothing left to allocate". */
+export function DisabledReason({ children }: { children: ReactNode }) {
+  return <p className="disabled-reason">{children}</p>
+}
+
+/** The visible reason beside one or more GatedButtons: "Cancelling a paid order: requires manager role." */
+export function ManagerOnlyNote({ what }: { what: string }) {
+  return (
+    <DisabledReason>
+      {what}: {MANAGER_ONLY_HINT.toLowerCase()}.
+    </DisabledReason>
+  )
+}
+
 // ---------- Tables ----------
 
 /**
@@ -128,27 +151,80 @@ export function scrollRegion(label: string) {
   return { className: 'table-wrap', tabIndex: 0, role: 'region', 'aria-label': label } as const
 }
 
-// ---------- Clickable table row ----------
+// ---------- Row links ----------
 
-export function ClickableRow({
-  onActivate,
-  label,
-  children,
-}: {
-  onActivate: () => void
-  label: string
-  children: ReactNode
-}) {
-  function onKeyDown(e: KeyboardEvent<HTMLTableRowElement>) {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      onActivate()
-    }
-  }
+/**
+ * A table row that opens a page. The row stays a plain row (so a screen reader reads its
+ * cells); put a RowLink in its first cell, which stretches over the row for mouse and touch.
+ */
+export function LinkRow({ children }: { children: ReactNode }) {
+  return <tr className="row-linked">{children}</tr>
+}
+
+/** The link in a LinkRow's first cell. `more` is read after the text, for screen readers only. */
+export function RowLink({ to, children, more }: { to: string; children: ReactNode; more?: string }) {
   return (
-    <tr className="clickable" tabIndex={0} role="button" aria-label={label} onClick={onActivate} onKeyDown={onKeyDown}>
+    <Link to={to} className="row-link">
       {children}
-    </tr>
+      {more && <span className="sr-only"> {more}</span>}
+    </Link>
+  )
+}
+
+// ---------- Signed-in photos ----------
+
+/**
+ * A photo behind the API's sign-in (delivery proof, claim and review photos). `load` fetches
+ * it as an object URL, re-run when `photoKey` changes; the URL is freed on unmount. `what`
+ * names it in the loading and failure text ("photo 2"). `openInTab` wraps it in a link that
+ * opens the full photo.
+ */
+export function AuthedPhoto({
+  load,
+  photoKey,
+  alt,
+  what = 'photo',
+  className,
+  openInTab,
+}: {
+  load: () => Promise<string>
+  photoKey: string
+  alt: string
+  what?: string
+  className?: string
+  openInTab?: boolean
+}) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const loadRef = useRef(load)
+  loadRef.current = load
+  useEffect(() => {
+    let made: string | null = null
+    let live = true
+    setUrl(null)
+    setFailed(false)
+    loadRef
+      .current()
+      .then((u) => {
+        made = u
+        if (live) setUrl(u)
+        else URL.revokeObjectURL(u)
+      })
+      .catch(() => live && setFailed(true))
+    return () => {
+      live = false
+      if (made) URL.revokeObjectURL(made)
+    }
+  }, [photoKey])
+  if (failed) return <span className="small muted">{what.charAt(0).toUpperCase() + what.slice(1)} could not be loaded.</span>
+  if (!url) return <span className="small muted">Loading {what}…</span>
+  const img = <img className={className} src={url} alt={alt} />
+  if (!openInTab) return img
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      {img}
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
   )
 }
 
@@ -241,6 +317,7 @@ export function ConfirmDialog({
   children,
   confirmLabel,
   cancelLabel = 'Cancel',
+  busyLabel = 'Saving…',
   onConfirm,
   onClose,
   busy,
@@ -251,6 +328,7 @@ export function ConfirmDialog({
   children: ReactNode
   confirmLabel: string
   cancelLabel?: string
+  busyLabel?: string
   onConfirm: () => void
   onClose: () => void
   busy?: boolean
@@ -268,13 +346,96 @@ export function ConfirmDialog({
             {cancelLabel}
           </button>
           <button type="button" className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} disabled={busy} onClick={onConfirm}>
-            {busy ? 'Saving…' : confirmLabel}
+            {busy ? busyLabel : confirmLabel}
           </button>
         </>
       }
     >
       {children}
       <FormError error={error} />
+    </Dialog>
+  )
+}
+
+/**
+ * A step that needs a written reason (cancelling, overriding, writing off, rejecting). The
+ * confirm button stays disabled until the reason is long enough, and the hint under the box
+ * says so in text. `children` explains what happens.
+ */
+export function ReasonDialog({
+  title,
+  children,
+  label = 'Reason',
+  hint,
+  minLength = 3,
+  maxLength,
+  confirmLabel,
+  cancelLabel = 'Cancel',
+  busyLabel = 'Saving…',
+  busy,
+  error,
+  tone = 'danger',
+  onSubmit,
+  onClose,
+}: {
+  title: string
+  children?: ReactNode
+  label?: string
+  /** Shown under the box. Defaults to "At least 3 characters." */
+  hint?: string
+  minLength?: number
+  maxLength?: number
+  confirmLabel: string
+  cancelLabel?: string
+  busyLabel?: string
+  busy?: boolean
+  error?: unknown
+  tone?: 'danger' | 'primary'
+  onSubmit: (reason: string) => void
+  onClose: () => void
+}) {
+  const id = useId()
+  const [reason, setReason] = useState('')
+  const valid = reason.trim().length >= minLength
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    if (valid) onSubmit(reason.trim())
+  }
+  return (
+    <Dialog
+      title={title}
+      tone={tone === 'danger' ? 'danger' : undefined}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            {cancelLabel}
+          </button>
+          <button type="submit" form={`${id}-form`} className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} disabled={!valid || busy}>
+            {busy ? busyLabel : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      <form id={`${id}-form`} onSubmit={submit}>
+        {children}
+        <div className="field">
+          <label htmlFor={`${id}-reason`}>{label}</label>
+          <textarea
+            id={`${id}-reason`}
+            rows={3}
+            maxLength={maxLength}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            aria-describedby={`${id}-hint`}
+            data-autofocus
+          />
+          <p id={`${id}-hint`} className="hint">
+            {hint ?? `At least ${minLength} ${minLength === 1 ? 'character' : 'characters'}.`}
+          </p>
+        </div>
+        <FormError error={error} />
+      </form>
     </Dialog>
   )
 }

@@ -1,49 +1,43 @@
 /* Mango Ops — tokens, components, dark mode and print in one file. */
 
+/*
+ * The panel's own names are aliases of the shared tokens in design/tokens.css (imported first
+ * by main.tsx), so every colour, radius and tap size comes from that one file. The panel keeps
+ * its green staff accent (--color-staff). Only --surface-2 and --shadow are local: no shared
+ * token fits them.
+ */
 :root {
-  --green-900: #14532d;
-  --green-700: #15803d;
-  --green-100: #dcfce7;
-  --amber-700: #92400e;
-  --amber-500: #d97706;
-  --amber-100: #fef3c7;
-  --red-600: #b91c1c;
-  --red-100: #fee2e2;
-  --blue-700: #1d4ed8;
-  --blue-100: #dbeafe;
-  --text: #1c1917;
-  --text-muted: #57534e;
-  --bg: #fafaf9;
-  --surface: #ffffff;
-  --surface-2: #f5f5f4;
-  --border: #d6d3d1;
-  --focus: #2563eb;
-  --radius: 8px;
+  --green-900: var(--color-staff-strong);
+  --green-700: var(--color-staff);
+  --green-100: var(--color-staff-soft);
+  --amber-700: var(--color-warning);
+  --amber-500: var(--color-accent);
+  --amber-100: var(--color-warning-soft);
+  --red-600: var(--color-error);
+  --red-100: var(--color-error-soft);
+  --blue-700: var(--color-info);
+  --blue-100: var(--color-info-soft);
+  --text: var(--color-ink);
+  --text-muted: var(--color-muted);
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --surface-2: #f7f1e6;
+  --border: var(--color-line);
+  /* Edges of controls (buttons, inputs): a step darker than --border so they read as controls. */
+  --border-strong: #cdbfa9;
+  --focus: var(--color-focus);
+  --radius: var(--radius-sm);
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 4px 16px rgb(0 0 0 / 6%);
-  /* Smallest touch target for buttons a rider or packer hits on the move. */
-  --tap-min: 44px;
+  /* The panel's dark top bar: a deep green in both themes. */
+  --nav-bg: var(--color-staff-strong);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --green-900: #86efac;
-    --green-700: #22c55e;
-    --green-100: #14532d;
-    --amber-700: #fcd34d;
-    --amber-500: #fbbf24;
-    --amber-100: #451a03;
-    --red-600: #fca5a5;
-    --red-100: #450a0a;
-    --blue-700: #93c5fd;
-    --blue-100: #172554;
-    --text: #f5f5f4;
-    --text-muted: #a8a29e;
-    --bg: #0c0a09;
-    --surface: #1c1917;
-    --surface-2: #292524;
-    --border: #44403c;
-    --focus: #93c5fd;
+    --surface-2: #2b241b;
+    --border-strong: #5a4c3d;
+    --nav-bg: #052e16;
     color-scheme: dark;
   }
 }
@@ -57,7 +51,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 var(--font-sans);
+  font: 15px/var(--leading) var(--font-sans);
 }
 
 a {
@@ -66,20 +60,22 @@ a {
 
 h1 {
   font-size: 1.5rem;
-  margin: 0 0 1rem;
+  margin: 0 0 var(--space-4);
 }
 h2 {
-  font-size: 1.15rem;
-  margin: 0 0 0.75rem;
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-3);
 }
 h3 {
-  font-size: 1rem;
-  margin: 0 0 0.5rem;
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-2);
 }
 
+/* The shared focus ring, with a halo so it shows on the green bar and on any fill. */
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-focus-halo);
 }
 
 .sr-only {
@@ -98,7 +94,7 @@ h3 {
   color: var(--text-muted);
 }
 .small {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
 }
 .num {
   text-align: right;
@@ -114,6 +110,72 @@ h3 {
   color: var(--green-700);
 }
 
+/* Spacing utilities on the --space-* scale, in place of inline style props. */
+.m-0 {
+  margin: 0;
+}
+.mt-0 {
+  margin-top: 0;
+}
+.mb-0 {
+  margin-bottom: 0;
+}
+.mt-2 {
+  margin-top: var(--space-2);
+}
+.mt-3 {
+  margin-top: var(--space-3);
+}
+.mt-4 {
+  margin-top: var(--space-4);
+}
+.mt-5 {
+  margin-top: var(--space-5);
+}
+.mt-6 {
+  margin-top: var(--space-6);
+}
+.mb-1 {
+  margin-bottom: var(--space-1);
+}
+.mb-2 {
+  margin-bottom: var(--space-2);
+}
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.mb-4 {
+  margin-bottom: var(--space-4);
+}
+.grow {
+  flex: 1;
+}
+.pre-wrap {
+  white-space: pre-wrap;
+}
+.contents {
+  display: contents;
+}
+.align-end {
+  align-items: flex-end;
+}
+.narrow {
+  max-width: 640px;
+}
+/* A short list inside a table cell. */
+.sub-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+.bare-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bare-list > li + li {
+  margin-top: var(--space-2);
+}
+
 /* ---------- Layout ---------- */
 
 .app {
@@ -123,22 +185,17 @@ h3 {
 }
 
 .app-nav {
-  background: var(--green-900);
+  background: var(--nav-bg);
   color: #fff;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem 1rem;
-  padding: 0.5rem 1rem;
-}
-@media (prefers-color-scheme: dark) {
-  .app-nav {
-    background: #052e16;
-  }
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) var(--space-4);
 }
 .app-nav .brand {
   font-weight: 700;
-  margin-right: 0.5rem;
+  margin-right: var(--space-2);
   color: #fff;
   text-decoration: none;
 }
@@ -146,7 +203,7 @@ h3 {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: var(--space-1);
   margin: 0;
   padding: 0;
 }
@@ -166,10 +223,11 @@ h3 {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   font-size: 0.85rem;
 }
 .app-nav .who .btn {
+  white-space: nowrap;
   color: #fff;
   border-color: rgb(255 255 255 / 40%);
   background: transparent;
@@ -180,27 +238,35 @@ main.content {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 1rem;
+  padding: var(--space-4);
 }
 
 .topbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
-  margin-bottom: 1rem;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
 }
-.topbar h1 {
+.topbar h1,
+.topbar h2 {
   margin: 0;
 }
 .topbar .spacer {
   flex: 1;
 }
+/* A section heading row inside a card: an h2 with its buttons beside it. */
+.section-head {
+  margin-bottom: var(--space-2);
+}
+.section-head h2 {
+  margin: 0;
+}
 
 .grid-2 {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-  gap: 1rem;
+  gap: var(--space-4);
 }
 @media (max-width: 800px) {
   .grid-2 {
@@ -212,8 +278,8 @@ main.content {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1rem;
-  margin-bottom: 1rem;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
 }
 
 .error-card {
@@ -223,7 +289,7 @@ main.content {
 /* ---------- Banners ---------- */
 
 .banner {
-  padding: 0.6rem 1rem;
+  padding: 0.6rem var(--space-4);
   text-align: center;
   font-weight: 500;
 }
@@ -237,8 +303,8 @@ main.content {
 }
 .notice {
   border-radius: var(--radius);
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
 }
 .notice-warn {
   background: var(--amber-100);
@@ -251,43 +317,38 @@ main.content {
 
 /* ---------- Buttons & forms ---------- */
 
+/* Every button is at least --tap-min (44px) tall: riders and packers use the panel on the move. */
 .btn {
   position: relative;
   font: inherit;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
-  padding: 0.45rem 0.9rem;
+  padding: var(--space-2) var(--space-4);
   border-radius: 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--surface);
   color: var(--text);
   cursor: pointer;
   text-decoration: none;
-  min-height: 2.25rem;
+  min-height: var(--tap-min);
 }
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
 }
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
 .btn-primary {
-  background: var(--green-700);
-  border-color: var(--green-700);
-  color: #fff;
+  background: var(--color-staff);
+  border-color: var(--color-staff);
+  color: var(--color-on-staff);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--green-900);
+  background: var(--color-staff-strong);
+  border-color: var(--color-staff-strong);
 }
 @media (prefers-color-scheme: dark) {
-  .btn-primary {
-    color: #052e16;
-  }
   .btn-primary:hover:not(:disabled) {
-    background: var(--green-900);
-    color: #052e16;
+    filter: brightness(1.1);
   }
 }
 .btn-danger {
@@ -304,22 +365,40 @@ main.content {
     color: #450a0a;
   }
 }
+/* Smaller text and padding for buttons in table rows; still a full tap target. */
 .btn-small {
-  padding: 0.2rem 0.6rem;
-  min-height: 1.9rem;
-  font-size: 0.85rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+/* The one disabled look: a neutral fill, never faded opacity. Say why next to it in text. */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  background: var(--color-disabled);
+  border-color: var(--color-disabled);
+  color: var(--color-on-disabled);
+  cursor: not-allowed;
+  filter: none;
+}
+/* A visible reason beside a disabled control ("Requires manager role"). */
+.disabled-reason {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: var(--space-2) 0 0;
+}
+.btn-row .disabled-reason {
+  margin: 0;
 }
 .btn-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
 }
 
 .segmented {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 .segmented .btn[aria-pressed='true'] {
   background: var(--green-100);
@@ -331,7 +410,7 @@ main.content {
 label {
   display: block;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--space-1);
 }
 .field {
   margin-bottom: 0.85rem;
@@ -339,11 +418,16 @@ label {
 .field-inline {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
   align-items: end;
 }
 .field-inline .field {
   margin-bottom: 0;
+}
+/* The search box in a filter row takes the spare width. */
+.field-grow {
+  flex: 1;
+  min-width: 200px;
 }
 input,
 select,
@@ -351,10 +435,10 @@ textarea {
   font: inherit;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  padding: 0.4rem 0.6rem;
-  min-height: 2.25rem;
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--tap-min);
   width: 100%;
   max-width: 100%;
 }
@@ -380,22 +464,22 @@ input[type='radio'] {
 .form-error {
   color: var(--red-600);
   font-weight: 500;
-  margin: 0.5rem 0;
+  margin: var(--space-2) 0;
 }
 fieldset {
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.5rem 0.75rem 0.75rem;
+  padding: var(--space-2) var(--space-3) var(--space-3);
   margin: 0 0 0.85rem;
 }
 legend {
   font-weight: 500;
-  padding: 0 0.25rem;
+  padding: 0 var(--space-1);
 }
 .radio-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 .radio-row label {
   font-weight: 400;
@@ -414,9 +498,9 @@ legend {
   align-items: center;
   gap: 0.6rem;
   width: 100%;
-  min-height: var(--tap-min, 44px);
+  min-height: var(--tap-min);
   margin: 0;
-  padding: 0.4rem 0.75rem;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: 6px;
   font-weight: 400;
@@ -440,7 +524,7 @@ legend {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 table {
   width: 100%;
@@ -449,7 +533,7 @@ table {
 th,
 td {
   text-align: left;
-  padding: 0.55rem 0.75rem;
+  padding: 0.55rem var(--space-3);
   border-bottom: 1px solid var(--border);
   vertical-align: top;
 }
@@ -464,24 +548,44 @@ th {
 tbody tr:last-child td {
   border-bottom: none;
 }
-tr.clickable {
-  cursor: pointer;
+/*
+ * A row that opens a page: the link sits in the first cell (so screen readers still read every
+ * cell) and stretches over the whole row, so a click anywhere on the row follows it.
+ */
+tr.row-linked {
+  position: relative;
 }
-tr.clickable:hover,
-tr.clickable:focus-visible {
+tr.row-linked:hover,
+tr.row-linked:focus-within {
   background: var(--surface-2);
+}
+.row-link {
+  color: inherit;
+  font-weight: 600;
+  text-decoration: none;
+}
+.row-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.row-link:hover {
+  text-decoration: underline;
 }
 abbr[title] {
   text-decoration: underline dotted;
   cursor: help;
 }
 
-/* ---------- Badges ---------- */
+/* ---------- Badges ----------
+ * Colour means status only: good (success), warn, bad (error), info. Categories (slot, gift,
+ * issue type, ripeness) are neutral chips.
+ */
 
 .badge {
   display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
+  padding: 0.1rem var(--space-2);
+  border-radius: var(--radius-pill);
   font-size: 0.8rem;
   font-weight: 600;
   white-space: nowrap;
@@ -493,20 +597,20 @@ abbr[title] {
   border-color: var(--border);
 }
 .badge-info {
-  background: var(--blue-100);
-  color: var(--blue-700);
+  background: var(--color-info-soft);
+  color: var(--color-info);
 }
 .badge-good {
-  background: var(--green-100);
-  color: var(--green-900);
+  background: var(--color-success-soft);
+  color: var(--color-success);
 }
 .badge-warn {
-  background: var(--amber-100);
-  color: var(--amber-700);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
 }
 .badge-bad {
-  background: var(--red-100);
-  color: var(--red-600);
+  background: var(--color-error-soft);
+  color: var(--color-error);
 }
 
 /* ---------- Dashboard ---------- */
@@ -514,15 +618,15 @@ abbr[title] {
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1.25rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 .tile {
   display: block;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.75rem 1rem;
+  padding: var(--space-3) var(--space-4);
   text-decoration: none;
   color: var(--text);
 }
@@ -549,7 +653,7 @@ a.tile:hover {
   margin: 0;
   padding-left: 1.1rem;
   display: grid;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 /* ---------- Charts ---------- */
@@ -609,7 +713,7 @@ a.tile:hover {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 5vh 1rem;
+  padding: 5vh var(--space-4);
   overflow-y: auto;
   z-index: 50;
 }
@@ -619,7 +723,7 @@ a.tile:hover {
   box-shadow: var(--shadow);
   width: 100%;
   max-width: 520px;
-  padding: 1.25rem;
+  padding: var(--space-5);
 }
 .dialog-danger h2 {
   color: var(--red-600);
@@ -628,8 +732,8 @@ a.tile:hover {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
 }
 
 /* ---------- Toasts ---------- */
@@ -642,12 +746,12 @@ a.tile:hover {
   right: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: var(--space-2);
   z-index: 60;
   max-width: calc(100vw - 2rem);
 }
 .toast {
-  padding: 0.6rem 1rem;
+  padding: 0.6rem var(--space-4);
   border-radius: 6px;
   box-shadow: var(--shadow);
   background: var(--surface);
@@ -665,7 +769,7 @@ a.tile:hover {
 .spinner-wrap {
   display: flex;
   justify-content: center;
-  padding: 2rem;
+  padding: var(--space-8);
 }
 .spinner {
   width: 28px;
@@ -688,21 +792,22 @@ a.tile:hover {
 .empty {
   text-align: center;
   color: var(--text-muted);
-  padding: 2rem 1rem;
+  padding: var(--space-8) var(--space-4);
 }
 
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--space-1);
   border-bottom: 1px solid var(--border);
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
 }
 .tabs button {
   font: inherit;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
-  padding: 0.5rem 0.9rem;
+  padding: var(--space-2) var(--space-4);
+  min-height: var(--tap-min);
   cursor: pointer;
   color: var(--text-muted);
 }
@@ -719,7 +824,7 @@ a.tile:hover {
 }
 .timeline li {
   border-left: 2px solid var(--border);
-  padding: 0 0 0.75rem 0.75rem;
+  padding: 0 0 var(--space-3) var(--space-3);
   position: relative;
 }
 .timeline li::before {
@@ -736,7 +841,7 @@ a.tile:hover {
 dl.kv {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.25rem 1rem;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
 }
 dl.kv dt {
@@ -749,7 +854,7 @@ dl.kv dd {
 .pager {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   justify-content: flex-end;
 }
 
@@ -758,7 +863,7 @@ dl.kv dd {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: var(--space-4);
 }
 .login-card {
   width: 100%;
@@ -772,16 +877,6 @@ dl.kv dd {
 
 /* ---------- Delivery run ---------- */
 
-.btn-link {
-  font: inherit;
-  background: none;
-  border: none;
-  padding: 0.5rem 0;
-  min-height: 2.25rem;
-  color: var(--blue-700);
-  text-decoration: underline;
-  cursor: pointer;
-}
 .stops {
   list-style: none;
   margin: 0;
@@ -800,15 +895,8 @@ dl.kv dd {
 .stop-head {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
   align-items: center;
-}
-.stop .btn,
-.folded .btn {
-  min-height: var(--tap-min, 44px);
-}
-.segmented .btn {
-  min-height: var(--tap-min, 44px);
 }
 /* Stays in view while the rider scrolls the run. */
 .run-summary {
@@ -819,18 +907,18 @@ dl.kv dd {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0 1rem;
-  padding: 0.25rem 1rem;
-  margin: 0 -1rem 0.75rem;
+  gap: 0 var(--space-4);
+  padding: var(--space-1) var(--space-4);
+  margin: 0 -1rem var(--space-3);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   box-shadow: var(--shadow);
 }
 .folded {
   display: grid;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--border);
 }
 .folded > div {
@@ -845,7 +933,7 @@ dl.kv dd {
 .stop-line {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   padding: 0.35rem 0;
   border-top: 1px solid var(--border);
   white-space: nowrap;
@@ -917,7 +1005,7 @@ dl.kv dd {
 }
 
 .role-hints {
-  margin: 0.75rem 0 0;
+  margin: var(--space-3) 0 0;
   padding-left: 1.1rem;
 }
 .role-hints li + li {
@@ -928,16 +1016,16 @@ dl.kv dd {
 .google-btn {
   display: flex;
   justify-content: center;
-  min-height: 44px;
-  margin-bottom: 0.25rem;
+  min-height: var(--tap-min);
+  margin-bottom: var(--space-1);
 }
 .or {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   color: var(--text-muted);
   font-size: 0.875rem;
-  margin: 0.75rem 0;
+  margin: var(--space-3) 0;
 }
 .or::before,
 .or::after {
@@ -949,7 +1037,7 @@ dl.kv dd {
 .claim-photos {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 .claim-photos img {
   width: 96px;
@@ -959,9 +1047,12 @@ dl.kv dd {
   display: block;
 }
 
-/* two-step sign-in */
+/* The one text-style button ("Use a recovery code", "No code? Take a photo"), as tall as any button. */
 .link-btn {
   font: inherit;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
   background: none;
   border: 0;
   padding: 0;
@@ -973,7 +1064,7 @@ dl.kv dd {
   display: block;
   width: 200px;
   height: 200px;
-  margin: 0.5rem 0;
+  margin: var(--space-2) 0;
   image-rendering: pixelated;
 }
 .secret-key {
@@ -985,16 +1076,16 @@ dl.kv dd {
   font-family: var(--font-mono);
   display: grid;
   grid-template-columns: repeat(2, max-content);
-  gap: 0.25rem 2rem;
-  padding: 0.75rem 1rem;
-  margin: 0.5rem 0 1rem;
+  gap: var(--space-1) var(--space-8);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) 0 var(--space-4);
   list-style: none;
   border: 1px dashed currentColor;
   border-radius: 6px;
 }
 .setup-wrap {
   max-width: 560px;
-  margin: 2rem auto;
+  margin: var(--space-8) auto;
   padding: 0 16px;
 }
 
@@ -1004,7 +1095,7 @@ dl.kv dd {
   padding: 0;
 }
 .plain-list li {
-  padding: 0.5rem 0;
+  padding: var(--space-2) 0;
   border-top: 1px solid var(--border);
 }
 
@@ -1029,7 +1120,7 @@ td.actions {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  min-height: 44px;
+  min-height: var(--tap-min);
   font-weight: normal;
 }
 .review-filters {
@@ -1039,9 +1130,9 @@ td.actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 0.75rem;
+  gap: var(--space-2) var(--space-3);
+  padding: 0.6rem var(--space-3);
+  margin-bottom: var(--space-3);
   background: var(--amber-100);
   border-radius: var(--radius);
 }
@@ -1055,7 +1146,7 @@ td.actions {
   overflow-wrap: anywhere;
 }
 .review-excerpt .badge {
-  margin: 0 0.25rem 0.25rem 0;
+  margin: 0 var(--space-1) var(--space-1) 0;
 }
 tr.row-flagged td {
   background: var(--red-100);
@@ -1071,14 +1162,14 @@ tr.row-flagged td {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
 }
 .review-photo-picks li {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: var(--space-1);
 }
 .review-photo-picks img {
   width: 140px;
@@ -1090,8 +1181,8 @@ tr.row-flagged td {
 .review-reply,
 .reason-form {
   border-top: 1px solid var(--border);
-  margin-top: 1rem;
-  padding-top: 0.75rem;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
 }
 .review-reply h3 {
   margin-top: 0;
@@ -1104,7 +1195,7 @@ tr.row-flagged td {
   display: inline-block;
   width: 80px;
   height: 8px;
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   background: var(--surface-2);
   border: 1px solid var(--border);
   vertical-align: middle;
@@ -1120,7 +1211,7 @@ tr.row-flagged td {
 .field-label {
   display: block;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--space-1);
 }
 .photo-pick {
   display: flex;
@@ -1132,7 +1223,7 @@ tr.row-flagged td {
   height: 96px;
   flex: none;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
 }
 .product-photo-empty {

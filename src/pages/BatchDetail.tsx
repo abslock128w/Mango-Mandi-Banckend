@@ -3,10 +3,24 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from '../api'
 import { BATCH_STATUS_LABEL, CONDITION_LABEL, RIPENESS_LABEL, date, dateTime } from '../format'
-import { MANAGER_ONLY_HINT, can } from '../permissions'
+import { can } from '../permissions'
 import { useSession } from '../session'
 import { BATCH_FLOW, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type Ripeness } from '../types'
-import { BatchBadge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import {
+  BatchBadge,
+  ConfirmDialog,
+  Dialog,
+  DisabledReason,
+  EmptyState,
+  FormError,
+  GatedButton,
+  ManagerOnlyNote,
+  QueryError,
+  ReasonDialog,
+  Spinner,
+  useToast,
+  scrollRegion,
+} from '../ui'
 
 /** Forward-only: every later step in the flow is reachable; the next one is primary. */
 function forwardSteps(status: BatchStatus): BatchStatus[] {
@@ -105,6 +119,7 @@ function BatchView({ batch }: { batch: Batch }) {
             </tbody>
           </table>
         </div>
+        {batch.status === 'CONDEMNED' && <DisabledReason>A condemned batch's stock can't be adjusted.</DisabledReason>}
       </section>
 
       <section className="card">
@@ -132,14 +147,16 @@ function StatusControls({ batch }: { batch: Batch }) {
   const [condemned, setCondemned] = useState<{ moved: string[]; atRisk: string[] } | null>(null)
   // Exhausting a batch with boxes still on hand writes them off: a manager's call, with a reason.
   const [exhausting, setExhausting] = useState(false)
-  const [exhaustReason, setExhaustReason] = useState('')
+  const exhaustReason = useRef('')
   // Skipping steps (Arriving straight to Selling) asks first, naming the steps it jumps over.
   const [skipping, setSkipping] = useState<BatchStatus | null>(null)
   const left = batch.lines.reduce((n, l) => n + l.onHand, 0)
   const manager = me?.role === 'MANAGER'
+  // Condemning is shown (disabled) to operators, who escalate it; roles that never handle it don't see it.
+  const showCondemn = manager || me?.role === 'OPERATOR'
 
   const move = useMutation({
-    mutationFn: (status: BatchStatus) => api.setBatchStatus(batch.id, status, status === 'EXHAUSTED' && left > 0 ? exhaustReason.trim() : undefined),
+    mutationFn: (status: BatchStatus) => api.setBatchStatus(batch.id, status, status === 'EXHAUSTED' && left > 0 ? exhaustReason.current : undefined),
     onSuccess: (res, status) => {
       queryClient.invalidateQueries({ queryKey: ['batch', batch.id] })
       queryClient.invalidateQueries({ queryKey: ['batches'] })
@@ -160,6 +177,7 @@ function StatusControls({ batch }: { batch: Batch }) {
 
   const steps = forwardSteps(batch.status)
   const [next, ...skips] = steps
+  const writeOffGated = steps.includes('EXHAUSTED') && left > 0
 
   return (
     <section className="card">
@@ -200,14 +218,12 @@ function StatusControls({ batch }: { batch: Batch }) {
               </button>
             ),
           )}
-          <span className="spacer" style={{ flex: 1 }} />
-          <GatedButton
-            allowed={can(me?.role, 'condemnBatch')}
-            className="btn btn-danger"
-            onClick={() => setConfirmCondemn(true)}
-          >
-            Condemn batch
-          </GatedButton>
+          <span className="grow" />
+          {showCondemn && (
+            <GatedButton allowed={can(me?.role, 'condemnBatch')} className="btn btn-danger" onClick={() => setConfirmCondemn(true)}>
+              Condemn batch
+            </GatedButton>
+          )}
         </div>
       )}
 
@@ -228,74 +244,43 @@ function StatusControls({ batch }: { batch: Batch }) {
       )}
 
       {exhausting && (
-        <Dialog
+        <ReasonDialog
           title="Write off the rest of this batch?"
-          tone="danger"
+          confirmLabel={`Write off ${left} boxes`}
+          cancelLabel="Keep batch"
+          hint="At least 3 characters. Saved in the batch ledger."
+          busy={move.isPending}
+          error={move.error}
           onClose={() => setExhausting(false)}
-          footer={
-            <>
-              <button type="button" className="btn" onClick={() => setExhausting(false)}>
-                Keep batch
-              </button>
-              <button
-                type="submit"
-                form="exhaust-form"
-                className="btn btn-danger"
-                disabled={move.isPending || exhaustReason.trim().length < 3}
-              >
-                {move.isPending ? 'Saving…' : `Write off ${left} boxes`}
-              </button>
-            </>
-          }
+          onSubmit={(reason) => {
+            exhaustReason.current = reason
+            move.mutate('EXHAUSTED')
+          }}
         >
-          <form
-            id="exhaust-form"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (exhaustReason.trim().length >= 3) move.mutate('EXHAUSTED')
-            }}
-          >
-            <p>
-              {left} boxes are still on hand. Marking the batch exhausted writes them off for good; it cannot be undone.
-            </p>
-            <div className="field">
-              <label htmlFor="exhaust-reason">Reason</label>
-              <textarea id="exhaust-reason" value={exhaustReason} onChange={(e) => setExhaustReason(e.target.value)} data-autofocus />
-              <p className="hint">At least 3 characters. Saved in the batch ledger.</p>
-            </div>
-            <FormError error={move.error} />
-          </form>
-        </Dialog>
+          <p>
+            {left} boxes are still on hand. Marking the batch exhausted writes them off for good; it cannot be undone.
+          </p>
+        </ReasonDialog>
       )}
 
       {confirmCondemn && (
-        <Dialog
+        <ConfirmDialog
           title="Condemn this batch?"
           tone="danger"
+          confirmLabel="Condemn and move orders"
+          cancelLabel="Keep batch"
+          busyLabel="Condemning…"
+          busy={move.isPending}
+          error={move.error}
           onClose={() => setConfirmCondemn(false)}
-          footer={
-            <>
-              <button type="button" className="btn" onClick={() => setConfirmCondemn(false)} data-autofocus>
-                Keep batch
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                disabled={move.isPending}
-                onClick={() => move.mutate('CONDEMNED')}
-              >
-                {move.isPending ? 'Condemning…' : 'Condemn and move orders'}
-              </button>
-            </>
-          }
+          onConfirm={() => move.mutate('CONDEMNED')}
         >
           <p>
             This cannot be undone. Its remaining stock is written off. Open orders holding this batch are moved to
             another batch of the same ripeness where stock allows; any that can't be moved are flagged{' '}
             <strong>at risk</strong> for you to sort out. No order is cancelled.
           </p>
-          <FormError error={move.error} />
-        </Dialog>
+        </ConfirmDialog>
       )}
 
       {condemned && (
@@ -334,8 +319,16 @@ function StatusControls({ batch }: { batch: Batch }) {
           )}
         </Dialog>
       )}
-      {!can(me?.role, 'condemnBatch') && !isFinal(batch.status) && (
-        <p className="hint">Condemning a batch: {MANAGER_ONLY_HINT.toLowerCase()}.</p>
+      {!manager && !isFinal(batch.status) && (showCondemn || writeOffGated) && (
+        <ManagerOnlyNote
+          what={
+            showCondemn && writeOffGated
+              ? 'Condemning a batch or writing off boxes still on hand'
+              : showCondemn
+                ? 'Condemning a batch'
+                : 'Writing off boxes still on hand'
+          }
+        />
       )}
     </section>
   )
@@ -419,7 +412,7 @@ function QcPanel({ batch, focus }: { batch: Batch; focus: boolean }) {
         </button>
       </form>
 
-      <h3 style={{ marginTop: '1.25rem' }}>History</h3>
+      <h3 className="mt-5">History</h3>
       {batch.qc.length === 0 ? (
         <EmptyState>No QC logged yet. This batch is not sellable until QC is logged.</EmptyState>
       ) : (

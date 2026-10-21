@@ -29,13 +29,13 @@ export default function Analytics() {
     <>
       <div className="topbar">
         <h1>Analytics</h1>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="an-from" className="sr-only">
             From
           </label>
           <input id="an-from" type="date" value={from ?? q.data?.from ?? ''} onChange={(e) => set('from', e.target.value)} />
         </div>
-        <div className="field" style={{ margin: 0 }}>
+        <div className="field m-0">
           <label htmlFor="an-to" className="sr-only">
             To
           </label>

@@ -77,7 +77,7 @@ export function MissedDialog({ order, onClose, onDone }: { order: MissedOrder; o
       }
     >
       <form id="missed-form" onSubmit={onSubmit} noValidate>
-        <p style={{ marginTop: 0 }}>The order comes back and goes out again on the next delivery day.</p>
+        <p className="mt-0">The order comes back and goes out again on the next delivery day.</p>
         <fieldset>
           <legend>What happened?</legend>
           <div className="option-list">

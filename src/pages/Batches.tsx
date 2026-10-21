@@ -4,10 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { BATCH_STATUS_LABEL, RIPENESS_LABEL, date, istDate } from '../format'
 import { ALL_BATCH_STATUSES, type BatchStatus } from '../types'
-import { Badge, BatchBadge, ClickableRow, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, BatchBadge, Dialog, EmptyState, FormError, LinkRow, QueryError, RowLink, Spinner, useToast, scrollRegion } from '../ui'
 
 export default function Batches() {
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const status = (params.get('status') as BatchStatus | null) || null
   const receiving = params.get('receive') === '1'
@@ -37,7 +36,7 @@ export default function Batches() {
         </button>
       </div>
 
-      <div className="segmented no-print" role="group" aria-label="Filter by status" style={{ marginBottom: '1rem' }}>
+      <div className="segmented no-print mb-4" role="group" aria-label="Filter by status">
         <button type="button" className="btn btn-small" aria-pressed={status === null} onClick={() => setStatus(null)}>
           All
         </button>
@@ -71,13 +70,11 @@ export default function Batches() {
             </thead>
             <tbody>
               {q.data.map((b) => (
-                <ClickableRow
-                  key={b.id}
-                  label={`Open ${b.variety} batch plucked ${date(b.pluckedOn)}`}
-                  onActivate={() => navigate(`/batches/${b.id}`)}
-                >
+                <LinkRow key={b.id}>
                   <td>
-                    <strong>{b.variety}</strong>
+                    <RowLink to={`/batches/${b.id}`} more={`batch plucked ${date(b.pluckedOn)}`}>
+                      {b.variety}
+                    </RowLink>
                     {b.farm && <div className="muted small">{b.farm}</div>}
                   </td>
                   <td>{date(b.pluckedOn)}</td>
@@ -87,7 +84,7 @@ export default function Batches() {
                   </td>
                   <td>
                     {b.latestRating ? (
-                      <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'good'}>
+                      <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'neutral'}>
                         {RIPENESS_LABEL[b.latestRating]}
                         {b.latestCondition === 'REJECT' ? ' · Reject' : ''}
                       </Badge>
@@ -98,7 +95,7 @@ export default function Batches() {
                   <td className="num">{b.onHand}</td>
                   <td className="num">{b.committed}</td>
                   <td className="num">{b.available}</td>
-                </ClickableRow>
+                </LinkRow>
               ))}
             </tbody>
           </table>

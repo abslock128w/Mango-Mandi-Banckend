@@ -9,7 +9,8 @@ test('Today shows tiles, aging batches and low stock', async ({ page }) => {
   await expect(page.getByRole('link', { name: /3\s*Confirmed/ })).toHaveAttribute('href', '/orders?status=CONFIRMED')
   await expect(page.getByRole('link', { name: /2\s*Open claims/ })).toBeVisible()
   await expect(page.getByText(/Last updated \d\d:\d\d IST/)).toBeVisible()
-  await expect(page.getByRole('button', { name: /Alphonso batch, 7 days old/ })).toBeVisible()
+  // The row's first cell links to the batch; the row itself is read cell by cell.
+  await expect(page.getByRole('row', { name: /Alphonso batch.*7 days/ }).getByRole('link', { name: 'Alphonso batch' })).toHaveAttribute('href', /^\/batches\//)
   await expect(page.getByText('Alphonso 5kg Box')).toBeVisible()
 })
 
@@ -167,7 +168,12 @@ test('Orders list filters and opens a detail page', async ({ page }) => {
   await expect(page.getByText('2 orders · page 1 of 1')).toBeVisible()
   await page.getByLabel('Search order number or phone').fill('ORD-1042')
   await expect(page).toHaveURL(/q=ORD-1042/)
-  await page.getByRole('button', { name: 'Open order ORD-1042' }).click()
+  // Each row's first cell is a real link (the row stays a row for screen readers),
+  // and it covers the whole row, so a click on any cell opens the order.
+  await expect(page.getByRole('link', { name: 'ORD-1042' })).toHaveAttribute('href', '/orders/o1')
+  // (A real mouse click: the link sits on top of the cell, so Playwright's own click would refuse it.)
+  const cell = (await page.getByRole('cell', { name: /Asha Rao/ }).boundingBox())!
+  await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2)
   await expect(page).toHaveURL(/\/orders\/o1$/)
 })
 

@@ -51,8 +51,9 @@ test('bulk approve publishes the selected reviews; bulk reject asks for a reason
   await expect(page.getByRole('region', { name: 'Bulk actions' })).toContainText('2 selected')
   await page.getByRole('button', { name: 'Reject 2' }).click()
   const dialog = page.getByRole('dialog', { name: 'Reject 2 reviews' })
-  await dialog.getByRole('button', { name: 'Reject' }).click()
-  await expect(dialog.getByText('Give a short reason.')).toBeVisible()
+  // The shared reason dialog: Reject waits for a reason, and says so in text.
+  await expect(dialog.getByRole('button', { name: 'Reject' })).toBeDisabled()
+  await expect(dialog.getByText('At least 3 characters.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('button', { name: 'Approve 2' }).click()
   await expect(page.getByText('2 reviews published')).toBeVisible()
