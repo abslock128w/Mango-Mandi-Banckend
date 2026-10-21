@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, istDate, rupees, type Tone } from '../format'
 import { can } from '../permissions'
 import { useSession } from '../session'
 import type { Preorder, PreorderStatus } from '../types'
-import { Badge, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, PhoneLink, QueryError, ReasonDialog, Spinner, scrollRegion, useToast } from '../ui'
+import { Badge, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, PhoneLink, QueryError, ReasonDialog, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STATUS_LABEL: Record<PreorderStatus, string> = {
   PAYMENT_PENDING: 'Awaiting payment',
@@ -26,6 +26,7 @@ const FILTERS: (PreorderStatus | null)[] = [null, 'BOOKED', 'WAITLISTED', 'PAYME
 const weekLabel = (d: string) => `Week of ${date(d)}`
 
 export default function Preorders() {
+  usePageTitle('Preorders')
   return (
     <>
       <div className="topbar">

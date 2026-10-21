@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, rupees } from '../format'
 import type { Claim, ClaimStatus } from '../types'
-import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, PhoneLink, QueryError, Spinner, useToast } from '../ui'
+import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, PhoneLink, QueryError, Spinner, useToast, usePageTitle } from '../ui'
 
 const FILTERS: { value: ClaimStatus | null; label: string }[] = [
   { value: null, label: 'All open' },
@@ -22,6 +22,7 @@ function useClaimsRefresh() {
 }
 
 export default function Claims() {
+  usePageTitle('Claims')
   const [params, setParams] = useSearchParams()
   const status = (params.get('status') as ClaimStatus | null) || null
   const q = useQuery({ queryKey: ['claims', status], queryFn: () => api.claims(status) })

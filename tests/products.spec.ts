@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { expect, test, navLinkAnyState } from './fixtures'
 import { mockApi, TINY_PNG } from './mock-api'
 
 // Products (manager only): add, rename, remove and put back on sale.
@@ -51,7 +51,7 @@ test('a manager adds, renames, removes and restores products', async ({ page }) 
 test('products are a manager-only screen, and removed products are not offered for new batches', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/today')
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Products' })).toHaveCount(0)
+  await expect(navLinkAnyState(page, 'Products')).toHaveCount(0)
   await page.goto('/products')
   await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
 

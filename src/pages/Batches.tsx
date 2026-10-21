@@ -4,12 +4,27 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { BATCH_STATUS_LABEL, RIPENESS_LABEL, date, istDate } from '../format'
 import { ALL_BATCH_STATUSES, type BatchStatus } from '../types'
-import { Badge, BatchBadge, Dialog, EmptyState, FormError, LinkRow, QueryError, RowLink, Spinner, useToast, scrollRegion } from '../ui'
+import {
+  Badge,
+  BatchBadge,
+  Dialog,
+  EmptyState,
+  FormError,
+  LinkRow,
+  QueryError,
+  RowLink,
+  Spinner,
+  StatusFilter,
+  useToast,
+  scrollRegion,
+  usePageTitle,
+} from '../ui'
 
 export default function Batches() {
   const [params, setParams] = useSearchParams()
   const status = (params.get('status') as BatchStatus | null) || null
   const receiving = params.get('receive') === '1'
+  usePageTitle('Batches')
 
   const q = useQuery({ queryKey: ['batches', status], queryFn: () => api.batches(status) })
 
@@ -36,16 +51,7 @@ export default function Batches() {
         </button>
       </div>
 
-      <div className="segmented no-print mb-4" role="group" aria-label="Filter by status">
-        <button type="button" className="btn btn-small" aria-pressed={status === null} onClick={() => setStatus(null)}>
-          All
-        </button>
-        {ALL_BATCH_STATUSES.map((s) => (
-          <button key={s} type="button" className="btn btn-small" aria-pressed={status === s} onClick={() => setStatus(s)}>
-            {BATCH_STATUS_LABEL[s]}
-          </button>
-        ))}
-      </div>
+      <StatusFilter className="no-print mb-4" value={status} options={ALL_BATCH_STATUSES} labels={BATCH_STATUS_LABEL} onChange={setStatus} />
 
       {q.isPending ? (
         <Spinner />
@@ -54,7 +60,7 @@ export default function Batches() {
       ) : q.data.length === 0 ? (
         <EmptyState>No batches{status ? ` with status ${BATCH_STATUS_LABEL[status]}` : ''}.</EmptyState>
       ) : (
-        <div {...scrollRegion('Batches')}>
+        <div {...scrollRegion('Batches', { cards: true })}>
           <table>
             <thead>
               <tr>
@@ -73,18 +79,20 @@ export default function Batches() {
             <tbody>
               {q.data.map((b) => (
                 <LinkRow key={b.id}>
-                  <td>
+                  <td className="card-title">
                     <RowLink to={`/batches/${b.id}`} more={`batch plucked ${date(b.pluckedOn)}`}>
                       {b.variety}
                     </RowLink>
                     {b.farm && <div className="muted small">{b.farm}</div>}
                   </td>
-                  <td>{date(b.pluckedOn)}</td>
-                  <td className={`num${b.ageDays >= 5 ? ' text-warn' : ''}`}>{b.ageDays}d</td>
-                  <td>
+                  <td data-label="Plucked">{date(b.pluckedOn)}</td>
+                  <td className={`num${b.ageDays >= 5 ? ' text-warn' : ''}`} data-label="Age">
+                    {b.ageDays}d
+                  </td>
+                  <td className="card-status">
                     <BatchBadge status={b.status} />
                   </td>
-                  <td>
+                  <td className="card-wide" data-label="QC">
                     {b.latestRating ? (
                       <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'neutral'}>
                         {RIPENESS_LABEL[b.latestRating]}
@@ -94,9 +102,15 @@ export default function Batches() {
                       <Badge tone="warn">No QC: not sellable yet</Badge>
                     )}
                   </td>
-                  <td className="num">{b.onHand}</td>
-                  <td className="num">{b.committed}</td>
-                  <td className="num">{b.available}</td>
+                  <td className="num" data-label="On hand">
+                    {b.onHand}
+                  </td>
+                  <td className="num" data-label="To pack">
+                    {b.committed}
+                  </td>
+                  <td className="num" data-label="Available">
+                    {b.available}
+                  </td>
                 </LinkRow>
               ))}
             </tbody>

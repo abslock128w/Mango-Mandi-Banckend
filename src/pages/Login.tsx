@@ -3,10 +3,11 @@ import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-route
 import { ApiError, api } from '../api'
 import { useSession } from '../session'
 import type { Me, SignInResult } from '../types'
-import { FormError } from '../ui'
+import { FormError, usePageTitle } from '../ui'
 import { GoogleSignIn } from '../google'
 
 export default function Login() {
+  usePageTitle('Sign in')
   const { me, setMe } = useSession()
   const navigate = useNavigate()
   const location = useLocation()

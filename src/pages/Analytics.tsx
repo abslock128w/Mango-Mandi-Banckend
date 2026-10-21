@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { date, rupees } from '../format'
 import type { AnalyticsWeek } from '../types'
-import { EmptyState, QueryError, Spinner, scrollRegion } from '../ui'
+import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
 
 const pct = (r: number | null) => (r == null ? '—' : `${Math.round(r * 1000) / 10}%`)
 /** Whole rupees, for tiles where paise only add noise. */
@@ -13,6 +13,7 @@ const weekLabel = (w: string) => date(w).replace(/,? \d{4}$/, '')
 
 /** Season numbers for the owners: what sold, what was wasted, what went wrong, week by week. */
 export default function Analytics() {
+  usePageTitle('Analytics')
   const [params, setParams] = useSearchParams()
   const from = params.get('from') || null
   const to = params.get('to') || null

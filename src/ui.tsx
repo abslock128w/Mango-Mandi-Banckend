@@ -12,6 +12,7 @@ import {
   useState,
   type ErrorInfo as ReactErrorInfo,
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react'
 import { Link } from 'react-router-dom'
@@ -148,8 +149,123 @@ export function ManagerOnlyNote({ what }: { what: string }) {
  * Props for a horizontally scrollable table wrapper. Focusable and labelled so
  * keyboard users can scroll wide tables on a phone.
  */
-export function scrollRegion(label: string) {
-  return { className: 'table-wrap', tabIndex: 0, role: 'region', 'aria-label': label } as const
+export function scrollRegion(label: string, opts: { cards?: boolean } = {}) {
+  return { className: `table-wrap${opts.cards ? ' table-cards' : ''}`, tabIndex: 0, role: 'region', 'aria-label': label } as const
+}
+
+// ---------- Filters ----------
+
+/**
+ * A status filter: a row of chips on a wide screen, a <select> on a phone (below 640px) so
+ * the list starts near the top. `value` null means All.
+ */
+export function StatusFilter<T extends string>({
+  value,
+  options,
+  labels,
+  onChange,
+  className = '',
+}: {
+  value: T | null
+  options: readonly T[]
+  labels: Record<T, string>
+  onChange: (next: T | null) => void
+  className?: string
+}) {
+  const id = useId()
+  return (
+    <div className={`status-filter ${className}`}>
+      <div className="segmented status-chips" role="group" aria-label="Filter by status">
+        <button type="button" className="btn btn-small" aria-pressed={value === null} onClick={() => onChange(null)}>
+          All
+        </button>
+        {options.map((s) => (
+          <button key={s} type="button" className="btn btn-small" aria-pressed={value === s} onClick={() => onChange(s)}>
+            {labels[s]}
+          </button>
+        ))}
+      </div>
+      <div className="field status-select">
+        <label htmlFor={id}>Status</label>
+        <select id={id} value={value ?? ''} onChange={(e) => onChange((e.target.value as T) || null)}>
+          <option value="">All</option>
+          {options.map((s) => (
+            <option key={s} value={s}>
+              {labels[s]}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  )
+}
+
+// ---------- Tabs ----------
+
+/**
+ * The tab pattern: role=tablist/tab/tabpanel, one Tab stop, arrow keys (and Home/End) move
+ * between tabs and show them. Put tabPanelProps(id, value) on the panel under it.
+ */
+export function Tabs<T extends string>({
+  id,
+  label,
+  tabs,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  tabs: readonly (readonly [T, string])[]
+  value: T
+  onChange: (next: T) => void
+}) {
+  const list = useRef<HTMLDivElement>(null)
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const i = tabs.findIndex(([key]) => key === value)
+    const last = tabs.length - 1
+    const next =
+      e.key === 'ArrowRight' ? (i === last ? 0 : i + 1)
+      : e.key === 'ArrowLeft' ? (i === 0 ? last : i - 1)
+      : e.key === 'Home' ? 0
+      : e.key === 'End' ? last
+      : null
+    if (next === null) return
+    e.preventDefault()
+    onChange(tabs[next][0])
+    list.current?.querySelector<HTMLElement>(`#${CSS.escape(`${id}-tab-${tabs[next][0]}`)}`)?.focus()
+  }
+  return (
+    <div className="tabs" role="tablist" aria-label={label} ref={list} onKeyDown={onKeyDown}>
+      {tabs.map(([key, text]) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          id={`${id}-tab-${key}`}
+          aria-selected={value === key}
+          aria-controls={`${id}-panel`}
+          tabIndex={value === key ? 0 : -1}
+          onClick={() => onChange(key)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+export function tabPanelProps(id: string, value: string) {
+  return { role: 'tabpanel', id: `${id}-panel`, 'aria-labelledby': `${id}-tab-${value}`, tabIndex: 0 } as const
+}
+
+// ---------- Page titles ----------
+
+/** Sets the tab title to "<title> · Mango Ops" while the page is open. */
+export function usePageTitle(title: string | null | undefined) {
+  useEffect(() => {
+    if (!title) return
+    document.title = `${title} · Mango Ops`
+  }, [title])
 }
 
 // ---------- Row links ----------

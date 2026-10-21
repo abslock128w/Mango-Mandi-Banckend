@@ -4,10 +4,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import QRCode from 'qrcode'
 import { api } from '../api'
 import { useSession } from '../session'
-import { FormError } from '../ui'
+import { FormError, usePageTitle } from '../ui'
 
 /** Shown instead of the panel when the role must use two-step sign-in and it is not set up yet. */
 export function TwoStepGate() {
+  usePageTitle('Set up two-step sign-in')
   return (
     <main className="setup-wrap">
       <div className="card">
@@ -28,6 +29,7 @@ export function TwoStepGate() {
 }
 
 export default function TwoStepPage() {
+  usePageTitle('Two-step sign-in')
   const { me } = useSession()
   const on = me?.twoStep?.enabled
   return (

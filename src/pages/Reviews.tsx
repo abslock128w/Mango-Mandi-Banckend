@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, dateTime } from '../format'
 import { canModerate, canSee } from '../permissions'
 import { useSession } from '../session'
 import type { ReviewFilters, ReviewFlag, ReviewStatus } from '../types'
-import { AuthedPhoto, Badge, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, scrollRegion, useToast } from '../ui'
+import { AuthedPhoto, Badge, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STATUSES: { value: ReviewStatus; label: string }[] = [
   { value: 'PENDING', label: 'Waiting' },
@@ -37,6 +37,7 @@ function StarText({ n }: { n: number }) {
  * it is approved here; photos need their own tick.
  */
 export default function Reviews() {
+  usePageTitle('Reviews')
   const { me } = useSession()
   const moderator = canModerate(me?.role)
   return (

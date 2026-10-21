@@ -37,6 +37,7 @@ import {
   Spinner,
   useToast,
   scrollRegion,
+  usePageTitle,
 } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
@@ -95,6 +96,7 @@ type Override = { to: OrderStatus; why: string | null }
 export default function OrderDetail() {
   const { id = '' } = useParams()
   const q = useQuery({ queryKey: ['order', id], queryFn: () => api.order(id) })
+  usePageTitle(q.data ? `Order ${q.data.number}` : q.isError ? 'Order not found' : 'Order')
 
   if (q.isPending) return <Spinner />
   if (q.isError) {

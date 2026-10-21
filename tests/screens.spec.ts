@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { expect, test, navLinkAnyState, openNavTo } from './fixtures'
 import { mockApi } from './mock-api'
 
 // Backend-free walk through every screen against the mocked API.
@@ -43,7 +43,10 @@ test('Batches lists batches, flags missing QC, and filters by status in the URL'
   await mockApi(page, { signedIn: true })
   await page.goto('/batches')
   await expect(page.getByText('No QC: not sellable yet')).toBeVisible()
-  await page.getByRole('button', { name: 'Selling', exact: true }).click()
+  // Chips on a wide screen; a select on a phone.
+  const select = page.getByRole('combobox', { name: 'Status' })
+  if (await select.isVisible()) await select.selectOption('SELLING')
+  else await page.getByRole('button', { name: 'Selling', exact: true }).click()
   await expect(page).toHaveURL(/status=SELLING/)
 })
 
@@ -433,10 +436,10 @@ test('a rider starts the run and proves each delivery with the code, or says why
   await page.context().setGeolocation({ latitude: 18.9438, longitude: 72.8231 })
   await page.goto('/')
   await expect(page).toHaveURL(/\/deliveries/)
-  const nav = page.getByRole('navigation', { name: 'Main' })
-  await expect(nav.getByRole('link', { name: 'Deliveries' })).toBeVisible()
-  for (const name of ['Today', 'Orders', 'Pack list', 'Staff']) await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0)
-  await expect(nav).toContainText('rider@mandimangoes.test · Rider')
+  await expect(await openNavTo(page, 'Deliveries')).toBeVisible()
+  for (const name of ['Today', 'Orders', 'Pack list', 'Staff']) await expect(navLinkAnyState(page, name)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'rider@mandimangoes.test · Rider' })).toBeVisible()
+  await page.keyboard.press('Escape')
 
   await page.goto('/deliveries?date=2026-10-16')
   const stop = page.getByRole('list', { name: 'Morning · 07:00–11:00, 400001' })
@@ -543,13 +546,12 @@ test('a packer sees only the pack list, deliveries and order steps', async ({ pa
   await mockApi(page, { signedIn: true, role: 'PACKER' })
   await page.goto('/')
   await expect(page).toHaveURL(/\/pack-list/)
-  const nav = page.getByRole('navigation', { name: 'Main' })
-  await expect(nav.getByRole('link', { name: 'Pack list' })).toBeVisible()
-  await expect(nav.getByRole('link', { name: 'Deliveries' })).toBeVisible()
+  await expect(await openNavTo(page, 'Pack list')).toBeVisible()
+  await expect(await openNavTo(page, 'Deliveries')).toBeVisible()
   for (const name of ['Today', 'Batches', 'Orders', 'Claims', 'Pincodes', 'Planning', 'Staff']) {
-    await expect(nav.getByRole('link', { name, exact: true })).toHaveCount(0)
+    await expect(navLinkAnyState(page, name)).toHaveCount(0)
   }
-  await expect(nav).toContainText('packer@mandimangoes.test · Packer')
+  await expect(page.getByRole('button', { name: 'packer@mandimangoes.test · Packer' })).toBeVisible()
 
   await page.goto('/orders/o1')
   await expect(page.getByRole('heading', { name: /^Order ORD-1042/ })).toBeVisible()
@@ -566,9 +568,8 @@ test('QC staff land on batches and see nothing else', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'QC' })
   await page.goto('/')
   await expect(page).toHaveURL(/\/batches/)
-  const nav = page.getByRole('navigation', { name: 'Main' })
-  await expect(nav.getByRole('link', { name: 'Batches' })).toBeVisible()
-  await expect(nav.getByRole('link', { name: 'Pack list' })).toHaveCount(0)
+  await expect(await openNavTo(page, 'Batches')).toBeVisible()
+  await expect(navLinkAnyState(page, 'Pack list')).toHaveCount(0)
   await page.goto('/today')
   await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
 })
@@ -616,7 +617,7 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
 test('Staff is a manager-only screen', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/today')
-  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Staff' })).toHaveCount(0)
+  await expect(navLinkAnyState(page, 'Staff')).toHaveCount(0)
   await page.goto('/staff')
   await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()
 })

@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, dateTime, rupees } from '../format'
 import { ALL_ORDER_STATUSES, type OrderStatus } from '../types'
-import { EmptyState, LinkRow, OrderBadge, QueryError, RowLink, Spinner, scrollRegion } from '../ui'
+import { EmptyState, LinkRow, OrderBadge, QueryError, RowLink, Spinner, StatusFilter, scrollRegion, usePageTitle } from '../ui'
 
 export default function Orders() {
   const [params, setParams] = useSearchParams()
@@ -14,6 +14,7 @@ export default function Orders() {
   const q = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
 
+  usePageTitle('Orders')
   const [search, setSearch] = useState(q)
   useEffect(() => setSearch(q), [q])
 
@@ -48,16 +49,13 @@ export default function Orders() {
         <h1>Orders</h1>
       </div>
 
-      <div className="segmented mb-3" role="group" aria-label="Filter by status">
-        <button type="button" className="btn btn-small" aria-pressed={status === null} onClick={() => update({ status: null })}>
-          All
-        </button>
-        {ALL_ORDER_STATUSES.map((s) => (
-          <button key={s} type="button" className="btn btn-small" aria-pressed={status === s} onClick={() => update({ status: s })}>
-            {ORDER_STATUS_LABEL[s]}
-          </button>
-        ))}
-      </div>
+      <StatusFilter
+        className="mb-3"
+        value={status}
+        options={ALL_ORDER_STATUSES}
+        labels={ORDER_STATUS_LABEL}
+        onChange={(s) => update({ status: s })}
+      />
 
       <div className="field-inline mb-4">
         <div className="field">
@@ -90,7 +88,7 @@ export default function Orders() {
         <EmptyState>No orders match these filters.</EmptyState>
       ) : (
         <>
-          <div {...scrollRegion('Orders')}>
+          <div {...scrollRegion('Orders', { cards: true })}>
             <table>
               <thead>
                 <tr>
@@ -106,21 +104,25 @@ export default function Orders() {
               <tbody>
                 {list.data.items.map((o) => (
                   <LinkRow key={o.id}>
-                    <td>
+                    <td className="card-title">
                       <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink>
                       {o.channel === 'whatsapp' && <div className="muted small">via WhatsApp</div>}
                     </td>
-                    <td>
+                    <td data-label="Customer">
                       {o.customerName ?? '—'}
                       {o.phone && <div className="muted small">{o.phone}</div>}
                     </td>
-                    <td className="num">{o.itemCount}</td>
-                    <td className="num">{rupees(o.total)}</td>
-                    <td>
+                    <td className="num" data-label="Items">
+                      {o.itemCount}
+                    </td>
+                    <td className="num" data-label="Total">
+                      {rupees(o.total)}
+                    </td>
+                    <td className="card-status">
                       <OrderBadge status={o.status} />
                     </td>
-                    <td>{date(o.deliveryDate)}</td>
-                    <td>{dateTime(o.placedAt)}</td>
+                    <td data-label="Delivery">{date(o.deliveryDate)}</td>
+                    <td data-label="Placed">{dateTime(o.placedAt)}</td>
                   </LinkRow>
                 ))}
               </tbody>

@@ -6,7 +6,7 @@ import { STOCK_STATE_LABEL, date, istDate } from '../format'
 import type { PackListOrder } from '../types'
 import { canSee } from '../permissions'
 import { useSession } from '../session'
-import { Badge, EmptyState, OrderBadge, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, EmptyState, OrderBadge, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 interface BatchGroup {
   batchId: string
@@ -62,6 +62,7 @@ function groupByBatch(orders: PackListOrder[]): { groups: BatchGroup[]; unalloca
 }
 
 export default function PackList() {
+  usePageTitle('Pack list')
   const [params, setParams] = useSearchParams()
   const day = params.get('date') || istDate(1)
   const view = params.get('view') === 'batch' ? 'batch' : 'order'

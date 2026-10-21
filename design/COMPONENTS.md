@@ -23,6 +23,8 @@ The shop's older names (`--mango`, `--ink`, `--leaf` …) are aliases of these i
 
 ## Rules for both apps
 
+- **Breakpoints:** 640px (chip rows wrap, 3 tiles, panel tables turn into cards below it), 900px (panel menu collapses below it), 1024px (shop top menu, 1120px container, 4 tiles, two-column product and checkout).
+- **Accessibility:** axe runs on every page and dialog in both apps (`tests/a11y.spec.ts`, `customer-app/tests/a11y.spec.ts`), at phone and desktop sizes.
 - **Badges:** colour only for status (good, warning, error, info). Categories such as slot, gift, issue type and ripeness are neutral chips.
 - **Buttons:** primary (filled, one per screen), secondary (outlined), quiet (text, `.link-btn`), danger. Disabled uses the disabled tokens and a visible reason.
 - **Role gating (panel):** hide what a role can never do. When a button is shown disabled, say why in text next to it.
@@ -34,13 +36,17 @@ The names on the left are the spec names. "Today" is where it lives now.
 
 | Spec name | Today | States it handles | Notes |
 | --- | --- | --- | --- |
-| TopBar | `App.tsx` header + `WhereButton`, `SearchBar` | pincode set / not set, signed in / out | Pincode chip left, profile right, search below. Cart lives in the bottom tabs (user's choice, 20 Oct) |
+| TopBar | `App.tsx` header + `WhereButton`, `SearchBar` | pincode set / not set, signed in / out | Pincode chip left, profile right, search below. Cart lives in the bottom tabs on phones; from 1024px a top menu (`nav.top-nav`: Home, Book ahead, Orders, Cart with count) replaces the tabs |
 | Bottom tabs | `App.tsx` `nav.tabbar` | active tab, cart count | Hidden on checkout, claim and review forms so they never cover the submit button |
 | PincodeSheet | `Shop.tsx` `PincodeForm` | empty, checking, not served, no open days | Opens from the chip with `?where=1` |
 | ProductCard | `Shop.tsx` `ProductTile` | photo or drawn mango, sold out with next day, in cart count | Two-across tiles; no ripeness on the tile, it is picked on the product page (user's choice, 20 Oct) |
 | Product detail / buy box | `Product.tsx` `BuyBox` | no pincode, not on sale here, each ripeness in stock / sold out / low stock, cart already at max | Ripe chosen first when in stock |
 | QuantityStepper | `forms.tsx` `Stepper` (Product, Cart, Preorder) | min 1, max from stock (cap 20 until API gap G5) | 40px buttons inside a 44px row |
 | Notify me | `Shop.tsx` `NotifyMe` | signed out, waiting, sent | WhatsApp back-in-stock alert |
+| SkipLink | `App.tsx` `.skip-link` | hidden until focused | First Tab stop in both apps; focuses `main#main` |
+| DocTitle / `pageTitle` | `ui.tsx` | per page | Unique "X · MandiMangoes" titles |
+| StarMark | `stars.tsx` | filled, outlined | SVG stars; empty ones outlined in `--color-star-empty` |
+| CartSummary | `Checkout.tsx` | desktop only | Sticky order summary on the right from 1024px |
 | Sticky buy bar | `Product.tsx` | shown until the buy box scrolls past | "Add to cart · ₹" above the bottom tabs on phones |
 | StickyCartBar | `Shop.tsx` `.sticky-cart` | hidden at 0, count + total | Sits above the bottom tabs, safe-area aware |
 | Cart | `Cart.tsx` | empty, items, item removed, price changed | Full page, not a sheet |
@@ -55,7 +61,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | ConfirmDialog | `ui.tsx` `ConfirmDialog` | idle, busy, error | Built on Dialog; the keep button gets focus first. Order, Preorder, Review, Account |
 | PageHeader | `ui.tsx` `PageHeader` | title with an optional status pill | Order, Preorder |
 | Field | `forms.tsx` `Field` | hint, error | Visible label, hint, error under the field, `aria-invalid` and `aria-describedby` set. Checkout, Preorder, Claim, Review |
-| DayChips | `forms.tsx` `DayChips` | selected day | Checkout, Order (change day), Preorder (weeks) |
+| DayChips | `forms.tsx` `DayChips` | selected day; one Tab stop, arrow keys and Home/End move the choice; wraps from 640px | Checkout, Order (change day), Preorder (weeks) |
 | SlotPicker | `forms.tsx` `SlotPicker` | full slots disabled, error | "Delivery time" fieldset; nothing when no slots. Checkout, Order (change day) |
 | AddressPicker | `forms.tsx` `AddressPicker` | saved addresses or a new one | Checkout |
 | PhotoPicker | `forms.tsx` `PhotoPicker` + `usePhotoUploads` | uploading, error, max reached | Shrinks, uploads and previews photos. Claim, Review |
@@ -74,6 +80,11 @@ The panel imports the same `tokens.css`. Its colour names are aliases of the sha
 | `ConfirmDialog` | `{title, confirmLabel, cancelLabel?, busyLabel?, busy?, error?, tone?, onConfirm, onClose}` | OrderDetail, BatchDetail, Pincodes, Products, Staff, Planning. Cancel gets focus |
 | `GatedButton`, `ManagerOnlyNote`, `DisabledReason` | `GatedButton {allowed, onClick, disabled?}`, `ManagerOnlyNote {what}` | OrderDetail, BatchDetail, Pincodes, Preorders, Planning |
 | `Badge` (+ `OrderBadge`, `BatchBadge`, `ClaimBadge`) | `{tone?: neutral, good, warn, bad, info}` | Status only; categories use `neutral` |
+| Top-bar menus (`src/Layout.tsx`) | grouped nav (Today · Fulfilment · Stock · Customers · Admin) from 900px; a 56px bar with Menu and account below | aria-expanded, focus moves in, Escape returns focus. Roles see only what `canSee` allows |
+| `StatusFilter` | `{value, options, labels, onChange}` | Chips from 640px, a select below. Orders, Batches |
+| `scrollRegion(label, {cards: true})` | cells marked `card-title`, `card-status`, `card-wide`, `data-label` | Tables become cards below 640px. Orders, Batches |
+| `Tabs` + `tabPanelProps` | `{id, value}` | Real tab pattern with arrow keys. BatchDetail |
+| `usePageTitle` | `(title)` | Unique "X · Mango Ops" titles on every page |
 | `BackLink` | `{to, children}` | "← Orders" above a detail title, 44px tall. OrderDetail (packers get "← Pack list"), BatchDetail |
 | `PhoneLink` | `{phone, who?}` | Tap-to-call `tel:` link, 44px tall, "—" when empty. OrderDetail, Claims, Preorders, NeedsAttention |
 | `MissedDialog` (`src/MissedDialog.tsx`) | failed-delivery reason from a list, note, photo | OrderDetail, Deliveries |

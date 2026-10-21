@@ -4,7 +4,7 @@ import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, istTime } from '../format'
 import type { OrderStatus } from '../types'
 import NeedsAttention from './NeedsAttention'
-import { EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion } from '../ui'
+import { EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion, usePageTitle } from '../ui'
 
 const TILE_STATUSES: OrderStatus[] = [
   'CONFIRMED',
@@ -33,6 +33,7 @@ interface Tile {
 const MAX_SELLABLE_AGE = 7
 
 export default function Today() {
+  usePageTitle('Today')
   const q = useQuery({ queryKey: ['summary'], queryFn: api.summary, refetchInterval: 60_000 })
 
   if (q.isPending) return <Spinner />

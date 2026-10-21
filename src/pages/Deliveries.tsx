@@ -8,7 +8,7 @@ import { canSee } from '../permissions'
 import { currentPosition } from '../photo'
 import { useSession } from '../session'
 import type { Manifest, ManifestOrder } from '../types'
-import { Badge, Dialog, EmptyState, FormError, OrderBadge, QueryError, Spinner, useToast } from '../ui'
+import { Badge, Dialog, EmptyState, FormError, OrderBadge, QueryError, Spinner, useToast, usePageTitle } from '../ui'
 
 type Run = Manifest['runs'][number]
 
@@ -44,6 +44,7 @@ const mapsLink = (o: ManifestOrder, pincode: string) =>
  * stops still to deliver first; delivered and not-packed orders fold away.
  */
 export default function Deliveries() {
+  usePageTitle('Deliveries')
   const [params, setParams] = useSearchParams()
   const { me } = useSession()
   const rider = me?.role === 'RIDER'

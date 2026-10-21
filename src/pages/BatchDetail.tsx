@@ -19,8 +19,11 @@ import {
   QueryError,
   ReasonDialog,
   Spinner,
+  Tabs,
+  tabPanelProps,
   useToast,
   scrollRegion,
+  usePageTitle,
 } from '../ui'
 
 /** Forward-only: every later step in the flow is reachable; the next one is primary. */
@@ -36,6 +39,7 @@ function isFinal(status: BatchStatus) {
 export default function BatchDetail() {
   const { id = '' } = useParams()
   const q = useQuery({ queryKey: ['batch', id], queryFn: () => api.batch(id) })
+  usePageTitle(q.data ? `${q.data.variety} batch, plucked ${date(q.data.pluckedOn)}` : q.isError ? 'Batch not found' : 'Batch')
 
   if (q.isPending) return <Spinner />
   if (q.isError) {
@@ -125,15 +129,19 @@ function BatchView({ batch }: { batch: Batch }) {
       </section>
 
       <section className="card">
-        <div className="tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={tab === 'qc'} onClick={() => setTab('qc')}>
-            QC
-          </button>
-          <button type="button" role="tab" aria-selected={tab === 'ledger'} onClick={() => setTab('ledger')}>
-            Ledger
-          </button>
+        <Tabs
+          id="batch"
+          label="QC and ledger"
+          tabs={[
+            ['qc', 'QC'],
+            ['ledger', 'Ledger'],
+          ]}
+          value={tab}
+          onChange={setTab}
+        />
+        <div {...tabPanelProps('batch', tab)}>
+          {tab === 'qc' ? <QcPanel batch={batch} focus={params.get('focusQC') === '1'} /> : <LedgerPanel batchId={batch.id} />}
         </div>
-        {tab === 'qc' ? <QcPanel batch={batch} focus={params.get('focusQC') === '1'} /> : <LedgerPanel batchId={batch.id} />}
       </section>
 
       {adjusting && <AdjustDialog batchId={batch.id} line={adjusting} onClose={() => setAdjusting(null)} />}

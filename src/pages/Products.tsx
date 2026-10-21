@@ -7,9 +7,10 @@ import { API_URL, api } from '../api'
 import { shrinkPhoto } from '../photo'
 import { rupees } from '../format'
 import type { Product, ProductInput } from '../types'
-import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 export default function Products() {
+  usePageTitle('Products')
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['products'], queryFn: api.products })

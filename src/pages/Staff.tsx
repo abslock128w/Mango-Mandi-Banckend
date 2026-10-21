@@ -6,7 +6,7 @@ import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime } from '../format'
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
-import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 const ROLE_HINT: Record<Role, string> = {
   MANAGER: 'Everything, including staff, rules and condemning batches',
@@ -18,6 +18,7 @@ const ROLE_HINT: Record<Role, string> = {
 
 /** Managers add staff, set roles and see who did what. */
 export default function Staff() {
+  usePageTitle('Staff')
   const { me } = useSession()
   const toast = useToast()
   const queryClient = useQueryClient()

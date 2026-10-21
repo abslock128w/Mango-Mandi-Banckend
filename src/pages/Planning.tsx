@@ -6,11 +6,12 @@ import { RIPENESS_LABEL, date, istDate } from '../format'
 import { can } from '../permissions'
 import { useSession } from '../session'
 import type { BulkMoveResult, CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
-import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
 export default function Planning() {
+  usePageTitle('Planning')
   return (
     <>
       <div className="topbar">

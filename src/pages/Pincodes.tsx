@@ -4,9 +4,10 @@ import { api } from '../api'
 import { can } from '../permissions'
 import { useSession } from '../session'
 import type { Pincode } from '../types'
-import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, useToast, scrollRegion } from '../ui'
+import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 export default function Pincodes() {
+  usePageTitle('Pincodes')
   const { me } = useSession()
   const toast = useToast()
   const queryClient = useQueryClient()
