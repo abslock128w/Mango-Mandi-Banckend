@@ -172,7 +172,10 @@ test('Orders list filters and opens a detail page', async ({ page }) => {
   // and it covers the whole row, so a click on any cell opens the order.
   await expect(page.getByRole('link', { name: 'ORD-1042' })).toHaveAttribute('href', '/orders/o1')
   // (A real mouse click: the link sits on top of the cell, so Playwright's own click would refuse it.)
-  const cell = (await page.getByRole('cell', { name: /Asha Rao/ }).boundingBox())!
+  // Scroll the row into view first: a mouse click does not scroll, and on a phone the row can sit below the fold.
+  const asha = page.getByRole('cell', { name: /Asha Rao/ })
+  await asha.scrollIntoViewIfNeeded()
+  const cell = (await asha.boundingBox())!
   await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2)
   await expect(page).toHaveURL(/\/orders\/o1$/)
 })
