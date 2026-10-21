@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
+import { ApiError, api, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
+import { DayChips, SlotPicker } from '../forms'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
-import { Dialog, ErrorNote, Spinner } from '../ui'
+import { ConfirmDialog, Dialog, ErrorNote, PageHeader, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
 import { OrderReviews } from './Review'
@@ -106,10 +107,9 @@ function OrderView({ order }: { order: Order }) {
 
   return (
     <>
-      <div className="title-row">
-        <h1>Order {order.number}</h1>
+      <PageHeader title={`Order ${order.number}`}>
         <StatusPill status={order.status} />
-      </div>
+      </PageHeader>
 
       {order.status === 'PAYMENT_PENDING' && (
         <section className="card note-card" aria-live="polite">
@@ -335,23 +335,18 @@ function OrderView({ order }: { order: Order }) {
       {moving && <MoveDialog order={order} onClose={() => setMoving(false)} onMoved={refresh} />}
 
       {cancelling && (
-        <Dialog
+        <ConfirmDialog
           title={`Cancel order ${order.number}?`}
+          keepLabel="Keep order"
+          confirmLabel="Cancel order"
+          busyLabel="Cancelling…"
+          busy={cancel.isPending}
+          error={cancel.error}
+          onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
-          footer={
-            <>
-              <button type="button" className="btn" data-autofocus onClick={() => setCancelling(false)}>
-                Keep order
-              </button>
-              <button type="button" className="btn btn-danger" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
-                {cancel.isPending ? 'Cancelling…' : 'Cancel order'}
-              </button>
-            </>
-          }
         >
           <p>{paid ? `You'll get a full refund of ${rupees(order.total)} to the way you paid.` : 'Nothing has been charged for this order.'}</p>
-          {cancel.error && <p className="field-error">{errorMessage(cancel.error)}</p>}
-        </Dialog>
+        </ConfirmDialog>
       )}
     </>
   )
@@ -448,30 +443,18 @@ function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => 
       ) : (
         <>
           <p className="muted small">Your boxes are packed for the ripeness you chose on the new day.</p>
-          <div className="chips" role="radiogroup" aria-label="New delivery day">
-            {choices.map((d) => (
-              <button key={d} type="button" role="radio" aria-checked={d === date} className="chip" onClick={() => { setDate(d); setSlotId(null) }}>
-                {day(d)}
-              </button>
-            ))}
-          </div>
+          <DayChips
+            label="New delivery day"
+            days={choices}
+            value={date}
+            format={day}
+            onChange={(d) => {
+              setDate(d)
+              setSlotId(null)
+            }}
+          />
           {date && slots.isPending && <Spinner label="Loading delivery times" />}
-          {needSlot && (
-            <fieldset className="field">
-              <legend>Delivery time</legend>
-              <div className="options">
-                {slots.data!.slots.map((sl) => (
-                  <label key={sl.id} className={`option${sl.available ? '' : ' option-off'}`}>
-                    <input type="radio" name="move-slot" checked={slotId === sl.id} disabled={!sl.available} onChange={() => setSlotId(sl.id)} />
-                    <span>
-                      {slotText(sl)}
-                      {!sl.available && <span className="muted small"> · Full</span>}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          )}
+          {needSlot && <SlotPicker name="move-slot" slots={slots.data!.slots} value={slotId} onChange={setSlotId} />}
         </>
       )}
       <ErrorNote error={problem} />

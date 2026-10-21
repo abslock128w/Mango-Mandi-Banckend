@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type StockAlert } from '../api'
 import { STAGE_LABEL, day } from '../format'
 import { useStore } from '../store'
-import { Dialog, ErrorNote, Spinner } from '../ui'
+import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 import { MyReviews } from './Review'
 
 export default function Account() {
@@ -62,23 +62,18 @@ export default function Account() {
       </section>
 
       {confirming && (
-        <Dialog
+        <ConfirmDialog
           title="Delete your account?"
+          keepLabel="Keep my account"
+          confirmLabel="Delete account"
+          busyLabel="Deleting…"
+          busy={remove.isPending}
+          error={remove.error}
+          onConfirm={() => remove.mutate()}
           onClose={() => setConfirming(false)}
-          footer={
-            <>
-              <button type="button" className="btn btn-quiet" onClick={() => setConfirming(false)}>
-                Keep my account
-              </button>
-              <button type="button" className="btn btn-danger" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                {remove.isPending ? 'Deleting…' : 'Delete account'}
-              </button>
-            </>
-          }
         >
           <p>This can't be undone. Your order history goes, and you'll be signed out.</p>
-          <ErrorNote error={remove.error} />
-        </Dialog>
+        </ConfirmDialog>
       )}
     </>
   )

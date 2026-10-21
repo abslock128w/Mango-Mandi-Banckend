@@ -100,3 +100,59 @@ export function Dialog({ title, onClose, children, footer }: { title: string; on
     document.body,
   )
 }
+
+/**
+ * "Are you sure?" on the Dialog: the safe choice is focused first, the confirm button says what
+ * it does (and what it is doing while `busy`), and a failure shows under the message.
+ */
+export function ConfirmDialog({
+  title,
+  children,
+  keepLabel,
+  confirmLabel,
+  busyLabel,
+  busy,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  title: string
+  children: ReactNode
+  keepLabel: string
+  confirmLabel: string
+  busyLabel: string
+  busy: boolean
+  error?: unknown
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  return (
+    <Dialog
+      title={title}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" data-autofocus onClick={onClose}>
+            {keepLabel}
+          </button>
+          <button type="button" className="btn btn-danger" disabled={busy} onClick={onConfirm}>
+            {busy ? busyLabel : confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {children}
+      <ErrorNote error={error} />
+    </Dialog>
+  )
+}
+
+/** A page's h1 with what sits beside it (a status pill), wrapping under it on a narrow phone. */
+export function PageHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="title-row">
+      <h1>{title}</h1>
+      {children}
+    </div>
+  )
+}

@@ -19,6 +19,16 @@
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
+  /* type scale: body is 16px at line height 1.5 */
+  --text-xs: 0.8rem; /* 12.8px: fine print, badges */
+  --text-sm: 0.875rem; /* 14px: secondary text, table cells */
+  --text-md: 1rem; /* 16px: body, inputs, buttons */
+  --text-lg: 1.15rem; /* 18.4px: h2, card titles */
+  --text-xl: 1.6rem; /* 25.6px: h1 */
+  --text-2xl: 2.25rem; /* 36px: hero */
+  --leading: 1.5;
+  --leading-tight: 1.2;
+
   /* surfaces and text */
   --color-bg: #fffaf0;
   --color-surface: #ffffff;
@@ -31,6 +41,23 @@
   --color-accent-strong: #b45309; /* accent-coloured text and links on bg/surface */
   --color-accent-soft: #fef3c7;
   --color-on-accent: #1f1300;
+
+  /* focus ring: the darker accent with a halo so it shows on any background */
+  --color-focus: #b45309;
+  --color-focus-halo: #ffffff;
+
+  /* empty stars and other non-text marks: 3:1 against surfaces */
+  --color-star-empty: #8f8070;
+
+  /* disabled controls: neutral, never faded opacity; always say why in text */
+  --color-disabled: #efe8dc;
+  --color-on-disabled: #6b5f52;
+
+  /* staff panel accent: green marks the back office apart from the shop */
+  --color-staff: #15803d;
+  --color-on-staff: #ffffff;
+  --color-staff-strong: #14532d;
+  --color-staff-soft: #dcfce7;
 
   /* semantic: ink is for text, soft is the background behind it */
   --color-success: #15803d;
@@ -63,6 +90,15 @@
     --color-accent-strong: #fbbf24;
     --color-accent-soft: #3b2a10;
     --color-on-accent: #1f1300;
+    --color-focus: #fbbf24;
+    --color-focus-halo: #17130e;
+    --color-star-empty: #7d6d5c;
+    --color-disabled: #2e261d;
+    --color-on-disabled: #bcae9b;
+    --color-staff: #86efac;
+    --color-on-staff: #14532d;
+    --color-staff-strong: #86efac;
+    --color-staff-soft: #14301d;
     --color-success: #4ade80;
     --color-success-soft: #14301d;
     --color-warning: #fdba74;

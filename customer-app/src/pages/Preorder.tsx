@@ -7,7 +7,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, type Preorder, type PreorderStatus, type PreorderWeek, type Stage } from '../api'
 import { PREORDER_LABEL, STAGE_HINT, STAGE_LABEL, rupees, week, when } from '../format'
 import { useStore } from '../store'
-import { Dialog, ErrorNote, Spinner } from '../ui'
+import { DayChips, Field, Stepper } from '../forms'
+import { ConfirmDialog, ErrorNote, PageHeader, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -77,7 +78,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
   const [name, setName] = useState(saved.current.name ?? '')
   const [address, setAddress] = useState(saved.current.address ?? '')
   const [pincode, setPincode] = useState(shopPincode ?? '')
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<{ at: 'pincode' | 'address'; message: string } | null>(null)
   const idemKey = useRef(crypto.randomUUID())
 
   const waitlist = pick.remaining === 0
@@ -125,8 +126,8 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
   function submit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
-    if (!/^\d{6}$/.test(pincode)) return setFormError('Enter your 6-digit pincode.')
-    if (address.trim().length < 10) return setFormError('Enter the full delivery address, with house number and landmark.')
+    if (!/^\d{6}$/.test(pincode)) return setFormError({ at: 'pincode', message: 'Enter your 6-digit pincode.' })
+    if (address.trim().length < 10) return setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
     book.mutate()
   }
 
@@ -137,13 +138,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
       <form onSubmit={submit} noValidate>
         <fieldset className="field">
           <legend>Delivery week</legend>
-          <div className="chips" role="radiogroup" aria-label="Delivery week">
-            {starts.map((w) => (
-              <button key={w} type="button" role="radio" aria-checked={w === weekStart} className="chip" onClick={() => choose({ weekStart: w })}>
-                {week(w)}
-              </button>
-            ))}
-          </div>
+          <DayChips label="Delivery week" days={starts} value={weekStart} format={week} onChange={(w) => choose({ weekStart: w })} />
         </fieldset>
 
         <fieldset className="field">
@@ -183,39 +178,18 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         </fieldset>
 
         <div className="field">
-          <span className="label" id="qty-label">
-            Boxes
-          </span>
-          <div className="stepper" role="group" aria-labelledby="qty-label">
-            <button type="button" onClick={() => setQty(Math.max(1, boxes - 1))} disabled={boxes <= 1} aria-label="One box less">
-              −
-            </button>
-            <span aria-live="polite">{boxes}</span>
-            <button type="button" onClick={() => setQty(Math.min(max, boxes + 1))} disabled={boxes >= max} aria-label="One box more">
-              +
-            </button>
-          </div>
+          <Stepper label="Boxes" showLabel value={boxes} min={1} max={max} onChange={setQty} lessLabel="One box less" moreLabel="One box more" />
         </div>
 
-        <div className="field">
-          <label htmlFor="pre-name">Your name</label>
-          <input id="pre-name" autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="pre-address">Delivery address</label>
-          <textarea id="pre-address" autoComplete="street-address" rows={3} maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="pre-pincode">Pincode</label>
-          <input
-            id="pre-pincode"
-            inputMode="numeric"
-            autoComplete="postal-code"
-            maxLength={6}
-            value={pincode}
-            onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
-          />
-        </div>
+        <Field id="pre-name" label="Your name">
+          <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field id="pre-address" label="Delivery address" error={formError?.at === 'address' ? formError.message : null}>
+          <textarea autoComplete="street-address" rows={3} maxLength={500} value={address} onChange={(e) => setAddress(e.target.value)} />
+        </Field>
+        <Field id="pre-pincode" label="Pincode" error={formError?.at === 'pincode' ? formError.message : null}>
+          <input inputMode="numeric" autoComplete="postal-code" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} />
+        </Field>
 
         <div className="total-row">
           <span>
@@ -228,9 +202,9 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         ) : (
           <p className="muted small">{cancelPolicy}</p>
         )}
-        {(formError || book.error) && (
+        {book.error && (
           <p className="field-error" role="alert">
-            {formError ?? errorMessage(book.error)}
+            {errorMessage(book.error)}
           </p>
         )}
         <button type="submit" className="btn btn-primary btn-block" disabled={book.isPending}>
@@ -290,10 +264,9 @@ function PreorderView({ pre }: { pre: Preorder }) {
 
   return (
     <>
-      <div className="title-row">
-        <h1>Booking {pre.number}</h1>
+      <PageHeader title={`Booking ${pre.number}`}>
         <PreorderPill status={pre.status} />
-      </div>
+      </PageHeader>
 
       {pre.status === 'PAYMENT_PENDING' && (
         <section className="card note-card" aria-live="polite">
@@ -405,23 +378,18 @@ function PreorderView({ pre }: { pre: Preorder }) {
       </Link>
 
       {cancelling && (
-        <Dialog
+        <ConfirmDialog
           title={`Cancel booking ${pre.number}?`}
+          keepLabel="Keep booking"
+          confirmLabel="Cancel booking"
+          busyLabel="Cancelling…"
+          busy={cancel.isPending}
+          error={cancel.error}
+          onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
-          footer={
-            <>
-              <button type="button" className="btn" data-autofocus onClick={() => setCancelling(false)}>
-                Keep booking
-              </button>
-              <button type="button" className="btn btn-danger" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
-                {cancel.isPending ? 'Cancelling…' : 'Cancel booking'}
-              </button>
-            </>
-          }
         >
           <p>{paid ? `You'll get a full refund of ${rupees(pre.total)} to the way you paid.` : 'Nothing has been charged for this booking.'}</p>
-          {cancel.error && <p className="field-error">{errorMessage(cancel.error)}</p>}
-        </Dialog>
+        </ConfirmDialog>
       )}
     </>
   )

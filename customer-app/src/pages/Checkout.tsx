@@ -5,6 +5,7 @@ import { ApiError, api, errorMessage, signedInPhone, type Confirmed, type Quote 
 import { STAGE_LABEL, day, rupees, slotText } from '../format'
 import { openRazorpay } from '../payment'
 import { useStore, type CartLine } from '../store'
+import { AddressPicker, DayChips, Field, SlotPicker } from '../forms'
 import { ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 
@@ -37,6 +38,9 @@ export async function syncCart(cart: CartLine[]) {
   }
 }
 
+/** A form problem, shown under the field it is about. */
+type Problem = { at: 'slot' | 'gift-name' | 'gift-phone' | 'address'; message: string }
+
 /** A short pause, for retrying a confirm whose first try is still starting the payment. */
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -57,7 +61,7 @@ function CheckoutForm() {
   const [promoCode, setPromoCode] = useState('')
   const [isGift, setIsGift] = useState(false)
   const [gift, setGift] = useState({ recipientName: '', recipientPhone: '', message: '' })
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<Problem | null>(null)
   const [quote, setQuote] = useState<Quote | null>(null)
   const idemKey = useRef<string | null>(null)
   // After the gateway failed to start a payment, the quote is spent: the next Pay quotes again with a new key.
@@ -171,11 +175,11 @@ function CheckoutForm() {
   function submit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
-    if (address.trim().length < 10) return setFormError('Enter the full delivery address, with house number and landmark.')
-    if (slots.data?.slots.length && !slotId) return setFormError('Choose a delivery time.')
-    if (isGift && !gift.recipientName.trim()) return setFormError("Enter the name of the person you're sending it to.")
+    if (address.trim().length < 10) return setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
+    if (slots.data?.slots.length && !slotId) return setFormError({ at: 'slot', message: 'Choose a delivery time.' })
+    if (isGift && !gift.recipientName.trim()) return setFormError({ at: 'gift-name', message: "Enter the name of the person you're sending it to." })
     if (isGift && !/^(\+?91|0)?[6-9]\d{9}$/.test(gift.recipientPhone.replace(/[\s-]/g, ''))) {
-      return setFormError("Enter their 10-digit mobile number, so the rider can reach them.")
+      return setFormError({ at: 'gift-phone', message: 'Enter their 10-digit mobile number, so the rider can reach them.' })
     }
     try {
       localStorage.setItem('mm.address', JSON.stringify({ name: name.trim(), address: address.trim() }))
@@ -280,6 +284,9 @@ function CheckoutForm() {
     )
   }
 
+  // A saved address hides the address box: a problem with it then shows above the button.
+  const addressShown = isGift || picked === null
+  const errorAt = (at: Problem['at']) => (formError?.at === at && (at !== 'address' || addressShown) ? formError.message : null)
   return (
     <section className="card">
       <h1>Delivery details</h1>
@@ -292,42 +299,20 @@ function CheckoutForm() {
           <>
             <fieldset className="field">
               <legend>When should it arrive?</legend>
-              <div className="chips" role="radiogroup" aria-label="When should it arrive?">
-                {(days.data?.deliveryDates ?? [slots.data.deliveryDate]).map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    role="radio"
-                    aria-checked={d === slots.data.deliveryDate}
-                    className="chip"
-                    onClick={() => {
-                      if (d === slots.data.deliveryDate) return
-                      setSlotId(null)
-                      setWhere(pincode, d)
-                    }}
-                  >
-                    {day(d)}
-                  </button>
-                ))}
-              </div>
+              <DayChips
+                label="When should it arrive?"
+                days={days.data?.deliveryDates ?? [slots.data.deliveryDate]}
+                value={slots.data.deliveryDate}
+                format={day}
+                onChange={(d) => {
+                  if (d === slots.data.deliveryDate) return
+                  setSlotId(null)
+                  setWhere(pincode, d)
+                }}
+              />
               {days.data?.cutoffTime && <p className="muted small">Orders for the next day close at {days.data.cutoffTime.replace(' IST', '')} (India time).</p>}
             </fieldset>
-            {slots.data.slots.length > 0 && (
-              <fieldset className="field">
-                <legend>Delivery time</legend>
-                <div className="options">
-                  {slots.data.slots.map((s) => (
-                    <label key={s.id} className={`option${s.available ? '' : ' option-off'}`}>
-                      <input type="radio" name="slot" value={s.id} checked={slotId === s.id} disabled={!s.available} onChange={() => setSlotId(s.id)} />
-                      <span>
-                        {slotText(s)}
-                        {!s.available && <span className="muted small"> · Full</span>}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            )}
+            <SlotPicker name="slot" slots={slots.data.slots} value={slotId} onChange={setSlotId} error={errorAt('slot')} />
           </>
         )}
         <label className="option gift-toggle">
@@ -349,62 +334,46 @@ function CheckoutForm() {
         {isGift && (
           <fieldset className="field gift-fields">
             <legend>Who is it for?</legend>
-            <div className="field">
-              <label htmlFor="gift-name">Their name</label>
-              <input id="gift-name" maxLength={80} value={gift.recipientName} onChange={(e) => setGift({ ...gift, recipientName: e.target.value })} />
-            </div>
-            <div className="field">
-              <label htmlFor="gift-phone">Their mobile number</label>
-              <div className="prefixed">
-                <span aria-hidden="true">+91</span>
-                <input
-                  id="gift-phone"
-                  type="tel"
-                  inputMode="numeric"
-                  maxLength={14}
-                  value={gift.recipientPhone}
-                  onChange={(e) => setGift({ ...gift, recipientPhone: e.target.value })}
-                  aria-describedby="gift-phone-hint"
-                />
-              </div>
-              <p id="gift-phone-hint" className="muted small">
-                The rider calls them. Your order updates and the delivery code still come to you, so pass the code on.
-              </p>
-            </div>
-            <div className="field">
-              <label htmlFor="gift-note">A note in the box (optional)</label>
-              <textarea id="gift-note" rows={2} maxLength={200} value={gift.message} onChange={(e) => setGift({ ...gift, message: e.target.value })} />
-            </div>
+            <Field id="gift-name" label="Their name" error={errorAt('gift-name')}>
+              <input maxLength={80} value={gift.recipientName} onChange={(e) => setGift({ ...gift, recipientName: e.target.value })} />
+            </Field>
+            <Field
+              id="gift-phone"
+              label="Their mobile number"
+              hint="The rider calls them. Your order updates and the delivery code still come to you, so pass the code on."
+              error={errorAt('gift-phone')}
+            >
+              {(control) => (
+                <div className="prefixed">
+                  <span aria-hidden="true">+91</span>
+                  <input
+                    {...control}
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={14}
+                    value={gift.recipientPhone}
+                    onChange={(e) => setGift({ ...gift, recipientPhone: e.target.value })}
+                  />
+                </div>
+              )}
+            </Field>
+            <Field id="gift-note" label="A note in the box (optional)">
+              <textarea rows={2} maxLength={200} value={gift.message} onChange={(e) => setGift({ ...gift, message: e.target.value })} />
+            </Field>
           </fieldset>
         )}
-        <div className="field">
-          <label htmlFor="name">Your name</label>
-          <input id="name" autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        {!isGift && savedHere.length > 0 && (
-          <fieldset className="field">
-            <legend>Deliver to</legend>
-            <div className="options">
-              {savedHere.map((a) => (
-                <label key={a.id} className="option">
-                  <input type="radio" name="saved-address" checked={picked === a.id} onChange={() => choose(a.id)} />
-                  <span className="option-text">
-                    {a.name && <strong>{a.name}</strong>}
-                    <span>{a.address}</span>
-                  </span>
-                </label>
-              ))}
-              <label className="option">
-                <input type="radio" name="saved-address" checked={picked === null} onChange={() => choose(null)} />
-                <span>A new address</span>
-              </label>
-            </div>
-          </fieldset>
-        )}
-        <div className="field" hidden={!isGift && picked !== null}>
-          <label htmlFor="address">Delivery address</label>
+        <Field id="name" label="Your name">
+          <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        {!isGift && <AddressPicker addresses={savedHere} value={picked} onChange={choose} />}
+        <Field
+          id="address"
+          label="Delivery address"
+          hint={`${isGift ? 'Their address: house' : 'House'} or flat number, street, area and a landmark. Pincode ${pincode}.`}
+          error={errorAt('address')}
+          hidden={!addressShown}
+        >
           <textarea
-            id="address"
             autoComplete="street-address"
             rows={3}
             maxLength={500}
@@ -413,26 +382,14 @@ function CheckoutForm() {
               typedOwn.current = true
               setAddress(e.target.value)
             }}
-            aria-describedby="address-hint"
           />
-          <p id="address-hint" className="muted small">
-            {isGift ? 'Their address: house' : 'House'} or flat number, street, area and a landmark. Pincode {pincode}.
-          </p>
-        </div>
-        <div className="field">
-          <label htmlFor="promo">Promo code (optional)</label>
-          <input
-            id="promo"
-            autoComplete="off"
-            autoCapitalize="characters"
-            maxLength={20}
-            value={promoCode}
-            onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-          />
-        </div>
-        {formError && (
+        </Field>
+        <Field id="promo" label="Promo code (optional)">
+          <input autoComplete="off" autoCapitalize="characters" maxLength={20} value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())} />
+        </Field>
+        {formError && !errorAt(formError.at) && (
           <p className="field-error" role="alert">
-            {formError}
+            {formError.message}
           </p>
         )}
         <ErrorNote error={review.error ? quoteProblem(review.error, cart) : null} />

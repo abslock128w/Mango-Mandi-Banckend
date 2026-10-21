@@ -18,13 +18,22 @@ const pairs = [
   ['on-accent', 'accent'], ['accent-strong', 'bg'], ['accent-strong', 'surface'], ['ink', 'accent-soft'],
   ['success', 'surface'], ['success', 'success-soft'], ['warning', 'surface'], ['warning', 'warning-soft'],
   ['error', 'surface'], ['error', 'error-soft'], ['info', 'surface'], ['info', 'info-soft'],
+  ['on-disabled', 'disabled'], ['on-staff', 'staff'], ['staff-strong', 'surface'], ['staff-strong', 'bg'],
+  ['ink', 'staff-soft'],
 ]
+// Non-text marks (focus ring, empty stars) need 3:1 (WCAG 1.4.11).
+const marks = [['focus', 'bg'], ['focus', 'surface'], ['star-empty', 'bg'], ['star-empty', 'surface']]
 let bad = 0
 for (const [mode, t] of [['light', light], ['dark', dark]]) {
   for (const [fg, bg] of pairs) {
     const r = ratio(t[`color-${fg}`], t[`color-${bg}`])
     if (r < 4.5) bad++
     console.log(`${r < 4.5 ? 'FAIL' : 'ok  '} ${mode.padEnd(5)} ${fg} on ${bg}: ${r.toFixed(2)}`)
+  }
+  for (const [fg, bg] of marks) {
+    const r = ratio(t[`color-${fg}`], t[`color-${bg}`])
+    if (r < 3) bad++
+    console.log(`${r < 3 ? 'FAIL' : 'ok  '} ${mode.padEnd(5)} ${fg} on ${bg} (mark, 3:1): ${r.toFixed(2)}`)
   }
 }
 process.exit(bad ? 1 : 0)

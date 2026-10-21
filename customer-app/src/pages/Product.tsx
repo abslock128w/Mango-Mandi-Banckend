@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { ApiError, api, type PublicReview, type Stage } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { MangoArt, ProductImage } from '../mango'
+import { Stepper } from '../forms'
 import { useStore } from '../store'
 import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
@@ -257,7 +258,7 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
 
       {sizes.length > 1 && (
         <div className="field">
-          <span className="field-label" id="size-label">
+          <span className="label" id="size-label">
             Box size
           </span>
           <div className="chips" role="group" aria-labelledby="size-label">
@@ -321,18 +322,17 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
       {item ? (
         <>
           <div className="field">
-            <span className="field-label" id="qty-label">
-              How many boxes
-            </span>
-            <div className="stepper" role="group" aria-labelledby="qty-label">
-              <button type="button" onClick={() => setCount(n - 1)} disabled={n <= 1} aria-label="One box fewer">
-                −
-              </button>
-              <span aria-live="polite">{room === 0 ? 0 : n}</span>
-              <button type="button" onClick={() => setCount(n + 1)} disabled={n >= room} aria-label="One box more">
-                +
-              </button>
-            </div>
+            <Stepper
+              label="How many boxes"
+              showLabel
+              value={n}
+              shown={room === 0 ? 0 : n}
+              min={1}
+              max={room}
+              onChange={setCount}
+              lessLabel="One box fewer"
+              moreLabel="One box more"
+            />
             {inCart > 0 && (
               <p className="muted small">
                 {inCart} already in your cart{room === 0 ? ', the most we can send for this day.' : '.'}

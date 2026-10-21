@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { STAGE_LABEL, rupees } from '../format'
+import { Stepper } from '../forms'
 import { MangoArt } from '../mango'
 import { useStore } from '../store'
 
@@ -36,15 +37,15 @@ export default function Cart() {
                   {STAGE_LABEL[l.stage]} · {rupees(l.price)} each
                 </span>
               </div>
-              <div className="stepper" role="group" aria-label={`${label} quantity`}>
-                <button type="button" onClick={() => setQty(l, l.qty - 1)} aria-label={`One less ${label}`}>
-                  −
-                </button>
-                <span aria-live="polite">{l.qty}</span>
-                <button type="button" onClick={() => setQty(l, Math.min(20, l.qty + 1))} disabled={l.qty >= 20} aria-label={`One more ${label}`}>
-                  +
-                </button>
-              </div>
+              <Stepper
+                label={`${label} quantity`}
+                value={l.qty}
+                min={0}
+                max={20}
+                onChange={(n) => setQty(l, n)}
+                lessLabel={`One less ${label}`}
+                moreLabel={`One more ${label}`}
+              />
               <strong className="line-price">{rupees(l.price * l.qty)}</strong>
             </li>
           )
