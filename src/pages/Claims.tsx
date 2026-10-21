@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, rupees } from '../format'
 import type { Claim, ClaimStatus } from '../types'
-import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, QueryError, Spinner, useToast } from '../ui'
+import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, PhoneLink, QueryError, Spinner, useToast } from '../ui'
 
 const FILTERS: { value: ClaimStatus | null; label: string }[] = [
   { value: null, label: 'All open' },
@@ -101,7 +101,9 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
       )}
       <dl className="kv">
         <dt>Phone</dt>
-        <dd>{claim.customerPhone ?? '—'}</dd>
+        <dd>
+          <PhoneLink phone={claim.customerPhone} who="the customer" />
+        </dd>
         {claim.history && (
           <>
             <dt>Last 90 days</dt>

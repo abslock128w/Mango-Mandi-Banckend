@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { RIPENESS_LABEL, date, istDate } from '../format'
+import { RIPENESS_LABEL, date, istDate, telHref } from '../format'
 import { MissedDialog, PhotoField, uploadPhoto } from '../MissedDialog'
 import { canSee } from '../permissions'
 import { currentPosition } from '../photo'
@@ -33,9 +33,6 @@ function addDays(day: string, n: number) {
   t.setUTCDate(t.getUTCDate() + n)
   return t.toISOString().slice(0, 10)
 }
-
-/** Phones come back as +91… from the API; older rows may lack the country code. */
-const telLink = (phone: string) => `tel:${phone.startsWith('+') ? phone : `+91${phone}`}`
 
 const mapsLink = (o: ManifestOrder, pincode: string) =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.deliveryAddress ?? ''} ${pincode}`.trim())}`
@@ -341,7 +338,7 @@ function StopCard({
             Send out<span className="sr-only"> {o.number}</span>
           </button>
         )}
-        <a className="btn" href={telLink(o.phone)}>
+        <a className="btn" href={telHref(o.phone)}>
           Call<span className="sr-only"> {o.number}</span>
         </a>
         {o.deliveryAddress && (

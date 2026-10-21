@@ -77,7 +77,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await page.goto(`/orders/${placed.orderId}`)
   await expect(page.getByRole('heading', { name: `Order ${placed.number}` })).toBeVisible()
   await page.getByRole('button', { name: 'Start processing' }).click()
-  await page.getByRole('button', { name: 'Allocate and pack' }).click()
+  await page.getByRole('button', { name: 'Allocate stock' }).click()
   await expect(page.getByText('Stock allocated. Pick list is ready.')).toBeVisible()
   for (const label of ['Mark packed', 'Mark shipped', 'Out for delivery']) {
     await page.getByRole('button', { name: label, exact: true }).click()

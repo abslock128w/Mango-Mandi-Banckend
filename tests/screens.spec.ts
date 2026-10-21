@@ -184,7 +184,7 @@ test('Order detail: mark packed waits for allocation; cancelling a paid order re
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/orders/o1')
   await expect(page.getByRole('button', { name: 'Mark packed (allocate first)' })).toBeDisabled()
-  await page.getByRole('button', { name: 'Allocate and pack' }).click()
+  await page.getByRole('button', { name: 'Allocate stock' }).click()
   await expect.poll(() => api.calls.some((c) => c.path === '/orders/o1/allocate')).toBe(true)
 
   await page.getByRole('button', { name: 'Cancel and refund' }).click()
@@ -226,7 +226,7 @@ test('Pack list: by order with allocate shortcut, by batch with unallocated sect
   await page.goto('/pack-list?date=2026-10-16')
   await expect(page.getByRole('link', { name: 'ORD-1042' })).toBeVisible()
   await expect(page.locator('.pack-order').first()).toContainText('Morning')
-  await expect(page.getByRole('button', { name: 'Allocate and pack ORD-1042' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Allocate stock for ORD-1042' })).toBeVisible()
   await page.getByRole('button', { name: 'By batch' }).click()
   await expect(page).toHaveURL(/view=batch/)
   await expect(page.getByRole('heading', { name: 'Not allocated yet' })).toBeVisible()

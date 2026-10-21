@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from '../api'
-import { BATCH_STATUS_LABEL, CONDITION_LABEL, RIPENESS_LABEL, date, dateTime } from '../format'
-import { can } from '../permissions'
+import { BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize } from '../format'
+import { can, canSee } from '../permissions'
 import { useSession } from '../session'
-import { BATCH_FLOW, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type Ripeness } from '../types'
+import { BATCH_FLOW, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Ripeness } from '../types'
 import {
+  BackLink,
   BatchBadge,
   ConfirmDialog,
   Dialog,
@@ -58,6 +59,7 @@ function BatchView({ batch }: { batch: Batch }) {
 
   return (
     <>
+      <BackLink to="/batches">Batches</BackLink>
       <div className="topbar">
         <h1>
           {batch.variety} <span className="muted small">plucked {date(batch.pluckedOn)}</span>
@@ -78,10 +80,10 @@ function BatchView({ batch }: { batch: Batch }) {
                 <th>SKU</th>
                 <th className="num">On hand</th>
                 <th className="num">
-                  <abbr title="Reserved by customers who have not paid yet">Held</abbr>
+                  <abbr title="Reserved by customers who have not paid yet">Unpaid</abbr>
                 </th>
                 <th className="num">
-                  <abbr title="Paid, not yet packed">Committed</abbr>
+                  <abbr title="Paid, not yet packed">To pack</abbr>
                 </th>
                 <th className="num">Reserve buffer</th>
                 <th className="num">Available</th>
@@ -447,9 +449,21 @@ function QcPanel({ batch, focus }: { batch: Batch; focus: boolean }) {
   )
 }
 
+/** "SELLING → CONDEMNED: mould" (a status change's reason) → "Selling → Condemned: mould". */
+function ledgerReason(e: LedgerEntry): string {
+  if (!e.reason) return '—'
+  return e.reason.replace(/^([A-Z_]+) → ([A-Z_]+)/, (_m, from: string, to: string) =>
+    `${BATCH_STATUS_LABEL[from as BatchStatus] ?? humanize(from)} → ${BATCH_STATUS_LABEL[to as BatchStatus] ?? humanize(to)}`,
+  )
+}
+
 function LedgerPanel({ batchId }: { batchId: string }) {
   // Loaded lazily: this component only mounts when the Ledger tab is open.
   const q = useQuery({ queryKey: ['ledger', batchId], queryFn: () => api.ledger(batchId) })
+  // Some steps record the staff id, not the email: managers can see the staff list to name them.
+  const { me } = useSession()
+  const staff = useQuery({ queryKey: ['staff'], queryFn: api.staff, enabled: canSee(me?.role, 'staff') })
+  const staffEmail = (staffId: string) => staff.data?.find((m) => m.id === staffId)?.email
   if (q.isPending) return <Spinner label="Loading ledger" />
   if (q.isError) return <QueryError error={q.error} onRetry={() => q.refetch()} />
   if (q.data.length === 0) return <EmptyState>No stock movements yet.</EmptyState>
@@ -460,8 +474,8 @@ function LedgerPanel({ batchId }: { batchId: string }) {
           <tr>
             <th>Event</th>
             <th>SKU</th>
-            <th className="num">Δ Qty</th>
-            <th>Actor</th>
+            <th className="num">Change</th>
+            <th>By</th>
             <th>Reason</th>
             <th>Time</th>
           </tr>
@@ -469,13 +483,13 @@ function LedgerPanel({ batchId }: { batchId: string }) {
         <tbody>
           {q.data.map((e, i) => (
             <tr key={e.id ?? i}>
-              <td>{e.eventType}</td>
+              <td>{LEDGER_EVENT_LABEL[e.eventType] ?? humanize(e.eventType)}</td>
               <td>{e.sku ?? '—'}</td>
               <td className={`num ${e.delta < 0 ? 'text-danger' : e.delta > 0 ? 'text-good' : ''}`}>
                 {e.delta > 0 ? `+${e.delta}` : e.delta}
               </td>
-              <td>{e.actorId}</td>
-              <td>{e.reason ?? '—'}</td>
+              <td>{actorLabel(e.actorId, e.actorType, staffEmail)}</td>
+              <td>{ledgerReason(e)}</td>
               <td>{dateTime(e.createdAt)}</td>
             </tr>
           ))}
@@ -560,7 +574,7 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
     >
       <form id="adjust-form" onSubmit={onSubmit} noValidate>
         <p className="muted small">
-          Held {line.held} + committed {line.committed}. Going below what customers already hold records a short arrival.
+          Customers already hold {line.held} unpaid and {line.committed} to pack. Going below what customers already hold records a short arrival.
         </p>
         <div className="field">
           <label htmlFor="adj-onhand">On hand</label>

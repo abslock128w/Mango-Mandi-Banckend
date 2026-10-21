@@ -22,6 +22,7 @@ import {
   ORDER_STATUS_LABEL,
   batchTone,
   orderTone,
+  telHref,
   type Tone,
 } from './format'
 import { MANAGER_ONLY_HINT } from './permissions'
@@ -168,6 +169,32 @@ export function RowLink({ to, children, more }: { to: string; children: ReactNod
       {children}
       {more && <span className="sr-only"> {more}</span>}
     </Link>
+  )
+}
+
+// ---------- Back and phone links ----------
+
+/** "← Orders" above a detail page's title: back to the list it came from. */
+export function BackLink({ to, children }: { to: string; children: ReactNode }) {
+  return (
+    <Link to={to} className="back-link">
+      <span aria-hidden="true">←</span>
+      {children}
+    </Link>
+  )
+}
+
+/**
+ * A phone number as a tap-to-call link (tel:+91…), the same as on Deliveries. `who` is read
+ * after the number for screen readers ("Call the customer"). Shows "—" when there is none.
+ */
+export function PhoneLink({ phone, who }: { phone: string | null | undefined; who?: string }) {
+  if (!phone) return <>—</>
+  return (
+    <a className="phone-link" href={telHref(phone)}>
+      {phone}
+      {who && <span className="sr-only"> (call {who})</span>}
+    </a>
   )
 }
 

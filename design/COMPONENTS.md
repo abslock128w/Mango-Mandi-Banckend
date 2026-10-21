@@ -41,6 +41,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | Product detail / buy box | `Product.tsx` `BuyBox` | no pincode, not on sale here, each ripeness in stock / sold out / low stock, cart already at max | Ripe chosen first when in stock |
 | QuantityStepper | `forms.tsx` `Stepper` (Product, Cart, Preorder) | min 1, max from stock (cap 20 until API gap G5) | 40px buttons inside a 44px row |
 | Notify me | `Shop.tsx` `NotifyMe` | signed out, waiting, sent | WhatsApp back-in-stock alert |
+| Sticky buy bar | `Product.tsx` | shown until the buy box scrolls past | "Add to cart · ₹" above the bottom tabs on phones |
 | StickyCartBar | `Shop.tsx` `.sticky-cart` | hidden at 0, count + total | Sits above the bottom tabs, safe-area aware |
 | Cart | `Cart.tsx` | empty, items, item removed, price changed | Full page, not a sheet |
 | Checkout | `Checkout.tsx` | delivery day, slot, address, gift, promo, quote problems | Bill lines come from the server quote |
@@ -73,4 +74,8 @@ The panel imports the same `tokens.css`. Its colour names are aliases of the sha
 | `ConfirmDialog` | `{title, confirmLabel, cancelLabel?, busyLabel?, busy?, error?, tone?, onConfirm, onClose}` | OrderDetail, BatchDetail, Pincodes, Products, Staff, Planning. Cancel gets focus |
 | `GatedButton`, `ManagerOnlyNote`, `DisabledReason` | `GatedButton {allowed, onClick, disabled?}`, `ManagerOnlyNote {what}` | OrderDetail, BatchDetail, Pincodes, Preorders, Planning |
 | `Badge` (+ `OrderBadge`, `BatchBadge`, `ClaimBadge`) | `{tone?: neutral, good, warn, bad, info}` | Status only; categories use `neutral` |
+| `BackLink` | `{to, children}` | "← Orders" above a detail title, 44px tall. OrderDetail (packers get "← Pack list"), BatchDetail |
+| `PhoneLink` | `{phone, who?}` | Tap-to-call `tel:` link, 44px tall, "—" when empty. OrderDetail, Claims, Preorders, NeedsAttention |
 | `MissedDialog` (`src/MissedDialog.tsx`) | failed-delivery reason from a list, note, photo | OrderDetail, Deliveries |
+
+Labels: the panel never shows enum names or ids. Map them in `src/format.ts` (`STOCK_STATE_LABEL`, `LEDGER_EVENT_LABEL`, `NOTIFICATION_LABEL`, `PAYMENT_METHOD_LABEL`, `ripenessLabel`, `actorLabel`, `telHref`).

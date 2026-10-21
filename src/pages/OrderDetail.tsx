@@ -2,13 +2,27 @@ import { useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, isConflict, isStale } from '../api'
-import { ORDER_STATUS_LABEL, PAYMENT_LABEL, date, dateTime, istDate, rupees } from '../format'
-import type { DeliveryAttempt, NotificationKind, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
+import {
+  ORDER_STATUS_LABEL,
+  PAYMENT_LABEL,
+  NOTIFICATION_LABEL,
+  PAYMENT_METHOD_LABEL,
+  STOCK_STATE_LABEL,
+  actorLabel,
+  date,
+  dateTime,
+  humanize,
+  istDate,
+  ripenessLabel,
+  rupees,
+} from '../format'
+import type { DeliveryAttempt, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
 import { PACKER_STATUSES, can, canSee } from '../permissions'
 import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
 import {
   AuthedPhoto,
+  BackLink,
   Badge,
   ConfirmDialog,
   Dialog,
@@ -17,6 +31,7 @@ import {
   GatedButton,
   ManagerOnlyNote,
   OrderBadge,
+  PhoneLink,
   QueryError,
   ReasonDialog,
   Spinner,
@@ -25,17 +40,6 @@ import {
 } from '../ui'
 
 const CONFLICT_MESSAGE = 'This order was just updated by someone else.'
-
-const MESSAGE_LABEL: Record<NotificationKind, string> = {
-  ORDER_CONFIRMED: 'Order confirmed',
-  REPLACEMENT_CONFIRMED: 'Replacement confirmed',
-  OUT_FOR_DELIVERY: 'Out for delivery',
-  DELIVERED: 'Delivered',
-  DELIVERY_FAILED: 'Delivery missed',
-  CANCELLED: 'Order cancelled',
-  REFUNDED: 'Refund sent',
-  DATE_MOVED: 'Delivery date moved',
-}
 
 function messageState(n: OrderNotification) {
   switch (n.status) {
@@ -123,6 +127,8 @@ function OrderView({ order }: { order: Order }) {
   const { me } = useSession()
   const changeOrder = can(me?.role, 'changeOrder')
   const openBatches = canSee(me?.role, 'batches')
+  // Back to the list this role works from: Orders, or the pack list for a packer.
+  const back = canSee(me?.role, 'orders') ? { to: '/orders', label: 'Orders' } : { to: '/pack-list', label: 'Pack list' }
   const toast = useToast()
   const refresh = useOrderRefresh(order.id)
   const [dialog, setDialog] = useState<'cancel' | 'reschedule' | 'missed' | 'returned' | null>(null)
@@ -170,6 +176,7 @@ function OrderView({ order }: { order: Order }) {
 
   return (
     <>
+      <BackLink to={back.to}>{back.label}</BackLink>
       <div className="topbar">
         <h1>Order {order.number}</h1>
         <OrderBadge status={order.status} />
@@ -203,7 +210,7 @@ function OrderView({ order }: { order: Order }) {
             title={awaitingPack ? undefined : 'Nothing left to allocate'}
             onClick={() => allocate.mutate()}
           >
-            Allocate and pack
+            Allocate stock
           </button>
         )}
         {ALLOCATABLE.includes(order.status) && !awaitingPack && <DisabledReason>Nothing left to allocate.</DisabledReason>}
@@ -260,7 +267,7 @@ function OrderView({ order }: { order: Order }) {
                 <thead>
                   <tr>
                     <th>Product</th>
-                    <th>Stage</th>
+                    <th>Ripeness</th>
                     <th className="num">Qty</th>
                     <th className="num">Price</th>
                   </tr>
@@ -272,7 +279,7 @@ function OrderView({ order }: { order: Order }) {
                         {it.productName}
                         <div className="muted small">{it.sku}</div>
                       </td>
-                      <td>{it.stage ?? '—'}</td>
+                      <td>{ripenessLabel(it.stage)}</td>
                       <td className="num">{it.quantity}</td>
                       <td className="num">{rupees(it.linePrice)}</td>
                     </tr>
@@ -325,7 +332,7 @@ function OrderView({ order }: { order: Order }) {
                         <td className="num">{s.quantity}</td>
                         <td>
                           <Badge tone={s.state === 'packed' ? 'good' : s.state === 'released' ? 'neutral' : 'info'}>
-                            {s.state}
+                            {STOCK_STATE_LABEL[s.state] ?? s.state}
                           </Badge>
                         </td>
                       </tr>
@@ -344,12 +351,14 @@ function OrderView({ order }: { order: Order }) {
               <dt>Name</dt>
               <dd>{order.customerName ?? '—'}</dd>
               <dt>Phone</dt>
-              <dd>{order.phone ?? '—'}</dd>
+              <dd>
+                <PhoneLink phone={order.phone} who="the customer" />
+              </dd>
               {order.gift && (
                 <>
                   <dt>Gift for</dt>
                   <dd>
-                    {order.gift.recipientName} · {order.gift.recipientPhone}
+                    {order.gift.recipientName} · <PhoneLink phone={order.gift.recipientPhone} who={order.gift.recipientName} />
                   </dd>
                   {order.gift.message && (
                     <>
@@ -387,7 +396,7 @@ function OrderView({ order }: { order: Order }) {
                 <dt>Status</dt>
                 <dd>{order.payment.status ? (PAYMENT_LABEL[order.payment.status] ?? order.payment.status) : '—'}</dd>
                 <dt>Method</dt>
-                <dd>{order.payment.method ?? '—'}</dd>
+                <dd>{order.payment.method ? (PAYMENT_METHOD_LABEL[order.payment.method] ?? order.payment.method) : '—'}</dd>
                 <dt>Amount</dt>
                 <dd>{rupees(order.payment.amount)}</dd>
                 {order.payment.refund && (
@@ -429,7 +438,7 @@ function OrderView({ order }: { order: Order }) {
                     <div className="small">{proofText(a)}</div>
                     {a.note && <div className="small">{a.note}</div>}
                     <div className="small muted">
-                      by {a.actor}
+                      by {actorLabel(a.actor)}
                       {a.lat !== null && a.lng !== null && (
                         <>
                           {' · '}
@@ -453,9 +462,9 @@ function OrderView({ order }: { order: Order }) {
               <ol className="timeline">
                 {order.events.map((e, i) => (
                   <li key={i}>
-                    <strong>{ORDER_STATUS_LABEL[e.status] ?? e.status}</strong>{' '}
+                    <strong>{ORDER_STATUS_LABEL[e.status] ?? humanize(e.status)}</strong>{' '}
                     <span className="muted small">{dateTime(e.createdAt)}</span>
-                    {e.actor && <div className="small muted">by {e.actor}</div>}
+                    {e.actor && <div className="small muted">by {actorLabel(e.actor)}</div>}
                     {e.reason && <div className="small">{e.reason}</div>}
                   </li>
                 ))}
@@ -468,7 +477,7 @@ function OrderView({ order }: { order: Order }) {
               <ul className="bare-list">
                 {order.notifications.map((n, i) => (
                   <li key={i}>
-                    {MESSAGE_LABEL[n.kind] ?? n.kind} {messageState(n)}{' '}
+                    {NOTIFICATION_LABEL[n.kind] ?? n.kind} {messageState(n)}{' '}
                     <span className="muted small">{dateTime(n.sentAt ?? n.createdAt)}</span>
                     {n.error && n.status !== 'SENT' && <div className="small muted">{n.error}</div>}
                   </li>

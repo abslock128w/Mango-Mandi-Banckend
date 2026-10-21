@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, LedgerEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -81,7 +81,7 @@ export function seed() {
     ledger: [
       { eventType: 'INTAKE', sku: 'ALP-3', delta: 20, actorType: 'admin', actorId: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-08T05:00:00Z' },
       { eventType: 'PACK', sku: 'ALP-3', delta: -2, actorType: 'admin', actorId: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-10T05:00:00Z' },
-    ],
+    ] as LedgerEntry[],
     orders: {
       page: 1,
       pageSize: 50,
@@ -442,9 +442,28 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       if (b.override && state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can override this', requestId: 'req_x' } })
       if (b.status === 'DELIVERED' && !b.override) return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Only a manager can mark it delivered without proof.', requestId: 'req_x' } })
       if (b.override && !b.reason) return json(route, 400, { error: { code: 'REASON_REQUIRED', message: 'Say why', requestId: 'req_x' } })
+      // Pack list orders move on too; PACKED needs every box packed first (mirrors the API's NOT_ALLOCATED).
+      const packing = state.packList.find((o) => o.id === path.split('/')[2])
+      if (packing) {
+        if (b.status === 'PACKED' && !packing.items.every((it) => it.picks.length > 0 && it.picks.every((pk) => pk.packed))) {
+          return json(route, 400, { error: { code: 'NOT_ALLOCATED', message: 'Allocate the stock before marking the order packed', requestId: 'req_x' } })
+        }
+        packing.status = b.status
+      }
       return route.fulfill({ status: 204 })
     }
-    if (/^\/orders\/[^/]+\/(allocate|cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
+    if (/^\/orders\/[^/]+\/allocate$/.test(path)) {
+      // Picks every box from b1 and packs it, without moving the order on (mirrors allocateOrder).
+      const packing = state.packList.find((o) => o.id === path.split('/')[2])
+      if (packing) {
+        packing.items = packing.items.map((it) => ({
+          ...it,
+          picks: [{ batchId: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', quantity: it.quantity, packed: true }],
+        }))
+      }
+      return route.fulfill({ status: 204 })
+    }
+    if (/^\/orders\/[^/]+\/(cancel|reschedule)$/.test(path)) return route.fulfill({ status: 204 })
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)

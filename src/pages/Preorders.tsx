@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, istDate, rupees, type Tone } from '../format'
 import { can } from '../permissions'
 import { useSession } from '../session'
 import type { Preorder, PreorderStatus } from '../types'
-import { Badge, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, ReasonDialog, Spinner, scrollRegion, useToast } from '../ui'
+import { Badge, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, PhoneLink, QueryError, ReasonDialog, Spinner, scrollRegion, useToast } from '../ui'
 
 const STATUS_LABEL: Record<PreorderStatus, string> = {
   PAYMENT_PENDING: 'Awaiting payment',
@@ -233,7 +233,11 @@ function PreorderList() {
                   </td>
                   <td>
                     {p.customerName ?? '—'}
-                    <div className="muted small">{p.phone}</div>
+                    {p.phone && (
+                      <div className="small">
+                        <PhoneLink phone={p.phone} who={p.customerName ?? 'the customer'} />
+                      </div>
+                    )}
                   </td>
                   <td>
                     {p.qty} × {p.productName}

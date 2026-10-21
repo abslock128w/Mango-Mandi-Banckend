@@ -24,13 +24,13 @@ test('an operator publishes a review with its photo, rejects a flagged one with 
   await drawer.getByLabel('Publish photo 1').check()
   await drawer.getByRole('button', { name: 'Publish with 1 photo' }).click()
   await expect(page.getByText('Review published')).toBeVisible()
-  expect(api.calls.find((c) => c.path === '/reviews/rvw1/approve')?.body).toEqual({ photoIds: ['rph1'], reason: null })
+  await expect.poll(() => api.calls.find((c) => c.path === '/reviews/rvw1/approve')?.body).toEqual({ photoIds: ['rph1'], reason: null })
 
   await drawer.getByRole('button', { name: 'Write a reply' }).click()
   await drawer.getByLabel(/Public reply/).fill('Thank you, Asha!')
   await drawer.getByRole('button', { name: 'Save reply' }).click()
   await expect(drawer).toContainText('Thank you, Asha!')
-  expect(api.calls.find((c) => c.method === 'PUT' && c.path === '/reviews/rvw1/reply')?.body).toEqual({ body: 'Thank you, Asha!' })
+  await expect.poll(() => api.calls.find((c) => c.method === 'PUT' && c.path === '/reviews/rvw1/reply')?.body).toEqual({ body: 'Thank you, Asha!' })
   await drawer.getByRole('button', { name: 'Close' }).click()
 
   await page.getByRole('button', { name: 'Open review from Vikram S.' }).click()
@@ -41,7 +41,7 @@ test('an operator publishes a review with its photo, rejects a flagged one with 
   await second.getByLabel(/Reason for/).fill('Shares a phone number')
   await second.getByRole('button', { name: 'Reject review' }).click()
   await expect(page.getByText('Review rejected')).toBeVisible()
-  expect(api.calls.find((c) => c.path === '/reviews/rvw2/reject')?.body).toEqual({ reason: 'Shares a phone number' })
+  await expect.poll(() => api.calls.find((c) => c.path === '/reviews/rvw2/reject')?.body).toEqual({ reason: 'Shares a phone number' })
 })
 
 test('bulk approve publishes the selected reviews; bulk reject asks for a reason', async ({ page }) => {
@@ -57,7 +57,7 @@ test('bulk approve publishes the selected reviews; bulk reject asks for a reason
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('button', { name: 'Approve 2' }).click()
   await expect(page.getByText('2 reviews published')).toBeVisible()
-  expect(api.calls.find((c) => c.path === '/reviews/bulk')?.body).toEqual({ action: 'approve', ids: ['rvw1', 'rvw2'], reason: null })
+  await expect.poll(() => api.calls.find((c) => c.path === '/reviews/bulk')?.body).toEqual({ action: 'approve', ids: ['rvw1', 'rvw2'], reason: null })
   await expect(page.getByText('No reviews here.')).toBeVisible()
   await page.getByRole('button', { name: /Published/ }).click()
   await expect(page.getByRole('region', { name: 'Reviews', exact: true }).locator('tbody tr')).toHaveCount(3)

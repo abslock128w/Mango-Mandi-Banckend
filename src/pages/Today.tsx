@@ -13,7 +13,21 @@ const TILE_STATUSES: OrderStatus[] = [
   'SHIPPED',
   'OUT_FOR_DELIVERY',
   'DELIVERY_FAILED',
+  'PAYMENT_PENDING',
 ]
+
+/** Tiles someone must act on when they are above zero, with the status tone they take. */
+const URGENT: Partial<Record<OrderStatus | 'claims', 'bad' | 'warn'>> = {
+  DELIVERY_FAILED: 'bad',
+  claims: 'warn',
+}
+
+interface Tile {
+  to: string
+  label: string
+  count: number
+  urgent?: 'bad' | 'warn'
+}
 
 /** Maximum sellable batch age in days; the API excludes older stock. */
 const MAX_SELLABLE_AGE = 7
@@ -26,6 +40,16 @@ export default function Today() {
   const s = q.data
   const atRisk = s.atRiskOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
+  // Every tile opens the page it counts, filtered.
+  const tiles: Tile[] = [
+    ...TILE_STATUSES.map((status) => ({
+      to: `/orders?status=${status}`,
+      label: ORDER_STATUS_LABEL[status],
+      count: s.orders[status] ?? 0,
+      urgent: URGENT[status],
+    })),
+    { to: '/claims', label: 'Open claims', count: s.openClaims, urgent: URGENT.claims },
+  ]
 
   return (
     <>
@@ -35,24 +59,20 @@ export default function Today() {
         <span className="muted small">Last updated {istTime(new Date(q.dataUpdatedAt))}</span>
       </div>
 
-      <NeedsAttention />
-
-      <div className="tiles">
-        {TILE_STATUSES.map((status) => (
-          <Link key={status} className="tile" to={`/orders?status=${status}`}>
-            <div className="count">{s.orders[status] ?? 0}</div>
-            <div className="label">{ORDER_STATUS_LABEL[status]}</div>
-          </Link>
-        ))}
-        <Link className="tile" to="/claims">
-          <div className="count">{s.openClaims}</div>
-          <div className="label">Open claims</div>
-        </Link>
-        <div className="tile" title="These orders are waiting for the customer to pay">
-          <div className="count">{s.orders.PAYMENT_PENDING ?? 0}</div>
-          <div className="label">Payment pending</div>
-        </div>
+      <div className="tiles tiles-today">
+        {tiles.map((t) => {
+          const urgent = t.urgent && t.count > 0
+          return (
+            <Link key={t.to} className={`tile${urgent ? ` tile-${t.urgent}` : ''}`} to={t.to}>
+              <div className="count">{t.count}</div>
+              <div className="label">{t.label}</div>
+              {urgent && <div className="tile-flag">Needs action</div>}
+            </Link>
+          )
+        })}
       </div>
+
+      <NeedsAttention />
 
       {atRisk.length > 0 && (
         <section className="card">

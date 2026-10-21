@@ -64,7 +64,9 @@ export default function Batches() {
                 <th>Status</th>
                 <th>QC</th>
                 <th className="num">On hand</th>
-                <th className="num">Committed</th>
+                <th className="num">
+                  <abbr title="Paid, not yet packed">To pack</abbr>
+                </th>
                 <th className="num">Available</th>
               </tr>
             </thead>

@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom'
-import { useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { dateTime } from '../format'
-import type { PhotoDelivery } from '../types'
-import { ReasonDialog, useToast } from '../ui'
+import { NOTIFICATION_LABEL, dateTime, humanize } from '../format'
+import type { NotificationKind, PhotoDelivery } from '../types'
+import { PhoneLink, ReasonDialog, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
@@ -56,103 +56,155 @@ export default function NeedsAttention() {
   const a = q.data
   const calls = a.failedDeliveries ?? []
   const low = a.lowRatings ?? []
-  const photos = a.photoDeliveries ?? []
+  const photos = (a.photoDeliveries ?? []).filter((d) => d.method !== 'staff')
+  const noProof = (a.photoDeliveries ?? []).filter((d) => d.method === 'staff')
   const drift = a.ledgerDrift ?? []
-  const count =
-    (a.loop.stale ? 1 : 0) +
-    a.loop.failingSteps.length +
-    a.failedMessages.length +
-    a.stuckRefunds.length +
-    a.webhookFailures.length +
-    calls.length +
-    (low.length ? 1 : 0) +
-    photos.length +
-    drift.length
-  if (count === 0) return null
 
-  return (
-    <section className="card attention" aria-labelledby="attention-title">
-      <h2 id="attention-title">Needs attention</h2>
-      <ul className="attention-list">
-        {a.loop.stale && (
-          <li>
-            <strong>The background loop has stopped.</strong>{' '}
-            {a.loop.lastRunAt ? `It last ran at ${dateTime(a.loop.lastRunAt)}.` : 'It has not run yet.'} Payments, refunds, WhatsApp
-            updates and hold releases wait until it runs again. Restart the API.
-          </li>
-        )}
-        {a.loop.failingSteps.map((s) => (
+  const photoItem = (d: PhotoDelivery) => (
+    <li key={`photo-${d.id}`}>
+      <strong>{d.method === 'staff' ? 'Check a delivery marked without proof' : 'Check a photo delivery'}</strong> of{' '}
+      <Link to={`/orders/${d.order.id}`}>{d.order.number}</Link> by {d.actor} at {dateTime(d.at)}
+      {d.receivedBy ? <span className="muted">, left with {d.receivedBy}</span> : null}
+      {d.method === 'staff' && d.note ? <span className="muted">: {d.note}</span> : null}
+      {d.flags.length ? <span className="badge badge-warn"> {d.flags.join(', ')}</span> : null}{' '}
+      <span className="attention-actions">
+        <button type="button" className="btn btn-small" disabled={check.isPending} onClick={() => check.mutate({ d, ok: true })}>
+          Looks right<span className="sr-only"> for {d.order.number}</span>
+        </button>
+        <button type="button" className="btn btn-small" onClick={() => setDoubting(d)}>
+          Doubtful<span className="sr-only"> for {d.order.number}</span>
+        </button>
+      </span>
+    </li>
+  )
+
+  // One group per kind of problem, most urgent first. Each shows a few items and a "Show all".
+  const groups: AttentionGroup[] = [
+    {
+      key: 'loop',
+      title: 'Background jobs',
+      items: [
+        ...(a.loop.stale
+          ? [
+              <li key="stale">
+                <strong>The background loop has stopped.</strong>{' '}
+                {a.loop.lastRunAt ? `It last ran at ${dateTime(a.loop.lastRunAt)}.` : 'It has not run yet.'} Payments, refunds, WhatsApp
+                updates and hold releases wait until it runs again. Restart the API.
+              </li>,
+            ]
+          : []),
+        ...a.loop.failingSteps.map((s) => (
           <li key={s.step}>
             <strong>{STEP_LABEL[s.step] ?? s.step} is failing</strong> since {dateTime(s.since)}
             {s.error ? <span className="muted">: {s.error}</span> : null}
           </li>
-        ))}
-        {calls.map((o) => (
-          <li key={`call-${o.id}`}>
-            <strong>Call the customer</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>: {o.attempts} deliveries missed
-            {o.name || o.phone ? <span className="muted"> ({[o.name, o.phone].filter(Boolean).join(', ')})</span> : null}. It won't be
-            sent out again until a manager sends it from the order page.
-          </li>
-        ))}
-        {photos.map((d) => (
-          <li key={`photo-${d.id}`}>
-            <strong>{d.method === 'staff' ? 'Check a delivery marked without proof' : 'Check a photo delivery'}</strong> of{' '}
-            <Link to={`/orders/${d.order.id}`}>{d.order.number}</Link> by {d.actor} at {dateTime(d.at)}
-            {d.receivedBy ? <span className="muted">, left with {d.receivedBy}</span> : null}
-            {d.method === 'staff' && d.note ? <span className="muted">: {d.note}</span> : null}
-            {d.flags.length ? <span className="badge badge-warn"> {d.flags.join(', ')}</span> : null}{' '}
-            <button type="button" className="btn btn-small" disabled={check.isPending} onClick={() => check.mutate({ d, ok: true })}>
-              Looks right<span className="sr-only"> for {d.order.number}</span>
-            </button>{' '}
-            <button type="button" className="btn btn-small" onClick={() => setDoubting(d)}>
-              Doubtful<span className="sr-only"> for {d.order.number}</span>
-            </button>
-          </li>
-        ))}
-        {drift.map((l) => (
-          <li key={`drift-${l.lineId}`}>
-            <strong>Stock counts disagree with the ledger</strong> for {l.sku} in batch <Link to={`/batches/${l.batchId}`}>{l.batchId}</Link>
+        )),
+      ],
+    },
+    {
+      key: 'calls',
+      title: 'Call the customer',
+      items: calls.map((o) => (
+        <li key={`call-${o.id}`}>
+          <strong>Call the customer</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>: {o.attempts} deliveries missed
+          {o.name || o.phone ? (
             <span className="muted">
               {' '}
-              (on hand {l.onHand[0]} vs {l.onHand[1]}, held {l.held[0]} vs {l.held[1]}, committed {l.committed[0]} vs {l.committed[1]})
+              ({o.name}
+              {o.name && o.phone ? ', ' : null}
+              {o.phone && <PhoneLink phone={o.phone} who={o.name ?? 'the customer'} />})
             </span>
-            . Check the batch before selling more from it.
-          </li>
-        ))}
-        {a.stuckRefunds.map((r) => (
-          <li key={`${r.type}-${r.id}-${r.number}`}>
-            <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
-            for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
-          </li>
-        ))}
-        {a.failedMessages.map((m) => (
-          <li key={m.id}>
-            <strong>WhatsApp message not delivered</strong> ({m.kind.toLowerCase().replace(/_/g, ' ')}) for{' '}
-            {m.order ? <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link> : (m.preorderNumber ?? m.phone)} after {m.attempts} tries
-            {m.error ? <span className="muted">: {m.error}</span> : null}{' '}
-            <button type="button" className="btn btn-small" disabled={retry.isPending} onClick={() => retry.mutate(m.id)}>
-              Send again<span className="sr-only"> for {m.order?.number ?? m.preorderNumber ?? 'this customer'}</span>
-            </button>
-          </li>
-        ))}
-        {low.length > 0 && (
-          <li>
-            <strong>
-              {low.length} new {low.length === 1 ? 'review' : 'reviews'} with 1 or 2 stars
-            </strong>{' '}
-            ({low.map((r) => r.order.number).join(', ')}). <Link to="/reviews">Read them</Link> and check whether the customer
-            needs help. A review never opens a claim by itself.
-          </li>
-        )}
-        {a.webhookFailures.map((w) => (
-          <li key={w.id}>
-            <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}
-            <span className="muted">: {w.reason}</span>
-          </li>
-        ))}
-      </ul>
+          ) : null}
+          . It won't be sent out again until a manager sends it from the order page.
+        </li>
+      )),
+    },
+    { key: 'refunds', title: 'Refunds not sent', items: a.stuckRefunds.map((r) => (
+      <li key={`${r.type}-${r.id}-${r.number}`}>
+        <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
+        for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+      </li>
+    )) },
+    { key: 'drift', title: 'Stock counts to check', items: drift.map((l) => (
+      <li key={`drift-${l.lineId}`}>
+        <strong>Stock counts disagree with the ledger</strong> for {l.sku} in <Link to={`/batches/${l.batchId}`}>its batch</Link>
+        <span className="muted">
+          {' '}
+          (on hand {l.onHand[0]} vs {l.onHand[1]}, held {l.held[0]} vs {l.held[1]}, to pack {l.committed[0]} vs {l.committed[1]})
+        </span>
+        . Check the batch before selling more from it.
+      </li>
+    )) },
+    { key: 'no-proof', title: 'Deliveries marked without proof', items: noProof.map(photoItem) },
+    { key: 'photos', title: 'Photo deliveries to check', items: photos.map(photoItem) },
+    { key: 'messages', title: 'WhatsApp messages not delivered', items: a.failedMessages.map((m) => (
+      <li key={m.id}>
+        <strong>WhatsApp message not delivered</strong> ({(NOTIFICATION_LABEL[m.kind as NotificationKind] ?? humanize(m.kind)).toLowerCase()}) for{' '}
+        {m.order ? <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link> : (m.preorderNumber ?? m.phone)} after {m.attempts} tries
+        {m.error ? <span className="muted">: {m.error}</span> : null}{' '}
+        <button type="button" className="btn btn-small" disabled={retry.isPending} onClick={() => retry.mutate(m.id)}>
+          Send again<span className="sr-only"> for {m.order?.number ?? m.preorderNumber ?? 'this customer'}</span>
+        </button>
+      </li>
+    )) },
+    { key: 'reviews', title: 'Low ratings', items: low.length > 0 ? [
+      <li key="low">
+        <strong>
+          {low.length} new {low.length === 1 ? 'review' : 'reviews'} with 1 or 2 stars
+        </strong>{' '}
+        ({low.map((r) => r.order.number).join(', ')}). <Link to="/reviews">Read them</Link> and check whether the customer
+        needs help. A review never opens a claim by itself.
+      </li>,
+    ] : [] },
+    { key: 'webhooks', title: 'Webhook problems', items: a.webhookFailures.map((w) => (
+      <li key={w.id}>
+        <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}
+        <span className="muted">: {w.reason}</span>
+      </li>
+    )) },
+  ].filter((g) => g.items.length > 0)
+  if (groups.length === 0) return null
+
+  return (
+    <section className="card attention" aria-labelledby="attention-title">
+      <h2 id="attention-title">Needs attention</h2>
+      {groups.map((g) => (
+        <AttentionGroupView key={g.key} group={g} />
+      ))}
       {doubting && <DoubtDialog d={doubting} pending={check.isPending} error={check.error} onClose={() => setDoubting(null)} onSave={(note) => check.mutate({ d: doubting, ok: false, note })} />}
     </section>
+  )
+}
+
+interface AttentionGroup {
+  key: string
+  title: string
+  items: ReactNode[]
+}
+
+/** How many items a group shows before "Show all". */
+const FIRST_FEW = 3
+
+/** One kind of problem: a heading with its count, the first few items, and "Show all N". */
+function AttentionGroupView({ group }: { group: AttentionGroup }) {
+  const [open, setOpen] = useState(false)
+  const listId = useId()
+  const more = group.items.length - FIRST_FEW
+  return (
+    <div className="attention-group">
+      <h3>
+        {group.title} <span className="attention-count">{group.items.length}</span>
+      </h3>
+      <ul className="attention-list" id={listId}>
+        {open ? group.items : group.items.slice(0, FIRST_FEW)}
+      </ul>
+      {more > 0 && (
+        <button type="button" className="link-btn" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+          {open ? 'Show fewer' : `Show all ${group.items.length}`}
+          <span className="sr-only"> {group.title.toLowerCase()}</span>
+        </button>
+      )}
+    </div>
   )
 }
 
