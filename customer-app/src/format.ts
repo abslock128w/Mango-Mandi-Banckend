@@ -33,7 +33,7 @@ export const STAGE_HINT: Record<Stage, string> = {
 export const STATUS_LABEL: Record<OrderStatus, string> = {
   PAYMENT_PENDING: 'Waiting for payment',
   CONFIRMED: 'Confirmed',
-  PROCESSING: 'Being packed',
+  PROCESSING: 'Preparing',
   PACKED: 'Packed',
   SHIPPED: 'On its way',
   OUT_FOR_DELIVERY: 'Out for delivery',
@@ -61,4 +61,11 @@ export const PREORDER_LABEL: Record<PreorderStatus, string> = {
   WAITLISTED: 'On the waitlist',
   CONVERTED: 'Delivery day set',
   CANCELLED: 'Cancelled',
+}
+
+/** The help chat link (wa.me) when the shop's WhatsApp number is set, else null. */
+export function helpLink(text?: string): string | null {
+  const n = (import.meta.env.VITE_SUPPORT_WHATSAPP ?? '').replace(/\D/g, '')
+  if (n.length < 10) return null
+  return `https://wa.me/${n}${text ? `?text=${encodeURIComponent(text)}` : ''}`
 }

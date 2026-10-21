@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
-import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, rupees, slotText, when } from '../format'
+import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { Dialog, ErrorNote, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
@@ -95,6 +95,14 @@ function OrderView({ order }: { order: Order }) {
     },
   })
   const paid = order.paymentStatus === 'SUCCEEDED'
+  const help = helpLink(`Help with order ${order.number}`)
+  // After a cancel the button that opened the dialog is gone: move focus to the outcome.
+  const cancelledNote = useRef<HTMLElement>(null)
+  const wasStatus = useRef(order.status)
+  useEffect(() => {
+    if (order.status === 'CANCELLED' && wasStatus.current !== 'CANCELLED') cancelledNote.current?.focus()
+    wasStatus.current = order.status
+  }, [order.status])
 
   return (
     <>
@@ -135,7 +143,7 @@ function OrderView({ order }: { order: Order }) {
       )}
 
       {order.status === 'CANCELLED' && (
-        <section className="card note-card">
+        <section className="card note-card" ref={cancelledNote} tabIndex={-1}>
           <p>
             <strong>This order was cancelled.</strong>{' '}
             {order.refundStatus === 'REFUNDED'
@@ -314,6 +322,15 @@ function OrderView({ order }: { order: Order }) {
       <Link to="/orders" className="btn btn-block btn-quiet">
         All my orders
       </Link>
+
+      {help && (
+        <p className="small muted center">
+          Need help with this order?{' '}
+          <a href={help} target="_blank" rel="noopener noreferrer">
+            Message us on WhatsApp
+          </a>
+        </p>
+      )}
 
       {moving && <MoveDialog order={order} onClose={() => setMoving(false)} onMoved={refresh} />}
 

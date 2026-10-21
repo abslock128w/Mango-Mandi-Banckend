@@ -30,7 +30,7 @@ export default function Cart() {
           return (
             <li key={`${l.sku}-${l.stage}`} className="line line-art">
               <MangoArt stage={l.stage} size={36} />
-              <div>
+              <div className="line-info">
                 <strong>{l.name}</strong>
                 <span className="muted small">
                   {STAGE_LABEL[l.stage]} · {rupees(l.price)} each

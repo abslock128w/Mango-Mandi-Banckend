@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { errorMessage } from './api'
 
 export function Spinner({ label = 'Loading' }: { label?: string }) {
@@ -43,26 +44,59 @@ export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => 
   )
 }
 
-/** A modal dialog: focus moves in, Escape closes, focus returns on close. */
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/**
+ * A modal dialog, drawn over the page in a portal. Focus moves in (to `data-autofocus` if a
+ * child has it), Tab stays inside, the page behind is inert and does not scroll, Escape and
+ * the backdrop close it, and focus returns to what opened it.
+ */
 export function Dialog({ title, onClose, children, footer }: { title: string; onClose: () => void; children: ReactNode; footer: ReactNode }) {
   const box = useRef<HTMLDivElement>(null)
+  // Callers pass a fresh arrow each render; keeping it in a ref stops focus jumping on re-render.
+  const close = useRef(onClose)
+  close.current = onClose
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null
-    box.current?.querySelector<HTMLElement>('[data-autofocus], button, input, textarea, select')?.focus()
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const root = document.getElementById('root')
+    root?.setAttribute('inert', '')
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const el = box.current
+    ;(el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE))?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return close.current()
+      if (e.key !== 'Tab' || !el) return
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)]
+      if (!items.length) return e.preventDefault()
+      const first = items[0]
+      const last = items[items.length - 1]
+      const at = document.activeElement
+      if (e.shiftKey && (at === first || !el.contains(at))) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && (at === last || !el.contains(at))) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('keydown', onKey)
-      before?.focus()
+      root?.removeAttribute('inert')
+      document.body.style.overflow = overflow
+      // The opener may be gone (an order just cancelled): then the page moves focus itself.
+      if (before?.isConnected) before.focus()
     }
-  }, [onClose])
-  return (
+  }, [])
+  return createPortal(
     <div className="backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" ref={box}>
         <h2 id="dialog-title">{title}</h2>
         {children}
         <div className="dialog-actions">{footer}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

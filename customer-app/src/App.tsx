@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { helpLink } from './format'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SIGNOUT_EVENT } from './api'
@@ -30,6 +31,7 @@ export default function App() {
   const location = useLocation()
   const boxes = cart.reduce((n, l) => n + l.qty, 0)
   const bump = useBump(boxes)
+  const help = helpLink()
   // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
   const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
 
@@ -99,6 +101,14 @@ export default function App() {
         <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
         <p>
           <Link to="/quality">How we pick and check</Link> · <Link to="/privacy">Privacy notice</Link>
+          {help && (
+            <>
+              {' · '}
+              <a href={help} target="_blank" rel="noopener noreferrer">
+                Help on WhatsApp
+              </a>
+            </>
+          )}
         </p>
       </footer>
       {!focused && (

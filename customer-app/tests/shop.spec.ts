@@ -68,6 +68,10 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByRole('link', { name: /View cart · 3 boxes/ }).click()
 
   await expect(page.getByRole('heading', { name: 'Your cart' })).toBeVisible()
+  // The stepper is one row: minus, count, plus side by side.
+  const stepper = (await page.getByRole('group', { name: `${first} quantity` }).boundingBox())!
+  expect(stepper.height).toBeLessThan(60)
+  expect(stepper.width).toBeLessThan(160)
   await page.getByRole('button', { name: `One less ${second}` }).click()
   await expect(page.getByRole('group', { name: `${second} quantity` })).toHaveCount(0)
   await noA11yViolations(page)
@@ -86,6 +90,8 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible()
   expect(await page.evaluate(() => JSON.stringify(localStorage))).not.toMatch(/eyJ/)
+  // The row of delivery days scrolls inside itself; the page never scrolls sideways.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Enter the full delivery address')
   const days = page.getByRole('radiogroup', { name: 'When should it arrive?' }).getByRole('radio')
@@ -120,8 +126,16 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Cancel order' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog).toContainText("You'll get a full refund")
+  // Keyboard focus stays in the dialog both ways round.
+  await expect(dialog.getByRole('button', { name: 'Keep order' })).toBeFocused()
+  for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key)
+    expect(await dialog.evaluate((d) => d.contains(document.activeElement))).toBe(true)
+  }
   await dialog.getByRole('button', { name: 'Cancel order' }).click()
   await expect(page.getByText('This order was cancelled.')).toBeVisible()
+  // The button that opened the dialog is gone, so focus lands on the outcome.
+  await expect(page.locator('.note-card', { hasText: 'This order was cancelled.' })).toBeFocused()
   await expect(page.getByText(/refund of ₹[\d,]+ (has been sent|is on its way)/)).toBeVisible()
 
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
@@ -383,6 +397,26 @@ test('the top bar changes the pincode and searches; the bottom tabs move between
   await page.getByRole('link', { name: 'Sign in', exact: true }).click()
   await expect(page).toHaveURL(/\/sign-in/)
   await noA11yViolations(page)
+})
+
+test('a focused item is never hidden behind the sticky cart bar or the tabs', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Your delivery pincode').fill('560034')
+  await page.getByRole('button', { name: 'Show mangoes' }).click()
+  await expect(page.getByRole('heading', { name: 'Pick your mangoes' })).toBeVisible()
+  await addFromProductPage(page, 1, 0)
+  await page.goto('/')
+  await expect(page.getByRole('link', { name: /View cart/ })).toBeVisible()
+  for (const name of ['How we pick and check', 'Privacy notice']) {
+    const link = page.getByRole('contentinfo').getByRole('link', { name })
+    await link.focus()
+    const covered = await link.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return !(hit && (hit === el || el.contains(hit)))
+    })
+    expect(covered, `${name} is covered`).toBe(false)
+  }
 })
 
 test('home shows one tile per box; the ripeness is picked on the product page; variety story and quality page', async ({ page }) => {

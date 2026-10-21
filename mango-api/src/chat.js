@@ -24,7 +24,7 @@ import { chatMessenger } from './whatsapp.js'
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
 const STATUS_WORDS = {
-  PAYMENT_PENDING: 'Waiting for payment', CONFIRMED: 'Confirmed', PROCESSING: 'Being packed', PACKED: 'Packed',
+  PAYMENT_PENDING: 'Waiting for payment', CONFIRMED: 'Confirmed', PROCESSING: 'Preparing', PACKED: 'Packed',
   SHIPPED: 'Shipped', OUT_FOR_DELIVERY: 'Out for delivery', DELIVERED: 'Delivered', DELIVERY_FAILED: 'Delivery missed, retrying',
   CANCELLED: 'Cancelled', RTO: 'Returned',
 }

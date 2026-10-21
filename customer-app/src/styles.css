@@ -31,6 +31,16 @@
 }
 html {
   -webkit-text-size-adjust: 100%;
+  /* Keep a focused or scrolled-to item clear of the sticky header and the bottom bars. */
+  scroll-padding-top: 132px;
+  scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+html:has(.sticky-cart) {
+  scroll-padding-bottom: calc(144px + env(safe-area-inset-bottom));
+}
+/* With the View cart bar showing too, the footer needs room for both bars. */
+html:has(.sticky-cart) .foot {
+  padding-bottom: calc(9.5rem + env(safe-area-inset-bottom));
 }
 body {
   margin: 0;
@@ -347,6 +357,9 @@ a {
   margin: 0 0 1rem;
   border: 0;
   padding: 0;
+  /* a fieldset otherwise grows to fit a row of chips and scrolls the page sideways */
+  min-width: 0;
+  min-inline-size: 0;
 }
 label,
 legend {
@@ -407,6 +420,7 @@ textarea:focus {
   cursor: pointer;
 }
 .option input {
+  flex: none;
   width: 1.15rem;
   height: 1.15rem;
   min-height: 0;
@@ -739,6 +753,8 @@ textarea:focus {
 .dialog {
   width: 100%;
   max-width: 440px;
+  max-height: 100dvh;
+  overflow-y: auto;
   background: var(--surface);
   border-radius: var(--radius) var(--radius) 0 0;
   padding: 1.25rem 16px calc(1rem + env(safe-area-inset-bottom));
@@ -1021,11 +1037,33 @@ textarea:focus {
 .stage-ripe {
   background: #f0a020;
 }
-.line-art > div {
+.line-art > .line-info {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
+}
+/* Phones: the stepper goes under the name, the price stays on the right. */
+@media (max-width: 479px) {
+  .line-art {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: 'art info price' 'art step price';
+    row-gap: 0.4rem;
+  }
+  .line-art > .mango-art {
+    grid-area: art;
+  }
+  .line-art > .line-info {
+    grid-area: info;
+  }
+  .line-art > .stepper {
+    grid-area: step;
+    justify-self: start;
+  }
+  .line-art > .line-price {
+    grid-area: price;
+  }
 }
 
 /* order page: times on the steps, care tips, ratings */
@@ -1733,4 +1771,14 @@ a.chip {
   .count.bump {
     animation: none;
   }
+}
+.center {
+  text-align: center;
+}
+.note-card:focus {
+  outline: none;
+}
+.note-card:focus-visible {
+  outline: 3px solid var(--color-accent-strong);
+  outline-offset: 2px;
 }
