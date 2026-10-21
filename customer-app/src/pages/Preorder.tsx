@@ -8,7 +8,7 @@ import { ApiError, api, errorMessage, type Preorder, type PreorderStatus, type P
 import { PREORDER_LABEL, STAGE_HINT, STAGE_LABEL, rupees, week, when } from '../format'
 import { useStore } from '../store'
 import { AddressPicker, DayChips, Field, Stepper } from '../forms'
-import { ConfirmDialog, ErrorNote, PageHeader, Spinner } from '../ui'
+import { ConfirmDialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -338,6 +338,7 @@ export function PreorderPage() {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card">
+          <DocTitle title="Booking not found" />
           <h1>Booking not found</h1>
           <Link to="/orders">See my orders</Link>
         </section>
@@ -369,6 +370,7 @@ function PreorderView({ pre }: { pre: Preorder }) {
 
   return (
     <>
+      <DocTitle title={`Booking ${pre.number}`} />
       <PageHeader title={`Booking ${pre.number}`}>
         <PreorderPill status={pre.status} />
       </PageHeader>

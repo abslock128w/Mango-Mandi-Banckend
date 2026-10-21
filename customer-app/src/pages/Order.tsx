@@ -5,7 +5,7 @@ import { ApiError, api, signedInPhone, type Order, type OrderStatus, type Stage 
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
 import { DayChips, SlotPicker } from '../forms'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
-import { ConfirmDialog, Dialog, ErrorNote, PageHeader, Spinner } from '../ui'
+import { ConfirmDialog, Dialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
 import { OrderReviews } from './Review'
@@ -55,6 +55,7 @@ export default function OrderPage() {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card">
+          <DocTitle title="Order not found" />
           <h1>Order not found</h1>
           <Link to="/orders">See my orders</Link>
         </section>
@@ -132,6 +133,7 @@ function OrderView({ order }: { order: Order }) {
 
   return (
     <>
+      <DocTitle title={`Order ${order.number}`} />
       <PageHeader title={`Order ${order.number}`}>
         <StatusPill status={order.status} />
       </PageHeader>

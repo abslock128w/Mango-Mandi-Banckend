@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, errorMessage } from './api'
+import { DocTitle } from './ui'
 
 declare global {
   interface Window {
@@ -281,6 +282,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
 export function AddPhoneCard() {
   return (
     <section className="card narrow" aria-labelledby="add-phone">
+      <DocTitle title="Add your mobile number" />
       <h1 id="add-phone">Add your mobile number</h1>
       <PhoneCodeForm
         mode="add"

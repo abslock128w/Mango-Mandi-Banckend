@@ -1,6 +1,6 @@
 // Shared form pieces for the shop: one labelled field, day chips, delivery times, saved
 // addresses, photo uploads and the − count + stepper. Each page builds its forms from these.
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ChangeEvent, type ReactElement, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
 import { errorMessage, type SavedAddress, type SlotOnDate } from './api'
 import { slotText } from './format'
 import { shrinkPhoto } from './photo'
@@ -59,7 +59,11 @@ export function Field({
   )
 }
 
-/** A row of chips that acts as one choice (a delivery day, a booking week). Scrolls sideways inside itself. */
+/**
+ * A row of chips that acts as one choice (a delivery day, a booking week): a real radio group.
+ * Tab reaches it once (the picked chip, or the first), and the arrow keys, Home and End move the
+ * choice, as with native radios. Scrolls sideways inside itself on a phone; wraps on wider screens.
+ */
 export function DayChips({
   label,
   days,
@@ -73,10 +77,41 @@ export function DayChips({
   onChange: (day: string) => void
   format: (day: string) => string
 }) {
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const at = days.indexOf(value ?? '')
+  const stop = at >= 0 ? at : 0
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const from = refs.current.findIndex((el) => el === document.activeElement)
+    const cur = from >= 0 ? from : stop
+    const last = days.length - 1
+    const to =
+      e.key === 'ArrowRight' || e.key === 'ArrowDown'
+        ? (cur + 1) % days.length
+        : e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          ? (cur - 1 + days.length) % days.length
+          : e.key === 'Home'
+            ? 0
+            : e.key === 'End'
+              ? last
+              : null
+    if (to === null) return
+    e.preventDefault()
+    refs.current[to]?.focus()
+    onChange(days[to])
+  }
   return (
-    <div className="chips" role="radiogroup" aria-label={label}>
-      {days.map((d) => (
-        <button key={d} type="button" role="radio" aria-checked={d === value} className="chip" onClick={() => onChange(d)}>
+    <div className="chips" role="radiogroup" aria-label={label} onKeyDown={onKey}>
+      {days.map((d, i) => (
+        <button
+          key={d}
+          ref={(el) => (refs.current[i] = el)}
+          type="button"
+          role="radio"
+          aria-checked={d === value}
+          tabIndex={i === stop ? 0 : -1}
+          className="chip"
+          onClick={() => onChange(d)}
+        >
           {format(d)}
         </button>
       ))}

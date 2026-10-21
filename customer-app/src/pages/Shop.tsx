@@ -171,9 +171,11 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   useEffect(() => {
     if (stale) onDate(null)
   }, [stale, onDate])
-  if (q.isPending) return <Skeleton label="Loading mangoes" />
-  if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
-  if (!q.data.serviceable) return <ErrorNote error={`We don't deliver to ${pincode} yet.`} />
+  // The page's h1 stays while the mangoes load or fail, for screen-reader heading navigation.
+  const quietTitle = <h1 className="sr-only">Pick your mangoes</h1>
+  if (q.isPending) return <>{quietTitle}<Skeleton label="Loading mangoes" /></>
+  if (q.isError) return <>{quietTitle}<ErrorNote error={q.error} onRetry={() => q.refetch()} /></>
+  if (!q.data.serviceable) return <>{quietTitle}<ErrorNote error={`We don't deliver to ${pincode} yet.`} /></>
   const all = groupBySku(q.data.items)
   const words = search.toLowerCase()
   const products = words ? all.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : all
@@ -182,9 +184,10 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   return (
     <>
       <section aria-labelledby="pick">
-        <h2 id="pick" className="section-title">
+        {/* The page's h1, at section-title size so it reads like the rest of the home page. */}
+        <h1 id="pick" className="section-title">
           {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
-        </h2>
+        </h1>
         <p className="muted small">Showing what we have for {day(chosen)}. You choose the delivery day at checkout.</p>
         {products.length === 0 && (
           <p className="card empty">

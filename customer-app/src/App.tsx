@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
 import { helpLink } from './format'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
@@ -17,6 +17,30 @@ import BookAhead, { PreorderPage } from './pages/Preorder'
 import ReviewPage from './pages/Review'
 import ProductPage from './pages/Product'
 import Quality from './pages/Quality'
+import { pageTitle } from './ui'
+
+/** Each route's browser title; pages with a name or number (a box, an order) refine it once it loads. */
+function routeTitle(path: string) {
+  if (path === '/') return 'Pick your mangoes'
+  if (path === '/cart') return 'Your cart'
+  if (path === '/sign-in') return 'Sign in'
+  if (path === '/privacy') return 'Privacy notice'
+  if (path === '/quality') return 'How we pick and check'
+  if (path === '/account') return 'Your account'
+  if (path === '/checkout') return 'Delivery details'
+  if (path === '/orders') return 'My orders'
+  if (/^\/orders\/[^/]+\/claim$/.test(path)) return 'Report a problem'
+  if (/^\/orders\/[^/]+$/.test(path)) return 'Your order'
+  if (/^\/mangoes\//.test(path)) return 'Mangoes'
+  if (/^\/review\//.test(path)) return 'Write a review'
+  if (/^\/reviews\/[^/]+\/edit$/.test(path)) return 'Change your review'
+  if (path === '/preorder') return 'Book ahead'
+  if (/^\/preorders\//.test(path)) return 'Your booking'
+  return 'Page not found'
+}
+
+/** Pages laid out across the wider desktop container (tiles, product and checkout columns); the rest stay one readable column. */
+const WIDE = /^\/($|mangoes\/|checkout$)/
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
   const { profile } = useStore()
@@ -44,9 +68,53 @@ export default function App() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
+  // A layout effect runs before every page's own effects, so a page's more specific title wins.
+  useLayoutEffect(() => {
+    document.title = pageTitle(routeTitle(location.pathname))
+  }, [location.pathname])
+  const skip = (e: MouseEvent) => {
+    // Move focus without adding #main to the address (the router owns the URL).
+    e.preventDefault()
+    const main = document.getElementById('main')
+    main?.focus()
+    main?.scrollIntoView()
+  }
+  const cartLink = (
+    <NavLink to="/cart" className="tab" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
+      <span className="tab-icon-wrap">
+        <TabIcon d="M3 4h2l2.4 11h11.2L21 7H6.2M9 20a1 1 0 1 0 0-.01M18 20a1 1 0 1 0 0-.01" />
+        {boxes > 0 && (
+          <span key={bump} className={bump ? 'count bump' : 'count'} aria-hidden="true">
+            {boxes}
+          </span>
+        )}
+      </span>
+      <span aria-hidden="true">Cart</span>
+    </NavLink>
+  )
+  const mainLinks = (
+    <>
+      <NavLink to="/" end className="tab">
+        <TabIcon d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
+        <span>Home</span>
+      </NavLink>
+      <NavLink to="/preorder" className="tab">
+        <TabIcon d="M4 6h16v14H4zM4 10h16M8 3v5M16 3v5" />
+        <span>Book ahead</span>
+      </NavLink>
+      <NavLink to="/orders" className="tab">
+        <TabIcon d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />
+        <span>Orders</span>
+      </NavLink>
+      {cartLink}
+    </>
+  )
 
   return (
     <>
+      <a href="#main" className="skip-link" onClick={skip}>
+        Skip to content
+      </a>
       <header className={profile ? 'top signed-in' : 'top'}>
         <div className="top-inner">
           <div className="top-row">
@@ -65,9 +133,13 @@ export default function App() {
             </NavLink>
           </div>
           <SearchBar />
+          {/* Desktop only: the same links as the bottom tabs, in the header, with the cart count. */}
+          <nav aria-label="Main" className="top-nav">
+            {mainLinks}
+          </nav>
         </div>
       </header>
-      <main className="page">
+      <main id="main" tabIndex={-1} className={WIDE.test(location.pathname) ? 'page page-wide' : 'page'}>
         <Routes>
           <Route path="/" element={<Shop />} />
           <Route path="/cart" element={<Cart />} />
@@ -113,29 +185,7 @@ export default function App() {
       </footer>
       {!focused && (
       <nav aria-label="Main" className="tabbar">
-        <NavLink to="/" end className="tab">
-          <TabIcon d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
-          <span>Home</span>
-        </NavLink>
-        <NavLink to="/preorder" className="tab">
-          <TabIcon d="M4 6h16v14H4zM4 10h16M8 3v5M16 3v5" />
-          <span>Book ahead</span>
-        </NavLink>
-        <NavLink to="/orders" className="tab">
-          <TabIcon d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />
-          <span>Orders</span>
-        </NavLink>
-        <NavLink to="/cart" className="tab" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
-          <span className="tab-icon-wrap">
-            <TabIcon d="M3 4h2l2.4 11h11.2L21 7H6.2M9 20a1 1 0 1 0 0-.01M18 20a1 1 0 1 0 0-.01" />
-            {boxes > 0 && (
-              <span key={bump} className={bump ? 'count bump' : 'count'} aria-hidden="true">
-                {boxes}
-              </span>
-            )}
-          </span>
-          <span aria-hidden="true">Cart</span>
-        </NavLink>
+        {mainLinks}
       </nav>
       )}
     </>

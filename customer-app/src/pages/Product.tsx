@@ -8,7 +8,7 @@ import { Stepper } from '../forms'
 import { useStore } from '../store'
 import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
-import { Dialog, ErrorNote, Skeleton } from '../ui'
+import { Dialog, DocTitle, ErrorNote, Skeleton } from '../ui'
 import { storyFor } from '../varieties'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
@@ -36,6 +36,7 @@ export default function ProductPage() {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card">
+          <DocTitle title="Mango not found" />
           <h1>Mango not found</h1>
           <Link to="/">Back to the shop</Link>
         </section>
@@ -53,57 +54,62 @@ export default function ProductPage() {
   return (
     <>
       <BuyBox sku={sku} fallbackName={first.product.name} />
-      <VarietyStoryCard variety={first.product.variety} name={first.product.name} />
-      <section className="card" aria-labelledby="ratings-title" id="reviews">
-        <h2 id="ratings-title">Ratings and reviews</h2>
-        <p className="muted small">From verified buyers of every {variety} box.</p>
-        <RatingBars summary={first.summary} active={stars} onPick={setStars} />
-        <div className="review-filters">
-          <label className="option">
-            <input type="checkbox" checked={withPhotos} onChange={(e) => setWithPhotos(e.target.checked)} />
-            <span>Only reviews with photos ({first.summary.withPhotos})</span>
-          </label>
-          {filtered && (
-            <button
-              type="button"
-              className="link-btn"
-              onClick={() => {
-                setStars(null)
-                setWithPhotos(false)
-              }}
-            >
-              Show all reviews
-            </button>
-          )}
-        </div>
-      </section>
+      {/* On a desktop the story sits beside the ratings and reviews; on a phone they stack. */}
+      <div className="product-more">
+        <VarietyStoryCard variety={first.product.variety} name={first.product.name} />
+        <div className="product-reviews">
+          <section className="card" aria-labelledby="ratings-title" id="reviews">
+            <h2 id="ratings-title">Ratings and reviews</h2>
+            <p className="muted small">From verified buyers of every {variety} box.</p>
+            <RatingBars summary={first.summary} active={stars} onPick={setStars} />
+            <div className="review-filters">
+              <label className="option">
+                <input type="checkbox" checked={withPhotos} onChange={(e) => setWithPhotos(e.target.checked)} />
+                <span>Only reviews with photos ({first.summary.withPhotos})</span>
+              </label>
+              {filtered && (
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => {
+                    setStars(null)
+                    setWithPhotos(false)
+                  }}
+                >
+                  Show all reviews
+                </button>
+              )}
+            </div>
+          </section>
 
-      <section aria-labelledby="reviews-title">
-        <h2 id="reviews-title" className="section-title">
-          {filtered ? 'Matching reviews' : 'Reviews'}
-        </h2>
-        {items.length === 0 ? (
-          <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
-        ) : (
-          <ul className="review-list">
-            {shown.map((r) => (
-              <li key={r.id} className="card review">
-                <ReviewCard review={r} onPhoto={(index) => setOpen({ review: r, index })} />
-              </li>
-            ))}
-          </ul>
-        )}
-        {more && (
-          <button type="button" className="btn btn-block" onClick={() => setShowAll(true)}>
-            See all {first.summary.count} reviews
-          </button>
-        )}
-        {expanded && q.hasNextPage && (
-          <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-            {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
-          </button>
-        )}
-      </section>
+          <section aria-labelledby="reviews-title">
+            <h2 id="reviews-title" className="section-title">
+              {filtered ? 'Matching reviews' : 'Reviews'}
+            </h2>
+            {items.length === 0 ? (
+              <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
+            ) : (
+              <ul className="review-list">
+                {shown.map((r) => (
+                  <li key={r.id} className="card review">
+                    <ReviewCard review={r} onPhoto={(index) => setOpen({ review: r, index })} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {more && (
+              <button type="button" className="btn btn-block" onClick={() => setShowAll(true)}>
+                See all {first.summary.count} reviews
+              </button>
+            )}
+            {expanded && q.hasNextPage && (
+              <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
+                {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
+              </button>
+            )}
+          </section>
+        </div>
+      </div>
       {open && <Lightbox review={open.review} start={open.index} onClose={() => setOpen(null)} />}
     </>
   )
@@ -226,6 +232,7 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   if (!pincode) {
     return (
       <section className="card" aria-labelledby="product-title">
+        <DocTitle title={fallbackName} />
         <h1 id="product-title">{fallbackName}</h1>
         <p>Tell us your pincode to see the ripeness we have and add a box.</p>
         <Link to="/" className="btn btn-primary">
@@ -241,6 +248,7 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   if (!q.data.serviceable || !p) {
     return (
       <section className="card" aria-labelledby="product-title">
+        <DocTitle title={fallbackName} />
         <h1 id="product-title">{fallbackName}</h1>
         <p>{q.data.serviceable ? `This box isn't on sale for ${pincode} right now.` : `We don't deliver to ${pincode} yet.`}</p>
         <Link to="/">See all mangoes</Link>
@@ -267,141 +275,147 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
 
   return (
     <section className="card buy" aria-labelledby="product-title">
-      {p.photoUrl && <ProductImage photoUrl={p.photoUrl} name={p.name} className="product-hero" />}
-      <header className="product-head">
-        {!p.photoUrl && <MangoArt stage={item?.stage ?? 'RIPE'} size={72} />}
-        <div className="product-name">
-          <h1 id="product-title">{p.name}</h1>
-          <ProductRating sku={p.sku} variety={p.variety} href="#reviews" />
-          <p className="buy-price">
-            <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>
-          </p>
-        </div>
-      </header>
-      {p.description && <p>{p.description}</p>}
-
-      {sizes.length > 1 && (
-        <div className="field">
-          <span className="label" id="size-label">
-            Box size
-          </span>
-          <div className="chips" role="group" aria-labelledby="size-label">
-            {sizes.map((x) => (
-              <Link key={x.sku} to={`/mangoes/${x.sku}`} replace className="chip" aria-current={x.sku === sku ? 'true' : undefined}>
-                {x.boxSize || x.name} · {rupees(x.price)}
-              </Link>
-            ))}
+      <DocTitle title={p.name} />
+      {/* The photo: on top on a phone, the left column on a desktop (a large drawn mango there when there is no photo). */}
+      <div className="buy-media">
+        {p.photoUrl ? <ProductImage photoUrl={p.photoUrl} name={p.name} className="product-hero" /> : <span className="buy-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={240} /></span>}
+      </div>
+      <div className="buy-body">
+        <header className="product-head">
+          {!p.photoUrl && <span className="head-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={72} /></span>}
+          <div className="product-name">
+            <h1 id="product-title">{p.name}</h1>
+            <ProductRating sku={p.sku} variety={p.variety} href="#reviews" />
+            <p className="buy-price">
+              <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>
+            </p>
           </div>
-        </div>
-      )}
+        </header>
+        {p.description && <p>{p.description}</p>}
 
-      <fieldset className="field">
-        <legend>Choose ripeness</legend>
-        <ul className="ripe-options">
-          {p.stages.map((s) => {
-            const id = `st-${s.stage}`
-            const sold = s.qty === 0
-            return (
-              <li key={s.stage} className={`ripe-option${s.stage === stage ? ' is-picked' : ''}${sold ? ' is-sold' : ''}`}>
-                <label>
-                  <input
-                    type="radio"
-                    name="stage"
-                    value={s.stage}
-                    checked={s.stage === stage}
-                    disabled={sold}
-                    onChange={() => {
-                      setPicked(s.stage)
-                      setAdded(null)
-                    }}
-                    aria-labelledby={`${id}-name`}
-                    aria-describedby={`${id}-info`}
-                  />
-                  <span className={`stage-dot stage-${s.stage.toLowerCase()}`} aria-hidden="true" />
-                  <span className="stage-text">
-                    <strong id={`${id}-name`}>{STAGE_LABEL[s.stage]}</strong>
-                    <span id={`${id}-info`} className="muted small">
-                      {STAGE_HINT[s.stage]} {sold ? 'Sold out for this day.' : `Eat by ${day(s.eatBy)}.`}
-                      {!sold && s.qty <= 5 && <span className="low"> Only {s.qty} left.</span>}
-                    </span>
-                  </span>
-                </label>
-                {sold && (
-                  <span className="small ripe-extra">
-                    {s.nextAvailableDate ? (
-                      <button
-                        type="button"
-                        className="link-btn"
-                        onClick={() => {
-                          wanted.current = s.stage
-                          setSwitched({ date, shown: shownDay })
-                          setWhere(pincode, s.nextAvailableDate!)
-                        }}
-                      >
-                        Show stock for {day(s.nextAvailableDate)}
-                      </button>
-                    ) : (
-                      <NotifyMe item={s} label={`${p.name}, ${STAGE_LABEL[s.stage]}`} />
-                    )}
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </fieldset>
-
-      {item ? (
-        <>
+        {sizes.length > 1 && (
           <div className="field">
-            <Stepper
-              label="How many boxes"
-              showLabel
-              value={n}
-              shown={room === 0 ? 0 : n}
-              min={1}
-              max={room}
-              onChange={setCount}
-              lessLabel="One box fewer"
-              moreLabel="One box more"
-            />
-            {inCart > 0 && (
-              <p className="muted small">
-                {inCart} already in your cart{room === 0 ? ', the most we can send for this day.' : '.'}
-              </p>
-            )}
+            <span className="label" id="size-label">
+              Box size
+            </span>
+            <div className="chips" role="group" aria-labelledby="size-label">
+              {sizes.map((x) => (
+                <Link key={x.sku} to={`/mangoes/${x.sku}`} replace className="chip" aria-current={x.sku === sku ? 'true' : undefined}>
+                  {x.boxSize || x.name} · {rupees(x.price)}
+                </Link>
+              ))}
+            </div>
           </div>
-          {/* Sticks to the bottom of a phone screen (above the tabs) until the buy box scrolls past. */}
-          <div className="buy-bar">
-            <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
-              Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
+        )}
+
+        <fieldset className="field">
+          <legend>Choose ripeness</legend>
+          <ul className="ripe-options">
+            {p.stages.map((s) => {
+              const id = `st-${s.stage}`
+              const sold = s.qty === 0
+              return (
+                <li key={s.stage} className={`ripe-option${s.stage === stage ? ' is-picked' : ''}${sold ? ' is-sold' : ''}`}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="stage"
+                      value={s.stage}
+                      checked={s.stage === stage}
+                      disabled={sold}
+                      onChange={() => {
+                        setPicked(s.stage)
+                        setAdded(null)
+                      }}
+                      aria-labelledby={`${id}-name`}
+                      aria-describedby={`${id}-info`}
+                    />
+                    <span className={`stage-dot stage-${s.stage.toLowerCase()}`} aria-hidden="true" />
+                    <span className="stage-text">
+                      <strong id={`${id}-name`}>{STAGE_LABEL[s.stage]}</strong>
+                      <span id={`${id}-info`} className="muted small">
+                        {STAGE_HINT[s.stage]} {sold ? 'Sold out for this day.' : `Eat by ${day(s.eatBy)}.`}
+                        {!sold && s.qty <= 5 && <span className="low"> Only {s.qty} left.</span>}
+                      </span>
+                    </span>
+                  </label>
+                  {sold && (
+                    <span className="small ripe-extra">
+                      {s.nextAvailableDate ? (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => {
+                            wanted.current = s.stage
+                            setSwitched({ date, shown: shownDay })
+                            setWhere(pincode, s.nextAvailableDate!)
+                          }}
+                        >
+                          Show stock for {day(s.nextAvailableDate)}
+                        </button>
+                      ) : (
+                        <NotifyMe item={s} label={`${p.name}, ${STAGE_LABEL[s.stage]}`} />
+                      )}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </fieldset>
+
+        {item ? (
+          <>
+            <div className="field">
+              <Stepper
+                label="How many boxes"
+                showLabel
+                value={n}
+                shown={room === 0 ? 0 : n}
+                min={1}
+                max={room}
+                onChange={setCount}
+                lessLabel="One box fewer"
+                moreLabel="One box more"
+              />
+              {inCart > 0 && (
+                <p className="muted small">
+                  {inCart} already in your cart{room === 0 ? ', the most we can send for this day.' : '.'}
+                </p>
+              )}
+            </div>
+            {/* Sticks to the bottom of a phone screen (above the tabs) until the buy box scrolls past. */}
+            <div className="buy-bar">
+              <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
+                Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="sold-out">Every ripeness is sold out for {day(shownDay)}.</p>
+        )}
+        {switched && (
+          <p className="note" role="status" tabIndex={-1} ref={switchedNote}>
+            Now showing stock for {day(shownDay)}.{' '}
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => {
+                setWhere(pincode, switched.date)
+                setSwitched(null)
+              }}
+            >
+              Back to {day(switched.shown)}
             </button>
-          </div>
-        </>
-      ) : (
-        <p className="sold-out">Every ripeness is sold out for {day(shownDay)}.</p>
-      )}
-      {switched && (
-        <p className="note" role="status" tabIndex={-1} ref={switchedNote}>
-          Now showing stock for {day(shownDay)}.{' '}
-          <button
-            type="button"
-            className="link-btn"
-            onClick={() => {
-              setWhere(pincode, switched.date)
-              setSwitched(null)
-            }}
-          >
-            Back to {day(switched.shown)}
-          </button>
-        </p>
-      )}
-      {added && (
-        <p className="note" role="status">
-          {added} <Link to="/cart">View cart</Link>
-        </p>
-      )}
-      <p className="muted small">Showing stock for {day(shownDay)}. You choose the delivery day at checkout.</p>
+          </p>
+        )}
+        {added && (
+          <p className="note" role="status">
+            {added} <Link to="/cart">View cart</Link>
+          </p>
+        )}
+        <p className="muted small">Showing stock for {day(shownDay)}. You choose the delivery day at checkout.</p>
+      </div>
     </section>
   )
 }

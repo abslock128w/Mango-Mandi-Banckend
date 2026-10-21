@@ -159,6 +159,10 @@ a {
 .profile-btn.active {
   outline: 2px solid var(--mango);
 }
+/* The page-you-are-on ring must not replace the keyboard focus ring. */
+.profile-btn.active:focus-visible {
+  outline: var(--focus-ring);
+}
 .search {
   display: flex;
   align-items: center;
@@ -488,6 +492,12 @@ textarea:focus {
 }
 .section-title {
   margin-top: var(--space-2);
+}
+/* Home's h1 ("Pick your mangoes") reads at section size, like the headings around it. */
+h1.section-title {
+  font-size: var(--text-lg);
+  line-height: var(--leading);
+  margin-bottom: var(--space-2);
 }
 .chips {
   display: flex;
@@ -1108,8 +1118,23 @@ textarea:focus {
   letter-spacing: 0.1em;
   margin-bottom: var(--space-1);
 }
-.stars-off {
+/* Read-only stars: filled in the accent, empty ones outlined in the 3:1 mark colour. */
+.stars-shown {
+  display: inline-flex;
+  gap: 0.1em;
+}
+.stars-shown .star-mark {
   color: var(--color-star-empty);
+}
+.stars-shown .star-mark.on {
+  color: var(--mango);
+}
+.star-mark {
+  display: block;
+  flex: none;
+}
+.star .star-mark {
+  margin: auto;
 }
 
 /* account: saved addresses */
@@ -1741,4 +1766,202 @@ a.chip {
 }
 h1[tabindex='-1']:focus {
   outline: none;
+}
+
+/* Skip link: the first Tab stop on every page, shown only while it has focus. */
+.skip-link {
+  position: absolute;
+  left: var(--space-4);
+  top: var(--space-2);
+  z-index: 30;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  transform: translateY(-200%);
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: none;
+}
+main:focus {
+  outline: none;
+}
+
+/* Desktop-only pieces, hidden on phones so the phone layout stays as it is. */
+.top-nav,
+.buy-art,
+.order-summary {
+  display: none;
+}
+.head-art {
+  display: flex;
+  flex: none;
+}
+
+/* From 640px: rows of chips wrap instead of scrolling sideways. */
+@media (min-width: 640px) {
+  .chips {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
+/* Desktop (1024px and up): the top menu with the cart replaces the bottom tabs; a 1120px container,
+   four tiles a row, photo beside the buy box, and the checkout form beside a sticky order summary. */
+@media (min-width: 1024px) {
+  html {
+    scroll-padding-top: 96px;
+    scroll-padding-bottom: 0;
+  }
+  html:has(.sticky-cart),
+  html:has(.buy-bar) {
+    scroll-padding-bottom: 88px;
+  }
+  .tabbar {
+    display: none;
+  }
+  .top-inner {
+    max-width: 1120px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-6);
+  }
+  .top-row {
+    display: contents;
+  }
+  .brand {
+    order: 1;
+  }
+  .where-btn {
+    order: 2;
+    margin-right: 0;
+  }
+  .search {
+    order: 3;
+    flex: 1 1 18rem;
+    max-width: 30rem;
+    margin: 0 auto 0 0;
+  }
+  .top-nav {
+    order: 4;
+    display: flex;
+    gap: var(--space-1);
+  }
+  .profile-btn {
+    order: 5;
+  }
+  .top-nav .tab {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--tap-min);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    color: var(--ink);
+  }
+  .top-nav .tab:hover {
+    background: var(--mango-soft);
+  }
+  .top-nav .tab.active {
+    color: var(--mango-strong);
+    background: var(--mango-soft);
+  }
+  .page {
+    padding: var(--space-6) var(--space-6) var(--space-10);
+  }
+  .page-wide {
+    max-width: 1120px;
+  }
+  .foot {
+    max-width: 1120px;
+    padding-bottom: var(--space-8);
+  }
+  html:has(.sticky-cart) .foot {
+    padding-bottom: 6rem;
+  }
+  .sticky-cart {
+    bottom: 0;
+  }
+  .tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  /* product page: photo left, buy box right; the story beside the reviews under them */
+  .card.buy {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: start;
+    padding: var(--space-6);
+  }
+  .buy-media {
+    position: sticky;
+    top: 96px;
+  }
+  .buy-media .product-hero {
+    width: 100%;
+    margin: 0;
+    aspect-ratio: 1 / 1;
+    max-height: none;
+    border-radius: var(--radius-md);
+  }
+  .buy-art {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1 / 1;
+    border-radius: var(--radius-md);
+    background: var(--mango-soft);
+  }
+  .head-art {
+    display: none;
+  }
+  .buy-bar {
+    position: static;
+    margin: 0;
+    padding: var(--space-2) 0 var(--space-3);
+    background: none;
+  }
+  .product-more {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: var(--space-6);
+    align-items: start;
+  }
+  .product-more > :only-child {
+    grid-column: 1 / -1;
+  }
+
+  /* checkout: the form left, the order summary sticky on the right */
+  .checkout-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    gap: var(--space-6);
+    align-items: start;
+  }
+  .order-summary {
+    display: block;
+    position: sticky;
+    top: 96px;
+  }
+  .checkout-review {
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+@media (min-width: 1024px) {
+  /* In the top menu the cart count follows the word, not over it. */
+  .top-nav .tab-icon-wrap {
+    display: contents;
+  }
+  .top-nav .tab .count {
+    position: static;
+    order: 1;
+  }
 }

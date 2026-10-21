@@ -44,7 +44,10 @@ export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => 
   )
 }
 
-const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// Tab stops only: a roving radio group's unpicked options (tabindex -1) are reached with the arrow keys.
+const FOCUSABLE = ['a[href]', 'button:not([disabled])', 'input:not([disabled])', 'textarea:not([disabled])', 'select:not([disabled])', '[tabindex]']
+  .map((s) => `${s}:not([tabindex="-1"])`)
+  .join(', ')
 
 /**
  * A modal dialog, drawn over the page in a portal. Focus moves in (to `data-autofocus` if a
@@ -155,4 +158,20 @@ export function PageHeader({ title, children }: { title: ReactNode; children?: R
       {children}
     </div>
   )
+}
+
+/** "Your cart · MandiMangoes": the browser title for a page. */
+export function pageTitle(title: string) {
+  return `${title} · MandiMangoes`
+}
+
+/**
+ * Sets the browser title once a page knows its name (a box, an order number). App sets a title
+ * for each route first, so a page only needs this where its title depends on what it loaded.
+ */
+export function DocTitle({ title }: { title: string }) {
+  useEffect(() => {
+    document.title = pageTitle(title)
+  }, [title])
+  return null
 }
