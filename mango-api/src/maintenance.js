@@ -23,7 +23,7 @@ import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
-import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
+import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
@@ -144,6 +144,7 @@ export async function retireBatches() {
   const { rows } = await query(`SELECT id FROM batches WHERE status NOT IN ('EXHAUSTED', 'CONDEMNED') AND plucked_on <= $1`, [cutoff])
   for (const { id } of rows) {
     await tx(async (c) => {
+      await lockBatchOrders(c, [id]) // orders before the batch (INV-03)
       const { rows: b } = await c.query('SELECT status FROM batches WHERE id = $1 FOR UPDATE', [id])
       if (['EXHAUSTED', 'CONDEMNED'].includes(b[0].status)) return
       await c.query(`UPDATE batches SET status = 'EXHAUSTED' WHERE id = $1`, [id])

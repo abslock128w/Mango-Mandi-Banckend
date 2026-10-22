@@ -634,12 +634,29 @@ export async function allocateOrder(c, orderId, actor) {
  * for this transaction and then sees the batch out of service
  * (inventory.js allocate re-checks after taking the line).
  */
+/**
+ * INV-03: locks the open orders that hold stock on these batches, oldest first.
+ * Payments lock an order and then its batch lines, so batch operations (condemn,
+ * retire, QC, status) call this before locking the batch or its lines; taking
+ * locks in the same order means they wait instead of deadlocking.
+ */
+export async function lockBatchOrders(c, batchIds) {
+  await c.query(
+    `SELECT o.id FROM orders o
+      WHERE o.status = ANY($2)
+        AND o.id IN (SELECT s.order_id FROM order_stock s WHERE s.batch_id = ANY($1) AND s.state IN ('held', 'committed', 'packed'))
+      ORDER BY o.placed_at, o.id FOR UPDATE OF o`,
+    [batchIds, OPEN_STATUSES],
+  )
+}
+
 export async function takeBatchOutOfService(c, batchId, status, actor, why = null) {
+  await lockBatchOrders(c, [batchId])
   const { rows: lines } = await c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [batchId])
   const { rows: affected } = await c.query(
     `SELECT DISTINCT o.id, o.placed_at FROM order_stock s JOIN orders o ON o.id = s.order_id
       WHERE s.batch_id = $1 AND s.state IN ('held', 'committed', 'packed') AND o.status = ANY($2)
-      ORDER BY o.placed_at`,
+      ORDER BY o.placed_at, o.id`,
     [batchId, OPEN_STATUSES],
   )
   const rebalancedOrders = []
@@ -767,7 +784,7 @@ export async function rebalanceBatchOrders(c, batchIds, actor = SYSTEM) {
   const { rows } = await c.query(
     `SELECT DISTINCT o.id, o.placed_at FROM order_stock s JOIN orders o ON o.id = s.order_id
       WHERE s.batch_id = ANY($1) AND s.state IN ('held', 'committed', 'packed') AND o.status = ANY($2)
-      ORDER BY o.placed_at`,
+      ORDER BY o.placed_at, o.id`,
     [batchIds, OPEN_STATUSES],
   )
   const out = []

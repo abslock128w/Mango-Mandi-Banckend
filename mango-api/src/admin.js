@@ -30,6 +30,7 @@ import {
   MAX_DELIVERY_ATTEMPTS,
   moveOrderToDate,
   placeOnFirstDateWithStock,
+  lockBatchOrders,
   rebalanceBatchOrders,
   rebalanceOrder,
   recordShortArrival,
@@ -665,6 +666,7 @@ router.patch(
     )
     if (status === 'CONDEMNED' && req.admin.role !== 'MANAGER') return requireManager(req, res, next)
     const result = await tx(async (c) => {
+      await lockBatchOrders(c, [req.params.id]) // orders before the batch (INV-03)
       const { rows } = await c.query('SELECT * FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       const b = rows[0]
@@ -710,6 +712,7 @@ router.post(
       req.body,
     )
     const out = await tx(async (c) => {
+      await lockBatchOrders(c, [req.params.id]) // orders before the batch (INV-03)
       const { rows } = await c.query('SELECT id, status FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
