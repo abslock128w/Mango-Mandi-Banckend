@@ -142,4 +142,10 @@ describe('production preflight', () => {
     const nothing = checkProduction({ ...good, SMS_PROVIDER: 'log', WHATSAPP_PROVIDER: 'log' })
     assert.ok(nothing.errors.some((e) => e.startsWith('No way to send login codes')))
   })
+
+  it('production needs Sentry; a preview only warns (OPS-09)', () => {
+    assert.ok(checkProduction({ ...good, SENTRY_DSN: '' }).errors.some((e) => e.startsWith('SENTRY_DSN is required in production')))
+    const preview = checkProduction({ ...staging, SENTRY_DSN: '' }, { vercel: true, target: 'preview' })
+    assert.ok(!preview.errors.some((e) => e.includes('SENTRY_DSN')))
+  })
 })

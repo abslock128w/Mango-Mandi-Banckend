@@ -89,7 +89,11 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
     else errors.push('TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY are required: without them bots can request login codes for any number')
   }
   if (!env.GOOGLE_CLIENT_ID) warnings.push('GOOGLE_CLIENT_ID is unset: "Sign in with Google" is off')
-  if (!env.SENTRY_DSN) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
+  // OPS-09: Sentry is the only thing that pages anyone about errors, failing refunds and a stopped job.
+  if (!env.SENTRY_DSN) {
+    if (preview) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
+    else errors.push('SENTRY_DSN is required in production: without it nobody is alerted to errors, failed refunds or a stopped maintenance job')
+  }
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
   else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')

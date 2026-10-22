@@ -197,6 +197,16 @@ Then point the webhooks at the API:
 
 ## 8. Watch it
 
+**Who is on call.** Write the names here before launch; the alerts below must reach them.
+
+| Alert | Goes to (name, phone) | Backup person |
+|-------|-----------------------|---------------|
+| Uptime monitor on `/ready` (SMS/phone) | _fill in_ | _fill in_ |
+| Sentry: new errors, cron monitor `maintenance`, refund failures | _fill in_ | _fill in_ |
+| Panel "Needs attention" (checked every morning) | _fill in_ | _fill in_ |
+
+Production refuses to start without `SENTRY_DSN`.
+
 - **Uptime monitor** (Better Stack, UptimeRobot, or Vercel's own): check
   `https://api.mandimangoes.in/ready` every minute and alert by SMS. It fails when the
   database is down or the maintenance job has not run for a few minutes.
