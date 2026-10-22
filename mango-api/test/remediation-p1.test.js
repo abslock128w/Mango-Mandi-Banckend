@@ -191,3 +191,33 @@ describe('refund outcomes are checked, not assumed (PAY-02)', () => {
     assert.ok(att.body.stuckRefunds.some((r) => r.id === o.id && /not confirmed by Razorpay/.test(r.number)), JSON.stringify(att.body.stuckRefunds))
   })
 })
+
+describe('a replacement goes on the next day with room (OPS-04)', () => {
+  test('earliest day full: the replacement lands on a later day; every day full: a clear 409', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
+    const o = await paidOrder()
+    await api.post(`/admin/v1/orders/${o.id}/allocate`, {}, { token: manager })
+    for (const status of ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']) {
+      assert.equal((await api.patch(`/admin/v1/orders/${o.id}/status`, { status }, { token: manager })).status, 204, status)
+    }
+    const done = await api.patch(`/admin/v1/orders/${o.id}/status`, { status: 'DELIVERED', override: true, reason: 'Confirmed by phone' }, { token: manager })
+    assert.equal(done.status, 204)
+    const claim = await api.post('/v1/claims', { orderId: o.id, issueType: 'DAMAGED', description: 'Two mangoes crushed', itemSkus: ['ALP-3'] }, { token: o.cust.accessToken })
+    assert.equal(claim.status, 201, JSON.stringify(claim.body))
+    await api.post(`/admin/v1/claims/${claim.body.id}/review`, undefined, { token: manager })
+
+    const { orderableDates } = await import('../src/delivery.js')
+    const dates = await orderableDates({ query })
+    for (const d of dates) assert.equal((await api.put(`/admin/v1/calendar/${d}`, { isOpen: true, maxBoxes: 0 }, { token: manager })).status, 204)
+    const none = await api.post(`/admin/v1/claims/${claim.body.id}/resolve`, { resolution: 'REPLACEMENT_APPROVED' }, { token: manager })
+    assert.equal(none.status, 409)
+    assert.equal(none.body.error.code, 'NO_DELIVERY_DAY')
+
+    // Open the second day: the replacement goes there.
+    await api.del(`/admin/v1/calendar/${dates[1]}`, { token: manager })
+    const ok = await api.post(`/admin/v1/claims/${claim.body.id}/resolve`, { resolution: 'REPLACEMENT_APPROVED' }, { token: manager })
+    assert.equal(ok.status, 204, JSON.stringify(ok.body))
+    const { rows } = await query('SELECT delivery_date, total FROM orders WHERE replacement_for = $1', [o.id])
+    assert.deepEqual(rows.map((r) => [r.delivery_date, r.total]), [[dates[1], 0]])
+  })
+})

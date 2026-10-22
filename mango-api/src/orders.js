@@ -785,16 +785,33 @@ export async function createReplacement(c, claim, original, actor) {
   const wanted = claim.affected_items?.length ? items.filter((i) => claim.affected_items.includes(i.sku)) : items
   const lines = (wanted.length ? wanted : items).map((i) => ({ sku: i.sku, stage: i.stage ?? 'RIPE', qty: i.quantity, unitPrice: 0 }))
   const dates = await orderableDates(c)
-  const order = await createOrder(
-    c,
-    {
-      customerId: original.customer_id, customerName: original.customer_name, phone: original.phone,
-      pincode: original.pincode, address: original.delivery_address, deliveryDate: dates[0] ?? (await earliestDeliveryDate(c)),
-      status: 'CONFIRMED', paymentMethod: 'REPLACEMENT', replacementFor: original.id, lines,
-      eventReason: `Replacement for ${original.number}`,
-    },
-    actor,
-  )
+  const tryDates = dates.length ? dates : [await earliestDeliveryDate(c)]
+  // OPS-04: a full or closed day moves the replacement to the next day with room, as a retry does.
+  let order = null
+  for (const [i, deliveryDate] of tryDates.entries()) {
+    await c.query('SAVEPOINT replacement_day')
+    try {
+      order = await createOrder(
+        c,
+        {
+          customerId: original.customer_id, customerName: original.customer_name, phone: original.phone,
+          pincode: original.pincode, address: original.delivery_address, deliveryDate,
+          status: 'CONFIRMED', paymentMethod: 'REPLACEMENT', replacementFor: original.id, lines,
+          eventReason: `Replacement for ${original.number}`,
+        },
+        actor,
+      )
+      await c.query('RELEASE SAVEPOINT replacement_day')
+      break
+    } catch (err) {
+      await c.query('ROLLBACK TO SAVEPOINT replacement_day')
+      const dayProblem = err instanceof HttpError && ['DATE_FULL', 'DATE_CLOSED', 'SLOT_FULL'].includes(err.code)
+      if (!dayProblem) throw err
+      if (i === tryDates.length - 1) {
+        throw conflict('Every delivery day open for booking is full or closed. Open more room in the calendar, then approve the replacement.', 'NO_DELIVERY_DAY')
+      }
+    }
+  }
   const { rows } = await c.query('SELECT at_risk FROM orders WHERE id = $1', [order.id])
   if (rows[0].at_risk) {
     const full = { ...order, status: 'CONFIRMED' }
