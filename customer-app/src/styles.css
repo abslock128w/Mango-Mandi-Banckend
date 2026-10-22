@@ -1539,13 +1539,39 @@ a.chip {
 .sk-shorter {
   width: 40%;
 }
+/* Placeholder text: sample words keep the real line's size and wrapping, drawn as a grey bar. */
+.sk-text {
+  color: transparent;
+  background: var(--line);
+  border-radius: var(--radius-sm);
+  animation: sk-pulse 1.4s ease-in-out infinite;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+/* The buy box while it loads: the photo's space, then lines, about as tall as the real box. */
+.buy-skeleton .product-hero {
+  background: var(--mango-soft);
+}
+.buy-skeleton .buy-body {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  min-height: 560px;
+}
+.buy-skeleton .sk-line {
+  height: 20px;
+}
+.buy-skeleton .sk-block {
+  height: 72px;
+}
 @keyframes sk-pulse {
   50% {
     opacity: 0.5;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sk {
+  .sk,
+  .sk-text {
     animation: none;
   }
 }
@@ -1635,6 +1661,8 @@ a.chip {
   width: calc(100% + 2 * var(--card-pad, var(--space-4)));
   max-width: none;
   margin: calc(-1 * var(--card-pad, var(--space-4))) calc(-1 * var(--card-pad, var(--space-4))) var(--space-3);
+  /* height: auto so the img's width and height attributes only give the shape, not a fixed size. */
+  height: auto;
   aspect-ratio: 4 / 3;
   /* Capped so the price and Add to cart reach the first screen on a phone. */
   max-height: 45vh;

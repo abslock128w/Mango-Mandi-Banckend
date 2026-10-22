@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Stars } from '../stars'
-import { ApiError, api, errorMessage, type CatalogueItem } from '../api'
+import { ApiError, api, errorMessage, type CatalogueItem, type RatingSummary } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
 import { useStore } from '../store'
-import { ErrorNote, Skeleton } from '../ui'
-import { BookAheadCard } from './Preorder'
+import { ErrorNote } from '../ui'
+import { catalogueQuery } from '../queries'
+import { BookAheadCard } from './BookAheadCard'
 import { MangoArt, ProductImage } from '../mango'
 import type { Stage } from '../api'
 
@@ -165,7 +166,10 @@ function Promises() {
 }
 
 function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: string | null; onDate: (d: string | null) => void; search: string }) {
-  const q = useQuery({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode, date) })
+  const q = useQuery(catalogueQuery(pincode, date))
+  const { cart } = useStore()
+  // Grouped once per answer, so each tile gets the same product object until the stock changes.
+  const all = useMemo(() => (q.data ? groupBySku(q.data.items) : []), [q.data])
   // A saved day that has passed or closed: fall back to the earliest open one.
   const stale = q.error instanceof ApiError && q.error.code === 'INVALID_DATE'
   useEffect(() => {
@@ -173,10 +177,9 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   }, [stale, onDate])
   // The page's h1 stays while the mangoes load or fail, for screen-reader heading navigation.
   const quietTitle = <h1 className="sr-only">Pick your mangoes</h1>
-  if (q.isPending) return <>{quietTitle}<Skeleton label="Loading mangoes" /></>
+  if (q.isPending) return <TilesSkeleton search={search} />
   if (q.isError) return <>{quietTitle}<ErrorNote error={q.error} onRetry={() => q.refetch()} /></>
   if (!q.data.serviceable) return <>{quietTitle}<ErrorNote error={`We don't deliver to ${pincode} yet.`} /></>
-  const all = groupBySku(q.data.items)
   const words = search.toLowerCase()
   const products = words ? all.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : all
   const chosen = q.data.deliveryDate!
@@ -195,8 +198,14 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
           </p>
         )}
         <ul className="tiles">
-          {products.map((p) => (
-            <ProductTile key={p.sku} product={p} />
+          {products.map((p, i) => (
+            <ProductTile
+              key={p.sku}
+              product={p}
+              inCart={cart.reduce((n, l) => (l.sku === p.sku ? n + l.qty : n), 0)}
+              // The first row (four across on a desktop) is on the first screen: load those photos at once.
+              eager={i < FIRST_SCREEN_TILES}
+            />
           ))}
         </ul>
       </section>
@@ -205,16 +214,53 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   )
 }
 
+/** Tiles whose photos load at once rather than when scrolled to. */
+const FIRST_SCREEN_TILES = 4
+
+/**
+ * Placeholder tiles the same size as the real ones (title, date line, square photo, name, rating
+ * and price), so the page below does not move when the mangoes arrive.
+ */
+function TilesSkeleton({ search }: { search: string }) {
+  return (
+    <section aria-labelledby="pick" aria-busy="true">
+      <h1 id="pick" className="section-title">
+        {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
+      </h1>
+      <p className="muted small">
+        <span className="sr-only">Loading mangoes…</span>
+        <span aria-hidden="true">
+          Showing what we have for <span className="sk-text">Thu, 22 Oct</span>. You choose the delivery day at checkout.
+        </span>
+      </p>
+      <ul className="tiles" aria-hidden="true">
+        {Array.from({ length: FIRST_SCREEN_TILES }, (_, i) => (
+          <li key={i} className="card tile">
+            <div className="tile-img sk" />
+            <div className="tile-body">
+              <h3 className="tile-name">
+                <span className="sk-text">Mango 3kg Box</span>
+              </h3>
+              <span className="product-rating" />
+              <p className="tile-foot">
+                <strong className="price sk-text">₹1,899</strong>
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 /** One tile per box on the home page. Tapping it opens the product page, where the customer picks the ripeness. */
-function ProductTile({ product: p }: { product: ProductGroup }) {
-  const { cart } = useStore()
-  const inCart = cart.filter((l) => l.sku === p.sku).reduce((n, l) => n + l.qty, 0)
+const ProductTile = memo(function ProductTile({ product: p, inCart, eager }: { product: ProductGroup; inCart: number; eager: boolean }) {
   const soldOut = !p.stages.some((s) => s.qty > 0)
   const soonest = p.stages.map((s) => s.nextAvailableDate).filter(Boolean).sort()[0]
   return (
     <li className={soldOut ? 'card tile tile-sold-out' : 'card tile'}>
       <div className="tile-img">
-        <ProductImage photoUrl={p.photoUrl} name={p.name} size={88} />
+        <ProductImage photoUrl={p.photoUrl} name={p.name} size={88} eager={eager} />
         {inCart > 0 && <span className="tile-badge">{inCart} in cart</span>}
       </div>
       <div className="tile-body">
@@ -231,7 +277,7 @@ function ProductTile({ product: p }: { product: ProductGroup }) {
       </div>
     </li>
   )
-}
+})
 
 function GiftBanner() {
   return (
@@ -302,11 +348,16 @@ export function groupBySku(items: CatalogueItem[]) {
   return [...map.values()]
 }
 
-/** The variety's average and review count. One request per variety (the 3 and 5 kg boxes share it). */
-export function ProductRating({ sku, variety, href }: { sku: string; variety: string; href?: string }) {
-  const q = useQuery({ queryKey: ['rating', variety || sku], queryFn: () => api.productReviews(sku, { limit: 1 }), staleTime: 5 * 60_000 })
-  const s = q.data?.summary
-  if (!s || !s.count || s.average == null) return null
+/**
+ * The variety's average and review count. One request per variety (the 3 and 5 kg boxes share it);
+ * the product page passes the `summary` it already has instead. Its line is kept (empty) while
+ * it loads and when there are no reviews yet, so nothing under it moves.
+ */
+export function ProductRating({ sku, variety, href, summary }: { sku: string; variety: string; href?: string; summary?: RatingSummary | null }) {
+  const own = summary === undefined
+  const q = useQuery({ queryKey: ['rating', variety || sku], queryFn: () => api.productReviews(sku, { limit: 1 }), staleTime: 5 * 60_000, enabled: own })
+  const s = own ? q.data?.summary : summary
+  if (!s || !s.count || s.average == null) return <span className="product-rating" aria-hidden="true" />
   const body = (
     <>
       <Stars value={s.average} small />

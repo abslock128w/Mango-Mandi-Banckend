@@ -28,6 +28,9 @@ export default defineConfig(({ mode }) => {
           }
         : {}),
     },
+    // Pages load lazily, so let Vite find every page's imports at start-up. Otherwise the first
+    // visit to a page can re-bundle dependencies mid-session (a 504 "Outdated Optimize Dep").
+    optimizeDeps: { entries: ['index.html', 'src/**/*.{ts,tsx}'] },
     preview: { port: 5174 },
     build: { outDir: 'dist', emptyOutDir: true },
   }

@@ -1,23 +1,52 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react'
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react'
 import { helpLink } from './format'
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { SIGNOUT_EVENT } from './api'
 import { useStore } from './store'
 import Shop from './pages/Shop'
-import Cart from './pages/Cart'
-import Checkout from './pages/Checkout'
-import SignIn from './pages/SignIn'
-import Orders from './pages/Orders'
-import OrderPage from './pages/Order'
-import ClaimPage from './pages/Claim'
-import Account from './pages/Account'
-import Privacy from './pages/Privacy'
-import BookAhead, { PreorderPage } from './pages/Preorder'
-import ReviewPage from './pages/Review'
-import ProductPage from './pages/Product'
-import Quality from './pages/Quality'
-import { pageTitle } from './ui'
+import { BuySkeleton } from './pages/BuySkeleton'
+import { catalogueQuery, productReviewsQuery } from './queries'
+import { Spinner, pageTitle } from './ui'
+
+// Home is in the first download; every other page's code loads when it is first opened.
+const Cart = lazy(() => import('./pages/Cart'))
+const Checkout = lazy(() => import('./pages/Checkout'))
+const SignIn = lazy(() => import('./pages/SignIn'))
+const Orders = lazy(() => import('./pages/Orders'))
+const OrderPage = lazy(() => import('./pages/Order'))
+const ClaimPage = lazy(() => import('./pages/Claim'))
+const Account = lazy(() => import('./pages/Account'))
+const Privacy = lazy(() => import('./pages/Privacy'))
+const BookAhead = lazy(() => import('./pages/Preorder'))
+const PreorderPage = lazy(() => import('./pages/Preorder').then((m) => ({ default: m.PreorderPage })))
+const ReviewPage = lazy(() => import('./pages/Review'))
+const ProductPage = lazy(() => import('./pages/Product'))
+const Quality = lazy(() => import('./pages/Quality'))
+
+/** A page whose code is still loading. */
+function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
+  return <Suspense fallback={fallback}>{children}</Suspense>
+}
+
+/**
+ * The product page. Its stock and reviews start loading here, alongside the page's code, so the
+ * requests do not wait for that download; the page then picks up the same answers.
+ */
+function ProductRoute() {
+  const { sku = '' } = useParams()
+  const { pincode, date } = useStore()
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    void queryClient.prefetchInfiniteQuery(productReviewsQuery(sku))
+    if (pincode) void queryClient.prefetchQuery(catalogueQuery(pincode, date))
+  }, [queryClient, sku, pincode, date])
+  return (
+    <Page fallback={<BuySkeleton />}>
+      <ProductPage />
+    </Page>
+  )
+}
 
 /** Each route's browser title; pages with a name or number (a box, an order) refine it once it loads. */
 function routeTitle(path: string) {
@@ -142,20 +171,20 @@ export default function App() {
       <main id="main" tabIndex={-1} className={WIDE.test(location.pathname) ? 'page page-wide' : 'page'}>
         <Routes>
           <Route path="/" element={<Shop />} />
-          <Route path="/cart" element={<Cart />} />
-          <Route path="/sign-in" element={<SignIn />} />
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="/quality" element={<Quality />} />
-          <Route path="/account" element={<RequireSignIn><Account /></RequireSignIn>} />
-          <Route path="/checkout" element={<RequireSignIn><Checkout /></RequireSignIn>} />
-          <Route path="/orders" element={<RequireSignIn><Orders /></RequireSignIn>} />
-          <Route path="/orders/:id" element={<RequireSignIn><OrderPage /></RequireSignIn>} />
-          <Route path="/orders/:id/claim" element={<RequireSignIn><ClaimPage /></RequireSignIn>} />
-          <Route path="/mangoes/:sku" element={<ProductPage />} />
-          <Route path="/review/:itemId" element={<RequireSignIn><ReviewPage /></RequireSignIn>} />
-          <Route path="/reviews/:reviewId/edit" element={<RequireSignIn><ReviewPage /></RequireSignIn>} />
-          <Route path="/preorder" element={<BookAhead />} />
-          <Route path="/preorders/:id" element={<RequireSignIn><PreorderPage /></RequireSignIn>} />
+          <Route path="/cart" element={<Page><Cart /></Page>} />
+          <Route path="/sign-in" element={<Page><SignIn /></Page>} />
+          <Route path="/privacy" element={<Page><Privacy /></Page>} />
+          <Route path="/quality" element={<Page><Quality /></Page>} />
+          <Route path="/account" element={<RequireSignIn><Page><Account /></Page></RequireSignIn>} />
+          <Route path="/checkout" element={<RequireSignIn><Page><Checkout /></Page></RequireSignIn>} />
+          <Route path="/orders" element={<RequireSignIn><Page><Orders /></Page></RequireSignIn>} />
+          <Route path="/orders/:id" element={<RequireSignIn><Page><OrderPage /></Page></RequireSignIn>} />
+          <Route path="/orders/:id/claim" element={<RequireSignIn><Page><ClaimPage /></Page></RequireSignIn>} />
+          <Route path="/mangoes/:sku" element={<ProductRoute />} />
+          <Route path="/review/:itemId" element={<RequireSignIn><Page><ReviewPage /></Page></RequireSignIn>} />
+          <Route path="/reviews/:reviewId/edit" element={<RequireSignIn><Page><ReviewPage /></Page></RequireSignIn>} />
+          <Route path="/preorder" element={<Page><BookAhead /></Page>} />
+          <Route path="/preorders/:id" element={<RequireSignIn><Page><PreorderPage /></Page></RequireSignIn>} />
           <Route
             path="*"
             element={
@@ -227,6 +256,9 @@ function WhereButton() {
   )
 }
 
+/** How long the search box waits after the last key before it filters the home page. */
+const SEARCH_DELAY_MS = 250
+
 /** Searches the mangoes on the home page (?q=). Typing on another page takes you home. */
 function SearchBar() {
   const location = useLocation()
@@ -235,8 +267,19 @@ function SearchBar() {
   const onHome = location.pathname === '/'
   const current = onHome ? (params.get('q') ?? '') : ''
   const [draft, setDraft] = useState(current)
-  const value = onHome ? current : draft
+  // A search waiting for typing to pause; on the home page the box shows what is typed meanwhile.
+  const pending = useRef<number | null>(null)
+  const cancel = () => {
+    if (pending.current != null) window.clearTimeout(pending.current)
+    pending.current = null
+  }
+  useEffect(() => cancel, [])
+  // The address changed by other means (Back, a link home): the box follows it, unless typing is under way.
+  useEffect(() => {
+    if (onHome && pending.current == null) setDraft(current)
+  }, [onHome, current])
   function go(q: string) {
+    cancel()
     const next = new URLSearchParams(onHome ? params : undefined)
     if (q.trim()) next.set('q', q)
     else next.delete('q')
@@ -245,7 +288,7 @@ function SearchBar() {
   }
   function submit(e: FormEvent) {
     e.preventDefault()
-    go(value)
+    go(draft)
   }
   return (
     <form role="search" className="search" onSubmit={submit}>
@@ -257,10 +300,13 @@ function SearchBar() {
         type="search"
         aria-label="Search mangoes"
         placeholder="Search mangoes, e.g. Alphonso"
-        value={value}
+        value={draft}
         onChange={(e) => {
-          setDraft(e.target.value)
-          if (onHome) go(e.target.value)
+          const q = e.target.value
+          setDraft(q)
+          if (!onHome) return
+          cancel()
+          pending.current = window.setTimeout(() => go(q), SEARCH_DELAY_MS)
         }}
       />
     </form>

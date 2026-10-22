@@ -51,25 +51,6 @@ function keepDraft(d: Draft) {
 /** The dev API hands out fake payment links; those are paid with test buttons instead. */
 const isDevLink = (url: string | null) => Boolean(url?.includes('plink_dev_'))
 
-/** Shop home: shown while any week is open for booking. */
-export function BookAheadCard() {
-  const q = useQuery({ queryKey: ['preorder-weeks'], queryFn: api.preorderWeeks, staleTime: 60_000 })
-  const weeks = [...new Set(q.data?.weeks.map((w) => w.weekStart) ?? [])]
-  if (!weeks.length) return null
-  return (
-    <section className="card book-ahead" aria-labelledby="book-ahead">
-      <h2 id="book-ahead">Book ahead</h2>
-      <p>
-        Lock in today's price for the week of {week(weeks[0])}
-        {weeks.length > 1 && ' or later'}. We pick your delivery day that week once the fruit is in.
-      </p>
-      <Link to="/preorder" className="btn btn-primary">
-        Book a box ahead
-      </Link>
-    </section>
-  )
-}
-
 export default function BookAhead() {
   const { profile } = useStore()
   const q = useQuery({ queryKey: ['preorder-weeks'], queryFn: api.preorderWeeks })

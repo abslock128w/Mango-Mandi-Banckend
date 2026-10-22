@@ -1,51 +1,105 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ApiError, api, type PublicReview, type Stage } from '../api'
+import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type UseInfiniteQueryResult } from '@tanstack/react-query'
+import { ApiError, api, type PublicReview, type RatingSummary, type ReviewPage, type Stage } from '../api'
 import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
-import { MangoArt, ProductImage } from '../mango'
+import { MangoArt, ProductImage, photoAt } from '../mango'
 import { Stepper } from '../forms'
 import { useStore } from '../store'
 import { NotifyMe, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
 import { Dialog, DocTitle, ErrorNote, Skeleton } from '../ui'
 import { storyFor } from '../varieties'
+import { catalogueQuery, productReviewsQuery } from '../queries'
+import { BuySkeleton } from './BuySkeleton'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 /** Reviews shown before "See all", so the page stays short. */
 const FIRST_REVIEWS = 3
 const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packaging: 'Packaging', delivery: 'Delivery' } as const
 
-/** /mangoes/:sku — the box: pick the ripeness and how many, add to cart; then what buyers say about the variety. */
+/**
+ * /mangoes/:sku — the box: pick the ripeness and how many, add to cart; then what buyers say about the variety.
+ * The buy box (stock) and the reviews load side by side; neither waits for the other.
+ */
 export default function ProductPage() {
   const { sku = '' } = useParams()
+  const { pincode, date } = useStore()
   const [stars, setStars] = useState<number | null>(null)
   const [withPhotos, setWithPhotos] = useState(false)
-  const q = useInfiniteQuery({
-    queryKey: ['product-reviews', sku, stars, withPhotos],
-    queryFn: ({ pageParam }) => api.productReviews(sku, { stars, withPhotos, cursor: pageParam, limit: 10 }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last) => last.nextCursor,
-  })
+  // A filter keeps the reviews on screen until the matching ones arrive, instead of a blank page.
+  const q = useInfiniteQuery({ ...productReviewsQuery(sku, stars, withPhotos), placeholderData: keepPreviousData })
+  // The same query as the buy box's (shared): the variety's story can show as soon as either answer is in.
+  const cat = useQuery({ ...catalogueQuery(pincode ?? '', date), enabled: Boolean(pincode) })
   const [open, setOpen] = useState<{ review: PublicReview; index: number } | null>(null)
   // The first three reviews show; "See all" opens the rest (a filter shows every match).
   const [showAll, setShowAll] = useState(false)
 
-  if (q.isPending) return <Skeleton label="Loading this box" cards={2} tall />
-  if (q.isError) {
-    if (q.error instanceof ApiError && q.error.status === 404) {
-      return (
-        <section className="card">
-          <DocTitle title="Mango not found" />
-          <h1>Mango not found</h1>
-          <Link to="/">Back to the shop</Link>
-        </section>
-      )
-    }
-    return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
+  if (q.isError && q.error instanceof ApiError && q.error.status === 404) {
+    return (
+      <section className="card">
+        <DocTitle title="Mango not found" />
+        <h1>Mango not found</h1>
+        <Link to="/">Back to the shop</Link>
+      </section>
+    )
   }
-  const first = q.data.pages[0]
-  const items = q.data.pages.flatMap((p) => p.items)
+  const first = q.data?.pages[0]
+  const onSale = cat.data?.items.find((i) => i.sku === sku)
+  const story = first?.product ?? onSale
+  return (
+    <>
+      <BuyBox sku={sku} fallbackName={first?.product.name} summary={first?.summary ?? null} />
+      {/* On a desktop the story sits beside the ratings and reviews; on a phone they stack. */}
+      <div className="product-more">
+        {story && <VarietyStoryCard variety={story.variety} name={story.name} />}
+        <div className="product-reviews">
+          {q.isPending ? (
+            <Skeleton label="Loading reviews" cards={2} />
+          ) : q.isError ? (
+            <ErrorNote error={q.error} onRetry={() => q.refetch()} />
+          ) : (
+            <Reviews
+              q={q}
+              stars={stars}
+              withPhotos={withPhotos}
+              setStars={setStars}
+              setWithPhotos={setWithPhotos}
+              showAll={showAll}
+              onShowAll={() => setShowAll(true)}
+              onPhoto={(review, index) => setOpen({ review, index })}
+            />
+          )}
+        </div>
+      </div>
+      {open && <Lightbox review={open.review} start={open.index} onClose={() => setOpen(null)} />}
+    </>
+  )
+}
+
+type ReviewsQuery = UseInfiniteQueryResult<InfiniteData<ReviewPage>>
+
+function Reviews({
+  q,
+  stars,
+  withPhotos,
+  setStars,
+  setWithPhotos,
+  showAll,
+  onShowAll,
+  onPhoto,
+}: {
+  q: ReviewsQuery
+  stars: number | null
+  withPhotos: boolean
+  setStars: (s: number | null) => void
+  setWithPhotos: (on: boolean) => void
+  showAll: boolean
+  onShowAll: () => void
+  onPhoto: (review: PublicReview, index: number) => void
+}) {
+  const first = q.data!.pages[0]
+  const items = q.data!.pages.flatMap((p) => p.items)
   const filtered = stars != null || withPhotos
   const variety = first.product.variety || first.product.name
   const expanded = showAll || filtered
@@ -53,64 +107,56 @@ export default function ProductPage() {
   const more = !expanded && (items.length > FIRST_REVIEWS || q.hasNextPage)
   return (
     <>
-      <BuyBox sku={sku} fallbackName={first.product.name} />
-      {/* On a desktop the story sits beside the ratings and reviews; on a phone they stack. */}
-      <div className="product-more">
-        <VarietyStoryCard variety={first.product.variety} name={first.product.name} />
-        <div className="product-reviews">
-          <section className="card" aria-labelledby="ratings-title" id="reviews">
-            <h2 id="ratings-title">Ratings and reviews</h2>
-            <p className="muted small">From verified buyers of every {variety} box.</p>
-            <RatingBars summary={first.summary} active={stars} onPick={setStars} />
-            <div className="review-filters">
-              <label className="option">
-                <input type="checkbox" checked={withPhotos} onChange={(e) => setWithPhotos(e.target.checked)} />
-                <span>Only reviews with photos ({first.summary.withPhotos})</span>
-              </label>
-              {filtered && (
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => {
-                    setStars(null)
-                    setWithPhotos(false)
-                  }}
-                >
-                  Show all reviews
-                </button>
-              )}
-            </div>
-          </section>
-
-          <section aria-labelledby="reviews-title">
-            <h2 id="reviews-title" className="section-title">
-              {filtered ? 'Matching reviews' : 'Reviews'}
-            </h2>
-            {items.length === 0 ? (
-              <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
-            ) : (
-              <ul className="review-list">
-                {shown.map((r) => (
-                  <li key={r.id} className="card review">
-                    <ReviewCard review={r} onPhoto={(index) => setOpen({ review: r, index })} />
-                  </li>
-                ))}
-              </ul>
-            )}
-            {more && (
-              <button type="button" className="btn btn-block" onClick={() => setShowAll(true)}>
-                See all {first.summary.count} reviews
-              </button>
-            )}
-            {expanded && q.hasNextPage && (
-              <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-                {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
-              </button>
-            )}
-          </section>
+      <section className="card" aria-labelledby="ratings-title" id="reviews">
+        <h2 id="ratings-title">Ratings and reviews</h2>
+        <p className="muted small">From verified buyers of every {variety} box.</p>
+        <RatingBars summary={first.summary} active={stars} onPick={setStars} />
+        <div className="review-filters">
+          <label className="option">
+            <input type="checkbox" checked={withPhotos} onChange={(e) => setWithPhotos(e.target.checked)} />
+            <span>Only reviews with photos ({first.summary.withPhotos})</span>
+          </label>
+          {filtered && (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => {
+                setStars(null)
+                setWithPhotos(false)
+              }}
+            >
+              Show all reviews
+            </button>
+          )}
         </div>
-      </div>
-      {open && <Lightbox review={open.review} start={open.index} onClose={() => setOpen(null)} />}
+      </section>
+
+      <section aria-labelledby="reviews-title" aria-busy={q.isPlaceholderData}>
+        <h2 id="reviews-title" className="section-title">
+          {filtered ? 'Matching reviews' : 'Reviews'}
+        </h2>
+        {items.length === 0 ? (
+          <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
+        ) : (
+          <ul className="review-list">
+            {shown.map((r) => (
+              <li key={r.id} className="card review">
+                <ReviewCard review={r} onPhoto={(index) => onPhoto(r, index)} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {more && (
+          <button type="button" className="btn btn-block" onClick={onShowAll}>
+            See all {first.summary.count} reviews
+          </button>
+        )}
+        {expanded && q.hasNextPage && (
+          <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
+            {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
+          </button>
+        )}
+      </section>
     </>
   )
 }
@@ -146,7 +192,8 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
           {r.photos.map((p, i) => (
             <li key={p.id}>
               <button type="button" onClick={() => onPhoto(i)} aria-label={`Open photo ${i + 1} of ${r.photos.length} from ${r.displayName}`}>
-                <img src={api.publicPhotoUrl(p.url)} alt="" loading="lazy" width={88} height={88} />
+                {/* An 88 px thumbnail: the API sends it 160 or 320 px wide (for sharper screens), not the full photo. */}
+                <img src={photoAt(p.url, 160)} srcSet={`${photoAt(p.url, 160)} 1x, ${photoAt(p.url, 320)} 2x`} alt="" loading="lazy" decoding="async" width={88} height={88} />
               </button>
             </li>
           ))}
@@ -197,9 +244,9 @@ function VarietyStoryCard({ variety, name }: { variety: string; name: string }) 
 }
 
 /** The Amazon-style buy box: ripeness, how many, Add to cart. Stock is for the day the shop is showing. */
-function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
+function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: string; summary: RatingSummary | null }) {
   const { pincode, date, setWhere, cart, setQty } = useStore()
-  const q = useQuery({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode!, date), enabled: Boolean(pincode) })
+  const q = useQuery({ ...catalogueQuery(pincode ?? '', date), enabled: Boolean(pincode) })
   // A home shelf opens the box at its ripeness with ?stage=.
   const [params] = useSearchParams()
   const asked = params.get('stage')
@@ -232,8 +279,8 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
   if (!pincode) {
     return (
       <section className="card" aria-labelledby="product-title">
-        <DocTitle title={fallbackName} />
-        <h1 id="product-title">{fallbackName}</h1>
+        {fallbackName && <DocTitle title={fallbackName} />}
+        <h1 id="product-title">{fallbackName ?? <span className="sk-text">Mango box</span>}</h1>
         <p>Tell us your pincode to see the ripeness we have and add a box.</p>
         <Link to="/" className="btn btn-primary">
           Enter your pincode
@@ -241,15 +288,16 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
       </section>
     )
   }
-  if (q.isPending) return <Skeleton label="Loading this box" cards={1} tall />
+  if (q.isPending) return <BuySkeleton />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   const all = groupBySku(q.data.items)
   const p = all.find((x) => x.sku === sku)
   if (!q.data.serviceable || !p) {
+    const name = fallbackName ?? sku
     return (
       <section className="card" aria-labelledby="product-title">
-        <DocTitle title={fallbackName} />
-        <h1 id="product-title">{fallbackName}</h1>
+        <DocTitle title={name} />
+        <h1 id="product-title">{name}</h1>
         <p>{q.data.serviceable ? `This box isn't on sale for ${pincode} right now.` : `We don't deliver to ${pincode} yet.`}</p>
         <Link to="/">See all mangoes</Link>
       </section>
@@ -278,14 +326,14 @@ function BuyBox({ sku, fallbackName }: { sku: string; fallbackName: string }) {
       <DocTitle title={p.name} />
       {/* The photo: on top on a phone, the left column on a desktop (a large drawn mango there when there is no photo). */}
       <div className="buy-media">
-        {p.photoUrl ? <ProductImage photoUrl={p.photoUrl} name={p.name} className="product-hero" /> : <span className="buy-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={240} /></span>}
+        {p.photoUrl ? <ProductImage photoUrl={p.photoUrl} name={p.name} className="product-hero" fit="hero" priority /> : <span className="buy-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={240} /></span>}
       </div>
       <div className="buy-body">
         <header className="product-head">
           {!p.photoUrl && <span className="head-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={72} /></span>}
           <div className="product-name">
             <h1 id="product-title">{p.name}</h1>
-            <ProductRating sku={p.sku} variety={p.variety} href="#reviews" />
+            <ProductRating sku={p.sku} variety={p.variety} href="#reviews" summary={summary} />
             <p className="buy-price">
               <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>
             </p>
