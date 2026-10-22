@@ -85,6 +85,30 @@ test('Today: every tile is a link to its filtered page, urgent ones say so, and 
   await expect(group.getByRole('button', { name: /Show fewer/ })).toHaveAttribute('aria-expanded', 'true')
 })
 
+test('Today: Needs attention that fails to load says so and retries, never looks calm (FE-4)', async ({ page, consoleErrors }) => {
+  const api = await mockApi(page, { signedIn: true })
+  api.attention = {
+    ...api.attention,
+    stuckRefunds: [{ type: 'order', id: 'o1', number: 'ORD-1042', requestedAt: '2026-10-15T06:00:00Z' }],
+  }
+  let failing = true
+  await page.route('**/admin/v1/attention', (route) => (failing ? route.fulfill({ status: 500, json: { error: { code: 'INTERNAL', message: 'Something went wrong' } } }) : route.fallback()))
+  await page.goto('/today')
+  const card = page.getByRole('region', { name: 'Needs attention' })
+  await expect(card.getByText('Could not load alerts.')).toBeVisible()
+  await expect(card.getByRole('alert')).toBeVisible()
+  // The tiles still show beside the error.
+  await expect(page.locator('.tiles > *')).toHaveCount(8)
+
+  failing = false
+  await card.getByRole('button', { name: 'Retry' }).click()
+  await expect(card.getByRole('heading', { name: /Refunds not sent/ })).toBeVisible()
+  await expect(card.getByText('Could not load alerts.')).toHaveCount(0)
+  // The browser logs each 500 it was sent on purpose; nothing else may be logged.
+  const expected = (e: string) => /Failed to load resource: the server responded with a status of 500/.test(e)
+  consoleErrors.splice(0, consoleErrors.length, ...consoleErrors.filter((e) => !expected(e)))
+})
+
 /** Enum names and internal values that must never reach the screen. */
 const RAW = /\b(PAYMENT_PENDING|CONFIRMED|PROCESSING|PACKED|SHIPPED|OUT_FOR_DELIVERY|DELIVERED|DELIVERY_FAILED|SEMI_RIPE|RIPE|RAW|SUCCEEDED|ORDER_CONFIRMED|INTAKE|PACK|committed|upi)\b|webhook:|\bsystem\b/
 

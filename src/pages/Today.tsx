@@ -46,7 +46,9 @@ export default function Today() {
   const s = q.data
   // Batches this old are past the sell limit: the API no longer sells them.
   const maxAge = s.maxSellableAge ?? DEFAULT_MAX_SELLABLE_AGE
-  const waiting = attention.isPending
+  // Only the first answer is waited for: a query that failed is pending again while it is
+  // asked again, and hiding Needs attention then would remount it and ask again, forever.
+  const waiting = attention.isPending && attention.errorUpdateCount === 0
   const atRisk = s.atRiskOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
   // Every tile opens the page it counts, filtered.

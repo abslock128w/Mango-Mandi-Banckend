@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { NOTIFICATION_LABEL, dateTime, humanize } from '../format'
 import type { NotificationKind, PhotoDelivery } from '../types'
-import { PhoneLink, ReasonDialog, useToast } from '../ui'
+import { PhoneLink, QueryError, ReasonDialog, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
@@ -30,7 +30,8 @@ export const attentionQuery = { queryKey: ['attention'], queryFn: api.attention,
 /**
  * The problems nobody is watching for: the background loop stalling or failing,
  * WhatsApp messages given up on, refunds that haven't gone through, and webhooks
- * that failed or named an order we don't have. Hidden when all is well.
+ * that failed or named an order we don't have. Hidden when all is well; a failed
+ * load says so, with a retry.
  */
 export default function NeedsAttention() {
   const toast = useToast()
@@ -56,7 +57,25 @@ export default function NeedsAttention() {
     onError: (err) => toast.error(err),
   })
 
-  if (!q.data) return null
+  // FE-4: this is the only alerting surface, so a failed load must show, never look calm.
+  const loadError = q.isError ? (
+    <>
+      <p>
+        <strong>Could not load alerts.</strong> Problems that need you may be hidden until they load.
+      </p>
+      <QueryError error={q.error} onRetry={() => q.refetch()} />
+    </>
+  ) : null
+  if (!q.data) {
+    // A load that failed before is asked again (Retry, or every minute): keep the card meanwhile.
+    if (!loadError && q.errorUpdateCount === 0) return null
+    return (
+      <section className="card attention" aria-labelledby="attention-title">
+        <h2 id="attention-title">Needs attention</h2>
+        {loadError ?? <p role="status">Loading alerts again…</p>}
+      </section>
+    )
+  }
   const a = q.data
   const calls = a.failedDeliveries ?? []
   const low = a.lowRatings ?? []
@@ -176,11 +195,12 @@ export default function NeedsAttention() {
       </li>
     )) },
   ].filter((g) => g.items.length > 0)
-  if (groups.length === 0) return null
+  if (groups.length === 0 && !loadError) return null
 
   return (
     <section className="card attention" aria-labelledby="attention-title">
       <h2 id="attention-title">Needs attention</h2>
+      {loadError}
       {groups.map((g) => (
         <AttentionGroupView key={g.key} group={g} />
       ))}
