@@ -44,6 +44,8 @@ describe('delivery slots', () => {
     const plain = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     assert.equal(plain.status, 201)
     assert.equal(plain.body.slotId, null)
+    // One unpaid order at a time (INV-02): this one is done with.
+    assert.equal((await api.post(`/v1/orders/${plain.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
 
     const morning = await addSlot({ label: 'Morning', startsAt: '07:00', endsAt: '11:00', maxBoxes: 3, sort: 1 })
     const evening = await addSlot({ label: 'Evening', startsAt: '16:00', endsAt: '20:00', sort: 2 })

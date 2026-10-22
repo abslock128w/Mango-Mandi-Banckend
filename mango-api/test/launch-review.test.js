@@ -196,6 +196,17 @@ describe('login codes', () => {
       assert.equal((await api.post('/v1/auth/otp/request', { phone: '9876500011' })).body.error.code, 'CAPTCHA_REQUIRED')
       assert.equal((await api.post('/v1/auth/otp/request', { phone: '9876500011', captchaToken: 'bad' })).body.error.code, 'CAPTCHA_FAILED')
       assert.equal((await api.post('/v1/auth/otp/request', { phone: '9876500011', captchaToken: 'good' })).status, 200)
+
+      // Cloudflare unreachable: fail safe. A new number is refused, an account holder still gets in.
+      globalThis.fetch = async (url, init) => {
+        if (String(url).includes('challenges.cloudflare.com')) throw new TypeError('fetch failed')
+        return realFetch(url, init)
+      }
+      const fresh = await api.post('/v1/auth/otp/request', { phone: '9876500012', captchaToken: 'good' })
+      assert.equal(fresh.status, 503)
+      assert.equal(fresh.body.error.code, 'CAPTCHA_UNAVAILABLE')
+      await query(`INSERT INTO customers (id, phone, name, created_at) VALUES ('cus_known', '+919876500013', 'Known', now())`)
+      assert.equal((await api.post('/v1/auth/otp/request', { phone: '9876500013', captchaToken: 'good' })).status, 200)
     } finally {
       globalThis.fetch = realFetch
       env.TURNSTILE_SECRET_KEY = ''

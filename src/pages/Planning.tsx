@@ -662,6 +662,8 @@ const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'retireAge', label: 'Retire batches at age (days)', hint: 'Must be more than the oldest age sold.' },
   { key: 'maxDaysAhead', label: 'Days customers can book ahead', hint: 'Counted from the earliest delivery date.' },
   { key: 'holdMinutes', label: 'Checkout hold (minutes)', hint: 'Unpaid orders are cancelled after this.' },
+  { key: 'maxUnpaidOrders', label: 'Unpaid orders per customer', hint: 'A customer must pay or cancel before placing another.' },
+  { key: 'maxHeldBoxes', label: 'Unpaid boxes per customer', hint: 'Most boxes one customer can hold while not yet paid.' },
   { key: 'lowStockThreshold', label: 'Low stock alert (boxes)', hint: 'Shown on Today at or below this.' },
 ]
 

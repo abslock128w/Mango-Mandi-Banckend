@@ -41,6 +41,8 @@ const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 
 export const SYSTEM = { type: 'system', id: 'system' }
+/** The event reason on orders cancelled because the hold ran out; the shop's order view keys off it. */
+export const HOLD_EXPIRED_REASON = 'Payment not received before the hold expired'
 /** Missed deliveries before an order stops being rescheduled automatically. */
 export const MAX_DELIVERY_ATTEMPTS = 3
 
@@ -117,6 +119,38 @@ export async function createOrder(c, o, actor) {
   }
   if (short.length) await setRisk(c, order, short, actor)
   return order
+}
+
+/**
+ * One customer can't hold the shop's stock with unpaid orders (INV-02). Locks
+ * the customer row, so two checkouts by the same customer queue here and the
+ * second sees the first's order. Orders whose hold has run out don't count:
+ * they're cancelled lazily and their stock is free. Call it inside the
+ * transaction that creates the order, before stock is taken.
+ */
+export async function checkUnpaidLimit(c, customerId, boxes, at = now()) {
+  if (!customerId) return
+  await c.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [customerId])
+  const { rows } = await c.query(
+    `SELECT o.id, o.number, o.hold_expires_at,
+            COALESCE((SELECT sum(s.quantity) FROM order_stock s WHERE s.order_id = o.id AND s.state = 'held'), 0)::int AS boxes
+       FROM orders o
+      WHERE o.customer_id = $1 AND o.status = 'PAYMENT_PENDING' AND (o.hold_expires_at IS NULL OR o.hold_expires_at >= $2)
+      ORDER BY o.placed_at DESC`,
+    [customerId, at],
+  )
+  const cfg = getConfig()
+  if (rows.length >= cfg.maxUnpaidOrders) {
+    throw new HttpError(409, 'UNPAID_ORDER_EXISTS', `You have an unpaid order (${rows[0].number}). Pay for it or cancel it first.`, {
+      orderId: rows[0].id,
+      number: rows[0].number,
+      holdExpiresAt: rows[0].hold_expires_at,
+    })
+  }
+  const held = rows.reduce((t, r) => t + r.boxes, 0)
+  if (held + boxes > cfg.maxHeldBoxes) {
+    throw new HttpError(409, 'HOLD_LIMIT', `You can reserve up to ${cfg.maxHeldBoxes} boxes at a time. Reduce the quantity.`, { maxHeldBoxes: cfg.maxHeldBoxes })
+  }
 }
 
 async function setRisk(c, order, problems, actor) {
@@ -777,7 +811,7 @@ export async function sweepExpiredHolds(c, at = now()) {
     try {
       const o = await lockOrder(c, id)
       if (o.status === 'PAYMENT_PENDING' && o.hold_expires_at < at) {
-        await cancelInTx(c, o, SYSTEM, 'Payment not received before the hold expired')
+        await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
         n++
       }
       await c.query('RELEASE SAVEPOINT sweep_one')
@@ -816,7 +850,7 @@ export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
     try {
       const o = (await c.query('SELECT * FROM orders WHERE id = $1', [id])).rows[0]
       if (o.status === 'PAYMENT_PENDING' && o.hold_expires_at < at) {
-        await cancelInTx(c, o, SYSTEM, 'Payment not received before the hold expired')
+        await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
         n++
       }
       await c.query('RELEASE SAVEPOINT lazy_expiry')

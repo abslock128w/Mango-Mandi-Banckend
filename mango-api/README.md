@@ -30,11 +30,16 @@ batches when the database is empty. Point the panel at it with
 ## Login codes by SMS (Jio)
 
 Customers sign in with a 6-digit code. With `SMS_PROVIDER=jio` the code goes out
-through the Jio SMS gateway; production refuses to start without it. Set `JIO_SMS_URL`,
+through the Jio SMS gateway. Production needs Jio, or WhatsApp with
+`OTP_DEFAULT_CHANNEL=whatsapp` (codes by WhatsApp only, e.g. before DLT is approved). Set `JIO_SMS_URL`,
 `JIO_SMS_API_KEY`, and the DLT registration (`JIO_SMS_SENDER_ID`, `JIO_SMS_TEMPLATE_ID`,
 `JIO_SMS_ENTITY_ID`). `JIO_SMS_TEXT` must match the registered template exactly, with
 `{code}` where the code goes. The request body is in [`src/sms.js`](src/sms.js); check it
-against your Jio account's API docs before going live. Outside production the default
+against your Jio account's API docs before going live: **the request format in the code is
+not yet verified against Jio's documentation** (remaining blocker OPS-03b). A reply counts as sent only
+when the field `JIO_SMS_SUCCESS_PATH` holds one of `JIO_SMS_SUCCESS_VALUES`, both copied from
+Jio's docs; anything else (including a bare HTTP 200) counts as not sent and the code goes by
+WhatsApp instead. Outside production the default
 `SMS_PROVIDER=log` returns the code as `devCode`; it is written to the log only with
 `LOG_OTP_CODES=true` (for a preview, where `devCode` is off; production refuses it).
 

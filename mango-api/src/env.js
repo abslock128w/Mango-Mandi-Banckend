@@ -82,6 +82,16 @@ const schema = z.object({
   JIO_SMS_TEMPLATE_ID: z.string().optional(),
   JIO_SMS_ENTITY_ID: z.string().optional(),
   JIO_SMS_TEXT: z.string().default('{code} is your MandiMangoes login code. It expires in 5 minutes.'),
+  // How a Jio reply says the SMS was accepted, copied from Jio's API documentation
+  // (OPS-03): an HTTP 200 alone is not proof. A dot path into the JSON reply
+  // (e.g. "status" or "data.state") and the values that mean accepted, comma
+  // separated. Optional: the field holding Jio's message id, for the log.
+  JIO_SMS_SUCCESS_PATH: z.string().default(''),
+  JIO_SMS_SUCCESS_VALUES: z.string().default(''),
+  JIO_SMS_ID_PATH: z.string().default(''),
+  // The channel a login code goes by when the customer didn't choose; the other is the fallback.
+  // whatsapp: WhatsApp first (works before Jio DLT is approved).
+  OTP_DEFAULT_CHANNEL: z.enum(['sms', 'whatsapp']).default('sms'),
   WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
@@ -131,6 +141,8 @@ if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHO
 const JIO_KEYS = ['JIO_SMS_URL', 'JIO_SMS_API_KEY', 'JIO_SMS_SENDER_ID', 'JIO_SMS_TEMPLATE_ID', 'JIO_SMS_ENTITY_ID']
 if (env.SMS_PROVIDER === 'jio') {
   const missing = JIO_KEYS.filter((k) => !env[k])
+  if (!env.JIO_SMS_SUCCESS_PATH) missing.push('JIO_SMS_SUCCESS_PATH')
+  if (!env.JIO_SMS_SUCCESS_VALUES) missing.push('JIO_SMS_SUCCESS_VALUES')
   if (missing.length || !env.JIO_SMS_TEXT.includes('{code}')) {
     console.error(`SMS_PROVIDER=jio needs ${missing.join(', ') || 'JIO_SMS_TEXT containing {code}'}`)
     process.exit(1)

@@ -34,6 +34,10 @@ export const rulesSchema = z
     nearLimitAge: z.number().int().min(0),
     lowStockThreshold: z.number().int().min(0),
     claimWindowHours: z.number().int().min(1),
+    // Unpaid orders one customer may have waiting at once, and the boxes they
+    // may hold across them (INV-02). Older rule versions get the defaults.
+    maxUnpaidOrders: z.number().int().min(1).max(5).default(1),
+    maxHeldBoxes: z.number().int().min(1).max(500).default(40),
     stageProfiles: z.record(profile).refine((p) => 'default' in p, 'a "default" profile is required'),
   })
   .strict()
@@ -53,6 +57,8 @@ export const DEFAULT_RULES = {
   nearLimitAge: 5,
   lowStockThreshold: 5,
   claimWindowHours: 24,
+  maxUnpaidOrders: 1,
+  maxHeldBoxes: 40,
   stageProfiles: {
     default: [
       { stage: 'RAW', minAge: 3, maxAge: 3 },

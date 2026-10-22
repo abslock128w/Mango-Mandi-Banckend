@@ -10,6 +10,7 @@ import { catalogueQuery } from '../queries'
 import { BookAheadCard } from './BookAheadCard'
 import { MangoArt, ProductImage } from '../mango'
 import type { Stage } from '../api'
+import { UnpaidOrderBanner } from '../unpaid'
 
 export default function Shop() {
   const { pincode, date, setWhere, cart } = useStore()
@@ -27,6 +28,7 @@ export default function Shop() {
 
   return (
     <>
+      <UnpaidOrderBanner />
       {params.get('deleted') === '1' && (
         <p className="note" role="status">
           Your account is deleted. Thank you for buying from MandiMangoes.

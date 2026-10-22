@@ -4,7 +4,7 @@
 // development and tests only log them (the API also returns them as devCode).
 // Indian SMS needs DLT registration, so the sender ID, template ID and entity
 // ID must match what is registered, and the text must match the template.
-import { env } from './env.js'
+import { deployEnv, env } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
@@ -32,11 +32,33 @@ export function jioSender(opts, fetchImpl = fetch) {
     })
     if (!res?.ok) {
       // The gateway may echo the message back: never log the code.
-      if (res) logger.error({ status: res.status, body: (await res.text()).slice(0, 500).replaceAll(code, '******'), phone: mask(phone) }, 'Jio SMS rejected the OTP')
-      throw new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
+      if (res) logger.error({ status: res.status, body: await safeBody(res, code), phone: mask(phone) }, 'Jio SMS rejected the OTP')
+      throw notSent()
     }
+    // HTTP 200 is not enough (OPS-03): the reply must say the SMS was accepted,
+    // in the field and with a value from Jio's documentation (JIO_SMS_SUCCESS_*).
+    const raw = await res.text().catch(() => '')
+    let body = null
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      // not JSON: can't be the documented answer
+    }
+    const accepted = body !== null && opts.successValues.includes(String(at(body, opts.successPath)))
+    if (!accepted) {
+      logger.error({ status: res.status, body: clean(raw, code), phone: mask(phone) }, 'Jio SMS answered 200 without the accepted status; treating the code as not sent')
+      metrics.otpNotAccepted.inc()
+      throw notSent()
+    }
+    logger.info({ phone: mask(phone), jioId: opts.idPath ? String(at(body, opts.idPath) ?? '') : undefined }, 'Jio accepted the login SMS')
   }
 }
+
+const notSent = () => new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
+const clean = (text, code) => String(text).slice(0, 500).replaceAll(code, '******')
+const safeBody = async (res, code) => clean(await res.text().catch(() => ''), code)
+/** The value at a dot path ("data.state") in a parsed JSON reply. */
+const at = (obj, path) => path.split('.').reduce((v, k) => (v === null || v === undefined ? undefined : v[k]), obj)
 
 /** The "log" provider. The code is written only with LOG_OTP_CODES=true (a preview, say); never the full number. */
 export async function logOnly(phone, code) {
@@ -49,7 +71,7 @@ export async function logOnly(phone, code) {
  * fails. Resolves to the channel that worked; throws OTP_NOT_SENT when none did.
  */
 export function otpDelivery({ sms, whatsapp }) {
-  return async function deliverOtp(phone, code, preferred = 'sms') {
+  return async function deliverOtp(phone, code, preferred = env.OTP_DEFAULT_CHANNEL) {
     const order = (preferred === 'whatsapp' ? ['whatsapp', 'sms'] : ['sms', 'whatsapp']).filter((ch) => (ch === 'sms' ? sms : whatsapp))
     for (const [i, ch] of order.entries()) {
       try {
@@ -73,8 +95,14 @@ const smsSender =
         templateId: env.JIO_SMS_TEMPLATE_ID,
         entityId: env.JIO_SMS_ENTITY_ID,
         text: env.JIO_SMS_TEXT,
+        successPath: env.JIO_SMS_SUCCESS_PATH,
+        successValues: env.JIO_SMS_SUCCESS_VALUES.split(',').map((v) => v.trim()).filter(Boolean),
+        idPath: env.JIO_SMS_ID_PATH,
       })
-    : logOnly
+    : // In production a code only written to the log was not sent: leave SMS out, so WhatsApp is tried.
+      deployEnv === 'production' && !env.LOG_OTP_CODES
+      ? null
+      : logOnly
 
 export const sendOtp = otpDelivery({
   sms: smsSender,

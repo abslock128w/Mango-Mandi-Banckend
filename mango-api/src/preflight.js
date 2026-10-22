@@ -34,10 +34,16 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET is the dev default: set the secret from the Razorpay webhook settings')
 
   if (env.SMS_PROVIDER !== 'jio') {
-    // A preview may log codes instead (read them in the Vercel logs); production can't.
-    if (!preview) errors.push('SMS_PROVIDER must be jio: customers could not receive login codes')
+    // A preview may log codes instead (read them in the Vercel logs); production can't,
+    // but can send them by WhatsApp only (before Jio DLT is approved, say).
+    if (!preview && env.WHATSAPP_PROVIDER !== 'meta') errors.push('No way to send login codes: set SMS_PROVIDER=jio, or WHATSAPP_PROVIDER=meta with OTP_DEFAULT_CHANNEL=whatsapp')
+    else if (!preview && env.OTP_DEFAULT_CHANNEL !== 'whatsapp') errors.push('SMS_PROVIDER is not jio, so set OTP_DEFAULT_CHANNEL=whatsapp: login codes can only go by WhatsApp')
+    else if (!preview) warnings.push('Login codes go by WhatsApp only (SMS_PROVIDER is not jio): customers without WhatsApp must use Google sign-in')
     else if (env.LOG_OTP_CODES) warnings.push('SMS_PROVIDER is not jio: login codes are only written to the logs')
     else warnings.push('SMS_PROVIDER is not jio and LOG_OTP_CODES is off: phone sign-in cannot work on this preview (Google sign-in still does)')
+  }
+  if (env.SMS_PROVIDER === 'jio' && (!env.JIO_SMS_SUCCESS_PATH || !env.JIO_SMS_SUCCESS_VALUES)) {
+    errors.push("JIO_SMS_SUCCESS_PATH and JIO_SMS_SUCCESS_VALUES are required: copy from Jio's API documentation how a reply says the SMS was accepted")
   }
   if (env.LOG_OTP_CODES && !preview) errors.push('LOG_OTP_CODES must be off in production: login codes would be written to the logs')
   if (env.ENABLE_DEV_ROUTES) errors.push('ENABLE_DEV_ROUTES is set: it is for local development only (it lets anyone mark an order paid)')
@@ -78,7 +84,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
     }
   }
   if (Boolean(env.TURNSTILE_SECRET_KEY) !== Boolean(env.TURNSTILE_SITE_KEY)) errors.push('Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY, or neither: with one alone nobody could get a login code')
-  if (!env.TURNSTILE_SECRET_KEY) warnings.push('TURNSTILE_SECRET_KEY is unset: bots can request login codes for any number (the daily budget still caps the cost)')
+  if (!env.TURNSTILE_SECRET_KEY) {
+    if (preview) warnings.push('TURNSTILE_SECRET_KEY is unset: bots can request login codes for any number (the daily budget still caps the cost)')
+    else errors.push('TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY are required: without them bots can request login codes for any number')
+  }
   if (!env.GOOGLE_CLIENT_ID) warnings.push('GOOGLE_CLIENT_ID is unset: "Sign in with Google" is off')
   if (!env.SENTRY_DSN) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')

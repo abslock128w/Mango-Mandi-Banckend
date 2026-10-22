@@ -290,3 +290,50 @@ test('FE-6: signing out forgets the saved address and cart on this device', asyn
   expect(kept.profile).toBeNull()
   expect(kept.cart ?? '[]').toBe('[]')
 })
+
+test('FE-5: an unpaid order still on hold is pointed to from the cart and the shop', async ({ page, request }, info) => {
+  const phone = newPhone('9', info.project.name)
+  const order = await unpaidOrder(request, phone)
+  await signIn(page, phone, '/cart')
+  const banner = page.getByRole('status').filter({ hasText: 'is waiting for payment' })
+  await expect(banner).toBeVisible()
+  await noA11yViolations(page)
+  await page.goto('/')
+  await expect(banner).toBeVisible()
+  await banner.getByRole('link', { name: /^Open order ORD-/ }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.orderId}$`))
+  await expect(page.getByText('Waiting for your payment to be confirmed.')).toBeVisible()
+})
+
+test('FE-5: a second checkout while one order is unpaid links to that order', async ({ page, request }, info) => {
+  const phone = newPhone('8', info.project.name)
+  const first = await unpaidOrder(request, phone)
+  await toReview(page, request, phone)
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  await expect(page.getByRole('alert')).toContainText('You have an unpaid order')
+  await page.getByRole('link', { name: 'Open your unpaid order' }).click()
+  await expect(page).toHaveURL(new RegExp(`/orders/${first.orderId}$`))
+})
+
+test('FE-1: a hold that ran out never says nothing was charged, keeps checking, and thanks a late payment', async ({ page, request }, info) => {
+  const phone = newPhone('9', info.project.name)
+  const order = await unpaidOrder(request, phone)
+  let paid = false
+  await page.route(
+    `${API}/v1/orders/${order.orderId}`,
+    patchJson((b) =>
+      paid
+        ? { ...b, status: 'CONFIRMED', paymentStatus: 'SUCCEEDED', holdExpiresAt: null, cancelReason: null, cancelledAt: null }
+        : { ...b, status: 'CANCELLED', paymentStatus: 'CANCELLED', holdExpiresAt: null, cancelReason: 'HOLD_EXPIRED', cancelledAt: new Date().toISOString() },
+    ),
+  )
+  await signIn(page, phone, `/orders/${order.orderId}`)
+  await expect(page.getByText("We didn't receive your payment in time.")).toBeVisible()
+  await expect(page.getByText(/please don't pay again/)).toBeVisible()
+  await expect(page.getByText('This page keeps checking.')).toBeVisible()
+  await expect(page.getByText('Nothing was charged.')).toHaveCount(0)
+  await noA11yViolations(page)
+  // The late payment lands: the page notices on its own.
+  paid = true
+  await expect(page.getByText('Thank you, your order is placed.')).toBeVisible({ timeout: 20_000 })
+})

@@ -101,6 +101,8 @@ export interface OrderSummary {
   total: number
   itemCount: number
   placedAt: string
+  /** Set while the order waits for payment with its boxes held. */
+  holdExpiresAt?: string | null
 }
 export interface Order {
   id: string
@@ -121,6 +123,9 @@ export interface Order {
   /** Razorpay's public key id, while the order waits for payment, so checkout can be reopened anywhere. */
   razorpayKeyId?: string | null
   holdExpiresAt: string | null
+  /** Why a cancelled order was cancelled. HOLD_EXPIRED: no payment arrived in time, but a late one can still confirm it. */
+  cancelReason?: 'HOLD_EXPIRED' | 'STAFF' | 'OTHER' | null
+  cancelledAt?: string | null
   slot: Slot | null
   items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null; readyOn?: string | null }[]
   timeline: { status: OrderStatus; at: string }[]

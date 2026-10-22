@@ -342,6 +342,11 @@ function CheckoutForm() {
           Your boxes are held for a few minutes while you pay. You can cancel for a full refund any time before your order is packed.
         </p>
         <ErrorNote error={pay.error ? quoteProblem(pay.error) : null} />
+        {pay.error instanceof ApiError && pay.error.code === 'UNPAID_ORDER_EXISTS' && typeof pay.error.detail.orderId === 'string' && (
+          <Link to={`/orders/${pay.error.detail.orderId}`} className="btn btn-block">
+            Open your unpaid order
+          </Link>
+        )}
         <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()}>
           {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
         </button>

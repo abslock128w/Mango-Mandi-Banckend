@@ -374,6 +374,8 @@ export interface Rules {
   nearLimitAge: number
   lowStockThreshold: number
   claimWindowHours: number
+  maxUnpaidOrders: number
+  maxHeldBoxes: number
   stageProfiles: Record<string, StageWindow[]>
 }
 

@@ -15,7 +15,7 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { createOrder, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
@@ -140,7 +140,8 @@ router.post(
   otpLimiter,
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
-    await requireHuman(captchaToken, req.ip)
+    const known = (await query('SELECT 1 FROM customers WHERE phone = $1', [phone])).rowCount > 0
+    await requireHuman(captchaToken, req.ip, { known })
     res.json(await issueCode(phone, channel, req.ip))
   }),
 )
@@ -466,7 +467,8 @@ router.post(
   otpLimiter,
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
-    await requireHuman(captchaToken, req.ip)
+    // Signed in already, so a Turnstile outage doesn't lock them out of adding a number.
+    await requireHuman(captchaToken, req.ip, { known: true })
     res.json(await issueCode(phone, channel, req.ip))
   }),
 )
@@ -689,6 +691,7 @@ router.post(
       const q = rows[0]
       if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      await checkUnpaidLimit(c, req.customer.id, q.data.lines.reduce((t, l) => t + l.qty, 0))
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
       const subtotal = q.data.lines.reduce((t, l) => t + l.unitPrice * l.qty, 0)
@@ -754,7 +757,11 @@ router.get(
          FROM orders o WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT 100`,
       [req.customer.id],
     )
-    res.json(rows.map((o) => ({ id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at })))
+    res.json(rows.map((o) => ({
+      id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at,
+      // Lets the shop point to an unpaid order that is still held (FE-5).
+      holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
+    })))
   }),
 )
 
@@ -762,14 +769,18 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
       customerDelivery({ query }, o),
       query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [o.id]),
+      o.status === 'CANCELLED'
+        ? query(`SELECT reason, created_at FROM order_events WHERE order_id = $1 AND status = 'CANCELLED' ORDER BY created_at DESC, id DESC LIMIT 1`, [o.id])
+        : { rows: [] },
     ])
     const r = rating.rows[0]
+    const cancelled = cancel.rows[0]
     res.json({
       rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
@@ -780,6 +791,10 @@ router.get(
       // The public key id, so checkout can be reopened from any device while unpaid.
       razorpayKeyId: o.status === 'PAYMENT_PENDING' && o.razorpay_order_id ? env.RAZORPAY_KEY_ID || null : null,
       holdExpiresAt: o.hold_expires_at,
+      // Why it was cancelled, so the shop never says "nothing was charged" while
+      // a late payment can still land on a hold that ran out (FE-1).
+      cancelReason: !cancelled ? null : o.staff_cancelled_at ? 'STAFF' : cancelled.reason === HOLD_EXPIRED_REASON ? 'HOLD_EXPIRED' : 'OTHER',
+      cancelledAt: cancelled?.created_at ?? null,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       ...proof,

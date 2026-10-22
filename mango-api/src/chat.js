@@ -15,7 +15,7 @@ import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
-import { createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
+import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { applyCapture, createPaymentLink, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
@@ -205,10 +205,12 @@ async function addToCart(c, s, qty) {
 /** Books the order (a 10-minute hold, as in app checkout); payment goes out after commit. */
 async function placeOrder(c, s, cust) {
   if (s.data.orderId) {
-    const { rows } = await c.query('SELECT status, payment_link_url FROM orders WHERE id = $1', [s.data.orderId])
+    const { rows } = await c.query('SELECT status, payment_link_url, hold_expires_at FROM orders WHERE id = $1', [s.data.orderId])
     const o = rows[0]
-    if (o?.status === 'PAYMENT_PENDING') return { replies: [], after: { pay: s.data.orderId } }
-    if (o && o.status !== 'CANCELLED') return { replies: [text('This order is already paid. Send *my orders* to see it.')] }
+    // An order whose hold ran out is cancelled by the next checkout or the sweep; book afresh.
+    const expired = o?.status === 'PAYMENT_PENDING' && o.hold_expires_at < now()
+    if (o?.status === 'PAYMENT_PENDING' && !expired) return { replies: [], after: { pay: s.data.orderId } }
+    if (o && !expired && o.status !== 'CANCELLED') return { replies: [text('This order is already paid. Send *my orders* to see it.')] }
     delete s.data.orderId
   }
   if (!s.data.cart?.length || !s.data.address) return { replies: [MENU] }
@@ -223,8 +225,9 @@ async function placeOrder(c, s, cust) {
     s.data.cart = []
     return { replies: [text('Sorry, one of those boxes is no longer sold. Please pick again.'), ...(await catalogue(c, s))] }
   }
-  const r = await attempt(c, () =>
-    createOrder(
+  const r = await attempt(c, async () => {
+    await checkUnpaidLimit(c, s.customerId, s.data.cart.reduce((t, l) => t + l.qty, 0))
+    return createOrder(
       c,
       {
         customerId: s.customerId, customerName: cust.name, phone: s.phone, pincode: s.data.pincode, address: s.data.address,
@@ -234,10 +237,13 @@ async function placeOrder(c, s, cust) {
         lines: s.data.cart.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: findProduct(l.sku).price })),
       },
       { type: 'customer', id: s.customerId, label: 'whatsapp' },
-    ),
-  )
+    )
+  })
   if (!r.ok) {
     const code = r.error.code
+    if (code === 'UNPAID_ORDER_EXISTS') {
+      return { replies: [text(`You already have an unpaid order, ${r.error.extra.number}. Pay for it with the link we sent, or send *my orders* to cancel it. Then you can order again.`)] }
+    }
     if (code === 'SLOT_FULL' || code === 'SLOT_INVALID') return { replies: [text('That delivery slot just filled up.'), ...(await askSlot(c, s))] }
     if (code === 'STOCK_INSUFFICIENT') {
       s.data.cart = []

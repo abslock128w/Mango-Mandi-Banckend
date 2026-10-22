@@ -255,6 +255,8 @@ export function seed() {
         nearLimitAge: 5,
         lowStockThreshold: 5,
         claimWindowHours: 24,
+        maxUnpaidOrders: 1,
+        maxHeldBoxes: 40,
         stageProfiles: {
           default: [
             { stage: 'RAW', minAge: 3, maxAge: 3 },

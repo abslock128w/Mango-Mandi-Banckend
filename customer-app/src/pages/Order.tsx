@@ -37,6 +37,14 @@ const PACKED_ON: OrderStatus[] = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
  * report link stays offered after it and the API has the last word.
  */
 const CLAIM_WINDOW_HOURS = 24
+/** How long after a hold runs out the page keeps checking for a late payment. */
+const LATE_PAYMENT_WATCH_MS = 30 * 60_000
+const latePaymentPossible = (o: Order | undefined) =>
+  o?.status === 'CANCELLED' &&
+  o.cancelReason === 'HOLD_EXPIRED' &&
+  o.paymentStatus !== 'SUCCEEDED' &&
+  Boolean(o.cancelledAt) &&
+  Date.now() - new Date(o.cancelledAt!).getTime() < LATE_PAYMENT_WATCH_MS
 const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
 
 export default function OrderPage() {
@@ -45,9 +53,13 @@ export default function OrderPage() {
     queryKey: ['order', id],
     queryFn: () => api.order(id),
     refetchInterval: (query) => {
-      const status = query.state.data?.status
+      const o = query.state.data
       // Waiting on the payment: check often. On the way: notice the delivery.
-      return status === 'PAYMENT_PENDING' ? 3000 : status === 'OUT_FOR_DELIVERY' ? 30_000 : false
+      if (o?.status === 'PAYMENT_PENDING') return 3000
+      if (o?.status === 'OUT_FOR_DELIVERY') return 30_000
+      // The hold ran out, but a payment made just before can still land: keep watching for a while.
+      if (latePaymentPossible(o)) return 10_000
+      return false
     },
   })
   if (q.isPending) return <Spinner label="Loading your order" />
@@ -115,7 +127,9 @@ function OrderView({ order }: { order: Order }) {
   const wasStatus = useRef(order.status)
   useEffect(() => {
     if (order.status === 'CANCELLED' && wasStatus.current !== 'CANCELLED') cancelledNote.current?.focus()
-    if (wasStatus.current === 'PAYMENT_PENDING' && order.status !== 'PAYMENT_PENDING' && order.status !== 'CANCELLED') setThanks(true)
+    // Paid: straight from waiting, or a late payment that revived an order whose hold ran out.
+    const waited = wasStatus.current === 'PAYMENT_PENDING' || wasStatus.current === 'CANCELLED'
+    if (waited && order.status !== 'PAYMENT_PENDING' && order.status !== 'CANCELLED') setThanks(true)
     wasStatus.current = order.status
   }, [order.status])
   useEffect(() => {
@@ -159,7 +173,10 @@ function OrderView({ order }: { order: Order }) {
             </button>
           )}
           {payKey && holdOpen && !canPay && (
-            <p className="small">The hold on your boxes is about to end. If your payment hasn't gone through, place the order again from the shop.</p>
+            <p className="small">
+              The hold on your boxes is about to end. If you've already paid, stay here: this page updates when the payment reaches us. Please
+              don't pay again.
+            </p>
           )}
           {import.meta.env.DEV && !payKey && (
             <div className="dev-pay">
@@ -186,8 +203,17 @@ function OrderView({ order }: { order: Order }) {
               ? `Your refund of ${rupees(order.total)} has been sent. Banks take up to 5 to 7 days to show it.`
               : order.refundStatus === 'PENDING'
                 ? `Your full refund of ${rupees(order.total)} is on its way.`
-                : 'Nothing was charged.'}
+                : order.cancelReason === 'HOLD_EXPIRED'
+                  ? "We didn't receive your payment in time."
+                  : 'Nothing was charged.'}
           </p>
+          {order.cancelReason === 'HOLD_EXPIRED' && order.refundStatus === null && (
+            <p className="small">
+              If money has left your account, please don't pay again. A payment that arrives late is still matched to this order and confirmed,
+              moved to the next day with stock if these boxes have sold out.{' '}
+              {latePaymentPossible(order) ? 'This page keeps checking.' : 'Check My orders again later, or contact us.'}
+            </p>
+          )}
         </section>
       )}
 
