@@ -116,8 +116,9 @@ describe('products', () => {
 
     const first = await put(png)
     assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.equal(first.body.photoUrl, '/v1/products/ALP-3/photo?v=1')
-    assert.equal((await shopItem('ALP-3', 'RAW')).photoUrl, '/v1/products/ALP-3/photo?v=1')
+    assert.match(first.body.photoUrl, /^\/v1\/products\/ALP-3\/photo\?v=\d+$/)
+    const v1 = Number(first.body.photoUrl.split('v=')[1])
+    assert.equal((await shopItem('ALP-3', 'RAW')).photoUrl, first.body.photoUrl)
     assert.equal((await shopItem('BAD-3', 'RAW')).photoUrl, null)
 
     // Public, shrunk to 1200 px, re-encoded as a JPEG, and cacheable for good at its version.
@@ -130,14 +131,22 @@ describe('products', () => {
     assert.deepEqual([meta.format, meta.width, meta.height], ['jpeg', 1200, 800])
 
     const second = await put(png)
-    assert.equal(second.body.photoUrl, '/v1/products/ALP-3/photo?v=2')
-    assert.match((await fetch(`${srv.base}/v1/products/ALP-3/photo?v=1`)).headers.get('cache-control'), /max-age=60\b/)
+    const v2 = Number(second.body.photoUrl.split('v=')[1])
+    assert.ok(v2 > v1, `${v2} > ${v1}`)
+    assert.match((await fetch(`${srv.base}/v1/products/ALP-3/photo?v=${v1}`)).headers.get('cache-control'), /max-age=60\b/)
 
     assert.equal((await api.del('/admin/v1/products/ALP-3/photo', { token: ops })).status, 403)
     const gone = await api.del('/admin/v1/products/ALP-3/photo', { token: admin })
     assert.equal(gone.body.photoUrl, null)
-    assert.equal((await fetch(`${srv.base}/v1/products/ALP-3/photo?v=2`)).status, 404)
+    assert.equal((await fetch(`${srv.base}/v1/products/ALP-3/photo?v=${v2}`)).status, 404)
     assert.equal((await api.del('/admin/v1/products/ALP-3/photo', { token: admin })).status, 404)
+
+    // Added again after removal: the version is the upload time in seconds, so it never
+    // goes back to an old number a browser may still have cached for a year.
+    const before = Math.floor(Date.now() / 1000)
+    const again = await put(png)
+    assert.ok(Number(again.body.photoUrl.split('v=')[1]) >= before)
+    await api.del('/admin/v1/products/ALP-3/photo', { token: admin })
 
     // A product deleted outright takes its photo with it.
     await api.post('/admin/v1/products', KESAR, { token: admin })

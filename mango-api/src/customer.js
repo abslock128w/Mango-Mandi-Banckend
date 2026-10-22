@@ -25,7 +25,7 @@ import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
-import { checkPhoto, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, sendPhoto, storePhoto } from './photos.js'
+import { checkPhoto, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, photoWidth, sendPhoto, sendPublicPhoto, storePhoto } from './photos.js'
 import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
@@ -316,16 +316,18 @@ router.get(
 /**
  * A product's photo, for the shop's tiles and product page. Public: product
  * photos are not private. Each new photo has a new ?v=, so it can be cached for a year.
+ * ?w= (one of PHOTO_WIDTHS) sends it resized to that width, for tiles and srcset.
  */
 router.get(
   '/products/:sku/photo',
   asyncHandler(async (req, res) => {
-    const { rows } = await query('SELECT mime, bytes, blob_path, version FROM product_photos WHERE sku = $1', [req.params.sku])
+    const width = photoWidth(req.query.w)
+    const { rows } = await query('SELECT mime, bytes, blob_path, version, updated_at FROM product_photos WHERE sku = $1', [req.params.sku])
     if (!rows.length) throw notFound('Photo not found')
-    // The shop and panel are other sites than the API, so the image may be shown cross-origin.
-    res.set('Cross-Origin-Resource-Policy', 'cross-origin')
     const current = String(rows[0].version) === String(req.query.v ?? '')
-    await sendPhoto(res, rows[0], current ? 'public, max-age=31536000, immutable' : 'public, max-age=60')
+    // The version starts again at 1 after a photo is removed, so the resize cache also keys on when it was set.
+    const key = `product:${req.params.sku}:${rows[0].version}:${new Date(rows[0].updated_at).getTime()}`
+    await sendPublicPhoto(res, rows[0], { key, width, cache: current ? 'public, max-age=31536000, immutable' : 'public, max-age=60' })
   }),
 )
 

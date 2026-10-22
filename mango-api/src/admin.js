@@ -526,7 +526,9 @@ router.put(
     checkPhoto(req.body, MAX_REVIEW_UPLOAD_BYTES)
     const img = await cleanImage(req.body, 1200)
     const { rows: old } = await query('SELECT version, blob_path FROM product_photos WHERE sku = $1', [sku])
-    const version = (old[0]?.version ?? 0) + 1
+    // Seconds since 1970, so a photo removed and added again never reuses an old version
+    // (browsers cache each ?v= for a year). The +1 keeps two uploads in one second apart.
+    const version = Math.max((old[0]?.version ?? 0) + 1, Math.floor(Date.now() / 1000))
     const saved = await storePhoto('products', `${sku}-${version}`, img.bytes, img.ext, img.mime)
     const { rows } = await query(
       `INSERT INTO product_photos (sku, mime, bytes, blob_path, version, updated_at, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7)

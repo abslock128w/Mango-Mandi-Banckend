@@ -100,6 +100,88 @@ export async function sendPhoto(res, row, cache = 'private, max-age=86400') {
   res.set('Content-Type', row.mime).set('Cache-Control', cache).send(bytes)
 }
 
+// ---------------------------------------------------------------- thumbnails
+
+/**
+ * Widths a public photo (product or review) can be asked for with ?w=, so a
+ * 170 px tile or an 88 px review thumbnail does not download the full photo.
+ * A short list keeps the number of cached variants (here and at the CDN) small.
+ */
+export const PHOTO_WIDTHS = [160, 320, 480, 640, 960, 1200]
+
+/** The ?w= of a photo request: null when absent, else one of PHOTO_WIDTHS. Anything else is a 400 (INVALID_WIDTH). */
+export function photoWidth(raw) {
+  if (raw === undefined) return null
+  const w = typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : NaN
+  if (!PHOTO_WIDTHS.includes(w)) throw badRequest(`The photo width (w) must be one of ${PHOTO_WIDTHS.join(', ')}`, 'INVALID_WIDTH')
+  return w
+}
+
+/** Resized photos kept in memory, least recently used dropped first, at most this many bytes in all. */
+const VARIANT_CACHE_BYTES = 16 * 1024 * 1024
+const variants = new Map()
+const resizing = new Map()
+let variantBytes = 0
+
+function remember(key, bytes) {
+  if (bytes.length > VARIANT_CACHE_BYTES / 8) return
+  variants.set(key, bytes)
+  variantBytes += bytes.length
+  for (const [k, b] of variants) {
+    if (variantBytes <= VARIANT_CACHE_BYTES) break
+    variants.delete(k)
+    variantBytes -= b.length
+  }
+}
+
+/** Tests: empty the resized-photo cache. Returns how many variants it held. */
+export function clearPhotoVariants() {
+  const n = variants.size
+  variants.clear()
+  variantBytes = 0
+  return n
+}
+
+/**
+ * The photo at `width` px wide (never wider than it was stored) as a JPEG.
+ * `key` names the stored image and must change whenever its bytes do.
+ */
+export async function photoVariant(row, key, width) {
+  const id = `${key}@${width}`
+  const hit = variants.get(id)
+  if (hit) {
+    // Move to the back: most recently used.
+    variants.delete(id)
+    variants.set(id, hit)
+    return hit
+  }
+  if (resizing.has(id)) return resizing.get(id)
+  const job = (async () => {
+    const original = await photoBytes(row)
+    const out = await sharp(original, { failOn: 'none', limitInputPixels: 50_000_000 })
+      .resize({ width, withoutEnlargement: true })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 72, mozjpeg: true })
+      .toBuffer()
+    remember(id, out)
+    return out
+  })().finally(() => resizing.delete(id))
+  resizing.set(id, job)
+  return job
+}
+
+/** Sends a public photo, resized to `width` when one was asked for. */
+export async function sendPublicPhoto(res, row, { key, width, cache }) {
+  const bytes = width ? await photoVariant(row, key, width) : await photoBytes(row)
+  res
+    .set('Content-Type', width ? 'image/jpeg' : row.mime)
+    .set('Cache-Control', cache)
+    .set('X-Content-Type-Options', 'nosniff')
+    // Public by design: the shop and panel, on other origins, show it in an <img>.
+    .set('Cross-Origin-Resource-Policy', 'cross-origin')
+    .send(bytes)
+}
+
 // ---------------------------------------------------------------- review photos
 
 /** The largest photo a customer may upload for a review (before it is shrunk). */
