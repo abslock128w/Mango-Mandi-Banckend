@@ -18,7 +18,7 @@
   "crons": [
     {
       "path": "/internal/maintenance",
-      "schedule": "* * * * *"
+      "schedule": "30 21 * * *"
     }
   ],
   "outputDirectory": "public"

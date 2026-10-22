@@ -14,16 +14,24 @@ export const SELLABLE_STATUSES = ['IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING'
 const PHYSICAL_STATUSES = ['ARRIVED', 'RIPENING', 'SELLING']
 const ON_HAND_EVENTS = ['INTAKE', 'ADJUST', 'PACK', 'RESTOCK', 'CONDEMN', 'RETIRE']
 
-const LINE_SELECT = `
+const lineSelect = (atParam) => `
   SELECT l.id, l.batch_id, l.sku, l.on_hand, l.held, l.committed, l.reserve_buffer,
          b.variety, b.plucked_on, b.status, b.eta_date, b.arrived_at,
-         q.ripeness_rating, q.condition, q.logged_at
+         q.ripeness_rating, q.condition, q.logged_at,
+         COALESCE(x.expired_held, 0)::int AS expired_held
     FROM batch_lines l
     JOIN batches b ON b.id = l.batch_id
     LEFT JOIN LATERAL (
       SELECT ripeness_rating, condition, logged_at FROM batch_qc
        WHERE batch_id = b.id ORDER BY logged_at DESC LIMIT 1
-    ) q ON TRUE`
+    ) q ON TRUE
+    LEFT JOIN LATERAL (
+      -- Boxes still held by unpaid orders whose hold has run out. They are
+      -- free to sell even before the sweep cancels those orders (INV-01);
+      -- the order that takes them cancels the stale orders first.
+      SELECT sum(s.quantity) AS expired_held FROM order_stock s JOIN orders o ON o.id = s.order_id
+       WHERE s.line_id = l.id AND s.state = 'held' AND o.status = 'PAYMENT_PENDING' AND o.hold_expires_at < ${atParam}
+    ) x ON TRUE`
 
 /**
  * Whether a line's batch can be sold for a delivery date, and as what.
@@ -49,15 +57,16 @@ export function sellableAs(row, deliveryDate, cfg = getConfig(), { existing = fa
   return stage ? { stage, factor } : null
 }
 
-const sellableQty = (r, factor) => Math.max(0, Math.floor(r.on_hand * factor) - r.held - r.committed - r.reserve_buffer)
+const sellableQty = (r, factor) =>
+  Math.max(0, Math.floor(r.on_hand * factor) - r.held + (r.expired_held ?? 0) - r.committed - r.reserve_buffer)
 
 const sellableRows = async (c, { sku = null, excludeBatchIds = [] } = {}) =>
   (
     await c.query(
-      `${LINE_SELECT}
+      `${lineSelect('$4::timestamptz')}
         WHERE b.status = ANY($1) AND ($2::text IS NULL OR l.sku = $2) AND NOT (b.id = ANY($3))
         ORDER BY b.plucked_on, b.id, l.id`,
-      [SELLABLE_STATUSES, sku, excludeBatchIds],
+      [SELLABLE_STATUSES, sku, excludeBatchIds, now()],
     )
   ).rows
 
@@ -210,7 +219,7 @@ export async function restock(c, row, actor, reason) {
 
 /** One line's sellability on a date, even if its batch is no longer sellable. */
 export async function lineInfo(c, lineId) {
-  const { rows } = await c.query(`${LINE_SELECT} WHERE l.id = $1`, [lineId])
+  const { rows } = await c.query(`${lineSelect('$2::timestamptz')} WHERE l.id = $1`, [lineId, now()])
   return rows[0] ?? null
 }
 

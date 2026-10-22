@@ -16,9 +16,9 @@ The API runs in Singapore (`sin1`), next to the database.
 
 ## What you need first
 
-- [ ] **Vercel Pro** (about $20 a month per member). Pro is needed for the
-  maintenance job to run every minute; Hobby only allows once a day, and holds,
-  payment checks and WhatsApp messages would stall.
+- [ ] **An every-minute scheduler** for the maintenance job: Vercel Pro, or on
+  Hobby a free external pinger such as cron-job.org. See [SCHEDULER.md](SCHEDULER.md).
+  Without it, payment checks, refund retries and WhatsApp messages stall.
 - [ ] **Neon** account (the Launch plan is enough to start).
 - [ ] **A domain**, e.g. `mandimangoes.in`, with access to its DNS.
 - [ ] **Razorpay live account** with KYC done. Jio DLT and Meta WhatsApp approval

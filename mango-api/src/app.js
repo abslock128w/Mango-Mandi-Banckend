@@ -102,8 +102,11 @@ export function createApp() {
     }
   })
 
-  // Vercel Cron calls this every minute (vercel.json) with the cron secret.
-  app.get('/internal/maintenance', loaded, async (req, res) => {
+  // The every-minute scheduler calls this with the cron secret: an external
+  // pinger on Vercel Hobby (deploy/SCHEDULER.md), or Vercel Cron on Pro.
+  // vercel.json keeps a once-a-day Vercel Cron as a backstop, which Hobby allows.
+  // GET or POST, whichever the scheduler sends.
+  const maintenance = async (req, res) => {
     if (!env.CRON_SECRET || !safeEqual(bearer(req), env.CRON_SECRET)) {
       return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Bad cron secret', requestId: req.id } })
     }
@@ -117,7 +120,9 @@ export function createApp() {
     } finally {
       await flushErrors()
     }
-  })
+  }
+  app.get('/internal/maintenance', loaded, maintenance)
+  app.post('/internal/maintenance', loaded, maintenance)
 
   // Prometheus scraping needs a long-running server; on Vercel use Sentry and the logs.
   app.get('/metrics', async (req, res) => {

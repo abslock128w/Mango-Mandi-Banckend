@@ -14,6 +14,7 @@ const httpDuration = new client.Histogram({
 export const metrics = {
   ordersConfirmed: new client.Counter({ name: 'mango_orders_confirmed_total', help: 'Orders confirmed by payment', registers: [registry] }),
   holdFailures: new client.Counter({ name: 'mango_hold_failures_total', help: 'Checkouts refused for insufficient stock', registers: [registry] }),
+  lazyExpiries: new client.Counter({ name: 'mango_lazy_hold_expiries_total', help: 'Expired unpaid orders cancelled at checkout before the sweep reached them', registers: [registry] }),
   rebalanceSwaps: new client.Counter({ name: 'mango_rebalance_swaps_total', help: 'Orders whose stock was swapped to another batch', registers: [registry] }),
   holdsExpired: new client.Counter({ name: 'mango_holds_expired_total', help: 'Unpaid orders cancelled when their hold expired', registers: [registry] }),
   ordersAtRisk: new client.Gauge({ name: 'mango_orders_at_risk', help: 'Open orders flagged at-risk', registers: [registry] }),

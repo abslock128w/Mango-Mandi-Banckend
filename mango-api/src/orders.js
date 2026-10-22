@@ -103,6 +103,7 @@ export async function createOrder(c, o, actor) {
   await addEvent(c, id, null, o.status, actor, o.eventReason ?? null)
   const order = { id, number, delivery_date: o.deliveryDate, status: o.status, slot_id: slotId }
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
+  await sweepExpiredHoldsFor(c, [...new Set(o.lines.map((l) => l.sku))])
   const short = []
   for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku))) {
     const got = await allocate(c, { orderId: id, orderNumber: number, deliveryDate: o.deliveryDate, sku: l.sku, stage: l.stage, qty: l.qty, state, actor })
@@ -788,6 +789,44 @@ export async function sweepExpiredHolds(c, at = now()) {
       await c.query('UPDATE orders SET at_risk = TRUE, at_risk_reason = $2 WHERE id = $1 AND at_risk_reason IS DISTINCT FROM $2', [id, reason])
     }
   }
+  return n
+}
+
+/**
+ * Lazy hold expiry (INV-01): before an order takes stock, cancel the unpaid
+ * orders whose hold has already run out and that hold the same SKUs, so their
+ * boxes come back even if the scheduled sweep is late or down. Bounded, and
+ * SKIP LOCKED so a buyer never waits on an order another transaction (a
+ * payment webhook, another buyer) is working on; that order stays for the
+ * scheduled sweep. Same lock order as the sweep: order row, then stock lines.
+ */
+export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
+  if (!skus.length) return 0
+  const { rows } = await c.query(
+    `SELECT id FROM orders
+      WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1
+        AND id IN (SELECT order_id FROM order_stock WHERE state = 'held' AND sku = ANY($2))
+      ORDER BY hold_expires_at LIMIT $3
+      FOR UPDATE SKIP LOCKED`,
+    [at, skus, limit],
+  )
+  let n = 0
+  for (const { id } of rows) {
+    await c.query('SAVEPOINT lazy_expiry')
+    try {
+      const o = (await c.query('SELECT * FROM orders WHERE id = $1', [id])).rows[0]
+      if (o.status === 'PAYMENT_PENDING' && o.hold_expires_at < at) {
+        await cancelInTx(c, o, SYSTEM, 'Payment not received before the hold expired')
+        n++
+      }
+      await c.query('RELEASE SAVEPOINT lazy_expiry')
+    } catch (err) {
+      // Leave it for the scheduled sweep, which flags it for ops.
+      await c.query('ROLLBACK TO SAVEPOINT lazy_expiry')
+      logger.error({ err, orderId: id }, 'lazy hold expiry could not cancel an order; leaving it for the sweep')
+    }
+  }
+  if (n) metrics.lazyExpiries.inc(n)
   return n
 }
 
