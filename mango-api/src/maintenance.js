@@ -25,7 +25,7 @@ import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreor
 import { OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
-import { processDueRefunds, reconcilePendingPayments, refundDuplicatePayments } from './payments.js'
+import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { pruneNotifications } from './retention.js'
@@ -253,6 +253,7 @@ async function steps(forceAll) {
   }
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
+  out.refundChecks = await step('refund-checks', () => reconcileRefunds(), { sliceMs: SLICE.duplicates })
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())

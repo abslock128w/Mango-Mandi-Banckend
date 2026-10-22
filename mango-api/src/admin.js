@@ -1335,8 +1335,15 @@ router.get(
                 COALESCE(o.number, p.number) || ' (second payment)', d.found_at
            FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
           WHERE d.found_at < $1 AND d.refunded_at IS NULL
+         UNION ALL
+         -- PAY-02: sent, but Razorpay hasn't said it went through after 5 days.
+         SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at FROM orders
+          WHERE refund_status = 'pending' AND refunded_at < $2
+         UNION ALL
+         SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at FROM preorders
+          WHERE refund_status = 'pending' AND refunded_at < $2
          ORDER BY refund_requested_at LIMIT 50`,
-        [new Date(at.getTime() - REFUND_STUCK_MS)],
+        [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000)],
       ),
       query('SELECT * FROM webhook_failures WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 50', [week]),
       query(

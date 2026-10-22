@@ -262,36 +262,98 @@ async function handleRefundEvent(event, eventId) {
   return tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
-    let hit = 0
-    for (const table of ['orders', 'preorders']) {
-      const { rows } = await c.query(`SELECT id, status FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [r.id])
-      for (const row of rows) {
-        hit++
-        if (!failed) {
-          await c.query(`UPDATE ${table} SET refund_status = 'processed' WHERE id = $1`, [row.id])
-          continue
-        }
-        await c.query(
-          `UPDATE ${table} SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, refund_attempted_at = NULL,
-                  payment_status = 'SUCCEEDED' WHERE id = $1`,
-          [row.id],
-        )
-        if (table === 'orders') await addEvent(c, row.id, row.status, row.status, SYSTEM, `Refund ${r.id} failed at Razorpay; sending it again`)
-      }
-    }
-    const d = await c.query(
-      failed
-        ? `UPDATE duplicate_payments SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, attempted_at = NULL WHERE refund_id = $1`
-        : `UPDATE duplicate_payments SET refund_status = 'processed' WHERE refund_id = $1`,
-      [r.id],
-    )
-    hit += d.rowCount
+    const hit = await applyRefundOutcome(c, r.id, failed)
     if (failed) {
       logger.error({ refundId: r.id, paymentId: r.payment_id }, 'refund failed at Razorpay; will retry')
-      await recordWebhookFailure('razorpay', `Refund ${r.id} for payment ${r.payment_id ?? '?'} failed at Razorpay; a new refund will be sent`, r.id, c)
+      await recordWebhookFailure(
+        'razorpay',
+        hit
+          ? `Refund ${r.id} for payment ${r.payment_id ?? '?'} failed at Razorpay; a new refund will be sent`
+          : `Refund ${r.id} for payment ${r.payment_id ?? '?'} failed at Razorpay and matches no refund we recorded: check the payment in Razorpay`,
+        r.id,
+        c,
+      )
     }
     return { result: failed ? 'refund_failed' : 'refund_processed', matched: hit }
   })
+}
+
+/**
+ * Records how a refund ended at Razorpay on whichever row holds it. A failed
+ * refund reopens the row, so the maintenance loop sends a new one. Returns
+ * how many rows matched.
+ */
+async function applyRefundOutcome(c, refundId, failed) {
+  let hit = 0
+  for (const table of ['orders', 'preorders']) {
+    const { rows } = await c.query(`SELECT id, status FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [refundId])
+    for (const row of rows) {
+      hit++
+      if (!failed) {
+        await c.query(`UPDATE ${table} SET refund_status = 'processed', refund_checked_at = $2 WHERE id = $1`, [row.id, now()])
+        continue
+      }
+      await c.query(
+        `UPDATE ${table} SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, refund_attempted_at = NULL,
+                payment_status = 'SUCCEEDED', refund_checked_at = $2 WHERE id = $1`,
+        [row.id, now()],
+      )
+      if (table === 'orders') await addEvent(c, row.id, row.status, row.status, SYSTEM, `Refund ${refundId} failed at Razorpay; sending it again`)
+    }
+  }
+  const d = await c.query(
+    failed
+      ? `UPDATE duplicate_payments SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, attempted_at = NULL, refund_checked_at = $2 WHERE refund_id = $1`
+      : `UPDATE duplicate_payments SET refund_status = 'processed', refund_checked_at = $2 WHERE refund_id = $1`,
+    [refundId, now()],
+  )
+  return hit + d.rowCount
+}
+
+const REFUND_RECHECK_MS = 60 * 60_000
+const REFUND_SETTLE_MS = 30 * 60_000
+
+/**
+ * PAY-02: asks Razorpay how pending refunds ended, so a lost or early
+ * refund webhook can't leave a failed refund recorded as paid. Each pending
+ * refund older than 30 minutes is checked about once an hour, matched by its
+ * payment id and refund id (GET /payments/:id/refunds, the call
+ * gatewayRefund already makes). Returns how many changed.
+ */
+export async function reconcileRefunds(at = now()) {
+  if (!hasKeys()) return 0
+  const { rows } = await query(
+    `SELECT 'orders' AS t, id::text AS key, payment_id, refund_id FROM orders
+      WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
+     UNION ALL
+     SELECT 'preorders', id::text, payment_id, refund_id FROM preorders
+      WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
+     UNION ALL
+     SELECT 'duplicate_payments', payment_id, payment_id, refund_id FROM duplicate_payments
+      WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
+     LIMIT 20`,
+    [new Date(at.getTime() - REFUND_SETTLE_MS), new Date(at.getTime() - REFUND_RECHECK_MS)],
+  )
+  let changed = 0
+  for (const row of rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) break
+    const keyCol = row.t === 'duplicate_payments' ? 'payment_id' : 'id'
+    try {
+      const items = (await razorpay('GET', `/payments/${encodeURIComponent(row.payment_id)}/refunds`)).items
+      if (!Array.isArray(items)) throw new Error('Razorpay refunds list without items')
+      const r = items.find((x) => x?.id === row.refund_id)
+      if (r?.status === 'processed' || r?.status === 'failed') {
+        changed += await tx((c) => applyRefundOutcome(c, row.refund_id, r.status === 'failed'))
+      } else {
+        await query(`UPDATE ${row.t} SET refund_checked_at = $2 WHERE ${keyCol} = $1`, [row.key, at])
+        if (!r) logger.error({ refundId: row.refund_id, paymentId: row.payment_id }, 'a recorded refund is not listed at Razorpay')
+      }
+    } catch (err) {
+      logger.error({ err, refundId: row.refund_id }, 'could not check a refund at Razorpay; will retry')
+      await query(`UPDATE ${row.t} SET refund_checked_at = $2 WHERE ${keyCol} = $1`, [row.key, at]).catch(() => {})
+    }
+  }
+  return changed
 }
 
 /**
@@ -385,7 +447,7 @@ export async function refundOrder(orderId) {
   try {
     return await tx(async (c) => {
       const r = await c.query(
-        `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3, refund_status = 'pending' WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
+        `UPDATE orders SET payment_status = 'REFUNDED', refund_id = $2, refunded_at = $3, refund_status = 'pending', refund_checked_at = NULL WHERE id = $1 AND refunded_at IS NULL RETURNING id`,
         [o.id, refundId, now()],
       )
       if (r.rowCount) {
