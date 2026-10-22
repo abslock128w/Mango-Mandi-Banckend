@@ -97,9 +97,36 @@ jobs:
           TEST_DATABASE_URL: postgres://mango:mango@db-pooler.local:6543/mango_test
           DATABASE_URL_UNPOOLED: postgres://mango:mango@localhost:5432/mango_test
 
+  # OPS-12: a deploy migrates first, and a rollback keeps the new schema, so
+  # the previous release must still pass its own tests on the new tables.
+  previous-release-on-new-schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: mango
+          POSTGRES_PASSWORD: mango
+          POSTGRES_DB: mango_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U mango" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Old API's tests on the new migrations
+        working-directory: mango-api
+        run: ./scripts/n-minus-1.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
+        env:
+          TEST_DATABASE_URL: postgres://mango:mango@localhost:5432/mango_test
+
   e2e:
     runs-on: ubuntu-latest
-    needs: [build-and-test, api]
+    needs: [build-and-test, api, previous-release-on-new-schema]
     services:
       postgres:
         image: postgres:16

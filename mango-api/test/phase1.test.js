@@ -26,8 +26,15 @@ beforeEach(async () => {
 
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
 // DELIVERED from the panel is a manager's override with a reason (ORD-3).
-const move = (id, status) =>
-  api.patch(`/admin/v1/orders/${id}/status`, status === 'DELIVERED' ? { status, override: true, reason: 'Customer confirmed by phone' } : { status }, { token: admin })
+const move = async (id, status) => {
+  // A failed delivery is reported with a reason and the attempt (OPS-01/02).
+  if (status === 'DELIVERY_FAILED') {
+    const { attempt } = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
+    const r = await api.post(`/admin/v1/orders/${id}/delivery`, { outcome: 'FAILED', reason: 'NOT_HOME', attempt }, { token: admin })
+    return { ...r, status: r.status === 200 ? 204 : r.status }
+  }
+  return api.patch(`/admin/v1/orders/${id}/status`, status === 'DELIVERED' ? { status, override: true, reason: 'Customer confirmed by phone' } : { status }, { token: admin })
+}
 const addSlot = async (body) => {
   const r = await api.post('/admin/v1/slots', body, { token: admin })
   assert.equal(r.status, 201, JSON.stringify(r.body))
