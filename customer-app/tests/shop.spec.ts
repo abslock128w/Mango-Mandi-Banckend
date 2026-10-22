@@ -168,6 +168,13 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   // The button that opened the dialog is gone, so focus lands on the outcome.
   await expect(page.locator('.note-card', { hasText: 'This order was cancelled.' })).toBeFocused()
   await expect(page.getByText(/refund of ₹[\d,]+ (has been sent|is on its way)/)).toBeVisible()
+  // The total row agrees with the refund note: "Refunded" once sent, "Paid" until then (FE-6).
+  await expect
+    .poll(async () => {
+      const sent = await page.getByText(/refund of ₹[\d,]+ has been sent/).isVisible()
+      return `${sent ? 'sent' : 'on its way'}: ${await page.locator('.total-row > span').textContent()}`
+    })
+    .toMatch(/^(sent: Refunded|on its way: Paid)$/)
 
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Orders', exact: true }).click()
   // The card names the boxes, and a cancelled order "was due", not "arrives".

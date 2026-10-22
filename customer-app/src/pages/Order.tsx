@@ -37,6 +37,7 @@ const latePaymentPossible = (o: Order | undefined) =>
   o?.status === 'CANCELLED' &&
   o.cancelReason === 'HOLD_EXPIRED' &&
   o.paymentStatus !== 'SUCCEEDED' &&
+  o.refundStatus === null &&
   Boolean(o.cancelledAt) &&
   Date.now() - new Date(o.cancelledAt!).getTime() < LATE_PAYMENT_WATCH_MS
 const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
@@ -112,6 +113,8 @@ function OrderView({ order }: { order: Order }) {
     },
   })
   const paid = order.paymentStatus === 'SUCCEEDED'
+  // The money went back (FE-6): the total row says so rather than "Total".
+  const refunded = order.refundStatus === 'REFUNDED' || order.paymentStatus === 'REFUNDED'
   const help = helpLink(`Help with order ${order.number}`)
   // A thank-you once the payment goes through: seen here, or already done when checkout hands over.
   const [thanks, setThanks] = useState(() => Boolean(arrived?.placed) && paid && order.status !== 'CANCELLED')
@@ -375,7 +378,7 @@ function OrderView({ order }: { order: Order }) {
           </div>
         )}
         <div className="total-row">
-          <span>{paid ? 'Paid' : 'Total'}</span>
+          <span>{refunded ? 'Refunded' : paid ? 'Paid' : 'Total'}</span>
           <strong>{rupees(order.total)}</strong>
         </div>
       </section>

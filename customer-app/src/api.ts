@@ -117,7 +117,7 @@ export interface Order {
   promoCode: string | null
   total: number
   gift: Gift | null
-  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | null
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
   /** Razorpay's public key id, while the order waits for payment, so checkout can be reopened anywhere. */
