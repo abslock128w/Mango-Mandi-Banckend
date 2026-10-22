@@ -240,6 +240,18 @@ h3 {
   height: 32px;
   flex: none;
 }
+/* Small phones: the mark alone, so Menu and the account button still fit. The name stays
+   readable to screen readers. */
+@media (max-width: 420px) {
+  .app-bar .brand-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
 
 .menu-btn,
 .nav-group-btn,
