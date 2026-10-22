@@ -423,13 +423,17 @@ screen.
   stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on fallback,
   ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer token and
   route the alerts to the phone of whoever is on call.
-- **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file and
-  keeps 14 days (`RETAIN_DAYS`). Run it nightly and copy the files off the database host.
+- **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file,
+  encrypted to a GPG public key (`BACKUP_GPG_PUBLIC_KEY_FILE` or `BACKUP_GPG_RECIPIENT`;
+  with neither it refuses), and keeps 14 days (`RETAIN_DAYS`). `BACKUP_UPLOAD_CMD` copies
+  it off the host in the same run, and `BACKUP_HEARTBEAT=true` records each outcome as the
+  step `backup` in `maintenance_runs`. With `BACKUP_HEARTBEAT_EXPECTED=true` on the API
+  (the Docker deploy sets both), Needs attention and the health check warn when no backup
+  has succeeded for 26 hours.
   [`ops/restore-check.sh`](ops/restore-check.sh) restores a dump into a scratch database,
   prints the migrations and row counts, checks the stock ledger balances, then drops it.
   Run it weekly and after each schema change; a backup nobody has restored is a guess.
-  Set `BACKUP_GPG_RECIPIENT` to encrypt the dump (it holds customers' details); the
-  nightly GitHub workflow [`backup.yml`](../.github/workflows/backup.yml) does this for Neon.
+  The nightly GitHub workflow [`backup.yml`](../.github/workflows/backup.yml) runs it for Neon.
   That workflow fails (red, with an email) when its secrets are missing; a copy with no
   production database sets the repository variable `BACKUP_DISABLED=true` instead.
 - **Ready.** `GET /ready` answers 503 when the database doesn't answer, when the last

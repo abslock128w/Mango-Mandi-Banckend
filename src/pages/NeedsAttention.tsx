@@ -21,6 +21,7 @@ const STEP_LABEL: Record<string, string> = {
   config: 'Loading rules',
   'review-requests': 'Queueing review requests',
   'review-stats': 'Review totals check',
+  backup: 'Nightly backup',
 }
 
 /** Shared with Today, which starts this query together with the summary. */
@@ -93,6 +94,15 @@ export default function NeedsAttention() {
                 <strong>The background loop has stopped.</strong>{' '}
                 {a.loop.lastRunAt ? `It last ran at ${dateTime(a.loop.lastRunAt)}.` : 'It has not run yet.'} Payments, refunds, WhatsApp
                 updates and hold releases wait until it runs again. Restart the API.
+              </li>,
+            ]
+          : []),
+        ...(a.backup?.stale
+          ? [
+              <li key="backup">
+                <strong>No backup in the last 26 hours.</strong>{' '}
+                {a.backup.lastOkAt ? `The last one finished at ${dateTime(a.backup.lastOkAt)}.` : 'No backup has been recorded yet.'} Ask
+                whoever runs the server to check the backup service (deploy/README.md, Backups).
               </li>,
             ]
           : []),
