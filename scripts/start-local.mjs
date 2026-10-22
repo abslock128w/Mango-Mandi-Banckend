@@ -10,6 +10,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { connect } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -31,6 +32,19 @@ const API = 'http://localhost:3000'
 const children = []
 
 const say = (msg) => console.log(`\n==> ${msg}`)
+
+/** True when nothing on this computer answers on the port (checked on both localhost addresses). */
+async function portFree(port) {
+  const answers = (host) =>
+    new Promise((resolve) => {
+      const sock = connect({ port, host })
+      sock.setTimeout(1000)
+      sock.once('connect', () => (sock.destroy(), resolve(true)))
+      sock.once('timeout', () => (sock.destroy(), resolve(false)))
+      sock.once('error', () => resolve(false))
+    })
+  return !(await answers('127.0.0.1')) && !(await answers('::1'))
+}
 
 /** Runs a command to completion (npm needs a shell on Windows). */
 function run(cmd, cwd) {
@@ -90,6 +104,13 @@ async function main() {
   const major = Number(process.versions.node.split('.')[0])
   if (major < 22) throw new Error(`Node 22 or newer is needed (this is ${process.versions.node})`)
 
+  // An older window still running would keep serving old pages (often a blank screen) on these ports.
+  for (const port of [3000, 5173, 5174, DB_PORT]) {
+    if (!(await portFree(port))) {
+      throw new Error(`MandiMangoes is already running in another window (port ${port} is busy). Close that window first, then run this again.`)
+    }
+  }
+
   if (!existsSync(path.join(root, 'node_modules'))) {
     say('Installing the shop and staff panel (first run only, a few minutes)')
     await run('npm ci --no-audit --no-fund --loglevel=error', root)
@@ -133,10 +154,10 @@ async function main() {
   await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')
-  start('npx vite --port 5173 --strictPort', root, { VITE_API_URL: API }, true)
+  start('npx vite --port 5173 --strictPort --force', root, { VITE_API_URL: API }, true)
   // The shop calls its own address and Vite passes /v1 to the API, so phones need only port 5174.
   const shopEnv = PHONE ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
-  start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort${WIFI.length ? ' --host 0.0.0.0' : ''}`, root, shopEnv, true)
+  start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort --force${WIFI.length ? ' --host 0.0.0.0' : ''}`, root, shopEnv, true)
   await waitFor(SHOP)
   await waitFor(PANEL)
   const phoneLink = PHONE ? await startPhoneLink() : null
