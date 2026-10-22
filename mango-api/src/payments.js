@@ -60,10 +60,12 @@ const shopOrigin = () => env.CUSTOMER_ORIGIN.split(',')[0]?.trim().replace(/\/$/
  */
 export const linkExpiresAt = (at = now()) => Math.floor(at.getTime() / 1000) + Math.max(16 * 60, getConfig().holdMinutes * 60 + 6 * 60)
 
-export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description }) {
+export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description, holdUntil = null }) {
   if (hasKeys()) {
+    // PAY-01: a link must stay open as long as the hold it pays for (a waitlist spot is held for hours).
+    const expireBy = Math.max(linkExpiresAt(), holdUntil ? Math.floor(new Date(holdUntil).getTime() / 1000) + 6 * 60 : 0)
     const link = await razorpay('POST', '/payment_links', {
-      amount, currency: 'INR', accept_partial: false, reference_id: number, expire_by: linkExpiresAt(), description: description ?? `MandiMangoes order ${number}`,
+      amount, currency: 'INR', accept_partial: false, reference_id: number, expire_by: expireBy, description: description ?? `MandiMangoes order ${number}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
       notes: preorderId ? { preorderId } : { orderId },
       ...(preorderId && shopOrigin() ? { callback_url: `${shopOrigin()}/preorders/${preorderId}`, callback_method: 'get' } : {}),

@@ -240,3 +240,51 @@ describe('big stock increases need a manager (INV-04)', () => {
     assert.equal((await patch(operator, 150)).status, 204)
   })
 })
+
+describe('a waitlist spot gets a link that lasts as long as the spot (PAY-01)', () => {
+  test("the promoted customer's link closes after the 12-hour hold, not after 16 minutes", async () => {
+    const { env } = await import('../src/env.js')
+    const { newId } = await import('../src/ids.js')
+    const { now } = await import('../src/clock.js')
+    const { runPreorderJobs } = await import('../src/maintenance.js')
+    let week = addDays(todayIST(), 6)
+    while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
+    await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: manager })
+    const book = (token, extra = {}) =>
+      api.post('/v1/preorders', { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+        { token, headers: { 'Idempotency-Key': newId('idem') } })
+
+    const links = []
+    const realFetch = globalThis.fetch
+    env.RAZORPAY_KEY_ID = 'rzp_test_x'
+    env.RAZORPAY_KEY_SECRET = 'secret'
+    globalThis.fetch = async (url, init) => {
+      const u = String(url)
+      if (!u.startsWith('https://api.razorpay.com/')) return realFetch(url, init)
+      if (u.endsWith('/payment_links') && init?.method === 'POST') {
+        const body = JSON.parse(init.body)
+        links.push(body)
+        return new Response(JSON.stringify({ id: `plink_${links.length}`, short_url: `https://rzp.io/i/${links.length}` }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ items: [] }), { status: 200 })
+    }
+    try {
+      const a = await customerToken(api)
+      assert.ok([200, 201].includes((await book(a.accessToken)).status))
+      const b = await customerToken(api)
+      const waiting = await book(b.accessToken, { waitlist: true })
+      assert.equal(waiting.body.status, 'WAITLISTED')
+      setNow(new Date(now().getTime() + 11 * 60_000).toISOString())
+      const jobs = await runPreorderJobs()
+      assert.equal(jobs.promoted, 1)
+      const p = (await query('SELECT hold_expires_at, payment_link_id FROM preorders WHERE id = $1', [waiting.body.id])).rows[0]
+      const link = links.find((l) => l.notes?.preorderId === waiting.body.id)
+      assert.ok(link, 'a link was created for the promoted spot')
+      assert.ok(link.expire_by >= Math.floor(p.hold_expires_at.getTime() / 1000), `link closes at ${link.expire_by}, spot held until ${p.hold_expires_at.toISOString()}`)
+    } finally {
+      globalThis.fetch = realFetch
+      env.RAZORPAY_KEY_ID = ''
+      env.RAZORPAY_KEY_SECRET = ''
+    }
+  })
+})
