@@ -35,15 +35,21 @@ export const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Mai
 export async function openNavTo(page: Page, name: string) {
   const link = mainNav(page).getByRole('link', { name, exact: true })
   const menu = page.getByRole('button', { name: 'Menu' })
-  if (await menu.isVisible()) {
-    if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
-  } else {
-    const group = mainNav(page)
-      .locator('.nav-group')
-      .filter({ has: page.getByRole('link', { name, exact: true, includeHidden: true }) })
-    const button = group.locator('.nav-group-btn')
-    if ((await button.count()) && (await button.getAttribute('aria-expanded')) !== 'true') await button.click()
-  }
+  // A page that is still loading can take focus as it appears (e.g. the QC form on a new batch),
+  // which closes a menu opened a moment before. So open it again until the link shows.
+  await expect(async () => {
+    if (await link.isVisible()) return
+    if (await menu.isVisible()) {
+      if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
+    } else {
+      const group = mainNav(page)
+        .locator('.nav-group')
+        .filter({ has: page.getByRole('link', { name, exact: true, includeHidden: true }) })
+      const button = group.locator('.nav-group-btn')
+      if ((await button.count()) && (await button.getAttribute('aria-expanded')) !== 'true') await button.click()
+    }
+    await expect(link).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 10_000 })
   return link
 }
 
