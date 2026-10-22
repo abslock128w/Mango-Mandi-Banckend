@@ -19,6 +19,7 @@ export default function SignIn() {
 
   return (
     <section className="card narrow">
+      <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="96" height="96" alt="MandiMangoes" className="signin-logo" />
       <h1>Sign in</h1>
       <GoogleButton onSignedIn={finish} onError={setGoogleError} />
       {googleError && (

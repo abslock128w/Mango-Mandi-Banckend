@@ -78,6 +78,8 @@ test('signing out returns to the login screen', async ({ page }) => {
 test('offline banner appears and clears', async ({ page, context }) => {
   await mockApi(page)
   await page.goto('/login')
+  // Let the logo and icons finish loading, so going offline doesn't fail them.
+  await page.waitForLoadState('networkidle')
   await context.setOffline(true)
   await expect(page.getByText('You are offline')).toBeVisible()
   await context.setOffline(false)

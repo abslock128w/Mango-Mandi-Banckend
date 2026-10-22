@@ -132,6 +132,7 @@ export default function Layout() {
         </a>
         <div className="app-bar" data-disclosure="menu">
           <NavLink to={homeFor(me?.role)} className="brand">
+            <img src="/brand/mark-96.webp" width="32" height="32" alt="" className="brand-mark" />
             Mango Ops
           </NavLink>
           <button

@@ -148,10 +148,7 @@ export default function App() {
         <div className="top-inner">
           <div className="top-row">
             <Link to="/" className="brand" aria-label="MandiMangoes, home">
-              <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
-                <path d="M34 14c14 2 22 14 20 28-2 12-14 18-26 16S8 46 10 34c2-12 12-21 24-20z" fill="currentColor" />
-                <path d="M33 14c1-5 5-8 10-8-1 5-5 8-10 8z" fill="var(--leaf)" />
-              </svg>
+              <img src="/brand/mark-96.webp" width="40" height="40" alt="" className="brand-mark" />
             </Link>
             <WhereButton />
             <NavLink to={profile ? '/account' : '/sign-in'} className="profile-btn" aria-label={profile ? 'Account' : 'Sign in'}>

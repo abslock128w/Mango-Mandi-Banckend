@@ -8,6 +8,8 @@ export default defineConfig(({ mode }) => {
   const env = { ...loadEnv(mode, __dirname, 'VITE_'), ...process.env }
   return {
     root: __dirname,
+    // Own cache, apart from the panel's: both dev servers use the repo root's node_modules.
+    cacheDir: path.resolve(__dirname, '../node_modules/.vite/shop'),
     plugins: [react(), cspPlugin('shop', env.VITE_API_URL)],
     server: {
       port: 5174,

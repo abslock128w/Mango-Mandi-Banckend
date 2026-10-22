@@ -90,3 +90,10 @@ The panel imports the same `tokens.css`. Its colour names are aliases of the sha
 | `MissedDialog` (`src/MissedDialog.tsx`) | failed-delivery reason from a list, note, photo | OrderDetail, Deliveries |
 
 Labels: the panel never shows enum names or ids. Map them in `src/format.ts` (`STOCK_STATE_LABEL`, `LEDGER_EVENT_LABEL`, `NOTIFICATION_LABEL`, `PAYMENT_METHOD_LABEL`, `ripenessLabel`, `actorLabel`, `telHref`).
+
+## Logo
+
+- Masters: `design/brand/logo-512.png` (full round logo) and `design/brand/mark-512.png` (the M and mango in a badge, for small sizes). Both have a transparent background.
+- Served copies sit in `public/brand/` (panel) and `customer-app/public/brand/` (shop): `logo-320.webp` and `logo-640.webp` (2x) for large uses, `mark-96.webp` for headers. Tab icons are `favicon-32.png`, `icon-192.png` and `apple-touch-icon.png`.
+- Use the full logo at 96px or larger (welcome, sign-in, panel login). Below that, use the mark: the words can't be read.
+- Header marks are decorative (`alt=""`) because the link already says "MandiMangoes, home" or "Mango Ops".

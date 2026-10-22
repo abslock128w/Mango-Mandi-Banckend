@@ -76,6 +76,7 @@ function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (
   }
   return (
     <section className="hero">
+      <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="128" height="128" alt="MandiMangoes" className="hero-logo" />
       <h1>Mangoes picked for the day you want to eat them</h1>
       <p className="lead">Choose raw, semi-ripe or ripe, and the day it arrives. We pack each box from the batch that will be just right on that day.</p>
       <form className="pin-form" onSubmit={submit} noValidate>

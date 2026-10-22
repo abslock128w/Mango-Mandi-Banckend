@@ -48,6 +48,7 @@ export default function Login() {
   return (
     <main className="login-wrap">
       <div className="card login-card">
+        <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="112" height="112" alt="MandiMangoes" className="login-logo" />
         <h1>Mango Ops</h1>
         {ticket ? (
           <CodeStep
