@@ -182,6 +182,7 @@ npm run build          # type-checks, then builds to dist/
 
 ```bash
 npm run typecheck                                  # tsc --noEmit
+npm run lint && npm run test:unit                  # ESLint (hooks, unused) and unit tests
 npx playwright test tests/smoke.spec.ts tests/a11y.spec.ts   # no backend needed
 # full flow against a live backend:
 E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 \

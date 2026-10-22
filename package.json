@@ -8,6 +8,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests && tsc --noEmit -p customer-app && tsc --noEmit -p customer-app/tests",
     "test:e2e": "playwright test",
+    "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\" \"customer-app/tests/unit/*.unit.ts\"",
+    "lint": "eslint .",
     "shop:dev": "vite --config customer-app/vite.config.ts",
     "shop:build": "tsc --noEmit -p customer-app && vite build --config customer-app/vite.config.ts",
     "shop:preview": "vite preview --config customer-app/vite.config.ts"
@@ -27,7 +29,11 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.71.1",
+    "@typescript-eslint/parser": "^8.71.1",
     "@vitejs/plugin-react": "^4.3.1",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5.5.3",
     "vite": "^5.4.8"
   }
