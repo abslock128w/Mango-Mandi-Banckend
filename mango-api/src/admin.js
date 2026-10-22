@@ -6,7 +6,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { hit, sharedLimiter } from './ratelimit.js'
 import { z } from 'zod'
-import { audit, auditStaffChanges, limitByRole, riderScope, ROLES } from './access.js'
+import { audit, auditStaffChanges, isPacker, limitByRole, redactForPacker, riderScope, ROLES } from './access.js'
 import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
@@ -885,6 +885,8 @@ export async function orderDetail(c, orderId) {
   return {
     rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
+    // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
+    attempt: o.delivery_failures + 1,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
@@ -907,7 +909,13 @@ export async function orderDetail(c, orderId) {
   }
 }
 
-router.get('/orders/:id', asyncHandler(async (req, res) => res.json(await orderDetail({ query }, req.params.id))))
+router.get(
+  '/orders/:id',
+  asyncHandler(async (req, res) => {
+    const detail = await orderDetail({ query }, req.params.id)
+    res.json(isPacker(req) ? redactForPacker(detail) : detail)
+  }),
+)
 
 router.patch(
   '/orders/:id/status',
@@ -918,6 +926,10 @@ router.patch(
     )
     const override = Boolean(b.override)
     if (override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
+    // OPS-01: a missed delivery is reported with its reason and attempt (POST /orders/:id/delivery), never as a bare status.
+    if (b.status === 'DELIVERY_FAILED') {
+      throw badRequest("Report a missed delivery with Couldn't deliver: it needs the reason and the attempt", 'USE_DELIVERY_REPORT')
+    }
     await tx(async (c) => {
       await setOrderStatus(c, req.params.id, b.status, req.actor, { reason: b.reason, override })
       await recordStaffDelivery(c, req.params.id, b.status, req.actor, b.reason)
@@ -1084,7 +1096,7 @@ router.get(
       orders.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, pincode: o.pincode, status: o.status,
         slot: o.slot_id ? { id: o.slot_id, label: o.slot_label } : null,
-        gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
+        gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: isPacker(req) ? null : o.gift_recipient_phone, message: o.gift_message } : null,
         items: items.rows
           .filter((i) => i.order_id === o.id)
           .map((i) => ({
@@ -1118,7 +1130,7 @@ router.get(
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
         WHERE o.delivery_date = $1 AND o.status = ANY($2)
         ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, o.number`,
-      [date, MANIFEST_STATUSES],
+      [date, isPacker(req) ? MANIFEST_STATUSES.filter((s) => s !== 'DELIVERED') : MANIFEST_STATUSES],
     )
     const { rows: items } = await query(
       'SELECT order_id, sku, stage, SUM(quantity)::int AS quantity FROM order_items WHERE order_id = ANY($1) GROUP BY order_id, sku, stage ORDER BY sku, stage',
@@ -1144,7 +1156,7 @@ router.get(
       }
       const lines = items.filter((i) => i.order_id === o.id)
       const boxes = lines.reduce((n, i) => n + i.quantity, 0)
-      stop.orders.push({
+      const entry = {
         // A gift goes to the recipient: the rider sees and calls them.
         id: o.id, number: o.number, status: o.status, deliveryAddress: o.delivery_address,
         customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
@@ -1153,7 +1165,8 @@ router.get(
         // Sent back with the delivery report, so a late resend for an earlier attempt is refused.
         attempt: o.delivery_failures + 1,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
-      })
+      }
+      stop.orders.push(isPacker(req) ? redactForPacker(entry) : entry)
       run.orders++
       run.boxes += boxes
     }
@@ -1251,6 +1264,8 @@ router.post(
       }),
       req.body,
     )
+    // OPS-02: a missed-delivery report must say which attempt it is for, so a late resend can't count twice.
+    if (b.outcome === 'FAILED' && b.attempt === undefined) throw badRequest('Say which delivery attempt this report is for', 'ATTEMPT_REQUIRED')
     const r = await tx((c) => recordDelivery(c, req.params.id, b, req.actor))
     if (r.wrongCode) {
       throw new HttpError(422, 'WRONG_CODE', r.triesLeft ? `That code is not right. ${r.triesLeft} tries left.` : 'That code is not right. Take a photo of the handover instead.', { triesLeft: r.triesLeft })

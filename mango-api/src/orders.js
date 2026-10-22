@@ -6,7 +6,7 @@
 // a paid order we can't deliver.
 import { randomInt } from 'node:crypto'
 import { configVersion, getConfig } from './config.js'
-import { addDays, diffDays, now } from './clock.js'
+import { addDays, diffDays, now, todayIST } from './clock.js'
 import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, nextDeliveryDay, orderableDates } from './delivery.js'
 import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from './errors.js'
 import { newId } from './ids.js'
@@ -524,6 +524,17 @@ async function checkDispatchable(c, o, opts) {
       `Order ${o.number} has failed ${o.delivery_failures} deliveries. Call the customer; a manager can then send it again.`,
       'ATTEMPTS_USED_UP',
     )
+  }
+  if (o.status === 'DELIVERY_FAILED') {
+    // OPS-01: the retry goes on another day. Sending it straight back out and
+    // reporting another miss would burn the customer's attempts in minutes.
+    const { rows } = await c.query(
+      `SELECT created_at FROM delivery_attempts WHERE order_id = $1 AND outcome = 'FAILED' ORDER BY created_at DESC LIMIT 1`,
+      [o.id],
+    )
+    if (rows[0] && todayIST(rows[0].created_at) === todayIST()) {
+      throw conflict(`Order ${o.number} was missed today. It goes out again on its new day; a manager can send it today.`, 'SAME_DAY_RETRY')
+    }
   }
   const r = await rebalanceOrder(c, o.id, opts.actor ?? SYSTEM)
   if (r?.atRisk) {

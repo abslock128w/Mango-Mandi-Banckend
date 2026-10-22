@@ -290,8 +290,10 @@ describe('riders and deliveries', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const o = await packedOrder(await customerToken(api))
     for (let i = 1; i <= 3; i++) {
+      // Each retry is on a later day (OPS-01).
+      if (i > 1) setNow(new Date(Date.parse(T0) + (i - 1) * 86_400_000).toISOString())
       assert.equal((await api.post(`/admin/v1/orders/${o.orderId}/dispatch`, undefined, { token: admin })).status, 204)
-      const r = await api.post(`/admin/v1/orders/${o.orderId}/delivery`, { outcome: 'FAILED', reason: 'NOT_HOME' }, { token: admin })
+      const r = await api.post(`/admin/v1/orders/${o.orderId}/delivery`, { outcome: 'FAILED', reason: 'NOT_HOME', attempt: i }, { token: admin })
       assert.equal(r.status, 200, JSON.stringify(r.body))
     }
     const after = await order(o.orderId)

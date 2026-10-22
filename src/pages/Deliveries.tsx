@@ -311,7 +311,8 @@ function StopCard({
         </span>
       </div>
       <div>
-        {o.customerName ?? '—'} · {o.phone}
+        {o.customerName ?? '—'}
+        {o.phone && <> · {o.phone}</>}
       </div>
       {o.gift && (
         <div className="small">
@@ -319,7 +320,7 @@ function StopCard({
           {o.gift.message && <> · “{o.gift.message}”</>}
         </div>
       )}
-      <div>{o.deliveryAddress ?? 'No address'}</div>
+      <div>{o.deliveryAddress ?? (me?.role === 'PACKER' ? `Area ${pincode}` : 'No address')}</div>
       <div className="small muted">
         {o.items.map((i) => `${i.quantity} × ${i.productName}${i.stage ? ` (${RIPENESS_LABEL[i.stage]})` : ''}`).join(', ')}
       </div>
@@ -339,9 +340,11 @@ function StopCard({
             Send out<span className="sr-only"> {o.number}</span>
           </button>
         )}
-        <a className="btn" href={telHref(o.phone)}>
-          Call<span className="sr-only"> {o.number}</span>
-        </a>
+        {o.phone && (
+          <a className="btn" href={telHref(o.phone)}>
+            Call<span className="sr-only"> {o.number}</span>
+          </a>
+        )}
         {o.deliveryAddress && (
           <a className="btn" href={mapsLink(o, pincode)} target="_blank" rel="noreferrer">
             Map<span className="sr-only"> for {o.number}</span>

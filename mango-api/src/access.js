@@ -138,7 +138,10 @@ export function limitByRole(req, _res, next) {
 
 /** Orders a rider may touch: on the road or ready to go. */
 const RIDER_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED', 'DELIVERED']
-const ORDER_PATH = /^\/orders\/([^/]+)\//
+/** Orders a packer may open: being packed or on the road. Not delivered ones (SEC-02). */
+const PACKER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
+const ORDER_PATH = /^\/orders\/([^/]+)(?:\/|$)/
+const DATED_LISTS = ['/manifest', '/pack-list']
 
 /** A rider's run is yesterday (late finishes), today or tomorrow, IST. */
 const riderDates = () => {
@@ -147,29 +150,50 @@ const riderDates = () => {
 }
 
 /**
- * Object-level checks for riders: limitByRole lets them reach the delivery
- * routes, this keeps those routes to orders on their run. Any other order id
- * (an old one, or one not packed yet) answers 404, as if it didn't exist,
- * and the manifest only opens for the run's dates, so a rider can't page
- * through every customer's address and phone number.
+ * Object-level checks for riders and packers: limitByRole lets them reach the
+ * delivery and packing routes, this keeps those routes to orders on the run
+ * (yesterday for late finishes, today, tomorrow). Any other order id answers
+ * 404, as if it didn't exist, and the manifest and pack list only open for
+ * those dates, so neither role can page through every customer's address and
+ * phone number. Packers also never see delivered orders (SEC-02), and their
+ * views leave out phone numbers and addresses (see redactForPacker).
  */
 export async function riderScope(req, _res, next) {
-  if (req.admin?.role !== 'RIDER') return next()
+  const role = req.admin?.role
+  if (role !== 'RIDER' && role !== 'PACKER') return next()
   try {
     const dates = riderDates()
     const date = req.method === 'GET' ? req.query.date : req.body?.date
-    if (req.path.startsWith('/manifest') && date !== undefined && !dates.includes(String(date))) {
-      return next(forbidden('Riders can only open the run for today or tomorrow'))
+    if (DATED_LISTS.some((p) => req.path.startsWith(p)) && date !== undefined && !dates.includes(String(date))) {
+      return next(forbidden(`${role === 'RIDER' ? 'Riders' : 'Packers'} can only open the run for today or tomorrow`))
     }
     const m = ORDER_PATH.exec(req.path)
     if (m) {
       const { rows } = await query('SELECT status, delivery_date FROM orders WHERE id = $1', [m[1]])
       const o = rows[0]
-      if (!o || !RIDER_STATUSES.includes(o.status) || !dates.includes(o.delivery_date)) return next(notFound('Order not found'))
+      const statuses = role === 'RIDER' ? RIDER_STATUSES : PACKER_ORDER_STATUSES
+      if (!o || !statuses.includes(o.status) || !dates.includes(o.delivery_date)) return next(notFound('Order not found'))
     }
     next()
   } catch (err) {
     next(err)
+  }
+}
+
+/**
+ * What a packer needs is boxes, not people: SKU, ripeness, quantity, the slot
+ * and the area. Phone numbers, addresses, payments and messages are left out.
+ */
+export const isPacker = (req) => req.admin?.role === 'PACKER'
+export function redactForPacker(order) {
+  return {
+    ...order,
+    phone: null,
+    deliveryAddress: null,
+    ...(order.gift ? { gift: { ...order.gift, recipientPhone: null } } : {}),
+    ...('payment' in order ? { payment: null } : {}),
+    ...('notifications' in order ? { notifications: [] } : {}),
+    ...('deliveryAttempts' in order ? { deliveryAttempts: order.deliveryAttempts.map((a) => ({ ...a, lat: null, lng: null })) } : {}),
   }
 }
 

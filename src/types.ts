@@ -223,6 +223,8 @@ export interface OrderDetail {
   id: string
   number: string
   status: OrderStatus
+  /** The delivery attempt a missed-delivery report made now is for. */
+  attempt?: number
   customerName: string | null
   phone: string | null
   pincode: string | null
@@ -465,7 +467,8 @@ export interface ManifestOrder {
   id: string
   number: string
   customerName: string
-  phone: string
+  /** Left out (null) for packers: they handle boxes, riders handle people. */
+  phone: string | null
   deliveryAddress: string | null
   status: OrderStatus
   packed: boolean

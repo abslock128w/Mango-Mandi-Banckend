@@ -123,14 +123,19 @@ describe('proof of delivery', () => {
     await api.post(`/admin/v1/orders/${id}/dispatch`, undefined, { token: rider })
     const code = (await mine(cust, id)).body.deliveryCode
 
-    assert.equal((await deliver(id, { outcome: 'FAILED' })).body.error.code, 'REASON_REQUIRED')
-    assert.equal((await deliver(id, { outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice' })).status, 200)
+    assert.equal((await deliver(id, { outcome: 'FAILED', reason: 'NOT_HOME' })).body.error.code, 'ATTEMPT_REQUIRED')
+    assert.equal((await deliver(id, { outcome: 'FAILED', attempt: 1 })).body.error.code, 'REASON_REQUIRED')
+    assert.equal((await deliver(id, { outcome: 'FAILED', reason: 'NOT_HOME', note: 'Called twice', attempt: 1 })).status, 200)
     const failed = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
     assert.equal(failed.status, 'DELIVERY_FAILED')
     assert.notEqual(failed.deliveryDate, date)
     assert.match(failed.events.at(-1).reason, /^Customer not home; retrying on /)
     assert.equal(failed.deliveryAttempts[0].note, 'Called twice')
 
+    // Not again the same day (OPS-01): it goes out on its new day.
+    const sameDay = await api.post('/admin/v1/manifest/dispatch', { date: failed.deliveryDate }, { token: admin })
+    assert.match(sameDay.body.skipped[0]?.reason ?? '', /missed today/)
+    setNow(`${failed.deliveryDate}T04:00:00Z`)
     const retry = await api.post('/admin/v1/manifest/dispatch', { date: failed.deliveryDate }, { token: rider })
     assert.deepEqual(retry.body.dispatched, [failed.number])
     assert.equal((await mine(cust, id)).body.deliveryCode, code)
