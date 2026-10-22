@@ -402,6 +402,8 @@ router.get(
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
       atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      // FE-3: the panel marks stock past this age from the live rule, not a constant.
+      maxSellableAge: cfg.maxSellableAge,
     })
   }),
 )

@@ -170,3 +170,46 @@ describe('PAY-05: an authorized payment found by reconcile is captured', () => {
     )
   })
 })
+
+describe('FE-2 / FE-3: the API sends what the shop and panel used to guess', () => {
+  test('claimUntil follows the live claim window; failed deliveries say whether a retry is booked', async () => {
+    const { addEvent, SYSTEM } = await import('../src/orders.js')
+    const { getConfig, saveConfig } = await import('../src/config.js')
+    const { tx } = await import('../src/db.js')
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
+    const t = { token: cust.accessToken }
+    const view = async () => (await api.get(`/v1/orders/${c.body.orderId}`, t)).body
+
+    let o = await view()
+    assert.equal(o.claimUntil, null)
+    assert.equal(o.retryScheduled, null)
+
+    await query(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 1 WHERE id = $1`, [o.id])
+    assert.deepEqual([(await view()).retryScheduled, (await view()).deliveryFailures], [true, 1])
+    await query(`UPDATE orders SET delivery_failures = 3 WHERE id = $1`, [o.id])
+    assert.equal((await view()).retryScheduled, false)
+
+    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.id])
+    await tx((c2) => addEvent(c2, o.id, 'OUT_FOR_DELIVERY', 'DELIVERED', SYSTEM))
+    o = await view()
+    const delivered = (await query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])).rows[0].at
+    assert.equal(o.claimWindowHours, 24)
+    assert.equal(Date.parse(o.claimUntil), delivered.getTime() + 24 * 3_600_000)
+    const rules = getConfig()
+    try {
+      await saveConfig({ ...rules, claimWindowHours: 48 }, 'test')
+      o = await view()
+      assert.equal(Date.parse(o.claimUntil), delivered.getTime() + 48 * 3_600_000)
+    } finally {
+      await saveConfig(rules, 'test')
+    }
+  })
+
+  test('the panel summary carries maxSellableAge', async () => {
+    const s = await api.get('/admin/v1/summary', { token: manager })
+    assert.equal(s.body.maxSellableAge, 7)
+  })
+})

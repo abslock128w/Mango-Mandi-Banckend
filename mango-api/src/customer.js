@@ -15,7 +15,7 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
@@ -770,7 +770,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -779,9 +779,15 @@ router.get(
       o.status === 'CANCELLED'
         ? query(`SELECT reason, created_at FROM order_events WHERE order_id = $1 AND status = 'CANCELLED' ORDER BY created_at DESC, id DESC LIMIT 1`, [o.id])
         : { rows: [] },
+      o.status === 'DELIVERED'
+        ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
+        : { rows: [] },
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
+    // FE-3: the claim deadline from the live rule, the same sum POST /claims checks.
+    const claimWindowHours = getConfig().claimWindowHours
+    const deliveredAt = delivered.rows[0]?.at ?? null
     res.json({
       rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
@@ -796,6 +802,11 @@ router.get(
       // a late payment can still land on a hold that ran out (FE-1).
       cancelReason: !cancelled ? null : o.staff_cancelled_at ? 'STAFF' : cancelled.reason === HOLD_EXPIRED_REASON ? 'HOLD_EXPIRED' : 'OTHER',
       cancelledAt: cancelled?.created_at ?? null,
+      claimWindowHours,
+      claimUntil: deliveredAt ? new Date(deliveredAt.getTime() + claimWindowHours * 3_600_000) : null,
+      // FE-2: after the last failed attempt nothing is rescheduled; staff call first.
+      deliveryFailures: o.delivery_failures,
+      retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS : null,
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       ...proof,
