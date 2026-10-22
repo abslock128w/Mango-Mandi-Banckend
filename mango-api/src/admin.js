@@ -739,6 +739,10 @@ router.post(
   }),
 )
 
+/** An increase above this many boxes, or this share of what arrived, needs a manager (INV-04). */
+const BIG_INCREASE_BOXES = 20
+const BIG_INCREASE_SHARE = 0.1
+
 router.patch(
   '/batches/:id/lines/:lineId',
   asyncHandler(async (req, res) => {
@@ -771,8 +775,24 @@ router.patch(
         )
       }
       if (onHand - l.held - l.committed - buffer < 0) throw badRequest('The reserve buffer is larger than the free stock', 'BUFFER_TOO_LARGE')
+      // INV-04: boxes that appear from nowhere get sold. A big increase needs a manager's sign-off.
+      const increase = onHand - l.on_hand
+      let reason = body.reason
+      if (increase > 0) {
+        const { rows: intake } = await c.query(
+          `SELECT COALESCE(SUM(delta), 0)::int AS n FROM batch_ledger WHERE batch_id = $1 AND sku = $2 AND event_type = 'INTAKE'`,
+          [l.batch_id, l.sku],
+        )
+        const limit = Math.max(BIG_INCREASE_BOXES, Math.ceil(intake[0].n * BIG_INCREASE_SHARE))
+        if (increase > limit) {
+          if (req.admin.role !== 'MANAGER') {
+            throw new HttpError(403, 'MANAGER_APPROVAL_NEEDED', `Adding more than ${limit} boxes to a line needs a manager. Ask a manager to make this change.`, { limit })
+          }
+          reason = `${body.reason} (large increase of ${increase}, by a manager)`
+        }
+      }
       await c.query('UPDATE batch_lines SET on_hand = $2, reserve_buffer = $3 WHERE id = $1', [l.id, onHand, buffer])
-      if (onHand !== l.on_hand) await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorId: req.admin.email, reason: body.reason })
+      if (onHand !== l.on_hand) await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorId: req.admin.email, reason })
       if (buffer !== l.reserve_buffer) {
         await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorId: req.admin.email, reason: body.reason })
       }

@@ -221,3 +221,22 @@ describe('a replacement goes on the next day with room (OPS-04)', () => {
     assert.deepEqual(rows.map((r) => [r.delivery_date, r.total]), [[dates[1], 0]])
   })
 })
+
+describe('big stock increases need a manager (INV-04)', () => {
+  test('an operator can correct a few boxes, not add hundreds; a manager can, and the ledger says so', async () => {
+    const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const lineId = (await query('SELECT id FROM batch_lines WHERE batch_id = $1', [b])).rows[0].id
+    const operator = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
+    const patch = (token, onHand) => api.patch(`/admin/v1/batches/${b}/lines/${lineId}`, { onHand, reason: 'recount' }, { token })
+    assert.equal((await patch(operator, 25)).status, 204, 'up to 20 boxes is a correction')
+    const big = await patch(operator, 100_000)
+    assert.equal(big.status, 403)
+    assert.equal(big.body.error.code, 'MANAGER_APPROVAL_NEEDED')
+    assert.equal((await query('SELECT on_hand FROM batch_lines WHERE id = $1', [lineId])).rows[0].on_hand, 25)
+    assert.equal((await patch(manager, 200)).status, 204)
+    const last = (await query(`SELECT reason FROM batch_ledger WHERE batch_id = $1 AND event_type = 'ADJUST' ORDER BY created_at DESC, id DESC LIMIT 1`, [b])).rows[0]
+    assert.match(last.reason, /large increase of 175, by a manager/)
+    // Lowering stock is never blocked by this rule.
+    assert.equal((await patch(operator, 150)).status, 204)
+  })
+})
