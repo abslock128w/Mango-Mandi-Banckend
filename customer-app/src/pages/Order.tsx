@@ -257,9 +257,16 @@ function OrderView({ order }: { order: Order }) {
 
       {order.status === 'DELIVERY_FAILED' && (
         <section className="card note-card">
-          <p>
-            <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
-          </p>
+          {/* No retry booked after the last attempt: never name the missed day as the next one. */}
+          {order.retryScheduled === false ? (
+            <p>
+              <strong>We missed you again.</strong> We'll call you to arrange a new delivery.
+            </p>
+          ) : (
+            <p>
+              <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
+            </p>
+          )}
         </section>
       )}
 

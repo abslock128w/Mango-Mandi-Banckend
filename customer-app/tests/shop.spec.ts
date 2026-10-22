@@ -324,6 +324,74 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
   expect(pic.headers()['content-type']).toBe('image/jpeg')
 })
 
+test('a missed delivery names the retry day, and after the last attempt says we will call', async ({ page, request }, info) => {
+  // An order through the API: paid, packed and out for delivery.
+  const phone = `8${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 3 : 4}`
+  const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })
+  expect(asked.ok(), await asked.text()).toBeTruthy()
+  const signIn = await request.post(`${API}/v1/auth/otp/verify`, { data: { phone, code: (await asked.json()).devCode } })
+  expect(signIn.ok(), await signIn.text()).toBeTruthy()
+  const tokens = await signIn.json()
+  const as = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } })
+  const cat = await (await request.get(`${API}/v1/catalogue?pincode=560034`, as(tokens.accessToken))).json()
+  const item = cat.items.find((i: { qty: number }) => i.qty > 0)
+  expect(item, 'something in stock').toBeTruthy()
+  await request.post(`${API}/v1/cart/items`, { data: { sku: item.sku, stage: item.stage, qty: 1 }, ...as(tokens.accessToken) })
+  const slots = await (await request.get(`${API}/v1/delivery/slots?pincode=560034&delivery_date=${cat.deliveryDate}`, as(tokens.accessToken))).json()
+  const slotId = slots.slots.find((s: { available: boolean }) => s.available)?.id ?? null
+  const q = await request.post(`${API}/v1/checkout/quote`, { data: { pincode: '560034', deliveryDate: cat.deliveryDate, slotId }, ...as(tokens.accessToken) })
+  expect(q.ok(), await q.text()).toBeTruthy()
+  const confirm = await request.post(`${API}/v1/checkout/confirm`, {
+    data: { quoteId: (await q.json()).quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' },
+    headers: { Authorization: `Bearer ${tokens.accessToken}`, 'Idempotency-Key': `e2e-${phone}` },
+  })
+  expect(confirm.ok(), await confirm.text()).toBeTruthy()
+  const { orderId } = await confirm.json()
+  await request.post(`${API}/v1/dev/pay`, { data: { orderId, outcome: 'captured' } })
+  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const staff = as(login.accessToken)
+  for (const step of [
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PROCESSING' }, ...staff }),
+    () => request.post(`${API}/admin/v1/orders/${orderId}/allocate`, staff),
+    () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PACKED' }, ...staff }),
+    () => request.post(`${API}/admin/v1/orders/${orderId}/dispatch`, staff),
+  ]) {
+    const r = await step()
+    expect(r.ok(), await r.text()).toBeTruthy()
+  }
+  const miss = async () => {
+    const { attempt } = await (await request.get(`${API}/admin/v1/orders/${orderId}`, staff)).json()
+    const r = await request.post(`${API}/admin/v1/orders/${orderId}/delivery`, { data: { outcome: 'FAILED', reason: 'NOT_HOME', attempt }, ...staff })
+    expect(r.ok(), await r.text()).toBeTruthy()
+  }
+  // A manager sends it out again by hand (the test can't wait for the next day).
+  const sendAgain = async () => {
+    const r = await request.patch(`${API}/admin/v1/orders/${orderId}/status`, {
+      data: { status: 'OUT_FOR_DELIVERY', override: true, reason: 'Test run: out again' },
+      ...staff,
+    })
+    expect(r.ok(), await r.text()).toBeTruthy()
+  }
+
+  await miss()
+  await page.goto(`/orders/${orderId}`)
+  await page.getByLabel('Mobile number').fill(phone)
+  await page.getByRole('button', { name: 'Send code' }).click()
+  const hint = await page.getByText(/Test mode: your code is \d{6}/).textContent()
+  await page.getByLabel('6-digit code').fill(hint!.match(/\d{6}/)![0])
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByText(/^We missed you\. We'll try again on .+\.$/)).toBeVisible()
+
+  // The third miss: nothing is booked, so no day is named.
+  await sendAgain()
+  await miss()
+  await sendAgain()
+  await miss()
+  await page.reload()
+  await expect(page.getByText("We missed you again. We'll call you to arrange a new delivery.")).toBeVisible()
+  await expect(page.getByText(/try again on/)).toHaveCount(0)
+})
+
 test('the privacy notice, and deleting an account', async ({ page }, info) => {
   const phone = `6${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
   await page.goto('/sign-in')
