@@ -31,18 +31,13 @@ const STEPS: { label: string; status: OrderStatus; reached: OrderStatus[] }[] = 
 const MOVABLE: OrderStatus[] = ['CONFIRMED']
 /** Packed and on its way: too late to cancel or move. */
 const PACKED_ON: OrderStatus[] = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
-/**
- * Hours after delivery a damaged box can be reported for a free replacement. Mirrors the API's
- * default claimWindowHours (mango-api/src/config.js); the order API does not send it yet, so the
- * report link stays offered after it and the API has the last word.
- */
-const CLAIM_WINDOW_HOURS = 24
 /** How long after a hold runs out the page keeps checking for a late payment. */
 const LATE_PAYMENT_WATCH_MS = 30 * 60_000
 const latePaymentPossible = (o: Order | undefined) =>
   o?.status === 'CANCELLED' &&
   o.cancelReason === 'HOLD_EXPIRED' &&
   o.paymentStatus !== 'SUCCEEDED' &&
+  o.refundStatus === null &&
   Boolean(o.cancelledAt) &&
   Date.now() - new Date(o.cancelledAt!).getTime() < LATE_PAYMENT_WATCH_MS
 const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
@@ -118,6 +113,8 @@ function OrderView({ order }: { order: Order }) {
     },
   })
   const paid = order.paymentStatus === 'SUCCEEDED'
+  // The money went back (FE-6): the total row says so rather than "Total".
+  const refunded = order.refundStatus === 'REFUNDED' || order.paymentStatus === 'REFUNDED'
   const help = helpLink(`Help with order ${order.number}`)
   // A thank-you once the payment goes through: seen here, or already done when checkout hands over.
   const [thanks, setThanks] = useState(() => Boolean(arrived?.placed) && paid && order.status !== 'CANCELLED')
@@ -263,9 +260,16 @@ function OrderView({ order }: { order: Order }) {
 
       {order.status === 'DELIVERY_FAILED' && (
         <section className="card note-card">
-          <p>
-            <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
-          </p>
+          {/* No retry booked after the last attempt: never name the missed day as the next one. */}
+          {order.retryScheduled === false ? (
+            <p>
+              <strong>We missed you again.</strong> We'll call you to arrange a new delivery.
+            </p>
+          ) : (
+            <p>
+              <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
+            </p>
+          )}
         </section>
       )}
 
@@ -286,7 +290,7 @@ function OrderView({ order }: { order: Order }) {
       )}
       {PACKED_ON.includes(order.status) && (
         <p className="muted small order-policy">
-          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {CLAIM_WINDOW_HOURS} hours of delivery
+          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {order.claimWindowHours} hours of delivery
           for a free replacement.
         </p>
       )}
@@ -374,7 +378,7 @@ function OrderView({ order }: { order: Order }) {
           </div>
         )}
         <div className="total-row">
-          <span>{paid ? 'Paid' : 'Total'}</span>
+          <span>{refunded ? 'Refunded' : paid ? 'Paid' : 'Total'}</span>
           <strong>{rupees(order.total)}</strong>
         </div>
       </section>
@@ -424,9 +428,8 @@ function OrderView({ order }: { order: Order }) {
 
 /** On a delivered order: until when a problem can be reported for a free replacement, and the way to do it. */
 function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
-  // The window runs from the latest delivery, as the API counts it.
-  const deliveredAt = order.timeline.filter((e) => e.status === 'DELIVERED').slice(-1)[0]?.at ?? order.delivery?.at ?? null
-  const deadline = deliveredAt ? new Date(new Date(deliveredAt).getTime() + CLAIM_WINDOW_HOURS * 3_600_000) : null
+  // The window comes from the API, from the latest delivery and the live rule.
+  const deadline = order.claimUntil ? new Date(order.claimUntil) : null
   const open = deadline != null && deadline.getTime() > Date.now()
   // Until the reports load we don't know whether one was sent: keep the space, show nothing.
   if (loading) return null

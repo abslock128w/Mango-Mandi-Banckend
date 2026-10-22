@@ -33,6 +33,9 @@ export default function Orders() {
     if (search === q) return
     const t = window.setTimeout(() => update({ q: search.trim() || null }), 400)
     return () => window.clearTimeout(t)
+    // Only typing restarts the wait: `update` is a new function every render and `q` follows
+    // the URL this effect writes, so listing them would restart it on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
 
   const list = useQuery({

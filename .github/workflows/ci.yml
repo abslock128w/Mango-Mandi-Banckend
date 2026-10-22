@@ -16,6 +16,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
+      - name: Unit tests (the API clients)
+        run: npm run test:unit
       - run: npm run build
       - name: Build the customer app
         run: npm run shop:build

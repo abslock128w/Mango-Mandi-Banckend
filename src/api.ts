@@ -4,8 +4,8 @@
 // never logged. The refresh token is the httpOnly `mango_admin_rt` cookie,
 // invisible to JS, so auth calls send credentials and let the browser carry it.
 
+import { ApiError, errorFrom, parseAnswer } from './apiAnswer'
 import type {
-  ApiErrorBody,
   BatchDetail,
   Analytics,
   Attention,
@@ -57,34 +57,13 @@ const BASE = `${API_URL}/admin/v1`
 
 export const SIGNOUT_EVENT = 'admin:signout'
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public requestId?: string,
-  ) {
-    super(message)
-    this.name = 'ApiError'
-  }
-}
+export { ApiError }
 
 let accessToken: string | null = null
 let refreshPromise: Promise<'ok' | 'refused' | 'unavailable'> | null = null
 
 async function toApiError(res: Response): Promise<ApiError> {
-  let body: ApiErrorBody | null = null
-  try {
-    body = (await res.json()) as ApiErrorBody
-  } catch {
-    // Not JSON (proxy error page, empty body). Fall back to the status line.
-  }
-  return new ApiError(
-    res.status,
-    body?.error?.code ?? `HTTP_${res.status}`,
-    body?.error?.message ?? (res.statusText || 'Request failed'),
-    body?.error?.requestId,
-  )
+  return errorFrom(res.status, res.statusText, await res.text().catch(() => ''))
 }
 
 /**
@@ -148,8 +127,7 @@ async function send(method: string, path: string, body?: unknown, retried = fals
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await send(method, path, body)
   if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
+  return parseAnswer<T>(res.status, await res.text())
 }
 
 function qs(params: Record<string, string | number | undefined | null>): string {

@@ -3,6 +3,8 @@
 // cookie. The access token is short-lived and refreshed once on a 401; a
 // refresh the API refuses (401) signs the customer out.
 
+import { ApiError, readAnswer } from './answer'
+
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
 export type Stage = 'RAW' | 'SEMI_RIPE' | 'RIPE'
@@ -117,7 +119,7 @@ export interface Order {
   promoCode: string | null
   total: number
   gift: Gift | null
-  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | null
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
   /** Razorpay's public key id, while the order waits for payment, so checkout can be reopened anywhere. */
@@ -135,6 +137,14 @@ export interface Order {
   delivery?: { at: string; method: 'code' | 'photo' | 'staff' | null; receivedBy: string | null; hasPhoto: boolean } | null
   /** The customer's stars once delivered. */
   rating?: { stars: number; comment: string | null; at: string } | null
+  /** Hours after delivery a problem can be reported for a free replacement (the live rule). */
+  claimWindowHours: number
+  /** Until when a problem can be reported; set once delivered. */
+  claimUntil: string | null
+  /** Failed delivery attempts so far. */
+  deliveryFailures: number
+  /** On a failed delivery: true when another attempt is booked, false when we will call first. Null otherwise. */
+  retryScheduled: boolean | null
 }
 export interface SavedAddress {
   id: string
@@ -292,16 +302,7 @@ export interface ReviewPage {
   nextCursor: string | null
 }
 
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-    public detail: Record<string, unknown> = {},
-  ) {
-    super(message)
-  }
-}
+export { ApiError }
 
 // The refresh token lives in an httpOnly cookie set by the API ("X-Session:
 // cookie"), so page scripts never see it. The short-lived access token is kept
@@ -413,22 +414,7 @@ async function raw<T>(method: string, path: string, body?: unknown, headers: Rec
     body: body === undefined ? undefined : blob ? body : JSON.stringify(body),
   })
   if (res.status === 204) return undefined as T
-  const text = await res.text()
-  let json: { error?: { code?: string; message?: string } & Record<string, unknown> } | null = null
-  try {
-    json = text ? JSON.parse(text) : null
-  } catch {
-    // Not JSON: a proxy's or host's own error page.
-    if (res.ok) throw new ApiError(res.status, 'BAD_RESPONSE', 'MandiMangoes sent an answer we could not read. Please try again.')
-  }
-  if (!res.ok) {
-    if (json === null && res.status >= 500) {
-      throw new ApiError(res.status, 'UNAVAILABLE', 'MandiMangoes is busy right now. Please try again in a minute.')
-    }
-    const e = json?.error
-    throw new ApiError(res.status, e?.code ?? 'ERROR', e?.message ?? `Request failed (${res.status})`, e ?? {})
-  }
-  return json as T
+  return readAnswer<T>(res.status, await res.text())
 }
 
 async function request<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {

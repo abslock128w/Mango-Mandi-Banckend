@@ -6,6 +6,8 @@ import { Field, PhotoPicker, usePhotoUploads } from '../forms'
 import { ErrorNote, Spinner } from '../ui'
 
 const MAX_PHOTOS = 3
+/** The claim window in words, from the order's live rule ("a day" while we don't know it). */
+const within = (hours: number | undefined) => (!hours || hours === 24 ? 'a day' : `${hours} hours`)
 
 const ISSUES: { value: IssueType; label: string }[] = [
   { value: 'DAMAGED', label: 'Damaged or spoilt mangoes' },
@@ -49,7 +51,7 @@ export default function ClaimPage() {
     <section className="card">
       <h1>Report a problem</h1>
       <p className="muted">
-        Order {order.data.number}. Tell us within a day of delivery and we'll replace what went wrong with a fresh box.
+        Order {order.data.number}. Tell us within {within(order.data.claimWindowHours)} of delivery and we'll replace what went wrong with a fresh box.
       </p>
       <form onSubmit={submit} noValidate>
         <fieldset className="field" aria-describedby={formError?.at === 'issue' ? 'issue-error' : undefined}>

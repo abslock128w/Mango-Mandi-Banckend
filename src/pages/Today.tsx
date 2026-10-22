@@ -29,8 +29,8 @@ interface Tile {
   urgent?: 'bad' | 'warn'
 }
 
-/** Maximum sellable batch age in days; the API excludes older stock. */
-const MAX_SELLABLE_AGE = 7
+/** Used only when the summary does not say; the API sends the live rule. */
+const DEFAULT_MAX_SELLABLE_AGE = 7
 
 export default function Today() {
   usePageTitle('Today')
@@ -44,7 +44,11 @@ export default function Today() {
   // in, so nothing on screen moves.
   if (q.isPending) return <TodayLoading />
   const s = q.data
-  const waiting = attention.isPending
+  // Batches this old are past the sell limit: the API no longer sells them.
+  const maxAge = s.maxSellableAge ?? DEFAULT_MAX_SELLABLE_AGE
+  // Only the first answer is waited for: a query that failed is pending again while it is
+  // asked again, and hiding Needs attention then would remount it and ask again, forever.
+  const waiting = attention.isPending && attention.errorUpdateCount === 0
   const atRisk = s.atRiskOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
   // Every tile opens the page it counts, filtered.
@@ -137,10 +141,10 @@ export default function Today() {
                             {b.variety}
                           </RowLink>
                         </td>
-                        <td className={`num ${b.ageDays >= MAX_SELLABLE_AGE ? 'text-danger' : 'text-warn'}`}>
-                          {b.ageDays >= MAX_SELLABLE_AGE && <span aria-hidden="true">⚠ </span>}
+                        <td className={`num ${b.ageDays >= maxAge ? 'text-danger' : 'text-warn'}`}>
+                          {b.ageDays >= maxAge && <span aria-hidden="true">⚠ </span>}
                           {b.ageDays} days
-                          {b.ageDays >= MAX_SELLABLE_AGE && <span className="sr-only"> (past sell limit)</span>}
+                          {b.ageDays >= maxAge && <span className="sr-only"> (past sell limit)</span>}
                         </td>
                         <td className="num">{b.available}</td>
                       </LinkRow>
