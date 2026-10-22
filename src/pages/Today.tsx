@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, istTime } from '../format'
 import type { OrderStatus } from '../types'
-import NeedsAttention from './NeedsAttention'
-import { EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion, usePageTitle } from '../ui'
+import NeedsAttention, { attentionQuery } from './NeedsAttention'
+import { EmptyState, LinkRow, QueryError, RowLink, scrollRegion, usePageTitle } from '../ui'
 
 const TILE_STATUSES: OrderStatus[] = [
   'CONFIRMED',
@@ -35,10 +35,16 @@ const MAX_SELLABLE_AGE = 7
 export default function Today() {
   usePageTitle('Today')
   const q = useQuery({ queryKey: ['summary'], queryFn: api.summary, refetchInterval: 60_000 })
+  // Started here, beside the summary, rather than when NeedsAttention mounts after it.
+  const attention = useQuery(attentionQuery)
 
-  if (q.isPending) return <Spinner />
   if (q.isError) return <QueryError error={q.error} onRetry={() => q.refetch()} />
+  // While loading, the heading and tiles hold their final size and nothing sits
+  // below them; the rest appears once the summary and Needs attention are both
+  // in, so nothing on screen moves.
+  if (q.isPending) return <TodayLoading />
   const s = q.data
+  const waiting = attention.isPending
   const atRisk = s.atRiskOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
   // Every tile opens the page it counts, filtered.
@@ -54,11 +60,7 @@ export default function Today() {
 
   return (
     <>
-      <div className="topbar">
-        <h1>Today</h1>
-        <span className="spacer" />
-        <span className="muted small">Last updated {istTime(new Date(q.dataUpdatedAt))}</span>
-      </div>
+      <TodayTop updated={istTime(new Date(q.dataUpdatedAt))} />
 
       <div className="tiles tiles-today">
         {tiles.map((t) => {
@@ -67,15 +69,18 @@ export default function Today() {
             <Link key={t.to} className={`tile${urgent ? ` tile-${t.urgent}` : ''}`} to={t.to}>
               <div className="count">{t.count}</div>
               <div className="label">{t.label}</div>
-              {urgent && <div className="tile-flag">Needs action</div>}
+              {/* The flag line is always there, empty when calm, so a tile keeps its height. */}
+              <div className="tile-flag" aria-hidden={urgent ? undefined : true}>
+                {urgent ? 'Needs action' : null}
+              </div>
             </Link>
           )
         })}
       </div>
 
-      <NeedsAttention />
+      {waiting ? <span className="sr-only" role="status" aria-label="Loading" /> : <NeedsAttention />}
 
-      {atRisk.length > 0 && (
+      {!waiting && atRisk.length > 0 && (
         <section className="card">
           <h2>Orders at risk</h2>
           <p className="muted">The stock for these orders went bad or ran out. Each needs a new date or new stock.</p>
@@ -104,7 +109,7 @@ export default function Today() {
         </section>
       )}
 
-      {healthy ? (
+      {waiting ? null : healthy ? (
         <div className="card">
           <EmptyState>All batches and stock look healthy.</EmptyState>
         </div>
@@ -180,6 +185,37 @@ export default function Today() {
           </section>
         </div>
       )}
+    </>
+  )
+}
+
+/** The heading row; "Last updated" keeps its line while loading. */
+function TodayTop({ updated }: { updated?: string }) {
+  return (
+    <div className="topbar">
+      <h1>Today</h1>
+      <span className="spacer" />
+      <span className="muted small">{updated ? `Last updated ${updated}` : '\u00a0'}</span>
+    </div>
+  )
+}
+
+/** Today before the summary arrives: the heading and eight empty tiles of the final size. */
+function TodayLoading() {
+  return (
+    <>
+      <TodayTop />
+      <span className="sr-only" role="status" aria-label="Loading" />
+      <div className="tiles-placeholder tiles-today" aria-hidden="true">
+        {/* One for each order status and one for open claims. */}
+        {Array.from({ length: TILE_STATUSES.length + 1 }, (_, i) => (
+          <div key={i} className="tile tile-placeholder">
+            <div className="count">&nbsp;</div>
+            <div className="label">&nbsp;</div>
+            <div className="tile-flag" />
+          </div>
+        ))}
+      </div>
     </>
   )
 }

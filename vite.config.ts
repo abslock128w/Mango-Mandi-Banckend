@@ -7,5 +7,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), cspPlugin('panel', env.VITE_API_URL)],
     server: { port: 5173 },
+    // Pages load lazily, so let Vite find every page's imports at start-up (no mid-session re-bundle).
+    optimizeDeps: { entries: ['index.html', 'src/**/*.{ts,tsx}'] },
   }
 })

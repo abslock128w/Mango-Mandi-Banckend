@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { Suspense, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { api } from './api'
 import { ROLE_LABEL, canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
-import { ErrorBoundary } from './ui'
+import { ErrorBoundary, Spinner } from './ui'
 
 type NavItem = [to: string, label: string, screen: Screen]
 
@@ -225,7 +225,9 @@ export default function Layout() {
       <main className="content" id="main" tabIndex={-1} ref={mainRef}>
         {/* Keyed by path so a crash on one screen clears when you navigate away. */}
         <ErrorBoundary key={location.pathname}>
-          <Outlet />
+          <Suspense fallback={<Spinner />}>
+            <Outlet />
+          </Suspense>
         </ErrorBoundary>
       </main>
     </div>

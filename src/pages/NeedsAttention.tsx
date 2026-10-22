@@ -23,6 +23,9 @@ const STEP_LABEL: Record<string, string> = {
   'review-stats': 'Review totals check',
 }
 
+/** Shared with Today, which starts this query together with the summary. */
+export const attentionQuery = { queryKey: ['attention'], queryFn: api.attention, refetchInterval: 60_000 } as const
+
 /**
  * The problems nobody is watching for: the background loop stalling or failing,
  * WhatsApp messages given up on, refunds that haven't gone through, and webhooks
@@ -31,7 +34,7 @@ const STEP_LABEL: Record<string, string> = {
 export default function NeedsAttention() {
   const toast = useToast()
   const queryClient = useQueryClient()
-  const q = useQuery({ queryKey: ['attention'], queryFn: api.attention, refetchInterval: 60_000 })
+  const q = useQuery(attentionQuery)
   const retry = useMutation({
     mutationFn: (id: string) => api.retryMessage(id),
     onSuccess: () => {

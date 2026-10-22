@@ -1,7 +1,6 @@
 // Two-step sign-in for staff: set it up with an authenticator app, save the
 // recovery codes, or turn it off where the role does not require it.
 import { useEffect, useState, type FormEvent } from 'react'
-import QRCode from 'qrcode'
 import { api } from '../api'
 import { useSession } from '../session'
 import { FormError, usePageTitle } from '../ui'
@@ -73,7 +72,10 @@ function Setup() {
   useEffect(() => {
     if (!secret) return
     let live = true
-    QRCode.toDataURL(secret.otpauthUrl, { margin: 1, width: 200 }).then((u) => live && setQr(u), () => live && setQr(null))
+    // The QR library is loaded only here, when someone sets up two-step sign-in.
+    import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toDataURL(secret.otpauthUrl, { margin: 1, width: 200 }))
+      .then((u) => live && setQr(u), () => live && setQr(null))
     return () => {
       live = false
     }
