@@ -35,10 +35,32 @@ async function razorpay(method, path, body) {
   return res.json()
 }
 
+/**
+ * OPS-07: a 200 from Razorpay is checked before we store anything from it.
+ * Ids carry Razorpay's prefixes (order_, plink_, rfnd_, pay_); a reply without
+ * one throws, so the caller's existing abandon or retry path runs.
+ */
+export function gatewayId(obj, prefix, what) {
+  const id = obj?.id
+  if (typeof id !== 'string' || !id.startsWith(prefix) || id.length > 64) throw new Error(`Razorpay ${what} reply has no valid ${prefix} id`)
+  return id
+}
+
+/** A list reply ({ items: [...] }) whose items each have a payment or refund id, a status and an integer amount. */
+export function gatewayItems(obj, prefix, what) {
+  const items = obj?.items ?? []
+  if (!Array.isArray(items)) throw new Error(`Razorpay ${what} reply has no item list`)
+  for (const it of items) {
+    gatewayId(it, prefix, what)
+    if (typeof it.status !== 'string' || !Number.isInteger(it.amount)) throw new Error(`Razorpay ${what} reply has an item without status or amount`)
+  }
+  return items
+}
+
 export async function createGatewayOrder({ amount, receipt, orderId }) {
   if (hasKeys()) {
     const o = await razorpay('POST', '/orders', { amount, currency: 'INR', receipt, notes: { orderId } })
-    return o.id
+    return gatewayId(o, 'order_', 'create order')
   }
   if (isProd) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
   return `order_dev_${newId('rzp').slice(4)}`
@@ -70,7 +92,8 @@ export async function createPaymentLink({ amount, number, orderId, preorderId, n
       notes: preorderId ? { preorderId } : { orderId },
       ...(preorderId && shopOrigin() ? { callback_url: `${shopOrigin()}/preorders/${preorderId}`, callback_method: 'get' } : {}),
     })
-    return { id: link.id, url: link.short_url }
+    if (typeof link?.short_url !== 'string' || !/^https:\/\//.test(link.short_url)) throw new Error('Razorpay payment link reply has no https short_url')
+    return { id: gatewayId(link, 'plink_', 'payment link'), url: link.short_url }
   }
   if (isProd) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
   const id = `plink_dev_${newId('l').slice(2)}`
@@ -80,7 +103,11 @@ export async function createPaymentLink({ amount, number, orderId, preorderId, n
 export async function fetchLinkPayments(linkId) {
   if (hasKeys()) {
     const link = await razorpay('GET', `/payment_links/${encodeURIComponent(linkId)}`)
-    return (link.payments ?? []).map((p) => ({ id: p.payment_id, status: p.status, amount: p.amount, method: p.method }))
+    const list = link?.payments ?? []
+    if (!Array.isArray(list)) throw new Error('Razorpay payment link reply has no payment list')
+    const payments = list.map((p) => ({ id: p.payment_id, status: p.status, amount: p.amount, method: p.method }))
+    gatewayItems({ items: payments }, 'pay_', 'payment link payments')
+    return payments
   }
   if (isProd) return []
   const p = devGateway.get(linkId)
@@ -88,7 +115,7 @@ export async function fetchLinkPayments(linkId) {
 }
 
 async function fetchPayments(razorpayOrderId) {
-  if (hasKeys()) return (await razorpay('GET', `/orders/${encodeURIComponent(razorpayOrderId)}/payments`)).items ?? []
+  if (hasKeys()) return gatewayItems(await razorpay('GET', `/orders/${encodeURIComponent(razorpayOrderId)}/payments`), 'pay_', 'order payments')
   if (isProd) return []
   const p = devGateway.get(razorpayOrderId)
   return p ? [p] : []
@@ -341,8 +368,7 @@ export async function reconcileRefunds(at = now()) {
     if (!canStartCall(GATEWAY_CALL_MS)) break
     const keyCol = row.t === 'duplicate_payments' ? 'payment_id' : 'id'
     try {
-      const items = (await razorpay('GET', `/payments/${encodeURIComponent(row.payment_id)}/refunds`)).items
-      if (!Array.isArray(items)) throw new Error('Razorpay refunds list without items')
+      const items = gatewayItems(await razorpay('GET', `/payments/${encodeURIComponent(row.payment_id)}/refunds`), 'rfnd_', 'refund list')
       const r = items.find((x) => x?.id === row.refund_id)
       if (r?.status === 'processed' || r?.status === 'failed') {
         changed += await tx((c) => applyRefundOutcome(c, row.refund_id, r.status === 'failed'))
@@ -386,6 +412,12 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
       if (captured) {
         const r = await tx((c) => applyCapture(c, 'orders', o.id, captured))
         if (r !== 'rejected') n++
+      } else if (o.razorpay_order_id) {
+        // PAY-05: a missed payment.authorized webhook (manual capture set in the
+        // dashboard) would leave the money blocked; capture it the same way.
+        // The capture webhook, or the next run, then confirms the order.
+        const authorized = payments.find((p) => p.status === 'authorized')
+        if (authorized) await captureAuthorized({ id: authorized.id, order_id: o.razorpay_order_id, amount: authorized.amount, currency: authorized.currency })
       }
     } catch (err) {
       logger.error({ err, orderId: o.id }, 'payment reconciliation failed for order')
@@ -425,11 +457,11 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
     const pid = encodeURIComponent(paymentId)
     // Refunds already made for this payment (by an earlier attempt, or by hand
     // in the Razorpay dashboard) count; only what is still owed is sent.
-    const live = ((await razorpay('GET', `/payments/${pid}/refunds`)).items ?? []).filter((r) => r.status !== 'failed')
+    const live = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
     const done = live.reduce((sum, r) => sum + (r.amount ?? 0), 0)
     const owed = amount == null ? null : amount - done
     if (live.length && (owed == null || owed <= 0)) return live[0].id
-    return (await razorpay('POST', `/payments/${pid}/refund`, { ...(owed == null ? {} : { amount: owed }), receipt, notes })).id
+    return gatewayId(await razorpay('POST', `/payments/${pid}/refund`, { ...(owed == null ? {} : { amount: owed }), receipt, notes }), 'rfnd_', 'refund')
   }
   if (isProd) return null
   return `rfnd_dev_${newId('r').slice(2)}`

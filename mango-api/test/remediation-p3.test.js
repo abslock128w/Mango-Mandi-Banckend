@@ -1,10 +1,13 @@
 // Remediation Stage 3 regression tests, one block per audit finding.
-import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { Writable } from 'node:stream'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import pino from 'pino'
-import { isDate } from '../src/clock.js'
+import { isDate, setNow } from '../src/clock.js'
+import { query } from '../src/db.js'
+import { env } from '../src/env.js'
+import { reconcilePendingPayments } from '../src/payments.js'
 import { REDACT_PATHS } from '../src/logger.js'
 
 let srv
@@ -75,5 +78,95 @@ describe('OPS-06: error codes reach the logs; login codes do not', () => {
     assert.equal(lines[4].devCode, '[redacted]')
     assert.equal(lines[4].accessToken, '[redacted]')
     assert.ok(!JSON.stringify(lines).match(/123456|654321|111111|222222/))
+  })
+})
+
+/** Points Razorpay calls at a stub for the length of fn (test keys, never live). */
+async function withRazorpay(handler, fn) {
+  const realFetch = globalThis.fetch
+  env.RAZORPAY_KEY_ID = 'rzp_test_x'
+  env.RAZORPAY_KEY_SECRET = 'secret'
+  const calls = []
+  globalThis.fetch = async (url, init) => {
+    const u = String(url)
+    if (!u.startsWith('https://api.razorpay.com/')) return realFetch(url, init)
+    const path = u.slice('https://api.razorpay.com/v1'.length)
+    calls.push({ method: init?.method ?? 'GET', path, body: init?.body ? JSON.parse(init.body) : null })
+    return new Response(JSON.stringify(handler(init?.method ?? 'GET', path) ?? {}), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  try {
+    return await fn(calls)
+  } finally {
+    globalThis.fetch = realFetch
+    env.RAZORPAY_KEY_ID = ''
+    env.RAZORPAY_KEY_SECRET = ''
+  }
+}
+
+describe('OPS-07: Razorpay replies are checked before use', () => {
+  for (const [label, reply] of [['an empty reply', {}], ['a null id', { id: null }], ['a number id', { id: 123 }], ['a wrong prefix', { id: 'pay_X' }]]) {
+    test(`${label} to create order: 502 and the order is cancelled, stock released`, async () => {
+      await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+      const cust = await customerToken(api)
+      await withRazorpay(() => reply, async () => {
+        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+        assert.equal(c.status, 502)
+        assert.equal(c.body.error.code, 'PAYMENT_GATEWAY_ERROR')
+      })
+      const { rows } = await query('SELECT status, razorpay_order_id FROM orders')
+      assert.deepEqual(rows.map((r) => [r.status, r.razorpay_order_id]), [['CANCELLED', null]])
+    })
+  }
+
+  test('a refund list with a bad item is refused, not half-read', async () => {
+    const { gatewayItems, gatewayId } = await import('../src/payments.js')
+    assert.throws(() => gatewayItems({ items: 'x' }, 'rfnd_', 'refund list'))
+    assert.throws(() => gatewayItems({ items: [{ id: 'rfnd_1', status: 'processed', amount: '100' }] }, 'rfnd_', 'refund list'))
+    assert.equal(gatewayItems({ items: [{ id: 'rfnd_1', status: 'processed', amount: 100 }] }, 'rfnd_', 'refund list').length, 1)
+    assert.equal(gatewayId({ id: 'order_ABC' }, 'order_', 'x'), 'order_ABC')
+  })
+})
+
+describe('PAY-05: an authorized payment found by reconcile is captured', () => {
+  test('a missed payment.authorized webhook no longer leaves the money blocked', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    let total
+    await withRazorpay(
+      (method, path) => {
+        if (method === 'POST' && path === '/orders') return { id: 'order_T1' }
+        if (path === '/orders/order_T1/payments') return { items: [{ id: 'pay_A1', status: 'authorized', amount: total, currency: 'INR' }] }
+        if (path === '/payments/pay_A1/capture') return { id: 'pay_A1', status: 'captured' }
+        return {}
+      },
+      async (calls) => {
+        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+        assert.equal(c.status, 201)
+        total = (await query('SELECT total FROM orders WHERE id = $1', [c.body.orderId])).rows[0].total
+        setNow(new Date(Date.parse(T0) + 3 * 60_000).toISOString())
+        await reconcilePendingPayments()
+        const capture = calls.find((x) => x.path === '/payments/pay_A1/capture')
+        assert.ok(capture, 'capture was requested')
+        assert.deepEqual(capture.body, { amount: total, currency: 'INR' })
+      },
+    )
+  })
+
+  test('an authorized payment for the wrong amount is not captured', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    await withRazorpay(
+      (method, path) => {
+        if (method === 'POST' && path === '/orders') return { id: 'order_T2' }
+        if (path === '/orders/order_T2/payments') return { items: [{ id: 'pay_A2', status: 'authorized', amount: 1, currency: 'INR' }] }
+        return {}
+      },
+      async (calls) => {
+        assert.equal((await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 201)
+        setNow(new Date(Date.parse(T0) + 3 * 60_000).toISOString())
+        await reconcilePendingPayments()
+        assert.ok(!calls.some((x) => x.path.endsWith('/capture')))
+      },
+    )
   })
 })
