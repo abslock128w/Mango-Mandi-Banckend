@@ -15,6 +15,7 @@
 import { dropPhoto } from './photos.js'
 import { addDays, todayIST } from './clock.js'
 import { getConfig, loadConfig } from './config.js'
+import { env } from './env.js'
 import { randomUUID } from 'node:crypto'
 import { outOfTime, withBudget, withSlice } from './budget.js'
 import { query, tx } from './db.js'
@@ -301,6 +302,10 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
   if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  const backup = await backupStatus(at)
+  if (backup?.stale) {
+    problems.push(['backup', 'No backup in the last 26 hours: check the backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
+  }
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`
@@ -310,6 +315,23 @@ export async function checkHealth(out = {}, at = now()) {
     await markRun(name)
   }
   return problems.map(([key]) => key)
+}
+
+/** A nightly backup older than this is missed (a day plus slack for a slow run). */
+export const BACKUP_STALE_MS = 26 * HOURLY_MS
+
+/**
+ * The Docker backup service (ops/backup.sh) records each backup as the step
+ * 'backup'. Checked when the deploy says it runs one, or once any backup has
+ * been recorded; null otherwise, so a Vercel install (backed up by the GitHub
+ * Action, which records nothing here) shows no false alarm.
+ */
+export async function backupStatus(at = now()) {
+  const { rows } = await query(`SELECT last_ok_at, last_err_at, last_error FROM maintenance_runs WHERE step = 'backup'`)
+  const row = rows[0]
+  if (!row && !env.BACKUP_HEARTBEAT_EXPECTED) return null
+  const lastOkAt = row?.last_ok_at ?? null
+  return { lastOkAt, stale: !lastOkAt || at.getTime() - lastOkAt.getTime() > BACKUP_STALE_MS }
 }
 
 /** How long ago the last full run finished, in seconds (null = never). Used by /ready. */

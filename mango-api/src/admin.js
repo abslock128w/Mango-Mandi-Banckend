@@ -21,7 +21,7 @@ import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
 import { auditLedger, availability, ledger, SELLABLE_STATUSES } from './inventory.js'
-import { triggerRebalanceAll } from './maintenance.js'
+import { backupStatus, triggerRebalanceAll } from './maintenance.js'
 import {
   allocateOrder,
   cancelOrder,
@@ -1338,7 +1338,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1380,6 +1380,8 @@ router.get(
       ),
       // Stock counters that disagree with the ledger (INV-7): until now only a metric and a log line.
       auditLedger({ query }),
+      // The Docker server's nightly backup (null where none is expected, as on Vercel).
+      backupStatus(at),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1390,6 +1392,7 @@ router.get(
           .filter((r) => r.last_err_at && (!r.last_ok_at || r.last_err_at > r.last_ok_at))
           .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error })),
       },
+      backup,
       failedMessages: failed.rows.map((n) => ({
         id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,

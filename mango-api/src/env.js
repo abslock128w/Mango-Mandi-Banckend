@@ -108,6 +108,13 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // Set by deploy/compose.yml, whose backup service records each nightly backup
+  // in maintenance_runs: Needs attention warns when none is recorded for 26 hours.
+  // Off on Vercel (the GitHub Action backs up there and fails red on its own).
+  BACKUP_HEARTBEAT_EXPECTED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 })
 
 // Empty values (KEY= in .env) mean "use the default".

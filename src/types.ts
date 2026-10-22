@@ -532,6 +532,8 @@ export interface Analytics {
 /** Problems nobody would otherwise notice: the background loop, failed sends, stuck refunds, bad webhooks. */
 export interface Attention {
   loop: { lastRunAt: string | null; stale: boolean; failingSteps: { step: string; since: string; error: string | null }[] }
+  /** The Docker server's nightly backup; null (or absent) where none is expected, as on Vercel. */
+  backup?: { lastOkAt: string | null; stale: boolean } | null
   failedMessages: {
     id: string
     kind: string
