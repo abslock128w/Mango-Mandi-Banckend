@@ -241,3 +241,15 @@ describe('order status changes come from one map', () => {
     }
   })
 })
+
+test('cancelling an order twice says it is already cancelled, not packed', async () => {
+  await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+  const cust = await customerToken(api)
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const t = { token: cust.accessToken }
+  assert.equal((await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, t)).status, 204)
+  const again = await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, t)
+  assert.equal(again.status, 409)
+  assert.equal(again.body.error.code, 'NOT_CANCELLABLE')
+  assert.match(again.body.error.message, /already cancelled/)
+})

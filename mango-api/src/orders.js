@@ -507,7 +507,11 @@ export async function customerCancel(c, orderId, customerId, actor) {
   const o = await lockOrder(c, orderId)
   if (o.customer_id !== customerId) throw notFound('Order not found')
   if (!CUSTOMER_CANCELLABLE.includes(o.status)) {
-    throw conflict('This order is already packed and can no longer be cancelled.', 'NOT_CANCELLABLE')
+    const why =
+      o.status === 'CANCELLED' ? 'This order is already cancelled.'
+        : o.status === 'DELIVERED' ? 'This order has been delivered and can no longer be cancelled.'
+          : 'This order is already packed and can no longer be cancelled.'
+    throw conflict(why, 'NOT_CANCELLABLE')
   }
   const paid = o.payment_status === 'SUCCEEDED'
   await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer')
