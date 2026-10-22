@@ -8,7 +8,7 @@ import helmet from 'helmet'
 import { router as adminRouter } from './admin.js'
 import { devRouter, router as customerRouter } from './customer.js'
 import { loadConfig } from './config.js'
-import { isPoolTimeout, query } from './db.js'
+import { isDbUnavailable, isPoolTimeout, query } from './db.js'
 import { devRoutesOn, env, onVercel } from './env.js'
 import { HttpError } from './errors.js'
 import { logger } from './logger.js'
@@ -45,8 +45,11 @@ async function ensureLoaded() {
 
 // Once per instance: refuse to serve a database that belongs to another environment.
 let dbChecked = null
+let lastOutageReport = 0
 const checkedDatabase = () => (dbChecked ??= checkDatabaseEnvironment({ query }).catch((err) => {
   dbChecked = null
+  // Unreachable is not "wrong": answer it as an outage (503 UNAVAILABLE) below.
+  if (isDbUnavailable(err)) throw err
   logger.fatal({ err }, 'database environment check failed')
   throw new HttpError(503, 'WRONG_DATABASE', 'Service unavailable')
 }))
@@ -225,6 +228,20 @@ export function createApp() {
     if (isPoolTimeout(err) || err?.code === '53300') {
       logger.warn({ reqId: req.id, path: req.path }, 'database busy')
       return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
+    }
+    // Database unreachable (OPS-08): a retryable 503, reported at most once a minute.
+    if (isDbUnavailable(err)) {
+      metrics.dbUnavailable.inc()
+      if (Date.now() - lastOutageReport > 60_000) {
+        lastOutageReport = Date.now()
+        logger.error({ err, reqId: req.id, path: req.path }, 'database unavailable')
+        reportError(err, { requestId: req.id, method: req.method, path: req.path, outage: true })
+        if (onVercel) res.on('finish', () => void flushErrors())
+      }
+      return res
+        .status(503)
+        .set('Retry-After', '5')
+        .json({ error: { code: 'UNAVAILABLE', message: 'We are having trouble right now. Please try again in a minute.', requestId: req.id } })
     }
     logger.error({ err, reqId: req.id }, 'unhandled error')
     reportError(err, { requestId: req.id, method: req.method, path: req.path })
