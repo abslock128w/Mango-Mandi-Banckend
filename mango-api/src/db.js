@@ -55,7 +55,7 @@ export async function tx(fn, { retries = 2 } = {}) {
     } catch (err) {
       if (!RETRYABLE.has(err?.code) || attempt >= retries) throw err
       metrics.dbRetries.inc({ code: err.code })
-      logger.warn({ code: err.code, attempt: attempt + 1 }, 'transaction retried')
+      logger.warn({ sqlState: err.code, attempt: attempt + 1 }, 'transaction retried')
       await new Promise((r) => setTimeout(r, 10 + Math.random() * 40 * (attempt + 1)))
     }
   }

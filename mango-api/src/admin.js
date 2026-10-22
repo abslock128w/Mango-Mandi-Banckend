@@ -1875,6 +1875,7 @@ router.put(
 router.delete(
   '/calendar/:date',
   asyncHandler(async (req, res) => {
+    if (!isDate(req.params.date)) throw badRequest('date must be YYYY-MM-DD')
     await query('DELETE FROM delivery_calendar WHERE date = $1', [req.params.date])
     res.status(204).end()
   }),

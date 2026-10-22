@@ -3,7 +3,7 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
-import { ACCESS_TTL_S, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
+import { ACCESS_TTL_S, forgetCustomer, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -447,6 +447,7 @@ router.delete(
   '/me',
   asyncHandler(async (req, res) => {
     const photos = await tx((c) => eraseCustomer(c, req.customer.id))
+    forgetCustomer(req.customer.id)
     for (const p of photos) await dropPhoto(p)
     logger.info({ customerId: req.customer.id }, 'customer deleted their account')
     res.clearCookie(RT_COOKIE, rtCookie())
@@ -486,7 +487,7 @@ router.post(
     const out = await tx(async (c) => {
       const error = await consumeCode(c, phone, code)
       if (error) return { error }
-      const { rows: mine } = await c.query('SELECT * FROM customers WHERE id = $1 FOR UPDATE', [req.customer.id])
+      const { rows: mine } = await c.query('SELECT * FROM customers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [req.customer.id])
       const me = mine[0]
       if (!me) throw notFound('Customer not found')
       if (me.phone === phone) return { customer: me }

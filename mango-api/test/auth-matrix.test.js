@@ -305,14 +305,12 @@ describe('customer routes', () => {
   test('a deleted account sees no profile with its old token', async () => {
     const cust = await customerToken(api)
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
-    assert.equal((await api.get('/v1/me', { token: cust.accessToken })).status, 404)
+    assert.equal((await api.get('/v1/me', { token: cust.accessToken })).status, 401)
   })
 
-  // SEC-01 (open): requireCustomer only checks the JWT, not that the customer
-  // still exists, so a deleted account's access token keeps working on
-  // /v1/cart, /v1/orders etc. until it lapses (up to 15 minutes). The body
-  // runs and is reported as todo; drop .todo once SEC-01 is fixed.
-  test.todo("SEC-01: a deleted account's access token is refused (401) on every signed-in customer route", async () => {
+  // SEC-01 (fixed): requireCustomer also checks the customer still exists,
+  // so a deleted account's access token stops working at once.
+  test("SEC-01: a deleted account's access token is refused (401) on every signed-in customer route", async () => {
     const cust = await customerToken(api)
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
     for (const r of CUSTOMER_ROUTES) {

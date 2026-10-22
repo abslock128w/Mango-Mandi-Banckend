@@ -168,9 +168,30 @@ export function requireManager(req, _res, next) {
   next(req.admin?.role === 'MANAGER' ? undefined : forbidden())
 }
 
-export function requireCustomer(req, _res, next) {
+// SEC-01: a token outlives an account deletion by up to its lifetime, so the
+// account is checked too. Live accounts are remembered briefly per instance;
+// deleting an account forgets it here at once (forgetCustomer).
+const customerCache = new Map()
+const CUSTOMER_CACHE_MS = 30_000
+
+export function forgetCustomer(id) {
+  customerCache.delete(id)
+}
+
+async function customerLive(id) {
+  const hit = customerCache.get(id)
+  if (hit && Date.now() - hit.at < CUSTOMER_CACHE_MS) return true
+  const { rows } = await query('SELECT 1 FROM customers WHERE id = $1 AND deleted_at IS NULL', [id])
+  if (!rows.length) return false
+  customerCache.set(id, { at: Date.now() })
+  if (customerCache.size > 5000) customerCache.delete(customerCache.keys().next().value)
+  return true
+}
+
+export async function requireCustomer(req, _res, next) {
   try {
     const c = bearer(req, 'customer')
+    if (!(await customerLive(c.sub))) throw unauthorized('This account no longer exists. Please sign in again.', 'INVALID_TOKEN')
     req.customer = { id: c.sub, phone: c.phone }
     req.actor = { type: 'customer', id: c.sub, label: 'customer' }
     next()
