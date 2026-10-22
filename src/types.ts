@@ -108,6 +108,8 @@ export interface Summary {
   lowStock: { sku: string; productName: string; available: number }[]
   /** Open orders the stock engine could not keep whole. Ops must act on these. */
   atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  /** Batches this many days old or older are past the sell limit (the live rule). */
+  maxSellableAge?: number
 }
 
 export interface BatchListItem {

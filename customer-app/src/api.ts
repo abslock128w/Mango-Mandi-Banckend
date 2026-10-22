@@ -135,6 +135,14 @@ export interface Order {
   delivery?: { at: string; method: 'code' | 'photo' | 'staff' | null; receivedBy: string | null; hasPhoto: boolean } | null
   /** The customer's stars once delivered. */
   rating?: { stars: number; comment: string | null; at: string } | null
+  /** Hours after delivery a problem can be reported for a free replacement (the live rule). */
+  claimWindowHours: number
+  /** Until when a problem can be reported; set once delivered. */
+  claimUntil: string | null
+  /** Failed delivery attempts so far. */
+  deliveryFailures: number
+  /** On a failed delivery: true when another attempt is booked, false when we will call first. Null otherwise. */
+  retryScheduled: boolean | null
 }
 export interface SavedAddress {
   id: string

@@ -31,12 +31,6 @@ const STEPS: { label: string; status: OrderStatus; reached: OrderStatus[] }[] = 
 const MOVABLE: OrderStatus[] = ['CONFIRMED']
 /** Packed and on its way: too late to cancel or move. */
 const PACKED_ON: OrderStatus[] = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
-/**
- * Hours after delivery a damaged box can be reported for a free replacement. Mirrors the API's
- * default claimWindowHours (mango-api/src/config.js); the order API does not send it yet, so the
- * report link stays offered after it and the API has the last word.
- */
-const CLAIM_WINDOW_HOURS = 24
 /** How long after a hold runs out the page keeps checking for a late payment. */
 const LATE_PAYMENT_WATCH_MS = 30 * 60_000
 const latePaymentPossible = (o: Order | undefined) =>
@@ -286,7 +280,7 @@ function OrderView({ order }: { order: Order }) {
       )}
       {PACKED_ON.includes(order.status) && (
         <p className="muted small order-policy">
-          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {CLAIM_WINDOW_HOURS} hours of delivery
+          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {order.claimWindowHours} hours of delivery
           for a free replacement.
         </p>
       )}
@@ -424,9 +418,8 @@ function OrderView({ order }: { order: Order }) {
 
 /** On a delivered order: until when a problem can be reported for a free replacement, and the way to do it. */
 function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
-  // The window runs from the latest delivery, as the API counts it.
-  const deliveredAt = order.timeline.filter((e) => e.status === 'DELIVERED').slice(-1)[0]?.at ?? order.delivery?.at ?? null
-  const deadline = deliveredAt ? new Date(new Date(deliveredAt).getTime() + CLAIM_WINDOW_HOURS * 3_600_000) : null
+  // The window comes from the API, from the latest delivery and the live rule.
+  const deadline = order.claimUntil ? new Date(order.claimUntil) : null
   const open = deadline != null && deadline.getTime() > Date.now()
   // Until the reports load we don't know whether one was sent: keep the space, show nothing.
   if (loading) return null

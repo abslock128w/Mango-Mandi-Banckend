@@ -52,6 +52,7 @@ export function seed() {
       openClaims: 2,
       batchesNearLimit: [{ id: 'b1', variety: 'Alphonso', ageDays: 7, available: 12 }],
       lowStock: [{ sku: 'ALP-5', productName: 'Alphonso 5kg Box', available: 3 }],
+      maxSellableAge: 7,
     },
     products: [
       { sku: 'ALP-3', name: 'Alphonso 3kg Box', variety: 'Alphonso', boxSize: '3kg', price: 189900, gstRate: 0, hsnCode: '08045020', description: 'Saffron flesh, rich and sweet.', active: true, sortOrder: 0, photoUrl: '/v1/products/ALP-3/photo?v=1' },
