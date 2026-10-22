@@ -27,6 +27,9 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await dialog.getByRole('button', { name: 'Receive batch' }).click()
   await expect(page).toHaveURL(/\/batches\/[^/?]+\?focusQC=1/)
   const batchUrl = page.url().split('?')[0]
+  // The new batch page moves focus to its QC form once it loads; wait for that, or it would close
+  // a menu opened a moment before (phone).
+  await expect.poll(() => page.evaluate(() => document.activeElement?.closest('form') != null)).toBe(true)
   await (await openNavTo(page, 'Batches')).click()
   await expect(page.getByText('No QC: not sellable yet').first()).toBeVisible()
 
