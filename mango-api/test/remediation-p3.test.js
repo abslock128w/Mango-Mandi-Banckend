@@ -213,3 +213,31 @@ describe('FE-2 / FE-3: the API sends what the shop and panel used to guess', () 
     assert.equal(s.body.maxSellableAge, 7)
   })
 })
+
+describe('order status changes come from one map', () => {
+  test('every staff move, cancel and payment is in ORDER_TRANSITIONS; delivered is final', async () => {
+    const { ORDER_TRANSITIONS, MANAGER_REFUNDABLE, assertTransition } = await import('../src/orders.js')
+    for (const from of MANAGER_REFUNDABLE) assert.ok(ORDER_TRANSITIONS[from].includes('CANCELLED'), from)
+    assert.deepEqual(ORDER_TRANSITIONS.DELIVERED, [])
+    assert.throws(() => assertTransition('DELIVERED', 'CANCELLED'), /cannot go from DELIVERED to CANCELLED/)
+    assert.throws(() => assertTransition('PACKED', 'DELIVERED'))
+    assert.doesNotThrow(() => assertTransition('CANCELLED', 'CONFIRMED'))
+  })
+
+  test('no file outside orders.js writes an order status, and each write there is guarded', async () => {
+    const { readdir, readFile } = await import('node:fs/promises')
+    const dir = new URL('../src/', import.meta.url)
+    for (const f of (await readdir(dir)).filter((x) => x.endsWith('.js'))) {
+      const src = await readFile(new URL(f, dir), 'utf8')
+      const writes = [...src.matchAll(/UPDATE orders SET status\b/g)]
+      if (f !== 'orders.js') assert.equal(writes.length, 0, `${f} writes orders.status directly`)
+      else {
+        for (const w of writes) {
+          const before = src.slice(Math.max(0, w.index - 400), w.index)
+          assert.match(before, /assertTransition\(/, `unguarded status write at offset ${w.index}`)
+        }
+        assert.equal(writes.length, 3)
+      }
+    }
+  })
+})

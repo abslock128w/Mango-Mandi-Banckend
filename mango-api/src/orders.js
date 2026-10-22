@@ -40,6 +40,31 @@ const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 /** A paid order a manager may cancel with a full refund: anything not yet delivered, including failed and returned deliveries. */
 export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 
+/**
+ * Every status change an order can make, in one place. Staff moves follow
+ * TRANSITIONS (setOrderStatus); a payment confirms a pending order, or one
+ * whose hold ran out (a late payment); a cancel takes anything not yet
+ * delivered. assertTransition guards each write, so no path can skip a step.
+ */
+export const ORDER_TRANSITIONS = Object.freeze({
+  PAYMENT_PENDING: ['CONFIRMED', 'CANCELLED'],
+  CONFIRMED: ['PROCESSING', 'CANCELLED'],
+  PROCESSING: ['PACKED', 'CANCELLED'],
+  PACKED: ['SHIPPED', 'CANCELLED'],
+  SHIPPED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED', 'CANCELLED'],
+  DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'RTO', 'CANCELLED'],
+  RTO: ['CANCELLED'],
+  CANCELLED: ['CONFIRMED'],
+  DELIVERED: [],
+})
+
+export function assertTransition(from, to) {
+  if (!(ORDER_TRANSITIONS[from] ?? []).includes(to)) {
+    throw new HttpError(409, 'INVALID_TRANSITION', `An order cannot go from ${from} to ${to}`)
+  }
+}
+
 export const SYSTEM = { type: 'system', id: 'system' }
 /** The event reason on orders cancelled because the hold ran out; the shop's order view keys off it. */
 export const HOLD_EXPIRED_REASON = 'Payment not received before the hold expired'
@@ -372,6 +397,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   const lateFrom = o.status === 'CANCELLED' ? 'CANCELLED' : null
   const chosenDate = o.delivery_date
   if (o.status !== 'PAYMENT_PENDING' && !lateFrom) return { order: o, result: 'ignored' }
+  assertTransition(o.status, 'CONFIRMED')
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
             payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL
@@ -435,6 +461,7 @@ async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
   if (RESTOCKABLE.includes(o.status)) {
     for (const row of await stockRows(c, o.id, ['packed'])) await restock(c, row, actor, `Cancel ${o.number}`)
   }
+  assertTransition(o.status, 'CANCELLED')
   const pay = paymentStatus ?? (o.payment_status === 'INITIATED' ? 'CANCELLED' : o.payment_status)
   await c.query(
     `UPDATE orders SET status = 'CANCELLED', payment_status = $2, hold_expires_at = NULL, at_risk = FALSE, at_risk_reason = NULL WHERE id = $1`,
@@ -599,6 +626,7 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
       o.id, String(randomInt(0, 10_000)).padStart(4, '0'),
     ])
   }
+  assertTransition(o.status, to)
   await c.query('UPDATE orders SET status = $2 WHERE id = $1', [o.id, to])
   const eventId = await addEvent(c, o.id, o.status, to, actor, reason)
   if (attemptsUsedUp) {
