@@ -143,8 +143,10 @@ async function toReview(page: Page, request: APIRequestContext, phone: string) {
   )
   await signIn(page, phone, '/checkout')
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible()
-  await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   await pickSlot(page)
+  // A customer with a saved address gets it picked for them instead of the empty field.
+  const field = page.getByLabel('Delivery address')
+  if (await field.isVisible()) await field.fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   await page.getByRole('button', { name: 'Review order' }).click()
   // Syncing the cart and quoting is a few calls in a row: allow for a busy test API.
   await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible({ timeout: 15_000 })
