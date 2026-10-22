@@ -90,14 +90,16 @@ describe('product photos at thumbnail widths', () => {
     assert.equal((await api.get('/v1/products/BAD-3/photo?w=160')).status, 404)
   })
 
-  test('a removed and re-added photo starts at v=1 again, and its thumbnail is the new photo', async () => {
+  test('a removed and re-added photo gets a new URL, and its thumbnail is the new photo', async () => {
     const url = await productPhoto()
     const before = (await get(`${url}&w=160`)).bytes
     assert.equal((await api.del('/admin/v1/products/ALP-3/photo', { token: manager })).status, 200)
     const flat = await sharp({ create: { width: 1000, height: 800, channels: 3, background: { r: 20, g: 120, b: 40 } } }).jpeg().toBuffer()
+    // The version is the upload time in seconds; a person can't remove and re-add within one.
+    await new Promise((r) => setTimeout(r, 1000 - (Date.now() % 1000) + 10))
     const again = await api.raw('PUT', '/admin/v1/products/ALP-3/photo', { token: manager, headers: { 'Content-Type': 'image/jpeg' }, raw: flat })
-    assert.equal(again.body.photoUrl, url, 'same URL as before')
-    const after = (await get(`${url}&w=160`)).bytes
+    assert.notEqual(again.body.photoUrl, url, 'never the URL browsers cached for the removed photo')
+    const after = (await get(`${again.body.photoUrl}&w=160`)).bytes
     assert.ok(!after.equals(before), 'not the cached thumbnail of the removed photo')
     const { dominant } = await sharp(after).stats()
     assert.ok(dominant.g > dominant.r, 'the new (green) photo')
