@@ -10,6 +10,7 @@
     "test:e2e": "playwright test",
     "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\" \"customer-app/tests/unit/*.unit.ts\"",
     "lint": "eslint .",
+    "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/dist",
     "shop:dev": "vite --config customer-app/vite.config.ts",
     "shop:build": "tsc --noEmit -p customer-app && vite build --config customer-app/vite.config.ts",
     "shop:preview": "vite preview --config customer-app/vite.config.ts"

@@ -29,6 +29,11 @@ jobs:
         env:
           # A made-up number for the build check only; production sets the shop's real one.
           VITE_SUPPORT_WHATSAPP: '910000000000'
+      # Bundle safety: no secrets, dev routes, demo accounts or mock providers in
+      # what ships to browsers (scripts/scan-bundle.mjs; the Vercel builds run it
+      # too, with --forbid-localhost, so a build without VITE_API_URL fails).
+      - name: Scan the built shop and panel
+        run: npm run scan:bundle
       - run: npx playwright install --with-deps chromium
       # Every panel spec. They mock the API, except day-in-the-life, which
       # skips here (no E2E_EMAIL) and runs against the real API in the e2e job.
