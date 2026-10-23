@@ -3,6 +3,7 @@
 // payments (failed attempts, double charges), shared rate limits, cross-site
 // session requests, rider scoping, delivery retries, account deletion, and
 // the database environment guard.
+import sharp from 'sharp'
 import { adminToken, checkout, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -312,7 +313,7 @@ describe('riders and deliveries', () => {
     const o = await packedOrder(cust)
     await query(`UPDATE orders SET gift_recipient_name = 'Asha', gift_recipient_phone = '+919876500099', gift_message = 'Happy Diwali' WHERE id = $1`, [o.orderId])
     await api.post(`/admin/v1/orders/${o.orderId}/dispatch`, undefined, { token: rider })
-    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)])
+    const jpeg = await sharp({ create: { width: 16, height: 12, channels: 3, background: '#fa0' } }).jpeg().toBuffer()
     const photo = await api.raw('POST', `/admin/v1/orders/${o.orderId}/delivery-photos`, { token: rider, headers: { 'Content-Type': 'image/jpeg' }, raw: jpeg })
     assert.equal(photo.status, 201)
     const done = await api.post(`/admin/v1/orders/${o.orderId}/delivery`, { outcome: 'DELIVERED', photoId: photo.body.id, receivedBy: 'Security guard' }, { token: rider })

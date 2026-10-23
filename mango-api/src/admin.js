@@ -6,7 +6,7 @@ import express from 'express'
 import jwt from 'jsonwebtoken'
 import { hit, sharedLimiter } from './ratelimit.js'
 import { z } from 'zod'
-import { audit, auditStaffChanges, isPacker, limitByRole, redactForPacker, riderScope, ROLES } from './access.js'
+import { audit, auditStaffChanges, isPacker, limitByRole, redactForPacker, RIDER_TAKES, riderScope, ROLES } from './access.js'
 import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, requireAdmin, requireManager, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { analytics, mondayOf } from './analytics.js'
@@ -44,6 +44,7 @@ import { logger } from './logger.js'
 import { allProducts, findProduct, loadProducts, productName, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { staffReviews } from './review-routes.js'
+import { staffPassword } from './passwords.js'
 
 export const router = express.Router()
 
@@ -226,6 +227,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const { credential } = parse(z.object({ credential: z.string().min(20).max(4096) }), req.body)
     const g = await verifyGoogleCredential(credential)
+    // SEC-13: optionally only the shop's own Google Workspace accounts (Google's hd claim).
+    if (env.STAFF_GOOGLE_HD && g.hd !== env.STAFF_GOOGLE_HD.trim().toLowerCase()) {
+      throw unauthorized(`Sign in with your ${env.STAFF_GOOGLE_HD} Google account.`, 'NOT_STAFF')
+    }
     const { rows } = await query(`SELECT ${STAFF_COLUMNS} FROM admin_users WHERE email = $1`, [g.email])
     const user = rows[0]
     if (!user) throw unauthorized(`${g.email} is not a staff account. Ask a manager to add you.`, 'NOT_STAFF')
@@ -347,6 +352,35 @@ router.post(
       await clearTwoStep(c, req.admin.id)
     })
     res.status(204).end()
+  }),
+)
+
+/**
+ * Changes your own password (SEC-09), with the current one. Every other
+ * session of yours ends (session version and refresh sessions), and this one
+ * carries on with fresh tokens. Wrong current passwords count towards the
+ * same per-account lock as sign-in.
+ */
+router.post(
+  '/me/password',
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ currentPassword: z.string().min(1).max(200), newPassword: staffPassword }), req.body)
+    if (await passwordLocked(req.admin.email)) throw PW_LOCKED()
+    const { rows } = await query('SELECT password_hash FROM admin_users WHERE id = $1', [req.admin.id])
+    if (!rows.length || !(await bcrypt.compare(b.currentPassword, rows[0].password_hash))) {
+      await passwordFailed(req.admin.email)
+      throw new HttpError(422, 'WRONG_PASSWORD', 'Your current password is not right.')
+    }
+    if (b.currentPassword === b.newPassword) throw badRequest('Pick a new password, not the one you have now', 'SAME_PASSWORD')
+    const hash = await bcrypt.hash(b.newPassword, 10)
+    const user = await tx(async (c) => {
+      const up = await c.query(`UPDATE admin_users SET password_hash = $2, session_version = session_version + 1 WHERE id = $1 RETURNING ${STAFF_COLUMNS}`, [req.admin.id, hash])
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.admin.id, now()])
+      await clearPasswordFailures(req.admin.email, c)
+      return up.rows[0]
+    })
+    forgetStaff(req.admin.id)
+    await startSession(req, res, user, 'password-change')
   }),
 )
 
@@ -1148,15 +1182,23 @@ router.get(
   '/manifest',
   asyncHandler(async (req, res) => {
     const date = req.query.date ? parse(z.string().refine(isDate, 'date must be YYYY-MM-DD'), req.query.date) : addDays(todayIST(), 1)
+    const rider = req.admin.role === 'RIDER'
+    // SEC-02: a rider sees only their own stops, and no delivered ones from before today.
+    const statuses = isPacker(req) || (rider && date < todayIST()) ? MANIFEST_STATUSES.filter((s) => s !== 'DELIVERED') : MANIFEST_STATUSES
     const { rows: orders } = await query(
       `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id, o.delivery_failures,
-              o.gift_recipient_name, o.gift_recipient_phone, o.gift_message,
+              o.gift_recipient_name, o.gift_recipient_phone, o.gift_message, o.rider_id, r.email AS rider_email,
               s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
-        WHERE o.delivery_date = $1 AND o.status = ANY($2)
+         LEFT JOIN admin_users r ON r.id = o.rider_id
+        WHERE o.delivery_date = $1 AND o.status = ANY($2) ${rider ? 'AND o.rider_id = $3' : ''}
         ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, o.number`,
-      [date, isPacker(req) ? MANIFEST_STATUSES.filter((s) => s !== 'DELIVERED') : MANIFEST_STATUSES],
+      rider ? [date, statuses, req.admin.id] : [date, statuses],
     )
+    // Packed stops nobody has yet: a rider can take them by starting the run (they see only how many).
+    const unassigned = rider
+      ? (await query('SELECT COUNT(*)::int AS n FROM orders WHERE delivery_date = $1 AND rider_id IS NULL AND status = ANY($2)', [date, RIDER_TAKES])).rows[0].n
+      : undefined
     const { rows: items } = await query(
       'SELECT order_id, sku, stage, SUM(quantity)::int AS quantity FROM order_items WHERE order_id = ANY($1) GROUP BY order_id, sku, stage ORDER BY sku, stage',
       [orders.map((o) => o.id)],
@@ -1187,6 +1229,7 @@ router.get(
         customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
         gift: o.gift_recipient_name ? { from: o.customer_name, message: o.gift_message } : null,
         packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,
+        rider: o.rider_id ? { id: o.rider_id, email: o.rider_email ?? null } : null,
         // Sent back with the delivery report, so a late resend for an earlier attempt is refused.
         attempt: o.delivery_failures + 1,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
@@ -1199,6 +1242,7 @@ router.get(
       date,
       orders: orders.length,
       boxes: runs.reduce((n, r) => n + r.boxes, 0),
+      ...(rider ? { unassigned } : {}),
       runs: runs.map(({ key, ...r }) => r),
     })
   }),
@@ -1211,21 +1255,30 @@ router.post(
   '/manifest/dispatch',
   asyncHandler(async (req, res) => {
     const b = parse(
-      z.object({ date: z.string().refine(isDate, 'date must be YYYY-MM-DD'), slotId: z.string().nullable().optional() }),
+      z.object({ date: z.string().refine(isDate, 'date must be YYYY-MM-DD'), slotId: z.string().nullable().optional(), riderId: z.string().max(40).optional() }),
       req.body,
     )
+    const rider = req.admin.role === 'RIDER'
+    // Staff may hand the run to a rider as it goes out; a rider takes the stops nobody has yet.
+    if (b.riderId && rider) throw new HttpError(403, 'FORBIDDEN', 'Riders take stops by starting the run')
+    if (b.riderId) await riderOrThrow(b.riderId)
     const params = [b.date]
     let slotFilter = ''
     if (b.slotId === null) slotFilter = 'AND slot_id IS NULL'
     else if (b.slotId) {
       params.push(b.slotId)
-      slotFilter = 'AND slot_id = $2'
+      slotFilter = `AND slot_id = $${params.length}`
+    }
+    if (rider) {
+      params.push(req.admin.id)
+      slotFilter += ` AND (rider_id = $${params.length} OR (rider_id IS NULL AND status IN ('PACKED', 'SHIPPED', 'DELIVERY_FAILED')))`
     }
     const { rows } = await query(
       `SELECT id, number, status FROM orders WHERE delivery_date = $1 ${slotFilter}
           AND status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED') ORDER BY number`,
       params,
     )
+    const assignTo = rider ? req.admin.id : (b.riderId ?? null)
     const dispatched = []
     const skipped = []
     for (const o of rows) {
@@ -1234,7 +1287,11 @@ router.post(
         continue
       }
       try {
-        if (await tx((c) => dispatchOrder(c, o.id, req.actor))) dispatched.push(o.number)
+        const sent = await tx(async (c) => {
+          if (assignTo) await assignRider(c, o.id, assignTo, { onlyIfFree: rider })
+          return dispatchOrder(c, o.id, req.actor)
+        })
+        if (sent) dispatched.push(o.number)
       } catch (err) {
         skipped.push({ number: o.number, reason: err.message })
       }
@@ -1249,8 +1306,68 @@ router.post(
     const b = parse(z.object({ override: z.boolean().optional(), reason: z.string().trim().max(300).optional() }), req.body ?? {})
     if (b.override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
     if (b.override && !b.reason) throw badRequest('Say why it is going out anyway', 'REASON_REQUIRED')
-    await tx((c) => dispatchOrder(c, req.params.id, req.actor, { override: Boolean(b.override), reason: b.reason }))
+    await tx(async (c) => {
+      // A rider sending out an unassigned stop takes it (riderScope let them reach it for this).
+      if (req.admin.role === 'RIDER') await assignRider(c, req.params.id, req.admin.id, { onlyIfFree: true })
+      return dispatchOrder(c, req.params.id, req.actor, { override: Boolean(b.override), reason: b.reason })
+    })
     res.status(204).end()
+  }),
+)
+
+// ---------------------------------------------------------------- rider assignment (SEC-02)
+
+/** Riders, for the Deliveries page's assign control. */
+router.get(
+  '/riders',
+  asyncHandler(async (_req, res) => res.json((await query("SELECT id, email FROM admin_users WHERE role = 'RIDER' ORDER BY email")).rows)),
+)
+
+async function riderOrThrow(id) {
+  const { rows } = await query("SELECT id FROM admin_users WHERE id = $1 AND role = 'RIDER'", [id])
+  if (!rows.length) throw badRequest('Pick a rider', 'NOT_A_RIDER')
+}
+
+/**
+ * Gives the order to a rider (null: to nobody). With onlyIfFree (a rider
+ * taking a stop) it must be unassigned or theirs already; another rider's
+ * stop answers 404, as riderScope does.
+ */
+async function assignRider(c, orderId, riderId, { onlyIfFree = false } = {}) {
+  const r = await c.query(`UPDATE orders SET rider_id = $2 WHERE id = $1 ${onlyIfFree ? 'AND (rider_id IS NULL OR rider_id = $2)' : ''} RETURNING id`, [orderId, riderId])
+  if (!r.rowCount) throw notFound('Order not found')
+}
+
+/**
+ * Assigns stops to a rider: the listed orders, or every order still to
+ * deliver on the date (one slot, or all). riderId null takes them off anyone.
+ */
+router.post(
+  '/manifest/assign',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        date: z.string().refine(isDate, 'date must be YYYY-MM-DD'),
+        slotId: z.string().nullable().optional(),
+        orderIds: z.array(z.string().max(40)).min(1).max(500).optional(),
+        riderId: z.string().max(40).nullable(),
+      }),
+      req.body,
+    )
+    if (b.riderId) await riderOrThrow(b.riderId)
+    const params = [b.date, b.riderId, MANIFEST_STATUSES.filter((s) => s !== 'DELIVERED')]
+    let filter = ''
+    if (b.slotId === null) filter += ' AND slot_id IS NULL'
+    else if (b.slotId) {
+      params.push(b.slotId)
+      filter += ` AND slot_id = $${params.length}`
+    }
+    if (b.orderIds) {
+      params.push(b.orderIds)
+      filter += ` AND id = ANY($${params.length})`
+    }
+    const { rows } = await query(`UPDATE orders SET rider_id = $2 WHERE delivery_date = $1 AND status = ANY($3) ${filter} RETURNING number`, params)
+    res.json({ assigned: rows.map((r) => r.number).sort() })
   }),
 )
 
@@ -1516,7 +1633,8 @@ router.patch(
 // ---------------------------------------------------------------- staff
 
 const staffDto = (u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.created_at, twoStep: Boolean(u.totp_enabled_at) })
-const password = z.string().min(10, 'Use at least 10 characters').max(200)
+// SEC-09: 12 characters at least, and not a common password (src/passwords.js).
+const password = staffPassword
 
 router.get(
   '/staff',
@@ -1612,6 +1730,8 @@ router.delete(
     await tx(async (c) => {
       const r = await c.query('DELETE FROM admin_users WHERE id = $1', [req.params.id])
       if (!r.rowCount) throw notFound('No staff member with that id')
+      // Their stops go back to the unassigned pool (SEC-02).
+      await c.query('UPDATE orders SET rider_id = NULL WHERE rider_id = $1', [req.params.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
     })
     forgetStaff(req.params.id)

@@ -32,6 +32,7 @@ const COMMON = [
   route('POST', '/me/two-step/setup'),
   route('POST', '/me/two-step/enable'),
   route('POST', '/me/two-step/disable'),
+  route('POST', '/me/password'),
 ]
 
 const DELIVERY = [
@@ -63,6 +64,9 @@ export const OPERATOR_ROUTES = [
   route('POST', '/orders/:id/rebalance'),
   route('POST', '/orders/:id/reschedule'),
   route('GET', '/pack-list'),
+  // Giving stops to riders (SEC-02): riders see only their own.
+  route('GET', '/riders'),
+  route('POST', '/manifest/assign'),
   route('GET', '/delivery-reviews'),
   route('POST', '/delivery-reviews/:id'),
   route('GET', '/analytics'),
@@ -138,6 +142,9 @@ export function limitByRole(req, _res, next) {
 
 /** Orders a rider may touch: on the road or ready to go. */
 const RIDER_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED', 'DELIVERED']
+/** Unassigned orders a rider may take by sending them out (POST /orders/:id/dispatch). */
+export const RIDER_TAKES = ['PACKED', 'SHIPPED', 'DELIVERY_FAILED']
+const DISPATCH_PATH = /^\/orders\/[^/]+\/dispatch$/
 /** Orders a packer may open: being packed or on the road. Not delivered ones (SEC-02). */
 const PACKER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 const ORDER_PATH = /^\/orders\/([^/]+)(?:\/|$)/
@@ -157,6 +164,11 @@ const riderDates = () => {
  * those dates, so neither role can page through every customer's address and
  * phone number. Packers also never see delivered orders (SEC-02), and their
  * views leave out phone numbers and addresses (see redactForPacker).
+ *
+ * Riders (SEC-02, 23 Oct): only their own stops, the orders whose rider_id is
+ * theirs (staff assign them on the Deliveries page, or the rider takes an
+ * unassigned packed order by sending it out). Another rider's stop answers
+ * 404, and a delivered stop from before today is gone from their view.
  */
 export async function riderScope(req, _res, next) {
   const role = req.admin?.role
@@ -169,15 +181,26 @@ export async function riderScope(req, _res, next) {
     }
     const m = ORDER_PATH.exec(req.path)
     if (m) {
-      const { rows } = await query('SELECT status, delivery_date FROM orders WHERE id = $1', [m[1]])
+      const { rows } = await query('SELECT status, delivery_date, rider_id FROM orders WHERE id = $1', [m[1]])
       const o = rows[0]
       const statuses = role === 'RIDER' ? RIDER_STATUSES : PACKER_ORDER_STATUSES
       if (!o || !statuses.includes(o.status) || !dates.includes(o.delivery_date)) return next(notFound('Order not found'))
+      if (role === 'RIDER' && !riderMaySee(req.admin.id, o, req)) return next(notFound('Order not found'))
     }
     next()
   } catch (err) {
     next(err)
   }
+}
+
+/**
+ * A rider's own stop, or an unassigned packed one they are sending out (which
+ * takes it: see dispatchOrder). Delivered stops only on or after today.
+ */
+function riderMaySee(riderId, o, req) {
+  if (o.status === 'DELIVERED' && o.delivery_date < todayIST()) return false
+  if (o.rider_id === riderId) return true
+  return o.rider_id === null && RIDER_TAKES.includes(o.status) && req.method === 'POST' && DISPATCH_PATH.test(req.path)
 }
 
 /**

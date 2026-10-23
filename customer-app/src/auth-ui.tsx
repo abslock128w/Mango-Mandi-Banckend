@@ -61,6 +61,8 @@ function useTurnstile(onError: (message: string) => void) {
         if (!live || !box.current || !window.turnstile) return
         widget.current = window.turnstile.render(box.current, {
           sitekey: siteKey,
+          // The API checks this action and the hostname (mango-api src/turnstile.js).
+          action: 'otp',
           size: 'flexible',
           callback: (t: string) => setToken(t),
           'expired-callback': () => setToken(null),

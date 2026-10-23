@@ -4,7 +4,8 @@ import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
 import { cleanupExpired } from '../src/maintenance.js'
-import { usePhotoStore } from '../src/photos.js'
+import { cleanImage, usePhotoStore } from '../src/photos.js'
+import sharp from 'sharp'
 import { query } from '../src/db.js'
 import { sendDueNotifications } from '../src/notify.js'
 
@@ -29,7 +30,9 @@ beforeEach(async () => {
   rider = await adminToken(api, 'ravi@mandimangoes.test', 'long-enough-1')
 })
 
-const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)])
+// A real photo: uploads are re-encoded (EXIF dropped), so what is served back is STORED.
+const JPEG = await sharp({ create: { width: 16, height: 12, channels: 3, background: '#fa0' } }).jpeg().toBuffer()
+const STORED = (await cleanImage(JPEG)).bytes
 
 /** A paid order, packed and ready for the rider. */
 async function packedOrder(cust) {
@@ -93,7 +96,10 @@ describe('proof of delivery', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const { id } = await packedOrder(cust)
-    assert.equal((await upload(id, JPEG)).body.error.code, 'INVALID_TRANSITION')
+    // Not the rider's stop until they send it out (SEC-02); and photos wait until it is out.
+    assert.equal((await upload(id, JPEG)).body.error.code, 'NOT_FOUND')
+    const staffUpload = await api.raw('POST', `/admin/v1/orders/${id}/delivery-photos`, { token: admin, headers: { 'Content-Type': 'image/jpeg' }, raw: JPEG })
+    assert.equal(staffUpload.body.error.code, 'INVALID_TRANSITION')
     assert.equal((await api.post(`/admin/v1/orders/${id}/dispatch`, undefined, { token: rider })).status, 204)
 
     assert.equal((await upload(id, Buffer.from('not an image at all'), 'image/png')).body.error.code, 'PHOTO_INVALID')
@@ -108,7 +114,7 @@ describe('proof of delivery', () => {
     })
     const pic = await fetch(`${srv.base}/v1/orders/${id}/delivery-photo`, { headers: { Authorization: `Bearer ${cust.accessToken}` } })
     assert.equal(pic.headers.get('content-type'), 'image/jpeg')
-    assert.ok(Buffer.from(await pic.arrayBuffer()).equals(JPEG))
+    assert.ok(Buffer.from(await pic.arrayBuffer()).equals(STORED))
     const stranger = await customerToken(api)
     assert.equal((await api.get(`/v1/orders/${id}/delivery-photo`, { token: stranger.accessToken })).status, 404)
     const staffPic = await fetch(`${srv.base}/admin/v1/orders/${id}/delivery-photos/${up.body.id}`, { headers: { Authorization: `Bearer ${admin}` } })
@@ -203,7 +209,7 @@ describe('photos in Blob storage', () => {
     assert.ok(blobs.has(row.blob_path))
     await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id, receivedBy: 'Neighbour' })
     const pic = await fetch(`${srv.base}/v1/orders/${id}/delivery-photo`, { headers: { Authorization: `Bearer ${cust.accessToken}` } })
-    assert.ok(Buffer.from(await pic.arrayBuffer()).equals(JPEG))
+    assert.ok(Buffer.from(await pic.arrayBuffer()).equals(STORED))
 
     // Claim photos: uploaded first, then sent with the claim.
     assert.equal((await claimPhoto(cust, Buffer.from('nope'))).body.error.code, 'PHOTO_INVALID')
@@ -222,7 +228,7 @@ describe('photos in Blob storage', () => {
     assert.deepEqual(listed.photos.map((p) => p.id), ids.slice(0, 2))
     const staffPic = await fetch(`${srv.base}/admin/v1/claims/${claim.body.id}/photos/${ids[0]}`, { headers: { Authorization: `Bearer ${admin}` } })
     assert.equal(staffPic.status, 200)
-    assert.ok(Buffer.from(await staffPic.arrayBuffer()).equals(JPEG))
+    assert.ok(Buffer.from(await staffPic.arrayBuffer()).equals(STORED))
     assert.equal((await api.get(`/admin/v1/claims/${claim.body.id}/photos/${ids[3]}`, { token: admin })).status, 404)
 
     // Photos never sent with a claim are cleared after a day, blobs too.

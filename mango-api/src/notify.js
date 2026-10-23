@@ -7,7 +7,7 @@ import { now } from './clock.js'
 import { query } from './db.js'
 import { env, isProd } from './env.js'
 import { newId } from './ids.js'
-import { logger } from './logger.js'
+import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
@@ -220,7 +220,7 @@ async function sendOne(n, sender, at) {
       await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
       return false
     }
-    logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
+    logger.info({ phone: maskPhone(n.phone), kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
     return true
   }

@@ -11,7 +11,7 @@ import { now } from './clock.js'
 import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { addEvent, setOrderStatus } from './orders.js'
-import { checkPhoto, MAX_PHOTO_BYTES, storePhoto } from './photos.js'
+import { checkPhoto, cleanImage, MAX_PHOTO_BYTES, storePhoto } from './photos.js'
 
 export const FAIL_REASONS = ['NOT_HOME', 'WRONG_ADDRESS', 'REFUSED', 'UNREACHABLE', 'OTHER']
 export const FAIL_LABEL = {
@@ -49,11 +49,13 @@ export async function dispatchOrder(c, orderId, actor, opts = {}) {
 
 /** Stores a delivery photo for an order that is out for delivery. Returns its id. */
 export async function savePhoto(c, orderId, bytes, actor) {
-  const { mime, ext } = checkPhoto(bytes)
+  checkPhoto(bytes)
+  // SEC-13: re-encoded, so the phone's EXIF (GPS, device) and anything hidden in the file stay behind.
+  const { bytes: clean, mime, ext } = await cleanImage(bytes)
   const o = await lockOrder(c, orderId)
   if (o.status !== 'OUT_FOR_DELIVERY') throw badRequest('Photos are taken while the order is out for delivery', 'INVALID_TRANSITION')
   const id = newId('dph')
-  const stored = await storePhoto(`delivery/${o.number}`, id, bytes, ext, mime)
+  const stored = await storePhoto(`delivery/${o.number}`, id, clean, ext, mime)
   await c.query('INSERT INTO delivery_photos (id, order_id, mime, bytes, blob_path, taken_by, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
     id, orderId, mime, stored.bytes, stored.blobPath, actor.label ?? actor.id, now(),
   ])
