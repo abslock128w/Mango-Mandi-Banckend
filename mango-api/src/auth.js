@@ -45,7 +45,7 @@ export async function rotateRefresh(token, userType) {
     throw invalid()
   }
   if (claims.typ !== `${userType}_refresh` || !claims.jti) throw invalid()
-  return tx(async (c) => {
+  return await tx(async (c) => {
     const { rows } = await c.query('SELECT * FROM refresh_sessions WHERE jti = $1 FOR UPDATE', [claims.jti])
     const s = rows[0]
     if (!s || s.user_type !== userType || s.expires_at <= now()) throw invalid()

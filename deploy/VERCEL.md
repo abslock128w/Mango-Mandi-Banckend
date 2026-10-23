@@ -61,8 +61,15 @@ The API runs in Singapore (`sin1`), next to the database.
 
    Do the same on the `staging` branch for the preview values.
 
-Neon keeps point-in-time history (7 days on Launch), so a bad change can be undone
-by restoring a branch to a minute before it. See [Backups and restore drill](#backups-and-restore-drill).
+5. **Set the restore window to 7 days.** Neon keeps point-in-time history for a
+   window that is **1 day by default on paid plans** (6 hours on Free). In the Neon
+   console's project **Settings**, set the history (restore) window to **7 days**,
+   the most the Launch plan allows (history storage is billed per GB-month). Write the date
+   you set it in the go-live checks below. Without this step a mistake noticed on
+   day two cannot be undone from Neon.
+
+With the window set, a bad change can be undone by restoring a branch to a minute
+before it. See [Backups and restore drill](#backups-and-restore-drill).
 
 The first deploy against each branch records which environment it belongs to
 (production for `main`, preview for `staging`). After that a preview build
@@ -112,7 +119,9 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `OTP_NEW_NUMBER_SHARE` | `0.6` | | the part of that budget numbers with no account may use; the rest is kept for existing customers |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | from Cloudflare Turnstile | Cloudflare's test keys | a check, usually invisible, before a login code is sent; set both or neither |
 | `API_RATE_LIMIT` | `3000` | | requests per 15 minutes from one address before 429. Mobile carriers put many customers behind one address, so keep it high; it only stops floods |
-| `METRICS_TOKEN` | random | | protects `/metrics` |
+| `OTP_IP_LIMIT` | leave unset (`200`) | | login-code requests per 15 minutes from one address. High on purpose, for the same carrier-NAT reason: Turnstile, the per-number caps (5 an hour, 16 a day) and `OTP_DAILY_LIMIT` are what stop SMS pumping. Lower it only if Sentry shows one address pumping codes |
+| `METRICS_TOKEN` | not needed | | `/metrics` answers 404 on Vercel; it and `ops/alerts.yml` are for the Docker path only |
+| `BACKUP_HEARTBEAT_EXPECTED` | `true` once the backup workflow records its heartbeat (see [Backups](#backups-and-restore-drill)) | | Needs attention and Sentry warn when no backup has succeeded for 26 hours |
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
 
@@ -176,8 +185,11 @@ Then point the webhooks at the API:
 
 - **Firewall rate limit on sign-in.** On `mandi-api`, **Firewall → Configure → New
   rule**: if the request path starts with `/v1/auth/` or `/admin/v1/auth/`, rate limit
-  to 20 requests per minute per IP, action **Deny**. The API has its own limits too;
-  this stops floods before they cost function time.
+  to 60 requests per minute per IP, action **Deny**. The API has its own limits too;
+  this stops floods before they cost function time. Don't go much lower: one mobile
+  carrier address can carry many customers signing in at once (each sign-in is a code
+  request and a verify), and the API's own per-address limit is 200 codes per 15
+  minutes (`OTP_IP_LIMIT`).
 - **Turn on Vercel's bot protection** in the shop project's Firewall settings.
 - **Deployment protection (required).** On all three projects, **Settings → Deployment
   Protection → Vercel Authentication** for previews, so only your team can open them.
@@ -215,15 +227,22 @@ Production refuses to start without `SENTRY_DSN`.
   turn on an alert for missed and failed check-ins. Together with the uptime monitor,
   someone hears about a stopped job even if nobody opens the panel.
 - **Sentry** e-mails you on new errors from the API, and warns when login codes reach
-  80% of the day's budget.
+  80% of the day's budget. The maintenance job also sends a Sentry warning (at most
+  hourly each) for overdue messages or refunds, failing webhooks, a missed backup
+  (with `BACKUP_HEARTBEAT_EXPECTED=true`) and stock counters that disagree with the
+  ledger. Set a Sentry alert rule on these warnings, not only on errors. (The
+  Prometheus rules in `ops/alerts.yml` are for the Docker path; nothing reads them
+  on Vercel.)
 - **Vercel → Logs** for request logs; **Neon → Monitoring** for database load.
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
 
 ## Backups and restore drill
 
-- **What you can lose (RPO).** Neon keeps every change for its history window (7 days
-  on Launch, longer on Scale), so `main` can go back to any second inside it. The
+- **What you can lose (RPO).** Neon keeps every change for its history window, so
+  `main` can go back to any second inside it. The window is **1 day by default on paid
+  plans** (6 hours on Free); step 1.5 sets it to 7 days, the Launch plan's maximum
+  (longer on Scale). Check it under Neon → **Settings** before trusting a restore. The
   nightly off-Neon copy (below) covers older mistakes and Neon itself being down, but
   anything after the last copy is lost in that case: up to a day.
 - **How long it takes (RTO): aim for an hour**, from deciding to restore to the shop
@@ -242,6 +261,24 @@ Production refuses to start without `SENTRY_DSN`.
      password manager or a USB stick in a safe), never in GitHub.
   3. In GitHub → **Settings → Secrets and variables → Actions**, add
      `BACKUP_DATABASE_URL` and `BACKUP_GPG_PUBLIC_KEY`. Run the workflow once by hand.
+  4. **Heartbeat, so a missed backup is noticed.** The workflow's last step records each
+     backup in the app (`ops/backup-heartbeat.sh`). In the SQL editor on `main`, make a
+     role that can write only that record and read nothing else:
+
+     ```sql
+     CREATE ROLE mango_backup_beat LOGIN PASSWORD '<a long random password>';
+     GRANT USAGE ON SCHEMA public TO mango_backup_beat;
+     GRANT SELECT (step), INSERT (step, last_ok_at, last_err_at, last_error),
+           UPDATE (last_ok_at, last_err_at, last_error) ON maintenance_runs TO mango_backup_beat;
+     ```
+
+     Add its connection string (pooled is fine) as the secret
+     `BACKUP_HEARTBEAT_DATABASE_URL`, run the workflow once by hand, then set
+     `BACKUP_HEARTBEAT_EXPECTED=true` on `mandi-api` (Production). From then on the
+     panel's Needs attention card and Sentry warn when no backup has succeeded for 26
+     hours: a failing run, missing secrets, or GitHub pausing the schedule (it stops
+     scheduled workflows in a repository with no activity for 60 days, as can happen
+     off-season).
   Prove a copy loads with `ops/restore-check.sh` after `gpg --decrypt`.
 - **Personal data in backups.** Dumps hold names, phones and addresses, which is why they
   are encrypted and kept only 30 days. A deleted account can still be inside an older
@@ -262,8 +299,11 @@ the pass marks.
       the staging shop, then in Razorpay → **Webhooks** check the delivery shows 200.
 - [ ] The k6 browse scenario passes against staging (`ops/load/shop.js`).
 - [ ] The Sentry cron monitor and the uptime monitor on `/ready` are set up and alert someone.
+- [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
+      Set on: _date_.
 - [ ] One restore drill done on a Neon branch, with the time it took written down.
-- [ ] The nightly backup workflow ran once and its artifact decrypts.
+- [ ] The nightly backup workflow ran once and its artifact decrypts; its heartbeat is
+      recorded and `BACKUP_HEARTBEAT_EXPECTED=true` is set (Backups, step 4).
 - [ ] Turnstile keys set; deployment protection on for previews.
 - [ ] `https://api.mandimangoes.in/ready` returns `{"ready":true,...}`.
 - [ ] Sign in to the panel as the bootstrap manager, set up two-step, then remove

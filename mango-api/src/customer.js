@@ -19,7 +19,7 @@ import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
-import { hit, sharedLimiter } from './ratelimit.js'
+import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
@@ -35,8 +35,8 @@ import { readyOnFor } from './ripeness.js'
 export const router = express.Router()
 
 // Per address, counted in Postgres so every serverless instance shares it.
-// Outside production it is loose, so test runs don't trip it.
-const otpLimiter = sharedLimiter('otp-ip', { windowMs: 15 * 60_000, limit: isProd ? 30 : 300 })
+// High enough for a carrier NAT address at a launch spike (ratelimit.js otpIpLimit).
+const otpLimiter = sharedLimiter('otp-ip', { windowMs: OTP_IP_WINDOW_MS, limit: otpIpLimit() })
 
 /** Claims a customer can raise in 30 days from the app. */
 const MAX_CLAIMS_PER_MONTH = 3

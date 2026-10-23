@@ -302,7 +302,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 
 | Area | Routes |
 |------|--------|
-| System | `GET /health`, `GET /ready`, `GET /metrics` (optional bearer `METRICS_TOKEN`) |
+| System | `GET /health`, `GET /ready`, `GET /metrics` (optional bearer `METRICS_TOKEN`; Docker path only, 404 on Vercel) |
 | Staff auth | `POST /admin/v1/auth/login`, `/refresh`, `/logout`, `GET /auth/me`. Refresh token is the httpOnly `mango_admin_rt` cookie, rotated on each use. |
 | Dashboard | `GET /admin/v1/summary` (adds `atRiskOrders`), `GET /products` |
 | Products (manager) | `POST /products`, `PATCH /products/:sku` (rename, reprice, `active: true` to put back on sale; the variety is fixed once a batch holds it), `DELETE /products/:sku` (deletes a never-used product, otherwise takes it off sale and keeps it for history). Starter products are seeded only into an empty database. |
@@ -419,10 +419,15 @@ screen.
   Send again button), a refund has been stuck for 30 minutes, or a webhook was rejected.
   It reads `GET /admin/v1/attention`. Each loop step's last success and error are kept in
   `maintenance_runs`; rejected webhooks are kept in `webhook_failures` for 30 days.
-- **Alerts.** [`ops/alerts.yml`](ops/alerts.yml) holds Prometheus alert rules for the loop
-  stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on fallback,
-  ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer token and
-  route the alerts to the phone of whoever is on call.
+- **Alerts.** On Vercel, alerts go through Sentry: the maintenance job's cron monitor, an
+  uptime monitor on `/ready`, and a Sentry message (at most hourly each) for overdue
+  messages or refunds, failing webhooks, a missed backup and ledger drift (see
+  [deploy/VERCEL.md, Watch it](../deploy/VERCEL.md#8-watch-it)).
+  **Docker path only:** [`ops/alerts.yml`](ops/alerts.yml) holds Prometheus alert rules for
+  the loop stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on
+  fallback, ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer
+  token and route the alerts to the phone of whoever is on call. `/metrics` answers 404 on
+  Vercel, so neither the metrics nor these rules apply there.
 - **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file,
   encrypted to a GPG public key (`BACKUP_GPG_PUBLIC_KEY_FILE` or `BACKUP_GPG_RECIPIENT`;
   with neither it refuses), and keeps 14 days (`RETAIN_DAYS`). `BACKUP_UPLOAD_CMD` copies
@@ -435,7 +440,11 @@ screen.
   Run it weekly and after each schema change; a backup nobody has restored is a guess.
   The nightly GitHub workflow [`backup.yml`](../.github/workflows/backup.yml) runs it for Neon.
   That workflow fails (red, with an email) when its secrets are missing; a copy with no
-  production database sets the repository variable `BACKUP_DISABLED=true` instead.
+  production database sets the repository variable `BACKUP_DISABLED=true` instead. Its
+  last step records the heartbeat with [`ops/backup-heartbeat.sh`](ops/backup-heartbeat.sh)
+  over `BACKUP_HEARTBEAT_DATABASE_URL`, a role that may write only that record (grants in
+  the script and in [deploy/VERCEL.md](../deploy/VERCEL.md#backups-and-restore-drill));
+  with `BACKUP_HEARTBEAT_EXPECTED=true` on Vercel a missed backup warns as on Docker.
 - **Ready.** `GET /ready` answers 503 when the database doesn't answer, when the last
   maintenance run finished over 5 minutes ago, and, in production, when no run has ever
   finished (the cron is missing or its secret is wrong). Previews and development may have

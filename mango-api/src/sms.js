@@ -61,6 +61,7 @@ const safeBody = async (res, code) => clean(await res.text().catch(() => ''), co
 const at = (obj, path) => path.split('.').reduce((v, k) => (v === null || v === undefined ? undefined : v[k]), obj)
 
 /** The "log" provider. The code is written only with LOG_OTP_CODES=true (a preview, say); never the full number. */
+// eslint-disable-next-line require-await -- a sender: async like the real providers
 export async function logOnly(phone, code) {
   if (env.LOG_OTP_CODES) logger.info({ phone: mask(phone) }, `Login code for ${mask(phone)} is ${code}`)
   else logger.info({ phone: mask(phone) }, 'Login code not sent (SMS_PROVIDER=log); set LOG_OTP_CODES=true to log it')

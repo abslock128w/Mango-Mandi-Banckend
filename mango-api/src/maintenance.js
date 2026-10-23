@@ -190,10 +190,22 @@ export async function rebalanceAllOpen({ atRiskOnly = false } = {}) {
   return touched
 }
 
-export async function runAudit() {
+/**
+ * The hourly stock audit. Drift pages through Sentry (OPS-25): on Vercel
+ * there is no Prometheus to see the ledgerDrift gauge. At most hourly, like
+ * the checkHealth alerts.
+ */
+export async function runAudit(at = now()) {
   const drift = await tx((c) => auditLedger(c))
   metrics.ledgerDrift.set(drift.length)
-  if (drift.length) logger.error({ drift: drift.slice(0, 20) }, 'ledger audit: counters disagree with their sources')
+  if (drift.length) {
+    logger.error({ drift: drift.slice(0, 20) }, 'ledger audit: counters disagree with their sources')
+    const last = (await lastRuns())['alert-ledger-drift'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Stock counters disagree with the ledger: stop and investigate before selling more', { lines: drift.length, sample: drift.slice(0, 5) })
+      await markRun('alert-ledger-drift')
+    }
+  }
   return drift
 }
 
@@ -214,7 +226,7 @@ export async function runPreorderJobs() {
  * lease. `budgetMs` is the time the run may take (tests shorten it).
  */
 export async function runMaintenance({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
-  return withBudget(budgetMs, async () => {
+  return await withBudget(budgetMs, async () => {
     await step('config', loadConfig) // every instance keeps its rules fresh
     const holder = await takeLease('maintenance')
     if (!holder) return { skipped: true }
@@ -248,7 +260,7 @@ async function steps(forceAll) {
   const t = now().getTime()
   const last = await lastRuns()
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {
-    out.drift = (await step('audit', runAudit))?.length ?? null
+    out.drift = (await step('audit', () => runAudit()))?.length ?? null
   }
   if (forceAll || t - (last['review-stats'] ?? 0) > HOURLY_MS) {
     out.reviewStatsDrift = (await step('review-stats', () => tx((c) => auditReviewStats(c))))?.length ?? null
@@ -305,7 +317,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
   const backup = await backupStatus(at)
   if (backup?.stale) {
-    problems.push(['backup', 'No backup in the last 26 hours: check the backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
+    problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
@@ -322,10 +334,12 @@ export async function checkHealth(out = {}, at = now()) {
 export const BACKUP_STALE_MS = 26 * HOURLY_MS
 
 /**
- * The Docker backup service (ops/backup.sh) records each backup as the step
- * 'backup'. Checked when the deploy says it runs one, or once any backup has
- * been recorded; null otherwise, so a Vercel install (backed up by the GitHub
- * Action, which records nothing here) shows no false alarm.
+ * Each backup is recorded as the step 'backup': by the Docker backup service
+ * (ops/backup.sh), or on Vercel by the GitHub backup workflow's last step
+ * (ops/backup-heartbeat.sh). Checked when the deploy says backups record here
+ * (BACKUP_HEARTBEAT_EXPECTED=true, on either path), or once any backup has
+ * been recorded; null otherwise, so an install that records none shows no
+ * false alarm.
  */
 export async function backupStatus(at = now()) {
   const { rows } = await query(`SELECT last_ok_at, last_err_at, last_error FROM maintenance_runs WHERE step = 'backup'`)

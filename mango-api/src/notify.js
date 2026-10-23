@@ -146,9 +146,30 @@ async function mark(id, fields) {
   await query(`UPDATE notifications SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} WHERE id = $1`, [id, ...keys.map((k) => fields[k])])
 }
 
-/** Sends due updates. `sender` is injectable for tests. Returns how many were sent. */
-export async function sendDueNotifications({ sender = whatsappSender, limit = 50 } = {}) {
+/** Batches one call may claim, so a call outside a time budget (a test, a script) still ends. */
+const MAX_BATCHES = 40
+
+/**
+ * Sends due updates. `sender` is injectable for tests. Returns how many were sent.
+ * OPS-30: claims batch after batch while the run's time allows (a dispatch
+ * burst of hundreds of delivery codes goes out in one run, not 50 a minute).
+ * Only messages due when the call started are claimed, and every outcome
+ * moves a message's next attempt past that time, so nothing is sent twice.
+ */
+export async function sendDueNotifications({ sender = whatsappSender, limit = 50, maxBatches = MAX_BATCHES } = {}) {
   const at = now()
+  let sent = 0
+  for (let b = 0; b < maxBatches; b++) {
+    if (b > 0 && !canStartCall(SEND_CALL_MS)) break
+    const r = await sendBatch(sender, limit, at)
+    sent += r.sent
+    if (r.claimed < limit || r.outOfTime) break
+  }
+  return sent
+}
+
+/** Claims and sends up to `limit` messages due at `at`. */
+async function sendBatch(sender, limit, at) {
   // Claim due rows first: SKIP LOCKED plus pushing next_attempt_at out a few
   // minutes means a second sender (another instance, an overlapping run) never
   // picks up the same message. Each outcome below sets the real next state.
@@ -159,7 +180,7 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
       RETURNING id`,
     [at, limit, new Date(at.getTime() + CLAIM_MS)],
   )
-  if (!claimed.rows.length) return 0
+  if (!claimed.rows.length) return { sent: 0, claimed: 0, outOfTime: false }
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.gift_recipient_name, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
@@ -181,12 +202,12 @@ export async function sendDueNotifications({ sender = whatsappSender, limit = 50
     if (!canStartCall(SEND_CALL_MS)) {
       // Out of time: hand the rest back so the next run sends them straight away.
       await query('UPDATE notifications SET next_attempt_at = $2 WHERE id = ANY($1)', [rows.slice(i).map((r) => r.id), at])
-      break
+      return { sent, claimed: claimed.rows.length, outOfTime: true }
     }
     const results = await Promise.all(rows.slice(i, i + SEND_CONCURRENCY).map((n) => sendOne(n, sender, at)))
     sent += results.filter(Boolean).length
   }
-  return sent
+  return { sent, claimed: claimed.rows.length, outOfTime: false }
 }
 
 /**

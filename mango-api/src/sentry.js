@@ -19,8 +19,15 @@ export function reportError(err, context = {}) {
   Sentry.captureException(err, { extra: context })
 }
 
+let problemHook = null
+/** Tests see every reportProblem call (Sentry itself is off in tests). */
+export function onProblemForTests(fn) {
+  problemHook = fn
+}
+
 /** Reports a condition that needs a person (stuck payments, failing messages). */
 export function reportProblem(message, context = {}) {
+  problemHook?.(message, context)
   if (!on) return
   Sentry.captureMessage(message, { level: 'warning', extra: context })
 }

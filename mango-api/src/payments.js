@@ -213,7 +213,7 @@ export async function handleWebhook(event, eventId) {
   const entity = event.payload?.payment?.entity ?? {}
   const link = kind === 'payment_link.paid' ? (event.payload?.payment_link?.entity ?? {}) : null
   const dedupeKey = eventId || `${kind}:${entity.id ?? link?.id}`
-  return tx(async (c) => {
+  return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
@@ -288,7 +288,7 @@ async function handleRefundEvent(event, eventId) {
   if (!r.id) return { ignored: true }
   const dedupeKey = eventId || `${event.event}:${r.id}`
   const failed = event.event === 'refund.failed'
-  return tx(async (c) => {
+  return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
     const hit = await applyRefundOutcome(c, r.id, failed)

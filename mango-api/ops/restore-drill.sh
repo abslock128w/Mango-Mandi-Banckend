@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Restore drill for Neon: proves the database can be brought back to a point in
 # time and that what comes back is usable. Run it before launch and once a
-# month in season. Targets: RPO under 1 minute (Neon keeps every change for the
-# history window, 7 days on Launch), RTO 1 hour (restore, check, repoint).
+# month in season. Targets: RPO under 1 minute inside Neon's history window,
+# RTO 1 hour (restore, check, repoint). The window is 1 day by default on paid
+# plans (6 hours on Free) until it is raised: deploy/VERCEL.md step 1.5 sets it
+# to 7 days (the Launch plan's maximum). A point older than the window can't be
+# branched from; use the nightly off-Neon dump (backup.yml) instead.
 #
 # 1. Make a branch of main as it was a few minutes ago (console: Branches →
 #    Create branch → "Point in time"), or with the Neon CLI:

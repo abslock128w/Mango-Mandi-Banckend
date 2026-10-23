@@ -22,6 +22,7 @@ import { loadProducts } from './products.js'
 import { checkDatabaseEnvironment } from './migrate.js'
 import { maintenanceReady } from './readiness.js'
 import { flushErrors, reportError } from './sentry.js'
+import { background } from './background.js'
 
 const RELOAD_MS = 60_000
 
@@ -236,7 +237,7 @@ export function createApp() {
         lastOutageReport = Date.now()
         logger.error({ err, reqId: req.id, path: req.path }, 'database unavailable')
         reportError(err, { requestId: req.id, method: req.method, path: req.path, outage: true })
-        if (onVercel) res.on('finish', () => void flushErrors())
+        if (onVercel) background(flushErrors()) // kept alive past the response (OPS-28)
       }
       return res
         .status(503)
@@ -245,7 +246,8 @@ export function createApp() {
     }
     logger.error({ err, reqId: req.id }, 'unhandled error')
     reportError(err, { requestId: req.id, method: req.method, path: req.path })
-    if (onVercel) res.on('finish', () => void flushErrors())
+    // waitUntil keeps a Vercel instance alive until the event is sent (OPS-28).
+    if (onVercel) background(flushErrors())
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
   })
 

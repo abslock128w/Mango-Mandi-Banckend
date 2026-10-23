@@ -625,7 +625,7 @@ const moderated = (req, why) => ({ moderated_by: req.admin.email, moderated_at: 
 
 /** Approves a pending review, and the photos named in photoIds (others stay private). */
 async function approve(c, req, id, { reason: why = null, photoIds: approvedPhotos = [] } = {}) {
-  return transition(c, id, 'APPROVE', {
+  return await transition(c, id, 'APPROVE', {
     actor: `staff:${req.admin.email}`,
     reason: why,
     set: moderated(req, why),

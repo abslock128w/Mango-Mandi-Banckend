@@ -100,3 +100,26 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
 
   return { errors, warnings }
 }
+
+/** A Postgres duration setting that means "no limit": 0 in any unit, or nothing. */
+const noLimit = (v) => !v || /^0+(\.0+)?\s*(us|ms|s|min|h|d)?$/i.test(String(v).trim())
+
+/**
+ * OPS-29: through Neon's pooler (transaction mode) the app can't set
+ * statement_timeout per connection (db.js), so the limits must be set on the
+ * database role (deploy/VERCEL.md, step 1). Without them a stuck query, or a
+ * function stopped mid-transaction, holds its row locks (stock) indefinitely.
+ * `query` runs over DATABASE_URL, logged in as the app's role.
+ */
+export async function checkRoleTimeouts(query, { pooled }) {
+  const errors = []
+  const warnings = []
+  const ok = []
+  for (const [name, suggested] of [['statement_timeout', '10s'], ['idle_in_transaction_session_timeout', '30s']]) {
+    const value = (await query(`SHOW ${name}`)).rows[0]?.[name]
+    if (!noLimit(value)) ok.push(`${name} is ${value}`)
+    else if (pooled) errors.push(`${name} is not set for the app's database role, and through the pooler nothing else sets it: ALTER ROLE <app role> SET ${name} = '${suggested}' (deploy/VERCEL.md, step 1)`)
+    else warnings.push(`${name} is not set for the app's database role (0 = no limit)`)
+  }
+  return { errors, warnings, ok }
+}

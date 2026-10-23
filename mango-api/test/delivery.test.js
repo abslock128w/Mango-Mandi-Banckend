@@ -5,7 +5,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
 import { cleanupExpired } from '../src/maintenance.js'
 import { usePhotoStore } from '../src/photos.js'
-import { query } from '../src/db.js'
+import { query, tx } from '../src/db.js'
 import { sendDueNotifications } from '../src/notify.js'
 
 let srv
@@ -177,13 +177,15 @@ describe('proof of delivery', () => {
 
 describe('photos in Blob storage', () => {
   const blobs = new Map()
+  let onPut = null // runs while an upload is in flight
   const fake = {
-    put: async (path, bytes) => (blobs.set(path, Buffer.from(bytes)), path),
+    put: async (path, bytes) => (await onPut?.(), blobs.set(path, Buffer.from(bytes)), path),
     get: async (path) => blobs.get(path) ?? null,
     del: async (path) => void blobs.delete(path),
   }
   beforeEach(() => {
     blobs.clear()
+    onPut = null
     usePhotoStore(fake)
   })
   after(() => usePhotoStore(null))
@@ -230,5 +232,27 @@ describe('photos in Blob storage', () => {
     await cleanupExpired(new Date(now().getTime() + 2 * 86_400_000))
     assert.equal(blobs.size, before - 3)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM claim_photos')).rows[0].n, 2)
+  })
+
+  test('a delivery photo uploads outside the order lock, and an upload whose save fails is deleted (OPS-26)', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const cust = await customerToken(api)
+    const { id } = await packedOrder(cust)
+    await api.post(`/admin/v1/orders/${id}/dispatch`, undefined, { token: rider })
+    // While the photo uploads, nothing holds the order: another transaction locks it at once.
+    onPut = () => tx((c) => c.query('SELECT 1 FROM orders WHERE id = $1 FOR UPDATE NOWAIT', [id]))
+    const up = await upload(id, JPEG)
+    assert.equal(up.status, 201, JSON.stringify(up.body))
+    assert.equal(blobs.size, 1)
+    // The order moves on while a second photo is uploading: the save is refused and the file deleted again.
+    onPut = () => query(`UPDATE orders SET status = 'DELIVERY_FAILED' WHERE id = $1`, [id])
+    const late = await upload(id, JPEG)
+    assert.equal(late.status, 400, JSON.stringify(late.body))
+    assert.equal(late.body.error.code, 'INVALID_TRANSITION')
+    assert.equal(blobs.size, 1)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM delivery_photos WHERE order_id = $1', [id])).rows[0].n, 1)
+    // An order not out for delivery is refused before anything is uploaded.
+    onPut = () => assert.fail('nothing should be uploaded')
+    assert.equal((await upload(id, JPEG)).status, 400)
   })
 })

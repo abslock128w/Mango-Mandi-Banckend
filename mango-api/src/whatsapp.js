@@ -152,7 +152,8 @@ export function metaMessenger(opts, fetchImpl = fetch) {
 export const chatMessenger =
   env.WHATSAPP_PROVIDER === 'meta'
     ? metaMessenger({ token: env.WHATSAPP_TOKEN, phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID, apiVersion: env.WHATSAPP_API_VERSION })
-    : async (phone, reply) => {
+    : // eslint-disable-next-line require-await -- a messenger: async like the Meta one
+      async (phone, reply) => {
         logger.info({ phone, reply }, 'WhatsApp chat reply')
         return 'log'
       }

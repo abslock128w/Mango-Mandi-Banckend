@@ -167,7 +167,7 @@ export async function photoVariant(row, key, width) {
     return out
   })().finally(() => resizing.delete(id))
   resizing.set(id, job)
-  return job
+  return await job
 }
 
 /** Sends a public photo, resized to `width` when one was asked for. */
@@ -219,7 +219,7 @@ export const blobUploadsOn = () => Boolean(env.BLOB_READ_WRITE_TOKEN && store ==
  * API (Vercel functions refuse bodies over 4.5 MB).
  */
 export async function reviewUploadToken(pathname) {
-  return generateClientTokenFromReadWriteToken({
+  return await generateClientTokenFromReadWriteToken({
     token: env.BLOB_READ_WRITE_TOKEN,
     pathname,
     allowedContentTypes: ['image/jpeg', 'image/png', 'image/webp'],
@@ -232,7 +232,7 @@ export async function reviewUploadToken(pathname) {
 /** The bytes of a direct upload, or null if nothing is there. */
 export async function readUpload(path) {
   if (!store) return null
-  return store.get(path)
+  return await store.get(path)
 }
 
 export async function deleteUpload(path) {
@@ -242,5 +242,5 @@ export async function deleteUpload(path) {
 /** Direct uploads older than `before` that were never finished (the phone gave up). */
 export async function staleUploads(before, limit) {
   if (!store?.listOld) return []
-  return store.listOld(UPLOAD_PREFIX, before, limit)
+  return await store.listOld(UPLOAD_PREFIX, before, limit)
 }
