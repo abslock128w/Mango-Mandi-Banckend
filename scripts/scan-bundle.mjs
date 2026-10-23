@@ -109,10 +109,14 @@ export function scanDirs(dirs, { forbidLocalhost = false, secrets = secretValues
 }
 
 export function main(argv = process.argv.slice(2)) {
-  const forbidLocalhost = argv.includes('--forbid-localhost')
+  // --forbid-localhost-in-production: only Vercel production builds must name a
+  // real API; preview builds may still point at localhost.
+  const forbidLocalhost =
+    argv.includes('--forbid-localhost') ||
+    (argv.includes('--forbid-localhost-in-production') && process.env.VERCEL_ENV === 'production')
   const dirs = argv.filter((a) => !a.startsWith('--'))
   if (!dirs.length) {
-    console.error('usage: node scripts/scan-bundle.mjs <dist dir>... [--forbid-localhost]')
+    console.error('usage: node scripts/scan-bundle.mjs <dist dir>... [--forbid-localhost | --forbid-localhost-in-production]')
     return 2
   }
   for (const d of dirs) {

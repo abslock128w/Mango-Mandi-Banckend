@@ -86,3 +86,21 @@ test('a missing folder is a usage error, not a pass', () => {
   assert.equal(scanner.main([path.join(tmpdir(), 'no-such-dist-folder')]), 2)
   assert.equal(scanner.main([]), 2)
 })
+
+test('--forbid-localhost-in-production fails only Vercel production builds', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'scan-env-'))
+  const saved = process.env.VERCEL_ENV
+  try {
+    writeFileSync(path.join(root, 'index.js'), 'const api="http://localhost:3000"')
+    delete process.env.VERCEL_ENV
+    assert.equal(scanner.main([root, '--forbid-localhost-in-production']), 0)
+    process.env.VERCEL_ENV = 'preview'
+    assert.equal(scanner.main([root, '--forbid-localhost-in-production']), 0)
+    process.env.VERCEL_ENV = 'production'
+    assert.equal(scanner.main([root, '--forbid-localhost-in-production']), 1)
+  } finally {
+    if (saved === undefined) delete process.env.VERCEL_ENV
+    else process.env.VERCEL_ENV = saved
+    rmSync(root, { recursive: true, force: true })
+  }
+})

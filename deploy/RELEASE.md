@@ -16,7 +16,7 @@ Time: about 20 minutes when nothing goes wrong, most of it waiting for builds.
 | Migrations | the **Vercel build** of `mandi-api`: `npm run vercel-build` = `node src/migrate.js && node src/seed.js`, over `DATABASE_URL_UNPOOLED` | `mango-api/package.json`, `mango-api/vercel.json` |
 | Refusing the wrong database | the first migration stamps the database `production` or `preview` (`app_meta`); a build or an API that finds the other stamp refuses it; `PRODUCTION_DB_HOST` refuses it even before the stamp | `mango-api/src/migrate.js` `checkDatabaseEnvironment`, `src/preflight.js` |
 | Refusing unsafe settings | every production start runs the preflight checks and exits on an error (weak `JWT_SECRET`, no Sentry, `ENABLE_DEV_ROUTES`, localhost origins, no `CRON_SECRET`, ...) | `mango-api/src/env.js` (end), `src/preflight.js` |
-| Refusing an unsafe bundle | the shop and panel Vercel builds end with `node scripts/scan-bundle.mjs <dist> --forbid-localhost`: a secret, a dev route, a demo account, a mock or a missing `VITE_API_URL` fails the build | `vercel.json`, `customer-app/vercel.json`, `scripts/scan-bundle.mjs` |
+| Refusing an unsafe bundle | the shop and panel Vercel builds end with `node scripts/scan-bundle.mjs <dist> --forbid-localhost-in-production`: a secret, a dev route, a demo account or a mock fails any build, and a missing `VITE_API_URL` fails a production build | `vercel.json`, `customer-app/vercel.json`, `scripts/scan-bundle.mjs` |
 | The new version goes live | Vercel, when the build succeeds. A failed build (a failed migration included) changes nothing: the old version keeps serving | Vercel |
 
 **Migrations run before the new code serves, and they only add.** For a minute
