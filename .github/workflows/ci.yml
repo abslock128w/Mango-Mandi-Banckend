@@ -15,6 +15,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # SEC-12: no high or critical advisory in what the shop and panel ship.
+      - name: Dependency audit (shipped packages)
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm run lint
       - name: Unit tests (the API clients)
@@ -61,6 +64,8 @@ jobs:
           cache: npm
           cache-dependency-path: mango-api/package-lock.json
       - run: npm ci
+      - name: Dependency audit (API packages)
+        run: npm audit --omit=dev --audit-level=high
       - name: API tests (engine, flows, concurrency)
         run: npm test
         env:
