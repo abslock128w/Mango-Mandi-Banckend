@@ -17,7 +17,7 @@ import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { cancelOrder, createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
-import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund } from './payments.js'
+import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundReceipt } from './payments.js'
 import { findProduct, sellable } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
@@ -137,10 +137,19 @@ export async function ensurePaymentLink(id) {
   return up.rows[0] ?? (await query('SELECT * FROM preorders WHERE id = $1', [id])).rows[0]
 }
 
-export async function findPreorderId(c, entity, link) {
-  const { rows } = await c.query('SELECT id FROM preorders WHERE payment_link_id = $1 OR id = $2 OR id = $3 LIMIT 1', [
-    link?.id ?? null, link?.notes?.preorderId ?? null, entity?.notes?.preorderId ?? null,
-  ])
+/**
+ * Finds the booking a Razorpay payment link was paid for. PAY-B11: only what
+ * Razorpay itself sends for the link counts (the link's id, or the notes we
+ * set on the link when we made it); a payment's own notes can be set by
+ * whoever opens Checkout, so they are never trusted, as for orders.
+ */
+export async function findPreorderId(c, _entity, link) {
+  if (!link?.id && !link?.notes?.preorderId) return null
+  const noted = typeof link?.notes?.preorderId === 'string' ? link.notes.preorderId : null
+  const { rows } = await c.query(
+    'SELECT id FROM preorders WHERE payment_link_id = $1 OR (id = $2 AND payment_link_id IS NOT NULL) ORDER BY (payment_link_id = $1) DESC NULLS LAST LIMIT 1',
+    [link?.id ?? null, noted],
+  )
   return rows[0]?.id ?? null
 }
 
@@ -233,7 +242,9 @@ export async function staffCancelPreorder(c, id, actor, reason) {
 export async function refundPreorder(id) {
   const p = await claimRefund('preorders', id)
   if (!p) return null
-  const refundId = await gatewayRefund({ paymentId: p.payment_id, amount: p.paid_amount ?? p.total, receipt: p.number, notes: { preorderId: p.id } })
+  const refundId = await gatewayRefund({
+    paymentId: p.payment_id, amount: p.paid_amount ?? p.total, receipt: refundReceipt(p.number, p.refund_attempts), notes: { preorderId: p.id },
+  })
   if (!refundId) return null
   return tx(async (c) => {
     const r = await c.query(

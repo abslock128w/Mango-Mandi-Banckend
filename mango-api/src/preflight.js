@@ -32,6 +32,13 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   else if (preview && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) errors.push('RAZORPAY_KEY_ID is a live key on a preview: previews must use test keys, or they could take real money')
   else if (!preview && env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) warnings.push('RAZORPAY_KEY_ID is a test key: payments are not real money')
   if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET is the dev default: set the secret from the Razorpay webhook settings')
+  if (env.RAZORPAY_WEBHOOK_SECRET_PREVIOUS === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET_PREVIOUS is the dev default: unset it')
+  else if (env.RAZORPAY_WEBHOOK_SECRET_PREVIOUS) warnings.push('RAZORPAY_WEBHOOK_SECRET_PREVIOUS is set: webhooks signed with the old secret are still accepted; unset it a day after the rotation')
+  // PAY-B7: Payments on WhatsApp has no reconcile loop yet, so a lost status
+  // event leaves a paid chat order unconfirmed until staff spot it.
+  if (env.WHATSAPP_PAYMENT_CONFIG) {
+    warnings.push('WHATSAPP_PAYMENT_CONFIG is set: chat orders are paid inside WhatsApp, which has no payment reconcile yet (a lost status event is only seen in Needs attention). Leave it unset to send Razorpay payment links instead')
+  }
 
   if (env.SMS_PROVIDER !== 'jio') {
     // A preview may log codes instead (read them in the Vercel logs); production can't,

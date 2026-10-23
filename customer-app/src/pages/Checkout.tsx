@@ -209,7 +209,8 @@ function CheckoutForm() {
             await pause(2000)
             continue
           }
-          if (err instanceof ApiError && err.code === 'PAYMENT_GATEWAY_ERROR') quoteSpent.current = true
+          // The next Pay quotes again: after a gateway error, or (PAY-B10) a box taken off sale since the review.
+          if (err instanceof ApiError && (err.code === 'PAYMENT_GATEWAY_ERROR' || err.code === 'PRODUCT_UNAVAILABLE')) quoteSpent.current = true
           throw err
         }
       }
@@ -218,7 +219,7 @@ function CheckoutForm() {
       let sheetError: string | null = null
       if (c.razorpayKeyId && c.razorpayOrderId) {
         try {
-          await openRazorpay({ key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number, holdExpiresAt: c.holdExpiresAt }, signedInPhone())
+          await openRazorpay({ orderId: c.orderId, key: c.razorpayKeyId, rzp: c.razorpayOrderId, total: c.total, number: c.number, holdExpiresAt: c.holdExpiresAt }, signedInPhone())
         } catch (err) {
           sheetError = errorMessage(err)
         }
@@ -229,8 +230,10 @@ function CheckoutForm() {
     onError: dropUnsold,
   })
 
+  // PAY-B10: a box taken off sale between the review and Pay is named here, even when it was the only one.
+  const unsold = pay.error instanceof ApiError && pay.error.code === 'PRODUCT_UNAVAILABLE' ? pay.error : null
   if (!pincode) return <Navigate to="/" replace />
-  if (!cart.length && !pay.isPending && !pay.isSuccess) return <Navigate to="/cart" replace />
+  if (!cart.length && !pay.isPending && !pay.isSuccess && !unsold) return <Navigate to="/cart" replace />
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -350,15 +353,29 @@ function CheckoutForm() {
           Your boxes are held for {quote.holdMinutes ? `${quote.holdMinutes} minutes` : 'a few minutes'} while you pay. You can cancel for a full
           refund any time before your order is packed.
         </p>
-        <ErrorNote error={pay.error ? quoteProblem(pay.error) : null} />
+        <ErrorNote
+          error={
+            unsold
+              ? `${unsold.message}, so we took it out of your cart. Nothing was charged.${cart.length ? ' Tap Pay to see the new total.' : ''}`
+              : pay.error
+                ? quoteProblem(pay.error)
+                : null
+          }
+        />
         {pay.error instanceof ApiError && pay.error.code === 'UNPAID_ORDER_EXISTS' && typeof pay.error.detail.orderId === 'string' && (
           <Link to={`/orders/${pay.error.detail.orderId}`} className="btn btn-block">
             Open your unpaid order
           </Link>
         )}
-        <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()} aria-describedby="pay-trust">
-          {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
-        </button>
+        {unsold && !cart.length ? (
+          <Link to="/" className="btn btn-primary btn-block">
+            Choose other mangoes
+          </Link>
+        ) : (
+          <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()} aria-describedby="pay-trust">
+            {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
+          </button>
+        )}
         {/* UX-3: who takes the money and how, at the moment of paying. */}
         <p className="small center pay-trust" id="pay-trust">
           Secure payment by Razorpay. UPI, cards, netbanking. No cash on delivery.{' '}

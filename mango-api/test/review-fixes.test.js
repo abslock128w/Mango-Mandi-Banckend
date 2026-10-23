@@ -7,6 +7,7 @@ import sharp from 'sharp'
 import { adminToken, checkout, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
+import { drainBackground } from '../src/background.js'
 import { withBudget } from '../src/budget.js'
 import { setNow } from '../src/clock.js'
 import { pool, query, tx } from '../src/db.js'
@@ -203,6 +204,7 @@ describe('payments', () => {
     const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     assert.equal((await hook(captured('pay_a', c.body))).body.result, 'confirmed')
     assert.equal((await hook(captured('pay_b', c.body))).body.result, 'duplicate_payment')
+    await drainBackground() // the refund goes out after the webhook has been answered (PAY-B1)
     const dup = (await query('SELECT * FROM duplicate_payments')).rows
     assert.equal(dup.length, 1)
     assert.equal(dup[0].payment_id, 'pay_b')

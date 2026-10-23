@@ -186,6 +186,60 @@ test('FE-2: after a gateway error, Pay again is a fresh attempt, not the cancell
   expected(consoleErrors, /status of 502/)
 })
 
+test('PAY-B3: a finished payment is handed to the API, which confirms the order at once', async ({ page, request }, info) => {
+  const phone = newPhone('8', info.project.name)
+  // Razorpay stand-in that "pays" and calls the success handler, signed as the dev API expects
+  // (HMAC-SHA256 of order_id|payment_id with the dev stand-in for the key secret).
+  await page.route('https://checkout.razorpay.com/v1/checkout.js', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.Razorpay = function (o) {
+        return { on() {}, async open() {
+          const enc = new TextEncoder()
+          const key = await crypto.subtle.importKey('raw', enc.encode('rzp_dev_checkout_secret'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+          const sig = await crypto.subtle.sign('HMAC', key, enc.encode(o.order_id + '|pay_e2e'))
+          const hex = [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('')
+          o.handler({ razorpay_payment_id: 'pay_e2e', razorpay_order_id: o.order_id, razorpay_signature: hex })
+        } }
+      }`,
+    }),
+  )
+  // The dev API has no keys: stand in for the key id, and mark the order paid at the dev gateway.
+  await page.route(`${API}/v1/checkout/confirm`, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const res = await route.fetch()
+    const body = await res.json()
+    if (body.orderId) await request.post(`${API}/v1/dev/mark-paid-at-gateway`, { data: { orderId: body.orderId, outcome: 'captured' } })
+    await route.fulfill({ response: res, json: { ...body, razorpayKeyId: 'rzp_test_e2e' } })
+  })
+  await toReview(page, request, phone)
+  const verified = page.waitForResponse((r) => /\/verify-payment$/.test(r.url()) && r.request().method() === 'POST')
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  const res = await verified
+  expect(res.status()).toBe(200)
+  expect(await res.json()).toEqual({ status: 'SUCCEEDED', orderStatus: 'CONFIRMED' })
+  expect(res.request().postDataJSON()).toMatchObject({ razorpay_payment_id: 'pay_e2e', razorpay_order_id: expect.stringMatching(/^order_dev_/) })
+  await expect(page.getByText('Thank you, your order is placed.')).toBeVisible()
+})
+
+test('PAY-B10: a box taken off sale between review and Pay is named, and nothing is charged', async ({ page, request, consoleErrors }, info) => {
+  const phone = newPhone('7', info.project.name)
+  const { item } = await inStock(request)
+  await page.route(`${API}/v1/checkout/confirm`, (route) =>
+    route.request().method() !== 'POST'
+      ? route.continue()
+      : route.fulfill({ status: 409, json: { error: { code: 'PRODUCT_UNAVAILABLE', message: `${item.name} is no longer sold`, sku: item.sku, stage: item.stage } } }),
+  )
+  await toReview(page, request, phone)
+  await page.getByRole('button', { name: /^Pay ₹/ }).click()
+  await expect(page.getByRole('alert')).toContainText(`${item.name} is no longer sold, so we took it out of your cart. Nothing was charged.`)
+  // It was the only box: the way on is back to the shop, not a Pay button for an empty cart.
+  await expect(page.getByRole('button', { name: /^Pay ₹/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Choose other mangoes' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mm.cart') ?? '[]')).toBe('[]')
+  expected(consoleErrors, /status of 409/)
+})
+
 test('FE-4: a payment sheet that fails to load lands on the order page, not an empty cart', async ({ page, request, consoleErrors }, info) => {
   const phone = newPhone('8', info.project.name)
   await page.route('https://checkout.razorpay.com/v1/checkout.js', (route) => route.abort())

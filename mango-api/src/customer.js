@@ -17,9 +17,9 @@ import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { enqueue } from './notify.js'
-import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
+import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
+import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment } from './preorders.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
@@ -780,7 +780,13 @@ router.post(
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
     const replay = await existing()
-    if (replay && stillStarting(replay, 'razorpay_order_id')) throw startingPayment()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) {
+      // PAY-B4: the first try committed the order but never stored its
+      // Razorpay order (the instance died in between). After a short wait the
+      // retry starts the payment itself, instead of 409 until the hold ends.
+      if (!startedLongAgo(replay)) throw startingPayment()
+      return res.status(200).json(confirmResponse(await startPayment(replay, key)))
+    }
     if (replay) return res.status(200).json(confirmResponse(replay))
 
     const order = await tx(async (c) => {
@@ -791,6 +797,12 @@ router.post(
       const q = rows[0]
       if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      // PAY-B10: a product taken off sale after the quote is not sold on it.
+      for (const l of q.data.lines) {
+        if (!sellable(l.sku)) {
+          throw new HttpError(409, 'PRODUCT_UNAVAILABLE', `${findProduct(l.sku)?.name ?? l.sku} is no longer sold`, { sku: l.sku, stage: l.stage })
+        }
+      }
       await checkUnpaidLimit(c, req.customer.id, q.data.lines.reduce((t, l) => t + l.qty, 0))
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
@@ -822,24 +834,36 @@ router.post(
       if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
       return res.status(200).json(confirmResponse(first))
     }
-
-    try {
-      const rzp = await createGatewayOrder({ amount: order.total, receipt: order.number, orderId: order.id })
-      await query('UPDATE orders SET razorpay_order_id = $2 WHERE id = $1', [order.id, rzp])
-      order.razorpay_order_id = rzp
-    } catch (err) {
-      logger.error({ err, orderId: order.id }, 'could not create the gateway order')
-      await tx(async (c) => {
-        await processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM)
-        // Let the key go, so a retry is a fresh attempt rather than a replay of
-        // the cancelled order (the quote is spent: the shop quotes again).
-        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
-      })
-      throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
-    }
-    res.status(201).json(confirmResponse(order))
+    res.status(201).json(confirmResponse(await startPayment(order, key)))
   }),
 )
+
+/** How long a retry waits for the first try to store its Razorpay order before starting the payment itself (PAY-B4). */
+const PAYMENT_START_GRACE_MS = 15_000
+const startedLongAgo = (o) => o.hold_expires_at > now() && now() - o.placed_at >= PAYMENT_START_GRACE_MS
+
+/**
+ * Creates the Razorpay order for a placed order and stores it, unless another
+ * request stored one first (then that one is used and ours is an unused
+ * Razorpay order, which is harmless). If the gateway fails, the order is
+ * abandoned and the key released, so a retry is a fresh attempt.
+ */
+async function startPayment(order, key) {
+  try {
+    const rzp = await createGatewayOrder({ amount: order.total, receipt: order.number, orderId: order.id })
+    const { rows } = await query('UPDATE orders SET razorpay_order_id = $2 WHERE id = $1 AND razorpay_order_id IS NULL RETURNING *', [order.id, rzp])
+    return rows[0] ?? (await query('SELECT * FROM orders WHERE id = $1', [order.id])).rows[0]
+  } catch (err) {
+    logger.error({ err, orderId: order.id }, 'could not create the gateway order')
+    await tx(async (c) => {
+      await processPayment(c, { orderId: order.id, outcome: 'abandoned' }, SYSTEM)
+      // Let the key go, so a retry is a fresh attempt rather than a replay of
+      // the cancelled order (the quote is spent: the shop quotes again).
+      await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+    })
+    throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
+  }
+}
 
 // ---------------------------------------------------------------- orders
 
@@ -923,10 +947,55 @@ router.get(
   }),
 )
 
+/** verify-payment calls per order per minute; each asks Razorpay (at least 2 seconds apart). */
+const VERIFY_PER_MINUTE = 6
+
 router.get(
   '/orders/:id/payment-status',
   asyncHandler(async (req, res) => {
-    const o = await ownOrder({ query }, req)
+    let o = await ownOrder({ query }, req)
+    // OPS-24: still waiting a minute after checkout: ask Razorpay now rather
+    // than wait for a late webhook or the next maintenance run (throttled per order).
+    if (o.status === 'PAYMENT_PENDING' && (o.razorpay_order_id || o.payment_link_id)) {
+      const r = await reconcileOrderNow(o.id, { minAgeMs: 60_000, throttleMs: 30_000 }).catch((err) => {
+        logger.warn({ err, orderId: o.id }, 'payment status check at Razorpay failed')
+        return null
+      })
+      if (r && r !== 'skipped') o = await ownOrder({ query }, req)
+    }
+    res.json({ status: o.payment_status, orderStatus: o.status })
+  }),
+)
+
+/**
+ * PAY-B3: Checkout's success handler posts what Razorpay gave it. The
+ * signature (HMAC-SHA256 of `order_id|payment_id` with the key secret) proves
+ * Razorpay issued it for this order; then the payment is fetched from
+ * Razorpay and applied with the same checks as the webhook (amount, currency),
+ * so nothing from the page itself is trusted. Rate-limited per order.
+ */
+router.post(
+  '/orders/:id/verify-payment',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        razorpay_payment_id: z.string().min(1).max(64),
+        razorpay_order_id: z.string().min(1).max(64),
+        razorpay_signature: z.string().min(1).max(128),
+      }),
+      req.body,
+    )
+    let o = await ownOrder({ query }, req)
+    if (!o.razorpay_order_id || o.razorpay_order_id !== b.razorpay_order_id) throw badRequest('This payment is not for this order', 'PAYMENT_MISMATCH')
+    if (!verifyCheckoutSignature(b.razorpay_order_id, b.razorpay_payment_id, b.razorpay_signature)) {
+      throw badRequest('The payment could not be verified', 'BAD_SIGNATURE')
+    }
+    const tries = await hit(`verify-payment:${o.id}`, 60_000)
+    if (tries.hits > VERIFY_PER_MINUTE) throw new HttpError(429, 'RATE_LIMITED', 'Too many checks. Your order page updates on its own.')
+    if (o.payment_status !== 'SUCCEEDED') {
+      const r = await reconcileOrderNow(o.id, { throttleMs: 2_000 })
+      if (r && r !== 'skipped') o = await ownOrder({ query }, req)
+    }
     res.json({ status: o.payment_status, orderStatus: o.status })
   }),
 )
@@ -935,9 +1004,7 @@ router.post(
   '/orders/:id/cancel',
   asyncHandler(async (req, res) => {
     const refundDue = await tx((c) => customerCancel(c, req.params.id, req.customer.id, req.actor))
-    if (refundDue) {
-      await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
-    }
+    if (refundDue) await sendDueRefunds({ orderId: req.params.id })
     res.status(204).end()
   }),
 )
@@ -1049,8 +1116,7 @@ router.post(
   '/preorders/:id/cancel',
   asyncHandler(async (req, res) => {
     const r = await tx((c) => cancelPreorder(c, req.params.id, req.customer.id, req.actor))
-    const send = r.refund === 'order' ? refundOrder : r.refund === 'preorder' ? refundPreorder : null
-    if (send) await send(r.id).catch((err) => logger.error({ err, id: r.id }, 'refund failed; maintenance will retry'))
+    await sendDueRefunds({ orderId: r.refund === 'order' ? r.id : null, preorderId: r.refund === 'preorder' ? r.id : null })
     res.status(204).end()
   }),
 )
@@ -1163,8 +1229,7 @@ devRouter.post(
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ orderId: z.string().min(1), outcome: z.enum(['captured', 'failed']) }), req.body)
     const r = await tx((c) => processPayment(c, { orderId: b.orderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }))
-    if (r.result === 'refund_due') await refundOrder(b.orderId)
-    if (r.result === 'duplicate_payment') await refundDuplicatePayments()
+    await sendDueRefunds(refundsFor({ ...r, orderId: b.orderId }))
     res.json({ result: r.result })
   }),
 )
@@ -1177,7 +1242,7 @@ devRouter.post(
     const r = await tx((c) =>
       processPreorderPayment(c, { preorderId: b.preorderId, outcome: b.outcome, paymentId: `pay_dev_${newId('p').slice(2)}`, method: 'dev' }),
     )
-    if (r === 'refund_due') await refundPreorder(b.preorderId)
+    await sendDueRefunds(refundsFor({ result: r, preorderId: b.preorderId }))
     res.json({ result: r })
   }),
 )
