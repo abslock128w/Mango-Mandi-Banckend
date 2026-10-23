@@ -518,7 +518,8 @@ describe('a database restore does not bring a deleted account back', () => {
     await query('INSERT INTO pre_restore.customers VALUES ($1, $2), ($3, NULL), ($4, $5)', [
       a.customer.id, new Date(now().getTime() - 60_000), b.customer.id, 'cus_gone_before', new Date(restorePoint.getTime() - 86_400_000),
     ])
-    const oldUrl = `${process.env.DATABASE_URL}?options=${encodeURIComponent('-c search_path=pre_restore')}`
+    // A direct connection: PgBouncer refuses the search_path startup option (as Neon's pooler does).
+    const oldUrl = `${process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL}?options=${encodeURIComponent('-c search_path=pre_restore')}`
     const script = new URL('../ops/reapply-deletions.js', import.meta.url).pathname
     const go = () => run(process.execPath, [script, '--old-url', oldUrl, '--since', restorePoint.toISOString()], { env: { ...process.env } })
     try {
