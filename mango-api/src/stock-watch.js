@@ -49,12 +49,15 @@ export async function overdueOrders(c, at = now(), limit = 100) {
  * Paid preorders a manager should decide on (INV-H): moved forward more than
  * maxPreorderMoves times, or now booked for a week after the season's last day.
  * The allocator keeps moving them meanwhile; nothing is cancelled on its own.
+ * One a manager kept (POST /preorders/:id/keep) stays off until it moves again.
  */
 export async function preordersNeedingDecision(c, limit = 100) {
   const cfg = getConfig()
   const { rows } = await c.query(
     `SELECT id, number, customer_name, sku, qty, week_start, moved_count FROM preorders
       WHERE status = 'BOOKED' AND (moved_count > $1 OR ($2::date IS NOT NULL AND week_start > $2::date))
+        -- A manager chose to keep it (Keep booking): back only once it moves again.
+        AND NOT (kept_moved_count IS NOT DISTINCT FROM moved_count AND kept_week_start IS NOT DISTINCT FROM week_start)
       ORDER BY booked_at, id LIMIT $3`,
     [cfg.maxPreorderMoves ?? 3, cfg.seasonEndsOn ?? null, limit],
   )

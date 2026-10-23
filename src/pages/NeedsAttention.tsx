@@ -3,8 +3,9 @@ import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
-import type { NotificationKind, PhotoDelivery } from '../types'
-import { PhoneLink, QueryError, ReasonDialog, useToast } from '../ui'
+import { useSession } from '../session'
+import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
+import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
@@ -22,6 +23,12 @@ const STEP_LABEL: Record<string, string> = {
   'review-requests': 'Queueing review requests',
   'review-stats': 'Review totals check',
   backup: 'Nightly backup',
+  'refund-checks': 'Checking refunds with Razorpay',
+  'stock-alerts': 'Sending back-in-stock alerts',
+  reminders: 'Sending reorder reminders',
+  retention: 'Removing old personal data',
+  rebalance: 'Re-checking an order',
+  health: 'Health check',
 }
 
 /** Shared with Today, which starts this query together with the summary. */
@@ -46,7 +53,35 @@ export default function NeedsAttention() {
     onError: (err) => toast.error(err),
   })
 
+  const { me } = useSession()
+  const manager = me?.role === 'MANAGER'
   const [doubting, setDoubting] = useState<PhotoDelivery | null>(null)
+  const [act, setAct] = useState<Act | null>(null)
+  const done = (text: string) => {
+    toast.success(text)
+    setAct(null)
+    queryClient.invalidateQueries({ queryKey: ['attention'] })
+  }
+  const recover = useMutation({
+    mutationFn: async ({ a, reason, reference }: { a: Exclude<Act, { kind: 'repair' }>; reason: string; reference?: string }) => {
+      if (a.kind === 'resolve') return api.resolveWebhookFailure(a.hook.id, reason)
+      if (a.kind === 'refund-payment') return api.refundUnmatchedPayment(a.hook.id, reason)
+      if (a.kind === 'keep') return api.keepPreorder(a.preorder.id, reason)
+      const r = a.refund
+      return r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason)
+    },
+    onSuccess: (_r, { a }) =>
+      done(
+        a.kind === 'resolve'
+          ? 'Webhook problem marked resolved'
+          : a.kind === 'refund-payment'
+            ? `Refund of ${a.hook.paymentId} queued`
+            : a.kind === 'keep'
+              ? `Preorder ${a.preorder.number} kept`
+              : `Refund for ${a.refund.number} recorded as paid back`,
+      ),
+    onError: (err) => toast.error(err),
+  })
   const check = useMutation({
     mutationFn: ({ d, ok, note }: { d: PhotoDelivery; ok: boolean; note?: string }) => api.reviewDelivery(d.id, ok, note),
     onSuccess: (_r, { d, ok }) => {
@@ -116,7 +151,8 @@ export default function NeedsAttention() {
               <li key="stale">
                 <strong>The background loop has stopped.</strong>{' '}
                 {a.loop.lastRunAt ? `It last ran at ${dateTime(a.loop.lastRunAt)}.` : 'It has not run yet.'} Payments, refunds, WhatsApp
-                updates and hold releases wait until it runs again. Restart the API.
+                updates and hold releases wait until it runs again. On Vercel, check the every-minute scheduler that calls
+                /internal/maintenance (runbooks, Scheduler stopped); on the Docker server, restart the API.
               </li>,
             ]
           : []),
@@ -124,8 +160,9 @@ export default function NeedsAttention() {
           ? [
               <li key="backup">
                 <strong>No backup in the last 26 hours.</strong>{' '}
-                {a.backup.lastOkAt ? `The last one finished at ${dateTime(a.backup.lastOkAt)}.` : 'No backup has been recorded yet.'} Ask
-                whoever runs the server to check the backup service (deploy/README.md, Backups).
+                {a.backup.lastOkAt ? `The last one finished at ${dateTime(a.backup.lastOkAt)}.` : 'No backup has been recorded yet.'} On
+                Vercel, check the Backup workflow in GitHub Actions; on the Docker server, the backup service (docker compose logs
+                backup).
               </li>,
             ]
           : []),
@@ -180,6 +217,14 @@ export default function NeedsAttention() {
       <li key={`${r.type}-${r.id}-${r.number}`}>
         <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
         for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+        {manager && (r.state ?? 'unsent') === 'unsent' ? (
+          <>
+            {' '}
+            <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'settle', refund: r })}>
+              Paid back another way<span className="sr-only"> for {r.number}</span>
+            </button>
+          </>
+        ) : null}
       </li>
     )) },
     { key: 'drift', title: 'Stock counts to check', items: drift.map((l) => (
@@ -190,6 +235,14 @@ export default function NeedsAttention() {
           (on hand {l.onHand[0]} vs {l.onHand[1]}, held {l.held[0]} vs {l.held[1]}, to pack {l.committed[0]} vs {l.committed[1]})
         </span>
         . Check the batch before selling more from it.
+        {manager ? (
+          <>
+            {' '}
+            <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'repair', drift: l })}>
+              Repair from the ledger<span className="sr-only"> for {l.sku}</span>
+            </button>
+          </>
+        ) : null}
       </li>
     )) },
     { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
@@ -203,7 +256,15 @@ export default function NeedsAttention() {
     { key: 'preorders', title: 'Preorders for a manager', items: preorders.map((p) => (
       <li key={`pre-${p.id}`}>
         <strong>Preorder {p.number}</strong> ({p.qty} × {p.sku}{p.customerName ? `, ${p.customerName}` : ''})
-        <span className="muted">: {p.reason}</span>. <Link to="/preorders">Keep it or cancel it with a refund</Link>.
+        <span className="muted">: {p.reason}</span>. A manager keeps it or <Link to="/preorders">cancels it with a refund</Link>.
+        {manager ? (
+          <>
+            {' '}
+            <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'keep', preorder: p })}>
+              Keep booking<span className="sr-only"> {p.number}</span>
+            </button>
+          </>
+        ) : null}
       </li>
     )) },
     { key: 'no-proof', title: 'Deliveries marked without proof', items: noProof.map(photoItem) },
@@ -240,6 +301,19 @@ export default function NeedsAttention() {
       <li key={w.id}>
         <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}
         <span className="muted">: {w.reason}</span>
+        {manager ? (
+          <span className="attention-actions">
+            {' '}
+            {w.refundable ? (
+              <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'refund-payment', hook: w })}>
+                Refund this payment<span className="sr-only"> {w.paymentId}</span>
+              </button>
+            ) : null}
+            <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'resolve', hook: w })}>
+              Mark resolved<span className="sr-only"> for the problem at {dateTime(w.createdAt)}</span>
+            </button>
+          </span>
+        ) : null}
       </li>
     )) },
   ].filter((g) => g.items.length > 0)
@@ -252,6 +326,10 @@ export default function NeedsAttention() {
       {groups.map((g) => (
         <AttentionGroupView key={g.key} group={g} />
       ))}
+      {act?.kind === 'repair' && <RepairDialog drift={act.drift} onClose={() => setAct(null)} onDone={() => done(`Stock counts for ${act.drift.sku} repaired`)} />}
+      {act && act.kind !== 'repair' && (
+        <RecoveryDialog act={act} pending={recover.isPending} error={recover.error} onClose={() => setAct(null)} onSave={(reason, reference) => recover.mutate({ a: act, reason, reference })} />
+      )}
       {doubting && <DoubtDialog d={doubting} pending={check.isPending} error={check.error} onClose={() => setDoubting(null)} onSave={(note) => check.mutate({ d: doubting, ok: false, note })} />}
     </section>
   )
@@ -304,5 +382,169 @@ function DoubtDialog({ d, pending, error, onClose, onSave }: { d: PhotoDelivery;
       onClose={onClose}
       onSubmit={onSave}
     />
+  )
+}
+
+type Hook = Attention['webhookFailures'][number]
+type StuckRefund = Attention['stuckRefunds'][number]
+type PreorderDecision = NonNullable<Attention['preorderDecisions']>[number]
+/** A manager's way out of one item (each is recorded in the staff activity with its reason). */
+type Act =
+  | { kind: 'repair'; drift: LedgerDrift }
+  | { kind: 'resolve'; hook: Hook }
+  | { kind: 'refund-payment'; hook: Hook }
+  | { kind: 'keep'; preorder: PreorderDecision }
+  | { kind: 'settle'; refund: StuckRefund }
+
+function RecoveryDialog({
+  act,
+  pending,
+  error,
+  onClose,
+  onSave,
+}: {
+  act: Exclude<Act, { kind: 'repair' }>
+  pending: boolean
+  error: unknown
+  onClose: () => void
+  onSave: (reason: string, reference?: string) => void
+}) {
+  const refId = useId()
+  const [reference, setReference] = useState('')
+  const common = { busy: pending, error, onClose, maxLength: 500 }
+  if (act.kind === 'resolve') {
+    return (
+      <ReasonDialog
+        {...common}
+        tone="primary"
+        title="Mark this webhook problem resolved"
+        label="What you checked or fixed"
+        confirmLabel="Mark resolved"
+        hint="It leaves Needs attention; the note is kept with it."
+        onSubmit={(r) => onSave(r)}
+      >
+        <p className="muted">{act.hook.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  if (act.kind === 'refund-payment') {
+    return (
+      <ReasonDialog
+        {...common}
+        title={`Refund payment ${act.hook.paymentId}?`}
+        label="Why it bought nothing"
+        confirmLabel="Refund in full"
+        hint="Check in the Razorpay dashboard first that this payment bought nothing here. The full amount goes back, like a second payment."
+        onSubmit={(r) => onSave(r)}
+      >
+        <p className="muted">{act.hook.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  if (act.kind === 'keep') {
+    return (
+      <ReasonDialog
+        {...common}
+        tone="primary"
+        title={`Keep preorder ${act.preorder.number}?`}
+        label="Why keep it"
+        confirmLabel="Keep booking"
+        hint="The booking stays as it is and leaves Needs attention. It comes back if it is moved again."
+        onSubmit={(r) => onSave(r)}
+      >
+        <p className="muted">{act.preorder.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  return (
+    <ReasonDialog
+      {...common}
+      title={`Paid back another way: ${act.refund.number}`}
+      label="Why Razorpay can't refund it"
+      confirmLabel="Record as paid back"
+      hint="Only once you have paid the customer back yourself. Retries stop; it still counts as a refund in reports."
+      onSubmit={(r) => onSave(r, reference.trim())}
+    >
+      <div className="field">
+        <label htmlFor={refId}>Reference of your payment</label>
+        <input id={refId} value={reference} maxLength={100} onChange={(e) => setReference(e.target.value)} aria-describedby={`${refId}-hint`} />
+        <p id={`${refId}-hint`} className="hint">
+          The bank transfer's UTR or the UPI reference. At least 3 characters.
+        </p>
+      </div>
+    </ReasonDialog>
+  )
+}
+
+const COUNTER_LABEL: [keyof LineCounters, string][] = [
+  ['onHand', 'On hand'],
+  ['reserveBuffer', 'Reserve buffer'],
+  ['held', 'Held'],
+  ['committed', 'To pack'],
+]
+
+/** Shows what a repair would change (fetched fresh), then applies exactly that, with a reason. */
+function RepairDialog({ drift, onClose, onDone }: { drift: LedgerDrift; onClose: () => void; onDone: () => void }) {
+  const plan = useQuery({ queryKey: ['ledger-repair', drift.batchId, drift.lineId], queryFn: () => api.ledgerRepairPlan(drift.batchId, drift.lineId), gcTime: 0 })
+  const p = plan.data
+  const apply = useMutation({
+    mutationFn: ({ reason, expected }: { reason: string; expected: LineCounters }) => api.repairLedger(drift.batchId, drift.lineId, reason, expected),
+    onSuccess: () => onDone(),
+    // The stock moved since the preview (or the repair was refused): show the new numbers.
+    onError: () => plan.refetch(),
+  })
+  const title = `Repair stock counts for ${drift.sku}`
+  if (!p || !p.drifting || !p.canRepair || !p.before || !p.after) {
+    return (
+      <Dialog
+        title={title}
+        onClose={onClose}
+        footer={
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+        }
+      >
+        {plan.isPending ? <Spinner label="Working out the repair" /> : null}
+        {plan.isError ? <FormError error={plan.error} /> : null}
+        {p && !p.drifting ? <p>The counts already agree with the ledger. Nothing to repair.</p> : null}
+        {p?.problem ? <p role="alert">{p.problem}</p> : null}
+      </Dialog>
+    )
+  }
+  const { before, after } = p
+  return (
+    <ReasonDialog
+      title={title}
+      tone="primary"
+      label="Why the counts drifted"
+      confirmLabel="Repair counts"
+      busy={apply.isPending}
+      error={apply.error}
+      maxLength={500}
+      hint="The counts are set to what the ledger and the orders say. The ledger is not changed; the repair is added to it as a note."
+      onClose={onClose}
+      onSubmit={(reason) => apply.mutate({ reason, expected: after })}
+    >
+      <table className="table">
+        <caption className="sr-only">Counts now and after the repair</caption>
+        <thead>
+          <tr>
+            <th scope="col">Count</th>
+            <th scope="col">Now</th>
+            <th scope="col">After repair</th>
+          </tr>
+        </thead>
+        <tbody>
+          {COUNTER_LABEL.map(([k, label]) => (
+            <tr key={k}>
+              <th scope="row">{label}</th>
+              <td>{before[k]}</td>
+              <td>{after[k] !== before[k] ? <strong>{after[k]}</strong> : after[k]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </ReasonDialog>
   )
 }

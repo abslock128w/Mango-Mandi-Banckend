@@ -118,7 +118,7 @@ export async function orderDetail(c, orderId) {
     deliveryAttempts,
     payment: o.payment_status || o.payment_method
       ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id, ...(o.payment_link_url ? { linkUrl: o.payment_link_url } : {}),
-          refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id } : null }
+          refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id, status: o.refund_status ?? null } : null }
       : null,
   }
 }

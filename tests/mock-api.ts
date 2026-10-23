@@ -354,6 +354,10 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return route.fulfill({ status: 204 })
     }
     if (state.twoStep.required && !state.twoStep.enabled) return json(route, 403, { error: { code: 'TWO_STEP_SETUP_REQUIRED', message: 'Set up two-step sign-in first', requestId: 'req_s' } })
+    if (path === '/staff/sign-out-all') {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      return json(route, 200, { signedOut: state.staff.length - 1, keptMe: (body as { keepMe?: boolean })?.keepMe !== false })
+    }
     if (/^\/staff\/[^/]+\/two-step\/reset$/.test(path)) {
       const staffId = path.split('/')[2]
       state.staff = state.staff.map((s) => (s.id === staffId ? { ...s, twoStep: false } : s))
@@ -385,6 +389,43 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/summary') return json(route, 200, state.summary)
     if (path === '/attention') return json(route, 200, state.attention)
+    // Manager ways out of Needs attention items (src/admin/recovery.js). Each takes the item off the list.
+    const managerOnly = () => json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+    const repair = /^\/batches\/([^/]+)\/lines\/([^/]+)\/repair$/.exec(path)
+    if (repair) {
+      if (state.role !== 'MANAGER') return managerOnly()
+      const d = (state.attention.ledgerDrift ?? []).find((x) => x.lineId === repair[2])
+      const plan = d
+        ? {
+            lineId: d.lineId, batchId: d.batchId, sku: d.sku, drifting: true, canRepair: true, problem: null,
+            before: { onHand: d.onHand[0], reserveBuffer: d.reserveBuffer[0], held: d.held[0], committed: d.committed[0] },
+            after: { onHand: d.onHand[1], reserveBuffer: d.reserveBuffer[1], held: d.held[1], committed: d.committed[1] },
+          }
+        : { lineId: repair[2], batchId: repair[1], drifting: false, before: null, after: null, canRepair: false, problem: null }
+      if (method === 'GET') return json(route, 200, plan)
+      state.attention = { ...state.attention, ledgerDrift: (state.attention.ledgerDrift ?? []).filter((x) => x.lineId !== repair[2]) }
+      return json(route, 200, { ...plan, repaired: true })
+    }
+    const hookAct = /^\/webhook-failures\/([^/]+)\/(resolve|refund)$/.exec(path)
+    if (hookAct) {
+      if (state.role !== 'MANAGER') return managerOnly()
+      state.attention = { ...state.attention, webhookFailures: state.attention.webhookFailures.filter((w) => w.id !== hookAct[1]) }
+      return json(route, 200, hookAct[2] === 'refund' ? { paymentId: 'pay_x', queued: true } : { id: hookAct[1] })
+    }
+    if (/^\/preorders\/[^/]+\/keep$/.test(path)) {
+      if (state.role !== 'MANAGER') return managerOnly()
+      state.attention = { ...state.attention, preorderDecisions: (state.attention.preorderDecisions ?? []).filter((p) => p.id !== path.split('/')[2]) }
+      return json(route, 200, { id: path.split('/')[2], kept: true })
+    }
+    if (/^\/refunds\/[^/]+\/paid-another-way$/.test(path)) {
+      if (state.role !== 'MANAGER') return managerOnly()
+      const refundId = path.split('/')[2]
+      if (((body as { reference?: string })?.reference ?? '').length < 3) {
+        return json(route, 400, { error: { code: 'VALIDATION_ERROR', message: 'Give the reference of the payment you made', requestId: 'req_v' } })
+      }
+      state.attention = { ...state.attention, stuckRefunds: state.attention.stuckRefunds.filter((r) => r.id !== refundId && r.paymentId !== refundId) }
+      return json(route, 200, { id: refundId, refundId: `manual:${(body as { reference: string }).reference}` })
+    }
     if (/^\/notifications\/[^/]+\/retry$/.test(path)) return route.fulfill({ status: 204 })
     if (path === '/products' && method === 'GET') return json(route, 200, state.products)
     if (path === '/products' && method === 'POST') {

@@ -593,8 +593,13 @@ export interface Attention {
     order: { id: string; number: string } | null
     preorderNumber: string | null
   }[]
-  stuckRefunds: { type: 'order' | 'preorder'; id: string; number: string; requestedAt: string }[]
-  webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string }[]
+  /**
+   * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
+   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way).
+   */
+  stuckRefunds: { type: 'order' | 'preorder' | 'payment'; id: string; number: string; requestedAt: string; paymentId?: string | null; state?: 'unsent' | 'unconfirmed' }[]
+  /** Not yet marked resolved. refundable: a captured payment that still matches nothing (a manager may refund it). */
+  webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string; paymentId?: string | null; refundable?: boolean }[]
   /** Chargebacks still open at Razorpay; answered in the Razorpay dashboard. */
   disputes?: {
     id: string
@@ -623,6 +628,27 @@ export interface Attention {
   preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
   /** Cancelled or returned orders whose boxes are still to be put back or written off. */
   returnedStock?: { id: string; number: string; status: OrderStatus; boxes: number }[]
+}
+
+/** Stock counters: on hand, the reserve buffer, held for unpaid orders and to pack for paid ones. */
+export interface LineCounters {
+  onHand: number
+  reserveBuffer: number
+  held: number
+  committed: number
+}
+
+/** What repairing a drifting line from the ledger would change (GET /batches/:id/lines/:lineId/repair). */
+export interface LedgerRepairPlan {
+  lineId: string
+  batchId: string
+  sku?: string
+  drifting: boolean
+  before: LineCounters | null
+  after: LineCounters | null
+  canRepair: boolean
+  problem: string | null
+  repaired?: boolean
 }
 
 export interface LedgerDrift {
