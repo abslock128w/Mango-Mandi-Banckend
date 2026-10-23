@@ -44,9 +44,15 @@ const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NO
 
 export default function OrderPage() {
   const { id = '' } = useParams()
+  const queryClient = useQueryClient()
   const q = useQuery({
     queryKey: ['order', id],
-    queryFn: () => api.order(id),
+    queryFn: async () => {
+      // Still waiting on the payment: the status check also asks Razorpay a
+      // minute after checkout (throttled by the API), so a late webhook can't keep it waiting.
+      if (queryClient.getQueryData<Order>(['order', id])?.status === 'PAYMENT_PENDING') await api.paymentStatus(id).catch(() => null)
+      return api.order(id)
+    },
     refetchInterval: (query) => {
       const o = query.state.data
       // Waiting on the payment: check often. On the way: notice the delivery.
@@ -101,7 +107,7 @@ function OrderView({ order }: { order: Order }) {
   const sheetError = arrived?.payError ?? null
 
   const payAgain = useMutation({
-    mutationFn: () => openRazorpay({ key: payKey!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
+    mutationFn: () => openRazorpay({ orderId: order.id, key: payKey!, rzp: order.razorpayOrderId!, total: order.total, number: order.number, holdExpiresAt: order.holdExpiresAt }, signedInPhone()),
     onSettled: refresh,
   })
   const devPay = useMutation({ mutationFn: (outcome: 'captured' | 'failed') => api.devPay(order.id, outcome), onSettled: refresh })

@@ -910,16 +910,27 @@ export async function sweepExpiredHolds(c, at = now()) {
  * SKIP LOCKED so a buyer never waits on an order another transaction (a
  * payment webhook, another buyer) is working on; that order stays for the
  * scheduled sweep. Same lock order as the sweep: order row, then stock lines.
+ *
+ * PAY-B5: an order that has a Razorpay order or payment link may have been
+ * paid inside its hold while the webhook is late. It is left alone until a
+ * reconcile (the maintenance run, or the order page's payment-status check)
+ * has asked Razorpay about it after its hold ran out, or for 2 minutes after
+ * the hold, whichever comes first. The 2 minutes cover a slow webhook and the
+ * next every-minute maintenance run, and keep stock from staying held when the
+ * scheduler is down; a payment that lands even later is still honoured as a
+ * late payment.
  */
+export const LAZY_SWEEP_GATEWAY_GRACE_MS = 2 * 60_000
 export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
   if (!skus.length) return 0
   const { rows } = await c.query(
     `SELECT id FROM orders
       WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1
         AND id IN (SELECT order_id FROM order_stock WHERE state = 'held' AND sku = ANY($2))
+        AND ((razorpay_order_id IS NULL AND payment_link_id IS NULL) OR reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
       ORDER BY hold_expires_at LIMIT $3
       FOR UPDATE SKIP LOCKED`,
-    [at, skus, limit],
+    [at, skus, limit, new Date(at.getTime() - LAZY_SWEEP_GATEWAY_GRACE_MS)],
   )
   let n = 0
   for (const { id } of rows) {

@@ -437,6 +437,17 @@ const qs = (params: Record<string, string | null | undefined>) => {
 }
 const id = encodeURIComponent
 
+/** What Razorpay Checkout's success handler receives. */
+export interface CheckoutReply {
+  razorpay_payment_id: string
+  razorpay_order_id: string
+  razorpay_signature: string
+}
+export interface PaymentState {
+  status: Order['paymentStatus']
+  orderStatus: OrderStatus
+}
+
 export const api = {
   requestCode: (phone: string, channel?: 'sms' | 'whatsapp', captchaToken?: string) =>
     raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', { phone, ...(channel ? { channel } : {}), ...(captchaToken ? { captchaToken } : {}) }),
@@ -477,6 +488,10 @@ export const api = {
   orders: () => request<OrderSummary[]>('GET', '/orders'),
   order: (orderId: string) => request<Order>('GET', `/orders/${id(orderId)}`),
   cancel: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/cancel`),
+  /** Asks the API for the payment state; a minute after checkout it also checks with Razorpay (throttled). */
+  paymentStatus: (orderId: string) => request<PaymentState>('GET', `/orders/${id(orderId)}/payment-status`),
+  /** Hands what Razorpay Checkout returned to the API, which verifies it and confirms the order at once. */
+  verifyPayment: (orderId: string, reply: CheckoutReply) => request<PaymentState>('POST', `/orders/${id(orderId)}/verify-payment`, reply),
   reschedule: (orderId: string, deliveryDate: string, slotId: string | null) =>
     request<void>('POST', `/orders/${id(orderId)}/reschedule`, { deliveryDate, slotId }),
   rate: (orderId: string, stars: number, comment: string | null) => request<void>('PUT', `/orders/${id(orderId)}/rating`, { stars, comment }),

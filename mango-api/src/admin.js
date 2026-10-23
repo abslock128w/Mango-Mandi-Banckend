@@ -1343,7 +1343,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, disputes] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1387,6 +1387,12 @@ router.get(
       auditLedger({ query }),
       // The Docker server's nightly backup (null where none is expected, as on Vercel).
       backupStatus(at),
+      // PAY-B12: chargebacks still open at Razorpay (answered in the Razorpay dashboard).
+      query(
+        `SELECT d.*, o.number AS order_number, p.number AS preorder_number FROM payment_disputes d
+           LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
+          WHERE d.status NOT IN ('won', 'lost', 'closed') ORDER BY d.respond_by NULLS LAST, d.created_at LIMIT 50`,
+      ),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1410,6 +1416,10 @@ router.get(
       // Delivered with only a photo: someone other than the rider checks it.
       photoDeliveries: photos,
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+      disputes: disputes.rows.map((d) => ({
+        id: d.dispute_id, paymentId: d.payment_id, status: d.status, amount: d.amount, reasonCode: d.reason_code, respondBy: d.respond_by, createdAt: d.created_at,
+        order: d.order_id ? { id: d.order_id, number: d.order_number } : null, preorderNumber: d.preorder_number,
+      })),
       ledgerDrift: drift.slice(0, 50),
       lowRatings: lowRatings.rows.map((r) => ({
         id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },

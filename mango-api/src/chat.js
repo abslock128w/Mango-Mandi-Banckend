@@ -16,7 +16,7 @@ import { availability } from './inventory.js'
 import { logger } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { applyCapture, createPaymentLink, refundOrder } from './payments.js'
+import { applyCapture, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
@@ -689,6 +689,13 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
             const pay = { id: st.payment.transaction?.id ?? null, amount: st.payment.amount?.value ?? null, currency: st.payment.currency ?? null, method: st.payment.transaction?.method?.type ?? 'whatsapp' }
             await tx((c) => applyCapture(c, 'orders', rows[0].id, pay))
             handled++
+          } else {
+            // PAY-B7: money taken for an order we can't find: staff must see it.
+            await recordWebhookFailure(
+              'whatsapp',
+              `WhatsApp payment ${st.payment.transaction?.id ?? '(no id)'} captured for reference ${String(st.payment.reference_id).slice(0, 60)}, which matches no order`,
+              st.id ?? st.payment.transaction?.id ?? null,
+            )
           }
         }
       }

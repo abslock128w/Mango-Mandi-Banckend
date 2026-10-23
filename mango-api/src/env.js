@@ -56,6 +56,8 @@ const schema = z.object({
   API_RATE_LIMIT: z.coerce.number().int().positive().default(3000),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
+  // While rotating the webhook secret: the old one, so Razorpay's retries of older events still verify. Remove it a day later.
+  RAZORPAY_WEBHOOK_SECRET_PREVIOUS: z.string().default(''),
   RAZORPAY_KEY_ID: z.string().default(''),
   RAZORPAY_KEY_SECRET: z.string().default(''),
   METRICS_TOKEN: z.string().default(''),

@@ -39,8 +39,9 @@ describe('lazy hold expiry (INV-01)', () => {
     const early = await customerToken(api)
     assert.equal((await checkout(api, early.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 409)
 
-    // 11 minutes later the hold has run out. No scheduler, no /internal/maintenance.
-    at(11)
+    // 12.5 minutes later the hold has run out, with its 2-minute grace for a late
+    // webhook (PAY-B5). No scheduler, no /internal/maintenance.
+    at(12.5)
     const second = await customerToken(api)
     const two = await checkout(api, second.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
     assert.equal(two.status, 201, JSON.stringify(two.body))
@@ -69,7 +70,7 @@ describe('lazy hold expiry (INV-01)', () => {
     const first = await customerToken(api)
     const one = await checkout(api, first.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
     assert.equal(one.status, 201)
-    at(11)
+    at(12.5) // past the hold and its 2-minute grace for a late webhook (PAY-B5)
     const [x, y] = await Promise.all([customerToken(api), customerToken(api)])
     const results = await Promise.all([
       checkout(api, x.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }]),
@@ -111,8 +112,8 @@ describe('unpaid-order limit per customer (INV-02)', () => {
     const three = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
     assert.equal(three.status, 201, JSON.stringify(three.body))
 
-    // An order whose hold has run out doesn't count.
-    at(11)
+    // An order whose hold has run out doesn't count (swept lazily once its 2-minute grace for a late webhook is over).
+    at(12.5)
     const four = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
     assert.equal(four.status, 201, JSON.stringify(four.body))
     assert.equal(await status(three.body.orderId), 'CANCELLED')

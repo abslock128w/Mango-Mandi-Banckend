@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { NOTIFICATION_LABEL, dateTime, humanize } from '../format'
+import { NOTIFICATION_LABEL, dateTime, humanize, rupees } from '../format'
 import type { NotificationKind, PhotoDelivery } from '../types'
 import { PhoneLink, QueryError, ReasonDialog, useToast } from '../ui'
 
@@ -188,6 +188,15 @@ export default function NeedsAttention() {
         needs help. A review never opens a claim by itself.
       </li>,
     ] : [] },
+    { key: 'disputes', title: 'Payment disputes', items: (a.disputes ?? []).map((d) => (
+      <li key={`dispute-${d.id}`}>
+        <strong>Payment disputed</strong> ({humanize(d.status).toLowerCase()}) for{' '}
+        {d.order ? <Link to={`/orders/${d.order.id}`}>{d.order.number}</Link> : (d.preorderNumber ?? d.paymentId ?? 'a payment')}
+        {d.amount != null ? `, ${rupees(d.amount)}` : null}. Answer it in the Razorpay dashboard, under Disputes
+        {d.respondBy ? `, by ${dateTime(d.respondBy)}` : null}.
+        {d.reasonCode ? <span className="muted"> Reason: {d.reasonCode}</span> : null}
+      </li>
+    )) },
     { key: 'webhooks', title: 'Webhook problems', items: a.webhookFailures.map((w) => (
       <li key={w.id}>
         <strong>{w.source === 'razorpay' ? 'Razorpay' : 'WhatsApp'} webhook problem</strong> at {dateTime(w.createdAt)}

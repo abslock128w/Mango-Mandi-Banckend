@@ -106,6 +106,8 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `SENTRY_DSN` | from Sentry | same | |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | live keys | test keys | a preview refuses live keys |
 | `RAZORPAY_WEBHOOK_SECRET` | from the Razorpay webhook | test webhook | |
+| `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` | unset; the old secret for a day while rotating | unset | webhooks signed with it are still accepted (preflight warns while it is set) |
+| `WHATSAPP_PAYMENT_CONFIG` | leave unset | unset | Payments on WhatsApp has no reconcile yet (preflight warns when set); unset, chat orders get a Razorpay payment link |
 | `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log`, with `LOG_OTP_CODES=true` to read codes in the Vercel logs | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio); production refuses `LOG_OTP_CODES` |
 | `WHATSAPP_*` | Meta's values | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates) |
 | `OTP_DAILY_LIMIT` | `3000` | `200` | login codes per day before sending pauses; Sentry warns at 80% |
@@ -168,7 +170,7 @@ saying which release stopped using it.
 Then point the webhooks at the API:
 
 - Razorpay dashboard → **Webhooks**: `https://api.mandimangoes.in/webhooks/razorpay`,
-  events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed` and `refund.failed`.
+  events `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed`, `refund.failed` and the `payment.dispute.*` events (disputes are only recorded and shown in Needs attention).
 - Meta app → **WhatsApp → Configuration**: callback `https://api.mandimangoes.in/webhooks/whatsapp`
   with your `WHATSAPP_VERIFY_TOKEN`, subscribed to `messages`.
 
@@ -273,6 +275,29 @@ the pass marks.
       refund arrive.
 - [ ] Get the privacy notice at `/privacy` reviewed by a lawyer before launch.
 
+## Refunds the system sends on its own
+
+The owner's rule is that money goes back only when a customer cancels before packing,
+or a manager cancels an order or booking we can't deliver. Besides those two, the
+API refunds in these cases, because the payment bought nothing:
+
+- **A second payment** for an order or booking that is already paid (two tabs, a
+  retried link): that payment alone is refunded (`duplicate_payments`); the order
+  stays as it is.
+- **A rejected capture**: a payment that is short, in another currency or has no
+  amount confirms nothing and is refunded in full (also via `duplicate_payments`),
+  and is listed in Needs attention.
+- **A payment after a cancel**: a payment that lands after the customer or the shop
+  cancelled is refunded, not used to revive the order.
+- **After a restore, `ops/replay-payments.js --refund-missing`**: captured payments
+  whose order the restore lost are refunded in full. Without the flag they are only
+  listed.
+
+Every refund is leased and looked up at Razorpay before it is sent, so it is never
+paid twice; each new attempt carries a new receipt (`<number>-r<attempt>`).
+Refunds are sent after the webhook is answered and retried every minute by the
+maintenance job; one stuck for 30 minutes shows in Needs attention.
+
 ## Rolling back
 
 - **Code:** Vercel → the project → **Deployments**, pick the last good one,
@@ -290,7 +315,11 @@ the pass marks.
      would; lost orders are listed in Needs attention):
      `node --env-file=.env ops/replay-payments.js --from <restore point>`.
      Rebuild lost orders by hand where you can, or re-run with `--refund-missing` to
-     refund them in full, and tell those customers.
+     refund them in full, and tell those customers. The replay also lists (in Needs
+     attention, as a Razorpay webhook problem) every order Razorpay refunded after the
+     restore point that the restored database still shows as paid: check those
+     before they are delivered. It reads Razorpay's refund list for the window
+     (`GET /v1/refunds?from=&to=`).
   3. Delete again the accounts deleted since then:
      `node --env-file=.env ops/reapply-deletions.js --old-url <backup branch URL> --since <restore point>`.
   4. Check the panel's Needs attention card, then delete the backup branch.
