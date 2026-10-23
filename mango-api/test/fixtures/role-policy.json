@@ -64,6 +64,7 @@
   "POST /orders/:id/dispatch": ["MANAGER","OPERATOR","PACKER","RIDER"],
   "POST /orders/:id/rebalance": ["MANAGER","OPERATOR"],
   "POST /orders/:id/reschedule": ["MANAGER","OPERATOR"],
+  "POST /orders/:id/returned-stock": ["MANAGER","OPERATOR"],
   "POST /orders/bulk-reschedule": ["MANAGER"],
   "POST /pincodes": ["MANAGER","OPERATOR"],
   "POST /preorders/:id/cancel": ["MANAGER"],

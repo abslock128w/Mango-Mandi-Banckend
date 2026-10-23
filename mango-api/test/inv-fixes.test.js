@@ -235,7 +235,7 @@ describe('INV-B: a late payment with no stock anywhere is not told the old date'
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 2 } })
     const a = await customerToken(api)
     const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
-    later(11 * 60_000)
+    later(12.5 * 60_000) // past the hold plus the 2-minute grace for gateway orders (PAY-B5)
     const b = await customerToken(api)
     const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }]) // lazily expires A, takes the boxes
     assert.equal(cb.status, 201)
@@ -333,7 +333,7 @@ describe('INV-F: boxes on orders cancelled after dispatch', () => {
     const r = await api.post(`/admin/v1/orders/${id}/returned-stock`, { action: 'WRITE_OFF', reasonCode: 'DAMAGED', reason: 'squashed in the van' }, { token: ops })
     assert.equal(r.status, 200)
     assert.equal((await line(b, 'ALP-3')).on_hand, 3)
-    const rows = (await query(`SELECT event_type, delta, reason_code FROM batch_ledger WHERE batch_id = $1 AND reason_code IS NOT NULL ORDER BY created_at, id`, [b])).rows
+    const rows = (await query(`SELECT event_type, delta, reason_code FROM batch_ledger WHERE batch_id = $1 AND reason_code IS NOT NULL ORDER BY created_at, delta DESC`, [b])).rows // both rows share one timestamp
     assert.deepEqual(rows.slice(-2), [
       { event_type: 'RESTOCK', delta: 2, reason_code: 'RETURN_RESTOCK' },
       { event_type: 'ADJUST', delta: -2, reason_code: 'DAMAGED' },
