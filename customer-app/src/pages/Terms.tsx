@@ -23,7 +23,7 @@ export default function Terms() {
         <li>You pay online when you order, through Razorpay (UPI, cards or netbanking). There is no cash on delivery.</li>
         <li>
           {policy ? `Your boxes are held for ${policy.holdMinutes} minutes while you pay. ` : 'Your boxes are held for a few minutes while you pay. '}
-          If the payment does not reach us in that time, the order is cancelled and nothing is charged. If money has already left your account, a
+          If the payment does not reach us in that time, the order is cancelled. If money has already left your account, a
           payment that arrives late is still matched to your order.
         </li>
         <li>The price you pay is the total on the "Review and pay" step. A price change after you pay does not change your order.</li>

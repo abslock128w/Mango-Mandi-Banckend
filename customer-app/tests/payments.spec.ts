@@ -393,3 +393,54 @@ test('FE-1: a hold that ran out never says nothing was charged, keeps checking, 
   paid = true
   await expect(page.getByText('Thank you, your order is placed.')).toBeVisible({ timeout: 20_000 })
 })
+
+test('P0-6: cancelling an unpaid order never says nothing was charged, since a payment may be on its way', async ({ page, request }, info) => {
+  const phone = newPhone('9', info.project.name)
+  const order = await unpaidOrder(request, phone)
+  await signIn(page, phone, `/orders/${order.orderId}`)
+  await page.getByRole('button', { name: 'Cancel order' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('No payment has reached us for this order. If you have just paid, cancelling refunds it in full.')
+  await expect(dialog).not.toContainText('Nothing has been charged')
+  await dialog.getByRole('button', { name: 'Cancel order' }).click()
+  await expect(page.getByText('This order was cancelled.')).toBeVisible()
+  await expect(page.getByText('We have no payment for this order. If money has left your account, it is refunded in full.')).toBeVisible()
+  await expect(page.getByText('Nothing was charged.')).toHaveCount(0)
+})
+
+test('P0-6: cancelling an unpaid booking says the same, and a second unpaid booking is refused', async ({ page, request }, info) => {
+  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
+  const d = new Date()
+  d.setUTCDate(d.getUTCDate() + 15)
+  while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1)
+  const week = d.toISOString().slice(0, 10)
+  const open = await request.put(`${API}/admin/v1/preorder-capacity/${week}/ALP-3`, {
+    data: { capacity: 200 },
+    headers: { Authorization: `Bearer ${(await login.json()).accessToken}` },
+  })
+  expect(open.ok(), await open.text()).toBeTruthy()
+  const phone = newPhone('8', info.project.name)
+  const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })
+  const tokens = await (await request.post(`${API}/v1/auth/otp/verify`, { data: { phone, code: (await asked.json()).devCode } })).json()
+  const bookOne = (key: string) =>
+    request.post(`${API}/v1/preorders`, {
+      data: { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      headers: { Authorization: `Bearer ${tokens.accessToken}`, 'Idempotency-Key': key },
+    })
+  const first = await bookOne(`e2e-pre-${phone}-1`)
+  expect(first.ok(), await first.text()).toBeTruthy()
+  const pre = (await first.json()) as { id: string }
+  const second = await bookOne(`e2e-pre-${phone}-2`)
+  expect(second.status()).toBe(409)
+  expect((await second.json()).error.code).toBe('UNPAID_PREORDER_EXISTS')
+
+  await signIn(page, phone, `/preorders/${pre.id}`)
+  await page.getByRole('button', { name: 'Cancel booking' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('No payment has reached us for this booking. If you have just paid, cancelling refunds it in full.')
+  await expect(dialog).not.toContainText('Nothing has been charged')
+  await dialog.getByRole('button', { name: 'Cancel booking' }).click()
+  await expect(page.getByText('This booking was cancelled.')).toBeVisible()
+  await expect(page.getByText(/We have no payment for this booking\. If money has left your account/)).toBeVisible()
+  await expect(page.getByText('Nothing was charged.')).toHaveCount(0)
+})

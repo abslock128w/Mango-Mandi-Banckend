@@ -208,7 +208,7 @@ function OrderView({ order }: { order: Order }) {
                 ? `Your full refund of ${rupees(order.total)} is on its way.`
                 : order.cancelReason === 'HOLD_EXPIRED'
                   ? "We didn't receive your payment in time."
-                  : 'Nothing was charged.'}
+                  : 'We have no payment for this order. If money has left your account, it is refunded in full.'}
           </p>
           {order.cancelReason === 'HOLD_EXPIRED' && order.refundStatus === null && (
             <p className="small">
@@ -452,7 +452,7 @@ function OrderView({ order }: { order: Order }) {
           onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
         >
-          <p>{paid ? `You'll get a full refund of ${rupees(order.total)} to the way you paid.` : 'Nothing has been charged for this order.'}</p>
+          <p>{paid ? `You'll get a full refund of ${rupees(order.total)} to the way you paid.` : 'No payment has reached us for this order. If you have just paid, cancelling refunds it in full.'}</p>
         </ConfirmDialog>
       )}
     </>
