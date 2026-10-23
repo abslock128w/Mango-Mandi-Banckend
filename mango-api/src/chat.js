@@ -13,7 +13,7 @@ import { env } from './env.js'
 import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
-import { logger } from './logger.js'
+import { logger, maskPhone } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { applyCapture, createPaymentLink, refundOrder } from './payments.js'
@@ -649,7 +649,7 @@ async function deliver(send, phone, replies) {
     try {
       await send(phone, r)
     } catch (err) {
-      logger.error({ err, phone }, 'WhatsApp chat reply failed')
+      logger.error({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
     }
   }
 }

@@ -491,6 +491,13 @@ export const api = {
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
     signedOut(true)
   },
+  /** Ends every session of the account, on every phone and computer, then signs out here too. */
+  async signOutEverywhere() {
+    await request<void>('POST', '/me/sign-out-everywhere')
+    signedOut(true)
+  },
+  /** A copy of everything the shop holds about the customer, as JSON. */
+  exportData: () => request<Record<string, unknown>>('GET', '/me/export'),
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
   products: () => request<{ items: ProductListing[] }>('GET', '/products'),

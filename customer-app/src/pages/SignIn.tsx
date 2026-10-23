@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { GoogleButton, PhoneCodeForm } from '../auth-ui'
+import { safeNext } from '../next'
 import { useStore } from '../store'
 
 export default function SignIn() {
   const { profile } = useStore()
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const next = params.get('next')?.startsWith('/') ? params.get('next')! : '/'
+  const next = safeNext(params.get('next'))
   const [googleError, setGoogleError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 

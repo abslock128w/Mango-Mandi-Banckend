@@ -6,7 +6,7 @@
 // WhatsApp allows within 24 hours of the customer's last message.
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { env } from './env.js'
-import { logger } from './logger.js'
+import { logger, maskPhone } from './logger.js'
 
 /** A sender for the Cloud API. Resolves to the provider's message id. */
 export function metaSender(opts, fetchImpl = fetch) {
@@ -158,7 +158,7 @@ export const chatMessenger =
     ? metaMessenger({ token: env.WHATSAPP_TOKEN, phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID, apiVersion: env.WHATSAPP_API_VERSION })
     : // eslint-disable-next-line require-await -- a messenger: async like the Meta one
       async (phone, reply) => {
-        logger.info({ phone, reply }, 'WhatsApp chat reply')
+        logger.info({ phone: maskPhone(phone), reply }, 'WhatsApp chat reply')
         return 'log'
       }
 

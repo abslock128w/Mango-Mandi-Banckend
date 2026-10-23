@@ -4,13 +4,12 @@
 // development and tests only log them (the API also returns them as devCode).
 // Indian SMS needs DLT registration, so the sender ID, template ID and entity
 // ID must match what is registered, and the text must match the template.
-import { deployEnv, env } from './env.js'
+import { deployEnv, env, isProd } from './env.js'
 import { HttpError } from './errors.js'
-import { logger } from './logger.js'
+import { logger, maskPhone as mask } from './logger.js'
 import { metrics } from './metrics.js'
 import { metaOtpSender, templateName } from './whatsapp.js'
 
-const mask = (phone) => `${phone.slice(0, 5)}*****`
 
 /** A sender for the Jio SMS gateway. `opts` mirrors the JIO_SMS_* settings. */
 export function jioSender(opts, fetchImpl = fetch) {
@@ -63,7 +62,10 @@ const at = (obj, path) => path.split('.').reduce((v, k) => (v === null || v === 
 /** The "log" provider. The code is written only with LOG_OTP_CODES=true (a preview, say); never the full number. */
 // eslint-disable-next-line require-await -- a sender: async like the real providers
 export async function logOnly(phone, code) {
-  if (env.LOG_OTP_CODES) logger.info({ phone: mask(phone) }, `Login code for ${mask(phone)} is ${code}`)
+  // SEC-01: a local run with the shop on a public link (start-local --phone) keeps codes out of
+  // responses; they show in that computer's console instead, which runs at warn level.
+  const level = !isProd && !env.OTP_CODE_IN_RESPONSE ? 'warn' : 'info'
+  if (env.LOG_OTP_CODES) logger[level]({ phone: mask(phone) }, `Login code for ${mask(phone)} is ${code}`)
   else logger.info({ phone: mask(phone) }, 'Login code not sent (SMS_PROVIDER=log); set LOG_OTP_CODES=true to log it')
 }
 

@@ -12,7 +12,7 @@ import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { addEvent, setOrderStatus } from './orders.js'
 import { query, tx } from './db.js'
-import { checkPhoto, dropPhoto, MAX_PHOTO_BYTES, storePhoto } from './photos.js'
+import { checkPhoto, cleanImage, dropPhoto, MAX_PHOTO_BYTES, storePhoto } from './photos.js'
 
 export const FAIL_REASONS = ['NOT_HOME', 'WRONG_ADDRESS', 'REFUSED', 'UNREACHABLE', 'OTHER']
 export const FAIL_LABEL = {
@@ -58,12 +58,14 @@ const notOut = () => badRequest('Photos are taken while the order is out for del
  * the row; if it fails, the uploaded file is deleted again.
  */
 export async function savePhoto(orderId, bytes, actor) {
-  const { mime, ext } = checkPhoto(bytes)
+  checkPhoto(bytes)
+  // SEC-13: re-encoded, so the phone's EXIF (GPS, device) and anything hidden in the file stay behind.
+  const { bytes: clean, mime, ext } = await cleanImage(bytes)
   const { rows } = await query('SELECT number, status FROM orders WHERE id = $1', [orderId])
   if (!rows.length) throw notFound('Order not found')
   if (rows[0].status !== 'OUT_FOR_DELIVERY') throw notOut()
   const id = newId('dph')
-  const stored = await storePhoto(`delivery/${rows[0].number}`, id, bytes, ext, mime)
+  const stored = await storePhoto(`delivery/${rows[0].number}`, id, clean, ext, mime)
   try {
     await tx(async (c) => {
       const o = await lockOrder(c, orderId)

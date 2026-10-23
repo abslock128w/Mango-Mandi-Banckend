@@ -263,7 +263,7 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: Staff
     e.preventDefault()
     setFormError(null)
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setFormError('Enter a work email.')
-    if (password.length < 10) return setFormError('Use a password of at least 10 characters.')
+    if (password.length < 12) return setFormError('Use a password of at least 12 characters.')
     add.mutate()
   }
 
@@ -303,7 +303,7 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: Staff
         <div className="field">
           <label htmlFor="staff-password">First password</label>
           <input id="staff-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <p className="hint">At least 10 characters. Give it to them in person.</p>
+          <p className="hint">At least 12 characters, not a common one. Give it to them in person.</p>
         </div>
         <FormError error={formError ?? add.error} />
       </form>
@@ -325,7 +325,7 @@ function PasswordDialog({ member, onClose }: { member: StaffMember; onClose: () 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
-    if (password.length < 10) return setFormError('Use a password of at least 10 characters.')
+    if (password.length < 12) return setFormError('Use a password of at least 12 characters.')
     save.mutate()
   }
   return (

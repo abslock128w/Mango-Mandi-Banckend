@@ -22,7 +22,21 @@ export const REDACT_PATHS = [
   'devCode',
   'accessToken',
   'refreshToken',
+  // SEC-10: customer phone numbers and addresses inside logged objects (an order, a
+  // notification, a request body). A top-level `phone` is allowed only masked
+  // (maskPhone below); test/log-safety.test.js fails on a logger call that passes it raw.
+  '*.phone',
+  '*.gift_recipient_phone',
+  '*.giftRecipientPhone',
+  '*.recipientPhone',
+  '*.delivery_address',
+  '*.deliveryAddress',
+  'body.address',
+  '*.body.address',
 ]
+
+/** A phone number fit for a log line: the country code and first digits, the rest hidden. */
+export const maskPhone = (phone) => (phone ? `${String(phone).slice(0, 5)}*****` : phone)
 
 export const logger = pino({
   level: env.LOG_LEVEL,

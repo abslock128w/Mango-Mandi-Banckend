@@ -40,8 +40,9 @@ not yet verified against Jio's documentation** (remaining blocker OPS-03b). A re
 when the field `JIO_SMS_SUCCESS_PATH` holds one of `JIO_SMS_SUCCESS_VALUES`, both copied from
 Jio's docs; anything else (including a bare HTTP 200) counts as not sent and the code goes by
 WhatsApp instead. Outside production the default
-`SMS_PROVIDER=log` returns the code as `devCode`; it is written to the log only with
-`LOG_OTP_CODES=true` (for a preview, where `devCode` is off; production refuses it).
+`SMS_PROVIDER=log` returns the code as `devCode` (unless `OTP_CODE_IN_RESPONSE=false`); it is
+written to the log only with `LOG_OTP_CODES=true` (for a preview, where `devCode` is off;
+production refuses it).
 
 If the SMS send fails and WhatsApp is set up (`WHATSAPP_PROVIDER=meta`), the code goes out
 on WhatsApp instead, as the authentication template `mandi_login_code` (code in the body and
@@ -408,11 +409,46 @@ two-minute lease before Razorpay is called (and Razorpay gets an idempotency key
 Razorpay webhook event id is stored in the same transaction as its effect, so a repeat is
 ignored and an out-of-order `payment.failed` never undoes a capture.
 
+## Security and privacy notes
+
+- **Riders' stops.** Each order can be given to a rider (`orders.rider_id`). Managers and
+  operators do it on the Deliveries page, per stop or per slot (`POST /admin/v1/manifest/assign`
+  `{date, riderId, orderIds?, slotId?}`; `GET /admin/v1/riders` lists riders), or when starting a
+  run (`riderId` on `/manifest/dispatch`). A rider who sends out a packed stop nobody has takes
+  it. Riders see only their own stops (plus how many packed ones nobody has), another rider's
+  stop answers 404, and delivered stops from before today drop out of their view. Removing a
+  rider puts their stops back in the pool.
+- **No caching.** Every signed-in answer and every sign-in answer carries
+  `Cache-Control: no-store`; photos keep their own `private` caching.
+- **Sign out everywhere.** `POST /v1/me/sign-out-everywhere` (the shop's Account page) ends
+  every refresh session and raises the account's `session_version`, so access tokens already
+  issued stop working (at once on this instance, within 30 seconds on others).
+- **Login codes.** Codes are stored as a SHA-256 of the code with a pepper: `OTP_PEPPER`, or
+  `JWT_SECRET` when that is unset. Setting `OTP_PEPPER` later keeps codes already sent working
+  for their five minutes. Outside production the code also comes back as `devCode` unless
+  `OTP_CODE_IN_RESPONSE=false` (the local launcher's `--phone` mode sets it).
+- **Turnstile.** A token counts only when Cloudflare says it passed, on one of the
+  `CUSTOMER_ORIGIN` host names, for the action `otp` (the shop's widget sets it).
+- **Degraded-mode answers (a known trade-off).** While the day's share of codes for new
+  numbers is used up (`OTP_PAUSED`), or Cloudflare cannot be reached (`CAPTCHA_UNAVAILABLE`),
+  numbers with an account still get a code and new numbers get a 503. Someone watching the
+  answers during such a window can tell whether a number has an account. Answering everyone
+  alike would mean either locking existing customers out during an SMS-pumping attack or a
+  Cloudflare outage, or telling a new customer a code was sent when it was not. We keep
+  existing customers signed in and accept the narrow oracle; it lasts only while the shop is
+  under attack or Cloudflare is down, and Sentry is told when the budget runs out.
+- **Logs.** Phone numbers are logged only masked (`maskPhone` in `src/logger.js`, e.g.
+  `+9198*****`); phones and addresses inside logged objects are redacted, and
+  `test/log-safety.test.js` fails on a logger call that passes a raw phone.
+- **Photos.** Claim and delivery photos are re-encoded on upload (like review photos), so the
+  phone's EXIF data (GPS, device) is not kept.
+- **Constant-time checks** for the cron secret, `METRICS_TOKEN` and the WhatsApp verify token.
+
 ## Staff roles and the audit trail
 
 Five roles: `MANAGER`, `OPERATOR`, `PACKER`, `QC` and `RIDER`. Riders only reach
-orders on yesterday's, today's or tomorrow's run that are packed or on the road; any
-other order id answers 404. With `STAFF_TWO_STEP=all` (the production default) every
+their own stops (see "Riders' stops" below) on yesterday's, today's or tomorrow's run that
+are packed or on the road; any other order id answers 404. With `STAFF_TWO_STEP=all` (the production default) every
 staff account must use two-step sign-in; `managers` limits it to managers and operators.
 Where it is required, setting it up needs a one-time setup code from a manager as well as
 the password (shown once when a manager adds someone, resets their two-step sign-in, or
@@ -432,6 +468,19 @@ at once: every staff request checks the token's role and session version against
 row (cached for 5 seconds per instance). In production the first manager comes from `ADMIN_BOOTSTRAP_EMAIL` /
 `ADMIN_BOOTSTRAP_PASSWORD`; on Vercel previews from `PREVIEW_ADMIN_EMAIL` /
 `PREVIEW_ADMIN_PASSWORD` instead, so the production login never reaches a preview.
+
+Staff passwords are at least 12 characters and may not be on the bundled list of common
+passwords ([`src/data/common-passwords.txt`](src/data/common-passwords.txt), from SecLists,
+checked ignoring case). Anyone can change their own password on the panel's Two-step sign-in
+page (`POST /admin/v1/me/password` with the current one); their other sessions end. With
+`STAFF_GOOGLE_HD` set (say `mandimangoes.in`), staff Google sign-in only accepts accounts of
+that Google Workspace domain.
+
+Who may call which staff route is snapshotted in
+[`test/fixtures/role-policy.json`](test/fixtures/role-policy.json), one route per line, and
+the role matrix test checks the code against it. A change to `src/access.js` or a new route
+fails that test until the snapshot is regenerated (`UPDATE_ROLE_POLICY=1 npm test`) and the
+diff is reviewed with the change.
 
 Every successful staff change (any non-GET admin request) and every sign-in is written to
 `staff_audit`: who, their role, the route, what it was done to, and the request body with
@@ -476,7 +525,17 @@ screen.
   finished (the cron is missing or its secret is wrong). Previews and development may have
   no run yet.
 - **Retention.** Sent, failed and skipped WhatsApp messages are deleted after 180 days
-  ([`src/retention.js`](src/retention.js)), up to 5,000 a run.
+  ([`src/retention.js`](src/retention.js)), up to 5,000 a run. Once a day, orders delivered,
+  cancelled or returned more than `PII_RETENTION_MONTHS` (default 12) months ago lose the
+  customer's name, phone, address and gift details, and their delivery attempts lose who took
+  the box and the rider's location; amounts, items and tax fields stay for the books. Orders
+  with money still owed back wait until it is paid.
+- **Erasure and export.** Customers delete their account in the shop (`DELETE /v1/me`) and
+  download what we hold about them (`GET /v1/me/export`, JSON). For a deletion request that
+  arrives by email or WhatsApp, check it comes from the number's owner, then run
+  `node --env-file=.env ops/erase-customer.js --phone <number>` (it shows the account), and
+  again with `--yes` to delete it. It refuses while an order is open, like the app. Keep the
+  printed id with the request: `ops/reapply-deletions.js --ids <id>` repeats it after a restore.
 - **Connections.** `DB_POOL_MAX` sets each instance's pool (default 5 on Vercel, 10
   elsewhere) and `DB_CONNECT_TIMEOUT_MS` how long a request waits for a connection before
   answering 503 BUSY (default 5000). On Vercel, keep instances × `DB_POOL_MAX` under the

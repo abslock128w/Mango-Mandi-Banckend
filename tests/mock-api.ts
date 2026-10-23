@@ -344,6 +344,11 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.twoStep = { ...state.twoStep, enabled: true }
       return json(route, 200, { recoveryCodes: ['abcd-efgh', 'jkmn-pqrs', 'tuvw-xyz2', '3456-789a', 'bcde-fghj', 'kmnp-qrst', 'uvwx-yz23', '4567-89ab', 'cdef-ghjk', 'mnpq-rstu'], accessToken: 'tok', expiresIn: 900 })
     }
+    if (path === '/me/password') {
+      const b = body as { currentPassword: string; newPassword: string }
+      if (b.currentPassword !== 'correct') return json(route, 422, { error: { code: 'WRONG_PASSWORD', message: 'Your current password is not right.', requestId: 'req_p' } })
+      return json(route, 200, { accessToken: 'tok2', expiresIn: 900 })
+    }
     if (path === '/me/two-step/disable') {
       state.twoStep = { ...state.twoStep, enabled: false }
       return route.fulfill({ status: 204 })
@@ -474,6 +479,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)
+    // Giving stops to riders (SEC-02).
+    if (path === '/riders') return json(route, 200, [{ id: 'adm9', email: 'rider@mandimangoes.test' }])
+    if (path === '/manifest/assign') {
+      const b = body as { riderId: string | null; orderIds?: string[] }
+      const assigned: string[] = []
+      for (const o of state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders)) as { id: string; number: string; rider?: unknown }[]) {
+        if (b.orderIds && !b.orderIds.includes(o.id)) continue
+        o.rider = b.riderId ? { id: b.riderId, email: 'rider@mandimangoes.test' } : null
+        assigned.push(o.number)
+      }
+      return json(route, 200, { assigned })
+    }
     if (path === '/manifest/dispatch') {
       const dispatched: string[] = []
       for (const o of state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders))) {

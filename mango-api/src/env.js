@@ -88,6 +88,22 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Outside production the code also comes back in the response (devCode), for the shop's test
+  // mode. scripts/start-local.mjs --phone turns it off (SEC-01): the shop is then on a public link,
+  // and the code is printed in the local console instead (with LOG_OTP_CODES=true).
+  OTP_CODE_IN_RESPONSE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
+  // codes already sent working (they are checked against both until they lapse in 5 minutes).
+  OTP_PEPPER: z.string().default(''),
+  // SEC-05: customer details on finished orders (name, phone, address, gift details, delivery GPS)
+  // are removed this many months after the delivery date. Amounts and tax fields stay.
+  PII_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(12),
+  // Staff Google sign-in only for accounts of this Google Workspace domain (the token's hd claim).
+  // Unset: any verified Google account whose email is a staff email.
+  STAFF_GOOGLE_HD: z.string().default(''),
   // /v1/dev (pay any order without paying). Needs this, NODE_ENV other than production and no Razorpay keys.
   ENABLE_DEV_ROUTES: z
     .enum(['true', 'false'])

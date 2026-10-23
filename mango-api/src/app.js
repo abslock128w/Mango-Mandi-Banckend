@@ -56,7 +56,12 @@ const checkedDatabase = () => (dbChecked ??= checkDatabaseEnvironment({ query })
 }))
 
 const bearer = (req) => (req.get('authorization') ?? '').replace(/^Bearer\s+/i, '')
-const safeEqual = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b))
+/** Compares secrets in constant time (for equal lengths; the length itself is not secret). */
+const safeEqual = (a, b) => {
+  const x = Buffer.from(String(a))
+  const y = Buffer.from(String(b))
+  return x.length === y.length && timingSafeEqual(x, y)
+}
 
 export function createApp() {
   const app = express()
@@ -131,7 +136,8 @@ export function createApp() {
   // Prometheus scraping needs a long-running server; on Vercel use Sentry and the logs.
   app.get('/metrics', async (req, res) => {
     if (onVercel) return res.status(404).end()
-    if (env.METRICS_TOKEN && req.get('authorization') !== `Bearer ${env.METRICS_TOKEN}`) return res.status(401).end()
+    // Constant-time compare (SEC-13). Unset, /metrics is open: only on a private network (Caddy 404s it in deploy/).
+    if (env.METRICS_TOKEN && !safeEqual(req.get('authorization') ?? '', `Bearer ${env.METRICS_TOKEN}`)) return res.status(401).end()
     res.set('Content-Type', registry.contentType)
     res.send(await registry.metrics())
   })
@@ -162,7 +168,8 @@ export function createApp() {
   // posts signed message and status events. Meta retries on non-2xx, and
   // messages are deduplicated by id.
   app.get('/webhooks/whatsapp', (req, res) => {
-    const ok = env.WHATSAPP_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && req.query['hub.verify_token'] === env.WHATSAPP_VERIFY_TOKEN
+    const given = req.query['hub.verify_token']
+    const ok = env.WHATSAPP_VERIFY_TOKEN && req.query['hub.mode'] === 'subscribe' && typeof given === 'string' && safeEqual(given, env.WHATSAPP_VERIFY_TOKEN)
     if (!ok) return res.status(403).end()
     res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''))
   })
@@ -203,6 +210,8 @@ export function createApp() {
   })
   // Marks any order paid without paying: only on a developer's machine that asked for it.
   if (devRoutesOn()) app.use('/v1/dev', devRouter)
+  // SEC-06: sign-in answers carry tokens and profiles (the signed-in routes set it in requireAdmin/requireCustomer).
+  app.use(['/v1/auth', '/admin/v1/auth'], (_req, res, next) => (res.set('Cache-Control', 'no-store'), next()))
   app.use('/v1', apiLimiter, customerRouter)
   app.use('/admin/v1', apiLimiter, adminRouter)
 

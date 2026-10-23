@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -7,7 +7,7 @@ import { MissedDialog, PhotoField, uploadPhoto } from '../MissedDialog'
 import { canSee } from '../permissions'
 import { currentPosition } from '../photo'
 import { useSession } from '../session'
-import type { Manifest, ManifestOrder } from '../types'
+import type { Manifest, ManifestOrder, Rider } from '../types'
 import { Badge, Dialog, EmptyState, FormError, OrderBadge, QueryError, Spinner, useToast, usePageTitle } from '../ui'
 
 type Run = Manifest['runs'][number]
@@ -58,6 +58,10 @@ export default function Deliveries() {
   const [focusChoice, setFocusChoice] = useState<boolean | null>(null)
   const focus = focusChoice ?? rider
   const refresh = useRefresh(day)
+  // Managers and operators give stops to riders; riders see only their own (SEC-02).
+  const canAssign = me?.role === 'MANAGER' || me?.role === 'OPERATOR'
+  const ridersQ = useQuery({ queryKey: ['riders'], queryFn: api.riders, enabled: canAssign, staleTime: 60_000 })
+  const riders = canAssign ? (ridersQ.data ?? []) : []
 
   function setDay(value: string) {
     const p = new URLSearchParams(params)
@@ -100,6 +104,7 @@ export default function Deliveries() {
         )}
       </div>
 
+      {rider && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
       {q.isPending ? (
         <Spinner />
       ) : q.isError ? (
@@ -131,7 +136,7 @@ export default function Deliveries() {
             paid: riders collect nothing.
           </p>
           {q.data.runs.map((r) => (
-            <RunSection key={r.slot?.id ?? 'none'} run={r} day={day} focus={focus} onDelivered={setDelivering} onMissed={setMissing} />
+            <RunSection key={r.slot?.id ?? 'none'} run={r} day={day} focus={focus} riders={riders} onDelivered={setDelivering} onMissed={setMissing} />
           ))}
         </>
       )}
@@ -160,6 +165,61 @@ function NextDay({ day, onPick }: { day: string; onPick: (d: string) => void }) 
   )
 }
 
+/** For a rider: packed stops nobody has yet. Starting the run takes them (and sends them out). */
+function TakeStops({ day, count: n }: { day: string; count: number }) {
+  const toast = useToast()
+  const refresh = useRefresh(day)
+  const take = useMutation({
+    mutationFn: () => api.takeRun(day),
+    onSuccess: (r) => {
+      toast.success(`${count(r.dispatched.length, 'order', 'orders')} out for delivery`)
+      refresh()
+    },
+    onError: (err) => toast.error(err),
+  })
+  return (
+    <div className="card no-print" role="status" aria-label="Stops nobody has yet">
+      <p className="mt-0">
+        {count(n, 'packed stop is', 'packed stops are')} not given to a rider yet. Take {n === 1 ? 'it' : 'them'} to see the address and start
+        delivering, or ask the manager to share them out.
+      </p>
+      <button type="button" className="btn btn-primary" disabled={take.isPending} onClick={() => take.mutate()}>
+        Take {n === 1 ? 'it' : 'them'} and start
+      </button>
+    </div>
+  )
+}
+
+/** Picks a rider for one stop or a whole slot; "Nobody" takes the stops off anyone. */
+function RiderPicker({ label, riders, value, busy, onPick }: { label: string; riders: Rider[]; value: string; busy: boolean; onPick: (riderId: string | null) => void }) {
+  return (
+    <label className="check-inline small no-print">
+      <span className="sr-only">{label}</span>
+      <select aria-label={label} value={value} disabled={busy} onChange={(e) => onPick(e.target.value || null)}>
+        <option value="">{value ? 'Nobody' : 'Give to a rider…'}</option>
+        {riders.map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.email}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function useAssign(day: string) {
+  const toast = useToast()
+  const refresh = useRefresh(day)
+  return useMutation({
+    mutationFn: (input: { riderId: string | null; orderIds?: string[]; slotId?: string | null }) => api.assignRiders({ date: day, ...input }),
+    onSuccess: (r, input) => {
+      toast.success(input.riderId ? `${count(r.assigned.length, 'stop', 'stops')} given to the rider` : `${count(r.assigned.length, 'stop', 'stops')} given to nobody`)
+      refresh()
+    },
+    onError: (err) => toast.error(err),
+  })
+}
+
 function useRefresh(day: string) {
   const queryClient = useQueryClient()
   return () => {
@@ -173,17 +233,20 @@ function RunSection({
   run,
   day,
   focus,
+  riders,
   onDelivered,
   onMissed,
 }: {
   run: Run
   day: string
   focus: boolean
+  riders: Rider[]
   onDelivered: (o: ManifestOrder) => void
   onMissed: (o: ManifestOrder) => void
 }) {
   const toast = useToast()
   const refresh = useRefresh(day)
+  const assign = useAssign(day)
   const [open, setOpen] = useState<Record<'done' | 'unpacked', boolean>>({ done: false, unpacked: false })
   const orders = run.stops.flatMap((s) => s.orders)
   const ready = orders.filter((o) => READY.has(o.status)).length
@@ -224,6 +287,15 @@ function RunSection({
           {out + done > 0 && ` · ${done} of ${out + done} delivered`}
         </span>
         <span className="spacer" />
+        {riders.length > 0 && (
+          <RiderPicker
+            label={`Give ${runTitle(run)} to`}
+            riders={riders}
+            value=""
+            busy={assign.isPending}
+            onPick={(riderId) => assign.mutate({ riderId, slotId: run.slot?.id ?? null })}
+          />
+        )}
         {ready > 0 && (
           <button type="button" className="btn btn-primary no-print" disabled={start.isPending} onClick={() => start.mutate()}>
             Start run<span className="sr-only"> {runTitle(run)}</span> ({ready})
@@ -240,7 +312,20 @@ function RunSection({
           </h3>
           <ul className="stops" aria-label={`${runTitle(run)}, ${s.pincode}`}>
             {s.orders.map((o) => (
-              <StopCard key={o.id} o={o} pincode={s.pincode} sending={sendOne.isPending} onSend={() => sendOne.mutate(o.id)} onDelivered={onDelivered} onMissed={onMissed} />
+              <StopCard
+                key={o.id}
+                o={o}
+                pincode={s.pincode}
+                sending={sendOne.isPending}
+                onSend={() => sendOne.mutate(o.id)}
+                onDelivered={onDelivered}
+                onMissed={onMissed}
+                picker={
+                  riders.length > 0 && o.status !== 'DELIVERED' ? (
+                    <RiderPicker label={`Rider for ${o.number}`} riders={riders} value={o.rider?.id ?? ''} busy={assign.isPending} onPick={(riderId) => assign.mutate({ riderId, orderIds: [o.id] })} />
+                  ) : null
+                }
+              />
             ))}
           </ul>
         </div>
@@ -292,6 +377,7 @@ function StopCard({
   onSend,
   onDelivered,
   onMissed,
+  picker,
 }: {
   o: ManifestOrder
   pincode: string
@@ -299,6 +385,7 @@ function StopCard({
   onSend: () => void
   onDelivered: (o: ManifestOrder) => void
   onMissed: (o: ManifestOrder) => void
+  picker?: ReactNode
 }) {
   const { me } = useSession()
   return (
@@ -309,6 +396,8 @@ function StopCard({
         <span className="print-only" aria-hidden="true">
           ☐ Delivered
         </span>
+        {!picker && me?.role !== 'RIDER' && o.rider?.email && <span className="small muted">Rider: {o.rider.email}</span>}
+        {picker}
       </div>
       <div>
         {o.customerName ?? '—'}

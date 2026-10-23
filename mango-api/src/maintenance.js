@@ -29,7 +29,7 @@ import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
-import { pruneNotifications } from './retention.js'
+import { anonymiseOldOrders, pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders } from './stock-watch.js'
@@ -275,6 +275,8 @@ async function steps(forceAll) {
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   await step('cleanup', () => cleanupExpired())
+  // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
+  if (forceAll || t - (last.retention ?? 0) > DAILY_MS) out.anonymised = await step('retention', () => anonymiseOldOrders())
   const lastFull = last['rebalance-all'] ?? 0
   if (forceAll || (last['rebalance-requested'] ?? 0) > lastFull || t - lastFull > DAILY_MS) {
     out.rebalanced = await step('rebalance-all', () => rebalanceAllOpen())

@@ -26,7 +26,7 @@ import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
 import { STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
-import { checkPhoto, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, photoWidth, sendPhoto, sendPublicPhoto, storePhoto } from './photos.js'
+import { checkPhoto, cleanImage, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, photoWidth, sendPhoto, sendPublicPhoto, storePhoto } from './photos.js'
 import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
@@ -75,6 +75,10 @@ async function checkOtpBudget(phone, ip) {
     throw new HttpError(429, 'OTP_LIMIT', 'Too many codes for this number today. Sign in with Google, or try again tomorrow.')
   }
   const known = (await query('SELECT 1 FROM customers WHERE phone = $1 AND deleted_at IS NULL', [phone])).rowCount > 0
+  // SEC-07, a known trade-off: while new numbers are paused, the 503 below tells a watcher
+  // that a number has no account. Answering everyone alike would lock existing customers out
+  // during an SMS-pumping attack, or claim a code was sent when it wasn't. It lasts only while
+  // the budget is spent (Sentry is told). See README "Security and privacy notes".
   if (!known) {
     const share = Math.ceil(env.OTP_DAILY_LIMIT * env.OTP_NEW_NUMBER_SHARE)
     const fresh = await hit(`otp-day-new:${day}`, DAY_MS)
@@ -101,7 +105,15 @@ const phoneSchema = z
 
 const otpRequest = z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional(), captchaToken: z.string().max(2048).optional() })
 
-const hashOtp = (phone, code) => createHash('sha256').update(`${env.JWT_SECRET}:${phone}:${code}`).digest()
+// SEC-13: OTP_PEPPER keeps login-code hashes apart from the token key. Codes are checked against
+// JWT_SECRET too, so setting OTP_PEPPER doesn't break codes sent in the five minutes before.
+const peppers = () => [...new Set([env.OTP_PEPPER, env.JWT_SECRET].filter(Boolean))]
+const hashOtp = (phone, code, pepper = peppers()[0]) => createHash('sha256').update(`${pepper}:${phone}:${code}`).digest()
+const otpMatches = (stored, phone, code) => {
+  const want = Buffer.from(stored, 'hex')
+  // Every pepper is tried (no early exit), so the time taken doesn't say which one matched.
+  return peppers().map((p) => want.length === 32 && timingSafeEqual(want, hashOtp(phone, code, p))).some(Boolean)
+}
 
 // ---------------------------------------------------------------- auth
 
@@ -119,7 +131,8 @@ async function issueCode(phone, channel, ip) {
     [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
   )
   const via = await sendOtp(phone, code, channel)
-  return isProd ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
+  // SEC-01: never in production, and not when the shop is on a public link (start-local --phone).
+  return isProd || !env.OTP_CODE_IN_RESPONSE ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
 
 /** Checks a code inside a transaction. Returns an error to throw after commit (so wrong tries count), or null. */
@@ -128,7 +141,7 @@ async function consumeCode(c, phone, code) {
   const otp = rows[0]
   if (!otp || otp.expires_at <= now()) return unauthorized('This code has expired. Request a new one.', 'OTP_EXPIRED')
   if (otp.attempts >= OTP_MAX_ATTEMPTS) return unauthorized('Too many wrong codes. Request a new one.', 'OTP_LOCKED')
-  if (!timingSafeEqual(Buffer.from(otp.code, 'hex'), hashOtp(phone, code))) {
+  if (!otpMatches(otp.code, phone, code)) {
     await c.query('UPDATE otps SET attempts = attempts + 1 WHERE phone = $1', [phone])
     return unauthorized('Incorrect code', 'OTP_INVALID')
   }
@@ -156,9 +169,13 @@ const cookieMode = (req) => req.get('x-session') === 'cookie'
 
 const profile = (cu) => ({ id: cu.id, phone: cu.phone ?? null, name: cu.name ?? null, email: cu.email ?? null })
 
+/** The customer's session version: "sign out everywhere" raises it, ending access tokens already issued. */
+const sessionVersion = async (id) => (await query('SELECT session_version FROM customers WHERE id = $1', [id])).rows[0]?.session_version ?? 0
+const customerAccess = async (cu) => signAccess({ sub: cu.id, phone: cu.phone ?? null, typ: 'customer', sv: await sessionVersion(cu.id) })
+
 async function sendTokens(req, res, customer) {
   const refresh = await issueRefresh(customer.id, 'customer')
-  const body = { accessToken: signAccess({ sub: customer.id, phone: customer.phone ?? null, typ: 'customer' }), expiresIn: ACCESS_TTL_S, customer: profile(customer) }
+  const body = { accessToken: await customerAccess(customer), expiresIn: ACCESS_TTL_S, customer: profile(customer) }
   if (cookieMode(req)) {
     res.cookie(RT_COOKIE, refresh.token, { ...rtCookie(), expires: refresh.expiresAt })
     return res.json(body)
@@ -224,7 +241,7 @@ router.post(
     const { userId, refresh } = await rotateRefresh(token, 'customer')
     const { rows } = await query('SELECT id, phone, name, email FROM customers WHERE id = $1', [userId])
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
-    const body = { accessToken: signAccess({ sub: rows[0].id, phone: rows[0].phone, typ: 'customer' }), expiresIn: ACCESS_TTL_S, customer: profile(rows[0]) }
+    const body = { accessToken: await customerAccess(rows[0]), expiresIn: ACCESS_TTL_S, customer: profile(rows[0]) }
     if (cookieMode(req)) {
       if (refresh) res.cookie(RT_COOKIE, refresh.token, { ...rtCookie(), expires: refresh.expiresAt })
       return res.json(body)
@@ -478,6 +495,59 @@ router.delete(
     logger.info({ customerId: req.customer.id }, 'customer deleted their account')
     res.clearCookie(RT_COOKIE, rtCookie())
     res.status(204).end()
+  }),
+)
+
+/**
+ * "Sign out everywhere" (ASVS 3.3.4): ends every refresh session of the
+ * account and raises its session version, so access tokens already issued on
+ * other phones stop working too (this instance at once, others within 30 s).
+ */
+router.post(
+  '/me/sign-out-everywhere',
+  asyncHandler(async (req, res) => {
+    await tx(async (c) => {
+      await c.query('UPDATE customers SET session_version = session_version + 1 WHERE id = $1', [req.customer.id])
+      await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [req.customer.id, now()])
+    })
+    forgetCustomer(req.customer.id)
+    logger.info({ customerId: req.customer.id }, 'customer signed out everywhere')
+    res.clearCookie(RT_COOKIE, rtCookie())
+    res.status(204).end()
+  }),
+)
+
+/** Columns left out of the export: internal checks, not the customer's data. */
+const EXPORT_HIDDEN = new Set(['delivery_code_tries', 'customer_id', 'bytes', 'blob_path'])
+const exportRows = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k, v]) => !EXPORT_HIDDEN.has(k) && !Buffer.isBuffer(v))))
+
+/**
+ * A copy of everything the shop holds about the customer (DPDP Act; ASVS
+ * 8.3.2), as JSON: the account, saved addresses, orders with their items,
+ * bookings, claims, ratings, reviews and back-in-stock alerts. Photos are
+ * listed, not included.
+ */
+router.get(
+  '/me/export',
+  asyncHandler(async (req, res) => {
+    const id = req.customer.id
+    const all = (sql) => query(sql, [id]).then((r) => exportRows(r.rows))
+    const [account] = await all('SELECT id, phone, name, email, reminders_opt_in, created_at FROM customers WHERE id = $1 AND deleted_at IS NULL')
+    if (!account) throw notFound('Customer not found')
+    const orders = await all('SELECT * FROM orders WHERE customer_id = $1 ORDER BY placed_at')
+    const items = await query('SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY order_id', [orders.map((o) => o.id)]).then((r) => exportRows(r.rows))
+    res.set('Content-Disposition', 'attachment; filename="mandimangoes-my-data.json"')
+    res.json({
+      exportedAt: now().toISOString(),
+      account,
+      addresses: await all('SELECT * FROM customer_addresses WHERE customer_id = $1 ORDER BY created_at'),
+      orders: orders.map((o) => ({ ...o, items: items.filter((i) => i.order_id === o.id) })),
+      preorders: await all('SELECT * FROM preorders WHERE customer_id = $1 ORDER BY created_at'),
+      claims: await all('SELECT * FROM claims WHERE customer_id = $1 ORDER BY created_at'),
+      ratings: await all('SELECT * FROM order_ratings WHERE customer_id = $1'),
+      reviews: await all('SELECT * FROM reviews WHERE customer_id = $1 ORDER BY created_at'),
+      stockAlerts: await all('SELECT * FROM stock_alerts WHERE customer_id = $1 ORDER BY created_at'),
+    })
   }),
 )
 
@@ -994,11 +1064,13 @@ router.post(
   '/claims/photos',
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
   asyncHandler(async (req, res) => {
-    const { mime, ext } = checkPhoto(req.body)
+    checkPhoto(req.body)
     const loose = await query('SELECT COUNT(*)::int AS n FROM claim_photos WHERE customer_id = $1 AND claim_id IS NULL', [req.customer.id])
     if (loose.rows[0].n >= 10) throw new HttpError(429, 'TOO_MANY_PHOTOS', 'Send your claim with the photos you have added first')
+    // SEC-13: re-encoded, so EXIF (GPS, device) and anything hidden in the file stay behind.
+    const { bytes, mime, ext } = await cleanImage(req.body)
     const id = newId('cph')
-    const saved = await storePhoto(`claims/${req.customer.id}`, id, req.body, ext, mime)
+    const saved = await storePhoto(`claims/${req.customer.id}`, id, bytes, ext, mime)
     await query('INSERT INTO claim_photos (id, customer_id, mime, bytes, blob_path, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
       id, req.customer.id, mime, saved.bytes, saved.blobPath, now(),
     ])

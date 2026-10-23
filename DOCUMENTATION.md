@@ -168,6 +168,11 @@ open a dialog that names the consequence before it runs.
 - No customer data in URLs or logs beyond order numbers.
 - All API text is rendered as plain text; the app ships no third-party scripts.
 - Use HTTPS in production and set the API's `ADMIN_ORIGIN` to the panel's host.
+- Riders see only the stops given to them. Managers and operators give stops (one, or a whole
+  slot) to a rider with the picker on the Deliveries page; a rider can also take the packed
+  stops nobody has yet ("Take them and start").
+- Staff passwords are at least 12 characters and not a common password. Everyone can change
+  their own on the Two-step sign-in page (Your password); their other sessions end.
 
 ## 8. Deploying
 

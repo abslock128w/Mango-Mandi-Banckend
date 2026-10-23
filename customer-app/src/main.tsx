@@ -12,7 +12,8 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, ref
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      {/* Navigation updates render at once, as with React Router 6 (7 defaults to transitions). */}
+      <BrowserRouter useTransitions={false}>
         <StoreProvider>
           <App />
         </StoreProvider>

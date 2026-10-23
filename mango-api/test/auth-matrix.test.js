@@ -10,6 +10,7 @@
 import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import jwt from 'jsonwebtoken'
 import { ROLES, roleAllows } from '../src/access.js'
@@ -96,7 +97,23 @@ const BODIES = {
 const call = (method, path, { token, body, headers } = {}) =>
   api.raw(method, path, { token, headers, body: method === 'GET' || method === 'HEAD' ? undefined : (body ?? {}) })
 
-const expectedFor = (role, r) => role === 'MANAGER' || (!r.managerOnly && roleAllows(role, r.method, concrete(r.path)))
+/** What the code allows today: access.js's allowlists, and requireManager on a route. */
+const codeAllows = (role, r) => role === 'MANAGER' || (!r.managerOnly && roleAllows(role, r.method, concrete(r.path)))
+
+// SEC-08: the expected outcome comes from a committed snapshot of the policy
+// (route -> roles), not from access.js itself, so a change to who may call what
+// shows up as a reviewed diff of test/fixtures/role-policy.json. After a
+// deliberate change, regenerate it with UPDATE_ROLE_POLICY=1 and review the diff.
+const POLICY_FILE = new URL('./fixtures/role-policy.json', import.meta.url)
+const currentPolicy = () =>
+  Object.fromEntries(
+    ADMIN_ROUTES.map((r) => [`${r.method} ${r.path}`, ROLES.filter((role) => codeAllows(role, r))]).sort(([a], [b]) => a.localeCompare(b)),
+  )
+// One route per line, so a policy change is a one-line diff.
+const policyJson = (p) => `{\n${Object.entries(p).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',\n')}\n}\n`
+if (process.env.UPDATE_ROLE_POLICY) writeFileSync(POLICY_FILE, policyJson(currentPolicy()))
+const POLICY = JSON.parse(readFileSync(POLICY_FILE, 'utf8'))
+const expectedFor = (role, r) => (POLICY[`${r.method} ${r.path}`] ?? []).includes(role)
 
 /** A token signed with the real secret that lapsed an hour ago, as if the holder waited out the lifetime. */
 function expiredStaffToken(staff) {
@@ -135,6 +152,10 @@ describe('staff route × role matrix', () => {
       assert.ok(ADMIN_ROUTES.some((r) => `${r.method} ${r.path}` === want), want)
     }
     assert.ok(!ADMIN_ROUTES.some((r) => r.path === '/auth/login'), 'sign-in routes are public and not in the matrix')
+  })
+
+  test('the role policy matches the reviewed snapshot (test/fixtures/role-policy.json)', () => {
+    assert.deepEqual(currentPolicy(), POLICY, 'who may call which staff route changed: if on purpose, run with UPDATE_ROLE_POLICY=1 and commit the reviewed diff')
   })
 
   for (const r of ADMIN_ROUTES) {
