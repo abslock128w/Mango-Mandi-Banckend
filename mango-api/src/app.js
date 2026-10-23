@@ -157,6 +157,11 @@ export function createApp() {
       const result = await handleWebhook(event, req.get('x-razorpay-event-id'))
       res.json({ ok: true, ...result })
     } catch (err) {
+      // LOAD-1: no free connection is a busy minute, not a failed payment: Razorpay retries the 503.
+      if (isPoolTimeout(err) || err?.code === '53300') {
+        logger.warn({ reqId: req.id, path: req.path }, 'database busy')
+        return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id } })
+      }
       logger.error({ err, reqId: req.id }, 'webhook processing failed')
       metrics.webhookErrors.inc({ source: 'razorpay' })
       await recordWebhookFailure('razorpay', err.message, req.get('x-razorpay-event-id') ?? event?.event ?? null)
