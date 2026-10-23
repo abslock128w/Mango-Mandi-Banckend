@@ -139,7 +139,7 @@ async function setupCodeNeeded(adminId, setupSession) {
  * short ticket to send back with the code from the authenticator app.
  */
 async function passFirstStep(req, res, user, method) {
-  if (!user.totp_enabled_at) return startSession(req, res, user, method)
+  if (!user.totp_enabled_at) return await startSession(req, res, user, method)
   const ticket = jwt.sign({ sub: user.id, typ: 'admin_two_step', method, iat: Math.floor(now().getTime() / 1000) }, env.JWT_SECRET, { expiresIn: TICKET_TTL_S, algorithm: 'HS256' })
   res.json({ twoStep: true, ticket, expiresIn: TICKET_TTL_S })
 }
@@ -1259,7 +1259,7 @@ router.post(
   '/orders/:id/delivery-photos',
   express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
   asyncHandler(async (req, res) => {
-    const id = await tx((c) => savePhoto(c, req.params.id, req.body, req.actor), { retries: 0 }) // uploads the photo
+    const id = await savePhoto(req.params.id, req.body, req.actor) // uploads first, then a short transaction (OPS-26)
     res.status(201).json({ id })
   }),
 )

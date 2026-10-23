@@ -54,6 +54,11 @@ const schema = z.object({
   PRODUCTION_DB_HOST: z.string().default(''),
   // Requests per address per 15 minutes before 429 (shared by everyone behind one carrier NAT).
   API_RATE_LIMIT: z.coerce.number().int().positive().default(3000),
+  // Login-code requests per address per 15 minutes (ratelimit.js otpIpLimit). Unset: 200 in
+  // production, 300 elsewhere. Kept well above one person's need because a mobile carrier's NAT
+  // puts many customers behind one address; the per-number caps, Turnstile and the daily
+  // budget are what stop SMS pumping.
+  OTP_IP_LIMIT: z.coerce.number().int().positive().optional(),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   RAZORPAY_KEY_ID: z.string().default(''),
@@ -108,9 +113,10 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
-  // Set by deploy/compose.yml, whose backup service records each nightly backup
-  // in maintenance_runs: Needs attention warns when none is recorded for 26 hours.
-  // Off on Vercel (the GitHub Action backs up there and fails red on its own).
+  // Backups record each run in maintenance_runs: Needs attention and Sentry warn
+  // when none is recorded for 26 hours. Set by deploy/compose.yml (its backup
+  // service); on Vercel set it once the GitHub backup workflow has its
+  // BACKUP_HEARTBEAT_DATABASE_URL secret (deploy/VERCEL.md, Backups).
   BACKUP_HEARTBEAT_EXPECTED: z
     .enum(['true', 'false'])
     .default('false')

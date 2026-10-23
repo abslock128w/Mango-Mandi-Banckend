@@ -70,7 +70,9 @@ export async function tx(fn, { retries = 2 } = {}) {
       if (!RETRYABLE.has(err?.code) || attempt >= retries) throw err
       metrics.dbRetries.inc({ code: err.code })
       logger.warn({ sqlState: err.code, attempt: attempt + 1 }, 'transaction retried')
-      await new Promise((r) => setTimeout(r, 10 + Math.random() * 40 * (attempt + 1)))
+      await new Promise((r) => {
+        setTimeout(r, 10 + Math.random() * 40 * (attempt + 1))
+      })
     }
   }
 }
@@ -99,7 +101,9 @@ export async function connectWithRetry(retries = 10, baseMs = 1000) {
     } catch (err) {
       if (attempt >= retries) throw err
       logger.warn({ attempt, err: err.message }, 'database not ready, retrying')
-      await new Promise((r) => setTimeout(r, attempt * baseMs))
+      await new Promise((r) => {
+        setTimeout(r, attempt * baseMs)
+      })
     }
   }
 }

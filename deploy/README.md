@@ -130,6 +130,8 @@ The `Deploy` GitHub Action deploys `main` after CI passes on it, and can be run 
 `https://API_DOMAIN/ready` and the shop's home page. The alert rules in
 [`../mango-api/ops/alerts.yml`](../mango-api/ops/alerts.yml) need Prometheus scraping
 `api:3000/metrics` from inside the server; Caddy keeps `/metrics` off the internet.
+These rules and `/metrics` apply to this Docker setup only; on Vercel `/metrics` is
+404 and alerting is Sentry plus an uptime monitor ([VERCEL.md, Watch it](VERCEL.md#8-watch-it)).
 
 **Rolling back a migration.** Migrations only move forward. Going back to an older commit
 keeps the newer tables, which older code ignores. If a migration itself is wrong, prefer a

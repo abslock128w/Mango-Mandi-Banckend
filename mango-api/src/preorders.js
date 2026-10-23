@@ -17,7 +17,7 @@ import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { cancelOrder, createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
-import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundOrder } from './payments.js'
+import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund } from './payments.js'
 import { findProduct, sellable } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
@@ -357,7 +357,7 @@ async function attempt(c, fn) {
  * and tells the customer. Returns { converted, moved }.
  */
 export async function allocatePreorders() {
-  return tx(async (c) => {
+  return await tx(async (c) => {
     const horizon = addDays(await regularHorizon(c), 1)
     const earliest = await earliestDeliveryDate(c)
     const { rows } = await c.query(
