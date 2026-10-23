@@ -35,14 +35,40 @@ production data. The result is evidence for the launch checklist.
 | R5 | Pause the webhook in the dashboard, pay an order, wait 3 minutes, resume | The maintenance job's reconcile confirms the order without the webhook |
 | R6 | Re-send one `payment.captured` from the webhook log 3 times | Order confirmed once; one ORDER_CONFIRMED message |
 | R7 | WhatsApp chat order, pay the link in test mode | Order CONFIRMED via `payment_link.paid` |
+| R8 | Delayed payment: order, open Checkout, wait until the order page says the hold ran out (11 minutes), then finish paying if Razorpay still lets you | The late payment is matched: order CONFIRMED (on its date, or moved to the next day with stock, or flagged at risk), never refunded and never charged twice |
+| R9 | Only if test mode can make a refund fail: repeat R4 with that refund | `refund.failed` arrives (our result `refund_failed`); the order's history says a new refund will be sent; the next maintenance run sends it and `check` shows the second refund |
 
-After each scenario:
+Scenario map for the launch gate: success = R1 and R7, failure = R2, delayed
+payment = R5 (webhook late) and R8 (payment late), duplicate webhook = R6,
+refund = R4 (and R9 where possible). R3 checks the hold.
 
-```bash
-cd mango-api
-# Read-only, test keys from the environment:
-node scripts/razorpay-sandbox.mjs check order_XXXXXXXX
-```
+After each scenario, collect the ids from both sides:
+
+1. **Our side.** Every webhook writes one API log line `razorpay webhook` with our
+   request id (`reqId`, also sent back as the `X-Request-Id` header), Razorpay's
+   event id (the `x-razorpay-event-id` header), the payment, order, link and
+   refund ids, and what we did (`confirmed`, `duplicate`, `refund_due`, ...).
+   Export the staging API logs for the scenario's time (Vercel → Logs, or
+   `docker compose logs api > api.log`) and run:
+
+   ```bash
+   cd mango-api
+   node scripts/razorpay-sandbox.mjs webhooks ~/Downloads/api.log
+   ```
+
+   It prints one Markdown row per webhook. Paste them under the scenario.
+   For the shop's own calls, the order page's request id is in the browser's
+   network tab (`X-Request-Id` on `POST /v1/checkout/confirm`).
+2. **Razorpay's side.** Read-only, test keys from the environment:
+
+   ```bash
+   node scripts/razorpay-sandbox.mjs check order_XXXXXXXX
+   ```
+
+   It lists the order, each payment and each refund with their status, and
+   prints an evidence row with our order number (the Razorpay receipt).
+3. The webhook event ids are also in the Razorpay dashboard's webhook event log;
+   they must match the `Event id` column from step 1.
 
 Then copy each webhook body from the dashboard's event log into a file and run:
 
@@ -57,15 +83,30 @@ Razorpay really sends.
 
 ## Evidence log
 
-| # | Date | Razorpay order id | Result | Notes |
-|---|------|-------------------|--------|-------|
-| R1 | | | | |
-| R2 | | | | |
-| R3 | | | | |
-| R4 | | | | |
-| R5 | | | | |
-| R6 | | | | |
-| R7 | | | | |
+One row per scenario. "Our request ids" and "Event ids" come from the
+`webhooks` command; the payment and refund ids from `check`.
+
+| # | Date | Our order no. | Our request ids | Razorpay order / link id | Event ids | Payment ids | Refund ids | Result |
+|---|------|---------------|-----------------|--------------------------|-----------|-------------|------------|--------|
+| R1 | | | | | | | | |
+| R2 | | | | | | | | |
+| R3 | | | | | | | | |
+| R4 | | | | | | | | |
+| R5 | | | | | | | | |
+| R6 | | | | | | | | |
+| R7 | | | | | | | | |
+| R8 | | | | | | | | |
+| R9 | | | | | | | | |
+
+## What runs without test keys (checked on every `npm test`)
+
+- Signature check on every webhook (`x-razorpay-signature`, raw body), the
+  replay of the scenarios above against our stand-in gateway (shop-payments,
+  pay-fixes, remediation tests), and the sanitizer.
+- `test/p0-verify.test.js`: each webhook's log line carries our request id and
+  Razorpay's ids, and the `webhooks` command turns those lines into rows.
+- `test/razorpay-fixtures.test.js` replays recorded bodies; it is skipped until
+  fixtures from this run are committed.
 
 Until this table is filled in, payments are **not verified against Razorpay**:
 the code is tested only against our own stand-in.

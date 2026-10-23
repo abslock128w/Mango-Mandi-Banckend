@@ -10,6 +10,11 @@
 //       the order's payments and each payment's refunds. Prints a sanitized
 //       summary to paste into the evidence log. Needs RAZORPAY_KEY_ID and
 //       RAZORPAY_KEY_SECRET (test) in the environment, never on the command line.
+//   node scripts/razorpay-sandbox.mjs webhooks <api-log-file> [...]
+//       Reads the API's JSON log lines (exported from Vercel → Logs, or
+//       `docker compose logs api`) and prints one evidence row per webhook:
+//       our request id next to Razorpay's event, payment, order and refund
+//       ids, and what the API did with it. Offline; no keys needed.
 //
 // See deploy/RAZORPAY-SANDBOX.md for the full run.
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -53,7 +58,45 @@ async function get(auth, p) {
   return body
 }
 
+/**
+ * The 'razorpay webhook' (and 'webhook processing failed') lines in API log
+ * text, one per webhook. Each line may carry a prefix (a timestamp, a
+ * container name) before its JSON; lines that aren't ours are skipped.
+ */
+export function webhookEvidence(text) {
+  const rows = []
+  for (const line of String(text).split('\n')) {
+    const start = line.indexOf('{')
+    if (start < 0) continue
+    let o
+    try {
+      o = JSON.parse(line.slice(start))
+    } catch {
+      continue
+    }
+    if (o?.msg !== 'razorpay webhook' && o?.msg !== 'webhook processing failed') continue
+    rows.push({
+      time: o.time ? new Date(o.time).toISOString() : null, reqId: o.reqId ?? null, event: o.razorpayEvent ?? null, eventId: o.razorpayEventId ?? null,
+      paymentId: o.paymentId ?? null, orderId: o.razorpayOrderId ?? null, linkId: o.paymentLinkId ?? null, refundId: o.refundId ?? null,
+      result: o.msg === 'razorpay webhook' ? (o.result ?? null) : 'ERROR (500, Razorpay retries)',
+    })
+  }
+  return rows
+}
+
+const cell = (v) => (v === null || v === undefined || v === '' ? '-' : String(v))
+
 async function main([cmd, ...args]) {
+  if (cmd === 'webhooks') {
+    console.log('| Time (UTC) | Our request id | Razorpay event | Event id | Payment id | Razorpay order id | Link id | Refund id | Our result |')
+    console.log('|---|---|---|---|---|---|---|---|---|')
+    for (const file of args) {
+      for (const r of webhookEvidence(await readFile(file, 'utf8'))) {
+        console.log(`| ${[r.time, r.reqId, r.event, r.eventId, r.paymentId, r.orderId, r.linkId, r.refundId, r.result].map(cell).join(' | ')} |`)
+      }
+    }
+    return
+  }
   if (cmd === 'sanitize') {
     await mkdir(OUT, { recursive: true })
     for (const file of args) {
@@ -72,15 +115,23 @@ async function main([cmd, ...args]) {
       const order = await get(auth, `/orders/${encodeURIComponent(orderId)}`)
       const pays = (await get(auth, `/orders/${encodeURIComponent(orderId)}/payments`)).items ?? []
       console.log(`order ${order.id}: status=${order.status} amount=${order.amount} ${order.currency} receipt=${order.receipt}`)
+      const payIds = []
+      const refundIds = []
       for (const p of pays) {
         const refunds = (await get(auth, `/payments/${encodeURIComponent(p.id)}/refunds`)).items ?? []
         console.log(`  payment ${p.id}: status=${p.status} amount=${p.amount} method=${p.method} captured=${p.captured}`)
-        for (const r of refunds) console.log(`    refund ${r.id}: status=${r.status} amount=${r.amount}`)
+        payIds.push(`${p.id} (${p.status})`)
+        for (const r of refunds) {
+          console.log(`    refund ${r.id}: status=${r.status} amount=${r.amount}`)
+          refundIds.push(`${r.id} (${r.status})`)
+        }
       }
+      // Our order number is the Razorpay order's receipt.
+      console.log(`evidence row: | R? | ${new Date().toISOString().slice(0, 10)} | ${order.receipt} | ${order.id} | ${cell(payIds.join(', '))} | ${cell(refundIds.join(', '))} | (request ids and event ids: run \`webhooks\` on the API log) | |`)
     }
     return
   }
-  console.log('usage: razorpay-sandbox.mjs sanitize <file.json...> | check <order_id...>')
+  console.log('usage: razorpay-sandbox.mjs sanitize <file.json...> | check <order_id...> | webhooks <api-log-file...>')
   process.exitCode = 2
 }
 

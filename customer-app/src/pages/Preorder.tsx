@@ -284,6 +284,11 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
             {errorMessage(bookIt.error)}
           </p>
         )}
+        {bookIt.error instanceof ApiError && bookIt.error.code === 'UNPAID_PREORDER_EXISTS' && typeof bookIt.error.detail.preorderId === 'string' && (
+          <Link to={`/preorders/${bookIt.error.detail.preorderId}`} className="btn btn-block">
+            Open your unpaid booking
+          </Link>
+        )}
         <button type="submit" className="btn btn-primary btn-block" disabled={bookIt.isPending}>
           {!profile
             ? waitlist
@@ -420,7 +425,7 @@ function PreorderView({ pre }: { pre: Preorder }) {
               ? `Your refund of ${rupees(pre.total)} has been sent. Banks take up to 5 to 7 days to show it.`
               : pre.refund
                 ? `Your full refund of ${rupees(pre.total)} is on its way.`
-                : 'Nothing was charged.'}
+                : 'We have no payment for this booking. If money has left your account, a late payment is still matched to this booking, or refunded in full if you cancelled it.'}
           </p>
         </section>
       )}
@@ -476,7 +481,13 @@ function PreorderView({ pre }: { pre: Preorder }) {
           onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
         >
-          <p>{paid ? `You'll get a full refund of ${rupees(pre.total)} to the way you paid.` : 'Nothing has been charged for this booking.'}</p>
+          <p>
+            {paid
+              ? `You'll get a full refund of ${rupees(pre.total)} to the way you paid.`
+              : pre.status === 'WAITLISTED'
+                ? 'Nothing is charged while you are on the waitlist.'
+                : 'No payment has reached us for this booking. If you have just paid, cancelling refunds it in full.'}
+          </p>
         </ConfirmDialog>
       )}
     </>

@@ -361,6 +361,9 @@ async function placePreorder(c, s, cust) {
   if (!r.ok) {
     if (r.error.code === 'PREORDER_FULL') return { replies: [text('Sorry, that week just filled up.'), ...(await bookSummary(c, s))] }
     if (r.error.code === 'INVALID_WEEK') return { replies: [text('Sorry, that week is no longer open for booking.'), ...(await bookWeeks(c, s))] }
+    if (r.error.code === 'UNPAID_PREORDER_EXISTS') {
+      return { replies: [text(`You already have an unpaid booking, ${r.error.extra.number}. Pay for it with the link we sent, or send *my orders* to cancel it. Then you can book again.`), MENU] }
+    }
     return { replies: [text(`Sorry, we couldn't book that: ${r.error.message}`), MENU] }
   }
   const booked = r.value

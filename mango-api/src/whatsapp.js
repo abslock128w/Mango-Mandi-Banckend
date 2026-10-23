@@ -73,6 +73,9 @@ export function metaOtpSender(opts, fetchImpl = fetch) {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+    // As for every other message (metaSender above), and as OPS-03 for Jio: a 200
+    // without a message id was not accepted, so the code goes by SMS instead.
+    if (!body?.messages?.[0]?.id) throw new Error('WhatsApp answered without a message id')
   }
 }
 

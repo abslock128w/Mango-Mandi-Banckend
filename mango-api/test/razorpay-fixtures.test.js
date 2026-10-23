@@ -73,6 +73,13 @@ describe('recorded Razorpay webhooks', () => {
         const out = await handleWebhook(body, `fixture:${file}`)
         if (body.event === 'payment.captured') assert.equal(out.result, 'confirmed', JSON.stringify(out))
         if (body.event === 'payment.failed') assert.ok(['failed', 'payment_failed', undefined].includes(out.result) || out.orderId, JSON.stringify(out))
+      } else if (body.event === 'payment_link.paid') {
+        // R7 (WhatsApp order paid by link): the fields findOrderId and the capture checks read.
+        const l = body.payload?.payment_link?.entity
+        const p = body.payload?.payment?.entity
+        assert.ok(l && 'id' in l, 'payment_link.entity.id missing')
+        for (const k of ['id', 'amount', 'currency']) assert.ok(p && k in p, `payment.entity.${k} missing`)
+        assert.equal(typeof p.amount, 'number')
       } else if (body.event.startsWith('refund.')) {
         const r = body.payload?.refund?.entity
         for (const k of ['id', 'payment_id', 'amount', 'status']) assert.ok(k in r, `refund.entity.${k} missing`)

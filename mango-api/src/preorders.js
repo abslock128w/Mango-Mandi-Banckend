@@ -15,7 +15,7 @@ import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
-import { cancelOrder, createOrder, customerCancel, recordDuplicatePayment, SYSTEM } from './orders.js'
+import { cancelOrder, createOrder, customerCancel, LAZY_SWEEP_GATEWAY_GRACE_MS, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
 import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundReceipt } from './payments.js'
 import { findProduct, sellable } from './products.js'
@@ -87,6 +87,64 @@ export function preorderView(p) {
 }
 
 /**
+ * INV-02 for Book ahead: one customer can't hold a week's capacity with unpaid
+ * bookings, on the web or in WhatsApp. Same rules as orders (maxUnpaidOrders,
+ * maxHeldBoxes), counted over bookings only: an unpaid order and an unpaid
+ * booking don't block each other. Locks the customer row, so two bookings by
+ * the same customer at once queue here. A booking whose hold has run out
+ * doesn't count.
+ */
+async function checkUnpaidPreorders(c, customerId, qty, at = now()) {
+  if (!customerId) return
+  await c.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [customerId])
+  const { rows } = await c.query(
+    `SELECT id, number, qty, hold_expires_at FROM preorders
+      WHERE customer_id = $1 AND status = 'PAYMENT_PENDING' AND (hold_expires_at IS NULL OR hold_expires_at >= $2)
+      ORDER BY created_at DESC`,
+    [customerId, at],
+  )
+  const cfg = getConfig()
+  if (rows.length >= cfg.maxUnpaidOrders) {
+    throw new HttpError(409, 'UNPAID_PREORDER_EXISTS', `You have an unpaid booking (${rows[0].number}). Pay for it or cancel it first.`, {
+      preorderId: rows[0].id,
+      number: rows[0].number,
+      holdExpiresAt: rows[0].hold_expires_at,
+    })
+  }
+  if (rows.reduce((t, r) => t + r.qty, 0) + qty > cfg.maxHeldBoxes) {
+    throw new HttpError(409, 'HOLD_LIMIT', `You can reserve up to ${cfg.maxHeldBoxes} boxes at a time. Reduce the quantity.`, { maxHeldBoxes: cfg.maxHeldBoxes })
+  }
+}
+
+/**
+ * Lazy hold expiry for Book ahead (as INV-01 for orders): before a booking
+ * takes a week's capacity, unpaid bookings for that box and week whose hold ran
+ * out give theirs back, so a late or stopped maintenance job doesn't keep the
+ * week full. As PAY-B5: a booking is left alone until Razorpay has been asked
+ * about it after its hold, or for 2 minutes after the hold. A payment that
+ * lands later still books (processPreorderPayment takes the capacity back).
+ * Bounded and SKIP LOCKED, like the order sweep.
+ */
+async function expireWeekHolds(c, sku, week, at = now(), limit = 20) {
+  const { rows } = await c.query(
+    `SELECT * FROM preorders
+      WHERE status = 'PAYMENT_PENDING' AND sku = $1 AND week_start = $2 AND hold_expires_at < $3
+        AND (reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
+      ORDER BY hold_expires_at LIMIT $5
+      FOR UPDATE SKIP LOCKED`,
+    [sku, week, at, new Date(at.getTime() - LAZY_SWEEP_GATEWAY_GRACE_MS), limit],
+  )
+  for (const p of rows) await cancelExpiredHold(c, p)
+  return rows.length
+}
+
+async function cancelExpiredHold(c, p) {
+  await release(c, p)
+  await c.query(`UPDATE preorders SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL WHERE id = $1`, [p.id])
+  await event(c, p.id, 'CANCELLED', SYSTEM, 'Not paid in time')
+}
+
+/**
  * Books a preorder. With capacity: PAYMENT_PENDING with a hold, paid by link.
  * Without: WAITLISTED when the customer asked for it, else 409 PREORDER_FULL.
  */
@@ -102,6 +160,8 @@ export async function bookPreorder(c, b, actor) {
     const { rows } = await c.query('SELECT 1 FROM delivery_slots WHERE id = $1 AND active', [b.slotId])
     if (!rows.length) throw badRequest('That delivery slot is not available', 'SLOT_INVALID')
   }
+  await checkUnpaidPreorders(c, b.customerId, b.qty)
+  await expireWeekHolds(c, b.sku, b.weekStart)
   const got = await reserve(c, b.sku, b.weekStart, b.qty)
   if (!got && !b.waitlist) throw conflict('That week is fully booked. Join the waitlist to get the next free spot.', 'PREORDER_FULL')
   const id = newId('pre')
@@ -265,11 +325,7 @@ export async function expirePreorderHolds(c, at = now()) {
     `SELECT * FROM preorders WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1 ORDER BY hold_expires_at FOR UPDATE SKIP LOCKED`,
     [at],
   )
-  for (const p of rows) {
-    await release(c, p)
-    await c.query(`UPDATE preorders SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL WHERE id = $1`, [p.id])
-    await event(c, p.id, 'CANCELLED', SYSTEM, 'Not paid in time')
-  }
+  for (const p of rows) await cancelExpiredHold(c, p)
   return rows.length
 }
 

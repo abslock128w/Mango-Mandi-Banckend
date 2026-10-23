@@ -15,7 +15,7 @@ import { logger } from './logger.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
 import { recordWebhookFailure } from './payments.js'
 import { handleWhatsAppWebhook } from './chat.js'
-import { handleWebhook, verifySignature } from './payments.js'
+import { handleWebhook, razorpayIds, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
@@ -99,7 +99,8 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ ok: true }))
   // One check for the uptime monitor: the database answers and the maintenance
-  // job (holds, payments, messages) ran in the last 5 minutes.
+  // job (holds, payments, messages) ran in the last 4 minutes (readiness.js).
+  // Public, so it says only ready or not and the age of the last run.
   app.get('/ready', async (_req, res) => {
     try {
       await query('SELECT 1')
@@ -155,9 +156,11 @@ export function createApp() {
     }
     try {
       const result = await handleWebhook(event, req.get('x-razorpay-event-id'))
+      // One line per webhook tying our request id to Razorpay's ids (sandbox evidence, support).
+      logger.info({ reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')), result: result?.result ?? (result?.duplicate ? 'duplicate' : result?.ignored ? 'ignored' : null) }, 'razorpay webhook')
       res.json({ ok: true, ...result })
     } catch (err) {
-      logger.error({ err, reqId: req.id }, 'webhook processing failed')
+      logger.error({ err, reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')) }, 'webhook processing failed')
       metrics.webhookErrors.inc({ source: 'razorpay' })
       await recordWebhookFailure('razorpay', err.message, req.get('x-razorpay-event-id') ?? event?.event ?? null)
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })

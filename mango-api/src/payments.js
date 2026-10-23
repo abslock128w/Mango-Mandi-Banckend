@@ -225,6 +225,24 @@ export async function recordWebhookFailure(source, reason, eventKey = null, c = 
 }
 
 /**
+ * The ids in a Razorpay webhook that tie it to Razorpay's dashboard: the event
+ * id (x-razorpay-event-id header) and the payment, order, link and refund ids
+ * in the body. No personal data. Logged with our request id for each webhook.
+ */
+export function razorpayIds(event, eventId) {
+  const id = (v) => (typeof v === 'string' && v ? v.slice(0, 64) : undefined)
+  const p = event?.payload ?? {}
+  return {
+    razorpayEvent: id(event?.event),
+    razorpayEventId: id(eventId),
+    paymentId: id(p.payment?.entity?.id) ?? id(p.refund?.entity?.payment_id),
+    razorpayOrderId: id(p.payment?.entity?.order_id),
+    paymentLinkId: id(p.payment_link?.entity?.id),
+    refundId: id(p.refund?.entity?.id),
+  }
+}
+
+/**
  * Handles one verified webhook body. The dedupe row is written in the same
  * transaction, so a processing error rolls it back and Razorpay's retry runs.
  */
