@@ -223,12 +223,19 @@ export function redactForPacker(order) {
 
 // The customer's delivery code is a secret too.
 const SECRET_KEYS = /password|token|secret|^code$|setupcode/i
+// SEC-R3: where the rider stood and who took the box are the customer's data. They are
+// kept in delivery_attempts (erased with the account, anonymised after PII_RETENTION_MONTHS),
+// not copied into the audit trail. A delivery note stays (staff read it there) and is
+// removed from the order's audit rows with the rest (ORDER_AUDIT_PERSONAL_KEYS).
+const PERSONAL_KEYS = /^(lat|lng|receivedBy)$/
+/** Keys taken out of an order's audit rows when its customer details go (privacy.js, retention.js). */
+export const ORDER_AUDIT_PERSONAL_KEYS = ['lat', 'lng', 'receivedBy', 'note']
 
 function clean(body) {
   if (Buffer.isBuffer(body)) return body.length ? { bytes: body.length } : null
   if (!body || typeof body !== 'object' || !Object.keys(body).length) return null
   const out = {}
-  for (const [k, v] of Object.entries(body)) out[k] = SECRET_KEYS.test(k) ? '[removed]' : v
+  for (const [k, v] of Object.entries(body)) out[k] = SECRET_KEYS.test(k) || PERSONAL_KEYS.test(k) ? '[removed]' : v
   const json = JSON.stringify(out)
   return json.length > 4000 ? { truncated: json.slice(0, 4000) } : out
 }

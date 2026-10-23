@@ -115,10 +115,12 @@ export function createApp() {
   // pinger on Vercel Hobby (deploy/SCHEDULER.md), or Vercel Cron on Pro.
   // vercel.json keeps a once-a-day Vercel Cron as a backstop, which Hobby allows.
   // GET or POST, whichever the scheduler sends.
+  // SEC-R2: the secret is checked before `loaded`, so a guessed call never reaches the database.
+  const cronAuthed = (req, res, next) => {
+    if (env.CRON_SECRET && safeEqual(bearer(req), env.CRON_SECRET)) return next()
+    res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Bad cron secret', requestId: req.id } })
+  }
   const maintenance = async (req, res) => {
-    if (!env.CRON_SECRET || !safeEqual(bearer(req), env.CRON_SECRET)) {
-      return res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Bad cron secret', requestId: req.id } })
-    }
     try {
       const out = await runMaintenance()
       res.json(out)
@@ -130,8 +132,8 @@ export function createApp() {
       await flushErrors()
     }
   }
-  app.get('/internal/maintenance', loaded, maintenance)
-  app.post('/internal/maintenance', loaded, maintenance)
+  app.get('/internal/maintenance', cronAuthed, loaded, maintenance)
+  app.post('/internal/maintenance', cronAuthed, loaded, maintenance)
 
   // Prometheus scraping needs a long-running server; on Vercel use Sentry and the logs.
   app.get('/metrics', async (req, res) => {
@@ -142,11 +144,13 @@ export function createApp() {
     res.send(await registry.metrics())
   })
 
-  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), loaded, async (req, res) => {
+  // SEC-R2: the signature is checked before `loaded`, so a forged webhook never reaches the database.
+  const razorpaySigned = (req, res, next) => {
+    if (verifySignature(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.get('x-razorpay-signature'))) return next()
+    res.status(400).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
+  }
+  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpaySigned, loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
-    if (!verifySignature(raw, req.get('x-razorpay-signature'))) {
-      return res.status(400).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
-    }
     let event
     try {
       event = JSON.parse(raw.toString('utf8'))
@@ -173,11 +177,12 @@ export function createApp() {
     if (!ok) return res.status(403).end()
     res.type('text/plain').send(String(req.query['hub.challenge'] ?? ''))
   })
-  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), loaded, async (req, res) => {
+  const metaSigned = (req, res, next) => {
+    if (verifyMetaSignature(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.get('x-hub-signature-256'))) return next()
+    res.status(401).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
+  }
+  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), metaSigned, loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
-    if (!verifyMetaSignature(raw, req.get('x-hub-signature-256'))) {
-      return res.status(401).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
-    }
     let body
     try {
       body = JSON.parse(raw.toString('utf8'))
