@@ -3,7 +3,8 @@
 This is the hosted setup: three Vercel projects from this one repository, and a
 Neon Postgres database in Singapore. Nothing to patch, back up by hand or renew.
 (The single-server Docker setup in [README.md](README.md) still works if you ever
-want to leave Vercel.)
+want to leave Vercel.) For every release after the first, follow
+[RELEASE.md](RELEASE.md); when something breaks, [RUNBOOKS.md](RUNBOOKS.md).
 
 | Vercel project | Root directory | Serves | Example domain |
 |----------------|----------------|--------|----------------|

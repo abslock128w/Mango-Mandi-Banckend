@@ -14,6 +14,8 @@
 //   --check-demo-login   also tries ONE sign-in as the seed's demo manager
 //                        (manager@mandimangoes.test). It must be refused. Off by default:
 //                        a refused try counts against that email's password limit.
+//   --header "Name: v"   send this header on every request (repeatable), e.g. Vercel's
+//                        x-vercel-protection-bypass for a protected preview
 //   --json               print the results as JSON
 //
 // Nothing here changes data. Every request is one a stranger could send: the
@@ -62,7 +64,8 @@ export async function runSmoke(opts, fetchImpl = fetch) {
   const origins = opts.origins?.length ? opts.origins : [shop, panel].filter(Boolean).map(originOf)
   const results = []
   const add = (area, check, status, detail = '') => results.push({ area, check, status, detail })
-  const get = (url, init = {}) => fetchImpl(url, { redirect: 'manual', ...init })
+  const extra = opts.headers ?? {}
+  const get = (url, init = {}) => fetchImpl(url, { redirect: 'manual', ...init, headers: { ...extra, ...(init.headers ?? {}) } })
   const json = async (r) => {
     try {
       return await r.json()
@@ -276,14 +279,24 @@ export async function main(argv = process.argv.slice(2), fetchImpl = fetch, log 
     options: {
       api: { type: 'string' }, shop: { type: 'string' }, panel: { type: 'string' }, origins: { type: 'string' },
       local: { type: 'boolean', default: false }, 'check-demo-login': { type: 'boolean', default: false }, json: { type: 'boolean', default: false },
+      header: { type: 'string', multiple: true },
     },
   })
+  const headers = {}
+  for (const h of values.header ?? []) {
+    const i = h.indexOf(':')
+    if (i < 1) {
+      log(`--header needs "Name: value" (got ${h.split(':')[0]})`)
+      return 2
+    }
+    headers[h.slice(0, i).trim()] = h.slice(i + 1).trim()
+  }
   if (!values.api) {
-    log('usage: npm run smoke -- --api <url> [--shop <url>] [--panel <url>] [--origins a,b] [--local] [--check-demo-login] [--json]')
+    log('usage: npm run smoke -- --api <url> [--shop <url>] [--panel <url>] [--origins a,b] [--local] [--check-demo-login] [--header "Name: value"] [--json]')
     return 2
   }
   const origins = (values.origins ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-  const results = await runSmoke({ api: values.api, shop: values.shop, panel: values.panel, origins, local: values.local, checkDemoLogin: values['check-demo-login'] }, fetchImpl)
+  const results = await runSmoke({ api: values.api, shop: values.shop, panel: values.panel, origins, headers, local: values.local, checkDemoLogin: values['check-demo-login'] }, fetchImpl)
   const failed = results.filter((r) => r.status === 'fail')
   if (values.json) log(JSON.stringify({ ok: !failed.length, results }, null, 2))
   else {

@@ -185,6 +185,16 @@ describe('smoke test checks on a deployment over https (stubbed answers)', () =>
     }
   })
 
+  test('--header goes on every request (a protected preview\'s bypass header)', async () => {
+    const seen = []
+    const f = stubFetch()
+    const spy = (url, init = {}) => (seen.push(init.headers?.['x-vercel-protection-bypass']), f(url, init))
+    const lines = []
+    assert.equal(await main(['--api', opts.api, '--shop', opts.shop, '--panel', opts.panel, '--header', 'x-vercel-protection-bypass: s3cret'], spy, (l) => lines.push(l)), 0, lines.join('\n'))
+    assert.ok(seen.length > 20 && seen.every((h) => h === 's3cret'))
+    assert.equal(await main(['--api', opts.api, '--header', 'no-colon'], spy, () => {}), 2)
+  })
+
   test('cookie flags are read from Set-Cookie', () => {
     const c = parseSetCookie('mm_customer_rt=; Path=/v1/auth; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=None')
     assert.deepEqual(cookieProblems(c, { name: 'mm_customer_rt', path: '/v1/auth' }), [])
