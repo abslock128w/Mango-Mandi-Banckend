@@ -230,7 +230,8 @@ export const api = {
   reviewDelivery: (attemptId: string, ok: boolean, note?: string) => request<void>('POST', `/delivery-reviews/${id(attemptId)}`, { ok, note }),
   products: () => request<Product[]>('GET', '/products'),
   addProduct: (p: ProductInput & { sku: string }) => request<Product>('POST', '/products', p),
-  updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean }) => request<Product>('PATCH', `/products/${id(sku)}`, patch),
+  /** `reason`: why (optional), kept in the staff activity with the values before the change (ADM-2). */
+  updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean; reason?: string }) => request<Product>('PATCH', `/products/${id(sku)}`, patch),
   /** Deletes a product never stocked or sold; otherwise takes it off sale and keeps it. */
   removeProduct: (sku: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`),
   /** Sets the product's shop photo (replacing any earlier one). */
@@ -353,8 +354,9 @@ export const api = {
   reviewInsights: (days = 90) => request<ReviewInsights>('GET', `/reviews/insights${qs({ days })}`),
   reviewClaim: (claimId: string) => request<void>('POST', `/claims/${id(claimId)}/review`),
   /** MandiMangoes doesn't refund: a claim is resolved by a replacement or rejected. */
-  resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>) =>
-    request<void>('POST', `/claims/${id(claimId)}/resolve`, { resolution }),
+  /** A rejection needs `reason` (5+ characters), which the customer sees. */
+  resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>, reason?: string) =>
+    request<void>('POST', `/claims/${id(claimId)}/resolve`, reason ? { resolution, reason } : { resolution }),
 
   promos: () => request<Promo[]>('GET', '/promos'),
   addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),

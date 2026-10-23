@@ -37,7 +37,8 @@ export default function Account() {
           )}
         </dl>
         <p className="small muted">
-          How we use these details is in our <Link to="/privacy">privacy notice</Link>.
+          How we use these details is in our <Link to="/privacy">privacy notice</Link>. Questions about an order? See <Link to="/help">Help</Link>{' '}
+          and our <Link to="/terms">terms of sale</Link>.
         </p>
         <button type="button" className="btn btn-quiet" onClick={() => void api.signOut()}>
           Sign out

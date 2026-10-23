@@ -95,6 +95,12 @@ async function addABox(page: Page) {
     await links.nth(i).click()
     await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
     const add = page.getByRole('button', { name: /^Add to cart/ })
+    // UX-6: with Ripe sold out nothing is chosen for the customer; take the first ripeness in stock.
+    if (!(await page.getByRole('radio', { checked: true }).count())) {
+      const inStock = page.getByRole('radio', { disabled: false })
+      if (!(await inStock.count())) continue
+      await inStock.first().check()
+    }
     if (!(await add.count()) || (await add.isDisabled())) continue
     await add.click()
     return true
@@ -133,6 +139,8 @@ test('axe finds nothing on any shop page or dialog', async ({ page, request }, i
   for (const [path, heading] of [
     ['/quality', 'How we pick and check every box'],
     ['/privacy', 'Privacy notice'],
+    ['/help', 'Help'],
+    ['/terms', 'Terms of sale'],
     ['/preorder', 'Book ahead'],
     ['/cart', 'Your cart is empty'],
   ]) {
@@ -212,7 +220,9 @@ test('keyboard: Skip to content is the first stop, and Tab reaches Add to cart w
   await setPincode(page)
   await page.getByRole('region', { name: 'Pick your mangoes' }).getByRole('listitem').filter({ hasNotText: 'Sold out' }).first().getByRole('link').click()
   await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
-  await page.reload()
+  // UX-6: with Ripe sold out nothing is chosen for the customer, so open the box (a fresh load) at a ripeness in stock.
+  const inStock = await page.getByRole('radio', { disabled: false }).first().getAttribute('value')
+  await page.goto(`${new URL(page.url()).pathname}?stage=${inStock}`)
   await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
 
   // Tab 1 is the skip link, shown while focused; Enter moves focus to the page's content.

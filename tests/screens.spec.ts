@@ -169,7 +169,7 @@ test('Orders list filters and opens a detail page', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   await page.goto('/orders')
   await expect(page.getByText('2 orders · page 1 of 1')).toBeVisible()
-  await page.getByLabel('Search order number or phone').fill('ORD-1042')
+  await page.getByLabel('Search by order number, phone, name or address').fill('ORD-1042')
   await expect(page).toHaveURL(/q=ORD-1042/)
   // Each row's first cell is a real link (the row stays a row for screen readers),
   // and it covers the whole row, so a click on any cell opens the order.

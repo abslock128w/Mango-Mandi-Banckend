@@ -47,6 +47,8 @@ services:
       dockerfile: deploy/web.Dockerfile
       args:
         VITE_API_URL: https://${API_DOMAIN:?set API_DOMAIN}
+        # UX-1: the shop build fails without the help number (deploy/.env).
+        VITE_SUPPORT_WHATSAPP: ${VITE_SUPPORT_WHATSAPP:?set VITE_SUPPORT_WHATSAPP in deploy/.env}
     restart: unless-stopped
     depends_on: [api]
     ports: ['80:80', '443:443', '443:443/udp']

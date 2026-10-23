@@ -2,15 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type UseInfiniteQueryResult } from '@tanstack/react-query'
 import { ApiError, api, type PublicReview, type RatingSummary, type ReviewPage, type Stage } from '../api'
-import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
+import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees } from '../format'
 import { MangoArt, ProductImage, photoAt } from '../mango'
 import { Stepper } from '../forms'
 import { useStore } from '../store'
-import { NotifyMe, ProductRating, groupBySku } from './Shop'
+import { NotifyMe, PincodeCheck, ProductRating, groupBySku } from './Shop'
 import { RatingBars, Stars } from '../stars'
 import { Dialog, DocTitle, ErrorNote, Skeleton } from '../ui'
 import { storyFor } from '../varieties'
-import { catalogueQuery, productReviewsQuery } from '../queries'
+import { catalogueQuery, productReviewsQuery, productsQuery } from '../queries'
 import { BuySkeleton } from './BuySkeleton'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
@@ -256,6 +256,8 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
   // After "Show stock for" another day: the day the shop showed before, to go back to.
   const [switched, setSwitched] = useState<{ date: string | null; shown: string } | null>(null)
   const switchedNote = useRef<HTMLParagraphElement>(null)
+  // UX-5: before a pincode, the box and its price still show (stock waits for the pincode).
+  const listing = useQuery({ ...productsQuery(), enabled: !pincode })
   // The ripeness that was sold out, so it is the one picked on the new day.
   const wanted = useRef<Stage | null>(null)
   const first = useRef(true)
@@ -277,14 +279,36 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
   }, [switchedReady])
 
   if (!pincode) {
+    const known = listing.data?.items.find((x) => x.sku === sku)
+    const name = known?.name ?? fallbackName
+    const contents = known ? boxContents(known) : null
     return (
-      <section className="card" aria-labelledby="product-title">
-        {fallbackName && <DocTitle title={fallbackName} />}
-        <h1 id="product-title">{fallbackName ?? <span className="sk-text">Mango box</span>}</h1>
-        <p>Tell us your pincode to see the ripeness we have and add a box.</p>
-        <Link to="/" className="btn btn-primary">
-          Enter your pincode
-        </Link>
+      <section className="card buy" aria-labelledby="product-title">
+        {name && <DocTitle title={name} />}
+        <div className="buy-media">
+          {known?.photoUrl ? <ProductImage photoUrl={known.photoUrl} name={known.name} className="product-hero" fit="hero" priority /> : <span className="buy-art"><MangoArt stage="RIPE" size={240} /></span>}
+        </div>
+        <div className="buy-body">
+          <header className="product-head">
+            <div className="product-name">
+              <h1 id="product-title">{name ?? <span className="sk-text">Mango box</span>}</h1>
+              {known && <ProductRating sku={known.sku} variety={known.variety} href="#reviews" summary={summary} />}
+              {known && (
+                <p className="buy-price">
+                  <strong>{rupees(known.price)}</strong> <span className="muted small">per box · free delivery</span>
+                </p>
+              )}
+            </div>
+          </header>
+          {known?.description && <p>{known.description}</p>}
+          {contents && (
+            <p className="box-contents">
+              <strong>In the box:</strong> {contents}
+            </p>
+          )}
+          <p>Enter your pincode to see the ripeness we have for your day and add a box.</p>
+          <PincodeCheck initial="" label="Your delivery pincode" submitLabel="Check delivery" onDone={(pin, first) => setWhere(pin, first)} />
+        </div>
       </section>
     )
   }
@@ -305,8 +329,13 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
   }
   const sizes = all.filter((x) => x.variety && x.variety === p.variety)
   const open = p.stages.filter((s) => s.qty > 0)
-  // Ripe is the usual pick, so it is chosen first when it is in stock.
-  const stage = picked && open.some((s) => s.stage === picked) ? picked : (open.find((s) => s.stage === 'RIPE') ?? open[0])?.stage ?? null
+  // Ripe is the usual pick, so it is chosen first when it is in stock. UX-6: when the ripeness
+  // wanted (Ripe, or the one the link asked for) is sold out, nothing is chosen for the customer:
+  // a note says so and they pick another ripeness themselves.
+  const wantedStage: Stage = asked === 'RAW' || asked === 'SEMI_RIPE' || asked === 'RIPE' ? asked : 'RIPE'
+  const stage = picked && open.some((s) => s.stage === picked) ? picked : open.some((s) => s.stage === wantedStage) && !picked ? wantedStage : null
+  const unavailable = !stage && open.length > 0 ? (picked ?? wantedStage) : null
+  const contents = boxContents(p.stages[0] ?? {})
   const item = p.stages.find((s) => s.stage === stage) ?? null
   const inCart = item ? cart.find((l) => l.sku === sku && l.stage === item.stage)?.qty ?? 0 : 0
   const room = item ? Math.max(0, Math.min(20, item.qty) - inCart) : 0
@@ -340,6 +369,11 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           </div>
         </header>
         {p.description && <p>{p.description}</p>}
+        {contents && (
+          <p className="box-contents">
+            <strong>In the box:</strong> {contents}
+          </p>
+        )}
 
         {sizes.length > 1 && (
           <div className="field">
@@ -356,7 +390,13 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           </div>
         )}
 
-        <fieldset className="field">
+        {unavailable && (
+          <p className="note" id="ripe-note">
+            {STAGE_LABEL[unavailable]} is sold out for {day(shownDay)}. Choose another ripeness below
+            {p.stages.find((s) => s.stage === unavailable)?.nextAvailableDate ? `, or see ${STAGE_LABEL[unavailable].toLowerCase()} stock for another day` : ''}.
+          </p>
+        )}
+        <fieldset className="field" aria-describedby={unavailable ? 'ripe-note' : undefined}>
           <legend>Choose ripeness</legend>
           <ul className="ripe-options">
             {p.stages.map((s) => {
@@ -438,6 +478,18 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
                 Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
               </button>
             </div>
+          </>
+        ) : open.length > 0 ? (
+          <>
+            {/* UX-6: nothing picked yet. The button stays where it will be, and says why it waits. */}
+            <div className="buy-bar">
+              <button type="button" className="btn btn-primary btn-block" disabled aria-describedby="pick-first">
+                Add to cart
+              </button>
+            </div>
+            <p className="muted small" id="pick-first">
+              Choose a ripeness above to add a box.
+            </p>
           </>
         ) : (
           <p className="sold-out">Every ripeness is sold out for {day(shownDay)}.</p>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useId, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -153,6 +153,12 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
             <dd>{RESOLUTION_LABEL[claim.resolution] ?? claim.resolution}</dd>
           </>
         )}
+        {claim.status === 'RESOLVED' && claim.rejectionReason && (
+          <>
+            <dt>Reason given</dt>
+            <dd className="pre-wrap">{claim.rejectionReason}</dd>
+          </>
+        )}
         {claim.replacementOrder && (
           <>
             <dt>Replacement</dt>
@@ -168,14 +174,19 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
 }
 
 type Resolution = 'REPLACEMENT_APPROVED' | 'REJECTED'
+/** A rejection says why (the API refuses fewer characters); the customer reads it. */
+const MIN_REASON = 5
 
 function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }) {
   const toast = useToast()
   const refresh = useClaimsRefresh()
+  const id = useId()
   const [resolution, setResolution] = useState<Resolution | null>(null)
+  const [reason, setReason] = useState('')
+  const reasonOk = resolution !== 'REJECTED' || reason.trim().length >= MIN_REASON
 
   const resolve = useMutation({
-    mutationFn: (r: Resolution) => api.resolveClaim(claim.id, r),
+    mutationFn: (r: Resolution) => api.resolveClaim(claim.id, r, r === 'REJECTED' ? reason.trim() : undefined),
     onSuccess: (_x, r) => {
       toast.success(`Claim on ${claim.orderNumber} resolved: ${RESOLUTION_LABEL[r]}`)
       refresh()
@@ -185,7 +196,7 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
-    if (resolution) resolve.mutate(resolution)
+    if (resolution && reasonOk) resolve.mutate(resolution)
   }
 
   return (
@@ -197,7 +208,7 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" form="resolve-form" className="btn btn-primary" disabled={!resolution || resolve.isPending}>
+          <button type="submit" form="resolve-form" className="btn btn-primary" disabled={!resolution || !reasonOk || resolve.isPending}>
             {resolve.isPending ? 'Saving…' : resolution === 'REPLACEMENT_APPROVED' ? 'Approve replacement' : resolution === 'REJECTED' ? 'Reject claim' : 'Resolve claim'}
           </button>
         </>
@@ -222,6 +233,23 @@ function ResolveDialog({ claim, onClose }: { claim: Claim; onClose: () => void }
             </label>
           </div>
         </fieldset>
+        {/* UX-4 / ADM-3: a rejection needs a reason, which the customer sees. */}
+        {resolution === 'REJECTED' && (
+          <div className="field">
+            <label htmlFor={`${id}-reason`}>Reason for the customer</label>
+            <textarea
+              id={`${id}-reason`}
+              rows={3}
+              maxLength={500}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              aria-describedby={`${id}-reason-hint`}
+            />
+            <p id={`${id}-reason-hint`} className="hint">
+              The customer sees this on their order page and on WhatsApp, so write it to them. At least {MIN_REASON} characters.
+            </p>
+          </div>
+        )}
         <p className="muted small">This closes the claim. It cannot be reopened from here.</p>
         <FormError error={resolve.error} />
       </form>

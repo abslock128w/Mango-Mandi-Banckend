@@ -22,6 +22,9 @@ jobs:
       - run: npm run build
       - name: Build the customer app
         run: npm run shop:build
+        env:
+          # A made-up number for the build check only; production sets the shop's real one.
+          VITE_SUPPORT_WHATSAPP: '910000000000'
       - run: npx playwright install --with-deps chromium
       # Every panel spec. They mock the API, except day-in-the-life, which
       # skips here (no E2E_EMAIL) and runs against the real API in the e2e job.
@@ -193,6 +196,8 @@ jobs:
       API_DOMAIN: api.example.in
       ACME_EMAIL: ops@example.in
       POSTGRES_PASSWORD: ci-only
+      # A made-up help number for the image build check; production sets the real one in deploy/.env.
+      VITE_SUPPORT_WHATSAPP: '910000000000'
     steps:
       - uses: actions/checkout@v4
       - run: touch .env

@@ -317,6 +317,16 @@ router.get(
 )
 
 /**
+ * UX-3: the live rules the shop's help and terms pages quote, so they never drift from what the
+ * API enforces: how long boxes are held at Pay, the order cutoff, how far ahead a day can be
+ * booked and how long after delivery a problem can be reported.
+ */
+router.get('/policy', (_req, res) => {
+  const cfg = getConfig()
+  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours })
+})
+
+/**
  * UX-5: every box on sale with its price, before a pincode is known, so a first visit
  * (or a visitor from outside the delivery area) sees the varieties and prices. Stock and
  * ripeness depend on the delivery day, so they stay on /catalogue, which needs a pincode.

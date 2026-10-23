@@ -51,6 +51,29 @@ export interface CatalogueItem {
   photoUrl?: string | null
   /** When sold out on this day: the next bookable day it is in stock, if any. */
   nextAvailableDate?: string | null
+  /** What is in the box, when the shop team has filled it in: about how many mangoes, and grams each. */
+  fruitsPerBox?: number | null
+  fruitWeightG?: number | null
+}
+/** The live rules the help and terms pages quote (GET /v1/policy). */
+export interface ShopPolicy {
+  holdMinutes: number
+  /** "18:00 IST" */
+  cutoffTime: string
+  maxDaysAhead: number
+  claimWindowHours: number
+}
+/** A box on sale with its price, known before a pincode (GET /v1/products): no stock or ripeness. */
+export interface ProductListing {
+  sku: string
+  name: string
+  variety: string
+  boxSize: string
+  price: number
+  description: string
+  photoUrl: string | null
+  fruitsPerBox: number | null
+  fruitWeightG: number | null
 }
 export interface Catalogue {
   serviceable: boolean
@@ -79,6 +102,8 @@ export interface Quote {
   discount: number
   total: number
   expiresAt: string
+  /** How long the boxes are held once Pay is tapped (the live rule); older APIs leave it out. */
+  holdMinutes?: number
 }
 export interface Gift {
   recipientName: string
@@ -177,6 +202,8 @@ export interface Claim {
   issueType: IssueType
   status: 'SUBMITTED' | 'UNDER_REVIEW' | 'RESOLVED'
   resolution: string | null
+  /** Why staff rejected the claim, in their words. */
+  rejectionReason?: string | null
   replacementOrder: { id: string; number: string } | null
   createdAt: string
 }
@@ -464,6 +491,8 @@ export const api = {
   },
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
+  products: () => request<{ items: ProductListing[] }>('GET', '/products'),
+  policy: () => request<ShopPolicy>('GET', '/policy'),
   catalogue: (pincode: string, date: string | null) => request<Catalogue>('GET', `/catalogue${qs({ pincode, delivery_date: date })}`),
   slots: (pincode: string, date: string) =>
     request<{ deliveryDate: string; slots: SlotOnDate[] }>('GET', `/delivery/slots${qs({ pincode, delivery_date: date })}`),

@@ -90,6 +90,12 @@ describe('UX-5 and box contents: prices before a pincode', () => {
 })
 
 describe('UX-3: the hold length at Pay comes from the rules', () => {
+  test('GET /v1/policy gives the live rules the help and terms pages quote', async () => {
+    const r = await api.get('/v1/policy')
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body, { holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24 })
+  })
+
   test('the quote says how many minutes the boxes are held', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)

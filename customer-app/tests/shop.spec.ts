@@ -32,6 +32,12 @@ async function addFromProductPage(page: import('@playwright/test').Page, boxes: 
     await links.nth(i).click()
     await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
     const add = page.getByRole('button', { name: /^Add to cart/ })
+    // UX-6: with Ripe sold out nothing is chosen for the customer; take the first ripeness in stock.
+    if (!(await page.getByRole('radio', { checked: true }).count())) {
+      const inStock = page.getByRole('radio', { disabled: false })
+      if (!(await inStock.count())) continue
+      await inStock.first().check()
+    }
     if (!(await add.count()) || (await add.isDisabled())) continue
     if (skip-- > 0) continue
     for (let n = 1; n < boxes; n++) await page.getByRole('button', { name: 'One box more' }).click()
@@ -584,6 +590,8 @@ test('product page: Add to cart in the first screen, three reviews then See all,
   await pick.getByRole('listitem').filter({ hasNotText: 'Sold out' }).first().getByRole('heading', { level: 3 }).getByRole('link').click()
   await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
 
+  // UX-6: with Ripe sold out nothing is chosen for the customer; choose the first ripeness in stock.
+  if (!(await page.getByRole('radio', { checked: true }).count())) await page.getByRole('radio', { disabled: false }).first().check()
   // The buy bar sits above the tabs without scrolling, and is not covered by them.
   const add = page.getByRole('button', { name: /^Add to cart · ₹/ })
   await expect(add).toBeInViewport({ ratio: 1 })

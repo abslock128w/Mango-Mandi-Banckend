@@ -14,6 +14,9 @@ const PREFETCH_FRESH_MS = 10_000
 export const catalogueQuery = (pincode: string, date: string | null) =>
   queryOptions({ queryKey: ['catalogue', pincode, date], queryFn: () => api.catalogue(pincode, date), staleTime: PREFETCH_FRESH_MS })
 
+/** Every box on sale with its price, before a pincode is known (home tiles and the product page). */
+export const productsQuery = () => queryOptions({ queryKey: ['products'], queryFn: api.products, staleTime: 5 * 60_000 })
+
 /** A product's reviews (of its whole variety) with the star summary, ten at a time. */
 export const productReviewsQuery = (sku: string, stars: number | null = null, withPhotos = false) =>
   infiniteQueryOptions({
