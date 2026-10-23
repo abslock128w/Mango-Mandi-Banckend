@@ -21,7 +21,8 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
+    {/* Navigation updates render at once, as with React Router 6 (7 defaults to transitions). */}
+    <BrowserRouter useTransitions={false}>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
           <ErrorBoundary>
