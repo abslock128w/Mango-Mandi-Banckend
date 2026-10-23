@@ -8,7 +8,7 @@ import { isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
-import { activeSlots, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
+import { activeSlots, checkCapacity, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
@@ -597,6 +597,8 @@ router.post(
         return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }
       })
       const subtotal = lines.reduce((s, l) => s + l.linePrice, 0)
+      // A full day fails here, not only at confirm (INV-I); confirm re-checks under lock.
+      await checkCapacity(c, date, lines.reduce((s, l) => s + l.qty, 0), null, { lock: false })
       const slot = await quoteSlot(c, date, b.slotId ?? null, lines.reduce((s, l) => s + l.qty, 0))
       const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, subtotal) : null
       const discount = promo?.discount ?? 0
@@ -806,7 +808,10 @@ router.get(
       claimUntil: deliveredAt ? new Date(deliveredAt.getTime() + claimWindowHours * 3_600_000) : null,
       // FE-2: after the last failed attempt nothing is rescheduled; staff call first.
       deliveryFailures: o.delivery_failures,
-      retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS : null,
+      // INV-E: a retry the boxes can't make (too old, no younger stock) waits for staff, who call.
+      retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
+      // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
+      findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
       items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       ...proof,

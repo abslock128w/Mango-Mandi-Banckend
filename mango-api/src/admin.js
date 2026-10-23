@@ -20,7 +20,7 @@ import { orderableDates, slotsForDate, slotView } from './delivery.js'
 import { env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, unauthorized } from './errors.js'
 import { newId } from './ids.js'
-import { auditLedger, availability, ledger, SELLABLE_STATUSES } from './inventory.js'
+import { ADJUST_REASONS, auditLedger, availability, ledger, SELLABLE_STATUSES } from './inventory.js'
 import { backupStatus, triggerRebalanceAll } from './maintenance.js'
 import {
   allocateOrder,
@@ -44,6 +44,7 @@ import { logger } from './logger.js'
 import { allProducts, findProduct, loadProducts, productName, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { staffReviews } from './review-routes.js'
+import { bookReturnedStock, overdueOrders, preordersNeedingDecision, returnedStockPending, WRITE_OFF_REASONS } from './stock-watch.js'
 
 export const router = express.Router()
 
@@ -371,7 +372,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const cfg = currentConfig().rules
     const today = todayIST()
-    const [counts, claims, batches, stock, risky] = await Promise.all([
+    const [counts, claims, batches, stock, risky, overdue] = await Promise.all([
       query('SELECT status, COUNT(*)::int AS n FROM orders GROUP BY status'),
       query(`SELECT COUNT(*)::int AS n FROM claims WHERE status IN ('SUBMITTED', 'UNDER_REVIEW')`),
       query(
@@ -392,6 +393,8 @@ router.get(
         `SELECT id, number, delivery_date, at_risk_reason FROM orders
           WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, number`,
       ),
+      // INV-G: paid orders past their date, or out for delivery too long.
+      overdueOrders({ query }),
     ])
     const bySku = new Map(stock.rows.map((r) => [r.sku, r.available]))
     res.json({
@@ -402,6 +405,7 @@ router.get(
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
       atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      overdueOrders: overdue,
       // FE-3: the panel marks stock past this age from the live rule, not a constant.
       maxSellableAge: cfg.maxSellableAge,
     })
@@ -603,7 +607,13 @@ async function batchDetail(c, batchId) {
   if (!rows.length) throw notFound('Batch not found')
   const b = rows[0]
   const [lines, qc] = await Promise.all([
-    c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY sku', [batchId]),
+    // packed_here: boxes packed for orders that haven't left yet. They are off on_hand but still on the shelf, so a count includes them (INV-D).
+    c.query(
+      `SELECT l.*, COALESCE((SELECT SUM(s.quantity) FROM order_stock s JOIN orders o ON o.id = s.order_id
+                              WHERE s.line_id = l.id AND s.state = 'packed' AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')), 0)::int AS packed_here
+         FROM batch_lines l WHERE l.batch_id = $1 ORDER BY l.sku`,
+      [batchId],
+    ),
     c.query('SELECT * FROM batch_qc WHERE batch_id = $1 ORDER BY logged_at DESC', [batchId]),
   ])
   return {
@@ -612,7 +622,7 @@ async function batchDetail(c, batchId) {
     // The QR printed on each box opens this page in the shop.
     lines: lines.rows.map((l) => ({
       id: l.id, sku: l.sku, productName: productName(l.sku), onHand: l.on_hand, held: l.held, committed: l.committed,
-      reserveBuffer: l.reserve_buffer, available: available(l),
+      reserveBuffer: l.reserve_buffer, available: available(l), packedNotDispatched: l.packed_here,
     })),
     qc: qc.rows.map((q) => ({
       id: q.id, ripenessRating: q.ripeness_rating, condition: q.condition, notes: q.notes, loggedBy: q.logged_by, loggedAt: q.logged_at,
@@ -649,7 +659,7 @@ router.post(
       ])
       for (const l of body.lines) {
         await c.query('INSERT INTO batch_lines (id, batch_id, sku, on_hand) VALUES ($1, $2, $3, $4)', [newId('bl'), batchId, l.sku, l.onHand])
-        if (l.onHand) await ledger(c, { batchId, eventType: 'INTAKE', sku: l.sku, delta: l.onHand, actorId: req.admin.email, reason: 'Batch received' })
+        if (l.onHand) await ledger(c, { batchId, eventType: 'INTAKE', sku: l.sku, delta: l.onHand, actorId: req.admin.id, reason: 'Batch received', reasonCode: 'RECEIVED' })
       }
       return batchDetail(c, batchId)
     })
@@ -690,7 +700,7 @@ router.patch(
       const arrivedAt = !b.arrived_at && ARRIVED_OR_LATER.includes(status) ? now() : b.arrived_at
       await c.query('UPDATE batches SET status = $2, arrived_at = $3 WHERE id = $1', [b.id, status, arrivedAt])
       await ledger(c, {
-        batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.email, reason: `${b.status} → ${status}${reason ? `: ${reason}` : ''}`,
+        batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.id, reason: `${b.status} → ${status}${reason ? `: ${reason}` : ''}`,
       })
       const actor = req.actor
       if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor, reason || null)
@@ -744,9 +754,48 @@ router.post(
   }),
 )
 
-/** An increase above this many boxes, or this share of what arrived, needs a manager (INV-04). */
+/**
+ * An increase above this many boxes, or this share of what arrived, needs a
+ * manager (INV-04). INV-C: the limit is on what non-managers changed on the line
+ * today in total (so five +20s count as +100), and big decreases need one too.
+ */
 const BIG_INCREASE_BOXES = 20
 const BIG_INCREASE_SHARE = 0.1
+
+/**
+ * Refuses a change of `delta` boxes to a line's on-hand count when it takes
+ * today's non-manager increases (or decreases) on the line past the limit.
+ * Returns the note a manager's large change adds to the reason, or null.
+ */
+async function checkAdjustLimit(c, req, l, delta) {
+  if (delta === 0) return null
+  const { rows } = await c.query(
+    `SELECT COALESCE((SELECT SUM(delta) FROM batch_ledger WHERE batch_id = $1 AND sku = $2 AND event_type = 'INTAKE'), 0)::int AS intake,
+            COALESCE(SUM(g.delta) FILTER (WHERE g.delta > 0), 0)::int AS up,
+            COALESCE(-SUM(g.delta) FILTER (WHERE g.delta < 0), 0)::int AS down
+       FROM batch_ledger g
+       LEFT JOIN admin_users a ON a.id = g.actor_id OR a.email = g.actor_id
+      WHERE g.batch_id = $1 AND g.sku = $2 AND g.event_type = 'ADJUST' AND g.actor_type = 'admin'
+        AND (g.created_at AT TIME ZONE 'Asia/Kolkata')::date = $3::date AND a.role IS DISTINCT FROM 'MANAGER'`,
+    [l.batch_id, l.sku, todayIST()],
+  )
+  const r = rows[0]
+  const limit = Math.max(BIG_INCREASE_BOXES, Math.ceil(r.intake * BIG_INCREASE_SHARE))
+  const today = delta > 0 ? r.up + delta : r.down - delta
+  if (today <= limit) return null
+  if (req.admin.role !== 'MANAGER') {
+    const sofar = delta > 0 ? r.up : r.down
+    throw new HttpError(
+      403,
+      'MANAGER_APPROVAL_NEEDED',
+      `${delta > 0 ? 'Adding' : 'Removing'} more than ${limit} boxes on a line in one day needs a manager${sofar ? ` (${sofar} already ${delta > 0 ? 'added' : 'removed'} today)` : ''}. Ask a manager to make this change.`,
+      { limit, today: sofar },
+    )
+  }
+  return `large ${delta > 0 ? 'increase' : 'decrease'} of ${Math.abs(delta)}, by a manager`
+}
+
+const reasonCode = z.enum(ADJUST_REASONS)
 
 router.patch(
   '/batches/:id/lines/:lineId',
@@ -757,6 +806,8 @@ router.patch(
           onHand: z.number().int().min(0).max(100_000).optional(),
           reserveBuffer: z.number().int().min(0).max(100_000).optional(),
           reason: z.string().trim().min(1, 'reason is required').max(500),
+          // INV-D: why, as a code the owner can report on. Older clients send none (OTHER).
+          reasonCode: reasonCode.optional(),
         })
         .refine((b) => b.onHand !== undefined || b.reserveBuffer !== undefined, 'Change onHand or reserveBuffer'),
       req.body,
@@ -780,26 +831,16 @@ router.patch(
         )
       }
       if (onHand - l.held - l.committed - buffer < 0) throw badRequest('The reserve buffer is larger than the free stock', 'BUFFER_TOO_LARGE')
-      // INV-04: boxes that appear from nowhere get sold. A big increase needs a manager's sign-off.
-      const increase = onHand - l.on_hand
-      let reason = body.reason
-      if (increase > 0) {
-        const { rows: intake } = await c.query(
-          `SELECT COALESCE(SUM(delta), 0)::int AS n FROM batch_ledger WHERE batch_id = $1 AND sku = $2 AND event_type = 'INTAKE'`,
-          [l.batch_id, l.sku],
-        )
-        const limit = Math.max(BIG_INCREASE_BOXES, Math.ceil(intake[0].n * BIG_INCREASE_SHARE))
-        if (increase > limit) {
-          if (req.admin.role !== 'MANAGER') {
-            throw new HttpError(403, 'MANAGER_APPROVAL_NEEDED', `Adding more than ${limit} boxes to a line needs a manager. Ask a manager to make this change.`, { limit })
-          }
-          reason = `${body.reason} (large increase of ${increase}, by a manager)`
-        }
-      }
+      // INV-04 / INV-C: boxes that appear from nowhere get sold, and boxes that vanish may be theft. Big changes need a manager.
+      const note = await checkAdjustLimit(c, req, l, onHand - l.on_hand)
+      const reason = note ? `${body.reason} (${note})` : body.reason
+      const code = body.reasonCode ?? 'OTHER'
       await c.query('UPDATE batch_lines SET on_hand = $2, reserve_buffer = $3 WHERE id = $1', [l.id, onHand, buffer])
-      if (onHand !== l.on_hand) await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorId: req.admin.email, reason })
+      if (onHand !== l.on_hand) {
+        await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorId: req.admin.id, reason, reasonCode: code })
+      }
       if (buffer !== l.reserve_buffer) {
-        await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorId: req.admin.email, reason: body.reason })
+        await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorId: req.admin.id, reason: body.reason, reasonCode: code })
       }
     })
     res.status(204).end()
@@ -809,16 +850,29 @@ router.patch(
 /**
  * Fewer boxes arrived than were promised (INV-3): lowers on_hand below what
  * is committed, gives the youngest orders' boxes back and re-fills or moves
- * those orders (orders.js recordShortArrival).
+ * those orders (orders.js recordShortArrival). A big drop needs a manager (INV-C).
  */
 router.post(
   '/batches/:id/lines/:lineId/short-arrival',
   asyncHandler(async (req, res) => {
     const b = parse(
-      z.object({ onHand: z.number().int().min(0).max(100_000), reason: z.string().trim().min(1, 'reason is required').max(500) }),
+      z.object({
+        onHand: z.number().int().min(0).max(100_000),
+        reason: z.string().trim().min(1, 'reason is required').max(500),
+        reasonCode: reasonCode.optional(),
+      }),
       req.body,
     )
-    const out = await tx((c) => recordShortArrival(c, { batchId: req.params.id, lineId: req.params.lineId, onHand: b.onHand, reason: b.reason }, req.actor))
+    const out = await tx((c) =>
+      recordShortArrival(
+        c,
+        {
+          batchId: req.params.id, lineId: req.params.lineId, onHand: b.onHand, reason: b.reason, reasonCode: b.reasonCode ?? 'RECEIVED',
+          check: (cc, l, delta) => checkAdjustLimit(cc, req, l, delta),
+        },
+        req.actor,
+      ),
+    )
     res.json(out)
   }),
 )
@@ -826,9 +880,18 @@ router.post(
 router.get(
   '/batches/:id/ledger',
   asyncHandler(async (req, res) => {
-    const { rows } = await query('SELECT * FROM batch_ledger WHERE batch_id = $1 ORDER BY created_at DESC, id DESC LIMIT 200', [req.params.id])
+    // actor_id is the staff id (older rows: the email); the email comes from the staff list (INV-I).
+    const { rows } = await query(
+      `SELECT g.*, a.email AS actor_email FROM batch_ledger g
+         LEFT JOIN admin_users a ON g.actor_type = 'admin' AND (a.id = g.actor_id OR a.email = g.actor_id)
+        WHERE g.batch_id = $1 ORDER BY g.created_at DESC, g.id DESC LIMIT 200`,
+      [req.params.id],
+    )
     res.json(
-      rows.map((r) => ({ id: r.id, eventType: r.event_type, sku: r.sku, delta: r.delta, actorType: r.actor_type, actorId: r.actor_id, reason: r.reason, createdAt: r.created_at })),
+      rows.map((r) => ({
+        id: r.id, eventType: r.event_type, sku: r.sku, delta: r.delta, actorType: r.actor_type, actorId: r.actor_id,
+        actorEmail: r.actor_email ?? (r.actor_id?.includes('@') ? r.actor_id : null), reason: r.reason, reasonCode: r.reason_code ?? null, createdAt: r.created_at,
+      })),
     )
   }),
 )
@@ -925,6 +988,8 @@ export async function orderDetail(c, orderId) {
       linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
     })),
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
+    // INV-F: boxes on a cancelled or returned order that staff still have to put back or write off.
+    returnedBoxes: ['CANCELLED', 'RTO'].includes(o.status) ? stock.rows.filter((s) => s.state === 'packed').reduce((n, s) => n + s.quantity, 0) : 0,
     events: events.rows.map((e) => ({ status: e.status, fromStatus: e.from_status, actor: e.actor, reason: e.reason, createdAt: e.created_at })),
     deliveryAttempts,
     payment: o.payment_status || o.payment_method
@@ -983,6 +1048,25 @@ router.post(
       await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
     }
     res.status(204).end()
+  }),
+)
+
+/**
+ * INV-F: the boxes of an order cancelled or returned after it left the store
+ * come back on the shelf (RESTOCK) or are written off with a reason (WRITE_OFF).
+ */
+router.post(
+  '/orders/:id/returned-stock',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({
+        action: z.enum(['RESTOCK', 'WRITE_OFF']),
+        reasonCode: z.enum(WRITE_OFF_REASONS).optional(),
+        reason: z.string().trim().min(1, 'reason is required').max(300),
+      }),
+      req.body ?? {},
+    )
+    res.json(await tx((c) => bookReturnedStock(c, req.params.id, b, req.actor)))
   }),
 )
 
@@ -1343,7 +1427,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -1387,6 +1471,16 @@ router.get(
       auditLedger({ query }),
       // The Docker server's nightly backup (null where none is expected, as on Vercel).
       backupStatus(at),
+      // INV-G, INV-H, INV-F: late orders, preorders that keep moving, boxes back from cancelled or returned orders.
+      overdueOrders({ query }, at),
+      preordersNeedingDecision({ query }),
+      returnedStockPending({ query }),
+      // INV-E: a missed delivery whose retry can't go out as packed (too old, no younger stock).
+      query(
+        `SELECT id, number, delivery_date, at_risk_reason FROM orders
+          WHERE status = 'DELIVERY_FAILED' AND at_risk AND delivery_failures < $1 ORDER BY delivery_date, number LIMIT 50`,
+        [MAX_DELIVERY_ATTEMPTS],
+      ),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -1411,6 +1505,10 @@ router.get(
       photoDeliveries: photos,
       webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
       ledgerDrift: drift.slice(0, 50),
+      overdueOrders: overdue.slice(0, 50),
+      preorderDecisions: preorderCalls.slice(0, 50),
+      returnedStock: returned.slice(0, 50),
+      retryDecisions: stuckRetries.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
       lowRatings: lowRatings.rows.map((r) => ({
         id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },
       })),

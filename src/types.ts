@@ -108,8 +108,20 @@ export interface Summary {
   lowStock: { sku: string; productName: string; available: number }[]
   /** Open orders the stock engine could not keep whole. Ops must act on these. */
   atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  /** Paid orders past their delivery date, or out for delivery too long (INV-G). */
+  overdueOrders?: OverdueOrder[]
   /** Batches this many days old or older are past the sell limit (the live rule). */
   maxSellableAge?: number
+}
+
+export interface OverdueOrder {
+  id: string
+  number: string
+  status: OrderStatus
+  deliveryDate: string
+  daysLate: number
+  outSince: string | null
+  reason: string
 }
 
 export interface BatchListItem {
@@ -136,7 +148,12 @@ export interface BatchLine {
   committed: number
   reserveBuffer: number
   available: number
+  /** Packed for orders that haven't left yet: off on hand but still on the shelf, so a count includes them. */
+  packedNotDispatched?: number
 }
+
+/** Why staff changed a count (stored on the ledger row). */
+export type AdjustReason = 'CORRECTION' | 'COUNT' | 'RECEIVED' | 'DAMAGED' | 'THEFT_LOSS' | 'RETURN_RESTOCK' | 'OTHER'
 
 export interface QcEntry {
   id: string
@@ -166,7 +183,10 @@ export interface LedgerEntry {
   delta: number
   actorType: string
   actorId: string
+  /** The staff member's email, when actorId is a staff id. */
+  actorEmail?: string | null
   reason: string | null
+  reasonCode?: AdjustReason | null
   createdAt: string
 }
 
@@ -257,6 +277,8 @@ export interface OrderDetail {
   deliveryAttempts?: DeliveryAttempt[]
   /** The customer's rating after delivery. */
   rating?: { stars: number; comment: string | null; at: string } | null
+  /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
+  returnedBoxes?: number
 }
 
 export type FailReason = 'NOT_HOME' | 'WRONG_ADDRESS' | 'REFUSED' | 'UNREACHABLE' | 'OTHER'
@@ -380,6 +402,12 @@ export interface Rules {
   claimWindowHours: number
   maxUnpaidOrders: number
   maxHeldBoxes: number
+  /** An order out for delivery this long shows as overdue. */
+  outForDeliveryAlertHours?: number
+  /** A preorder moved forward more times than this waits for a manager. */
+  maxPreorderMoves?: number
+  /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
+  seasonEndsOn?: string | null
   stageProfiles: Record<string, StageWindow[]>
 }
 
@@ -556,6 +584,14 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Paid orders past their date or out for delivery too long. */
+  overdueOrders?: OverdueOrder[]
+  /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */
+  retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  /** Paid preorders moved forward too often or booked past the season end. */
+  preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
+  /** Cancelled or returned orders whose boxes are still to be put back or written off. */
+  returnedStock?: { id: string; number: string; status: OrderStatus; boxes: number }[]
 }
 
 export interface LedgerDrift {

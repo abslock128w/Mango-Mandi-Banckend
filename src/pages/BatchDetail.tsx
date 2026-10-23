@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from '../api'
-import { BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize } from '../format'
+import { ADJUST_REASON_LABEL, BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize } from '../format'
 import { can, canSee } from '../permissions'
 import { useSession } from '../session'
-import { BATCH_FLOW, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Ripeness } from '../types'
+import { BATCH_FLOW, type AdjustReason, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Ripeness } from '../types'
 import {
   BackLink,
   BatchBadge,
@@ -58,6 +58,7 @@ export default function BatchDetail() {
 
 function BatchView({ batch }: { batch: Batch }) {
   const [adjusting, setAdjusting] = useState<BatchLine | null>(null)
+  const [counting, setCounting] = useState(false)
   const [params] = useSearchParams()
   const [tab, setTab] = useState<'qc' | 'ledger'>('qc')
 
@@ -76,7 +77,15 @@ function BatchView({ batch }: { batch: Batch }) {
       <StatusControls batch={batch} />
 
       <section className="card">
-        <h2>Stock</h2>
+        <div className="topbar section-head">
+          <h2>Stock</h2>
+          <span className="spacer" />
+          {!isFinal(batch.status) && (
+            <button type="button" className="btn" onClick={() => setCounting(true)}>
+              Count stock
+            </button>
+          )}
+        </div>
         <div {...scrollRegion('Stock per SKU')}>
           <table>
             <thead>
@@ -145,6 +154,7 @@ function BatchView({ batch }: { batch: Batch }) {
       </section>
 
       {adjusting && <AdjustDialog batchId={batch.id} line={adjusting} onClose={() => setAdjusting(null)} />}
+      {counting && <CountDialog batch={batch} onClose={() => setCounting(false)} />}
     </>
   )
 }
@@ -496,8 +506,10 @@ function LedgerPanel({ batchId }: { batchId: string }) {
               <td className={`num ${e.delta < 0 ? 'text-danger' : e.delta > 0 ? 'text-good' : ''}`}>
                 {e.delta > 0 ? `+${e.delta}` : e.delta}
               </td>
-              <td>{actorLabel(e.actorId, e.actorType, staffEmail)}</td>
-              <td>{ledgerReason(e)}</td>
+              <td>{e.actorEmail ?? actorLabel(e.actorId, e.actorType, staffEmail)}</td>
+              <td>
+                {e.reasonCode && <span className="badge">{ADJUST_REASON_LABEL[e.reasonCode] ?? humanize(e.reasonCode)}</span>} {ledgerReason(e)}
+              </td>
               <td>{dateTime(e.createdAt)}</td>
             </tr>
           ))}
@@ -513,10 +525,12 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
   const [onHand, setOnHand] = useState(String(line.onHand))
   const [reserve, setReserve] = useState(String(line.reserveBuffer))
   const [reason, setReason] = useState('')
+  // Until staff pick one: Received for a short arrival, Correction otherwise.
+  const [picked, setCode] = useState<AdjustReason | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
   const save = useMutation({
-    mutationFn: (input: { onHand?: number; reserveBuffer?: number; reason: string }) =>
+    mutationFn: (input: { onHand?: number; reserveBuffer?: number; reason: string; reasonCode: AdjustReason }) =>
       api.adjustLine(batchId, line.id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
@@ -530,8 +544,9 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
   const ohNumber = Number(onHand)
   // Fewer boxes than customers already hold: a short arrival, which takes boxes back from orders.
   const short = Number.isInteger(ohNumber) && ohNumber >= 0 && ohNumber < promised
+  const code: AdjustReason = picked ?? (short ? 'RECEIVED' : 'CORRECTION')
   const shortArrival = useMutation({
-    mutationFn: (input: { onHand: number; reason: string }) => api.shortArrival(batchId, line.id, input),
+    mutationFn: (input: { onHand: number; reason: string; reasonCode: AdjustReason }) => api.shortArrival(batchId, line.id, input),
     onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
       queryClient.invalidateQueries({ queryKey: ['ledger', batchId] })
@@ -557,8 +572,8 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
       return setFormError('Enter whole numbers of zero or more.')
     }
     if (!reason.trim()) return setFormError('A reason is required.')
-    if (short) return shortArrival.mutate({ onHand: oh, reason: reason.trim() })
-    const input: { onHand?: number; reserveBuffer?: number; reason: string } = { reason: reason.trim() }
+    if (short) return shortArrival.mutate({ onHand: oh, reason: reason.trim(), reasonCode: code })
+    const input: { onHand?: number; reserveBuffer?: number; reason: string; reasonCode: AdjustReason } = { reason: reason.trim(), reasonCode: code }
     if (oh !== line.onHand) input.onHand = oh
     if (rb !== line.reserveBuffer) input.reserveBuffer = rb
     if (input.onHand === undefined && input.reserveBuffer === undefined) return setFormError('Nothing has changed.')
@@ -593,6 +608,16 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
           <input id="adj-reserve" type="number" min={0} step={1} value={reserve} onChange={(e) => setReserve(e.target.value)} />
         </div>
         <div className="field">
+          <label htmlFor="adj-code">Why</label>
+          <select id="adj-code" value={code} onChange={(e) => setCode(e.target.value as AdjustReason)}>
+            {ADJUST_CODES.map((c) => (
+              <option key={c} value={c}>
+                {ADJUST_REASON_LABEL[c]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
           <label htmlFor="adj-reason">Reason</label>
           <input id="adj-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. 4 boxes crushed in unloading" />
         </div>
@@ -603,6 +628,130 @@ function AdjustDialog({ batchId, line, onClose }: { batchId: string; line: Batch
           </p>
         )}
         <FormError error={formError ?? save.error ?? shortArrival.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+/** Reasons staff pick when changing a count by hand (Return restock is booked from the order). */
+const ADJUST_CODES: AdjustReason[] = ['CORRECTION', 'COUNT', 'RECEIVED', 'DAMAGED', 'THEFT_LOSS', 'OTHER']
+
+/**
+ * A physical count (INV-D): per line, the boxes on the shelf, including those
+ * packed for orders that haven't left yet (they are off "on hand" already).
+ * Shows the difference from the books, then posts each difference as an
+ * adjustment with reason Count, or as a short arrival when the count is below
+ * what customers already hold.
+ */
+function CountDialog({ batch, onClose }: { batch: Batch; onClose: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const [counted, setCounted] = useState<Record<string, string>>({})
+  const [done, setDone] = useState<string[]>([])
+  const rows = batch.lines.map((l) => {
+    const packed = l.packedNotDispatched ?? 0
+    const expected = l.onHand + packed
+    const raw = counted[l.id] ?? ''
+    const n = raw === '' ? null : Number(raw)
+    const valid = n !== null && Number.isInteger(n) && n >= 0
+    return { l, packed, expected, n: valid ? n : null, invalid: raw !== '' && !valid, variance: valid ? n - expected : null }
+  })
+  const changes = rows.filter((r) => r.variance !== null && r.variance !== 0 && !done.includes(r.l.id))
+  const tooFew = rows.find((r) => r.n !== null && r.n < r.packed)
+
+  const post = useMutation({
+    mutationFn: async () => {
+      for (const r of changes) {
+        const onHand = (r.n as number) - r.packed
+        const reason = `Physical count: ${r.n} counted${r.packed ? `, ${r.packed} of them packed for orders not yet dispatched` : ''} (books said ${r.expected})`
+        if (onHand < r.l.held + r.l.committed) await api.shortArrival(batch.id, r.l.id, { onHand, reason, reasonCode: 'COUNT' })
+        else await api.adjustLine(batch.id, r.l.id, { onHand, reason, reasonCode: 'COUNT' })
+        setDone((d) => [...d, r.l.id])
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['batch', batch.id] })
+      queryClient.invalidateQueries({ queryKey: ['ledger', batch.id] })
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
+      queryClient.invalidateQueries({ queryKey: ['orders'] })
+    },
+    onSuccess: () => {
+      toast.success('Count recorded')
+      onClose()
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    if (changes.length && !tooFew && !rows.some((r) => r.invalid)) post.mutate()
+  }
+
+  return (
+    <Dialog
+      title="Count stock"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="count-form" className="btn btn-primary" disabled={post.isPending || !changes.length || Boolean(tooFew)}>
+            {post.isPending ? 'Saving…' : changes.length ? `Record ${changes.length} ${changes.length === 1 ? 'difference' : 'differences'}` : 'No differences'}
+          </button>
+        </>
+      }
+    >
+      <form id="count-form" onSubmit={onSubmit} noValidate>
+        <p className="muted small">
+          Count every box of this batch on the shelf, including boxes already packed for orders that haven't left. Each difference is
+          saved with the reason Count.
+        </p>
+        <div {...scrollRegion('Count per SKU')}>
+          <table>
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th className="num">Books</th>
+                <th className="num">Counted</th>
+                <th className="num">Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.l.id}>
+                  <td>
+                    {r.l.productName ?? r.l.sku}
+                    {r.packed > 0 && <div className="muted small">{r.packed} packed, not yet dispatched</div>}
+                  </td>
+                  <td className="num">{r.expected}</td>
+                  <td className="num">
+                    <label className="sr-only" htmlFor={`count-${r.l.id}`}>
+                      Boxes counted for {r.l.sku}
+                    </label>
+                    <input
+                      id={`count-${r.l.id}`}
+                      inputMode="numeric"
+                      size={5}
+                      value={counted[r.l.id] ?? ''}
+                      aria-invalid={r.invalid || undefined}
+                      onChange={(e) => setCounted({ ...counted, [r.l.id]: e.target.value.trim() })}
+                    />
+                  </td>
+                  <td className={`num ${r.variance && r.variance < 0 ? 'text-danger' : r.variance ? 'text-good' : ''}`}>
+                    {r.variance === null ? '—' : r.variance > 0 ? `+${r.variance}` : r.variance}
+                    {done.includes(r.l.id) && <span className="muted small"> saved</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {tooFew && (
+          <p className="notice notice-warn" role="status">
+            {tooFew.l.sku}: fewer boxes than are packed for orders ({tooFew.packed}). Check the packed orders first.
+          </p>
+        )}
+        <FormError error={post.error} />
       </form>
     </Dialog>
   )

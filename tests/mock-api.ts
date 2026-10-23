@@ -258,6 +258,9 @@ export function seed() {
         claimWindowHours: 24,
         maxUnpaidOrders: 1,
         maxHeldBoxes: 40,
+        outForDeliveryAlertHours: 8,
+        maxPreorderMoves: 3,
+        seasonEndsOn: null as string | null,
         stageProfiles: {
           default: [
             { stage: 'RAW', minAge: 3, maxAge: 3 },
@@ -439,6 +442,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
         notMoved: [{ ...picked[1], reason: 'No stock on 2026-10-16 or any later open date' }],
       })
     }
+    if (/^\/orders\/[^/]+\/returned-stock$/.test(path)) return json(route, 200, { boxes: 2 })
     if (/^\/orders\/[^/]+\/status$/.test(path)) {
       // DELIVERED from the panel is a manager's override with a reason (mirrors the API).
       const b = body as { status: string; override?: boolean; reason?: string }

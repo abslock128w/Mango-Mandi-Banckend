@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { NOTIFICATION_LABEL, dateTime, humanize } from '../format'
+import { NOTIFICATION_LABEL, date, dateTime, humanize } from '../format'
 import type { NotificationKind, PhotoDelivery } from '../types'
 import { PhoneLink, QueryError, ReasonDialog, useToast } from '../ui'
 
@@ -82,6 +82,10 @@ export default function NeedsAttention() {
   const photos = (a.photoDeliveries ?? []).filter((d) => d.method !== 'staff')
   const noProof = (a.photoDeliveries ?? []).filter((d) => d.method === 'staff')
   const drift = a.ledgerDrift ?? []
+  const overdue = a.overdueOrders ?? []
+  const retries = a.retryDecisions ?? []
+  const preorders = a.preorderDecisions ?? []
+  const returned = a.returnedStock ?? []
 
   const photoItem = (d: PhotoDelivery) => (
     <li key={`photo-${d.id}`}>
@@ -134,6 +138,27 @@ export default function NeedsAttention() {
       ],
     },
     {
+      key: 'overdue',
+      title: 'Overdue deliveries',
+      items: overdue.map((o) => (
+        <li key={`overdue-${o.id}`}>
+          <strong>Overdue:</strong> <Link to={`/orders/${o.id}`}>{o.number}</Link> was due {date(o.deliveryDate)}
+          <span className="muted">: {o.reason}</span>. Find out where it is and tell the customer.
+        </li>
+      )),
+    },
+    {
+      key: 'retry',
+      title: 'Missed deliveries for a manager',
+      items: retries.map((o) => (
+        <li key={`retry-${o.id}`}>
+          <strong>Retry can't go out as packed</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>
+          {o.reason ? <span className="muted">: {o.reason}</span> : null}. A manager sends a replacement, moves the date or
+          cancels with a refund. The customer has not been sent a new date.
+        </li>
+      )),
+    },
+    {
       key: 'calls',
       title: 'Call the customer',
       items: calls.map((o) => (
@@ -165,6 +190,20 @@ export default function NeedsAttention() {
           (on hand {l.onHand[0]} vs {l.onHand[1]}, held {l.held[0]} vs {l.held[1]}, to pack {l.committed[0]} vs {l.committed[1]})
         </span>
         . Check the batch before selling more from it.
+      </li>
+    )) },
+    { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
+      <li key={`returned-${r.id}`}>
+        <strong>
+          {r.boxes} {r.boxes === 1 ? 'box' : 'boxes'} from <Link to={`/orders/${r.id}`}>{r.number}</Link>
+        </strong>{' '}
+        ({r.status === 'RTO' ? 'returned' : 'cancelled after it left'}): put them back on the shelf or write them off from the order page.
+      </li>
+    )) },
+    { key: 'preorders', title: 'Preorders for a manager', items: preorders.map((p) => (
+      <li key={`pre-${p.id}`}>
+        <strong>Preorder {p.number}</strong> ({p.qty} × {p.sku}{p.customerName ? `, ${p.customerName}` : ''})
+        <span className="muted">: {p.reason}</span>. <Link to="/preorders">Keep it or cancel it with a refund</Link>.
       </li>
     )) },
     { key: 'no-proof', title: 'Deliveries marked without proof', items: noProof.map(photoItem) },

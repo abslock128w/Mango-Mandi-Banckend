@@ -258,12 +258,21 @@ function OrderView({ order }: { order: Order }) {
           <ClaimPrompt order={order} loading={claims.isPending} />
         ))}
 
+      {order.findingStock && (
+        <section className="card note-card" role="status">
+          <p>
+            <strong>We're finding fresh stock for your order.</strong> Your payment is safe. The delivery day may change, and we'll message you on
+            WhatsApp as soon as it's settled. You can still cancel for a full refund until it's packed.
+          </p>
+        </section>
+      )}
+
       {order.status === 'DELIVERY_FAILED' && (
         <section className="card note-card">
           {/* No retry booked after the last attempt: never name the missed day as the next one. */}
           {order.retryScheduled === false ? (
             <p>
-              <strong>We missed you again.</strong> We'll call you to arrange a new delivery.
+              <strong>We missed you{order.deliveryFailures > 1 ? ' again' : ''}.</strong> We'll call you to arrange a new delivery.
             </p>
           ) : (
             <p>

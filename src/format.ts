@@ -181,6 +181,17 @@ export const LEDGER_EVENT_LABEL: Record<string, string> = {
   RETIRE: 'Retired',
 }
 
+/** Why a count changed (the ledger's reason code). */
+export const ADJUST_REASON_LABEL: Record<string, string> = {
+  CORRECTION: 'Correction',
+  COUNT: 'Count',
+  RECEIVED: 'Received',
+  DAMAGED: 'Damaged',
+  THEFT_LOSS: 'Theft or loss',
+  RETURN_RESTOCK: 'Return restock',
+  OTHER: 'Other',
+}
+
 /** "RIPE" → "Ripe"; unknown or empty stays readable. */
 export function ripenessLabel(stage: string | null | undefined): string {
   if (!stage) return '—'
