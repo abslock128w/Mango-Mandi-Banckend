@@ -18,7 +18,9 @@ export default function Login() {
   const [error, setError] = useState<unknown>(null)
   const [ticket, setTicket] = useState<string | null>(null)
 
-  const from = (location.state as { from?: string } | null)?.from ?? '/'
+  // Only a path on this site (SEC-11): "//host" and "/\host" would be another site.
+  const asked = (location.state as { from?: string } | null)?.from
+  const from = asked && /^\/(?![/\\])/.test(asked) ? asked : '/'
   if (me) return <Navigate to={from} replace />
 
   function done(signedIn: Me) {

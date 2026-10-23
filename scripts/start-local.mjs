@@ -3,10 +3,15 @@
 // the shop and the staff panel, then opens them in the browser.
 //
 //   node scripts/start-local.mjs            (add --no-open to skip the browser)
+//   node scripts/start-local.mjs --phone    (also open the shop on your phone, see below)
+//   node scripts/start-local.mjs --wifi     (the shop on this Wi-Fi only, no public link)
 //
 // Ctrl+C or closing the window stops everything. Data is kept in .local/ between runs.
-// It also makes a temporary phone link (https://….trycloudflare.com) to the shop that works on any
-// network, and shares the shop on this Wi-Fi. Add --no-phone to keep everything on this computer.
+// By default everything stays on this computer. --phone also makes a temporary public link
+// (https://….trycloudflare.com) to the shop that works on any network, and shares the shop on
+// this Wi-Fi. Anyone who has that link can use the shop, so with --phone (and --wifi) the test
+// stand-ins are switched off (SEC-01): sign-in codes are printed in this window instead of on
+// screen, and the test-mode pay route (/v1/dev) is not reachable through the shop.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -24,11 +29,40 @@ function wifiAddresses() {
   const rank = (ip) => (ip.startsWith('192.168.') ? 0 : ip.startsWith('10.') ? 1 : /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ? 2 : 9)
   return [...new Set(all.map((a) => a.address))].filter((ip) => rank(ip) < 9).sort((a, b) => rank(a) - rank(b))
 }
-const PHONE = !process.argv.includes('--no-phone') && !process.argv.includes('--no-wifi')
-const WIFI = PHONE ? wifiAddresses() : []
 const SHOP = 'http://localhost:5174'
 const PANEL = 'http://localhost:5173'
 const API = 'http://localhost:3000'
+
+/**
+ * What to start for these command-line flags (unit-tested in tests/unit/start-local.unit.ts).
+ * The shop leaves this computer only when asked: --phone (public link and Wi-Fi) or --wifi.
+ * Then the API runs without its test stand-ins that would be open to anyone on the link.
+ */
+export function localPlan(argv, wifiIps = []) {
+  const link = argv.includes('--phone')
+  const shared = link || argv.includes('--wifi')
+  const wifi = shared ? wifiIps : []
+  const api = {
+    NODE_ENV: 'development',
+    COOKIE_SECURE: 'false',
+    // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopEnv).
+    ENABLE_DEV_ROUTES: 'true',
+    LOG_LEVEL: 'warn',
+    // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
+    CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
+    // Shared: login codes stay out of the API's answers and are printed here instead.
+    ...(shared ? { OTP_CODE_IN_RESPONSE: 'false', LOG_OTP_CODES: 'true', SMS_PROVIDER: 'log' } : {}),
+  }
+  // Shared, the shop calls its own address and Vite passes /v1 (never /v1/dev) to the API, so
+  // phones need only port 5174. On this computer alone it calls the API directly.
+  const shopEnv = shared ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
+  const shopCmd = `npx vite --config customer-app/vite.config.ts --port 5174 --strictPort --force${wifi.length ? ' --host 0.0.0.0' : ''}`
+  return { link, shared, wifi, api, shopEnv, shopCmd }
+}
+
+const PLAN = localPlan(process.argv, process.argv.includes('--phone') || process.argv.includes('--wifi') ? wifiAddresses() : [])
+const PHONE = PLAN.link
+const WIFI = PLAN.wifi
 const children = []
 
 const say = (msg) => console.log(`\n==> ${msg}`)
@@ -97,9 +131,6 @@ async function stop(code = 0) {
   await db?.stop().catch(() => {})
   process.exit(code)
 }
-process.on('SIGINT', () => stop(0))
-process.on('SIGTERM', () => stop(0))
-
 async function main() {
   const major = Number(process.versions.node.split('.')[0])
   if (major < 22) throw new Error(`Node 22 or newer is needed (this is ${process.versions.node})`)
@@ -141,23 +172,12 @@ async function main() {
   if (fresh) await db.createDatabase('mango')
 
   say('Starting the API (it adds demo stock and staff logins)')
-  start('node src/index.js', path.join(root, 'mango-api'), {
-    DATABASE_URL: `postgres://mango:mango@localhost:${DB_PORT}/mango`,
-    NODE_ENV: 'development',
-    COOKIE_SECURE: 'false',
-    // The shop's test-mode pay buttons use /v1/dev.
-    ENABLE_DEV_ROUTES: 'true',
-    LOG_LEVEL: 'warn',
-    // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
-    CUSTOMER_ORIGIN: [SHOP, ...WIFI.map((ip) => `http://${ip}:5174`)].join(','),
-  })
+  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: `postgres://mango:mango@localhost:${DB_PORT}/mango`, ...PLAN.api })
   await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')
   start('npx vite --port 5173 --strictPort --force', root, { VITE_API_URL: API }, true)
-  // The shop calls its own address and Vite passes /v1 to the API, so phones need only port 5174.
-  const shopEnv = PHONE ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
-  start(`npx vite --config customer-app/vite.config.ts --port 5174 --strictPort --force${WIFI.length ? ' --host 0.0.0.0' : ''}`, root, shopEnv, true)
+  start(PLAN.shopCmd, root, PLAN.shopEnv, true)
   await waitFor(SHOP)
   await waitFor(PANEL)
   const phoneLink = PHONE ? await startPhoneLink() : null
@@ -168,9 +188,9 @@ async function main() {
   }
   console.log(`
 MandiMangoes is running.
-  Shop:         ${SHOP}   (the sign-in code shows on screen)
+  Shop:         ${SHOP}   (${PLAN.shared ? 'the sign-in code is printed in this window' : 'the sign-in code shows on screen'})
   Staff panel:  ${PANEL}   (manager@mandimangoes.test / manager123)
-
+${PLAN.shared ? SHARED_WARNING : '\nTo open the shop on your phone too, start it with --phone.\n'}
 ${
     phoneLink
       ? `
@@ -187,6 +207,13 @@ Or, on the same Wi-Fi as this computer: ${WIFI.map((ip) => `http://${ip}:5174`).
   }
 Leave this window open. Press Ctrl+C or close it to stop.`)
 }
+
+const SHARED_WARNING = `
+  WARNING: the shop is shared beyond this computer${PHONE ? ', on a public link anyone who has it can open' : ', on this Wi-Fi'}.
+  Use demo data only, never real customers' details. Sign-in codes are printed in this window
+  (not on screen), and test-mode payment (/v1/dev) is off through the shared shop.
+  Stop it with Ctrl+C when you are done.
+`
 
 /** Opens a temporary public https link to the shop with Cloudflare's free quick tunnel; null if it fails. */
 async function startPhoneLink() {
@@ -221,7 +248,14 @@ async function startPhoneLink() {
   })
 }
 
-main().catch((err) => {
-  console.error(`\nSomething went wrong: ${err.message}`)
-  stop(1)
-})
+// Run, unless a test imported this file for localPlan.
+// (Compared as paths, ignoring case: Windows may spell the drive letter either way.)
+const isMain = Boolean(process.argv[1]) && path.resolve(fileURLToPath(import.meta.url)).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()
+if (isMain) {
+  process.on('SIGINT', () => stop(0))
+  process.on('SIGTERM', () => stop(0))
+  main().catch((err) => {
+    console.error(`\nSomething went wrong: ${err.message}`)
+    stop(1)
+  })
+}
