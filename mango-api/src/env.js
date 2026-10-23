@@ -41,6 +41,18 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // UX-4: "we got your claim" and "claim rejected, because …". Turn on once Meta approves
+  // mandi_claim_received and mandi_claim_rejected (each with an "Open order" URL button).
+  WHATSAPP_CLAIM_UPDATES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // UX-7: an "Open order" URL button (https://<shop>/orders/{{1}}) on the order update templates.
+  // Turn on only once Meta has approved the new versions with that button (mango-api/README.md).
+  WHATSAPP_ORDER_LINKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).

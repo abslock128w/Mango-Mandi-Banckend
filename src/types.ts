@@ -287,6 +287,8 @@ export type NotificationKind =
   | 'CANCELLED'
   | 'REFUNDED'
   | 'DATE_MOVED'
+  | 'CLAIM_RECEIVED'
+  | 'CLAIM_REJECTED'
 
 /** A WhatsApp update to the customer, sent from an outbox with retries. */
 export interface OrderNotification {

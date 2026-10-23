@@ -16,6 +16,7 @@ import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcilePendingPayments, refundDuplicatePayments, refundOrder } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment, refundPreorder } from './preorders.js'
@@ -306,11 +307,26 @@ router.get(
         const qty = pool.get(key) ?? 0
         return {
           sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', photoUrl: p.photoUrl, stage,
+          fruitsPerBox: p.fruitsPerBox, fruitWeightG: p.fruitWeightG,
           qty, eatBy: eatByFor(stage, date), nextAvailableDate: qty > 0 ? null : (later.find(([, lp]) => lp.get(key) > 0)?.[0] ?? null),
         }
       }),
     )
     res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items })
+  }),
+)
+
+/**
+ * UX-5: every box on sale with its price, before a pincode is known, so a first visit
+ * (or a visitor from outside the delivery area) sees the varieties and prices. Stock and
+ * ripeness depend on the delivery day, so they stay on /catalogue, which needs a pincode.
+ */
+router.get('/products', (_req, res) =>
+  res.json({
+    items: shopProducts().map((p) => ({
+      sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', photoUrl: p.photoUrl,
+      fruitsPerBox: p.fruitsPerBox, fruitWeightG: p.fruitWeightG,
+    })),
   }),
 )
 
@@ -607,7 +623,8 @@ router.post(
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
-      return { quoteId, ...data, expiresAt }
+      // UX-3: how long the boxes are held once Pay is tapped, from the live rule (the review step says so).
+      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes }
     })
     res.json(quote)
   }),
@@ -1024,6 +1041,8 @@ router.post(
         const linked = await c.query('UPDATE claim_photos SET claim_id = $1 WHERE id = ANY($2) AND customer_id = $3 AND claim_id IS NULL', [id, photoIds, req.customer.id])
         if (linked.rowCount !== photoIds.length) throw badRequest('One of the photos was not found. Add it again.', 'PHOTO_NOT_FOUND')
       }
+      // UX-4: "we got your report" on WhatsApp, once Meta approves mandi_claim_received.
+      if (env.WHATSAPP_CLAIM_UPDATES) await enqueue(c, b.orderId, id, 'CLAIM_RECEIVED')
       return { id, status: 'SUBMITTED', photos: photoIds.length }
     })
     res.status(201).json(claim)
@@ -1041,6 +1060,7 @@ router.get(
     res.json(
       rows.map((c) => ({
         id: c.id, orderId: c.order_id, orderNumber: c.number, issueType: c.issue_type, status: c.status, resolution: c.resolution,
+        rejectionReason: c.resolution === 'REJECTED' ? (c.resolution_note ?? null) : null,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null, createdAt: c.created_at,
       })),
     )

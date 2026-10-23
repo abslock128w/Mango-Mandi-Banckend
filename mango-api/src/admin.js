@@ -422,9 +422,12 @@ const productFields = {
   hsnCode: z.string().trim().regex(/^\d{4,8}$/, 'HSN is 4 to 8 digits').nullable(),
   description: z.string().trim().max(300),
   sortOrder: z.number().int().min(0).max(10_000),
+  // What is in the box, shown on the product page when set (both optional).
+  fruitsPerBox: z.number().int().min(1, 'At least 1 mango').max(200).nullable(),
+  fruitWeightG: z.number().int().min(50, 'Give the weight of one mango in grams, 50 or more').max(3000).nullable(),
 }
 // Fresh mangoes: HSN 0804 50, nil GST.
-const productDefaults = { boxSize: '', gstRate: 0, hsnCode: '08045020', description: '', sortOrder: 0 }
+const productDefaults = { boxSize: '', gstRate: 0, hsnCode: '08045020', description: '', sortOrder: 0, fruitsPerBox: null, fruitWeightG: null }
 
 /** Adds a product. It goes on sale at once; stock arrives with the next batch. */
 router.post(
@@ -439,9 +442,9 @@ router.post(
       req.body,
     )
     const { rows } = await query(
-      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description, sort_order, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (sku) DO NOTHING RETURNING sku`,
-      [b.sku, b.name, b.variety, b.boxSize, b.price, b.gstRate, b.hsnCode, b.description, b.sortOrder, now()],
+      `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description, sort_order, created_at, fruits_per_box, fruit_weight_g)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (sku) DO NOTHING RETURNING sku`,
+      [b.sku, b.name, b.variety, b.boxSize, b.price, b.gstRate, b.hsnCode, b.description, b.sortOrder, now(), b.fruitsPerBox, b.fruitWeightG],
     )
     if (!rows.length) throw conflict('A product with that SKU already exists', 'PRODUCT_EXISTS')
     await loadProducts()
@@ -461,21 +464,34 @@ router.patch(
   requireManager,
   asyncHandler(async (req, res) => {
     const fields = Object.fromEntries(Object.entries(productFields).map(([k, v]) => [k, v.optional()]))
-    const b = parse(z.object({ ...fields, active: z.boolean().optional() }).strict(), req.body)
+    // ADM-2: an optional reason, kept in the staff activity with the values before the change.
+    const b = parse(z.object({ ...fields, active: z.boolean().optional(), reason: z.string().trim().max(300).optional() }).strict(), req.body)
     const sku = req.params.sku
     await tx(async (c) => {
-      const { rows } = await c.query('SELECT variety FROM products WHERE sku = $1 FOR UPDATE', [sku])
+      const { rows } = await c.query('SELECT * FROM products WHERE sku = $1 FOR UPDATE', [sku])
       if (!rows.length) throw notFound('No product with that SKU')
       if (b.variety !== undefined && b.variety !== rows[0].variety) {
         const used = await c.query('SELECT 1 FROM batch_lines WHERE sku = $1 LIMIT 1', [sku])
         if (used.rows.length) throw conflict('The variety cannot change once a batch holds this product. Add a new product instead.', 'VARIETY_LOCKED')
       }
-      const cols = { name: 'name', variety: 'variety', boxSize: 'box_size', price: 'price', gstRate: 'gst_rate', hsnCode: 'hsn_code', description: 'description', sortOrder: 'sort_order', active: 'active' }
+      const cols = {
+        name: 'name', variety: 'variety', boxSize: 'box_size', price: 'price', gstRate: 'gst_rate', hsnCode: 'hsn_code', description: 'description', sortOrder: 'sort_order', active: 'active',
+        fruitsPerBox: 'fruits_per_box', fruitWeightG: 'fruit_weight_g',
+      }
       const set = Object.entries(cols).filter(([k]) => b[k] !== undefined)
       await c.query(
         `UPDATE products SET ${set.map(([, col], i) => `${col} = $${i + 2}`).concat(`updated_at = $${set.length + 2}`).join(', ')} WHERE sku = $1`,
         [sku, ...set.map(([k]) => b[k]), now()],
       )
+      // ADM-2: the staff activity row, with what each changed field was before, written with the
+      // change itself so it cannot be lost after the response. The generic after-response row is skipped.
+      const was = (k, col) => (k === 'gstRate' ? Number(rows[0][col]) : rows[0][col])
+      const before = Object.fromEntries(set.filter(([k, col]) => was(k, col) !== b[k]).map(([k, col]) => [k, was(k, col)]))
+      await c.query(
+        `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, request_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [newId('aud'), req.admin.id ?? null, req.admin.email, req.admin.role, 'PATCH /products/:sku', sku, { ...b, before }, req.id ?? null, now()],
+      )
+      req.audited = true
     })
     await loadProducts()
     res.json(findProduct(sku))
@@ -865,7 +881,9 @@ router.get(
     if (f.atRisk) add('o.at_risk = ?', f.atRisk === 'true')
     if (f.q) {
       params.push(`${likeEscape(f.q)}%`, `%${likeEscape(f.q)}%`)
-      where.push(`(o.number ILIKE $${params.length - 1} OR o.phone ILIKE $${params.length})`)
+      // ADM-1: callers give a name or an area as often as a number.
+      const [starts, has] = [`$${params.length - 1}`, `$${params.length}`]
+      where.push(`(o.number ILIKE ${starts} OR o.phone ILIKE ${has} OR o.customer_name ILIKE ${has} OR o.delivery_address ILIKE ${has} OR o.gift_recipient_name ILIKE ${has})`)
     }
     const w = where.length ? `WHERE ${where.join(' AND ')}` : ''
     const total = (await query(`SELECT COUNT(*)::int AS n FROM orders o ${w}`, params)).rows[0].n
@@ -1735,7 +1753,7 @@ router.get(
         photos: (photosOf.get(c.id) ?? []).map((p) => ({ id: p.id })),
         id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
         issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: isOwnPhotoUrl(c.photo_url) ? c.photo_url : null,
-        status: c.status, resolution: c.resolution, createdAt: c.created_at,
+        status: c.status, resolution: c.resolution, rejectionReason: c.resolution_note ?? null, createdAt: c.created_at,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null,
       })),
     )
@@ -1764,7 +1782,13 @@ router.post(
   '/claims/:id/resolve',
   asyncHandler(async (req, res) => {
     if (req.body?.resolution === 'REFUND_APPROVED') throw badRequest('MandiMangoes does not refund. Approve a replacement or reject the claim.', 'NO_REFUNDS')
-    const { resolution } = parse(z.object({ resolution: z.enum(['REPLACEMENT_APPROVED', 'REJECTED']) }), req.body)
+    // UX-4: a rejection says why. The customer sees the reason on the order page and on WhatsApp.
+    const { resolution, reason } = parse(
+      z
+        .object({ resolution: z.enum(['REPLACEMENT_APPROVED', 'REJECTED']), reason: z.string().trim().max(500).optional() })
+        .refine((x) => x.resolution !== 'REJECTED' || (x.reason?.length ?? 0) >= 5, { message: 'Say why the claim is rejected (5 characters or more). The customer sees this.', path: ['reason'] }),
+      req.body,
+    )
     await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM claims WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Claim not found')
@@ -1780,9 +1804,11 @@ router.post(
         replacementId = (await createReplacement(c, claim, o[0], req.actor)).id
       }
       await c.query(
-        `UPDATE claims SET status = 'RESOLVED', resolution = $2, replacement_order_id = $3, resolved_by = $4, resolved_at = $5 WHERE id = $1`,
-        [claim.id, resolution, replacementId, req.admin.email, now()],
+        `UPDATE claims SET status = 'RESOLVED', resolution = $2, replacement_order_id = $3, resolved_by = $4, resolved_at = $5, resolution_note = $6 WHERE id = $1`,
+        [claim.id, resolution, replacementId, req.admin.email, now(), resolution === 'REJECTED' ? reason : null],
       )
+      // A replacement already sends mandi_replacement_confirmed; a rejection sends its reason.
+      if (resolution === 'REJECTED' && env.WHATSAPP_CLAIM_UPDATES) await enqueue(c, claim.order_id, claim.id, 'CLAIM_REJECTED')
     })
     res.status(204).end()
   }),
