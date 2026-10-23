@@ -276,16 +276,18 @@ rather than `DB_POOL_MAX`.
 |------|---------|-------|----------------|
 | `mango_app` | `statement_timeout` | **10s** | the same as the code's `DB_STATEMENT_TIMEOUT_MS` default (10 000 ms, `src/env.js:17`), which the code sets itself only on a direct URL (`src/db.js:23`); a request or a maintenance step never needs longer, and the maintenance run's budget is 45 s inside Vercel's 60 s limit |
 | `mango_app` | `idle_in_transaction_session_timeout` | **30s** | the code never sets it; a Vercel function frozen or killed mid-transaction would otherwise hold its stock row locks until the connection dies |
+| `mango_app` | `lock_timeout` | **5s** | below the statement timeout, so a request stuck behind a locked stock or order row gives up early with a retryable 503 BUSY instead of holding a connection for 10 s (LOAD-3 in LOAD-TEST.md) |
 | owner (migrations) | `statement_timeout` | **60s** | migrations on real data; each file also has a 5 s **lock** timeout (`MIGRATION_LOCK_TIMEOUT`, tried 3 times) so it never queues behind traffic for long |
 | read-only backup role | `statement_timeout` | **0** (none) or `15min` | `pg_dump` runs one long transaction |
 
 ```sql
 ALTER ROLE mango_app SET statement_timeout = '10s';
 ALTER ROLE mango_app SET idle_in_transaction_session_timeout = '30s';
+ALTER ROLE mango_app SET lock_timeout = '5s';
 ALTER ROLE neondb_owner SET statement_timeout = '60s';
 ```
 
-Run the same three lines on `staging`. `npm run preflight -- --online` reads both
+Run the same four lines on `staging`. `npm run preflight -- --online` reads both
 values over `DATABASE_URL` and **fails** when either is unset on a pooled URL
 (`src/preflight.js` `checkRoleTimeouts`). If you ever change
 `DB_STATEMENT_TIMEOUT_MS`, change the role's `statement_timeout` to match.

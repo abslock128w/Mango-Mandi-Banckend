@@ -164,6 +164,11 @@ export function createApp() {
       logger.info({ reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')), result: result?.result ?? (result?.duplicate ? 'duplicate' : result?.ignored ? 'ignored' : null) }, 'razorpay webhook')
       res.json({ ok: true, ...result })
     } catch (err) {
+      // LOAD-1: no free connection is a busy minute, not a failed payment: Razorpay retries the 503.
+      if (isPoolTimeout(err) || err?.code === '53300') {
+        logger.warn({ reqId: req.id, path: req.path }, 'database busy')
+        return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id } })
+      }
       logger.error({ err, reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')) }, 'webhook processing failed')
       metrics.webhookErrors.inc({ source: 'razorpay' })
       await recordWebhookFailure('razorpay', err.message, req.get('x-razorpay-event-id') ?? event?.event ?? null)
@@ -242,8 +247,9 @@ export function createApp() {
     if (err?.code === '40P01' || err?.code === '40001') {
       return res.status(409).json({ error: { code: 'CONFLICT', message: 'Busy, please retry', requestId: req.id } })
     }
-    // No free database connection in time, or Neon refusing more: a short, retryable 503.
-    if (isPoolTimeout(err) || err?.code === '53300') {
+    // No free database connection in time, Neon refusing more, or a row lock
+    // not free within lock_timeout / statement_timeout (LOAD-3): a short, retryable 503.
+    if (isPoolTimeout(err) || err?.code === '53300' || err?.code === '55P03' || err?.code === '57014') {
       logger.warn({ reqId: req.id, path: req.path }, 'database busy')
       return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
     }
