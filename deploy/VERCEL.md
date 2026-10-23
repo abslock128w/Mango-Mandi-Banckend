@@ -130,6 +130,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | Variable | Production | Preview |
 |----------|-----------|---------|
 | `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL |
+| `VITE_SUPPORT_WHATSAPP` (`mandi-shop` only) | the shop's help WhatsApp number, country code and number, digits only (91 and the 10-digit number) | the same, or a team number | **required**: a production build of the shop fails without it, so every page has a help contact (footer, order page, /help, /terms) |
 
 ### Check before the first real deploy
 

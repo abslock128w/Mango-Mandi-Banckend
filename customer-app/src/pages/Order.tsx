@@ -208,7 +208,11 @@ function OrderView({ order }: { order: Order }) {
             <p className="small">
               If money has left your account, please don't pay again. A payment that arrives late is still matched to this order and confirmed,
               moved to the next day with stock if these boxes have sold out.{' '}
-              {latePaymentPossible(order) ? 'This page keeps checking.' : 'Check My orders again later, or contact us.'}
+              {latePaymentPossible(order) ? 'This page keeps checking.' : (
+                <>
+                  Check My orders again later, or <Link to="/help">contact us</Link>.
+                </>
+              )}
             </p>
           )}
         </section>
@@ -252,6 +256,17 @@ function OrderView({ order }: { order: Order }) {
                 : 'we are looking into it'}
               .
             </p>
+            {/* UX-4: staff give a reason for every rejection; the customer sees it in their words. */}
+            {claim.status === 'RESOLVED' && claim.resolution === 'REJECTED' && claim.rejectionReason && (
+              <p className="claim-reason">
+                <strong>Why:</strong> {claim.rejectionReason}
+              </p>
+            )}
+            {claim.status === 'RESOLVED' && claim.resolution === 'REJECTED' && (
+              <p className="small muted">
+                If you think we got it wrong, <Link to="/help">talk to us</Link>.
+              </p>
+            )}
             {claim.replacementOrder && <Link to={`/orders/${claim.replacementOrder.id}`}>See replacement order {claim.replacementOrder.number}</Link>}
           </section>
         ) : (
@@ -406,14 +421,17 @@ function OrderView({ order }: { order: Order }) {
         All my orders
       </Link>
 
-      {help && (
-        <p className="small muted center">
-          Need help with this order?{' '}
+      {/* UX-1: always a way to reach us; production builds always have the WhatsApp number. */}
+      <p className="small muted center">
+        Need help with this order?{' '}
+        {help ? (
           <a href={help} target="_blank" rel="noopener noreferrer">
-            Message us on WhatsApp
+            Message us on WhatsApp<span className="sr-only"> (opens WhatsApp)</span>
           </a>
-        </p>
-      )}
+        ) : (
+          <Link to="/help">See how to reach us</Link>
+        )}
+      </p>
 
       {moving && <MoveDialog order={order} onClose={() => setMoving(false)} onMoved={refresh} />}
 

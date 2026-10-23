@@ -245,4 +245,6 @@ export const NOTIFICATION_LABEL: Record<NotificationKind, string> = {
   CANCELLED: 'Order cancelled',
   REFUNDED: 'Refund sent',
   DATE_MOVED: 'Delivery date moved',
+  CLAIM_RECEIVED: 'Claim received',
+  CLAIM_REJECTED: 'Claim rejected',
 }

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime } from '../format'
+import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime, rupees } from '../format'
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
@@ -387,6 +387,15 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /slots': 'Added a delivery slot',
   'PATCH /slots/:id': 'Changed a delivery slot',
   'PUT /preorder-capacity/:weekStart/:sku': 'Set preorder capacity',
+  // ADM-2: the row holds the values before the change (`before`) and an optional reason.
+  'PATCH /products/:sku': (d) => {
+    const was = (d.before ?? {}) as Record<string, unknown>
+    if (typeof was.price === 'number' && typeof d.price === 'number') return `Changed a price from ${rupees(was.price)} to ${rupees(d.price)}`
+    if (d.active === true) return 'Put a product back on sale'
+    return 'Changed a product'
+  },
+  'POST /products': 'Added a product',
+  'DELETE /products/:sku': 'Removed a product',
   'POST /staff': 'Added a person',
   'PATCH /staff/:id': 'Changed a person',
   'DELETE /staff/:id': 'Removed a person',
@@ -405,7 +414,7 @@ function describe(a: AuditEntry) {
 function details(a: AuditEntry) {
   if (!a.detail) return ''
   return Object.entries(a.detail)
-    .filter(([k, v]) => v !== '[removed]' && !(k === 'status' && a.action.endsWith('/status')))
+    .filter(([k, v]) => v !== '[removed]' && !(k === 'status' && a.action.endsWith('/status')) && k !== 'before')
     .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
     .join(', ')
 }

@@ -88,6 +88,9 @@ export interface Product {
   sortOrder?: number
   /** The shop photo, a path on the API (add API_URL), or null for the drawn mango. */
   photoUrl?: string | null
+  /** What is in the box, shown on the shop's product page when set: about how many mangoes, and grams each. */
+  fruitsPerBox?: number | null
+  fruitWeightG?: number | null
 }
 
 export interface ProductInput {
@@ -99,6 +102,8 @@ export interface ProductInput {
   hsnCode: string | null
   description: string
   sortOrder: number
+  fruitsPerBox: number | null
+  fruitWeightG: number | null
 }
 
 export interface Summary {
@@ -309,6 +314,8 @@ export type NotificationKind =
   | 'CANCELLED'
   | 'REFUNDED'
   | 'DATE_MOVED'
+  | 'CLAIM_RECEIVED'
+  | 'CLAIM_REJECTED'
 
 /** A WhatsApp update to the customer, sent from an outbox with retries. */
 export interface OrderNotification {
@@ -364,6 +371,8 @@ export interface Claim {
   photos?: { id: string }[]
   status: ClaimStatus
   resolution?: ClaimResolution | null
+  /** Why staff rejected it, as the customer sees it. */
+  rejectionReason?: string | null
   createdAt?: string
   replacementOrder?: { id: string; number: string } | null
   /** Open claims only: the customer's last 90 days, and how the order was delivered. */

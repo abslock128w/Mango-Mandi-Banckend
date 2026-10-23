@@ -2010,3 +2010,26 @@ main:focus {
     order: 1;
   }
 }
+
+/* Customer experience fixes (UX audit, 23 Oct). */
+/* UX-5: the boxes and prices on the first visit, under the pincode box. */
+.price-list {
+  margin-top: var(--space-8);
+}
+/* What is in the box, on the product page. */
+.box-contents {
+  margin: 0 0 var(--space-3);
+}
+/* UX-1: the footer has more links now; each one wraps as a whole, never in the middle. */
+.foot a {
+  white-space: nowrap;
+}
+/* UX-3: the payment line under Pay. */
+.pay-trust {
+  margin: var(--space-2) 0 var(--space-3);
+}
+/* UX-4: why a claim was rejected. */
+.claim-reason {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

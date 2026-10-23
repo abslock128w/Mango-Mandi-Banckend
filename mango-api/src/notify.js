@@ -136,9 +136,31 @@ export function paramsFor(n) {
       return [name, n.number, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start)]
     case 'PREORDER_SPOT_OPEN':
       return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
+    case 'CLAIM_RECEIVED':
+      return [name, n.number]
+    case 'CLAIM_REJECTED':
+      // One line: template variables may not hold line breaks.
+      return [name, n.number, clip(n.claim_reason?.replace(/\s+/g, ' ').trim() || 'no reason given', 500)]
     default:
       return [name, n.number]
   }
+}
+
+/**
+ * UX-7: order updates whose template carries an "Open order" URL button,
+ * https://<shop>/orders/{{1}}; the button's one variable is the order id. The claim
+ * templates are new and have the button from the start. The older ones get it only
+ * once Meta approves their new versions, so it is sent only with WHATSAPP_ORDER_LINKS=true
+ * (sending a button variable to a template without the button fails at Meta).
+ * The gift recipient's out-for-delivery message shares the template, so it carries the
+ * button too; the page asks them to sign in as the buyer.
+ */
+const ORDER_LINK_ALWAYS = new Set(['CLAIM_RECEIVED', 'CLAIM_REJECTED'])
+const ORDER_LINK_WITH_FLAG = new Set(['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED', 'OUT_FOR_DELIVERY', 'GIFT_OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED', 'DATE_MOVED'])
+export function orderLinkFor(n) {
+  if (!n.order_id) return null
+  if (ORDER_LINK_ALWAYS.has(n.kind) || (env.WHATSAPP_ORDER_LINKS && ORDER_LINK_WITH_FLAG.has(n.kind))) return n.order_id
+  return null
 }
 
 async function mark(id, fields) {
@@ -188,7 +210,8 @@ async function sendBatch(sender, limit, at) {
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date,
-            COALESCE(o.customer_name, p.customer_name, ac.name) AS customer_name
+            COALESCE(o.customer_name, p.customer_name, ac.name) AS customer_name,
+            (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
        LEFT JOIN stock_alerts a ON a.id = n.stock_alert_id LEFT JOIN customers ac ON ac.id = a.customer_id
@@ -241,13 +264,13 @@ async function sendOne(n, sender, at) {
       await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
       return false
     }
-    logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
+    logger.info({ phone: n.phone, kind: n.kind, params: paramsFor(n), orderLink: orderLinkFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
     return true
   }
   let providerId
   try {
-    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n) })
+    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n), urlParam: orderLinkFor(n) })
   } catch (err) {
     const attempts = n.attempts + 1
     // Meta refusing the request itself (bad number, unknown or paused template) won't change on a retry.

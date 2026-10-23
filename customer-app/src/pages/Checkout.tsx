@@ -8,6 +8,7 @@ import { useStore, type CartLine } from '../store'
 import { AddressPicker, DayChips, Field, SlotPicker } from '../forms'
 import { DocTitle, ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
+import { UnpaidOrderBanner } from '../unpaid'
 
 function loadAddress() {
   try {
@@ -267,6 +268,8 @@ function CheckoutForm() {
         <h1 ref={heading} tabIndex={-1}>
           Review and pay
         </h1>
+        {/* UX-8: say so before Pay, not only when Pay is refused. */}
+        <UnpaidOrderBanner />
         <dl className="facts">
           <div>
             <dt>Arrives</dt>
@@ -334,12 +337,18 @@ function CheckoutForm() {
             </div>
           </>
         )}
+        {/* UX-3: the whole cost before Pay. Delivery is always free. */}
+        <div className="sum-row">
+          <span>Delivery</span>
+          <span>Free</span>
+        </div>
         <div className="total-row">
           <span>Total</span>
           <strong>{rupees(quote.total)}</strong>
         </div>
         <p className="muted small">
-          Your boxes are held for a few minutes while you pay. You can cancel for a full refund any time before your order is packed.
+          Your boxes are held for {quote.holdMinutes ? `${quote.holdMinutes} minutes` : 'a few minutes'} while you pay. You can cancel for a full
+          refund any time before your order is packed.
         </p>
         <ErrorNote error={pay.error ? quoteProblem(pay.error) : null} />
         {pay.error instanceof ApiError && pay.error.code === 'UNPAID_ORDER_EXISTS' && typeof pay.error.detail.orderId === 'string' && (
@@ -347,9 +356,16 @@ function CheckoutForm() {
             Open your unpaid order
           </Link>
         )}
-        <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()}>
+        <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()} aria-describedby="pay-trust">
           {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
         </button>
+        {/* UX-3: who takes the money and how, at the moment of paying. */}
+        <p className="small center pay-trust" id="pay-trust">
+          Secure payment by Razorpay. UPI, cards, netbanking. No cash on delivery.{' '}
+          <span className="muted">
+            See our <Link to="/terms">terms of sale</Link> and <Link to="/help">help</Link>.
+          </span>
+        </p>
         <button type="button" className="btn btn-block btn-quiet" disabled={pay.isPending} onClick={backToForm}>
           Change details
         </button>
@@ -369,6 +385,7 @@ function CheckoutForm() {
         <h1 ref={heading} tabIndex={-1}>
           Delivery details
         </h1>
+        <UnpaidOrderBanner />
         <form onSubmit={submit} noValidate>
           {slots.isPending ? (
             <Spinner label="Loading delivery times" />

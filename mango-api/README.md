@@ -80,6 +80,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_ripeness_guide` | a minute after `order_confirmed` or `replacement_confirmed`, only when a box arrives raw or semi-ripe (utility) | name, order number, when each box is ready ("Alphonso 3kg Box (raw): ready around Mon, 19 Oct"), storage tip |
 | `mandi_back_in_stock` | a box the customer asked about is in stock again (they tapped "Tell me when it's back") | name, box ("Alphonso 3kg Box (ripe)"), first day ("Fri, 16 Oct"), shop link |
 | `mandi_reorder_reminder` | a week after a delivery, only for customers who turned reminders on, between 10 AM and 7 PM, not if they ordered since (marketing) | name, box they had, shop link |
+| `mandi_claim_received` | a customer reports a problem with a delivered order (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number; "Open order" URL button |
+| `mandi_claim_rejected` | staff reject a claim; a replacement sends `mandi_replacement_confirmed` instead (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number, the reason staff gave (shown to the customer); "Open order" URL button |
 
 An order without a slot says "during the day" in place of the slot.
 
@@ -89,6 +91,23 @@ promise a date the shop can't keep, and the shop's order page says we're finding
 stock is found the confirmation goes out with the real date; a manager may instead move or
 cancel the order. There is no "we're finding stock" template yet: if the owner wants the
 customer told straight away, a new utility template has to be approved in WhatsApp Manager first.
+
+**"Open order" button (UX-7).** A template with this button has one URL button (index 0) of
+type *dynamic URL*, `https://mandimangoes.in/orders/{{1}}` (the shop's real domain), whose
+variable the API fills with the order id, so one tap opens the order to track, move, cancel or
+report a problem. `mandi_claim_received` and `mandi_claim_rejected` are created with it. For
+`mandi_order_confirmed`, `mandi_replacement_confirmed`, `mandi_out_for_delivery`,
+`mandi_delivered`, `mandi_delivery_failed` and `mandi_date_moved` the button is a template
+change that needs Meta's approval again: add it in WhatsApp Manager, wait for every one of them
+to be approved, then set `WHATSAPP_ORDER_LINKS=true`. Until then the API sends them without the
+button (a button variable sent to a template without one is refused by Meta). The gift
+recipient's copy of `mandi_out_for_delivery` carries the button too; the order page asks them to
+sign in as the buyer.
+
+Suggested wording for the two new templates (the owner words the final text in WhatsApp
+Manager): "Hi {{1}}, we have your report about order {{2}}. We will look at it and reply here
+within a day." and "Hi {{1}}, we looked into your report about order {{2}} and could not offer
+a replacement: {{3}}. Reply here if you would like to talk to us about it."
 
 Word `mandi_date_moved` so it also says the customer can cancel for a full refund until the
 order is packed, for example: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that

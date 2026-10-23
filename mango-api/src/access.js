@@ -229,7 +229,8 @@ export async function audit(admin, action, { target = null, detail = null, reque
 export function auditStaffChanges(req, res, next) {
   if (req.method === 'GET' || req.method === 'HEAD') return next()
   res.on('finish', () => {
-    if (res.statusCode >= 400 || !req.admin || !req.route) return
+    // req.audited: the route wrote its own, fuller row inside its transaction (product changes).
+    if (res.statusCode >= 400 || !req.admin || !req.route || req.audited) return
     const p = req.params ?? {}
     const target = p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? p.code ?? p.sku ?? null)
     background(audit(req.admin, `${req.method} ${req.route.path}`, { target, detail: clean(req.body), requestId: req.id }))

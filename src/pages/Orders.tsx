@@ -70,7 +70,7 @@ export default function Orders() {
           <input id="o-to" type="date" value={to} onChange={(e) => update({ to: e.target.value || null })} />
         </div>
         <div className="field field-grow">
-          <label htmlFor="o-q">Search order number or phone</label>
+          <label htmlFor="o-q">Search by order number, phone, name or address</label>
           <input
             id="o-q"
             type="search"

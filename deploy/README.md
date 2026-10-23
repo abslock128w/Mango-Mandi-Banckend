@@ -50,7 +50,9 @@ These take days to weeks and only the business can do them, so start them now:
    ```
    The repository is private, so this needs a GitHub deploy key or access token on the server.
 4. **Settings.** Fill in `deploy/.env`. Every line is explained there. Generate secrets
-   with `openssl rand -hex 32`. Never commit this file.
+   with `openssl rand -hex 32`. Never commit this file. `VITE_SUPPORT_WHATSAPP` (the shop's
+   help WhatsApp number, country code and number, digits only) is required: the shop build
+   fails without it, because every shop page shows customers how to reach a person.
 5. **Deploy.**
    ```bash
    ./deploy/deploy.sh

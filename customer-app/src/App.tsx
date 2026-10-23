@@ -23,6 +23,8 @@ const PreorderPage = lazy(() => import('./pages/Preorder').then((m) => ({ defaul
 const ReviewPage = lazy(() => import('./pages/Review'))
 const ProductPage = lazy(() => import('./pages/Product'))
 const Quality = lazy(() => import('./pages/Quality'))
+const Help = lazy(() => import('./pages/Help'))
+const Terms = lazy(() => import('./pages/Terms'))
 
 /** A page whose code is still loading. */
 function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
@@ -55,6 +57,8 @@ function routeTitle(path: string) {
   if (path === '/sign-in') return 'Sign in'
   if (path === '/privacy') return 'Privacy notice'
   if (path === '/quality') return 'How we pick and check'
+  if (path === '/help') return 'Help'
+  if (path === '/terms') return 'Terms of sale'
   if (path === '/account') return 'Your account'
   if (path === '/checkout') return 'Delivery details'
   if (path === '/orders') return 'My orders'
@@ -172,6 +176,8 @@ export default function App() {
           <Route path="/sign-in" element={<Page><SignIn /></Page>} />
           <Route path="/privacy" element={<Page><Privacy /></Page>} />
           <Route path="/quality" element={<Page><Quality /></Page>} />
+          <Route path="/help" element={<Page><Help /></Page>} />
+          <Route path="/terms" element={<Page><Terms /></Page>} />
           <Route path="/account" element={<RequireSignIn><Page><Account /></Page></RequireSignIn>} />
           <Route path="/checkout" element={<RequireSignIn><Page><Checkout /></Page></RequireSignIn>} />
           <Route path="/orders" element={<RequireSignIn><Page><Orders /></Page></RequireSignIn>} />
@@ -197,16 +203,19 @@ export default function App() {
       </main>
       <footer className={focused ? 'foot foot-flat' : 'foot'}>
         <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
+        {/* UX-1: a way to reach us on every page. Production builds always have the WhatsApp number (support.ts). */}
         <p>
-          <Link to="/quality">How we pick and check</Link> · <Link to="/privacy">Privacy notice</Link>
+          <Link to="/help">Help</Link>
           {help && (
             <>
               {' · '}
               <a href={help} target="_blank" rel="noopener noreferrer">
-                Help on WhatsApp
+                Help on WhatsApp<span className="sr-only"> (opens WhatsApp)</span>
               </a>
             </>
           )}
+          {' · '}
+          <Link to="/terms">Terms of sale</Link> · <Link to="/quality">How we pick and check</Link> · <Link to="/privacy">Privacy notice</Link>
         </p>
       </footer>
       {!focused && (

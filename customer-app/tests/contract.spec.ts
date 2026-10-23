@@ -1,5 +1,5 @@
 import { expect, test } from '../../tests/fixtures'
-import type { Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, Quote, QuoteLine, Slot, SlotOnDate, Stage, api } from '../src/api'
+import type { Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
 // API sends. Every endpoint the order journey uses is called here, and each
@@ -111,10 +111,21 @@ const DELIVERY_CHECK = object<DeliveryCheck>({ serviceable: 'boolean', earliestD
 const CATALOGUE_ITEM = object<CatalogueItem>({
   sku: 'string', name: 'string', variety: 'string', boxSize: 'string', price: 'int', stage: oneOf(STAGES), qty: 'int', eatBy: 'day',
   description: optional('string'), photoUrl: optional(nullable('string')), nextAvailableDate: optional(nullable('day')),
+  fruitsPerBox: optional(nullable('int')), fruitWeightG: optional(nullable('int')),
 })
 const CATALOGUE = object<Catalogue>({
   serviceable: 'boolean', deliveryDate: optional('day'), deliveryDates: optional(list('day')), cutoffTime: optional('string'), items: list(CATALOGUE_ITEM),
 })
+// UX-5 and UX-3: the boxes and prices before a pincode, and the live rules the help and terms pages quote.
+const PRODUCTS = object<{ items: ProductListing[] }>({
+  items: list(
+    object<ProductListing>({
+      sku: 'string', name: 'string', variety: 'string', boxSize: 'string', price: 'int', description: 'string', photoUrl: nullable('string'),
+      fruitsPerBox: nullable('int'), fruitWeightG: nullable('int'),
+    }),
+  ),
+})
+const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int' })
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
 type CartLine = Awaited<ReturnType<typeof api.serverCart>>['lines'][number]
@@ -123,6 +134,7 @@ const QUOTE = object<Quote>({
   quoteId: 'string', pincode: 'string', deliveryDate: 'day', slot: nullable(SLOT),
   lines: list(object<QuoteLine>({ sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', eatBy: 'day' })),
   subtotal: 'int', promo: nullable(object<NonNullable<Quote['promo']>>({ code: 'string', description: nullable('string') })), discount: 'int', total: 'int', expiresAt: 'time',
+  holdMinutes: optional('int'),
 })
 const CONFIRMED = object<Confirmed>({
   orderId: 'string', number: 'string', status: oneOf(STATUSES), total: 'int', deliveryDate: 'day',
@@ -193,6 +205,8 @@ test('the API answers the order journey in the shapes the shop expects', async (
   check('GET /delivery/check', check1, DELIVERY_CHECK)
   const cat = await ok('GET', '/v1/catalogue?pincode=560034')
   check('GET /catalogue', cat, CATALOGUE)
+  check('GET /products', await ok('GET', '/v1/products'), PRODUCTS)
+  check('GET /policy', await ok('GET', '/v1/policy'), POLICY)
   const slots = await ok('GET', `/v1/delivery/slots?pincode=560034&delivery_date=${cat.deliveryDate}`)
   check('GET /delivery/slots', slots, SLOTS)
   const slotId = slots.slots.find((s: SlotOnDate) => s.available)?.id ?? null

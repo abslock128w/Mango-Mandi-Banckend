@@ -1,12 +1,12 @@
-import { memo, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Stars } from '../stars'
 import { ApiError, api, errorMessage, type CatalogueItem, type RatingSummary } from '../api'
-import { STAGE_HINT, STAGE_LABEL, day, rupees } from '../format'
+import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees } from '../format'
 import { useStore } from '../store'
 import { ErrorNote } from '../ui'
-import { catalogueQuery } from '../queries'
+import { catalogueQuery, productsQuery } from '../queries'
 import { BookAheadCard } from './BookAheadCard'
 import { MangoArt, ProductImage } from '../mango'
 import type { Stage } from '../api'
@@ -42,7 +42,10 @@ export default function Shop() {
             setWhere(pin, first)
             closeForm()
           }}
-        />
+        >
+          {/* UX-5: the boxes and prices before a pincode; the pincode is needed for stock, ripeness and adding to the cart. */}
+          {!pincode && <PriceList search={search} />}
+        </PincodeForm>
       ) : (
         <Catalogue pincode={pincode} date={date} onDate={pickDate} search={search} />
       )}
@@ -59,7 +62,57 @@ export default function Shop() {
   )
 }
 
-function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (pincode: string, firstDate: string | null) => void; onCancel?: () => void }) {
+function PincodeForm({
+  initial,
+  onDone,
+  onCancel,
+  children,
+}: {
+  initial: string
+  onDone: (pincode: string, firstDate: string | null) => void
+  onCancel?: () => void
+  children?: ReactNode
+}) {
+  return (
+    <section className="hero">
+      <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="128" height="128" alt="MandiMangoes" className="hero-logo" />
+      <h1>Mangoes picked for the day you want to eat them</h1>
+      <p className="lead">Choose raw, semi-ripe or ripe, and the day it arrives. We pack each box from the batch that will be just right on that day.</p>
+      <PincodeCheck initial={initial} onDone={onDone} onCancel={onCancel} />
+      {children}
+      <ol className="how" aria-label="How it works">
+        <li>
+          <strong>Pick the ripeness and the day</strong>
+          <span className="muted small">Raw to ripen at home, semi-ripe for later this week, or ripe to eat on arrival.</span>
+        </li>
+        <li>
+          <strong>We pack from the right batch</strong>
+          <span className="muted small">We track every batch from the day it was picked, so your box is at the ripeness you chose on that day.</span>
+        </li>
+        <li>
+          <strong>It arrives at your door</strong>
+          <span className="muted small">Free delivery in your chosen time slot, with updates on WhatsApp.</span>
+        </li>
+      </ol>
+      <RipenessGuide />
+    </section>
+  )
+}
+
+/** The pincode box: checks we deliver there and that a day is open. Also on the product page before a pincode is set. */
+export function PincodeCheck({
+  initial,
+  onDone,
+  onCancel,
+  label = 'Your delivery pincode',
+  submitLabel = 'Show mangoes',
+}: {
+  initial: string
+  onDone: (pincode: string, firstDate: string | null) => void
+  onCancel?: () => void
+  label?: string
+  submitLabel?: string
+}) {
   const [pin, setPin] = useState(initial)
   const [error, setError] = useState<string | null>(null)
   const check = useMutation({
@@ -77,12 +130,8 @@ function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (
     check.mutate()
   }
   return (
-    <section className="hero">
-      <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="128" height="128" alt="MandiMangoes" className="hero-logo" />
-      <h1>Mangoes picked for the day you want to eat them</h1>
-      <p className="lead">Choose raw, semi-ripe or ripe, and the day it arrives. We pack each box from the batch that will be just right on that day.</p>
       <form className="pin-form" onSubmit={submit} noValidate>
-        <label htmlFor="pincode">Your delivery pincode</label>
+        <label htmlFor="pincode">{label}</label>
         <div className="row">
           <input
             id="pincode"
@@ -94,7 +143,7 @@ function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (
             aria-describedby={error ? 'pin-error' : undefined}
           />
           <button type="submit" className="btn btn-primary" disabled={check.isPending}>
-            {check.isPending ? 'Checking…' : 'Show mangoes'}
+            {check.isPending ? 'Checking…' : submitLabel}
           </button>
         </div>
         {onCancel && (
@@ -108,21 +157,48 @@ function PincodeForm({ initial, onDone, onCancel }: { initial: string; onDone: (
           </p>
         )}
       </form>
-      <ol className="how" aria-label="How it works">
-        <li>
-          <strong>Pick the ripeness and the day</strong>
-          <span className="muted small">Raw to ripen at home, semi-ripe for later this week, or ripe to eat on arrival.</span>
-        </li>
-        <li>
-          <strong>We pack from the right batch</strong>
-          <span className="muted small">We track every batch from the day it was picked, so your box is at the ripeness you chose on that day.</span>
-        </li>
-        <li>
-          <strong>It arrives at your door</strong>
-          <span className="muted small">Free delivery in your chosen time slot, with updates on WhatsApp.</span>
-        </li>
-      </ol>
-      <RipenessGuide />
+  )
+}
+
+/**
+ * UX-5: every box and its price before a pincode is entered (search and ad visitors, and people
+ * outside our area, see what we sell). No stock or ripeness here: those depend on the delivery day.
+ */
+function PriceList({ search }: { search: string }) {
+  const q = useQuery(productsQuery())
+  if (q.isPending) return null
+  if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
+  const words = search.toLowerCase()
+  const products = words ? q.data.items.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : q.data.items
+  if (!q.data.items.length) return null
+  return (
+    <section aria-labelledby="price-list" className="price-list">
+      <h2 id="price-list" className="section-title">
+        {search ? `Mangoes matching “${search}”` : 'Our mangoes and prices'}
+      </h2>
+      <p className="muted small">Price per box, free delivery. Enter your pincode to see the ripeness and days we have for you.</p>
+      {products.length === 0 && <p className="card empty">No mangoes match “{search}”. Try another name, such as Alphonso.</p>}
+      <ul className="tiles">
+        {products.map((p, i) => (
+          <li key={p.sku} className="card tile">
+            <div className="tile-img">
+              <ProductImage photoUrl={p.photoUrl} name={p.name} size={88} eager={i < FIRST_SCREEN_TILES} />
+            </div>
+            <div className="tile-body">
+              <h3 className="tile-name">
+                <Link to={`/mangoes/${p.sku}`} className="card-link">
+                  {p.name}
+                </Link>
+              </h3>
+              <ProductRating sku={p.sku} variety={p.variety} />
+              <p className="tile-foot">
+                <strong className="price">{rupees(p.price)}</strong>
+                {boxContents(p) && <span className="small muted">{boxContents(p)}</span>}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

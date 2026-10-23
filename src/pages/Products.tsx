@@ -156,7 +156,18 @@ const toForm = (p: Product | null) => ({
   sortOrder: String(p?.sortOrder ?? 0),
   gst: String(Math.round((p?.gstRate ?? 0) * 10_000) / 100),
   hsnCode: p ? (p.hsnCode ?? '') : '08045020',
+  fruitsPerBox: p?.fruitsPerBox != null ? String(p.fruitsPerBox) : '',
+  fruitWeightG: p?.fruitWeightG != null ? String(p.fruitWeightG) : '',
 })
+
+type SaveInput = ProductInput & { sku: string; reason?: string }
+
+/** "" → null; otherwise a whole number in range, or undefined when it is not one. */
+function optionalWhole(v: string, min: number, max: number): number | null | undefined {
+  if (!v.trim()) return null
+  const n = Number(v)
+  return Number.isInteger(n) && n >= min && n <= max ? n : undefined
+}
 
 function ProductDialog({ product, varieties, onClose, onDone }: { product: Product | null; varieties: string[]; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
@@ -168,6 +179,9 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
   const [dropPhoto, setDropPhoto] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const preview = useObjectUrl(photo)
+  // ADM-2: a new price waits on this confirmation, which shows the old and new price and takes an optional reason.
+  const [confirmPrice, setConfirmPrice] = useState<SaveInput | null>(null)
+  const [reason, setReason] = useState('')
   const current = !dropPhoto && product?.photoUrl ? `${API_URL}${product.photoUrl}` : null
   async function pickPhoto(file: File | undefined) {
     setPhotoError(null)
@@ -180,8 +194,8 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
     }
   }
   const save = useMutation({
-    mutationFn: async ({ sku, ...input }: ProductInput & { sku: string }) => {
-      let saved = product ? await api.updateProduct(product.sku, input) : await api.addProduct({ sku, ...input })
+    mutationFn: async ({ sku, reason: why, ...input }: SaveInput) => {
+      let saved = product ? await api.updateProduct(product.sku, why ? { ...input, reason: why } : input) : await api.addProduct({ sku, ...input })
       if (photo) saved = await api.setProductPhoto(saved.sku, photo)
       else if (dropPhoto && product?.photoUrl) saved = await api.removeProductPhoto(saved.sku)
       return saved
@@ -208,7 +222,11 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
     if (!(gst >= 0 && gst <= 28)) return setFormError('GST is a percentage from 0 to 28.')
     const hsn = f.hsnCode.trim()
     if (hsn && !/^\d{4,8}$/.test(hsn)) return setFormError('The HSN code is 4 to 8 digits.')
-    save.mutate({
+    const fruitsPerBox = optionalWhole(f.fruitsPerBox, 1, 200)
+    if (fruitsPerBox === undefined) return setFormError('Mangoes per box is a whole number from 1 to 200, or leave it empty.')
+    const fruitWeightG = optionalWhole(f.fruitWeightG, 50, 3000)
+    if (fruitWeightG === undefined) return setFormError('The weight of one mango is in grams, from 50 to 3000, or leave it empty.')
+    const input: SaveInput = {
       sku,
       name: f.name.trim(),
       variety: f.variety.trim(),
@@ -218,7 +236,57 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
       sortOrder: Math.max(0, Math.round(Number(f.sortOrder) || 0)),
       gstRate: Math.round(gst * 100) / 10_000,
       hsnCode: hsn || null,
-    })
+      fruitsPerBox,
+      fruitWeightG,
+    }
+    if (product?.price != null && input.price !== product.price) return setConfirmPrice(input)
+    save.mutate(input)
+  }
+
+  if (product && confirmPrice) {
+    return (
+      <Dialog
+        title={`Change the price of ${product.name}?`}
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={() => setConfirmPrice(null)} data-autofocus>
+              Back
+            </button>
+            <button type="submit" form="price-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Change price'}
+            </button>
+          </>
+        }
+      >
+        <form
+          id="price-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate({ ...confirmPrice, reason: reason.trim() || undefined })
+          }}
+          noValidate
+        >
+          <p className="price-change">
+            <span aria-hidden="true">
+              {rupees(product.price!)} → <strong>{rupees(confirmPrice.price)}</strong>
+            </span>
+            <span className="sr-only">
+              From {rupees(product.price!)} to {rupees(confirmPrice.price)}
+            </span>
+          </p>
+          <p>The new price applies from the next checkout. Orders already placed keep their price.</p>
+          <div className="field">
+            <label htmlFor="price-reason">Reason (optional)</label>
+            <textarea id="price-reason" rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} aria-describedby="price-reason-hint" />
+            <p className="hint" id="price-reason-hint">
+              Kept in the staff activity with the old price, like "Mandi rate went up".
+            </p>
+          </div>
+          <FormError error={save.error} />
+        </form>
+      </Dialog>
+    )
   }
 
   return (
@@ -267,6 +335,20 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
           <label htmlFor="product-price">Price in rupees, GST included</label>
           <input id="product-price" inputMode="decimal" value={f.price} onChange={set('price')} />
         </div>
+        <fieldset className="field">
+          <legend>What is in the box (optional)</legend>
+          <div className="field">
+            <label htmlFor="product-fruits">Mangoes per box, about</label>
+            <input id="product-fruits" inputMode="numeric" value={f.fruitsPerBox} onChange={set('fruitsPerBox')} />
+          </div>
+          <div className="field">
+            <label htmlFor="product-weight">Weight of one mango, about, in grams</label>
+            <input id="product-weight" inputMode="numeric" value={f.fruitWeightG} onChange={set('fruitWeightG')} aria-describedby="product-contents-hint" />
+            <p className="hint" id="product-contents-hint">
+              Shown on the product page, like "About 12 mangoes, around 250 g each". Leave both empty to show nothing.
+            </p>
+          </div>
+        </fieldset>
         <div className="field">
           <span className="field-label" id="product-photo-label">
             Photo (optional)
