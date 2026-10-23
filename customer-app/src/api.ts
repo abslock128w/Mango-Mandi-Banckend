@@ -145,6 +145,8 @@ export interface Order {
   deliveryFailures: number
   /** On a failed delivery: true when another attempt is booked, false when we will call first. Null otherwise. */
   retryScheduled: boolean | null
+  /** Paid, but no stock for its date yet: the day may change and we message once it's settled. */
+  findingStock?: boolean
 }
 export interface SavedAddress {
   id: string

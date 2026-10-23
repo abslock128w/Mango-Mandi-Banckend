@@ -83,6 +83,13 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 
 An order without a slot says "during the day" in place of the slot.
 
+A payment that lands after the hold ran out, when no date has stock, confirms the order at
+risk. Its `order_confirmed` is held back (shown on the order page as not sent) rather than
+promise a date the shop can't keep, and the shop's order page says we're finding stock. When
+stock is found the confirmation goes out with the real date; a manager may instead move or
+cancel the order. There is no "we're finding stock" template yet: if the owner wants the
+customer told straight away, a new utility template has to be approved in WhatsApp Manager first.
+
 Word `mandi_date_moved` so it also says the customer can cancel for a full refund until the
 order is packed, for example: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that
 date doesn't suit you, cancel it in the app before it is packed for a full refund." That is

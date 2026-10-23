@@ -111,11 +111,14 @@ export async function availabilityByDate(c, dates) {
   return new Map(dates.map((d) => [d, poolOf(linesFor(rows, d, null, cfg))]))
 }
 
-export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'admin', actorId, reason = null }) {
+/** Why staff changed a count (INV-D), stored on ADJUST and RESTOCK rows as reason_code. */
+export const ADJUST_REASONS = ['CORRECTION', 'COUNT', 'RECEIVED', 'DAMAGED', 'THEFT_LOSS', 'RETURN_RESTOCK', 'OTHER']
+
+export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'admin', actorId, reason = null, reasonCode = null }) {
   await c.query(
-    `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id, reason, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [newId('led'), batchId, eventType, sku, delta, actorType, actorId, reason, now()],
+    `INSERT INTO batch_ledger (id, batch_id, event_type, sku, delta, actor_type, actor_id, reason, created_at, reason_code)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [newId('led'), batchId, eventType, sku, delta, actorType, actorId, reason, now(), reasonCode],
   )
 }
 
@@ -211,10 +214,10 @@ export async function pack(c, row, actor, reason) {
 }
 
 /** packed → back on the shelf (an order cancelled before it shipped). */
-export async function restock(c, row, actor, reason) {
+export async function restock(c, row, actor, reason, reasonCode = null) {
   await c.query('UPDATE batch_lines SET on_hand = on_hand + $2 WHERE id = $1', [row.line_id, row.quantity])
   await c.query(`UPDATE order_stock SET state = 'released' WHERE id = $1`, [row.id])
-  await ledger(c, { batchId: row.batch_id, eventType: 'RESTOCK', sku: row.sku, delta: row.quantity, actorType: actor.type, actorId: actor.id, reason })
+  await ledger(c, { batchId: row.batch_id, eventType: 'RESTOCK', sku: row.sku, delta: row.quantity, actorType: actor.type, actorId: actor.id, reason, reasonCode })
 }
 
 /** One line's sellability on a date, even if its batch is no longer sellable. */

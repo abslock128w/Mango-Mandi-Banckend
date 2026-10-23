@@ -20,6 +20,7 @@ import type {
   ClaimStatus,
   Condition,
   LedgerEntry,
+  AdjustReason,
   Me,
   SignInResult,
   Promo,
@@ -262,13 +263,13 @@ export const api = {
   adjustLine: (
     batchId: string,
     lineId: string,
-    input: { onHand?: number; reserveBuffer?: number; reason: string },
+    input: { onHand?: number; reserveBuffer?: number; reason: string; reasonCode?: AdjustReason },
   ) => request<void>('PATCH', `/batches/${id(batchId)}/lines/${id(lineId)}`, input),
   /**
    * Fewer boxes arrived than were already promised: lowers on hand, takes boxes
    * back from the youngest orders and re-fills them or moves them to the next date with stock.
    */
-  shortArrival: (batchId: string, lineId: string, input: { onHand: number; reason: string }) =>
+  shortArrival: (batchId: string, lineId: string, input: { onHand: number; reason: string; reasonCode?: AdjustReason }) =>
     request<ShortArrivalResult>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/short-arrival`, input),
 
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
@@ -284,6 +285,9 @@ export const api = {
   /** A paid order can only be cancelled by a manager, with a full refund (refund: true). */
   cancelOrder: (orderId: string, reason: string, refund = false) =>
     request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason, refund }),
+  /** Boxes back from an order cancelled or returned after dispatch: back on the shelf, or written off with a reason. */
+  bookReturnedStock: (orderId: string, input: { action: 'RESTOCK' | 'WRITE_OFF'; reasonCode?: 'DAMAGED' | 'THEFT_LOSS' | 'OTHER'; reason: string }) =>
+    request<{ boxes: number }>('POST', `/orders/${id(orderId)}/returned-stock`, input),
   /** Moves a confirmed order to another bookable date that has stock (409 if it doesn't), optionally into a slot. */
   rescheduleOrder: (orderId: string, deliveryDate: string, slotId?: string | null) =>
     request<void>('POST', `/orders/${id(orderId)}/reschedule`, slotId ? { deliveryDate, slotId } : { deliveryDate }),

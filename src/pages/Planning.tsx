@@ -665,7 +665,12 @@ const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'maxUnpaidOrders', label: 'Unpaid orders per customer', hint: 'A customer must pay or cancel before placing another.' },
   { key: 'maxHeldBoxes', label: 'Unpaid boxes per customer', hint: 'Most boxes one customer can hold while not yet paid.' },
   { key: 'lowStockThreshold', label: 'Low stock alert (boxes)', hint: 'Shown on Today at or below this.' },
+  { key: 'outForDeliveryAlertHours', label: 'Out for delivery alert (hours)', hint: 'An order out for delivery longer than this shows as overdue.' },
+  { key: 'maxPreorderMoves', label: 'Preorder moves before review', hint: 'A preorder moved forward more weeks than this waits for a manager.' },
 ]
+
+/** What the API uses for rules an older rules version doesn't have yet. */
+const RULE_DEFAULTS: Partial<Record<keyof Rules, number>> = { outForDeliveryAlertHours: 8, maxPreorderMoves: 3 }
 
 function RulesCard() {
   const { me } = useSession()
@@ -693,9 +698,13 @@ function RulesCard() {
             {RULE_FIELDS.map((f) => (
               <div key={f.key} className="contents">
                 <dt>{f.label}</dt>
-                <dd>{String(q.data.rules[f.key])}</dd>
+                <dd>{String(q.data.rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '—')}</dd>
               </div>
             ))}
+            <div className="contents">
+              <dt>Season ends</dt>
+              <dd>{q.data.rules.seasonEndsOn ? date(q.data.rules.seasonEndsOn) : 'Not set'}</dd>
+            </div>
           </dl>
           <h3 className="mt-5">Ripeness by age on the delivery date</h3>
           <p className="muted small">
@@ -738,8 +747,9 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
   const toast = useToast()
   const queryClient = useQueryClient()
   const [values, setValues] = useState(() =>
-    Object.fromEntries(RULE_FIELDS.map((f) => [f.key, String(rules[f.key])])) as Record<string, string>,
+    Object.fromEntries(RULE_FIELDS.map((f) => [f.key, String(rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '')])) as Record<string, string>,
   )
+  const [seasonEndsOn, setSeasonEndsOn] = useState(rules.seasonEndsOn ?? '')
   const [windows, setWindows] = useState(() =>
     rules.stageProfiles.default.map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
   )
@@ -763,6 +773,7 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
     const next: Rules = {
       ...rules,
       ...Object.fromEntries(Object.entries(values).map(([k, v]) => [k, Number(v)])),
+      seasonEndsOn: seasonEndsOn || null,
       stageProfiles: {
         ...rules.stageProfiles,
         default: windows.map((w) => ({ stage: w.stage, minAge: Number(w.minAge), maxAge: Number(w.maxAge) })),
@@ -799,6 +810,11 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
             <p className="hint">{f.hint}</p>
           </div>
         ))}
+        <div className="field">
+          <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
+          <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />
+          <p className="hint">Preorders booked for a week after this day wait for a manager to keep or refund them.</p>
+        </div>
         <fieldset>
           <legend>Ripeness by age, all varieties</legend>
           {windows.map((w, i) => (

@@ -62,6 +62,7 @@ export const OPERATOR_ROUTES = [
   route('POST', '/orders/:id/cancel'), // a paid order needs a manager (orders.js cancelOrder)
   route('POST', '/orders/:id/rebalance'),
   route('POST', '/orders/:id/reschedule'),
+  route('POST', '/orders/:id/returned-stock'), // boxes back from a cancelled or returned order (INV-F)
   route('GET', '/pack-list'),
   route('GET', '/delivery-reviews'),
   route('POST', '/delivery-reviews/:id'),

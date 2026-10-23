@@ -145,7 +145,7 @@ const ORDER = object<Order>({
   deliveryCode: optional(nullable('string')),
   delivery: optional(nullable(object<Delivery>({ at: 'time', method: nullable(oneOf(DELIVERY_METHOD)), receivedBy: nullable('string'), hasPhoto: 'boolean' }))),
   rating: optional(nullable(object<NonNullable<Order['rating']>>({ stars: 'int', comment: nullable('string'), at: 'time' }))),
-  claimWindowHours: 'number', claimUntil: nullable('time'), deliveryFailures: 'int', retryScheduled: nullable('boolean'),
+  claimWindowHours: 'number', claimUntil: nullable('time'), deliveryFailures: 'int', retryScheduled: nullable('boolean'), findingStock: optional('boolean'),
 })
 // The shop does not call it today; checked so a payment poll written later starts from the truth.
 const PAYMENT_STATUS: Spec = { object: { status: nullable(oneOf(PAYMENT)), orderStatus: oneOf(STATUSES) } }

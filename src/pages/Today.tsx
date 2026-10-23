@@ -50,6 +50,7 @@ export default function Today() {
   // asked again, and hiding Needs attention then would remount it and ask again, forever.
   const waiting = attention.isPending && attention.errorUpdateCount === 0
   const atRisk = s.atRiskOrders ?? []
+  const overdue = s.overdueOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
   // Every tile opens the page it counts, filtered.
   const tiles: Tile[] = [
@@ -83,6 +84,37 @@ export default function Today() {
       </div>
 
       {waiting ? <span className="sr-only" role="status" aria-label="Loading" /> : <NeedsAttention />}
+
+      {!waiting && overdue.length > 0 && (
+        <section className="card">
+          <h2>Overdue orders</h2>
+          <p className="muted">Paid and not delivered by their date, or out for delivery too long. Find out where each one is.</p>
+          <div {...scrollRegion('Overdue orders')}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Due</th>
+                  <th>Status</th>
+                  <th>Problem</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overdue.map((o) => (
+                  <LinkRow key={o.id}>
+                    <td>
+                      <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink>
+                    </td>
+                    <td>{date(o.deliveryDate)}</td>
+                    <td>{ORDER_STATUS_LABEL[o.status] ?? o.status}</td>
+                    <td className="text-danger">{o.reason}</td>
+                  </LinkRow>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {!waiting && atRisk.length > 0 && (
         <section className="card">

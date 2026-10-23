@@ -20,14 +20,6 @@ export const OPEN_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PAC
 /** Before packing, stock is held or committed and can still be swapped. */
 const SWAPPABLE_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 
-const TRANSITIONS = {
-  CONFIRMED: ['PROCESSING'],
-  PROCESSING: ['PACKED'],
-  PACKED: ['SHIPPED'],
-  SHIPPED: ['OUT_FOR_DELIVERY'],
-  OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED'],
-  DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'RTO'],
-}
 const FLOW = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']
 const ADMIN_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY']
 /**
@@ -58,6 +50,16 @@ export const ORDER_TRANSITIONS = Object.freeze({
   CANCELLED: ['CONFIRMED'],
   DELIVERED: [],
 })
+
+/**
+ * The moves staff make with a status change (setOrderStatus), derived from
+ * ORDER_TRANSITIONS (INV-I): everything except cancelling (its own endpoint,
+ * cancelOrder) and confirming (only a payment confirms an order).
+ */
+export const STAFF_TRANSITIONS = Object.freeze(
+  Object.fromEntries(Object.entries(ORDER_TRANSITIONS).map(([from, tos]) => [from, tos.filter((to) => to !== 'CANCELLED' && to !== 'CONFIRMED')])),
+)
+const TRANSITIONS = STAFF_TRANSITIONS
 
 export function assertTransition(from, to) {
   if (!(ORDER_TRANSITIONS[from] ?? []).includes(to)) {
@@ -185,6 +187,35 @@ async function setRisk(c, order, problems, actor) {
   if (prev.at_risk === problems.length > 0 && prev.at_risk_reason === reason) return
   await c.query('UPDATE orders SET at_risk = $2, at_risk_reason = $3 WHERE id = $1', [order.id, problems.length > 0, reason])
   await addEvent(c, order.id, order.status, order.status, actor, reason ? `At risk: ${reason}` : 'No longer at risk')
+  if (prev.at_risk && !problems.length) await releaseHeldConfirmation(c, order.id)
+}
+
+/** last_error on a confirmation held back because the order has no stock yet (INV-B), and once it has gone out after all. */
+export const CONFIRMATION_HELD = 'held: paid with no stock for its date; sent once stock is found'
+const CONFIRMATION_RELEASED = 'held, then sent again once stock was found'
+
+/**
+ * INV-B: a late payment that finds no stock on any date is confirmed and
+ * flagged at-risk. Its "confirmed for <date>" message would promise a date the
+ * shop can't keep, so it is held (SKIPPED with CONFIRMATION_HELD); the shop's
+ * order page says we're finding stock. There is no WhatsApp template for "we're
+ * finding stock" yet.
+ */
+async function holdConfirmation(c, orderId, eventId) {
+  await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1 AND status = 'PENDING'`, [eventId, CONFIRMATION_HELD])
+}
+
+/** Once the order has its stock, the held confirmation goes out with the date it will really come (a fresh row, same kinds). */
+async function releaseHeldConfirmation(c, orderId) {
+  const { rows } = await c.query(
+    `UPDATE notifications SET last_error = $3 WHERE order_id = $1 AND status = 'SKIPPED' AND last_error = $2 RETURNING kind`,
+    [orderId, CONFIRMATION_HELD, CONFIRMATION_RELEASED],
+  )
+  if (!rows.length) return
+  const eventId = newId('cnf')
+  for (const kind of new Set(rows.map((r) => r.kind))) {
+    await enqueue(c, orderId, eventId, kind, kind === 'RIPENESS_GUIDE' ? { delayMs: 60_000 } : {})
+  }
 }
 
 /**
@@ -395,6 +426,9 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   }
 
   const lateFrom = o.status === 'CANCELLED' ? 'CANCELLED' : null
+  // A hold that ran out stops counting against the day's capacity (INV-A), so
+  // its day may have filled up even though the sweep hasn't cancelled it yet.
+  const holdLapsed = o.status === 'PAYMENT_PENDING' && o.hold_expires_at != null && o.hold_expires_at < now()
   const chosenDate = o.delivery_date
   if (o.status !== 'PAYMENT_PENDING' && !lateFrom) return { order: o, result: 'ignored' }
   assertTransition(o.status, 'CONFIRMED')
@@ -404,7 +438,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
       WHERE id = $1`,
     [o.id, paymentId, method, amount],
   )
-  await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
+  const confirmEvent = await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
   o.status = 'CONFIRMED'
   metrics.ordersConfirmed.inc()
 
@@ -418,7 +452,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   const stale = o.delivery_date < earliest
   // A late payment: while the order was cancelled its boxes left the day's
   // capacity, so check the day still has room before re-allocating on it (INV-5).
-  const full = !stale && lateFrom && !(await hasRoom(c, o))
+  const full = !stale && (lateFrom || holdLapsed) && !(await hasRoom(c, o))
   const r = stale || full ? { atRisk: true } : await rebalanceOrder(c, o.id, actor)
   if (r?.atRisk) {
     // The stock (or the date) is gone: deliver on the next date that has stock.
@@ -435,9 +469,13 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
       await rebalanceOrder(c, o.id, actor) // flags it at-risk; later rebalances fill it
     }
   }
+  // INV-B: no stock on any date. Don't tell the customer a date we can't keep:
+  // the confirmation waits until stock is found (setRisk sends it then).
+  const stuck = (await c.query('SELECT at_risk FROM orders WHERE id = $1', [o.id])).rows[0].at_risk
+  if (stuck) await holdConfirmation(c, o.id, confirmEvent)
   // Moved off the date the customer picked: say so. They can still cancel for a
   // full refund until the order is packed, and the message tells them that.
-  if (o.delivery_date !== chosenDate) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
+  else if (o.delivery_date !== chosenDate) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
   if (amount != null && amount !== o.total) {
     logger.warn({ orderId: o.id, amount, total: o.total }, 'captured amount differs from order total')
   }
@@ -608,6 +646,7 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     if (!(await stockRows(c, o.id, ['packed'])).length) throw badRequest('This order has no packed stock', 'NOT_ALLOCATED')
   }
   let attemptsUsedUp = false
+  let retryStuck = false
   if (to === 'DELIVERY_FAILED') {
     const failures = o.delivery_failures + 1
     await c.query('UPDATE orders SET delivery_failures = $2 WHERE id = $1', [o.id, failures])
@@ -622,6 +661,13 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
       const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
       await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
       reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+      // INV-E: ripe boxes may be too old by the retry day. Swap them for younger stock, or stop and ask a manager.
+      const repack = await repackForRetry(c, o, date, actor)
+      if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${date} and were swapped for younger stock: pack the new boxes before it goes out`
+      if (repack.result === 'stuck') {
+        retryStuck = true
+        reason = `${opts.reason ?? 'Delivery failed'}; the boxes would be past the ${getConfig().maxSellableAge}-day limit on ${date} and no younger stock is free. A manager decides: send a replacement, move the date or cancel with a refund`
+      }
     }
   }
   if (to === 'OUT_FOR_DELIVERY') {
@@ -637,8 +683,46 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     // The usual message promises a retry date; staff call instead.
     await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'delivery attempts used up: staff call the customer' WHERE event_id = $1`, [eventId])
   }
+  if (retryStuck) {
+    // The usual message promises a retry date the boxes can't make; a manager decides first (INV-E).
+    await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'retry needs a manager: stock too old for the retry date' WHERE event_id = $1`, [eventId])
+  }
   if (to === 'DELIVERY_FAILED') await rebalanceOrder(c, o.id, actor)
   if (['DELIVERED', 'RTO'].includes(to)) await c.query('UPDATE orders SET at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id])
+}
+
+/**
+ * INV-E: after a missed delivery, packed boxes that would be past the age cap
+ * on the retry date are swapped for younger stock of the same SKU and stage:
+ * the fresh boxes are taken and packed for the retry, and the old ones go back
+ * on the shelf when the rider returns them (too old to sell, they retire with
+ * their batch). All or nothing. Returns { result: 'ok' } when nothing is too
+ * old, { result: 'repacked', boxes }, or { result: 'stuck' } when there is no
+ * younger stock (nothing changes; the order goes at-risk for a manager).
+ */
+async function repackForRetry(c, o, date, actor) {
+  const cfg = getConfig()
+  const old = []
+  for (const row of await stockRows(c, o.id, ['packed'])) {
+    const info = await lineInfo(c, row.line_id)
+    if (diffDays(date, info.plucked_on) > cfg.maxSellableAge) old.push(row)
+  }
+  if (!old.length) return { result: 'ok' }
+  await c.query('SAVEPOINT repack')
+  for (const row of old) {
+    const got = await allocate(c, {
+      orderId: o.id, orderNumber: o.number, deliveryDate: date, sku: row.sku, stage: row.stage, qty: row.quantity, state: 'committed', actor,
+      excludeBatchIds: [row.batch_id],
+    })
+    if (got < row.quantity) {
+      await c.query('ROLLBACK TO SAVEPOINT repack')
+      return { result: 'stuck' }
+    }
+  }
+  for (const row of old) await restock(c, row, actor, `${o.number}: back from a missed delivery, too old for the retry on ${date}`)
+  for (const row of await stockRows(c, o.id, ['committed'])) await pack(c, row, actor, `${o.number} (re-packed for the retry on ${date})`)
+  await c.query('RELEASE SAVEPOINT repack')
+  return { result: 'repacked', boxes: old.reduce((n, r) => n + r.quantity, 0) }
 }
 
 /** Checkpoint 4 (pack time): revalidate, then committed → packed. */
@@ -730,7 +814,7 @@ export async function takeBatchOutOfService(c, batchId, status, actor, why = nul
  * stock, the way a late payment is (the customer gets a DATE_MOVED message).
  * An order that fits nowhere stays at-risk for ops. Returns what happened.
  */
-export async function recordShortArrival(c, { batchId, lineId, onHand, reason }, actor) {
+export async function recordShortArrival(c, { batchId, lineId, onHand, reason, reasonCode = null, check = null }, actor) {
   const affectedIds = async () =>
     (
       await c.query(
@@ -750,10 +834,12 @@ export async function recordShortArrival(c, { batchId, lineId, onHand, reason },
   const l = rows[0]
   if (['EXHAUSTED', 'CONDEMNED'].includes(l.status)) throw badRequest(`This batch is ${l.status}`, 'INVALID_TRANSITION')
   if (onHand >= l.on_hand) throw badRequest('A short arrival lowers the count; use an adjustment to raise it', 'NOT_SHORT')
+  // INV-C: the caller may refuse a drop this big without a manager; a manager's note goes in the reason.
+  const note = check ? await check(c, l, onHand - l.on_hand) : null
   // Anything allocated between the first read and the line lock.
   for (const id of await affectedIds()) if (!locked.has(id)) locked.set(id, await lockOrder(c, id))
 
-  const why = `Short arrival: ${reason}`
+  const why = `${reasonCode === 'COUNT' ? 'Count' : 'Short arrival'}: ${reason}${note ? ` (${note})` : ''}`
   const buffer = Math.min(l.reserve_buffer, Math.max(0, onHand - l.held - l.committed))
   let over = l.held + l.committed - onHand
   const released = new Set()
@@ -772,9 +858,9 @@ export async function recordShortArrival(c, { batchId, lineId, onHand, reason },
     }
   }
   await c.query('UPDATE batch_lines SET on_hand = $2, reserve_buffer = $3 WHERE id = $1', [l.id, onHand, buffer])
-  await ledger(c, { batchId, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorType: actor.type, actorId: actor.id, reason: why })
+  await ledger(c, { batchId, eventType: 'ADJUST', sku: l.sku, delta: onHand - l.on_hand, actorType: actor.type, actorId: actor.id, reason: why, reasonCode })
   if (buffer !== l.reserve_buffer) {
-    await ledger(c, { batchId, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorType: actor.type, actorId: actor.id, reason: why })
+    await ledger(c, { batchId, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorType: actor.type, actorId: actor.id, reason: why, reasonCode })
   }
 
   const out = { refilled: [], moved: [], atRisk: [] }

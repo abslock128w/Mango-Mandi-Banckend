@@ -135,6 +135,7 @@ function OrderView({ order }: { order: Order }) {
   const refresh = useOrderRefresh(order.id)
   const [dialog, setDialog] = useState<'cancel' | 'reschedule' | 'missed' | 'returned' | null>(null)
   const [override, setOverride] = useState<Override | null>(null)
+  const [returning, setReturning] = useState<'RESTOCK' | 'WRITE_OFF' | null>(null)
 
   const awaitingPack = order.stock.some((s) => s.state === 'committed')
   const paid = order.payment?.status === 'SUCCEEDED'
@@ -191,6 +192,26 @@ function OrderView({ order }: { order: Order }) {
           stock, or wait for new stock to arrive.
         </div>
       )}
+      {(order.returnedBoxes ?? 0) > 0 && (
+        <div className="notice notice-warn" role="status">
+          <strong>
+            {order.returnedBoxes} {order.returnedBoxes === 1 ? 'box' : 'boxes'} left the store with this order and{' '}
+            {order.returnedBoxes === 1 ? 'is' : 'are'} not on the books.
+          </strong>{' '}
+          When they come back, put them on the shelf; if they are damaged or lost, write them off.
+          {changeOrder && (
+            <span className="btn-row mt-2">
+              <button type="button" className="btn btn-small" onClick={() => setReturning('RESTOCK')}>
+                Back on the shelf
+              </button>
+              <button type="button" className="btn btn-small" onClick={() => setReturning('WRITE_OFF')}>
+                Write off
+              </button>
+            </span>
+          )}
+        </div>
+      )}
+      {returning && <ReturnedStockDialog order={order} action={returning} onClose={() => setReturning(null)} onDone={refresh} />}
       {order.replacementFor && (
         <div className="notice notice-info" role="status">
           Free replacement for order <Link to={`/orders/${order.replacementFor.id}`}>{order.replacementFor.number}</Link>.
@@ -507,6 +528,48 @@ function OrderView({ order }: { order: Order }) {
       )}
       {override && <OverrideDialog order={order} override={override} onClose={() => setOverride(null)} onDone={refresh} />}
     </>
+  )
+}
+
+type WriteOffReason = 'DAMAGED' | 'THEFT_LOSS' | 'OTHER'
+
+/** Boxes back from a cancelled or returned order (INV-F): on the shelf again, or written off with a reason. */
+function ReturnedStockDialog({ order, action, onClose, onDone }: { order: Order; action: 'RESTOCK' | 'WRITE_OFF'; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [code, setCode] = useState<WriteOffReason>('DAMAGED')
+  const book = useMutation({
+    mutationFn: (reason: string) => api.bookReturnedStock(order.id, action === 'WRITE_OFF' ? { action, reasonCode: code, reason } : { action, reason }),
+    onSuccess: (r) => {
+      toast.success(action === 'RESTOCK' ? `${r.boxes} boxes back on the shelf` : `${r.boxes} boxes written off`)
+      onDone()
+      onClose()
+    },
+  })
+  return (
+    <ReasonDialog
+      title={action === 'RESTOCK' ? `Put the boxes from ${order.number} back on the shelf?` : `Write off the boxes from ${order.number}?`}
+      tone={action === 'RESTOCK' ? 'primary' : 'danger'}
+      label="Note for the stock ledger"
+      hint={action === 'RESTOCK' ? 'Only boxes that came back sound. They can be sold again.' : 'Saved in the stock ledger with the reason.'}
+      minLength={1}
+      maxLength={300}
+      confirmLabel={action === 'RESTOCK' ? 'Back on the shelf' : 'Write off'}
+      busy={book.isPending}
+      error={book.error}
+      onClose={onClose}
+      onSubmit={(reason) => book.mutate(reason)}
+    >
+      {action === 'WRITE_OFF' && (
+        <div className="field">
+          <label htmlFor="writeoff-code">Why</label>
+          <select id="writeoff-code" value={code} onChange={(e) => setCode(e.target.value as WriteOffReason)}>
+            <option value="DAMAGED">Damaged</option>
+            <option value="THEFT_LOSS">Theft or loss</option>
+            <option value="OTHER">Other</option>
+          </select>
+        </div>
+      )}
+    </ReasonDialog>
   )
 }
 

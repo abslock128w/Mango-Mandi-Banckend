@@ -32,6 +32,7 @@ import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
+import { overdueOrders } from './stock-watch.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -303,6 +304,11 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
   if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  // INV-G: a paid order past its date (or out for delivery too long) is a customer waiting with nobody told.
+  const late = await overdueOrders({ query }, at)
+  if (late.length) {
+    problems.push(['overdue', 'Orders are past their delivery date or stuck out for delivery: see Needs attention', { overdue: late.length, orders: late.slice(0, 10).map((o) => o.number) }])
+  }
   const backup = await backupStatus(at)
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])

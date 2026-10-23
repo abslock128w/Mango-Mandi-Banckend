@@ -236,8 +236,9 @@ describe('big stock increases need a manager (INV-04)', () => {
     assert.equal((await patch(manager, 200)).status, 204)
     const last = (await query(`SELECT reason FROM batch_ledger WHERE batch_id = $1 AND event_type = 'ADJUST' ORDER BY created_at DESC, id DESC LIMIT 1`, [b])).rows[0]
     assert.match(last.reason, /large increase of 175, by a manager/)
-    // Lowering stock is never blocked by this rule.
-    assert.equal((await patch(operator, 150)).status, 204)
+    // INV-C: a small drop is a correction; a big one needs a manager too.
+    assert.equal((await patch(operator, 190)).status, 204)
+    assert.equal((await patch(operator, 150)).status, 403)
   })
 })
 

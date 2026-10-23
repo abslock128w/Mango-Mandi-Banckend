@@ -104,7 +104,7 @@ test('Adjust stock requires a reason', async ({ page }) => {
   await dialog.getByLabel('Reason').fill('2 crushed')
   await dialog.getByRole('button', { name: 'Save adjustment' }).click()
   await expect(dialog).toHaveCount(0)
-  expect(api.calls.find((c) => c.method === 'PATCH' && c.path === '/batches/b1/lines/l1')?.body).toEqual({ onHand: 18, reason: '2 crushed' })
+  expect(api.calls.find((c) => c.method === 'PATCH' && c.path === '/batches/b1/lines/l1')?.body).toEqual({ onHand: 18, reason: '2 crushed', reasonCode: 'CORRECTION' })
 })
 
 test('Adjusting below what is promised records a short arrival', async ({ page }) => {
@@ -118,7 +118,7 @@ test('Adjusting below what is promised records a short arrival', async ({ page }
   await dialog.getByRole('button', { name: 'Record short arrival' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByText('Short arrival recorded: moved ORD-1044')).toBeVisible()
-  expect(api.calls.find((c) => c.path === '/batches/b1/lines/l1/short-arrival')?.body).toEqual({ onHand: 3, reason: '2 boxes short off the truck' })
+  expect(api.calls.find((c) => c.path === '/batches/b1/lines/l1/short-arrival')?.body).toEqual({ onHand: 3, reason: '2 boxes short off the truck', reasonCode: 'RECEIVED' })
   expect(api.calls.some((c) => c.method === 'PATCH' && c.path === '/batches/b1/lines/l1')).toBe(false)
 })
 

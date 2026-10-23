@@ -38,6 +38,12 @@ export const rulesSchema = z
     // may hold across them (INV-02). Older rule versions get the defaults.
     maxUnpaidOrders: z.number().int().min(1).max(5).default(1),
     maxHeldBoxes: z.number().int().min(1).max(500).default(40),
+    // Needs attention (INV-G, INV-H): an order out for delivery this long is
+    // overdue; a preorder moved more than this many weeks, or booked past the
+    // season's last day, waits for a manager's decision.
+    outForDeliveryAlertHours: z.number().int().min(1).max(48).default(8),
+    maxPreorderMoves: z.number().int().min(1).max(20).default(3),
+    seasonEndsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
     stageProfiles: z.record(profile).refine((p) => 'default' in p, 'a "default" profile is required'),
   })
   .strict()
@@ -59,6 +65,9 @@ export const DEFAULT_RULES = {
   claimWindowHours: 24,
   maxUnpaidOrders: 1,
   maxHeldBoxes: 40,
+  outForDeliveryAlertHours: 8,
+  maxPreorderMoves: 3,
+  seasonEndsOn: null,
   stageProfiles: {
     default: [
       { stage: 'RAW', minAge: 3, maxAge: 3 },
