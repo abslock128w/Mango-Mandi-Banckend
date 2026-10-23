@@ -479,7 +479,15 @@ export interface ManifestOrder {
   attempt?: number
   /** A gift: the name and phone above are the recipient's. */
   gift?: { from: string | null; message: string | null } | null
+  /** The rider the stop is given to (riders only see their own stops). */
+  rider?: { id: string; email: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
+}
+
+/** A rider, for giving them stops on the Deliveries page. */
+export interface Rider {
+  id: string
+  email: string
 }
 
 /** A day's delivery run: one run per slot (or one with no slot), stops by pincode. */
@@ -487,6 +495,8 @@ export interface Manifest {
   date: string
   orders: number
   boxes: number
+  /** Riders only: packed stops on the date given to nobody yet (starting the run takes them). */
+  unassigned?: number
   runs: {
     slot: { id: string; label: string; startsAt: string; endsAt: string } | null
     orders: number

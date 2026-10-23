@@ -15,6 +15,8 @@ export default function Account() {
     mutationFn: api.deleteAccount,
     onSuccess: () => navigate('/?deleted=1', { replace: true }),
   })
+  // A lost or shared phone: every session ends, this one too.
+  const everywhere = useMutation({ mutationFn: api.signOutEverywhere, onSuccess: () => navigate('/', { replace: true }) })
 
   return (
     <>
@@ -39,9 +41,15 @@ export default function Account() {
         <p className="small muted">
           How we use these details is in our <Link to="/privacy">privacy notice</Link>.
         </p>
-        <button type="button" className="btn btn-quiet" onClick={() => void api.signOut()}>
-          Sign out
-        </button>
+        <div className="row">
+          <button type="button" className="btn btn-quiet" onClick={() => void api.signOut()}>
+            Sign out
+          </button>
+          <button type="button" className="btn btn-quiet" disabled={everywhere.isPending} onClick={() => everywhere.mutate()}>
+            {everywhere.isPending ? 'Signing out…' : 'Sign out on every device'}
+          </button>
+        </div>
+        <ErrorNote error={everywhere.error} />
       </section>
 
       <Messages />
@@ -49,6 +57,8 @@ export default function Account() {
       <SavedAddresses />
 
       <MyReviews />
+
+      <YourData />
 
       <section className="card narrow" aria-labelledby="delete-account">
         <h2 id="delete-account">Delete your account</h2>
@@ -182,6 +192,31 @@ function Messages() {
         </ul>
       )}
       <ErrorNote error={remove.error} />
+    </section>
+  )
+}
+
+/** A copy of what we hold about the customer, saved as a JSON file. */
+function YourData() {
+  const download = useMutation({
+    mutationFn: api.exportData,
+    onSuccess: (data) => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mandimangoes-my-data.json'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    },
+  })
+  return (
+    <section className="card narrow" aria-labelledby="your-data">
+      <h2 id="your-data">Your data</h2>
+      <p className="small muted">Download a copy of everything we keep about you: your account, addresses, orders, bookings, claims and reviews.</p>
+      <button type="button" className="btn btn-quiet" disabled={download.isPending} onClick={() => download.mutate()}>
+        {download.isPending ? 'Preparing…' : 'Download my data'}
+      </button>
+      <ErrorNote error={download.error} />
     </section>
   )
 }

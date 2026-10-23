@@ -585,7 +585,7 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
   await dialog.getByLabel('Work email').fill('ravi@mandimangoes.test')
   await dialog.getByLabel('First password').fill('short')
   await dialog.getByRole('button', { name: 'Add' }).click()
-  await expect(dialog).toContainText('at least 10 characters')
+  await expect(dialog).toContainText('at least 12 characters')
   await dialog.getByLabel('First password').fill('long-enough-1')
   await dialog.getByRole('button', { name: 'Add' }).click()
   await expect(page.getByText('ravi@mandimangoes.test added as Packer')).toBeVisible()

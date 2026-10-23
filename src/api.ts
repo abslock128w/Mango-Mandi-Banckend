@@ -13,6 +13,7 @@ import type {
   BulkMoveResult,
   ShortArrivalResult,
   Manifest,
+  Rider,
   BatchListItem,
   BatchStatus,
   Claim,
@@ -202,6 +203,11 @@ export const api = {
     return r.recoveryCodes
   },
   twoStepDisable: (code: string) => request<void>('POST', '/me/two-step/disable', { code }),
+  /** Changes your own password. Your other sessions end; this one carries on with a new token. */
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    const r = await request<{ accessToken: string }>('POST', '/me/password', { currentPassword, newPassword })
+    accessToken = r.accessToken
+  },
   me: () => request<Me>('GET', '/auth/me'),
   /** Clears someone's two-step sign-in. Returns the setup code they need to set it up again (shown once). */
   resetTwoStep: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`),
@@ -305,6 +311,13 @@ export const api = {
   dispatchRun: (date: string, slotId: string | null) =>
     request<{ dispatched: string[]; skipped: { number: string; reason: string }[] }>('POST', '/manifest/dispatch', { date, slotId }),
   dispatch: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/dispatch`),
+  /** A rider takes every packed stop on the date that nobody has yet, and sends them out with their own. */
+  takeRun: (date: string) =>
+    request<{ dispatched: string[]; skipped: { number: string; reason: string }[] }>('POST', '/manifest/dispatch', { date }),
+  riders: () => request<Rider[]>('GET', '/riders'),
+  /** Gives stops to a rider (null: to nobody): the listed orders, or every order still to deliver in a slot. */
+  assignRiders: (input: { date: string; riderId: string | null; orderIds?: string[]; slotId?: string | null }) =>
+    request<{ assigned: string[] }>('POST', '/manifest/assign', input),
   uploadDeliveryPhoto: (orderId: string, photo: Blob) => request<{ id: string }>('POST', `/orders/${id(orderId)}/delivery-photos`, photo),
   /** An object URL for a delivery photo (the image needs the staff sign-in, so it is fetched, not linked). */
   async deliveryPhotoUrl(orderId: string, photoId: string): Promise<string> {
