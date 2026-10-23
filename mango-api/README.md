@@ -357,6 +357,16 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
 | Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (mounted only with `ENABLE_DEV_ROUTES=true`, outside production, with no Razorpay keys set) |
 
+The staff routes live in one file per area under [`src/admin/`](src/admin): `auth.js` (sign-in,
+`/auth/me`, `/me/*`), `reports.js` (summary, analytics, attention, audit), `products.js`,
+`batches.js`, `orders.js` (with the pack list), `deliveries.js` (manifest, dispatch, riders, proof
+of delivery), `promos.js`, `staff.js`, `claims.js`, `planning.js` (pincodes, rules, calendar,
+slots, coverage) and `preorders.js`, with helpers more than one area uses in `shared.js`.
+[`src/admin.js`](src/admin.js) only builds `/admin/v1`: the sign-in routes, then the gate
+(`requireAdmin`, two-step setup, `limitByRole`, `riderScope`, the audit), then each area's
+router. Manager-only routes carry `requireManager` on the route itself, which is where the role
+matrix test looks for it; a new area router must be mounted after the gate.
+
 Errors are `{ error: { code, message, requestId } }`. Admin routes are the contract in
 the panel's `src/types.ts`; extra fields (`atRisk`, `atRiskReason`, `replacementFor`,
 `eatBy`, `replacementOrder`, `slot`, `notifications`) are additive.

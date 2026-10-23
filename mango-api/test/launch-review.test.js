@@ -338,19 +338,27 @@ describe('staff access', () => {
   test('every staff route is either open to operators or manager-only', () => {
     const unclassified = []
     let authed = false
-    for (const layer of adminRouter.stack) {
-      if (!layer.route) {
-        if (layer.name === 'requireAdmin') authed = true
-        continue
-      }
-      if (!authed) continue
-      const managerOnly = layer.route.stack.some((s) => s.name === 'requireManager')
-      for (const method of Object.keys(layer.route.methods)) {
-        const m = method.toUpperCase()
-        const listed = OPERATOR_ROUTES.some((r) => r.method === m && r.re.test(layer.route.path.replace(/:\w+/g, 'x')))
-        if (listed === managerOnly) unclassified.push(`${m} ${layer.route.path} (${managerOnly ? 'manager-only but listed for operators' : 'not listed'})`)
+    let seen = 0
+    // admin.js mounts each area's router (src/admin/*.js), so walk into nested routers.
+    const walk = (stack) => {
+      for (const layer of stack) {
+        if (!layer.route) {
+          if (layer.name === 'requireAdmin') authed = true
+          else if (layer.name === 'router') walk(layer.handle.stack)
+          continue
+        }
+        if (!authed) continue
+        const managerOnly = layer.route.stack.some((s) => s.name === 'requireManager')
+        for (const method of Object.keys(layer.route.methods)) {
+          seen++
+          const m = method.toUpperCase()
+          const listed = OPERATOR_ROUTES.some((r) => r.method === m && r.re.test(layer.route.path.replace(/:\w+/g, 'x')))
+          if (listed === managerOnly) unclassified.push(`${m} ${layer.route.path} (${managerOnly ? 'manager-only but listed for operators' : 'not listed'})`)
+        }
       }
     }
+    walk(adminRouter.stack)
+    assert.ok(seen > 50, `walked ${seen} staff routes`)
     assert.deepEqual(unclassified, [])
     assert.equal(roleAllows('OPERATOR', 'GET', '/staff'), false)
     assert.equal(roleAllows('OPERATOR', 'GET', '/orders'), true)
