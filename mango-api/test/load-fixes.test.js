@@ -53,8 +53,10 @@ test('a payment webhook that finds the pool busy answers 503 BUSY and is not rec
 })
 
 // LOAD-3: a request that waited on a locked row until the database gave up
-// (lock_timeout 55P03, or statement_timeout 57014) answered 500. It is the same
-// busy minute as a full pool: a retryable 503 BUSY, and the order is untouched.
+// (lock_timeout 55P03, or statement_timeout / a cancel 57014) answered 500. It is
+// the same busy minute as a full pool: a retryable 503 BUSY, and the order is
+// untouched. The test cancels the waiting query rather than setting a short
+// lock_timeout, because a SET does not stick to a connection through PgBouncer.
 test('a request that cannot get a row lock in time answers 503 BUSY, not 500', async () => {
   await makeBatch({ age: 6, lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api, '9876511112')
@@ -63,23 +65,28 @@ test('a request that cannot get a row lock in time answers 503 BUSY, not 500', a
   await query(`UPDATE orders SET status = 'CONFIRMED' WHERE id = $1`, [c.body.orderId])
   const staff = await adminToken(api)
 
-  // Every pooled connection gets a short lock wait, as the app role's lock_timeout would give.
-  const conns = []
-  for (let i = 0; i < pool.options.max; i++) conns.push(await pool.connect())
-  for (const k of conns) await k.query(`SET lock_timeout = '300ms'`)
-  const holder = conns.pop()
-  for (const k of conns) k.release()
+  const holder = await pool.connect()
   let r
   try {
     await holder.query('BEGIN')
+    const { rows: [me] } = await holder.query('SELECT pg_backend_pid() AS pid')
     await holder.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [c.body.orderId])
-    r = await api.patch(`/admin/v1/orders/${c.body.orderId}/status`, { status: 'PROCESSING' }, { token: staff })
+    const pending = api.patch(`/admin/v1/orders/${c.body.orderId}/status`, { status: 'PROCESSING' }, { token: staff })
+    // Wait until the request is stuck on the lock, then end it as a timeout would.
+    let cancelled = false
+    for (let i = 0; i < 100 && !cancelled; i++) {
+      const { rows } = await query(
+        `SELECT pid FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> $1 AND datname = current_database()`,
+        [me.pid],
+      )
+      for (const w of rows) cancelled = (await query('SELECT pg_cancel_backend($1) AS ok', [w.pid])).rows[0].ok || cancelled
+      if (!cancelled) await new Promise((res) => setTimeout(res, 50))
+    }
+    assert.ok(cancelled, 'the request never waited on the row lock')
+    r = await pending
   } finally {
     await holder.query('ROLLBACK')
     holder.release()
-    const again = []
-    for (let i = 0; i < pool.options.max; i++) again.push(await pool.connect())
-    for (const k of again) { await k.query('RESET lock_timeout'); k.release() }
   }
   assert.equal(r.status, 503, JSON.stringify(r.body))
   assert.equal(r.body.error.code, 'BUSY')
