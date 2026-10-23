@@ -247,9 +247,16 @@ export function createApp() {
     if (err?.code === '40P01' || err?.code === '40001') {
       return res.status(409).json({ error: { code: 'CONFLICT', message: 'Busy, please retry', requestId: req.id } })
     }
-    // No free database connection in time, Neon refusing more, or a row lock
-    // not free within lock_timeout / statement_timeout (LOAD-3): a short, retryable 503.
-    if (isPoolTimeout(err) || err?.code === '53300' || err?.code === '55P03' || err?.code === '57014') {
+    // A row lock not free within lock_timeout, or a statement past statement_timeout
+    // (LOAD-3): the customer gets a retryable 503, but it still reaches Sentry, since a
+    // timeout can also be a slow query that someone must fix.
+    if (err?.code === '55P03' || err?.code === '57014') {
+      logger.error({ err, reqId: req.id, path: req.path }, 'database timeout')
+      reportError(err, { requestId: req.id, method: req.method, path: req.path })
+      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
+    }
+    // No free database connection in time, or Neon refusing more: a short, retryable 503.
+    if (isPoolTimeout(err) || err?.code === '53300') {
       logger.warn({ reqId: req.id, path: req.path }, 'database busy')
       return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
     }
