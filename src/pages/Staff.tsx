@@ -6,7 +6,7 @@ import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime, rupees } from '../for
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
-import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
+import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 const ROLE_HINT: Record<Role, string> = {
   MANAGER: 'Everything, including staff, rules and condemning batches',
@@ -54,6 +54,20 @@ export default function Staff() {
     },
   })
 
+  // Everyone's sessions end at once (optionally not this one): a leaked password or a lost device.
+  const [signingOut, setSigningOut] = useState(false)
+  const [keepMe, setKeepMe] = useState(true)
+  const signOutAll = useMutation({
+    mutationFn: (b: { reason: string; keepMe: boolean }) => api.signOutAllStaff(b.reason, b.keepMe),
+    onSuccess: (r) => {
+      setSigningOut(false)
+      refresh()
+      // Signed out too: this session is gone, so go back to sign-in.
+      if (!r.keptMe) return void api.logout()
+      toast.success(`${r.signedOut} ${r.signedOut === 1 ? 'person' : 'people'} signed out. They sign in again to carry on.`)
+    },
+  })
+
   const resetTwoStep = useMutation({
     mutationFn: (id: string) => api.resetTwoStep(id),
     onSuccess: (r) => {
@@ -73,6 +87,9 @@ export default function Staff() {
       <div className="topbar">
         <h1>Staff</h1>
         <span className="spacer" />
+        <button type="button" className="btn" onClick={() => setSigningOut(true)}>
+          Sign out all staff
+        </button>
         <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
           Add person
         </button>
@@ -239,6 +256,25 @@ export default function Staff() {
         >
           <p>They are signed out and can no longer sign in. What they did stays in the activity log.</p>
         </ConfirmDialog>
+      )}
+      {signingOut && (
+        <ReasonDialog
+          title="Sign out all staff?"
+          label="Why"
+          confirmLabel="Sign everyone out"
+          hint="For a leaked password or a lost device. Everyone signs in again; their passwords and two-step stay as they are."
+          maxLength={500}
+          busy={signOutAll.isPending}
+          error={signOutAll.error}
+          onClose={() => setSigningOut(false)}
+          onSubmit={(reason) => signOutAll.mutate({ reason, keepMe })}
+        >
+          <div className="field radio-row">
+            <label>
+              <input type="checkbox" checked={keepMe} onChange={(e) => setKeepMe(e.target.checked)} /> Keep me signed in on this device
+            </label>
+          </div>
+        </ReasonDialog>
       )}
     </>
   )

@@ -82,7 +82,7 @@ export function preorderView(p) {
     customerName: p.customer_name, phone: p.phone, channel: p.channel,
     paymentStatus: p.payment_status, paymentUrl: p.status === 'PAYMENT_PENDING' ? p.payment_link_url : null, holdExpiresAt: p.hold_expires_at,
     orderId: p.order_id, movedCount: p.moved_count, createdAt: p.created_at, bookedAt: p.booked_at,
-    refund: p.refund_requested_at ? { requestedAt: p.refund_requested_at, refundedAt: p.refunded_at, id: p.refund_id } : null,
+    refund: p.refund_requested_at ? { requestedAt: p.refund_requested_at, refundedAt: p.refunded_at, id: p.refund_id, status: p.refund_status ?? null } : null,
   }
 }
 

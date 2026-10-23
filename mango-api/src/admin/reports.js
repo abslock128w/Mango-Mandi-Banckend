@@ -106,25 +106,34 @@ router.get(
         [week],
       ),
       query(
-        `SELECT 'order' AS type, id, number, refund_requested_at FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+        `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id, 'unsent' AS state FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
-         SELECT 'preorder', id, number, refund_requested_at FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+         SELECT 'preorder', id, number, refund_requested_at, NULL, 'unsent' FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
-         SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' ELSE 'preorder' END, COALESCE(d.order_id, d.preorder_id),
-                COALESCE(o.number, p.number) || ' (second payment)', d.found_at
+         -- A second payment, or a payment that matched no order (type 'payment', its id as the id).
+         SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
+                COALESCE(d.order_id, d.preorder_id, d.payment_id),
+                COALESCE(o.number || ' (second payment)', p.number || ' (second payment)', d.payment_id || ' (payment with no order)'), d.found_at, d.payment_id, 'unsent'
            FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
           WHERE d.found_at < $1 AND d.refunded_at IS NULL
          UNION ALL
          -- PAY-02: sent, but Razorpay hasn't said it went through after 5 days.
-         SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at FROM orders
+         SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed' FROM orders
           WHERE refund_status = 'pending' AND refunded_at < $2
          UNION ALL
-         SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at FROM preorders
+         SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed' FROM preorders
           WHERE refund_status = 'pending' AND refunded_at < $2
          ORDER BY refund_requested_at LIMIT 50`,
         [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000)],
       ),
-      query('SELECT * FROM webhook_failures WHERE created_at >= $1 ORDER BY created_at DESC LIMIT 50', [week]),
+      // Not yet marked resolved. refundable: a captured payment that still matches nothing we hold.
+      query(
+        `SELECT w.*, (w.payment_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM orders WHERE payment_id = w.payment_id)
+                AND NOT EXISTS (SELECT 1 FROM preorders WHERE payment_id = w.payment_id)
+                AND NOT EXISTS (SELECT 1 FROM duplicate_payments WHERE payment_id = w.payment_id)) AS refundable
+           FROM webhook_failures w WHERE w.created_at >= $1 AND w.resolved_at IS NULL ORDER BY w.created_at DESC LIMIT 50`,
+        [week],
+      ),
       query(
         `SELECT id, number, customer_name, phone, gift_recipient_name, gift_recipient_phone, delivery_failures FROM orders
           WHERE status = 'DELIVERY_FAILED' AND delivery_failures >= $1 ORDER BY placed_at LIMIT 50`,
@@ -172,14 +181,17 @@ router.get(
         id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
-      stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at })),
+      // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent.
+      stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state })),
       // Missed too many times: someone calls the customer, then sends it out again from the order page.
       failedDeliveries: calls.rows.map((o) => ({
         id: o.id, number: o.number, name: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone, attempts: o.delivery_failures,
       })),
       // Delivered with only a photo: someone other than the rider checks it.
       photoDeliveries: photos,
-      webhookFailures: hooks.rows.map((w) => ({ id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at })),
+      webhookFailures: hooks.rows.map((w) => ({
+        id: w.id, source: w.source, reason: w.reason, eventKey: w.event_key, createdAt: w.created_at, paymentId: w.payment_id, refundable: w.refundable,
+      })),
       disputes: disputes.rows.map((d) => ({
         id: d.dispute_id, paymentId: d.payment_id, status: d.status, amount: d.amount, reasonCode: d.reason_code, respondBy: d.respond_by, createdAt: d.created_at,
         order: d.order_id ? { id: d.order_id, number: d.order_number } : null, preorderNumber: d.preorder_number,

@@ -216,10 +216,11 @@ export async function checkCapture(c, { table, id, paymentId, amount, currency }
 }
 
 /** Records a webhook that failed or could not be matched, for the Needs attention view. Never throws. */
-export async function recordWebhookFailure(source, reason, eventKey = null, c = { query }) {
+export async function recordWebhookFailure(source, reason, eventKey = null, c = { query }, paymentId = null) {
   await c
-    .query('INSERT INTO webhook_failures (id, source, reason, event_key, created_at) VALUES ($1, $2, $3, $4, $5)', [
+    .query('INSERT INTO webhook_failures (id, source, reason, event_key, created_at, payment_id) VALUES ($1, $2, $3, $4, $5, $6)', [
       newId('whf'), source, String(reason).slice(0, 500), eventKey ? String(eventKey).slice(0, 200) : null, now(),
+      typeof paymentId === 'string' && paymentId ? paymentId.slice(0, 64) : null,
     ])
     .catch((err) => logger.error({ err }, 'could not record a webhook failure'))
 }
@@ -285,7 +286,9 @@ export async function handleWebhook(event, eventId) {
         return { ignored: true, awaiting: 'payment_link.paid' }
       }
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
-      await recordWebhookFailure('razorpay', `${kind} for an order we don't have (${entity.order_id ?? link?.id ?? 'no id'})`, dedupeKey, c)
+      // The payment id is kept for a captured payment, so a manager can refund it from Needs attention.
+      const captured = kind !== 'payment.failed' ? entity.id : null
+      await recordWebhookFailure('razorpay', `${kind} for an order we don't have (${entity.order_id ?? link?.id ?? 'no id'}${captured ? `, payment ${captured}` : ''})`, dedupeKey, c, captured)
       return { unknownOrder: true }
     }
     if (kind !== 'payment.failed') {
@@ -591,7 +594,7 @@ export async function reconcileOrderNow(orderId, { minAgeMs = 0, throttleMs = 10
  * so a retry never pays twice. Returns the refund id (null in production
  * without keys). Throws on gateway errors.
  */
-const REFUND_LEASE_MS = 2 * 60_000
+export const REFUND_LEASE_MS = 2 * 60_000
 
 /**
  * Takes the refund for one order or preorder for the next two minutes, or
@@ -621,6 +624,15 @@ export async function claimRefund(table, id, at = now()) {
 export function refundReceipt(base, attempt) {
   const suffix = `-r${Math.max(1, attempt ?? 1)}`
   return `${String(base).slice(0, 40 - suffix.length)}${suffix}`
+}
+
+/**
+ * The refunds Razorpay holds for a payment that have not failed (the lookup
+ * gatewayRefund makes first). Development has none. Throws when Razorpay can't be asked.
+ */
+export async function liveGatewayRefunds(paymentId) {
+  if (!hasKeys() || !paymentId) return []
+  return gatewayItems(await razorpay('GET', `/payments/${encodeURIComponent(paymentId)}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
 }
 
 export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
@@ -797,8 +809,8 @@ async function flagGatewayRefunds(from, to) {
   return flagged
 }
 
-async function knownPayment(id) {
-  const { rows } = await query(
+export async function knownPayment(id, c = { query }) {
+  const { rows } = await c.query(
     `SELECT 1 FROM orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM preorders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM duplicate_payments WHERE payment_id = $1 LIMIT 1`,
@@ -857,7 +869,7 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
       continue
     }
     out.lost.push({ paymentId: p.id, amount: p.amount, contact: p.contact ?? null })
-    await recordWebhookFailure('razorpay', `After a restore: captured payment ${p.id} (${p.amount} paise) matches no order`, `replay:${p.id}`)
+    await recordWebhookFailure('razorpay', `After a restore: captured payment ${p.id} (${p.amount} paise) matches no order`, `replay:${p.id}`, { query }, p.id)
     if (refundMissing) {
       await query('INSERT INTO duplicate_payments (payment_id, amount, found_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [p.id, p.amount ?? null, now()])
     }

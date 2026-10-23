@@ -30,10 +30,10 @@ Golden rules:
 
 | Item (as the panel shows it) | Raised by | Owner | Way back |
 |---|---|---|---|
-| **The background loop has stopped** | no `tick` in `maintenance_runs` for 5 min (`reports.js:86`, `LOOP_STALE_MS`) | Owner | [Scheduler stopped](#scheduler-stopped). The panel says "Restart the API", which is right only on the Docker server; on Vercel there is nothing to restart (see flagged gaps) |
+| **The background loop has stopped** | no `tick` in `maintenance_runs` for 5 min (`reports.js:86`, `LOOP_STALE_MS`) | Owner | [Scheduler stopped](#scheduler-stopped). The panel names both: the scheduler on Vercel, restarting the API on the Docker server |
 | **<step> is failing** since ... | a step's `last_err_at` is newer than its `last_ok_at` (`reports.js` `failingSteps`; `maintenance.js` `step()`) | Owner | Read the error shown; Vercel → Logs, search `maintenance step failed` and the step name. Fix the cause (below by step); the item clears on the step's next success. `refunds`/`duplicate-payments`/`refund-checks`/`reconcile`: [Stuck refunds](#stuck-or-failed-refunds) and Razorpay keys. `notifications`: [Failed notifications](#failed-notifications). `audit`: [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). `preorders`, `rebalance-*`, `sweep`, `retire`, `cleanup`, `retention`, `config`: a bug or the database; Sentry has the stack |
-| **No backup in the last 26 hours** | `backupStatus` (`maintenance.js`), when `BACKUP_HEARTBEAT_EXPECTED=true` or a backup was ever recorded | Owner | GitHub → Actions → **Backup** → the last run. Red at "Check the backup is set up": secrets missing. Red later: open the log. No run at all: GitHub paused the schedule (60 days without repository activity): click **Enable workflow**, then **Run workflow**. The item clears when a run's heartbeat step succeeds. (The panel's wording points at the Docker backup service; see flagged gaps) |
-| **Refund not sent** for N, asked for at ... | a refund requested 30 min ago and not sent (`reports.js:108-125`) | Manager watches, Owner fixes | [Stuck refunds](#stuck-or-failed-refunds) |
+| **No backup in the last 26 hours** | `backupStatus` (`maintenance.js`), when `BACKUP_HEARTBEAT_EXPECTED=true` or a backup was ever recorded | Owner | GitHub → Actions → **Backup** → the last run. Red at "Check the backup is set up": secrets missing. Red later: open the log. No run at all: GitHub paused the schedule (60 days without repository activity): click **Enable workflow**, then **Run workflow**. The item clears when a run's heartbeat step succeeds. (Docker server: `docker compose logs backup`; the panel names both) |
+| **Refund not sent** for N, asked for at ... | a refund requested 30 min ago and not sent (`reports.js:108-125`) | Manager watches, Owner fixes | [Stuck refunds](#stuck-or-failed-refunds). Razorpay can never send it: Manager → **Paid back another way** on the item |
 | **Refund not sent** for N **(second payment)** | a `duplicate_payments` row unrefunded after 30 min | Owner | [Duplicate payment](#duplicate-payment) |
 | **Refund not sent** for N **(sent, not confirmed by Razorpay)** | `refund_status = 'pending'` for 5 days | Owner | [Stuck refunds](#stuck-or-failed-refunds), "Sent but not confirmed" |
 | **WhatsApp message not delivered** (kind) for N after k tries | `notifications.status = 'FAILED'` in the last 7 days | Operator | **Send again** on the item (`POST /admin/v1/notifications/:id/retry`), after the cause is fixed: [Failed notifications](#failed-notifications) |
@@ -42,10 +42,10 @@ Golden rules:
 | **Overdue:** N was due ... | paid order past its date, or out for delivery 8+ h with no result (`src/stock-watch.js` `overdueOrders`; also a Sentry warning) | Operator | Find out where it is (the rider), tell the customer, then record the result on the order page (delivered with proof, missed, or moved with **Reschedule**). Clears when the order's status moves on |
 | **Check a photo delivery** / **Check a delivery marked without proof** | delivered with only a photo, or by a manager's override (`photoReviews`) | Operator (not the rider who delivered) | **Looks right** or **Doubtful** on the item (`POST /admin/v1/delivery-reviews/:id`); Doubtful asks for a note and someone calls the customer. A claim, if any, resolves only as Replacement or Reject |
 | **Payment disputed** (status) for N, ₹, by date | an open `payment_disputes` row (`payment.dispute.*` webhooks) | Owner | [Dispute](#dispute-chargeback) |
-| **Razorpay webhook problem** / **WhatsApp webhook problem** at ... | a `webhook_failures` row in the last 7 days (`src/payments.js` `recordWebhookFailure`, `src/app.js` webhook handlers) | Owner | Depends on the reason text: [Unmatched webhook](#unmatched-webhook-payment-for-an-order-we-dont-have), [Rejected capture](#payment-captured-but-rejected-or-order-cancelled), [Webhooks failing](#webhooks-failing-500). There is no "resolved" button (see flagged gaps) |
-| **Stock counts disagree with the ledger** for SKU in its batch | `auditLedger` (`src/inventory.js:233`), hourly; also Sentry | Manager stops selling it; Owner repairs | [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). No panel action repairs it (see flagged gaps) |
+| **Razorpay webhook problem** / **WhatsApp webhook problem** at ... | a `webhook_failures` row in the last 7 days (`src/payments.js` `recordWebhookFailure`, `src/app.js` webhook handlers) | Owner | Depends on the reason text: [Unmatched webhook](#unmatched-webhook-payment-for-an-order-we-dont-have), [Rejected capture](#payment-captured-but-rejected-or-order-cancelled), [Webhooks failing](#webhooks-failing-500). Manager: **Mark resolved** (with a note) once handled; **Refund this payment** on a captured payment that matches no order |
+| **Stock counts disagree with the ledger** for SKU in its batch | `auditLedger` (`src/inventory.js:233`), hourly; also Sentry | Manager stops selling it; Owner repairs | [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). Manager: **Repair from the ledger** on the item (preview, then a reason) |
 | **k boxes from N** (returned / cancelled after it left) | `packed` stock on a CANCELLED or RTO order (`returnedStockPending`) | Operator | Order page → **Returned boxes**: put back on the shelf (if the batch is still on sale) or write off with a reason (`POST /admin/v1/orders/:id/returned-stock`) |
-| **Preorder P** (moved k times / after the season ends) | `preordersNeedingDecision` | Manager | Preorders page: **Cancel** with a refund (manager cancel of a booking we can't deliver). "Keep it" has no button: the item stays until the booking is allocated (see flagged gaps) |
+| **Preorder P** (moved k times / after the season ends) | `preordersNeedingDecision` | Manager | Preorders page: **Cancel** with a refund (manager cancel of a booking we can't deliver). Or **Keep booking** on the item (a reason; it comes back only if the booking moves again) |
 | **k new reviews with 1 or 2 stars** | pending low ratings from the last 7 days | Operator | Reviews page: read, reply or moderate; call the customer if needed. A review never opens a claim |
 
 Sentry warnings with no panel item of their own:
@@ -63,18 +63,24 @@ Sentry warnings with no panel item of their own:
 | Login codes reached 80% of the day's budget | Owner | look for one number or address pumping codes (Vercel logs); raise `OTP_DAILY_LIMIT` only if it is real demand |
 | Cron monitor `maintenance`: missed or failed check-in | Owner | [Scheduler stopped](#scheduler-stopped) |
 
-### Problems the code raises with no recovery path (flagged)
+### Problems the code raised with no recovery path (closed 23 Oct)
 
-| Problem | What is missing | Workaround until it exists |
-|---|---|---|
-| Ledger drift (`ledgerDrift`) | No action repairs a counter that disagrees with its ledger. **Adjust stock** (`PATCH /batches/:id/lines/:lineId`) writes an ADJUST row *and* changes on-hand by the same amount, so the disagreement stays | Owner investigates and repairs with SQL, inside a transaction, after a backup branch (runbook below) |
-| Webhook problems (`webhookFailures`) | No "resolved" or dismiss action; items show for 7 days and are deleted after 30 (`maintenance.js` `cleanupExpired`) | Keep a note of which ones you handled; they age out |
-| Preorder decision "keep it" | No action keeps a booking and clears the item; only **Cancel** (manager) exists | Leave it; it clears when the allocator converts the booking |
-| A refund that will never go through Razorpay (account closed, bank refused for good) | Refunds retry every minute without end (`processDueRefunds`); no way to record "refunded another way" | Pay the customer back by other means and write it on the order; then the Owner marks the row refunded in SQL with a note in `staff_audit`'s style (runbook below) |
-| A captured payment that matches no order (live, not after a restore) | No panel action to refund it; `ops/replay-payments.js --refund-missing` handles only payments since a restore point | Owner refunds it in the Razorpay dashboard after checking it really bought nothing |
-| Sign out every staff member at once | No panel action; per person only (Staff page: change role or password, reset two-step, remove) | Rotate `JWT_SECRET` (signs out customers too), or the SQL in [Compromised credentials](#compromised-credentials) |
-| Panel text on Vercel | "Restart the API" (loop stopped) and "check the backup service (deploy/README.md)" describe the Docker server; on Vercel the fix is the scheduler and the GitHub Backup workflow | Follow this page, not the card's last sentence |
-| Step names without a label | `refund-checks`, `stock-alerts`, `reminders`, `retention`, `rebalance`, `health` show as raw names in "is failing" (`NeedsAttention.tsx` `STEP_LABEL`) | The step name matches `maintenance.js`; search the logs for it |
+Each now has a manager action in the panel. Every one needs a reason, is safe to
+repeat, and is written to the staff activity (`staff_audit`) inside its own
+transaction, with the order or booking history or the batch ledger where it
+touches them (`mango-api/src/admin/recovery.js`, tests `test/recovery.test.js`,
+`tests/recovery.spec.ts`).
+
+| Problem | Recovery path now |
+|---|---|
+| Ledger drift (`ledgerDrift`) | Needs attention → **Repair from the ledger** (Manager). Shows the counts now and after; applies exactly that preview (`GET`/`POST /admin/v1/batches/:id/lines/:lineId/repair`). Counters are set to the ledger (on hand, reserve buffer) and the order stock (held, to pack); the ledger is never changed, only a `STATUS` row (delta 0) records the repair. Refused when the ledger can't cover what is promised (no-oversell guard): count the shelf, record it with Adjust stock or Short arrival, then repair |
+| Webhook problems (`webhookFailures`) | **Mark resolved** with a note (Manager, `POST /admin/v1/webhook-failures/:id/resolve`); it leaves Needs attention and the hourly Sentry count. Rows still age out after 30 days |
+| Preorder decision "keep it" | **Keep booking** with a reason (Manager, `POST /admin/v1/preorders/:id/keep`); recorded on the booking's history; it comes back only if the booking moves again |
+| A refund that will never go through Razorpay | Pay the customer back another way, then **Paid back another way** on the Refunds not sent item with the payment's reference (Manager, `POST /admin/v1/refunds/:id/paid-another-way`). Retries stop; it stays a refund in Analytics (`refunded_at`, `refund_status = 'manual'`, `refund_id = 'manual:<reference>'`). Refused while a refund attempt holds the lease, within 30 minutes of the request, and when Razorpay already shows a refund for the payment |
+| A captured payment that matches no order (live) | Check in the Razorpay dashboard that it bought nothing, then **Refund this payment** on the webhook problem (Manager, `POST /admin/v1/webhook-failures/:id/refund`). It is refunded in full like a second payment (`duplicate_payments`, leased, a new receipt per attempt); refused if the payment now belongs to an order or booking |
+| Sign out every staff member at once | Staff page → **Sign out all staff** with a reason (Manager, `POST /admin/v1/staff/sign-out-all`), optionally keeping your own session |
+| Panel text on Vercel | Fixed: the cards name the scheduler and the GitHub Backup workflow for Vercel, and the API restart and backup service for Docker |
+| Step names without a label | Fixed: every step `maintenance.js` can report has a label (unit test `tests/unit/step-labels.unit.ts`) |
 
 ---
 
@@ -101,8 +107,9 @@ Owner:
    confirmed by the next reconcile; nothing to do.
 4. If it bought nothing: after a restore, run
    `node --env-file=.env ops/replay-payments.js --from <restore point>` (lists them)
-   and `--refund-missing` to refund them in full. Outside a restore, refund it in the
-   Razorpay dashboard (a payment that bought nothing). Tell the customer.
+   and `--refund-missing` to refund them in full. Outside a restore, a Manager clicks
+   **Refund this payment** on the webhook problem (full refund, like a second
+   payment). Tell the customer.
 
 ### Payment captured but rejected, or order cancelled
 
@@ -176,16 +183,11 @@ there: the webhook was lost; the next `refund-checks` run records it. Failed the
 `refund.failed` resets it and it is sent again. Stuck at the bank: contact
 Razorpay support with the refund id.
 
-**A refund that can never go through** (flagged gap: no recovery path): pay the
-customer another way, then the Owner records it, in the Neon SQL editor on `main`:
-
-```sql
-BEGIN;
-UPDATE orders SET payment_status = 'REFUNDED', refunded_at = now(), refund_status = 'processed', refund_id = 'manual:<what you did>'
- WHERE number = '<order number>' AND refunded_at IS NULL;
--- check it says UPDATE 1, then
-COMMIT;
-```
+**A refund that can never go through** (account closed, bank refused for good): pay
+the customer back another way (bank transfer, UPI), then a Manager clicks **Paid back
+another way** on the Refunds not sent item and gives the payment's reference and why.
+Check the Razorpay dashboard first that no refund went out (the API also asks Razorpay
+and refuses if one shows). Retries stop and it still counts as a refund in Analytics.
 
 ---
 
@@ -198,7 +200,7 @@ The hourly `audit` step checks it; drift shows in Needs attention and Sentry.
 Manager, at once: **stop selling that batch line** until it is explained. There
 is no off-sale switch for one line, so on the batch page raise the line's
 **reserve buffer** to its free stock (that changes only the buffer, not on hand).
-Don't adjust on hand yet: it would hide the evidence and, as flagged above,
+Don't adjust on hand yet: it would hide the evidence and, since it moves the counter and the ledger together,
 doesn't repair the drift.
 
 Owner:
@@ -207,24 +209,16 @@ Owner:
    the shelf.
 3. Find the cause in Vercel logs and Sentry around the first alert (an error during
    a pack or a cancel, a hand edit in SQL). Keep the evidence.
-4. Repair (no panel action exists): in Neon, create a branch of `main` first (a
-   backup point), then in one transaction set the counter to what the ledger and
-   the order stock say:
-
-   ```sql
-   BEGIN;
-   UPDATE batch_lines l SET
-     on_hand = COALESCE((SELECT SUM(delta) FROM batch_ledger g WHERE g.batch_id = l.batch_id AND g.sku = l.sku
-                AND g.event_type IN ('INTAKE','ADJUST','CONDEMN','RETIRE','PACK','RESTOCK')), 0),
-     held = COALESCE((SELECT SUM(quantity) FROM order_stock s WHERE s.line_id = l.id AND s.state = 'held'), 0),
-     committed = COALESCE((SELECT SUM(quantity) FROM order_stock s WHERE s.line_id = l.id AND s.state = 'committed'), 0)
-   WHERE l.id = '<line id from the batch page>';
-   COMMIT;
-   ```
+4. Repair: Manager, Needs attention → **Repair from the ledger** on the item. It
+   shows the counts now and after the repair (on hand and reserve buffer from the
+   ledger, held and to pack from the orders); give the cause as the reason. The
+   ledger itself is not changed; a `STATUS` row records the repair. If it says the
+   ledger can't cover what is promised, count the shelf and record extra boxes with
+   **Adjust stock** (or fewer with **Short arrival**) first, then repair.
 
    If the shelf count differs from the ledger too, record the difference afterwards
    with **Adjust stock** in the panel (with a reason), so it is in the ledger.
-5. The item clears at the next hourly audit (or the next deploy's first run).
+5. The item clears at once (Needs attention re-checks on each load); Sentry's hourly audit stops alerting.
 
 ---
 
@@ -356,14 +350,10 @@ more than 5 minutes turns `/ready` red.
   (ends their sessions, `POST /staff/:id/two-step/reset`), change their password,
   or **Remove** them. Each revokes their refresh sessions and stops their access
   tokens within seconds (`session_version`, 5 s cache in `src/auth.js`).
-- Everyone at once (no panel action; flagged above): in the Neon SQL editor on `main`
-
-  ```sql
-  BEGIN;
-  UPDATE admin_users SET session_version = session_version + 1;
-  UPDATE refresh_sessions SET revoked_at = now() WHERE user_type = 'admin' AND revoked_at IS NULL;
-  COMMIT;
-  ```
+- Everyone at once: Manager, Staff page → **Sign out all staff** with a reason
+  (`POST /admin/v1/staff/sign-out-all`): every other staff member's refresh
+  sessions are revoked and their access tokens stop working (`session_version`);
+  untick "Keep me signed in" to end your own session too.
 
   Staff sign in again with password and two-step. Then check Staff → Audit for
   what was done with the stolen session.

@@ -230,7 +230,7 @@ export async function lineInfo(c, lineId) {
  * Compares counters against their sources. Returns one entry per drifting
  * line; an empty array means the books balance.
  */
-export async function auditLedger(c) {
+export async function auditLedger(c, { lineId = null } = {}) {
   const { rows } = await c.query(
     `SELECT l.id, l.batch_id, l.sku, l.on_hand, l.held, l.committed, l.reserve_buffer,
             COALESCE((SELECT SUM(delta) FROM batch_ledger g
@@ -239,8 +239,8 @@ export async function auditLedger(c) {
                        WHERE g.batch_id = l.batch_id AND g.sku = l.sku AND g.event_type = 'ADJUST_BUFFER'), 0)::int AS ledger_buffer,
             COALESCE((SELECT SUM(quantity) FROM order_stock s WHERE s.line_id = l.id AND s.state = 'held'), 0)::int AS stock_held,
             COALESCE((SELECT SUM(quantity) FROM order_stock s WHERE s.line_id = l.id AND s.state = 'committed'), 0)::int AS stock_committed
-       FROM batch_lines l`,
-    [ON_HAND_EVENTS],
+       FROM batch_lines l WHERE ($2::text IS NULL OR l.id = $2)`,
+    [ON_HAND_EVENTS, lineId],
   )
   return rows
     .filter(

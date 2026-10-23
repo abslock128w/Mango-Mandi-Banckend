@@ -9,6 +9,8 @@ import type {
   BatchDetail,
   Analytics,
   Attention,
+  LedgerRepairPlan,
+  LineCounters,
   AuditPage,
   BulkMoveResult,
   ShortArrivalResult,
@@ -233,6 +235,17 @@ export const api = {
   summary: () => request<Summary>('GET', '/summary'),
   attention: () => request<Attention>('GET', '/attention'),
   retryMessage: (notificationId: string) => request<void>('POST', `/notifications/${id(notificationId)}/retry`),
+  // Manager ways out of Needs attention items. Each needs a reason and is written to the staff activity.
+  ledgerRepairPlan: (batchId: string, lineId: string) => request<LedgerRepairPlan>('GET', `/batches/${id(batchId)}/lines/${id(lineId)}/repair`),
+  repairLedger: (batchId: string, lineId: string, reason: string, expected: LineCounters) =>
+    request<LedgerRepairPlan>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/repair`, { reason, expected }),
+  resolveWebhookFailure: (failureId: string, note: string) => request<unknown>('POST', `/webhook-failures/${id(failureId)}/resolve`, { note }),
+  refundUnmatchedPayment: (failureId: string, reason: string) =>
+    request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason }),
+  keepPreorder: (preorderId: string, reason: string) => request<unknown>('POST', `/preorders/${id(preorderId)}/keep`, { reason }),
+  refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string) =>
+    request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason }),
+  signOutAllStaff: (reason: string, keepMe = true) => request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe }),
   /** Signs off a photo delivery, or flags it as doubtful (with a note) for a call to the customer. */
   reviewDelivery: (attemptId: string, ok: boolean, note?: string) => request<void>('POST', `/delivery-reviews/${id(attemptId)}`, { ok, note }),
   products: () => request<Product[]>('GET', '/products'),
