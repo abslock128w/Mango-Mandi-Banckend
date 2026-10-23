@@ -4,6 +4,7 @@
 import { query } from './db.js'
 import { now, todayIST } from './clock.js'
 import { env } from './env.js'
+import { scrubOrderAudit } from './privacy.js'
 
 /** Sent, failed and skipped customer messages are kept this long (the order page shows them). */
 export const NOTIFICATION_RETENTION_DAYS = 180
@@ -57,6 +58,7 @@ export async function anonymiseOldOrders(at = now(), { months = env.PII_RETENTIO
   )
   if (rows.length) {
     await query('UPDATE delivery_attempts SET received_by = NULL, note = NULL, lat = NULL, lng = NULL WHERE order_id = ANY($1)', [rows.map((r) => r.id)])
+    await scrubOrderAudit({ query }, 'SELECT unnest($1::text[])', [rows.map((r) => r.id)])
   }
   return rows.length
 }
