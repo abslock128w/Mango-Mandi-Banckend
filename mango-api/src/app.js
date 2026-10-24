@@ -83,6 +83,13 @@ export function createApp() {
     next()
   })
   app.use(httpMetrics)
+  // SEC-03: no client of ours (shop, panel, Razorpay, Meta) compresses request bodies, so
+  // none are inflated: a compressed body is refused before any parser sees it.
+  app.use((req, res, next) => {
+    const enc = String(req.get('content-encoding') ?? 'identity').trim().toLowerCase()
+    if (enc === 'identity' || enc === '') return next()
+    res.status(415).json({ error: { code: 'UNSUPPORTED_ENCODING', message: 'Compressed request bodies are not accepted', requestId: req.id } })
+  })
   app.use((req, res, next) => {
     const start = process.hrtime.bigint()
     res.on('finish', () => {
@@ -150,7 +157,7 @@ export function createApp() {
     if (verifySignature(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.get('x-razorpay-signature'))) return next()
     res.status(400).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
   }
-  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpaySigned, loaded, async (req, res) => {
+  app.post('/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb', inflate: false }), razorpaySigned, loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
     let event
     try {
@@ -189,7 +196,7 @@ export function createApp() {
     if (verifyMetaSignature(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), req.get('x-hub-signature-256'))) return next()
     res.status(401).json({ error: { code: 'BAD_SIGNATURE', message: 'Invalid signature', requestId: req.id } })
   }
-  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb' }), metaSigned, loaded, async (req, res) => {
+  app.post('/webhooks/whatsapp', express.raw({ type: '*/*', limit: '1mb', inflate: false }), metaSigned, loaded, async (req, res) => {
     const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0)
     let body
     try {
@@ -207,7 +214,7 @@ export function createApp() {
     }
   })
 
-  app.use(express.json({ limit: '100kb' }))
+  app.use(express.json({ limit: '100kb', inflate: false }))
   app.use(loaded)
 
   // Per address. Indian mobile networks put many customers behind one address

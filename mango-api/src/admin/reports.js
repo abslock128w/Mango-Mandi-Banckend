@@ -123,15 +123,21 @@ router.get(
          UNION ALL
          SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed' FROM preorders
           WHERE refund_status = 'pending' AND refunded_at < $2
+         UNION ALL
+         SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
+                COALESCE(d.order_id, d.preorder_id, d.payment_id), d.payment_id || ' (refund sent, not confirmed by Razorpay)',
+                d.found_at, d.payment_id, 'unconfirmed'
+           FROM duplicate_payments d WHERE d.refund_status = 'pending' AND d.refunded_at < $2
          ORDER BY refund_requested_at LIMIT 50`,
         [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000)],
       ),
-      // Not yet marked resolved. refundable: a captured payment that still matches nothing we hold.
+      // Not yet marked resolved; payment problems stay listed at any age (PAY-04). refundable: a captured payment that still matches nothing we hold.
       query(
         `SELECT w.*, (w.payment_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM orders WHERE payment_id = w.payment_id)
                 AND NOT EXISTS (SELECT 1 FROM preorders WHERE payment_id = w.payment_id)
                 AND NOT EXISTS (SELECT 1 FROM duplicate_payments WHERE payment_id = w.payment_id)) AS refundable
-           FROM webhook_failures w WHERE w.created_at >= $1 AND w.resolved_at IS NULL ORDER BY w.created_at DESC LIMIT 50`,
+           FROM webhook_failures w WHERE w.resolved_at IS NULL AND (w.created_at >= $1 OR w.source = 'razorpay')
+          ORDER BY (w.source = 'razorpay') DESC, w.created_at DESC LIMIT 50`,
         [week],
       ),
       query(

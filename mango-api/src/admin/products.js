@@ -141,7 +141,7 @@ router.delete(
 router.put(
   '/products/:sku/photo',
   requireManager,
-  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_REVIEW_UPLOAD_BYTES }),
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_REVIEW_UPLOAD_BYTES, inflate: false }),
   asyncHandler(async (req, res) => {
     const sku = req.params.sku
     if (!findProduct(sku)) throw notFound('No product with that SKU')

@@ -194,7 +194,7 @@ customerReviews.post(
  */
 customerReviews.post(
   '/reviews/photos',
-  express.raw({ type: IMAGE_TYPES, limit: MAX_REVIEW_UPLOAD_BYTES }),
+  express.raw({ type: IMAGE_TYPES, limit: MAX_REVIEW_UPLOAD_BYTES, inflate: false }),
   asyncHandler(async (req, res) => {
     const me = req.customer.id
     let bytes = req.body

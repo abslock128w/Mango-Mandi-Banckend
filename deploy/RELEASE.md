@@ -164,6 +164,25 @@ Why it is safe: the database keeps the new migrations, and the previous code was
 proven to work on them by the N-1 check in CI. New columns are ignored by old
 code; new tables are unused. Nothing is lost.
 
+Business rules (Planning → Rules) are the one exception for releases older than
+the one with migration 032. From 032 on, the API drops rule keys it doesn't know
+when it reads them, so a rollback keeps working after a newer release saved
+rules. Releases before it (`main` at bd5d2bf and older) refuse any unknown key
+and answer 500 on every request. Before rolling back to one of those, check
+whether rules were saved on the newer release, and if so save a copy without the
+new keys first (Neon → SQL editor on `main`):
+
+```sql
+INSERT INTO app_config (version, value, changed_by)
+SELECT version + 1,
+       value - 'maxUnpaidOrders' - 'maxHeldBoxes' - 'outForDeliveryAlertHours' - 'maxPreorderMoves' - 'seasonEndsOn',
+       'rollback'
+  FROM app_config ORDER BY version DESC LIMIT 1;
+```
+
+The newer release reads that copy too (the missing keys take their defaults), so
+rolling forward again needs nothing more.
+
 Then:
 - Tell staff to reload the panel.
 - Leave the rollback in place until the fix is merged and passes staging.

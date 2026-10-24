@@ -1128,7 +1128,7 @@ export const MAX_CLAIM_PHOTOS = 3
 /** A claim photo is uploaded first (raw image body), then linked by id when the claim is sent. */
 router.post(
   '/claims/photos',
-  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES, inflate: false }),
   asyncHandler(async (req, res) => {
     checkPhoto(req.body)
     const loose = await query('SELECT COUNT(*)::int AS n FROM claim_photos WHERE customer_id = $1 AND claim_id IS NULL', [req.customer.id])

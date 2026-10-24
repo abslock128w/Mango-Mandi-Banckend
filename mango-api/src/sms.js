@@ -8,6 +8,8 @@ import { deployEnv, env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { logger, maskPhone as mask } from './logger.js'
 import { metrics } from './metrics.js'
+import { hit } from './ratelimit.js'
+import { reportProblem } from './sentry.js'
 import { metaOtpSender, templateName } from './whatsapp.js'
 
 
@@ -79,13 +81,38 @@ export function otpDelivery({ sms, whatsapp }) {
     for (const [i, ch] of order.entries()) {
       try {
         await (ch === 'sms' ? sms : whatsapp)(phone, code)
-        if (i > 0) metrics.otpFallbacks.inc({ channel: ch })
+        if (i > 0) {
+          metrics.otpFallbacks.inc({ channel: ch })
+          await noteOtpTrouble('fallback', { failingChannel: order[0], workingChannel: ch })
+        }
         return ch
       } catch (err) {
         logger.warn({ err, phone: mask(phone), channel: ch }, 'login code not sent on this channel')
       }
     }
+    await noteOtpTrouble('failed', { channels: order })
     throw new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
+  }
+}
+
+/**
+ * INT-02: login-code trouble reaches Sentry (and so a person), not only the logs
+ * and a Prometheus counter nobody scrapes on Vercel. Counted in Postgres so it
+ * holds across serverless instances; one warning when a window reaches its
+ * threshold, then quiet until the next window.
+ */
+export const OTP_ALERTS = {
+  failed: { windowMs: 10 * 60_000, threshold: 3, message: 'Login codes are not being sent: phone sign-in is failing. Check Jio SMS and the WhatsApp token (RUNBOOKS: login codes not arriving)' },
+  fallback: { windowMs: 60 * 60_000, threshold: 5, message: 'Login codes are going out on the backup channel: the first channel is failing (RUNBOOKS: login codes not arriving)' },
+}
+
+async function noteOtpTrouble(kind, extra) {
+  const a = OTP_ALERTS[kind]
+  try {
+    const { hits } = await hit(`otp-trouble:${kind}`, a.windowMs)
+    if (hits === a.threshold) reportProblem(a.message, { ...extra, count: hits, windowMinutes: a.windowMs / 60_000 })
+  } catch (err) {
+    logger.error({ err }, 'could not count a login-code problem')
   }
 }
 

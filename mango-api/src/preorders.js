@@ -344,9 +344,8 @@ export async function promoteWaitlist() {
     const ids = []
     for (const p of rows) {
       if (!(await reserve(c, p.sku, p.week_start, p.qty))) continue
-      await c.query(`UPDATE preorders SET status = 'PAYMENT_PENDING', payment_status = 'INITIATED', hold_expires_at = $2 WHERE id = $1`, [
-        p.id, new Date(now().getTime() + SPOT_HOLD_HOURS * 3_600_000),
-      ])
+      await c.query(`UPDATE preorders SET status = 'PAYMENT_PENDING', payment_status = 'INITIATED', hold_expires_at = $2, payment_started_at = $3
+          WHERE id = $1`, [p.id, new Date(now().getTime() + SPOT_HOLD_HOURS * 3_600_000), now()])
       await event(c, p.id, 'PAYMENT_PENDING', SYSTEM, 'A spot opened up from the waitlist')
       ids.push(p.id)
     }
@@ -376,13 +375,17 @@ export async function retryMissingLinks() {
   }
 }
 
-/** Catches missed link payments (webhook lost) for unpaid or just-expired preorders. */
+/**
+ * Catches missed link payments (webhook lost) for unpaid or just-expired preorders.
+ * The window starts when the payment window opened: a waitlist spot is often
+ * offered days after the booking was made.
+ */
 export async function reconcilePreorderPayments() {
   const at = now()
   const { rows } = await query(
     `SELECT id, payment_link_id FROM preorders WHERE payment_link_id IS NOT NULL AND payment_status IN ('INITIATED', 'CANCELLED')
-        AND created_at > $1 AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $2)
-      ORDER BY (payment_status = 'INITIATED') DESC, reconcile_checked_at NULLS FIRST, created_at DESC LIMIT 100`,
+        AND COALESCE(payment_started_at, created_at) > $1 AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $2)
+      ORDER BY (payment_status = 'INITIATED') DESC, reconcile_checked_at NULLS FIRST, COALESCE(payment_started_at, created_at) DESC LIMIT 100`,
     [new Date(at.getTime() - 3 * 86_400_000), new Date(at.getTime() - 15 * 60_000)],
   )
   let n = 0

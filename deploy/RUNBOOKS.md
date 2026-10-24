@@ -285,6 +285,25 @@ Owner:
 Then Operator: **Send again** on each item that still matters (a delivery code for
 today, yes; yesterday's "packed", no).
 
+## Login codes not arriving
+
+Notice: Sentry "Login codes are not being sent" (3 failed sends in 10 minutes)
+or "Login codes are going out on the backup channel" (5 in an hour), or
+customers saying the code never came. Google sign-in still works meanwhile.
+Owner:
+1. Vercel → `mandi-api` → Logs, search `login code not sent on this channel` and
+   `Jio SMS answered`: the line says which channel failed and why.
+2. SMS (Jio) failing: check the DLT sender, template and entity ids still match
+   what is registered, the `JIO_SMS_API_KEY`, and the Jio status page or account
+   manager. A changed success reply needs `JIO_SMS_SUCCESS_PATH` / `_VALUES`.
+3. WhatsApp failing: the token or the login-code (authentication) template
+   ([Failed notifications](#failed-notifications) steps 1 to 3).
+4. One channel down for more than an hour: set `OTP_DEFAULT_CHANNEL` to the
+   working one (`sms` or `whatsapp`) on `mandi-api` (Production) and Redeploy, so
+   customers stop waiting for the failing channel first. Set it back afterwards.
+5. Both down: post on the shop's WhatsApp and social pages that phone sign-in is
+   down and Google sign-in works, until one channel is back.
+
 ## Failed deliveries
 
 - After each missed delivery the order is `DELIVERY_FAILED` and can be sent out

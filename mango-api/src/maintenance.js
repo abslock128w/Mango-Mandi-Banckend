@@ -126,7 +126,10 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM idempotency_keys WHERE created_at < $1', [new Date(at.getTime() - 7 * day)])
   await query('DELETE FROM processed_webhooks WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
-  await query('DELETE FROM webhook_failures WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
+  // Payment problems stay until a manager resolves them: often the only record of customer money (DB-04).
+  await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND (resolved_at IS NOT NULL OR source <> 'razorpay')`, [
+    new Date(at.getTime() - 30 * day),
+  ])
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
   await query('DELETE FROM rate_limits WHERE reset_at < $1', [new Date(at.getTime() - HOURLY_MS)])
   await query('DELETE FROM job_leases WHERE expires_at < $1', [new Date(at.getTime() - day)])

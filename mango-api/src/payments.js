@@ -849,7 +849,8 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
     }
   }
   const pre = await query(
-    `SELECT id, payment_link_id, payment_id FROM preorders WHERE payment_link_id IS NOT NULL AND created_at BETWEEN $1 AND $2`,
+    `SELECT id, payment_link_id, payment_id FROM preorders WHERE payment_link_id IS NOT NULL
+      AND COALESCE(payment_started_at, created_at) BETWEEN $1 AND $2`,
     [since, to],
   )
   for (const p of pre.rows) {

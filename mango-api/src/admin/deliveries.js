@@ -216,7 +216,7 @@ router.post(
 /** The photo is the raw request body (Content-Type image/jpeg, png or webp). */
 router.post(
   '/orders/:id/delivery-photos',
-  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES }),
+  express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES, inflate: false }),
   asyncHandler(async (req, res) => {
     const id = await savePhoto(req.params.id, req.body, req.actor) // uploads first, then a short transaction (OPS-26)
     res.status(201).json({ id })
