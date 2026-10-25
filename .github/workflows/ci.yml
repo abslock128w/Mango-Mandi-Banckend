@@ -73,6 +73,9 @@ jobs:
           cache: npm
           cache-dependency-path: mango-api/package-lock.json
       - run: npm ci
+      # The warehouse label tests render each PDF (pdftoppm) and decode every QR on it.
+      - name: Install the PDF renderer for label tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Dependency audit (API packages)
         run: npm audit --omit=dev --audit-level=high
       - name: API tests (engine, flows, concurrency)
