@@ -22,6 +22,7 @@ import { router as claims } from './admin/claims.js'
 import { router as planning } from './admin/planning.js'
 import { router as preorders } from './admin/preorders.js'
 import { router as recovery } from './admin/recovery.js'
+import { router as bulk } from './admin/bulk.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -47,4 +48,5 @@ router.use(staff)
 router.use(claims)
 router.use(planning) // /pincodes, /config, /calendar, /slots, /coverage
 router.use(preorders) // /preorders, /preorder-capacity
+router.use(bulk) // Bulk Deals: listings, tiers, photos, publishing, history (manager only)
 router.use(recovery) // manager ways out of Needs attention items (ledger repair, webhooks, refunds, sign out all)

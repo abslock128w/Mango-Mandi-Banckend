@@ -4,7 +4,7 @@
 // the UI hides screens a role can't open and renders manager-only buttons
 // disabled for operators.
 //
-// MANAGER: everything, plus staff, products, promos and the activity log.
+// MANAGER: everything, plus staff, products, bulk deals, promos and the activity log.
 // OPERATOR: everything except the manager-only actions below.
 // PACKER: the pack list, deliveries and order steps through delivery.
 // QC: receiving batches, QC and stock counts.
@@ -56,6 +56,7 @@ export type Screen =
   | 'promos'
   | 'products'
   | 'reviews'
+  | 'bulkDeals'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',

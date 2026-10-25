@@ -301,6 +301,7 @@ function OrderView({ order }: { order: Order }) {
                       <td>
                         {it.productName}
                         <div className="muted small">{it.sku}</div>
+                        {it.bulk && <BulkItemNote bulk={it.bulk} />}
                       </td>
                       <td>{ripenessLabel(it.stage)}</td>
                       <td className="num">{it.quantity}</td>
@@ -739,6 +740,18 @@ function ProofPhoto({ orderId, photoId }: { orderId: string; photoId: string }) 
         load={() => api.deliveryPhotoUrl(orderId, photoId)}
         alt="Delivery photo taken by the rider"
       />
+    </div>
+  )
+}
+
+/** A line sold under a bulk deal: the deal and the tier it was priced at on the day (managers can open the deal). */
+function BulkItemNote({ bulk }: { bulk: NonNullable<Order['items'][number]['bulk']> }) {
+  const { me } = useSession()
+  const range = bulk.tier.maxQty == null ? `${bulk.tier.minQty}+` : `${bulk.tier.minQty} to ${bulk.tier.maxQty}`
+  return (
+    <div className="small">
+      <Badge tone="info">Bulk deal</Badge> {canSee(me?.role, 'bulkDeals') ? <Link to={`/bulk-deals/${bulk.listingId}`}>{bulk.title}</Link> : bulk.title},{' '}
+      {rupees(bulk.tier.unitPrice)} a box (the {range} box tier{bulk.listingVersion != null ? `, deal version ${bulk.listingVersion}` : ''})
     </div>
   )
 }

@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, test } from '../../tests/fixtures'
-import type { Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
+import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
 // API sends. Every endpoint the order journey uses is called here, and each
@@ -129,10 +131,19 @@ const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', ma
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
 type CartLine = Awaited<ReturnType<typeof api.serverCart>>['lines'][number]
-const CART = object<Awaited<ReturnType<typeof api.serverCart>>>({ lines: list(object<CartLine>({ sku: 'string', stage: oneOf(STAGES), qty: 'int' })) })
+const BULK_CART_LINE = object<ServerBulkLine>({
+  listingId: 'string', title: 'string', sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', problem: nullable('string'),
+})
+const CART = object<Awaited<ReturnType<typeof api.serverCart>>>({
+  lines: list(object<CartLine>({ sku: 'string', stage: oneOf(STAGES), qty: 'int' })),
+  // Empty in the order journey; filled in the bulk deals check below.
+  bulkLines: optional({ array: BULK_CART_LINE }),
+})
 const QUOTE = object<Quote>({
   quoteId: 'string', pincode: 'string', deliveryDate: 'day', slot: nullable(SLOT),
-  lines: list(object<QuoteLine>({ sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', eatBy: 'day' })),
+  lines: list(object<QuoteLine>({
+    sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', eatBy: 'day', listingId: optional('string'), title: optional('string'),
+  })),
   subtotal: 'int', promo: nullable(object<NonNullable<Quote['promo']>>({ code: 'string', description: nullable('string') })), discount: 'int', total: 'int', expiresAt: 'time',
   holdMinutes: optional('int'),
 })
@@ -144,6 +155,22 @@ const ORDER_SUMMARY = object<OrderSummary>({
   id: 'string', number: 'string', status: oneOf(STATUSES), deliveryDate: 'day', total: 'int', itemCount: 'int', placedAt: 'time', holdExpiresAt: optional(nullable('time')),
 })
 type Item = Order['items'][number]
+const BULK_TIER_SOLD = object<NonNullable<Item['bulk']>['tier']>({ minQty: 'int', maxQty: nullable('int'), unitPrice: 'int' })
+const BULK_DEAL = object<BulkDeal>({
+  id: 'string', title: 'string', description: 'string', origin: 'string',
+  product: object<BulkDeal['product']>({ sku: 'string', name: 'string', variety: 'string', boxSize: 'string', fruitsPerBox: nullable('int'), fruitWeightG: nullable('int') }),
+  retailPrice: 'int', stages: list(oneOf(STAGES)), minQty: 'int', qtyStep: 'int', maxQty: 'int',
+  tiers: list(object<BulkDeal['tiers'][number]>({ minQty: 'int', maxQty: nullable('int'), unitPrice: 'int', savingPerBox: nullable('int') })),
+  fromPrice: 'int', photos: list(object<BulkDeal['photos'][number]>({ id: 'string', url: 'string' })), endsAt: nullable('time'), version: 'int',
+  availability: optional(list(object<NonNullable<BulkDeal['availability']>[number]>({
+    date: 'day', enough: 'boolean',
+    stages: list(object<NonNullable<BulkDeal['availability']>[number]['stages'][number]>({ stage: oneOf(STAGES), available: 'int', enough: 'boolean', eatBy: 'day' })),
+  }))),
+  serviceable: optional(nullable('boolean')),
+})
+const BULK_PRICE = object<BulkPrice>({
+  qty: 'int', unitPrice: 'int', total: 'int', tier: object<BulkPrice['tier']>({ minQty: 'int', maxQty: nullable('int'), unitPrice: 'int' }), version: 'int',
+})
 const ORDER = object<Order>({
   id: 'string', number: 'string', status: oneOf(STATUSES), deliveryDate: 'day', placedAt: 'time', pincode: 'string', deliveryAddress: nullable('string'),
   subtotal: 'int', discount: 'int', promoCode: nullable('string'), total: 'int',
@@ -152,6 +179,7 @@ const ORDER = object<Order>({
   holdExpiresAt: nullable('time'), cancelReason: optional(nullable(oneOf(CANCEL_REASON))), cancelledAt: optional(nullable('time')), slot: nullable(SLOT),
   items: list(object<Item>({
     sku: 'string', name: 'string', stage: nullable(oneOf(STAGES)), quantity: 'int', unitPrice: 'int', linePrice: 'int', eatBy: nullable('day'), readyOn: optional(nullable('day')),
+    bulk: optional(nullable(object<NonNullable<Item['bulk']>>({ listingId: 'string', title: 'string', tier: BULK_TIER_SOLD }))),
   })),
   timeline: list(object<Order['timeline'][number]>({ status: oneOf(STATUSES), at: 'time' })),
   deliveryCode: optional(nullable('string')),
@@ -318,5 +346,40 @@ test('the API answers the order journey in the shapes the shop expects', async (
   expect(unknown.status).toBe(404)
   check('GET /orders/:id (unknown)', unknown.body, ERROR('NOT_FOUND'))
 
+  expect(problems).toEqual([])
+})
+
+test('the API answers Bulk Deals in the shapes the shop expects', async ({ request }) => {
+  const problems: string[] = []
+  const check = (what: string, value: unknown, spec: Spec) => problems.push(...misfits(value, spec, what))
+  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
+  expect(login.ok(), await login.text()).toBeTruthy()
+  const auth = { Authorization: `Bearer ${(await login.json()).accessToken}` }
+  const created = await request.post(`${API}/admin/v1/bulk-listings`, {
+    headers: auth,
+    data: {
+      sku: 'ALP-3', title: `Contract deal ${Date.now()}`, description: 'Full boxes for offices and family events, packed together.', origin: 'Ratnagiri',
+      stages: ['RIPE', 'SEMI_RIPE'], minQty: 2, qtyStep: 1, maxQty: null, tiers: [{ minQty: 2, unitPrice: 180_000 }, { minQty: 5, unitPrice: 170_000 }],
+    },
+  })
+  expect(created.status(), await created.text()).toBe(201)
+  const id = (await created.json()).id as string
+  const jpeg = readFileSync(join(__dirname, 'fixtures', 'mango.jpg'))
+  expect((await request.post(`${API}/admin/v1/bulk-listings/${id}/photos`, { headers: { ...auth, 'Content-Type': 'image/jpeg' }, data: jpeg })).status()).toBe(201)
+  expect((await request.post(`${API}/admin/v1/bulk-listings/${id}/publish`, { headers: auth, data: {} })).status()).toBe(200)
+
+  const all = await (await request.get(`${API}/v1/bulk-deals?pincode=560034`)).json()
+  check('GET /bulk-deals', all.items, list(BULK_DEAL))
+  const one = await (await request.get(`${API}/v1/bulk-deals/${id}?pincode=560034`)).json()
+  check('GET /bulk-deals/:id', one, BULK_DEAL)
+  expect(one.availability?.length).toBeGreaterThan(0)
+  check('GET /bulk-deals/:id/price', await (await request.get(`${API}/v1/bulk-deals/${id}/price?qty=5`)).json(), BULK_PRICE)
+  const missing = await request.get(`${API}/v1/bulk-deals/no-such-deal`)
+  expect(missing.status()).toBe(404)
+  check('GET /bulk-deals/:id (unknown)', await missing.json(), ERROR('NOT_FOUND'))
+  const short = await request.get(`${API}/v1/bulk-deals/${id}/price?qty=1`)
+  expect(short.status()).toBe(400)
+  check('GET /bulk-deals/:id/price (below the minimum)', await short.json(), ERROR('BULK_QTY_INVALID'))
+  expect((await request.post(`${API}/admin/v1/bulk-listings/${id}/archive`, { headers: auth, data: {} })).status()).toBe(200)
   expect(problems).toEqual([])
 })

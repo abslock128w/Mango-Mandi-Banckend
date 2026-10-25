@@ -305,7 +305,7 @@ export function PhotoPicker({
 
 /**
  * − count +, one row. `label` names the group: shown above it when `showLabel`, otherwise read out
- * only. The buttons stop at `min` and `max`; `shown` replaces the number on screen (0 when none can be added).
+ * only. The buttons stop at `min` and `max` and move by `step`; `shown` replaces the number on screen (0 when none can be added).
  */
 export function Stepper({
   label,
@@ -314,6 +314,7 @@ export function Stepper({
   shown,
   min,
   max,
+  step = 1,
   onChange,
   lessLabel,
   moreLabel,
@@ -324,6 +325,7 @@ export function Stepper({
   shown?: number
   min: number
   max: number
+  step?: number
   onChange: (n: number) => void
   lessLabel: string
   moreLabel: string
@@ -331,11 +333,11 @@ export function Stepper({
   const labelId = `${label.replace(/\W+/g, '-').toLowerCase()}-label`
   const group = (
     <div className="stepper" role="group" {...(showLabel ? { 'aria-labelledby': labelId } : { 'aria-label': label })}>
-      <button type="button" onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} aria-label={lessLabel}>
+      <button type="button" onClick={() => onChange(Math.max(min, value - step))} disabled={value - step < min} aria-label={lessLabel}>
         −
       </button>
       <span aria-live="polite">{shown ?? value}</span>
-      <button type="button" onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} aria-label={moreLabel}>
+      <button type="button" onClick={() => onChange(Math.min(max, value + step))} disabled={value + step > max} aria-label={moreLabel}>
         +
       </button>
     </div>

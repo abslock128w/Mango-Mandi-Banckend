@@ -46,6 +46,7 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     links: [
       ['/analytics', 'Analytics', 'analytics'],
       ['/products', 'Products', 'products'],
+      ['/bulk-deals', 'Bulk Deals', 'bulkDeals'],
       ['/promos', 'Promos', 'promos'],
       ['/staff', 'Staff', 'staff'],
     ],

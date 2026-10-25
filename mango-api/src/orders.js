@@ -125,8 +125,8 @@ export async function createOrder(c, o, actor) {
   )
   for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku) || a.stage.localeCompare(b.stage))) {
     await c.query(
-      `INSERT INTO order_items (id, order_id, sku, quantity, stage, unit_price, line_price) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [newId('itm'), id, l.sku, l.qty, l.stage, l.unitPrice, l.unitPrice * l.qty],
+      `INSERT INTO order_items (id, order_id, sku, quantity, stage, unit_price, line_price, listing_id, pricing) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [newId('itm'), id, l.sku, l.qty, l.stage, l.unitPrice, l.unitPrice * l.qty, l.listingId ?? null, l.pricing ?? null],
     )
   }
   await addEvent(c, id, null, o.status, actor, o.eventReason ?? null)

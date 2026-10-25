@@ -4,7 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError, api, errorMessage, signedInPhone, type Confirmed, type Quote } from '../api'
 import { STAGE_LABEL, day, rupees, slotText } from '../format'
 import { openRazorpay } from '../payment'
-import { useStore, type CartLine } from '../store'
+import { useStore, type BulkCartLine, type CartLine } from '../store'
 import { AddressPicker, DayChips, Field, SlotPicker } from '../forms'
 import { DocTitle, ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
@@ -21,12 +21,26 @@ function loadAddress() {
 /**
  * Makes the account's cart match this device's cart, which the quote reads.
  * A box we no longer sell is refused with the same PRODUCT_UNAVAILABLE the
- * quote uses, naming it, rather than the API's "Unknown SKU".
+ * quote uses, naming it, rather than the API's "Unknown SKU". A bulk deal that
+ * ended is refused as BULK_UNAVAILABLE with its listingId, so it can be dropped.
  */
-export async function syncCart(cart: CartLine[]) {
+export async function syncCart(cart: CartLine[], bulk: BulkCartLine[] = []) {
   const server = await api.serverCart()
   const want = new Set(cart.map((l) => `${l.sku}|${l.stage}`))
   for (const l of server.lines) if (!want.has(`${l.sku}|${l.stage}`)) await api.setCartLine(l.sku, l.stage, 0)
+  const wantBulk = new Set(bulk.map((l) => `${l.listingId}|${l.stage}`))
+  for (const l of server.bulkLines ?? []) if (!wantBulk.has(`${l.listingId}|${l.stage}`)) await api.setBulkLine(l.listingId, l.stage, 0)
+  for (const l of bulk) {
+    try {
+      await api.setBulkLine(l.listingId, l.stage, l.qty)
+    } catch (err) {
+      if (err instanceof ApiError && (err.code === 'BULK_UNAVAILABLE' || err.code === 'BULK_STAGE_INVALID' || err.status === 404)) {
+        throw new ApiError(409, 'BULK_UNAVAILABLE', `${l.title} (${STAGE_LABEL[l.stage]}) is no longer on sale`, { listingId: l.listingId, stage: l.stage })
+      }
+      if (err instanceof ApiError && err.code === 'BULK_QTY_INVALID') throw new ApiError(400, 'BULK_QTY_INVALID', `${l.title}: ${err.message}. Change it in your cart.`, err.detail)
+      throw err
+    }
+  }
   for (const l of cart) {
     try {
       await api.setCartLine(l.sku, l.stage, l.qty)
@@ -74,7 +88,7 @@ export default function Checkout() {
 }
 
 function CheckoutForm() {
-  const { pincode, date, cart, clearCart, setQty, setWhere } = useStore()
+  const { pincode, date, cart, clearCart, setQty, setWhere, bulk, setBulk } = useStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
@@ -128,13 +142,17 @@ function CheckoutForm() {
   }, [staleDate, pincode, setWhere])
 
   const fetchQuote = async () => {
-    await syncCart(cart)
+    await syncCart(cart, bulk)
     return api.quote({ pincode: pincode!, deliveryDate: slots.data?.deliveryDate ?? date!, slotId, promoCode: promoCode.trim() || null })
   }
   const dropUnsold = (err: unknown) => {
     // Take a box we no longer sell out of the cart, so the next review goes through.
     if (err instanceof ApiError && err.code === 'PRODUCT_UNAVAILABLE' && typeof err.detail.sku === 'string') {
       for (const l of cart) if (l.sku === err.detail.sku) setQty(l, 0)
+    }
+    // The same for a bulk deal that ended or dropped this ripeness.
+    if (err instanceof ApiError && (err.code === 'BULK_UNAVAILABLE' || err.code === 'BULK_STAGE_INVALID') && typeof err.detail.listingId === 'string') {
+      for (const l of bulk) if (l.listingId === err.detail.listingId && (err.code === 'BULK_UNAVAILABLE' || l.stage === err.detail.stage || !err.detail.stage)) setBulk(l, 0)
     }
   }
   const review = useMutation({
@@ -210,7 +228,8 @@ function CheckoutForm() {
             continue
           }
           // The next Pay quotes again: after a gateway error, or (PAY-B10) a box taken off sale since the review.
-          if (err instanceof ApiError && (err.code === 'PAYMENT_GATEWAY_ERROR' || err.code === 'PRODUCT_UNAVAILABLE')) quoteSpent.current = true
+          // Also when a bulk deal's price changed or it ended: the new quote shows the new total before any payment.
+          if (err instanceof ApiError && ['PAYMENT_GATEWAY_ERROR', 'PRODUCT_UNAVAILABLE', 'PRICE_CHANGED', 'BULK_UNAVAILABLE', 'BULK_STAGE_INVALID'].includes(err.code)) quoteSpent.current = true
           throw err
         }
       }
@@ -231,9 +250,10 @@ function CheckoutForm() {
   })
 
   // PAY-B10: a box taken off sale between the review and Pay is named here, even when it was the only one.
-  const unsold = pay.error instanceof ApiError && pay.error.code === 'PRODUCT_UNAVAILABLE' ? pay.error : null
+  const unsold = pay.error instanceof ApiError && (pay.error.code === 'PRODUCT_UNAVAILABLE' || pay.error.code === 'BULK_UNAVAILABLE') ? pay.error : null
+  const empty = !cart.length && !bulk.length
   if (!pincode) return <Navigate to="/" replace />
-  if (!cart.length && !pay.isPending && !pay.isSuccess && !unsold) return <Navigate to="/cart" replace />
+  if (empty && !pay.isPending && !pay.isSuccess && !unsold) return <Navigate to="/cart" replace />
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -261,7 +281,9 @@ function CheckoutForm() {
   if (quote && reviewing) {
     // The cart shows the price seen when the box was added; the quote is today's.
     const wasPrice = (l: Quote['lines'][number]) => {
-      const seen = cart.find((c) => c.sku === l.sku && c.stage === l.stage)?.price
+      const seen = l.listingId
+        ? bulk.find((c) => c.listingId === l.listingId && c.stage === l.stage)?.unitPrice
+        : cart.find((c) => c.sku === l.sku && c.stage === l.stage)?.price
       return seen != null && seen !== l.unitPrice ? seen : null
     }
     const changed = quote.lines.filter((l) => wasPrice(l) != null)
@@ -307,12 +329,14 @@ function CheckoutForm() {
         )}
         <ul className="lines">
           {quote.lines.map((l) => (
-            <li key={`${l.sku}-${l.stage}`} className="line">
+            <li key={`${l.listingId ?? ''}-${l.sku}-${l.stage}`} className="line">
               <div>
                 <strong>
-                  {l.qty} × {l.name}
+                  {l.listingId && <span className="bulk-tag">Bulk</span>}
+                  {l.qty} × {l.title ?? l.name}
                 </strong>
                 <span className="muted small">
+                  {l.listingId && `${l.name} · ${rupees(l.unitPrice)} a box · `}
                   {STAGE_LABEL[l.stage]} · eat by {day(l.eatBy)}
                 </span>
                 {wasPrice(l) != null && (
@@ -356,7 +380,7 @@ function CheckoutForm() {
         <ErrorNote
           error={
             unsold
-              ? `${unsold.message}, so we took it out of your cart. Nothing was charged.${cart.length ? ' Tap Pay to see the new total.' : ''}`
+              ? `${unsold.message}, so we took it out of your cart. Nothing was charged.${!empty ? ' Tap Pay to see the new total.' : ''}`
               : pay.error
                 ? quoteProblem(pay.error)
                 : null
@@ -367,7 +391,7 @@ function CheckoutForm() {
             Open your unpaid order
           </Link>
         )}
-        {unsold && !cart.length ? (
+        {unsold && empty ? (
           <Link to="/" className="btn btn-primary btn-block">
             Choose other mangoes
           </Link>
@@ -394,7 +418,7 @@ function CheckoutForm() {
   const addressShown = isGift || picked === null
   const errorAt = (at: At) => (at !== 'address' || addressShown ? problems[at] ?? null : null)
   // A field's problem from the API is shown at the field, not again above the button.
-  const reviewError = review.error && !(problemAt(review.error) && problems[problemAt(review.error)!]) ? quoteProblem(review.error, cart) : null
+  const reviewError = review.error && !(problemAt(review.error) && problems[problemAt(review.error)!]) ? quoteProblem(review.error, cart, bulk) : null
   return (
     <div className="checkout-layout">
       <section className="card">
@@ -506,7 +530,7 @@ function CheckoutForm() {
               }}
             />
           </Field>
-          <Field id="promo" label="Promo code (optional)" error={errorAt('promo')}>
+          <Field id="promo" label="Promo code (optional)" hint={bulk.length ? "Promo codes apply to regular boxes, not bulk deals." : undefined} error={errorAt('promo')}>
             <input
               autoComplete="off"
               autoCapitalize="characters"
@@ -529,7 +553,7 @@ function CheckoutForm() {
           </button>
         </form>
       </section>
-      <CartSummary cart={cart} />
+      <CartSummary cart={cart} bulk={bulk} />
     </div>
   )
 }
@@ -538,12 +562,26 @@ function CheckoutForm() {
  * The boxes in the cart beside the form, sticky on a desktop (hidden on a phone, where the form is
  * the whole screen and the review step lists them). Prices are the cart's; the review step shows today's.
  */
-function CartSummary({ cart }: { cart: CartLine[] }) {
-  const boxes = cart.reduce((n, l) => n + l.qty, 0)
+function CartSummary({ cart, bulk }: { cart: CartLine[]; bulk: BulkCartLine[] }) {
+  const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
   return (
     <aside className="card order-summary" aria-labelledby="summary-title">
       <h2 id="summary-title">Your order</h2>
       <ul className="lines">
+        {bulk.map((l) => (
+          <li key={`bulk-${l.listingId}-${l.stage}`} className="line">
+            <div>
+              <strong>
+                <span className="bulk-tag">Bulk</span>
+                {l.qty} × {l.title}
+              </strong>
+              <span className="muted small">
+                {l.name}, {STAGE_LABEL[l.stage]} · {rupees(l.unitPrice)} a box
+              </span>
+            </div>
+            <span className="line-price">{rupees(l.unitPrice * l.qty)}</span>
+          </li>
+        ))}
         {cart.map((l) => (
           <li key={`${l.sku}-${l.stage}`} className="line">
             <div>
@@ -564,7 +602,7 @@ function CartSummary({ cart }: { cart: CartLine[] }) {
         <span>
           {boxes} {boxes === 1 ? 'box' : 'boxes'}
         </span>
-        <strong>{rupees(cart.reduce((s, l) => s + l.price * l.qty, 0))}</strong>
+        <strong>{rupees(cart.reduce((s, l) => s + l.price * l.qty, 0) + bulk.reduce((s, l) => s + l.unitPrice * l.qty, 0))}</strong>
       </div>
       <p className="muted small">Stock and price are checked for your day when you review the order.</p>
       <Link to="/cart" className="link-btn">
@@ -575,10 +613,13 @@ function CartSummary({ cart }: { cart: CartLine[] }) {
 }
 
 /** Turns the API's checkout refusals into something a customer can act on. */
-function quoteProblem(err: unknown, cart: CartLine[] = []) {
+function quoteProblem(err: unknown, cart: CartLine[] = [], bulk: BulkCartLine[] = []) {
   if (!(err instanceof ApiError)) return errorMessage(err)
   if (err.code === 'STOCK_INSUFFICIENT') {
-    const name = cart.find((l) => l.sku === err.detail.sku)?.name ?? 'One of your mangoes'
+    const name =
+      (err.detail.listingId ? bulk.find((l) => l.listingId === err.detail.listingId)?.title : null) ??
+      cart.find((l) => l.sku === err.detail.sku)?.name ??
+      'One of your mangoes'
     return `${name} has run short for this day. Lower the number of boxes or pick another day.`
   }
   if (err.code === 'SLOT_FULL') return 'That delivery time just filled up. Choose another one.'
@@ -586,6 +627,9 @@ function quoteProblem(err: unknown, cart: CartLine[] = []) {
   if (err.code === 'PAYMENT_GATEWAY_ERROR') return "We couldn't start the payment, and nothing was charged. Tap Pay to try again."
   if (err.code === 'PAYMENT_STARTING') return 'Your payment is still being set up. Tap Pay again in a moment.'
   if (err.code === 'PRODUCT_UNAVAILABLE') return `${err.message}, so we took it out of your cart. Review the order again.`
+  if (err.code === 'PRICE_CHANGED') return `${err.message} Nothing was charged. Tap Pay to see the new total.`
+  if (err.code === 'CART_CONFLICT' || err.code === 'BULK_QTY_INVALID') return `${err.message}`
+  if (err.code === 'BULK_UNAVAILABLE') return `${err.message}, so we took it out of your cart. Review the order again.`
   if (err.code === 'QUOTE_EXPIRED') return 'This took a little long and the price hold ended. Tap Change details and review again.'
   return err.message
 }

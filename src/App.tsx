@@ -25,6 +25,8 @@ const Preorders = lazy(() => import('./pages/Preorders'))
 const Staff = lazy(() => import('./pages/Staff'))
 const Products = lazy(() => import('./pages/Products'))
 const Promos = lazy(() => import('./pages/Promos'))
+const BulkDeals = lazy(() => import('./pages/BulkDeals'))
+const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealEditor })))
 const Reviews = lazy(() => import('./pages/Reviews'))
 const TwoStepPage = lazy(() => import('./pages/TwoStep'))
 const TwoStepGate = lazy(() => import('./pages/TwoStep').then((m) => ({ default: m.TwoStepGate })))
@@ -123,6 +125,8 @@ export default function App() {
               <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />
               <Route path="/staff" element={<Only screen="staff"><Staff /></Only>} />
               <Route path="/products" element={<Only screen="products"><Products /></Only>} />
+              <Route path="/bulk-deals" element={<Only screen="bulkDeals"><BulkDeals /></Only>} />
+              <Route path="/bulk-deals/:id" element={<Only screen="bulkDeals"><BulkDealEditor /></Only>} />
               <Route path="/promos" element={<Only screen="promos"><Promos /></Only>} />
               <Route path="/two-step" element={<TwoStepPage />} />
               <Route path="*" element={<NotFound />} />

@@ -90,6 +90,9 @@ export interface QuoteLine {
   unitPrice: number
   linePrice: number
   eatBy: string
+  /** Set on a bulk deal line: the deal it is bought under, and its name. */
+  listingId?: string
+  title?: string
 }
 export interface Quote {
   quoteId: string
@@ -154,7 +157,18 @@ export interface Order {
   cancelReason?: 'HOLD_EXPIRED' | 'STAFF' | 'OTHER' | null
   cancelledAt?: string | null
   slot: Slot | null
-  items: { sku: string; name: string; stage: Stage | null; quantity: number; unitPrice: number; linePrice: number; eatBy: string | null; readyOn?: string | null }[]
+  items: {
+    sku: string
+    name: string
+    stage: Stage | null
+    quantity: number
+    unitPrice: number
+    linePrice: number
+    eatBy: string | null
+    readyOn?: string | null
+    /** Bought under a bulk deal: its name and the price tier it was sold at (kept from the day of the order). */
+    bulk?: { listingId: string; title: string; tier: { minQty: number; maxQty: number | null; unitPrice: number } } | null
+  }[]
   timeline: { status: OrderStatus; at: string }[]
   /** Give this to the rider; set while the order is out for delivery. */
   deliveryCode?: string | null
@@ -331,6 +345,65 @@ export interface ReviewPage {
   nextCursor: string | null
 }
 
+/** One price tier of a bulk deal: boxes from minQty up to maxQty (null: no upper end) at unitPrice each. */
+export interface BulkTier {
+  minQty: number
+  maxQty: number | null
+  unitPrice: number
+  /** Less than the regular one-box price by this much; null when it isn't lower. */
+  savingPerBox: number | null
+}
+/** Boxes available on one delivery day, per ripeness the deal offers. */
+export interface BulkDay {
+  date: string
+  /** At least one ripeness has the minimum order in stock. */
+  enough: boolean
+  stages: { stage: Stage; available: number; enough: boolean; eatBy: string }[]
+}
+/** A bulk deal as the shop shows it (GET /v1/bulk-deals). */
+export interface BulkDeal {
+  id: string
+  title: string
+  description: string
+  origin: string
+  product: { sku: string; name: string; variety: string; boxSize: string; fruitsPerBox: number | null; fruitWeightG: number | null }
+  /** The regular price of one box. */
+  retailPrice: number
+  stages: Stage[]
+  minQty: number
+  qtyStep: number
+  /** The most boxes one order can take (already capped by the shop's unpaid-box rule). */
+  maxQty: number
+  tiers: BulkTier[]
+  /** The lowest box price on any tier. */
+  fromPrice: number
+  photos: { id: string; url: string }[]
+  endsAt: string | null
+  version: number
+  /** With a serviceable pincode: stock per open delivery day. */
+  availability?: BulkDay[]
+  serviceable?: boolean | null
+}
+export interface BulkPrice {
+  qty: number
+  unitPrice: number
+  total: number
+  tier: { minQty: number; maxQty: number | null; unitPrice: number }
+  version: number
+}
+/** A bulk line in the account's cart as the API prices it now (GET /v1/cart). */
+export interface ServerBulkLine {
+  listingId: string
+  title: string
+  sku: string
+  name: string
+  stage: Stage
+  qty: number
+  unitPrice: number
+  linePrice: number
+  problem: string | null
+}
+
 export { ApiError }
 
 // The refresh token lives in an httpOnly cookie set by the API ("X-Session:
@@ -388,7 +461,7 @@ function signedIn(r: TokenResponse) {
   window.dispatchEvent(new CustomEvent(PROFILE_EVENT))
 }
 /** What this device keeps about the customer, removed on sign-out and account deletion. */
-const PERSONAL_KEYS = ['mm.address', 'mm.cart']
+const PERSONAL_KEYS = ['mm.address', 'mm.cart', 'mm.bulk']
 
 /**
  * `forget`: the customer chose to sign out (or deleted the account), so their
@@ -517,7 +590,13 @@ export const api = {
   slots: (pincode: string, date: string) =>
     request<{ deliveryDate: string; slots: SlotOnDate[] }>('GET', `/delivery/slots${qs({ pincode, delivery_date: date })}`),
 
-  serverCart: () => request<{ lines: { sku: string; stage: Stage; qty: number }[] }>('GET', '/cart'),
+  serverCart: () => request<{ lines: { sku: string; stage: Stage; qty: number }[]; bulkLines?: ServerBulkLine[] }>('GET', '/cart'),
+  /** Sets a bulk line in the account's cart (0 removes it); the API checks the quantity against the deal. */
+  setBulkLine: (listingId: string, stage: Stage, qty: number) => request<void>('POST', '/cart/bulk', { listingId, stage, qty }),
+  bulkDeals: (pincode: string | null) => raw<{ items: BulkDeal[]; total: number; serviceable: boolean | null }>('GET', `/bulk-deals${qs({ pincode })}`),
+  bulkDeal: (dealId: string, pincode: string | null) => raw<BulkDeal>('GET', `/bulk-deals/${id(dealId)}${qs({ pincode })}`),
+  /** The API's price for a quantity (the shop shows it; checkout prices it again). */
+  bulkPrice: (dealId: string, qty: number) => raw<BulkPrice>('GET', `/bulk-deals/${id(dealId)}/price${qs({ qty: String(qty) })}`),
   setCartLine: (sku: string, stage: Stage, qty: number) => request<void>('POST', '/cart/items', { sku, stage, qty }),
   quote: (input: { pincode: string; deliveryDate: string; slotId: string | null; promoCode?: string | null }) => request<Quote>('POST', '/checkout/quote', input),
   confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null }, idempotencyKey: string) =>

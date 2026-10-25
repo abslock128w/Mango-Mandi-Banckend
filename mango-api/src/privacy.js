@@ -92,6 +92,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   // Reviews keep their stars (anonymous) for the averages; name, text, photos and replies go.
   const reviewPics = await scrubCustomerReviews(c, me.id)
   await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
+  await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
   if (me.phone) {

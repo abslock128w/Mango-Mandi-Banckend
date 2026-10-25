@@ -25,6 +25,8 @@ const ProductPage = lazy(() => import('./pages/Product'))
 const Quality = lazy(() => import('./pages/Quality'))
 const Help = lazy(() => import('./pages/Help'))
 const Terms = lazy(() => import('./pages/Terms'))
+const BulkDeals = lazy(() => import('./pages/BulkDeals'))
+const BulkDeal = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealPage })))
 
 /** A page whose code is still loading. */
 function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
@@ -68,12 +70,14 @@ function routeTitle(path: string) {
   if (/^\/review\//.test(path)) return 'Write a review'
   if (/^\/reviews\/[^/]+\/edit$/.test(path)) return 'Change your review'
   if (path === '/preorder') return 'Book ahead'
+  if (path === '/bulk') return 'Bulk Deals'
+  if (/^\/bulk\//.test(path)) return 'Bulk deal'
   if (/^\/preorders\//.test(path)) return 'Your booking'
   return 'Page not found'
 }
 
 /** Pages laid out across the wider desktop container (tiles, product and checkout columns); the rest stay one readable column. */
-const WIDE = /^\/($|mangoes\/|checkout$)/
+const WIDE = /^\/($|mangoes\/|bulk($|\/)|checkout$)/
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
   const { profile } = useStore()
@@ -83,10 +87,10 @@ function RequireSignIn({ children }: { children: JSX.Element }) {
 }
 
 export default function App() {
-  const { cart, profile } = useStore()
+  const { cart, bulk, profile } = useStore()
   const queryClient = useQueryClient()
   const location = useLocation()
-  const boxes = cart.reduce((n, l) => n + l.qty, 0)
+  const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
   const bump = useBump(boxes)
   const help = helpLink()
   // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
@@ -134,6 +138,10 @@ export default function App() {
       <NavLink to="/preorder" className="tab">
         <TabIcon d="M4 6h16v14H4zM4 10h16M8 3v5M16 3v5" />
         <span>Book ahead</span>
+      </NavLink>
+      <NavLink to="/bulk" className="tab">
+        <TabIcon d="M3 8l9-5 9 5-9 5zM3 8v8l9 5 9-5V8M12 13v8" />
+        <span>Bulk Deals</span>
       </NavLink>
       <NavLink to="/orders" className="tab">
         <TabIcon d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />
@@ -187,6 +195,8 @@ export default function App() {
           <Route path="/review/:itemId" element={<RequireSignIn><Page><ReviewPage /></Page></RequireSignIn>} />
           <Route path="/reviews/:reviewId/edit" element={<RequireSignIn><Page><ReviewPage /></Page></RequireSignIn>} />
           <Route path="/preorder" element={<Page><BookAhead /></Page>} />
+          <Route path="/bulk" element={<Page><BulkDeals /></Page>} />
+          <Route path="/bulk/:id" element={<Page><BulkDeal /></Page>} />
           <Route path="/preorders/:id" element={<RequireSignIn><Page><PreorderPage /></Page></RequireSignIn>} />
           <Route
             path="*"

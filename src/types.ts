@@ -224,6 +224,9 @@ export interface OrderItem {
   quantity: number
   stage: string | null
   linePrice: number
+  unitPrice?: number
+  /** Sold under a bulk deal: the deal, its version and the tier, as at confirmation. */
+  bulk?: { listingId: string; title: string; listingVersion: number | null; tier: { minQty: number; maxQty: number | null; unitPrice: number } } | null
 }
 
 export type StockState = 'held' | 'committed' | 'packed' | 'released'
@@ -811,4 +814,62 @@ export interface Gift {
   recipientName: string
   recipientPhone: string
   message: string | null
+}
+
+// ---------- Bulk Deals ----------
+
+export type BulkStatus = 'DRAFT' | 'PUBLISHED' | 'UNPUBLISHED' | 'ARCHIVED'
+/** A price tier: from minQty boxes, at unitPrice paise a box. Each runs up to the next tier's start. */
+export interface BulkTierInput {
+  minQty: number
+  unitPrice: number
+}
+/** What a manager edits on a listing. */
+export interface BulkListingInput {
+  sku: string
+  title: string
+  description: string
+  origin: string
+  stages: Ripeness[]
+  minQty: number
+  qtyStep: number
+  maxQty: number | null
+  tiers: BulkTierInput[]
+  startsAt: string | null
+  endsAt: string | null
+  sortOrder: number
+}
+export interface BulkListingSummary extends BulkListingInput {
+  id: string
+  status: BulkStatus
+  version: number
+  productName: string
+  photoUrl: string | null
+  photoCount: number
+  onSale: boolean
+  publishProblems: string[]
+  updatedAt: string
+}
+export interface BulkListing extends BulkListingInput {
+  id: string
+  status: BulkStatus
+  version: number
+  createdAt: string
+  updatedAt: string
+  publishedAt: string | null
+  product: { sku: string; name: string; variety: string; boxSize: string; price: number; active: boolean } | null
+  photos: { id: string; primary: boolean; width: number | null; height: number | null; sizeBytes: number | null; url: string }[]
+  publishProblems: string[]
+  onSale: boolean
+  /** The most boxes one order can take after the unpaid-box rule. */
+  orderMax: number
+  tierView: { minQty: number; maxQty: number | null; unitPrice: number; savingPerBox: number | null }[]
+}
+export interface BulkEvent {
+  id: string
+  action: string
+  version: number
+  changes: Record<string, unknown>
+  by: string | null
+  at: string
 }

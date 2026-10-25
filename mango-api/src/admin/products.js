@@ -117,7 +117,8 @@ router.delete(
       if (!rows.length) throw notFound('No product with that SKU')
       const { rows: used } = await c.query(
         `SELECT EXISTS (SELECT 1 FROM batch_lines WHERE sku = $1) OR EXISTS (SELECT 1 FROM order_items WHERE sku = $1)
-             OR EXISTS (SELECT 1 FROM preorders WHERE sku = $1) OR EXISTS (SELECT 1 FROM preorder_capacity WHERE sku = $1) AS used`,
+             OR EXISTS (SELECT 1 FROM preorders WHERE sku = $1) OR EXISTS (SELECT 1 FROM preorder_capacity WHERE sku = $1)
+             OR EXISTS (SELECT 1 FROM bulk_listings WHERE sku = $1) AS used`,
         [sku],
       )
       if (used[0].used) {
