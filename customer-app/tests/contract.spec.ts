@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
@@ -293,9 +294,7 @@ test('the API answers the order journey in the shapes the shop expects', async (
   check('POST /orders/:id/cancel (not cancellable)', again.body, ERROR('NOT_CANCELLABLE'))
 
   // Staff take two more orders out: one is delivered, one is missed.
-  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
-  expect(login.ok(), await login.text()).toBeTruthy()
-  const staff = { headers: { Authorization: `Bearer ${(await login.json()).accessToken}` } }
+  const staff = { headers: { Authorization: `Bearer ${await managerToken(request)}` } }
   const outForDelivery = async () => {
     const r = await place()
     expect(r.status, JSON.stringify(r.body)).toBe(201)
@@ -352,9 +351,7 @@ test('the API answers the order journey in the shapes the shop expects', async (
 test('the API answers Bulk Deals in the shapes the shop expects', async ({ request }) => {
   const problems: string[] = []
   const check = (what: string, value: unknown, spec: Spec) => problems.push(...misfits(value, spec, what))
-  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
-  expect(login.ok(), await login.text()).toBeTruthy()
-  const auth = { Authorization: `Bearer ${(await login.json()).accessToken}` }
+  const auth = { Authorization: `Bearer ${await managerToken(request)}` }
   const created = await request.post(`${API}/admin/v1/bulk-listings`, {
     headers: auth,
     data: {

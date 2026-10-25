@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page, Route } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // Paying and the session, against the real API, with the outside world stood
 // in for: Razorpay's checkout script is replaced by a fake that records what
@@ -409,14 +410,14 @@ test('P0-6: cancelling an unpaid order never says nothing was charged, since a p
 })
 
 test('P0-6: cancelling an unpaid booking says the same, and a second unpaid booking is refused', async ({ page, request }, info) => {
-  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
+  const accessToken = await managerToken(request)
   const d = new Date()
   d.setUTCDate(d.getUTCDate() + 15)
   while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1)
   const week = d.toISOString().slice(0, 10)
   const open = await request.put(`${API}/admin/v1/preorder-capacity/${week}/ALP-3`, {
     data: { capacity: 200 },
-    headers: { Authorization: `Bearer ${(await login.json()).accessToken}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
   })
   expect(open.ok(), await open.text()).toBeTruthy()
   const phone = newPhone('8', info.project.name)

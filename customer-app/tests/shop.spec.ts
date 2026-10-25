@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // A customer's whole journey against the real API: pincode, pick boxes, sign in
 // by code, choose a slot, pay (test payment), then cancel for a full refund.
@@ -203,9 +204,7 @@ function bookableMonday() {
 
 test('book a box ahead, pay, then cancel for a refund', async ({ page, request }, info) => {
   // A manager opens the week for booking.
-  const login = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
-  expect(login.ok()).toBeTruthy()
-  const { accessToken } = await login.json()
+  const accessToken = await managerToken(request)
   const week = bookableMonday()
   const open = await request.put(`${API}/admin/v1/preorder-capacity/${week}/ALP-3`, {
     data: { capacity: 200 },
@@ -292,7 +291,7 @@ test('report a damaged box with a photo', async ({ page, request }, info) => {
   expect(confirm.ok(), await confirm.text()).toBeTruthy()
   const { orderId } = await confirm.json()
   await request.post(`${API}/v1/dev/pay`, { data: { orderId, outcome: 'captured' } })
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const login = { accessToken: await managerToken(request) }
   const staff = as(login.accessToken)
   for (const step of [
     () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PROCESSING' }, ...staff }),
@@ -361,7 +360,7 @@ test('a missed delivery names the retry day, and after the last attempt says we 
   expect(confirm.ok(), await confirm.text()).toBeTruthy()
   const { orderId } = await confirm.json()
   await request.post(`${API}/v1/dev/pay`, { data: { orderId, outcome: 'captured' } })
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const login = { accessToken: await managerToken(request) }
   const staff = as(login.accessToken)
   for (const step of [
     () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PROCESSING' }, ...staff }),
@@ -431,7 +430,7 @@ test('the privacy notice, and deleting an account', async ({ page }, info) => {
 })
 
 test('send a gift with a promo code', async ({ page, request }, info) => {
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const login = { accessToken: await managerToken(request) }
   const staff = { headers: { Authorization: `Bearer ${login.accessToken}` } }
   const code = `GIFT${String(Date.now()).slice(-6)}${info.project.name === 'phone' ? 1 : 2}`
   const made = await request.post(`${API}/admin/v1/promos`, { data: { code, kind: 'PERCENT', value: 10, description: 'Test offer' }, ...staff })

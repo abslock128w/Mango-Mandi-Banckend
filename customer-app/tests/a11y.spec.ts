@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // Accessibility across the whole shop, against the real API, at phone and desktop size (the two
 // projects): axe on every page and every dialog, a keyboard walk from the skip link to Add to cart,
@@ -31,7 +32,7 @@ async function customerWithOrders(request: APIRequestContext, phone: string, del
   const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })
   expect(asked.ok(), await asked.text()).toBeTruthy()
   const tokens = await (await request.post(`${API}/v1/auth/otp/verify`, { data: { phone, code: (await asked.json()).devCode } })).json()
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const login = { accessToken: await managerToken(request) }
   const staff = as(login.accessToken)
   const order = async (n: number) => {
     const cat = await (await request.get(`${API}/v1/catalogue?pincode=560034`, as(tokens.accessToken))).json()

@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // Bulk Deals against the real API: a manager publishes a deal (through the admin
 // API), a customer opens the Bulk Deals tab, picks a quantity, sees the tier price
@@ -19,12 +20,6 @@ test.beforeAll(async ({ request }) => {
 
 type Req = import('@playwright/test').APIRequestContext
 type Page = import('@playwright/test').Page
-
-async function managerToken(request: Req) {
-  const r = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
-  expect(r.status()).toBe(200)
-  return ((await r.json()) as { accessToken: string }).accessToken
-}
 
 /** A box and ripeness with at least 6 in stock on the first open day, so a 2-box-step deal can sell 4. */
 async function stockedBox(request: Req) {
