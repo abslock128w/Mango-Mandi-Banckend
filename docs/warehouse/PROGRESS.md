@@ -37,9 +37,10 @@ staging or Neon.
 | Panel | `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test` | 372 pass, 12 skip, 0 fail (skips: specs needing a live API, screenshots, the real-API spec) |
 | Panel on the real API | `tests/warehouse-real.spec.ts` with `WH_REAL_API`, `WH_REAL_DB` on `mango_wh_ui_test` (WAREHOUSE_V2, dev routes) | pass, twice on fresh databases: intake, receive, QC, put away, pick, pack, dispatch, reconciliation clean |
 | After message fixes | `node --test test/warehouse.test.js test/warehouse-units.test.js` | 30 pass, 0 fail |
-| Done-list checks | `node --test test/warehouse-checks.test.js` (new: receipt verification, reprint limit, idle sessions, pack and dispatch races, cancel at every stage) | 10 pass, 0 fail |
+| Done-list checks | `node --test test/warehouse-checks.test.js` (new: receipt verification, reprint limit, idle sessions, pack and dispatch races, cancel at every stage, QC permissions, QC by scan) | 12 pass, 0 fail |
 | Full API suite on PR #19's code | `TEST_DATABASE_URL=…/mango_pr19_test npm test` | 684 tests: 683 pass, 1 skip, 0 fail |
 | Order suites, warehouse off | `WAREHOUSE_V2=false node --test` flow, shop-payments, business-invariants, concurrency, delivery, preorders, bulk-deals, stock-fixes, pay-fixes, lock-order | 111 tests: 110 pass, 1 fail. The one failure is the exact `/auth/me` shape in flow.test.js, which expects the flag on |
+| Full API suite after the QC-by-scan fix (d1f8fc6) | `TEST_DATABASE_URL=…/mango_pr19_test npm test` | 696 tests: 695 pass, 1 skip, 0 fail |
 | Measurements | `node scripts/warehouse-bench.mjs` on `mango_wh_bench_test` | See PERFORMANCE.md |
 
 ## Existing tests changed
