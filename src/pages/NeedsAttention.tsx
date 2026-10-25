@@ -14,6 +14,7 @@ const STEP_LABEL: Record<string, string> = {
   preorders: 'Preorder jobs',
   notifications: 'Sending WhatsApp updates',
   sweep: 'Releasing unpaid holds',
+  'warehouse-sessions': 'Closing idle warehouse scan sessions',
   cleanup: 'Clean-up',
   retire: 'Retiring old batches',
   'rebalance-all': 'Re-checking all open orders',

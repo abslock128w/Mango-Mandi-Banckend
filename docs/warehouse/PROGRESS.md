@@ -15,9 +15,9 @@ staging or Neon.
 | 4 | Scan engine: receive, move, QC | Done |
 | 5 | Stock integration: pick, unpick, cancellations, shortfall | Done |
 | 6 | Staged pack and dispatch, messages after commit | Done |
-| 7 | Panel Warehouse area | In progress |
+| 7 | Panel Warehouse area | Done |
 | 8 | Recall holds and trace | Done (API) |
-| 9 | Test matrix, regression suites, lint, typecheck, build | API done; panel pending |
+| 9 | Test matrix, regression suites, lint, typecheck, build | Done |
 | 10 | Docs and rollout | Done (this folder) |
 
 ## Commands and results
@@ -32,6 +32,11 @@ staging or Neon.
 | Re-run | auth-matrix, flow, security-readiness, launch-review, warehouse, warehouse-units | 252 tests: 252 pass, 0 fail |
 | Lint | `npx eslint mango-api/src mango-api/test` | 0 problems |
 | Rollback | migrate → `ROLLBACK.sql` → migrate on `mango_wh_rb_test` | warehouse tables 4 → 0 → 5; product columns removed and re-added |
+| Panel | `npm run typecheck`, `npm run lint`, `npm run build` (repo root) | all pass |
+| Panel | `npm run test:unit` | 27 pass, 0 fail |
+| Panel | `PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test` | 372 pass, 12 skip, 0 fail (skips: specs needing a live API, screenshots, the real-API spec) |
+| Panel on the real API | `tests/warehouse-real.spec.ts` with `WH_REAL_API`, `WH_REAL_DB` on `mango_wh_ui_test` (WAREHOUSE_V2, dev routes) | pass, twice on fresh databases: intake, receive, QC, put away, pick, pack, dispatch, reconciliation clean |
+| After message fixes | `node --test test/warehouse.test.js test/warehouse-units.test.js` | 30 pass, 0 fail |
 | Measurements | `node scripts/warehouse-bench.mjs` on `mango_wh_bench_test` | See PERFORMANCE.md |
 
 ## Existing tests changed
@@ -47,6 +52,11 @@ staging or Neon.
 
 None in code. Business confirmations are listed in DECISIONS.md (D1–D12 confirm flags).
 
+## Known gaps
+
+- Packers cannot search Orders, so for them the scan setup finds an order
+  number only while it is in the pick queue; otherwise they enter the order ID.
+
 ## Next
 
-Panel Warehouse area and its specs, then the panel regression suite, build and PR update.
+Open the warehouse pull request once Bulk Deals (PR #18) is merged.

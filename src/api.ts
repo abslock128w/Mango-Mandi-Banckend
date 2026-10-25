@@ -109,8 +109,8 @@ function signOutLocally() {
 }
 
 /** A Blob body is sent as-is (photos); anything else as JSON. */
-async function send(method: string, path: string, body?: unknown, retried = false): Promise<Response> {
-  const headers: Record<string, string> = {}
+async function send(method: string, path: string, body?: unknown, retried = false, extra?: Record<string, string>): Promise<Response> {
+  const headers: Record<string, string> = { ...extra }
   const blob = body instanceof Blob
   if (body !== undefined) headers['Content-Type'] = blob ? body.type : 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
@@ -124,7 +124,7 @@ async function send(method: string, path: string, body?: unknown, retried = fals
 
   if (res.status === 401 && !retried) {
     const refreshed = await refreshOnce()
-    if (refreshed === 'ok') return send(method, path, body, true)
+    if (refreshed === 'ok') return send(method, path, body, true, extra)
     if (refreshed === 'unavailable') throw new ApiError(503, 'UNAVAILABLE', 'The server is busy or unreachable. Please try again in a minute.')
     signOutLocally()
     throw new ApiError(401, 'SESSION_ENDED', 'Your session has ended. Please sign in again.')
@@ -137,6 +137,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const res = await send(method, path, body)
   if (res.status === 204) return undefined as T
   return parseAnswer<T>(res.status, await res.text())
+}
+
+/** For the warehouse module (src/warehouse/api.ts): a request with extra headers, e.g. Idempotency-Key. */
+export async function apiRequest<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+  const res = await send(method, path, body, false, headers)
+  if (res.status === 204) return undefined as T
+  return parseAnswer<T>(res.status, await res.text())
+}
+
+/** A signed-in download (a PDF or CSV) as an object URL; the caller revokes it. */
+export async function apiBlobUrl(path: string): Promise<string> {
+  const res = await send('GET', path)
+  return URL.createObjectURL(await res.blob())
 }
 
 function qs(params: Record<string, string | number | undefined | null>): string {

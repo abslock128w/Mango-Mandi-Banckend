@@ -12,6 +12,8 @@ export interface Me {
    * whether setting it up needs the one-time setup code a manager hands over.
    */
   twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
+  /** The box-tracked warehouse: off unless the API has it switched on; the permissions this role holds there. */
+  warehouse?: { enabled: boolean; permissions: string[] }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -444,7 +446,7 @@ export interface CoverageDay {
 }
 
 export interface ApiErrorBody {
-  error?: { code?: string; message?: string; requestId?: string }
+  error?: { code?: string; message?: string; requestId?: string; [extra: string]: unknown }
 }
 
 export type PreorderStatus = 'PAYMENT_PENDING' | 'BOOKED' | 'WAITLISTED' | 'CONVERTED' | 'CANCELLED'

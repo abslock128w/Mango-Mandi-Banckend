@@ -28,10 +28,28 @@ const Promos = lazy(() => import('./pages/Promos'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealEditor })))
 const Reviews = lazy(() => import('./pages/Reviews'))
+const WhOverview = lazy(() => import('./warehouse/pages/Overview'))
+const WhReceive = lazy(() => import('./warehouse/pages/Receive'))
+const WhLots = lazy(() => import('./warehouse/pages/Lots'))
+const WhLotDetail = lazy(() => import('./warehouse/pages/LotDetail'))
+const WhScan = lazy(() => import('./warehouse/pages/Scan'))
+const WhBoxes = lazy(() => import('./warehouse/pages/Boxes'))
+const WhBoxDetail = lazy(() => import('./warehouse/pages/BoxDetail'))
+const WhLocations = lazy(() => import('./warehouse/pages/Locations'))
+const WhExceptions = lazy(() => import('./warehouse/pages/Exceptions'))
+const WhReports = lazy(() => import('./warehouse/pages/Reports'))
+const WhPicking = lazy(() => import('./warehouse/pages/Picking'))
+const WhPickList = lazy(() => import('./warehouse/pages/PickList'))
+const WhProducts = lazy(() => import('./warehouse/pages/Products'))
+const WhBoxTrace = lazy(() => import('./warehouse/pages/BoxTrace'))
+const WhLotTrace = lazy(() => import('./warehouse/pages/LotTrace'))
+const WhRecall = lazy(() => import('./warehouse/pages/RecallDetail'))
 const TwoStepPage = lazy(() => import('./pages/TwoStep'))
 const TwoStepGate = lazy(() => import('./pages/TwoStep').then((m) => ({ default: m.TwoStepGate })))
 import { canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
+import { whLinkAllowed } from './warehouse/access'
+import type { WhPermission } from './warehouse/types'
 
 function RequireAuth({ me, children }: { me: Me | null; children: ReactNode }) {
   const location = useLocation()
@@ -44,6 +62,12 @@ function RequireAuth({ me, children }: { me: Me | null; children: ReactNode }) {
 function Only({ screen, children }: { screen: Screen; children: ReactNode }) {
   const { me } = useSession()
   return canSee(me?.role, screen) ? <>{children}</> : <NotFound notAllowed />
+}
+
+/** A warehouse screen: only while the warehouse is on, and only for a role holding its permission. */
+function WhOnly({ perm, children }: { perm: WhPermission | 'scan'; children: ReactNode }) {
+  const { me } = useSession()
+  return whLinkAllowed(me, perm) ? <>{children}</> : <NotFound notAllowed />
 }
 
 function Home() {
@@ -128,6 +152,22 @@ export default function App() {
               <Route path="/bulk-deals" element={<Only screen="bulkDeals"><BulkDeals /></Only>} />
               <Route path="/bulk-deals/:id" element={<Only screen="bulkDeals"><BulkDealEditor /></Only>} />
               <Route path="/promos" element={<Only screen="promos"><Promos /></Only>} />
+              <Route path="/warehouse" element={<WhOnly perm="warehouse.view"><WhOverview /></WhOnly>} />
+              <Route path="/warehouse/receive" element={<WhOnly perm="warehouse.receive"><WhReceive /></WhOnly>} />
+              <Route path="/warehouse/lots" element={<WhOnly perm="warehouse.view"><WhLots /></WhOnly>} />
+              <Route path="/warehouse/lots/:id" element={<WhOnly perm="warehouse.view"><WhLotDetail /></WhOnly>} />
+              <Route path="/warehouse/scan" element={<WhOnly perm="scan"><WhScan /></WhOnly>} />
+              <Route path="/warehouse/boxes" element={<WhOnly perm="warehouse.view"><WhBoxes /></WhOnly>} />
+              <Route path="/warehouse/boxes/:id" element={<WhOnly perm="warehouse.view"><WhBoxDetail /></WhOnly>} />
+              <Route path="/warehouse/locations" element={<WhOnly perm="warehouse.view"><WhLocations /></WhOnly>} />
+              <Route path="/warehouse/exceptions" element={<WhOnly perm="warehouse.view"><WhExceptions /></WhOnly>} />
+              <Route path="/warehouse/reports" element={<WhOnly perm="warehouse.view"><WhReports /></WhOnly>} />
+              <Route path="/warehouse/picking" element={<WhOnly perm="warehouse.pick"><WhPicking /></WhOnly>} />
+              <Route path="/warehouse/picking/:orderId" element={<WhOnly perm="warehouse.pick"><WhPickList /></WhOnly>} />
+              <Route path="/warehouse/products" element={<WhOnly perm="locations.manage"><WhProducts /></WhOnly>} />
+              <Route path="/warehouse/boxes/:id/trace" element={<WhOnly perm="warehouse.view"><WhBoxTrace /></WhOnly>} />
+              <Route path="/warehouse/lots/:id/trace" element={<WhOnly perm="warehouse.view"><WhLotTrace /></WhOnly>} />
+              <Route path="/warehouse/recalls/:id" element={<WhOnly perm="warehouse.view"><WhRecall /></WhOnly>} />
               <Route path="/two-step" element={<TwoStepPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

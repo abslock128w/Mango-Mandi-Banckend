@@ -4,6 +4,7 @@ import { api } from './api'
 import { ROLE_LABEL, canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
+import { WH_LINKS, whLinkAllowed } from './warehouse/access'
 
 type NavItem = [to: string, label: string, screen: Screen]
 
@@ -72,9 +73,16 @@ export default function Layout() {
   // Set when a disclosure opens from its button, so the effect below moves focus into it.
   const focusInto = useRef(false)
 
-  const groups = GROUPS.map((g) => ({ ...g, links: g.links.filter(([, , screen]) => canSee(me?.role, screen)) })).filter(
-    (g) => g.links.length > 0,
-  )
+  const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
+    ...g,
+    links: g.links.filter(([, , screen]) => canSee(me?.role, screen)).map(([to, label]): [string, string] => [to, label]),
+  }))
+  // The box-tracked warehouse: its group only exists while /auth/me says it is on.
+  if (me?.warehouse?.enabled) {
+    const links = WH_LINKS.filter(([, , perm]) => whLinkAllowed(me, perm)).map(([to, label]): [string, string] => [to, label])
+    shown.splice(3, 0, { id: 'warehouse', label: 'Warehouse', links })
+  }
+  const groups = shown.filter((g) => g.links.length > 0)
   const twoStepOff = !!me?.twoStep && !me.twoStep.enabled
 
   // A new page closes whatever was open.

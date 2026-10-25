@@ -7,12 +7,15 @@ export class ApiError extends Error {
   status: number
   code: string
   requestId?: string
-  constructor(status: number, code: string, message: string, requestId?: string) {
+  /** Any other fields the API put on the error (e.g. `missing` on INCOMPLETE_SET). */
+  extra: Record<string, unknown>
+  constructor(status: number, code: string, message: string, requestId?: string, extra: Record<string, unknown> = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.requestId = requestId
+    this.extra = extra
   }
 }
 
@@ -24,12 +27,8 @@ export function errorFrom(status: number, statusText: string, text: string): Api
   } catch {
     // Not JSON (proxy error page, empty body).
   }
-  return new ApiError(
-    status,
-    body?.error?.code ?? `HTTP_${status}`,
-    body?.error?.message ?? (statusText || 'Request failed'),
-    body?.error?.requestId,
-  )
+  const { code, message, requestId, ...extra } = body?.error ?? {}
+  return new ApiError(status, code ?? `HTTP_${status}`, message ?? (statusText || 'Request failed'), requestId, extra)
 }
 
 /** A successful answer's body: empty is undefined; anything not JSON (a proxy's page) is an ApiError, not a SyntaxError. */
