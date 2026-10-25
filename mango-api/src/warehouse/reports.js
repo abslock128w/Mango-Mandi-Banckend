@@ -231,7 +231,7 @@ export async function traceBox(c, box, who) {
     batch: batch && { id: batch.id, variety: batch.variety, pluckedOn: batch.plucked_on, farm: batch.farm, status: batch.status },
     parents,
     orders: await ordersFor(c, orderIds, who),
-    events: events.map((e) => ({ type: e.type, at: e.created_at, actor: e.actor_email, fromLifecycle: e.from_lifecycle, toLifecycle: e.to_lifecycle, fromLocation: e.from_location, toLocation: e.to_location, quality: e.to_quality, holdAdded: e.hold_added, holdReleased: e.hold_released, orderId: e.order_id, reasonCode: e.reason_code, reason: e.reason })),
+    events: events.map((e) => ({ type: e.type, at: e.created_at, actor: e.actor_email, fromLifecycle: e.from_lifecycle, toLifecycle: e.to_lifecycle, fromLocation: e.from_location, toLocation: e.to_location, quality: e.to_quality, fromQuality: e.from_quality, toQuality: e.to_quality, holdAdded: e.hold_added, holdReleased: e.hold_released, orderId: e.order_id, reasonCode: e.reason_code, reason: e.reason })),
   }
 }
 

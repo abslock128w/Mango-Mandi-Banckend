@@ -20,7 +20,7 @@ import { ledger, lineInfo, pack, release, sellableAs } from '../inventory.js'
 import { logger } from '../logger.js'
 import { addEvent, assertTransition, lockOrder, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { hit } from '../ratelimit.js'
-import { parseScan } from './codes.js'
+import { formatBoxCode, parseScan } from './codes.js'
 import {
   addHold, applyLineDeltas, changeBox, lockBox, lockBoxes, moveProblem, newDeltas, pickProblem, readBox, releaseHold, trackedLine, WhError, whError,
 } from './core.js'
@@ -277,7 +277,7 @@ async function scanOne(c, opId, s, who) {
 
   // 3. The same box twice in one session.
   const again = (await c.query(`SELECT 1 FROM wh_scans WHERE operation_id = $1 AND box_id = $2 AND result IN ('accepted', 'warning')`, [op.id, box.id])).rowCount
-  if (again) return store(box.id, 'duplicate', 'ALREADY_SCANNED', `Box ${box.code} is already scanned in this session.`)
+  if (again) return store(box.id, 'duplicate', 'ALREADY_SCANNED', `Box ${formatBoxCode(box.code)} is already scanned in this session.`)
 
   // 4. The operation's own rules, inside a savepoint so a refusal leaves nothing behind.
   const deltas = newDeltas()
@@ -285,7 +285,7 @@ async function scanOne(c, opId, s, who) {
   let out
   try {
     out = await HANDLERS[op.type](c, op, box, s, who, deltas)
-    const short = await applyLineDeltas(c, deltas, who.actor, `Scan ${op.type} (${box.code})`)
+    const short = await applyLineDeltas(c, deltas, who.actor, `Scan ${op.type} (${formatBoxCode(box.code)})`)
     if (short.atRisk.length || short.moved.length || short.refilled.length) out.detail = { ...(out.detail ?? {}), shortfall: short }
     await c.query('RELEASE SAVEPOINT scan')
   } catch (err) {
@@ -319,11 +319,11 @@ const HANDLERS = {
     const box = await lockBox(c, box0.id)
     if (box.lot_id !== op.lot_id) {
       const lot = (await c.query('SELECT code FROM box_lots WHERE id = $1', [box.lot_id])).rows[0]
-      reject('WRONG_BATCH', `Box ${box.code} is from batch ${lot?.code}, not ${op.context.lotCode}. Put it aside.`)
+      reject('WRONG_BATCH', `Box ${formatBoxCode(box.code)} is from batch ${lot?.code}, not ${op.context.lotCode}. Put it aside.`)
     }
     if (box.lifecycle !== 'generated') {
-      if (box.lifecycle === 'voided') reject('INVALID_TRANSITION', `Box ${box.code} was voided. Put it aside for a supervisor.`)
-      reject('ALREADY_RECEIVED', `Box ${box.code} was already received.`)
+      if (box.lifecycle === 'voided') reject('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} was voided. Put it aside for a supervisor.`)
+      reject('ALREADY_RECEIVED', `Box ${formatBoxCode(box.code)} was already received.`)
     }
     const lot = (await c.query('SELECT * FROM box_lots WHERE id = $1 FOR UPDATE', [op.lot_id])).rows[0]
     if (!['receiving', 'received'].includes(lot.status)) reject('INVALID_TRANSITION', `Lot ${lot.code} is ${lot.status}`)
@@ -334,24 +334,24 @@ const HANDLERS = {
     if (w) changes.measured_weight_g = w
     await changeBox(c, box, changes, ev(op, s, who, 'RECEIVED', { meta: w ? { weightG: w } : null }), deltas)
     const after = await finishReceiving(c, lot.id)
-    return { message: `${box.code} received (${after.verified_count} of ${after.target_count - after.voided_count}).`, detail: { verified: after.verified_count, target: after.target_count - after.voided_count } }
+    return { message: `${formatBoxCode(box.code)} received (${after.verified_count} of ${after.target_count - after.voided_count}).`, detail: { verified: after.verified_count, target: after.target_count - after.voided_count } }
   },
 
   async move(c, op, box0, s, who, deltas) {
     const box = await lockBox(c, box0.id)
     const loc = (await c.query('SELECT * FROM wh_locations WHERE id = $1', [op.location_id])).rows[0]
-    if (box.location_id === loc.id) return { result: 'warning', code: 'ALREADY_AT_LOCATION', message: `${box.code} is already in ${loc.name}.` }
+    if (box.location_id === loc.id) return { result: 'warning', code: 'ALREADY_AT_LOCATION', message: `${formatBoxCode(box.code)} is already in ${loc.name}.` }
     const p = moveProblem(box, loc)
     if (p) reject(...p)
     await changeBox(c, box, { location_id: loc.id }, ev(op, s, who, 'MOVED'), deltas)
-    return { message: `${box.code} → ${loc.name}.` }
+    return { message: `${formatBoxCode(box.code)} → ${loc.name}.` }
   },
 
   async qc(c, op, box0, s, who, deltas) {
     const box = await lockBox(c, box0.id)
     if (!['in_stock', 'returned'].includes(box.lifecycle)) {
-      if (box.lifecycle === 'generated') reject('INVALID_TRANSITION', `Box ${box.code} is not received yet. Receive it first.`)
-      reject('INVALID_TRANSITION', `Box ${box.code} is ${box.lifecycle}; take it off its order before QC.`)
+      if (box.lifecycle === 'generated') reject('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is not received yet. Receive it first.`)
+      reject('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is ${box.lifecycle}; take it off its order before QC.`)
     }
     const product = (await c.query('SELECT qc_checklist, weight_tolerance_pct FROM products WHERE sku = $1', [box.sku])).rows[0]
     const { result: wanted, reasonCodes, note } = op.context
@@ -371,16 +371,16 @@ const HANDLERS = {
     }
     if (result === 'passed') {
       if (box.quality === 'failed') {
-        if (!can(who.role, 'qc.override')) reject('QC_OVERRIDE_REQUIRED', `Box ${box.code} failed QC. A manager must pass it.`)
+        if (!can(who.role, 'qc.override')) reject('QC_OVERRIDE_REQUIRED', `Box ${formatBoxCode(box.code)} failed QC. A manager must pass it.`)
         const last = (await c.query(`SELECT actor_id FROM box_events WHERE box_id = $1 AND to_quality = 'failed' ORDER BY created_at DESC, id DESC LIMIT 1`, [box.id])).rows[0]
         if (last?.actor_id === who.actor.id) reject('SELF_APPROVAL', 'You failed this box: another manager must pass it.')
       }
-      if (box.quality === 'passed' && !box.holds.includes('qc_hold')) return { result: 'warning', code: 'ALREADY_DONE', message: `${box.code} already passed QC.` }
+      if (box.quality === 'passed' && !box.holds.includes('qc_hold')) return { result: 'warning', code: 'ALREADY_DONE', message: `${formatBoxCode(box.code)} already passed QC.` }
       if (box.quality !== 'passed') {
         await changeBox(c, box, { quality: 'passed', ...(w ? { measured_weight_g: w } : {}) }, ev(op, s, who, 'QC_PASSED', { reason: note, meta: w ? { weightG: w } : null }), deltas)
       }
       await releaseHold(c, box, 'qc_hold', 'QC passed', ev(op, s, who, 'HOLD_RELEASED'), deltas)
-      return { message: `${box.code} passed QC.` }
+      return { message: `${formatBoxCode(box.code)} passed QC.` }
     }
     const codes = warning ? [...new Set([...reasonCodes, 'UNDERWEIGHT'].filter((r) => (product.qc_checklist ?? []).includes(r)))] : reasonCodes
     await changeBox(
@@ -388,7 +388,7 @@ const HANDLERS = {
       ev(op, s, who, result === 'failed' ? 'QC_FAILED' : 'QC_REVIEW', { reasonCode: codes[0] ?? 'weight', reason: note ?? warning, meta: { reasonCodes: codes, ...(w ? { weightG: w } : {}) } }),
       deltas,
     )
-    const msg = result === 'failed' ? `${box.code} failed QC: move it to QC hold.` : `${box.code} marked for review: move it to QC hold.`
+    const msg = result === 'failed' ? `${formatBoxCode(box.code)} failed QC: move it to QC hold.` : `${formatBoxCode(box.code)} marked for review: move it to QC hold.`
     return warning ? { result: 'warning', code: 'WEIGHT_OUT_OF_TOLERANCE', message: warning } : { message: msg }
   },
 
@@ -397,7 +397,7 @@ const HANDLERS = {
     if (!PICKABLE_ORDER.includes(o.status)) reject('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}; picking has stopped.`)
     if (!paidOrReplacement(o)) reject('PAYMENT_NOT_CAPTURED', `Order ${o.number} is not paid.`)
     const box = await lockBox(c, box0.id)
-    if (box.order_id === o.id) reject('ALREADY_PICKED', `${box.code} is already on this order.`)
+    if (box.order_id === o.id) reject('ALREADY_PICKED', `${formatBoxCode(box.code)} is already on this order.`)
     const tracking = await trackedLine(c, box.line_id)
     const p = pickProblem(box, { trackingOn: tracking })
     if (p) reject(...p)
@@ -405,9 +405,9 @@ const HANDLERS = {
     if (!items.length) reject('WRONG_VARIANT', `Order ${o.number} has no ${box.sku_name}.`)
     const info = await lineInfo(c, box.line_id)
     const st = sellableAs(info, o.delivery_date, getConfig(), { existing: true })
-    if (!st || box.best_before < o.delivery_date) reject('EXPIRED', `${box.code} is too old for delivery on ${o.delivery_date}. Pick a younger box.`)
+    if (!st || box.best_before < o.delivery_date) reject('EXPIRED', `${formatBoxCode(box.code)} is too old for delivery on ${o.delivery_date}. Pick a younger box.`)
     const item = items.find((i) => i.stage === st.stage)
-    if (!item) reject('WRONG_VARIANT', `${box.code} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
+    if (!item) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
     // The order's reserved units for this product and ripeness, oldest batch first (FEFO).
     const rows = (await c.query(
       `SELECT s.*, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -423,14 +423,14 @@ const HANDLERS = {
       const expected = rows[0]
       const lot = (await c.query('SELECT code FROM box_lots WHERE line_id = $1', [expected.line_id])).rows[0]
       if (!reason) {
-        reject('NON_FEFO', `${box.code} is not from the reserved batch${lot ? ` (${lot.code})` : ''}. Pick from that batch, or give a reason.`, { needsReason: true, expectedLot: lot?.code ?? null })
+        reject('NON_FEFO', `${formatBoxCode(box.code)} is not from the reserved batch${lot ? ` (${lot.code})` : ''}. Pick from that batch, or give a reason.`, { needsReason: true, expectedLot: lot?.code ?? null })
       }
       await c.query('SELECT id FROM batch_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[box.line_id, expected.line_id]])
       const upd = await c.query(
         `UPDATE batch_lines SET committed = committed + 1 WHERE id = $1 AND on_hand - held - committed - reserve_buffer >= 1 RETURNING batch_id`,
         [box.line_id],
       )
-      if (!upd.rowCount) reject('STOCK_INSUFFICIENT', `${box.code}'s batch is fully promised to other orders. Pick from ${lot?.code ?? 'the reserved batch'}.`)
+      if (!upd.rowCount) reject('STOCK_INSUFFICIENT', `${formatBoxCode(box.code)}'s batch is fully promised to other orders. Pick from ${lot?.code ?? 'the reserved batch'}.`)
       const id = newId('ost')
       await c.query(
         `INSERT INTO order_stock (id, order_id, batch_id, line_id, sku, stage, quantity, state) VALUES ($1, $2, $3, $4, $5, $6, 1, 'committed')`,
@@ -442,7 +442,7 @@ const HANDLERS = {
       warning = { code: 'NON_FEFO', reason }
     }
     const staging = await stagingPlace(c, box.warehouse_id)
-    await pickUnit(c, row, who.actor, `${o.number}: box ${box.code} picked`)
+    await pickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} picked`)
     await changeBox(
       c, box, { lifecycle: 'picked', order_id: o.id, order_item_id: item.id, location_id: staging?.id ?? box.location_id },
       ev(op, s, who, 'PICKED', { orderId: o.id, reasonCode: warning ? 'non_fefo' : null, reason: warning?.reason ?? null }),
@@ -455,8 +455,8 @@ const HANDLERS = {
     }
     const left = (await c.query(`SELECT coalesce(sum(quantity), 0)::int AS n FROM order_stock WHERE order_id = $1 AND state IN ('held', 'committed')`, [o.id])).rows[0].n
     const detail = { orderId: o.id, left }
-    if (warning) return { result: 'warning', code: 'NON_FEFO', message: `${box.code} picked from another batch (${warning.reason}). ${left} left.`, detail }
-    return { message: `${box.code} picked for ${o.number}. ${left ? `${left} left to pick.` : 'All picked.'}`, detail }
+    if (warning) return { result: 'warning', code: 'NON_FEFO', message: `${formatBoxCode(box.code)} picked from another batch (${warning.reason}). ${left} left.`, detail }
+    return { message: `${formatBoxCode(box.code)} picked for ${o.number}. ${left ? `${left} left to pick.` : 'All picked.'}`, detail }
   },
 
   async unpick(c, op, box0, s, who) {
@@ -493,15 +493,15 @@ const HANDLERS = {
     if (box.order_id !== o.id || box.lifecycle !== 'dispatched') reject('CONFLICT_RETRY_EXHAUSTED', 'This box just changed. Scan it again.')
     const wrongOrder = box.order_id !== op.order_id
     const row = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND line_id = $2 AND state = 'packed' ORDER BY id LIMIT 1`, [o.id, box.line_id])).rows[0]
-    if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${box.code} returned`)
+    if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} returned`)
     const moved = await changeBox(c, box, { lifecycle: 'returned', order_id: null, order_item_id: null, location_id: op.location_id }, ev(op, s, who, 'RETURNED', { orderId: o.id, reason: op.context.reason ?? null }), deltas)
     // D7: returned mangoes are not resold unless the product allows it and QC passes them again.
     await addHold(c, moved, 'return_hold', `Returned from ${o.number}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
     if (wrongOrder) {
       await addHold(c, moved, 'investigation_hold', `Came back with order ${op.context.orderNumber} but left on ${o.number}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
-      return { result: 'warning', code: 'NOT_FROM_THIS_ORDER', message: `${box.code} left on ${o.number}, not this order. Booked as returned and held for a supervisor.`, detail: { orderId: o.id } }
+      return { result: 'warning', code: 'NOT_FROM_THIS_ORDER', message: `${formatBoxCode(box.code)} left on ${o.number}, not this order. Booked as returned and held for a supervisor.`, detail: { orderId: o.id } }
     }
-    return { message: `${box.code} returned. It stays in Returns.` }
+    return { message: `${formatBoxCode(box.code)} returned. It stays in Returns.` }
   },
 }
 
@@ -513,15 +513,15 @@ async function unpickBox(c, o, boxId, who, why, event) {
   if (o.status === 'PACKED') {
     // The order is open for packing again; it goes through pack (and its finalize) once more.
     await c.query(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [o.id])
-    await addEvent(c, o.id, 'PACKED', 'PROCESSING', who.actor, `Reopened in the warehouse: box ${box.code} taken off (${why})`)
+    await addEvent(c, o.id, 'PACKED', 'PROCESSING', who.actor, `Reopened in the warehouse: box ${formatBoxCode(box.code)} taken off (${why})`)
   }
   const row = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND line_id = $2 AND state = 'packed' ORDER BY id LIMIT 1`, [o.id, box.line_id])).rows[0]
-  if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${box.code} taken off (${why})`)
+  if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} taken off (${why})`)
   await c.query('DELETE FROM wh_staged WHERE box_id = $1', [box.id])
   const staging = await stagingPlace(c, box.warehouse_id)
   await changeBox(c, box, { lifecycle: 'in_stock', order_id: null, order_item_id: null, location_id: staging?.id ?? box.location_id }, { ...event, orderId: o.id }, newDeltas(), { skipStock: true })
   const r = await rebalanceOrder(c, o.id, who.actor)
-  return { code: box.code, atRisk: Boolean(r?.atRisk) }
+  return { code: formatBoxCode(box.code), atRisk: Boolean(r?.atRisk) }
 }
 
 /** Stages a box on a pack or dispatch session; one taken from another open session moves here (a warning). */
@@ -533,8 +533,8 @@ async function stage(c, op, box, s) {
   await c.query('DELETE FROM wh_staged WHERE box_id = $1 AND operation_id <> $2', [box.id, op.id])
   await c.query('INSERT INTO wh_staged (operation_id, box_id, scan_id, staged_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [op.id, box.id, s.scanId, now()])
   const counts = await stagedCounts(c, op)
-  const message = `${box.code} scanned (${counts.staged} of ${counts.needed}).`
-  if (elsewhere.length) return { result: 'warning', code: 'STAGED_ELSEWHERE', message: `${box.code} was in another open session; it counts here now.`, detail: counts }
+  const message = `${formatBoxCode(box.code)} scanned (${counts.staged} of ${counts.needed}).`
+  if (elsewhere.length) return { result: 'warning', code: 'STAGED_ELSEWHERE', message: `${formatBoxCode(box.code)} was in another open session; it counts here now.`, detail: counts }
   return { message, detail: counts }
 }
 

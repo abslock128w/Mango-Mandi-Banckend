@@ -11,7 +11,7 @@ import { env } from '../env.js'
 import { newId } from '../ids.js'
 import { logger } from '../logger.js'
 import { findProduct } from '../products.js'
-import { ALPHABET, newBoxCode, newToken } from './codes.js'
+import { ALPHABET, formatBoxCode, newBoxCode, newToken } from './codes.js'
 import { applyLineDeltas, changeBox, lockBoxes, newDeltas, whError } from './core.js'
 
 /** Up to this many boxes are generated in the request's own transaction; more go in resumable chunks. */
@@ -286,7 +286,7 @@ export async function voidBoxes(c, lot, { count = null, boxIds = null, reason },
   const boxes = await lockBoxes(c, rows.map((r) => r.id))
   const deltas = newDeltas()
   for (const box of boxes.values()) {
-    if (box.lifecycle !== 'generated') throw whError('INVALID_TRANSITION', `Box ${box.code} was received; write it off instead of voiding it`)
+    if (box.lifecycle !== 'generated') throw whError('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} was received; write it off instead of voiding it`)
     await changeBox(c, box, { lifecycle: 'voided' }, { type: 'VOIDED', actor, reasonCode: 'not_arrived', reason }, deltas)
     await c.query('UPDATE box_labels SET revoked_at = $2, revoked_by = $3, revoke_reason = $4 WHERE box_id = $1 AND revoked_at IS NULL', [box.id, now(), actor.id, `Voided: ${reason}`])
   }

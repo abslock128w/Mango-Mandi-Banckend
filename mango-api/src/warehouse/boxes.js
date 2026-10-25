@@ -72,16 +72,16 @@ export async function boxEvents(c, boxId, { before = null, limit = 100 } = {}) {
 /** Records a reprint of the same label (the token does not change). More than FREE_REPRINTS needs labels.reissue. */
 export function reprintBox(c, box, { reason }, who) {
   if (box.reprint_count >= FREE_REPRINTS && !can(who.role, 'labels.reissue')) {
-    throw whError('SUPERVISOR_REQUIRED', `Box ${box.code} has been reprinted ${box.reprint_count} times. A supervisor must reprint it.`, 403)
+    throw whError('SUPERVISOR_REQUIRED', `Box ${formatBoxCode(box.code)} has been reprinted ${box.reprint_count} times. A supervisor must reprint it.`, 403)
   }
-  if (['voided', 'disposed', 'repacked'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${box.code} is ${box.lifecycle}; it needs no label`)
+  if (['voided', 'disposed', 'repacked'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is ${box.lifecycle}; it needs no label`)
   const d = newDeltas()
   return changeBox(c, box, { reprint_count: box.reprint_count + 1 }, { type: 'LABEL_REPRINTED', actor: who.actor, reasonCode: 'reprint', reason }, d)
 }
 
 /** A new token for a box whose label was lost, damaged or copied: the old label stops working (LABEL_REVOKED). */
 export async function reissueLabel(c, box, { reason }, who) {
-  if (['voided', 'disposed', 'repacked'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${box.code} is ${box.lifecycle}; it needs no label`)
+  if (['voided', 'disposed', 'repacked'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is ${box.lifecycle}; it needs no label`)
   const token = newToken()
   const at = now()
   await c.query('UPDATE box_labels SET revoked_at = $2, revoked_by = $3, revoke_reason = $4 WHERE box_id = $1 AND revoked_at IS NULL', [box.id, at, who.actor.id, `Reissued: ${reason}`])
@@ -95,10 +95,10 @@ const RELEASABLE = { qc_hold: 'warehouse.qc', damage_hold: 'warehouse.qc', inves
 
 export async function addManualHold(c, box, { kind, reason }, who) {
   if (!MANUAL_HOLDS.includes(kind)) throw whError('VALIDATION_ERROR', `Add ${kind.replace('_', ' ')} through its own flow`, 400)
-  if (['voided', 'disposed', 'repacked', 'dispatched'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${box.code} is ${box.lifecycle}`)
+  if (['voided', 'disposed', 'repacked', 'dispatched'].includes(box.lifecycle)) throw whError('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is ${box.lifecycle}`)
   const d = newDeltas()
   const added = await addHold(c, box, kind, reason, { type: 'HOLD_ADDED', actor: who.actor, reasonCode: kind }, d)
-  const short = await applyLineDeltas(c, d, who.actor, `Box ${box.code}: ${kind.replace('_', ' ')}`)
+  const short = await applyLineDeltas(c, d, who.actor, `Box ${formatBoxCode(box.code)}: ${kind.replace('_', ' ')}`)
   return { added, shortfall: short }
 }
 
@@ -106,13 +106,13 @@ export async function addManualHold(c, box, { kind, reason }, who) {
 export async function releaseManualHold(c, box, kind, { reason }, who) {
   if (!HOLD_KINDS.includes(kind)) throw whError('VALIDATION_ERROR', `Unknown hold ${kind}`, 400)
   if (!can(who.role, RELEASABLE[kind])) throw whError('FORBIDDEN', `Your role cannot release a ${kind.replace('_', ' ')}`, 403)
-  if (kind === 'qc_hold' && box.quality !== 'passed') throw whError('QC_NOT_PASSED', `Box ${box.code} has not passed QC: scan it in a QC session`)
+  if (kind === 'qc_hold' && box.quality !== 'passed') throw whError('QC_NOT_PASSED', `Box ${formatBoxCode(box.code)} has not passed QC: scan it in a QC session`)
   if (kind === 'return_hold' && box.lifecycle === 'returned') throw whError('INVALID_TRANSITION', 'Use Restock to put a returned box back, or write it off')
   if (kind === 'recall_hold') throw whError('INVALID_TRANSITION', 'Recall holds are released with the recall')
   const d = newDeltas()
   const released = await releaseHold(c, box, kind, reason, { type: 'HOLD_RELEASED', actor: who.actor, reasonCode: kind }, d)
-  if (!released) throw whError('NOT_FOUND', `Box ${box.code} has no ${kind.replace('_', ' ')}`, 404)
-  await applyLineDeltas(c, d, who.actor, `Box ${box.code}: ${kind.replace('_', ' ')} released`)
+  if (!released) throw whError('NOT_FOUND', `Box ${formatBoxCode(box.code)} has no ${kind.replace('_', ' ')}`, 404)
+  await applyLineDeltas(c, d, who.actor, `Box ${formatBoxCode(box.code)}: ${kind.replace('_', ' ')} released`)
   return true
 }
 
@@ -125,7 +125,7 @@ export async function measureBox(c, box, { weightG, fruitCount = null }, who) {
   if (out && box.quality === 'passed' && box.lifecycle === 'in_stock') changes.quality = 'needs_review'
   const d = newDeltas()
   const after = await changeBox(c, box, changes, { type: 'WEIGHED', actor: who.actor, reasonCode: out ? 'out_of_tolerance' : null, meta: { weightG, offPct: Math.round(off * 10) / 10 } }, d)
-  const short = await applyLineDeltas(c, d, who.actor, `Box ${box.code} weighed out of tolerance`)
+  const short = await applyLineDeltas(c, d, who.actor, `Box ${formatBoxCode(box.code)} weighed out of tolerance`)
   return { box: after, outOfTolerance: out, shortfall: short }
 }
 
@@ -135,16 +135,16 @@ export async function measureBox(c, box, { weightG, fruitCount = null }, who) {
  * be moved to storage before it counts as stock again.
  */
 export async function restockReturned(c, box, { reason }, who) {
-  if (box.lifecycle !== 'returned') throw whError('INVALID_TRANSITION', `Box ${box.code} is not a returned box`)
+  if (box.lifecycle !== 'returned') throw whError('INVALID_TRANSITION', `Box ${formatBoxCode(box.code)} is not a returned box`)
   const p = (await c.query('SELECT restockable_returns FROM products WHERE sku = $1', [box.sku])).rows[0]
   if (!p?.restockable_returns) throw whError('RETURNS_NOT_RESTOCKABLE', `${box.sku_name} returns are not resold (they are written off)`)
-  if (box.holds.includes('investigation_hold') || box.holds.includes('recall_hold')) throw whError('BOX_ON_HOLD', `Box ${box.code} is held: clear the investigation or recall first`)
+  if (box.holds.includes('investigation_hold') || box.holds.includes('recall_hold')) throw whError('BOX_ON_HOLD', `Box ${formatBoxCode(box.code)} is held: clear the investigation or recall first`)
   const d = newDeltas()
   let b = await changeBox(c, box, { lifecycle: 'in_stock', quality: 'needs_review' }, { type: 'RESTOCKED', actor: who.actor, reasonCode: 'return_restock', reason }, d)
   b = await lockBox(c, b.id)
   await releaseHold(c, b, 'return_hold', reason, { type: 'HOLD_RELEASED', actor: who.actor, reasonCode: 'return_restock' }, d)
   await addHold(c, await lockBox(c, b.id), 'qc_hold', 'Returned: QC again before resale', { type: 'HOLD_ADDED', actor: who.actor }, d)
-  await applyLineDeltas(c, d, who.actor, `Box ${box.code} restocked from a return`)
+  await applyLineDeltas(c, d, who.actor, `Box ${formatBoxCode(box.code)} restocked from a return`)
   return true
 }
 
