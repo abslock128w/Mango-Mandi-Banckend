@@ -71,7 +71,7 @@ The repository's flags are env vars (`WHATSAPP_CLAIM_UPDATES` etc). `WAREHOUSE_V
 | D5 | FEFO is chosen at checkout by the allocator. Picking a box from another batch than the one allocated is a NON_FEFO warning: allowed with a reason, and the reservation moves to the box's batch line if that line has free stock. Expired and held boxes are blocked. | Default | yes |
 | D6 | No partial dispatch: the order model has one delivery per order. Pack and dispatch are all-or-nothing per order. | Code | no |
 | D7 | Returned mango boxes are not resold by default (`restockable_returns = false`): quarantine, then dispose. Configurable per product. | Default | yes |
-| D8 | Write-offs need `warehouse.adjust`; more than 10 boxes in one request needs a second person with `adjust.approve`, and nobody approves their own request. | Default | yes |
+| D8 | Write-offs need `warehouse.adjust`; more than 10 boxes or 20 kg in one request needs a second person with `adjust.approve`, and nobody approves their own request. | Default | yes |
 | D9 | One warehouse (`wh_main`). Every warehouse row carries `warehouse_id`; transfers are deferred. | Default | no |
 | D10 | Ripening and cold rooms are location types. Dwell time is reported, not enforced. | Default | no |
 | D11 | Replacement orders (`orders.replacement_for`) are ordinary orders for picking and consume new boxes. | Code | no |

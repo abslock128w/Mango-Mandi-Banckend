@@ -82,7 +82,9 @@ export async function changeBox(c, box, changes, ev, deltas, { skipStock = false
   const after = skipStock ? false : await sellable(c, box.id)
   await writeEvent(c, box, rows[0], ev, at)
   if (!skipStock && before !== after) deltas.set(box.line_id, (deltas.get(box.line_id) ?? 0) + (after ? 1 : -1))
-  return { ...box, ...rows[0] }
+  // Keep the caller's copy current (as bumpAndLog does), so a hold change right after uses the new version.
+  Object.assign(box, rows[0])
+  return { ...box }
 }
 
 export async function writeEvent(c, before, after, ev, at = now()) {
