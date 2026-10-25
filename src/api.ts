@@ -6,6 +6,11 @@
 
 import { ApiError, errorFrom, parseAnswer } from './apiAnswer'
 import type {
+  BulkEvent,
+  BulkListing,
+  BulkListingInput,
+  BulkListingSummary,
+  BulkStatus,
   BatchDetail,
   Analytics,
   Attention,
@@ -256,6 +261,23 @@ export const api = {
   removeProduct: (sku: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`),
   /** Sets the product's shop photo (replacing any earlier one). */
   setProductPhoto: (sku: string, photo: Blob) => request<Product>('PUT', `/products/${id(sku)}/photo`, photo),
+
+  bulkListings: (status?: BulkStatus | null, page = 1) =>
+    request<{ items: BulkListingSummary[]; page: number; pageSize: number; total: number }>('GET', `/bulk-listings${qs({ status, page })}`),
+  bulkListing: (listingId: string) => request<BulkListing>('GET', `/bulk-listings/${id(listingId)}`),
+  addBulkListing: (input: BulkListingInput) => request<BulkListing>('POST', '/bulk-listings', input),
+  updateBulkListing: (listingId: string, patch: Partial<BulkListingInput>) => request<BulkListing>('PATCH', `/bulk-listings/${id(listingId)}`, patch),
+  /** Publish, unpublish or archive (archived is final). */
+  moveBulkListing: (listingId: string, to: 'publish' | 'unpublish' | 'archive') => request<BulkListing>('POST', `/bulk-listings/${id(listingId)}/${to}`, {}),
+  bulkHistory: (listingId: string) => request<BulkEvent[]>('GET', `/bulk-listings/${id(listingId)}/history`),
+  addBulkPhoto: (listingId: string, photo: Blob) => request<BulkListing>('POST', `/bulk-listings/${id(listingId)}/photos`, photo),
+  orderBulkPhotos: (listingId: string, ids: string[]) => request<BulkListing>('PUT', `/bulk-listings/${id(listingId)}/photos/order`, { ids }),
+  removeBulkPhoto: (listingId: string, photoId: string) => request<BulkListing>('DELETE', `/bulk-listings/${id(listingId)}/photos/${id(photoId)}`),
+  /** An object URL for a listing photo (fetched with the staff sign-in: a draft's photos are not public). */
+  async bulkPhotoUrl(listingId: string, photoId: string): Promise<string> {
+    const res = await send('GET', `/bulk-listings/${id(listingId)}/photos/${id(photoId)}?w=320`)
+    return URL.createObjectURL(await res.blob())
+  },
   removeProductPhoto: (sku: string) => request<Product>('DELETE', `/products/${id(sku)}/photo`),
 
   batches: (status?: BatchStatus | null) =>

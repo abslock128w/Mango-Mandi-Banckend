@@ -176,6 +176,37 @@ An order can be a gift: `gift { recipientName, recipientPhone, message }` at che
 pack list marks it (no price slip, the note goes in the box) and the rider sees the
 recipient's name and phone. Order updates and the delivery code still go to the buyer.
 
+## Bulk Deals
+
+Listings for large orders (offices, events, big families), sold from the same products, stock,
+holds, checkout and order lifecycle as regular boxes. Bulk is a catalogue and pricing layer
+over a product, not a second stock. Tables: migration `033_bulk_deals.sql`.
+
+- **A listing** (`bulk_listings`) names one product, its own title, description, origin and
+  photos, the ripeness offered, a minimum, a step and an optional most-per-order, and up to
+  8 price tiers `[{ minQty, unitPrice }]` in paise per box. Each tier runs up to the next
+  tier's start, so tiers can't overlap; tiers must start at the minimum, rise, line up with
+  the step, and each bigger tier must cost less. One price whatever the ripeness.
+- **Status**: DRAFT → PUBLISHED ⇄ UNPUBLISHED → ARCHIVED (final). Publishing needs the
+  product on sale, a photo, a 20+ character description, a minimum within `maxHeldBoxes` and
+  a sale end in the future. A live listing must stay publishable on every edit. Leaving
+  PUBLISHED empties the listing from every cart. An optional sale window hides it outside.
+- **Prices are worked out on the server only.** The cart takes `{ listingId, stage, qty }`
+  (strict: a price field is refused); the quote prices each bulk line from the listing as it
+  is now; confirm locks the listing `FOR SHARE` and prices it again, and a different price
+  fails with `PRICE_CHANGED` so the shop quotes again before taking money. Order items keep a
+  snapshot in `order_items.pricing` (listing id, version, title, tier, unit price), so later
+  edits never rewrite an order.
+- **Stock**: bulk lines go through `createOrder` like any line (FEFO allocation, holds, hold
+  expiry, cancel and refunds unchanged). One order can't hold the same box and ripeness both
+  as a regular and a bulk line, or under two deals (`CART_CONFLICT`). The unpaid-box rule
+  `maxHeldBoxes` caps one bulk order (default 40). Promo codes apply to regular boxes only.
+- **History**: every change is a row in `bulk_listing_events` with the version, the changed
+  fields (old and new) and who made it.
+- **Photos**: JPEG, PNG or WebP up to 5 MB, checked by their bytes, re-encoded without
+  metadata (at most 1600 px), at most 8; the first is the main one. Public only while the
+  listing is published.
+
 ## Preorders (phase 2)
 
 Customers book a SKU, ripeness and quantity for a delivery **week** (Monday start) before
@@ -335,6 +366,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | System | `GET /health`, `GET /ready`, `GET /metrics` (optional bearer `METRICS_TOKEN`; Docker path only, 404 on Vercel) |
 | Staff auth | `POST /admin/v1/auth/login`, `/refresh`, `/logout`, `GET /auth/me`. Refresh token is the httpOnly `mango_admin_rt` cookie, rotated on each use. |
 | Dashboard | `GET /admin/v1/summary` (adds `atRiskOrders`), `GET /products` |
+| Bulk Deals (manager) | `GET /bulk-listings?status&page`, `POST /bulk-listings`, `GET/PATCH /bulk-listings/:id`, `POST /bulk-listings/:id/publish`, `/unpublish`, `/archive`, `GET /bulk-listings/:id/history`, `POST /bulk-listings/:id/photos`, `PUT /bulk-listings/:id/photos/order`, `GET/DELETE /bulk-listings/:id/photos/:photoId` |
 | Products (manager) | `POST /products`, `PATCH /products/:sku` (rename, reprice, `active: true` to put back on sale; the variety is fixed once a batch holds it), `DELETE /products/:sku` (deletes a never-used product, otherwise takes it off sale and keeps it for history). Starter products are seeded only into an empty database. |
 | Batches | `GET/POST /batches`, `GET /batches/:id`, `PATCH /batches/:id/status`, `POST /batches/:id/qc`, `PATCH /batches/:id/lines/:lineId`, `GET /batches/:id/ledger` |
 | Orders | `GET /orders` (`?status&from&to&q&atRisk&page`), `GET /orders/:id`, `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel`, `/rebalance`, `/reschedule` |
@@ -349,6 +381,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Preorders | `GET /preorders?status&week`, `GET /preorder-capacity`, `PUT /preorder-capacity/:weekStart/:sku` (managers) |
 | Customer auth | `POST /v1/auth/otp/request`, `/otp/verify`, `/token/refresh`, `/logout` |
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
+| Customer bulk deals | `GET /v1/bulk-deals?pincode&page`, `GET /v1/bulk-deals/:id?pincode` (stock per open day and ripeness), `GET /v1/bulk-deals/:id/price?qty=`, `GET /v1/bulk-deals/:id/photos/:photoId` (public); `POST /v1/cart/bulk`, `DELETE /v1/cart/bulk/:listingId?stage=` (signed in) |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
 | Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel` |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status` (asks Razorpay when an order is still unpaid a minute after checkout, at most every 30 s), `POST /v1/orders/:id/verify-payment` (Checkout's `razorpay_payment_id`, `razorpay_order_id`, `razorpay_signature`: the signature is checked with the key secret, then the payment is fetched from Razorpay and applied), `POST /v1/orders/:id/cancel`, `POST /v1/orders/:id/reschedule` (confirmed orders, before packing), `PUT /v1/orders/:id/rating` (delivered orders), `GET/POST /v1/claims` |
@@ -359,7 +392,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 
 The staff routes live in one file per area under [`src/admin/`](src/admin): `auth.js` (sign-in,
 `/auth/me`, `/me/*`), `reports.js` (summary, analytics, attention, audit), `products.js`,
-`batches.js`, `orders.js` (with the pack list), `deliveries.js` (manifest, dispatch, riders, proof
+`batches.js`, `bulk.js` (Bulk Deals), `orders.js` (with the pack list), `deliveries.js` (manifest, dispatch, riders, proof
 of delivery), `promos.js`, `staff.js`, `claims.js`, `planning.js` (pincodes, rules, calendar,
 slots, coverage) and `preorders.js`, with helpers more than one area uses in `shared.js`.
 [`src/admin.js`](src/admin.js) only builds `/admin/v1`: the sign-in routes, then the gate

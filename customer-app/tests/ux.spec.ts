@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // The shop side of the 23 Oct UX audit, against the real API: a help contact on every page and
 // the /help and /terms pages (UX-1, UX-3), the trust line, delivery row and hold length at Pay
@@ -24,11 +25,7 @@ async function axe(page: Page, where: string) {
 const as = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } })
 const phoneFor = (n: number, project: string) => `9${String(Date.now()).slice(-7)}${n}${project === 'phone' ? 1 : 2}`
 
-async function staffToken(request: APIRequestContext) {
-  const r = await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })
-  expect(r.ok(), await r.text()).toBeTruthy()
-  return (await r.json()).accessToken as string
-}
+const staffToken = managerToken
 
 async function customer(request: APIRequestContext, phone: string) {
   const asked = await request.post(`${API}/v1/auth/otp/request`, { data: { phone } })

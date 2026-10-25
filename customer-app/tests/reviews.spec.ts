@@ -1,6 +1,7 @@
 import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '../../tests/fixtures'
+import { managerToken } from './staff'
 
 // Reviews end to end against the real API: an order is delivered, the
 // customer reviews it with a photo, a manager publishes it (and the photo) in
@@ -47,7 +48,7 @@ test('deliver an order, review it with a photo, publish it in the panel, see it 
   expect(confirm.ok(), await confirm.text()).toBeTruthy()
   const { orderId } = await confirm.json()
   await request.post(`${API}/v1/dev/pay`, { data: { orderId, outcome: 'captured' } })
-  const login = await (await request.post(`${API}/admin/v1/auth/login`, { data: { email: 'manager@mandimangoes.test', password: 'manager123' } })).json()
+  const login = { accessToken: await managerToken(request) }
   const staff = as(login.accessToken)
   for (const step of [
     () => request.patch(`${API}/admin/v1/orders/${orderId}/status`, { data: { status: 'PROCESSING' }, ...staff }),

@@ -32,6 +32,7 @@ import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
+import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
 
 export const router = express.Router()
 
@@ -392,7 +393,12 @@ router.get(
 
 /** What a box's QR code opens: where the mangoes came from and when they'll be ripe. Public. */
 
+// Bulk Deals: the catalogue and its photos are public.
+router.use(publicBulk)
+
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
+// Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
+router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
 router.use(customerReviews)
 
@@ -607,6 +613,13 @@ router.post(
       await c.query('DELETE FROM customer_addresses WHERE customer_id = $1', [me.id])
       await c.query('UPDATE order_ratings SET comment = NULL WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM carts WHERE customer_id = $1', [me.id])
+      await c.query(
+        `INSERT INTO bulk_cart_lines (customer_id, listing_id, stage, qty, updated_at)
+           SELECT $2, listing_id, stage, qty, updated_at FROM bulk_cart_lines WHERE customer_id = $1
+         ON CONFLICT (customer_id, listing_id, stage) DO UPDATE SET qty = GREATEST(bulk_cart_lines.qty, EXCLUDED.qty)`,
+        [me.id, target.id],
+      )
+      await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [me.id])
       await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
@@ -628,9 +641,12 @@ router.get(
   asyncHandler(async (req, res) => {
     const { rows } = await query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
     let date = req.query.deliveryDate || req.query.delivery_date || null
+    let bulkLines = []
     const pool = await tx(async (c) => {
       date = date ?? (await earliestDeliveryDate(c))
-      return availability(c, date)
+      const p = await availability(c, date)
+      bulkLines = await bulkCartView(c, req.customer.id, p)
+      return p
     })
     const lines = rows.map((l) => {
       const p = findProduct(l.sku)
@@ -638,7 +654,11 @@ router.get(
       const avail = p?.active ? (pool.get(`${l.sku}|${l.stage}`) ?? 0) : 0
       return { sku: l.sku, name: p?.name ?? l.sku, stage: l.stage, qty: l.qty, unitPrice: p?.price ?? 0, available: avail, insufficient: avail < l.qty }
     })
-    res.json({ deliveryDate: date, lines, subtotal: lines.reduce((s, l) => s + l.unitPrice * l.qty, 0) })
+    // Bulk lines are priced by their listing's tiers; lines with a problem count as nothing until fixed.
+    res.json({
+      deliveryDate: date, lines, bulkLines,
+      subtotal: lines.reduce((s, l) => s + l.unitPrice * l.qty, 0) + bulkLines.reduce((s, l) => s + l.linePrice, 0),
+    })
   }),
 )
 
@@ -684,19 +704,37 @@ router.post(
     const quote = await tx(async (c) => {
       const { date } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
-      if (!rows.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
       const pool = await availability(c, date)
-      const lines = rows.map((l) => {
+      const bulk = await bulkQuoteLines(c, req.customer.id, pool, date)
+      if (!rows.length && !bulk.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
+      const retail = rows.map((l) => {
         if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
         if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty) throw new StockError(l.sku)
         const price = findProduct(l.sku).price
         return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }
       })
+      // One order line per box and ripeness: the same box can't be both a regular and a bulk line.
+      for (const b of bulk) {
+        if (retail.some((l) => l.sku === b.sku && l.stage === b.stage)) {
+          throw new HttpError(409, 'CART_CONFLICT', `${b.name} (${b.stage.toLowerCase().replace('_', '-')}) is in your cart both as a bulk deal and as regular boxes. Remove one of them.`, {
+            sku: b.sku, stage: b.stage, listingId: b.listingId,
+          })
+        }
+        // Two bulk deals for the same box and ripeness can't share one stock count either.
+        if (bulk.some((o) => o !== b && o.sku === b.sku && o.stage === b.stage)) {
+          throw new HttpError(409, 'CART_CONFLICT', `Two bulk deals in your cart are for ${b.name} (${b.stage.toLowerCase().replace('_', '-')}). Keep one of them.`, { sku: b.sku, stage: b.stage })
+        }
+      }
+      // Stock is per box and ripeness, whichever line asks for it.
+      const lines = [...retail, ...bulk]
       const subtotal = lines.reduce((s, l) => s + l.linePrice, 0)
+      // Promo codes apply to regular boxes only: bulk deals already carry their own price.
+      const retailSubtotal = retail.reduce((s, l) => s + l.linePrice, 0)
       // A full day fails here, not only at confirm (INV-I); confirm re-checks under lock.
       await checkCapacity(c, date, lines.reduce((s, l) => s + l.qty, 0), null, { lock: false })
       const slot = await quoteSlot(c, date, b.slotId ?? null, lines.reduce((s, l) => s + l.qty, 0))
-      const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, subtotal) : null
+      if (b.promoCode?.trim() && !retail.length) throw badRequest('Promo codes apply to regular boxes, not bulk deals', 'PROMO_NOT_FOR_BULK')
+      const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, retailSubtotal) : null
       const discount = promo?.discount ?? 0
       const data = {
         pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
@@ -797,25 +835,27 @@ router.post(
       const q = rows[0]
       if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
+      const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
       // PAY-B10: a product taken off sale after the quote is not sold on it.
-      for (const l of q.data.lines) {
+      for (const l of quoted) {
         if (!sellable(l.sku)) {
           throw new HttpError(409, 'PRODUCT_UNAVAILABLE', `${findProduct(l.sku)?.name ?? l.sku} is no longer sold`, { sku: l.sku, stage: l.stage })
         }
       }
-      await checkUnpaidLimit(c, req.customer.id, q.data.lines.reduce((t, l) => t + l.qty, 0))
+      await checkUnpaidLimit(c, req.customer.id, quoted.reduce((t, l) => t + l.qty, 0))
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
-      const subtotal = q.data.lines.reduce((t, l) => t + l.unitPrice * l.qty, 0)
-      // The code is checked again, locked, so a limited code can't be over-used.
-      const promo = q.data.promo ? await applyPromo(c, q.data.promo.code, req.customer.id, subtotal, { lock: true }) : null
+      const retailSubtotal = quoted.filter((l) => !l.listingId).reduce((t, l) => t + l.unitPrice * l.qty, 0)
+      // The code is checked again, locked, so a limited code can't be over-used. Bulk lines never count toward it.
+      const promo = q.data.promo ? await applyPromo(c, q.data.promo.code, req.customer.id, retailSubtotal, { lock: true }) : null
       const created = await createOrder(
         c,
         {
           customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address,
           deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
-          lines: q.data.lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice })),
+          lines: quoted.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice, listingId: l.listingId ?? null, pricing: l.pricing ?? null })),
           discount: promo?.discount ?? 0, promoCode: promo?.code ?? null,
           gift: b.gift ? { recipientName: b.gift.recipientName, recipientPhone: b.gift.recipientPhone, message: b.gift.message || null } : null,
         },
@@ -827,6 +867,7 @@ router.post(
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, created.id])
       await c.query('DELETE FROM quotes WHERE id = $1', [q.id])
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
+      await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [req.customer.id])
       return (await c.query('SELECT * FROM orders WHERE id = $1', [created.id])).rows[0]
     })
     if (!order) {
@@ -933,7 +974,12 @@ router.get(
       retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
       // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
       findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
-      items: items.rows.map((i) => ({ sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null })),
+      items: items.rows.map((i) => ({
+        sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
+        eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
+        // A bulk deal line keeps the name and tier it was sold under.
+        bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
+      })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       ...proof,
     })

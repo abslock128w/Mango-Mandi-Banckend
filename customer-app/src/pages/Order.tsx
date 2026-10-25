@@ -83,10 +83,15 @@ function OrderView({ order }: { order: Order }) {
   const queryClient = useQueryClient()
   const [cancelling, setCancelling] = useState(false)
   const [moving, setMoving] = useState(false)
-  const { setQty, setWhere } = useStore()
+  const { setQty, setBulk, setWhere } = useStore()
   const navigate = useNavigate()
   const buyAgain = () => {
-    for (const i of order.items) if (i.stage) setQty({ sku: i.sku, stage: i.stage, name: i.name, price: i.unitPrice }, i.quantity)
+    for (const i of order.items) {
+      if (!i.stage) continue
+      // A bulk deal goes back in as the same deal (the cart checks it is still on and prices it again), never as regular boxes.
+      if (i.bulk) setBulk({ listingId: i.bulk.listingId, title: i.bulk.title, sku: i.sku, name: i.name, stage: i.stage, unitPrice: i.unitPrice }, i.quantity)
+      else setQty({ sku: i.sku, stage: i.stage, name: i.name, price: i.unitPrice }, i.quantity)
+    }
     setWhere(order.pincode, null)
     navigate('/cart')
   }
@@ -387,8 +392,14 @@ function OrderView({ order }: { order: Order }) {
             <li key={`${i.sku}-${i.stage}`} className="line">
               <div>
                 <strong>
-                  {i.quantity} × {i.name}
+                  {i.bulk && <span className="bulk-tag">Bulk</span>}
+                  {i.quantity} × {i.bulk ? i.bulk.title : i.name}
                 </strong>
+                {i.bulk && (
+                  <span className="muted small">
+                    {i.name} · {rupees(i.unitPrice)} a box, the price for {i.bulk.tier.maxQty == null ? `${i.bulk.tier.minQty}+` : `${i.bulk.tier.minQty} to ${i.bulk.tier.maxQty}`} boxes
+                  </span>
+                )}
                 {i.stage && (
                   <span className="muted small">
                     {STAGE_LABEL[i.stage]}

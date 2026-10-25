@@ -41,7 +41,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | PincodeSheet | `Shop.tsx` `PincodeForm` | empty, checking, not served, no open days | Opens from the chip with `?where=1` |
 | ProductCard | `Shop.tsx` `ProductTile` | photo or drawn mango, sold out with next day, in cart count | Two-across tiles; no ripeness on the tile, it is picked on the product page (user's choice, 20 Oct) |
 | Product detail / buy box | `Product.tsx` `BuyBox` | no pincode, not on sale here, each ripeness in stock / sold out / low stock, cart already at max | Ripe chosen first when in stock |
-| QuantityStepper | `forms.tsx` `Stepper` (Product, Cart, Preorder) | min 1, max from stock (cap 20 until API gap G5) | 40px buttons inside a 44px row |
+| QuantityStepper | `forms.tsx` `Stepper` (Product, Cart, Preorder, Bulk Deals) | min 1, max from stock (cap 20 until API gap G5); `step` moves by a bulk deal's step from its minimum | 40px buttons inside a 44px row |
 | Notify me | `Shop.tsx` `NotifyMe` | signed out, waiting, sent | WhatsApp back-in-stock alert |
 | SkipLink | `App.tsx` `.skip-link` | hidden until focused | First Tab stop in both apps; focuses `main#main` |
 | DocTitle / `pageTitle` | `ui.tsx` | per page | Unique "X · MandiMangoes" titles |

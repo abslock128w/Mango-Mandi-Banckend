@@ -100,7 +100,7 @@ const ISOLATION_CASES = [
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
 ]
-const EXEMPT = ['DELETE /v1/cart/items/:sku']
+const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId']
 
 describe('every route is filed', () => {
   test('the whole app matches the reviewed inventory (test/fixtures/route-inventory.json)', () => {
@@ -119,10 +119,12 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue, policy, approved reviews and photos', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
-      'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
+      'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
+      // Bulk Deals: published deals only, their prices and the photos of published deals (test/bulk-deals.test.js).
+      'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
       'GET /v1/policy', 'GET /v1/preorders/weeks', 'GET /v1/products', 'GET /v1/products/:sku/photo', 'GET /v1/products/:sku/reviews', 'GET /v1/review-photos/:id',
       'POST /admin/v1/auth/google', 'POST /admin/v1/auth/login', 'POST /admin/v1/auth/logout', 'POST /admin/v1/auth/refresh', 'POST /admin/v1/auth/two-step',
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',

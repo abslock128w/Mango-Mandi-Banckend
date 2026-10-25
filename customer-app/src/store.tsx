@@ -9,6 +9,17 @@ export interface CartLine {
   price: number
 }
 
+/** A bulk deal in the cart: the price is what the deal showed when it was added; checkout prices it again. */
+export interface BulkCartLine {
+  listingId: string
+  title: string
+  sku: string
+  name: string
+  stage: Stage
+  qty: number
+  unitPrice: number
+}
+
 interface Store {
   pincode: string | null
   date: string | null
@@ -16,6 +27,9 @@ interface Store {
   cart: CartLine[]
   setQty: (line: Omit<CartLine, 'qty'>, qty: number) => void
   clearCart: () => void
+  /** Bulk deals in the cart, beside the regular boxes. */
+  bulk: BulkCartLine[]
+  setBulk: (line: Omit<BulkCartLine, 'qty'>, qty: number) => void
   /** Who is signed in on this device, or null. */
   profile: Profile | null
 }
@@ -42,16 +56,21 @@ function save(key: string, value: unknown) {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [where, setWhereState] = useState(() => load<{ pincode: string | null; date: string | null }>('mm.where', { pincode: null, date: null }))
   const [cart, setCart] = useState(() => load<CartLine[]>('mm.cart', []))
+  const [bulk, setBulkState] = useState(() => load<BulkCartLine[]>('mm.bulk', []))
   const [profile, setProfile] = useState(signedInProfile)
 
   useEffect(() => save('mm.where', where), [where])
   useEffect(() => save('mm.cart', cart), [cart])
+  useEffect(() => save('mm.bulk', bulk), [bulk])
   useEffect(() => {
     const sync = () => setProfile(signedInProfile())
     // A shared phone or laptop: the next person should not find this cart.
     const signedOut = (e: Event) => {
       sync()
-      if ((e as CustomEvent<{ forget?: boolean }>).detail?.forget) setCart([])
+      if ((e as CustomEvent<{ forget?: boolean }>).detail?.forget) {
+        setCart([])
+        setBulkState([])
+      }
     }
     window.addEventListener(SIGNOUT_EVENT, signedOut)
     window.addEventListener(PROFILE_EVENT, sync)
@@ -72,10 +91,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }),
     [],
   )
-  const clearCart = useCallback(() => setCart([]), [])
+  const setBulk = useCallback(
+    (line: Omit<BulkCartLine, 'qty'>, qty: number) =>
+      setBulkState((c) => {
+        const rest = c.filter((l) => !(l.listingId === line.listingId && l.stage === line.stage))
+        return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.title.localeCompare(b.title) || a.stage.localeCompare(b.stage)) : rest
+      }),
+    [],
+  )
+  const clearCart = useCallback(() => {
+    setCart([])
+    setBulkState([])
+  }, [])
   const store = useMemo<Store>(
-    () => ({ pincode: where.pincode, date: where.date, setWhere, cart, setQty, clearCart, profile }),
-    [where, setWhere, cart, setQty, clearCart, profile],
+    () => ({ pincode: where.pincode, date: where.date, setWhere, cart, setQty, clearCart, bulk, setBulk, profile }),
+    [where, setWhere, cart, setQty, clearCart, bulk, setBulk, profile],
   )
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>
 }

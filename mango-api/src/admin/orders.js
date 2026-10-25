@@ -110,6 +110,8 @@ export async function orderDetail(c, orderId) {
     items: items.rows.map((i) => ({
       id: i.id, productName: productName(i.sku), sku: i.sku, quantity: i.quantity, stage: i.stage, unitPrice: i.unit_price,
       linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
+      // A bulk deal line: the listing and the price tier it was sold at (kept on the item, so later edits never change it).
+      bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier, listingVersion: i.pricing.listingVersion } : null,
     })),
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     // INV-F: boxes on a cancelled or returned order that staff still have to put back or write off.
