@@ -580,11 +580,11 @@ export async function finalizeOperation(c, opId, who) {
   const needed = boxes.filter((b) => b.order_id === o.id && b.lifecycle === want)
   const stale = staged.filter((id) => !needed.some((b) => b.id === id))
   if (stale.length) {
-    const codes = boxes.filter((b) => stale.includes(b.id)).map((b) => b.code)
+    const codes = boxes.filter((b) => stale.includes(b.id)).map((b) => formatBoxCode(b.code))
     await c.query('DELETE FROM wh_staged WHERE operation_id = $1 AND box_id = ANY($2::uuid[])', [op.id, stale])
     throw whError('STALE_SCAN', `${codes.join(', ')} changed since ${codes.length === 1 ? 'it was' : 'they were'} scanned. Scan again.`, 409, { boxes: codes })
   }
-  const missing = needed.filter((b) => !staged.includes(b.id)).map((b) => b.code)
+  const missing = needed.filter((b) => !staged.includes(b.id)).map((b) => formatBoxCode(b.code))
   if (missing.length) throw whError('INCOMPLETE_SET', `${missing.length} ${missing.length === 1 ? 'box is' : 'boxes are'} not scanned yet: ${missing.slice(0, 10).join(', ')}.`, 409, { missing })
   const deltas = newDeltas()
   if (op.type === 'pack') {
@@ -615,7 +615,7 @@ export async function finalizeOperation(c, opId, who) {
     await setOrderStatus(c, o.id, 'SHIPPED', who.actor)
   }
   await c.query('DELETE FROM wh_staged WHERE operation_id = $1', [op.id])
-  const result = { orderId: o.id, orderNumber: o.number, boxes: needed.map((b) => b.code), status: op.type === 'pack' ? 'PACKED' : 'SHIPPED' }
+  const result = { orderId: o.id, orderNumber: o.number, boxes: needed.map((b) => formatBoxCode(b.code)), status: op.type === 'pack' ? 'PACKED' : 'SHIPPED' }
   const { rows } = await c.query(`UPDATE wh_operations SET status = 'completed', finished_at = $2, last_activity_at = $2, result = $3 WHERE id = $1 RETURNING *`, [op.id, now(), result])
   return opView(rows[0])
 }
