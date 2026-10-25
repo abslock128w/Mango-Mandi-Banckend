@@ -53,6 +53,15 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // The Warehouse area (boxes, labels, scanning: docs/warehouse/). Off: its routes answer 404 and the panel hides it.
+  WAREHOUSE_V2: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // The most boxes one intake may label (brief 8.1).
+  WAREHOUSE_MAX_LOT: z.coerce.number().int().min(1).max(20000).default(5000),
+  // Minutes an open scan session may sit idle before it expires.
+  WAREHOUSE_OP_IDLE_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).

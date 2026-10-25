@@ -12,13 +12,18 @@ const view = (r) => ({
   description: r.description, active: r.active, sortOrder: r.sort_order,
   // What is in the box (optional): about how many mangoes, and about how heavy each one is.
   fruitsPerBox: r.fruits_per_box ?? null, fruitWeightG: r.fruit_weight_g ?? null,
+  // Warehouse rules (docs/warehouse/): labelled boxes instead of counted stock, once switched on.
+  boxTrackingEnabled: Boolean(r.box_tracking_enabled), nominalWeightG: r.nominal_weight_g ?? null,
+  weightTolerancePct: r.weight_tolerance_pct == null ? 3 : Number(r.weight_tolerance_pct), requiresQc: r.requires_qc ?? true,
+  restockableReturns: Boolean(r.restockable_returns), shelfLifeDays: r.shelf_life_days ?? null, qcChecklist: r.qc_checklist ?? [],
   // Served by the API (GET /v1/products/:sku/photo); the version makes a new photo a new URL.
   photoUrl: r.photo_version ? `/v1/products/${encodeURIComponent(r.sku)}/photo?v=${r.photo_version}` : null,
 })
 
 export async function loadProducts() {
   const { rows } = await query(
-    `SELECT p.sku, p.name, p.variety, p.box_size, p.price, p.gst_rate, p.hsn_code, p.description, p.active, p.sort_order, p.fruits_per_box, p.fruit_weight_g, ph.version AS photo_version
+    `SELECT p.sku, p.name, p.variety, p.box_size, p.price, p.gst_rate, p.hsn_code, p.description, p.active, p.sort_order, p.fruits_per_box, p.fruit_weight_g, ph.version AS photo_version,
+            p.box_tracking_enabled, p.nominal_weight_g, p.weight_tolerance_pct, p.requires_qc, p.restockable_returns, p.shelf_life_days, p.qc_checklist
        FROM products p LEFT JOIN product_photos ph ON ph.sku = p.sku ORDER BY p.sort_order, p.name, p.sku`,
   )
   bySku = new Map(rows.map((r) => [r.sku, view(r)]))
