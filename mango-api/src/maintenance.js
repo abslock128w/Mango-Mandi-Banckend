@@ -21,6 +21,7 @@ import { outOfTime, withBudget, withSlice } from './budget.js'
 import { query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
+import { expireIdleOperations } from './warehouse/ops.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
@@ -261,6 +262,8 @@ async function steps(forceAll) {
   out.expired = await step('sweep', () => tx((c) => sweepExpiredHolds(c)))
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.retired = await step('retire', retireBatches)
+  // Scan sessions left open past the idle limit expire (their staged scans are dropped).
+  if (env.WAREHOUSE_V2) out.scanSessionsExpired = await step('warehouse-sessions', () => tx((c) => expireIdleOperations(c)))
   const t = now().getTime()
   const last = await lastRuns()
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {

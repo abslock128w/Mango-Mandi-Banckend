@@ -14,6 +14,8 @@ import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellabl
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
+import { trackedLine } from './warehouse/core.js'
+import { assertBoxesReadyFor, assertNoTrackedCommitted, restockPacked } from './warehouse/stock.js'
 
 /** Orders that still own stock and can be rebalanced. */
 export const OPEN_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -83,7 +85,7 @@ export async function addEvent(c, orderId, from, to, actor, reason = null) {
   return id
 }
 
-async function lockOrder(c, orderId) {
+export async function lockOrder(c, orderId) {
   const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
   if (!rows.length) throw notFound('Order not found')
   return rows[0]
@@ -303,7 +305,7 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
       for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Move ${o.number}`)
       let packed = await stockRows(c, o.id, ['packed'])
       if (packed.length && date !== o.delivery_date) {
-        for (const row of packed) await restock(c, row, actor, `Move ${o.number}: unpacked for ${date}`)
+        for (const row of packed) await restockPacked(c, o, row, actor, `Move ${o.number}: unpacked for ${date}`)
         packed = []
         unpacked = true
       }
@@ -497,7 +499,8 @@ async function hasRoom(c, o) {
 async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Cancel ${o.number}`)
   if (RESTOCKABLE.includes(o.status)) {
-    for (const row of await stockRows(c, o.id, ['packed'])) await restock(c, row, actor, `Cancel ${o.number}`)
+    // Labelled boxes are taken off the order and wait at pick staging (warehouse/stock.js).
+    for (const row of await stockRows(c, o.id, ['packed'])) await restockPacked(c, o, row, actor, `Cancel ${o.number}`)
   }
   assertTransition(o.status, 'CANCELLED')
   const pay = paymentStatus ?? (o.payment_status === 'INITIATED' ? 'CANCELLED' : o.payment_status)
@@ -639,6 +642,8 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     await checkDispatchable(c, o, { ...opts, actor })
   }
   if (opts.override && to !== 'DELIVERED' && opts.reason?.trim()) reason = `Manager override: ${opts.reason.trim()}`
+  // Labelled boxes are packed and dispatched by scan: those finalize steps set the boxes first (warehouse/ops.js).
+  await assertBoxesReadyFor(c, o.id, to)
   if (to === 'PACKED') {
     if ((await stockRows(c, o.id, ['held', 'committed'])).length) {
       throw badRequest('Allocate the stock before marking the order packed', 'NOT_ALLOCATED')
@@ -708,6 +713,8 @@ async function repackForRetry(c, o, date, actor) {
     if (diffDays(date, info.plucked_on) > cfg.maxSellableAge) old.push(row)
   }
   if (!old.length) return { result: 'ok' }
+  // Labelled boxes are swapped by scan, not here: a manager decides (as when no younger stock is free).
+  for (const row of old) if (await trackedLine(c, row.line_id)) return { result: 'stuck' }
   await c.query('SAVEPOINT repack')
   for (const row of old) {
     const got = await allocate(c, {
@@ -738,6 +745,7 @@ export async function allocateOrder(c, orderId, actor) {
   }
   const rows = await stockRows(c, o.id, ['committed'])
   if (!rows.length) throw conflict('Nothing left to allocate')
+  await assertNoTrackedCommitted(c, o.id)
   for (const row of rows) await pack(c, row, actor, o.number)
 }
 
@@ -814,7 +822,7 @@ export async function takeBatchOutOfService(c, batchId, status, actor, why = nul
  * stock, the way a late payment is (the customer gets a DATE_MOVED message).
  * An order that fits nowhere stays at-risk for ops. Returns what happened.
  */
-export async function recordShortArrival(c, { batchId, lineId, onHand, reason, reasonCode = null, check = null }, actor) {
+export async function recordShortArrival(c, { batchId, lineId, onHand: wanted = null, delta = null, reason, reasonCode = null, check = null }, actor) {
   const affectedIds = async () =>
     (
       await c.query(
@@ -833,13 +841,16 @@ export async function recordShortArrival(c, { batchId, lineId, onHand, reason, r
   if (!rows.length) throw notFound('Batch line not found')
   const l = rows[0]
   if (['EXHAUSTED', 'CONDEMNED'].includes(l.status)) throw badRequest(`This batch is ${l.status}`, 'INVALID_TRANSITION')
+  // Box tracking passes the change (delta) instead: it is applied to the count read under the lock.
+  const onHand = delta === null ? wanted : Math.max(0, l.on_hand + delta)
   if (onHand >= l.on_hand) throw badRequest('A short arrival lowers the count; use an adjustment to raise it', 'NOT_SHORT')
   // INV-C: the caller may refuse a drop this big without a manager; a manager's note goes in the reason.
   const note = check ? await check(c, l, onHand - l.on_hand) : null
   // Anything allocated between the first read and the line lock.
   for (const id of await affectedIds()) if (!locked.has(id)) locked.set(id, await lockOrder(c, id))
 
-  const why = `${reasonCode === 'COUNT' ? 'Count' : 'Short arrival'}: ${reason}${note ? ` (${note})` : ''}`
+  const label = reasonCode === 'COUNT' ? 'Count' : reasonCode?.startsWith('BOX_') ? 'Boxes no longer sellable' : 'Short arrival'
+  const why = `${label}: ${reason}${note ? ` (${note})` : ''}`
   const buffer = Math.min(l.reserve_buffer, Math.max(0, onHand - l.held - l.committed))
   let over = l.held + l.committed - onHand
   const released = new Set()

@@ -10,6 +10,7 @@ import { getConfig } from './config.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import { ledger, restock } from './inventory.js'
 import { addEvent, MAX_DELIVERY_ATTEMPTS } from './orders.js'
+import { trackedLine } from './warehouse/core.js'
 
 /** Paid orders that still have to reach the customer. */
 const UNDELIVERED = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -105,6 +106,11 @@ export async function bookReturnedStock(c, orderId, { action, reasonCode = null,
     [o.id],
   )
   if (!packed.length) throw conflict('This order has no boxes waiting to be booked', 'NOTHING_TO_BOOK')
+  for (const row of packed) {
+    if (await trackedLine(c, row.line_id)) {
+      throw conflict('These boxes are labelled: book them in with a Return scan in the warehouse (Warehouse → Scan → Return).', 'USE_WAREHOUSE_RETURNS')
+    }
+  }
   // Lines in id order, after the order: the lock order every stock change uses.
   await c.query('SELECT id FROM batch_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[...new Set(packed.map((r) => r.line_id))]])
   const boxes = packed.reduce((n, r) => n + r.quantity, 0)
