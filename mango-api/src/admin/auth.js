@@ -2,6 +2,7 @@
 import { googleOn, verifyGoogleCredential } from '../google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
+import { ROLE_PERMISSIONS } from '../warehouse/permissions.js'
 import jwt from 'jsonwebtoken'
 import { hit, sharedLimiter } from '../ratelimit.js'
 import { z } from 'zod'
@@ -215,6 +216,8 @@ me.get(
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     res.json({
       email: req.admin.email, role: req.admin.role,
+      // The panel shows the Warehouse area only when it is on, with what this role may do there.
+      warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: ROLE_PERMISSIONS[req.admin.role] ?? [] } : { enabled: false, permissions: [] },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),

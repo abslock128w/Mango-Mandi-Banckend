@@ -23,6 +23,7 @@ import { router as planning } from './admin/planning.js'
 import { router as preorders } from './admin/preorders.js'
 import { router as recovery } from './admin/recovery.js'
 import { router as bulk } from './admin/bulk.js'
+import { router as warehouse, warehouseGate } from './admin/warehouse.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -32,6 +33,8 @@ export const router = express.Router()
 
 // Sign-in, refresh and logout: before the gate.
 router.use(signIn)
+// Warehouse paths answer 404 to everyone while WAREHOUSE_V2 is off.
+router.use(warehouseGate)
 
 router.use(requireAdmin, needsSetupFirst, limitByRole, riderScope, auditStaffChanges)
 // Review moderation and insights (review-routes.js), behind the same sign-in, roles and audit.
@@ -48,5 +51,6 @@ router.use(staff)
 router.use(claims)
 router.use(planning) // /pincodes, /config, /calendar, /slots, /coverage
 router.use(preorders) // /preorders, /preorder-capacity
+router.use(warehouse) // Warehouse and box traceability (WAREHOUSE_V2)
 router.use(bulk) // Bulk Deals: listings, tiers, photos, publishing, history (manager only)
 router.use(recovery) // manager ways out of Needs attention items (ledger repair, webhooks, refunds, sign out all)

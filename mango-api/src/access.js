@@ -10,6 +10,7 @@ import { query } from './db.js'
 import { forbidden, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
+import { ROLE_PERMISSIONS, WAREHOUSE_ROUTES } from './warehouse/permissions.js'
 
 export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
 
@@ -43,6 +44,9 @@ const DELIVERY = [
   route('GET', '/orders/:id/delivery-photos/:photoId'),
   route('POST', '/orders/:id/delivery'),
 ]
+
+/** The warehouse routes a role's permissions cover (warehouse/permissions.js); managers have all of them. */
+const warehouseFor = (role) => WAREHOUSE_ROUTES.filter(([, , perm]) => ROLE_PERMISSIONS[role].includes(perm)).map(([m, p]) => route(m, p))
 
 /** The day-to-day running of the shop: everything except the manager-only routes (requireManager in admin.js). */
 export const OPERATOR_ROUTES = [
@@ -99,6 +103,7 @@ export const OPERATOR_ROUTES = [
   route('POST', '/reviews/bulk'),
   route('PUT', '/reviews/:id/reply'),
   route('DELETE', '/reviews/:id/reply'),
+  ...warehouseFor('OPERATOR'),
 ]
 
 const LIMITED = {
@@ -113,6 +118,7 @@ const LIMITED = {
     route('GET', '/slots'),
     route('POST', '/orders/:id/allocate'),
     route('PATCH', '/orders/:id/status'),
+    ...warehouseFor('PACKER'),
   ],
   QC: [
     ...COMMON,
@@ -126,6 +132,7 @@ const LIMITED = {
     route('POST', '/batches/:id/lines/:lineId/short-arrival'),
     // Ripeness accuracy from reviews, per batch and variety (read only).
     route('GET', '/reviews/insights'),
+    ...warehouseFor('QC'),
   ],
 }
 
