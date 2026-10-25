@@ -921,6 +921,8 @@ a.tile:hover {
 .chart svg {
   display: block;
   overflow: visible;
+  max-width: 100%;
+  height: auto;
 }
 .chart .bar {
   fill: var(--green-700);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
@@ -207,9 +207,12 @@ function WeekBars({
   const [active, setActive] = useState<number | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const [W, setW] = useState(640)
-  useEffect(() => {
+  // Measure before the first paint, so the chart never draws at the 640 default on a narrow screen.
+  useLayoutEffect(() => {
     const el = box.current
-    if (!el || typeof ResizeObserver === 'undefined') return
+    if (!el) return
+    setW(Math.max(240, Math.round(el.getBoundingClientRect().width)))
+    if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(([e]) => setW(Math.max(240, Math.round(e.contentRect.width))))
     ro.observe(el)
     return () => ro.disconnect()
