@@ -4,6 +4,7 @@ import { api } from './api'
 import { ROLE_LABEL, canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
+import type { Me } from './types'
 import { WH_LINKS, whLinkAllowed } from './warehouse/access'
 
 type NavItem = [to: string, label: string, screen: Screen]
@@ -37,6 +38,8 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     label: 'Customers',
     links: [
       ['/customers', 'Find a customer', 'customers'],
+      ['/help-desk', 'Help desk', 'helpDesk'],
+      ['/subscriptions', 'Subscriptions', 'subscriptions'],
       ['/claims', 'Claims', 'claims'],
       ['/reviews', 'Reviews', 'reviews'],
       ['/pincodes', 'Pincodes', 'pincodes'],
@@ -54,6 +57,14 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     ],
   },
 ]
+
+/** Screens that exist only while the API has their switch on (/auth/me features). */
+function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
+  if (screen === 'customers') return !!me?.features?.customerProfiles
+  if (screen === 'helpDesk') return !!me?.features?.helpDesk
+  if (screen === 'subscriptions') return !!me?.features?.subscriptions
+  return true
+}
 
 /** Which disclosure is open: the phone Menu, the account menu, or one desktop group. */
 type Open = null | 'menu' | 'account' | `group-${string}`
@@ -77,7 +88,8 @@ export default function Layout() {
   const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
     ...g,
     // Customer profiles only exist while the API has them switched on (/auth/me features).
-    links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && (screen !== 'customers' || !!me?.features?.customerProfiles)).map(([to, label]): [string, string] => [to, label]),
+    // So do the Help desk and Subscriptions (docs/care.md).
+    links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && switchedOn(me, screen)).map(([to, label]): [string, string] => [to, label]),
   }))
   // The box-tracked warehouse: its group only exists while /auth/me says it is on.
   if (me?.warehouse?.enabled) {

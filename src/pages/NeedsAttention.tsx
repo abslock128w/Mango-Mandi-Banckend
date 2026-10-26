@@ -23,6 +23,7 @@ const STEP_LABEL: Record<string, string> = {
   audit: 'Stock audit',
   config: 'Loading rules',
   'review-requests': 'Queueing review requests',
+  subscriptions: 'Setting up subscription boxes',
   'review-stats': 'Review totals check',
   backup: 'Nightly backup',
   'refund-checks': 'Checking refunds with Razorpay',

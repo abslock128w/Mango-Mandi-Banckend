@@ -16,7 +16,7 @@ export interface Me {
   warehouse?: { enabled: boolean; permissions: string[] }
   /** Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view
    *  (docs/app-feel.md). An older API leaves a field out, which means off. The role still decides who may use them. */
-  features?: { bills?: boolean; customerProfiles?: boolean; exports?: boolean; riderRoute?: boolean }
+  features?: { bills?: boolean; customerProfiles?: boolean; exports?: boolean; riderRoute?: boolean; helpDesk?: boolean; subscriptions?: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -995,4 +995,90 @@ export interface BulkEvent {
   changes: Record<string, unknown>
   by: string | null
   at: string
+}
+
+// ---------- Customer care (docs/care.md) ----------
+
+export type HelpStatus = 'OPEN' | 'WAITING_CUSTOMER' | 'RESOLVED'
+export type HelpTopic = 'DELIVERY' | 'PAYMENT' | 'CHANGE_ORDER' | 'SUBSCRIPTION' | 'ACCOUNT' | 'OTHER'
+
+/** A help request as the Help desk sees it. The phone is masked to its last 4 digits. */
+export interface HelpRequest {
+  id: string
+  number: string
+  topic: HelpTopic
+  topicLabel: string
+  status: HelpStatus
+  customer: { id: string; name: string | null; phoneMasked: string | null }
+  order: { id: string; number: string | null; status: OrderStatus | null; deliveryDate: string | null } | null
+  createdAt: string
+  updatedAt: string
+  lastCustomerAt: string | null
+  lastStaffAt: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
+  messageCount?: number
+}
+
+export interface HelpMessage {
+  id: string
+  from: 'CUSTOMER' | 'STAFF'
+  staffEmail: string | null
+  body: string
+  at: string
+}
+
+export interface HelpRequestDetail extends HelpRequest {
+  messages: HelpMessage[]
+}
+
+export interface HelpInbox {
+  items: HelpRequest[]
+  counts: Record<HelpStatus, number>
+  topics: Record<HelpTopic, string>
+}
+
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'ENDED'
+export type CycleStatus = 'DUE' | 'ORDERED' | 'SKIPPED' | 'MISSED' | 'CANCELLED'
+
+export interface SubscriptionCycle {
+  id: string
+  scheduledFor: string
+  deliveryDate: string | null
+  slotId: string | null
+  status: CycleStatus
+  note: string | null
+  order: { id: string; number: string; status: OrderStatus; paymentStatus: string; holdExpiresAt: string | null } | null
+  canPay: boolean
+  paid: boolean
+  awaitingPayment: boolean
+}
+
+/** A subscription on the staff list: no address, the phone masked. */
+export interface StaffSubscription {
+  id: string
+  number: string
+  status: SubscriptionStatus
+  sku: string
+  productName: string
+  unitPrice: number | null
+  stage: Ripeness
+  qty: number
+  frequency: 'WEEKLY' | 'FORTNIGHTLY'
+  weekday: number
+  firstDate: string
+  endDate: string
+  slotId: string | null
+  pincode: string
+  createdAt: string
+  pausedAt: string | null
+  cancelledAt: string | null
+  cycles: SubscriptionCycle[]
+  upcoming: string[]
+  customer: { id: string; name: string | null; phoneMasked: string | null }
+}
+
+export interface SubscriptionList {
+  items: StaffSubscription[]
+  counts: Record<'ACTIVE' | 'PAUSED' | 'CANCELLED', number>
 }

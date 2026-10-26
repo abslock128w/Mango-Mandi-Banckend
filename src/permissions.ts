@@ -58,10 +58,12 @@ export type Screen =
   | 'reviews'
   | 'bulkDeals'
   | 'customers'
+  | 'helpDesk'
+  | 'subscriptions'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',
-  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers']),
+  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers', 'helpDesk', 'subscriptions']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
   // QC sees the Reviews page's ripeness accuracy only (no moderation).
   QC: new Set<Screen>(['batches', 'reviews']),
