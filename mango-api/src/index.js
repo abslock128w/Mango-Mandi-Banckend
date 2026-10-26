@@ -14,7 +14,8 @@ async function main() {
   await runMigrations()
   await seed()
 
-  const server = createApp().listen(env.PORT, () => logger.info({ port: env.PORT }, 'mango-api listening'))
+  const listening = () => logger.info({ port: env.PORT, host: env.HOST || 'all interfaces' }, 'mango-api listening')
+  const server = env.HOST ? createApp().listen(env.PORT, env.HOST, listening) : createApp().listen(env.PORT, listening)
   startMaintenance()
   // One run straight away rather than a minute in: /ready (which the deploy
   // script waits on) counts a production database that has never had a run as

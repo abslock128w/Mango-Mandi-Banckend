@@ -9,6 +9,10 @@ export const onVercel = Boolean(process.env.VERCEL)
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  // The address a long-running server listens on (index.js). Unset: every interface, as Docker
+  // needs. SEC-01 (24 Oct audit): a local run sets 127.0.0.1, so /v1/dev is not reachable from the
+  // Wi-Fi; phones reach the API only through the shop's dev-server proxy, which refuses /v1/dev.
+  HOST: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('postgres://mango:mango@localhost:5432/mango'),
   // Neon: DATABASE_URL is the pooled (-pooler) URL; migrations need the direct one.
