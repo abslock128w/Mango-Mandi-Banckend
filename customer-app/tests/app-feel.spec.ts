@@ -212,9 +212,13 @@ test('favourites: a guest hearts boxes, they follow the sign-in, and the Account
     // Removing it from the list un-hearts it everywhere.
     await sold.getByRole('button', { name: `Remove ${name} from favourites` }).click()
     await expect(favourites.getByRole('listitem')).toHaveCount(1)
-    expect((await (await request.get(`${API}/v1/me/favourites`, me.as)).json()).items.map((i: { sku: string }) => i.sku)).not.toContain(sku)
+    // The list drops it at once; the API's copy follows when the DELETE lands.
+    await expect
+      .poll(async () => (await (await request.get(`${API}/v1/me/favourites`, me.as)).json()).items.map((i: { sku: string }) => i.sku))
+      .not.toContain(sku)
   } finally {
-    await request.delete(`${API}/admin/v1/products/${sku}`, staff)
+    // Off sale rather than deleted: the back-in-stock alert above still points at it.
+    await request.patch(`${API}/admin/v1/products/${sku}`, { data: { active: false }, ...staff })
   }
 })
 
