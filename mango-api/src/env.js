@@ -284,6 +284,14 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   // With STOCK_INTAKE_CHECKS: the most boxes a non-manager may bring in with one batch.
   BATCH_INTAKE_MANAGER_BOXES: z.coerce.number().int().min(1).max(100_000).default(1000),
+  // Staff operations (docs/ops.md). Each is off unless set to true.
+  // STOCK_FORECAST: a read-only "boxes to buy" suggestion for the next 14 days on the Planning page (managers).
+  STOCK_FORECAST: flag(),
+  // PURCHASE_RECORDS: farms, what each batch cost, and margins per box and variety (costs: managers only).
+  PURCHASE_RECORDS: flag(),
+  // PANEL_FEATURE_SWITCHES: managers may turn the safe customer-facing switches on or off on the
+  // panel's Settings page (src/feature-switches.js). An environment value of false always wins.
+  PANEL_FEATURE_SWITCHES: flag(),
 })
 
 // Empty values (KEY= in .env) mean "use the default".

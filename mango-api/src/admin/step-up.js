@@ -54,11 +54,12 @@ function confirmed(adminId, given) {
 
 /**
  * Throws unless the caller confirmed it is them (a no-op unless STAFF_STEP_UP is
- * on). Each confirmation is counted before it is checked, in one statement, so
+ * on, or `always` is set: changing a feature switch always asks, docs/ops.md).
+ * Each confirmation is counted before it is checked, in one statement, so
  * parallel guesses can't get past the STEP_UP_TRIES lock together.
  */
-export async function stepUp(req) {
-  if (!env.STAFF_STEP_UP) return
+export async function stepUp(req, { always = false } = {}) {
+  if (!env.STAFF_STEP_UP && !always) return
   const given = typeof req.body?.confirmCode === 'string' ? req.body.confirmCode.slice(0, 200) : ''
   if (!given) {
     if (await locked(req.admin.id)) throw lockedError()

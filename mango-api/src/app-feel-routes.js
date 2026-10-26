@@ -10,6 +10,7 @@ import { query, tx } from './db.js'
 import { env } from './env.js'
 import { asyncHandler, notFound, parse } from './errors.js'
 import { addFavourite, listFavourites, MAX_FAVOURITES, mergeFavourites, removeFavourite } from './favourites.js'
+import { isOn } from './feature-switches.js'
 import { logger } from './logger.js'
 import { endpointHint, pushPublicKey, removeSubscription, saveSubscription } from './push.js'
 
@@ -69,7 +70,8 @@ appFeel.delete(
 
 // ---------------------------------------------------------------- favourites
 
-appFeel.use('/me/favourites', whenOn(() => env.FAVOURITES))
+// The effective value: a manager may have changed it on the panel (feature-switches.js).
+appFeel.use('/me/favourites', whenOn(() => isOn('FAVOURITES')))
 
 const SKU = z.string().min(1).max(40)
 

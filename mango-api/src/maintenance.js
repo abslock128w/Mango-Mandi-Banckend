@@ -36,7 +36,7 @@ import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
 import { issueMissingBills, reconcileBills } from './bills.js'
-import { trust } from './trust-config.js'
+import { isOn, refreshSwitches } from './feature-switches.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -341,7 +341,9 @@ async function steps(forceAll) {
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   // Bills for preorders that just became orders, and for any payment whose bill failed (BILLS_ENABLED);
   // first, bills caught up with cancels and privacy removals another release made without them.
-  if (trust.bills) {
+  // A manager may have switched bills on or off on the panel (PANEL_FEATURE_SWITCHES): read the latest first.
+  await refreshSwitches().catch((err) => logger.warn({ err }, 'feature switches not re-read; using the last values read'))
+  if (isOn('BILLS_ENABLED')) {
     out.bills = await step('bills', async () => {
       await reconcileBills()
       return issueMissingBills()

@@ -17,7 +17,7 @@ import { logger } from '../logger.js'
 import { productName } from '../products.js'
 import { bookReturnedStock, WRITE_OFF_REASONS } from '../stock-watch.js'
 import { billFor, billView } from '../bills.js'
-import { trust } from '../trust-config.js'
+import { isOn } from '../feature-switches.js'
 
 export const router = express.Router()
 
@@ -95,7 +95,7 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
     c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
-    trust.bills ? billFor(c, orderId) : null,
+    isOn('BILLS_ENABLED') ? billFor(c, orderId) : null,
   ])
   const r = rating.rows[0]
   return {

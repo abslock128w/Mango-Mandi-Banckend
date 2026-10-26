@@ -20,6 +20,7 @@ import { handleWebhook, razorpayIds, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
+import { refreshSwitches } from './feature-switches.js'
 import { checkDatabaseEnvironment } from './migrate.js'
 import { maintenanceReady } from './readiness.js'
 import { flushErrors, reportError, scrubText } from './sentry.js'
@@ -105,7 +106,8 @@ export function createApp() {
   // Products and rules are cached per instance. Every route that reads them
   // waits for the load, webhooks and the cron included: on a fresh serverless
   // instance a webhook can be the very first request.
-  const loaded = (_req, _res, next) => ensureLoaded().then(() => next(), next)
+  // Managers' switch overrides (PANEL_FEATURE_SWITCHES) are re-read at most every 30 seconds.
+  const loaded = (_req, _res, next) => ensureLoaded().then(() => refreshSwitches()).then(() => next(), next)
 
   app.get('/health', (_req, res) => res.json({ ok: true }))
   // One check for the uptime monitor: the database answers and the maintenance

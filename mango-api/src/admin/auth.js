@@ -16,6 +16,7 @@ import { asyncHandler, badRequest, conflict, HttpError, parse, unauthorized } fr
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
 import { trust } from '../trust-config.js'
+import { isOn } from '../feature-switches.js'
 import { clearPasswordFailures, clearTwoStep, passwordFailed, passwordLocked, PW_LOCKED, SETUP_CODE_TRIES_PER_HOUR } from './shared.js'
 import { stepUp } from './step-up.js'
 
@@ -222,7 +223,11 @@ me.get(
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: effectivePermissions(req.admin.role, env) } : { enabled: false, permissions: [] },
       // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
       // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
-      features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING },
+      features: {
+        bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'),
+        // Staff operations (docs/ops.md): the role still decides who may use them.
+        stockForecast: isOn('STOCK_FORECAST'), purchaseRecords: isOn('PURCHASE_RECORDS'), panelSwitches: env.PANEL_FEATURE_SWITCHES,
+      },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),
