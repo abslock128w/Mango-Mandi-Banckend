@@ -197,9 +197,19 @@ export default function NeedsAttention() {
       title: 'Missed deliveries for a manager',
       items: retries.map((o) => (
         <li key={`retry-${o.id}`}>
-          <strong>Retry can't go out as packed</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>
-          {o.reason ? <span className="muted">: {o.reason}</span> : null}. A manager sends a replacement, moves the date or
-          cancels with a refund. The customer has not been sent a new date.
+          {o.kind === 'day' ? (
+            <>
+              <strong>Retry has no delivery day</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>
+              {o.reason ? <span className="muted">: {o.reason}</span> : null}. Move it to a day with room, or a manager
+              cancels it with a refund. The customer has not been sent a new date.
+            </>
+          ) : (
+            <>
+              <strong>Retry can't go out as packed</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>
+              {o.reason ? <span className="muted">: {o.reason}</span> : null}. A manager sends a replacement, moves the date or
+              cancels with a refund. The customer has not been sent a new date.
+            </>
+          )}
         </li>
       )),
     },
