@@ -91,7 +91,7 @@ describe('SEC-07: staff changes ask the manager to confirm it is them', () => {
 
   test('with STAFF_STEP_UP and two-step on: the authenticator code confirms, once', async () => {
     env.STAFF_STEP_UP = true
-    const setup = await api.post('/admin/v1/me/two-step/setup', undefined, { token: manager })
+    const setup = await api.post('/admin/v1/me/two-step/setup', { confirmCode: PASSWORD }, { token: manager })
     assert.equal((await api.post('/admin/v1/me/two-step/enable', { code: code(setup.body.secret) }, { token: manager })).status, 200)
     later(31)
     const ask = await api.post('/admin/v1/staff', NEW_STAFF, { token: manager })
@@ -102,6 +102,77 @@ describe('SEC-07: staff changes ask the manager to confirm it is them', () => {
     assert.equal(added.status, 201, JSON.stringify(added.body))
     const again = await api.post(`/admin/v1/staff/${added.body.id}/two-step/setup-code`, { confirmCode: c }, { token: manager })
     assert.equal(again.body.error.code, 'REAUTH_FAILED', 'a used code is spent')
+  })
+
+  /** Turns two-step on for the signed-in manager (password confirmed) and returns the secret. */
+  async function twoStepOn(token, password = PASSWORD) {
+    const setup = await api.post('/admin/v1/me/two-step/setup', { confirmCode: password }, { token })
+    assert.equal(setup.status, 200, JSON.stringify(setup.body))
+    assert.equal((await api.post('/admin/v1/me/two-step/enable', { code: code(setup.body.secret) }, { token })).status, 200)
+    later(31)
+    return setup.body.secret
+  }
+
+  test('with STAFF_STEP_UP: a token alone cannot turn two-step on and then answer step-up with the thief\'s own app', async () => {
+    env.STAFF_STEP_UP = true
+    const bare = await api.post('/admin/v1/me/two-step/setup', {}, { token: manager })
+    assert.equal(bare.status, 403, JSON.stringify(bare.body))
+    assert.deepEqual([bare.body.error.code, bare.body.error.method], ['REAUTH_REQUIRED', 'password'])
+    const [u] = (await query('SELECT totp_pending, totp_enabled_at FROM admin_users WHERE email = $1', ['manager@mandimangoes.test'])).rows
+    assert.deepEqual(u, { totp_pending: null, totp_enabled_at: null }, 'no secret was handed out')
+    assert.equal((await api.post('/admin/v1/me/two-step/setup', { confirmCode: 'not-my-password' }, { token: manager })).body.error.code, 'REAUTH_FAILED')
+    // The owner of the session, who knows the password, still turns it on.
+    const secret = await twoStepOn(manager)
+    assert.equal((await api.post('/admin/v1/staff', { ...NEW_STAFF, confirmCode: code(secret) }, { token: manager })).status, 201)
+  })
+
+  test('flag off: a token alone turns two-step on (the old behaviour)', async () => {
+    assert.equal((await api.post('/admin/v1/me/two-step/setup', {}, { token: manager })).status, 200)
+  })
+
+  test(`with STAFF_STEP_UP: a burst of parallel guesses gets at most ${STEP_UP_TRIES} checked`, async () => {
+    env.STAFF_STEP_UP = true
+    const answers = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => api.post('/admin/v1/staff', { ...NEW_STAFF, confirmCode: `guess-${i}` }, { token: manager })),
+    )
+    const tally = {}
+    for (const r of answers) tally[`${r.status}:${r.body.error.code}`] = (tally[`${r.status}:${r.body.error.code}`] ?? 0) + 1
+    assert.equal(tally['403:REAUTH_FAILED'], STEP_UP_TRIES, JSON.stringify(tally))
+    assert.equal(tally['429:REAUTH_LOCKED'], 30 - STEP_UP_TRIES, JSON.stringify(tally))
+    assert.equal((await api.post('/admin/v1/staff', { ...NEW_STAFF, confirmCode: PASSWORD }, { token: manager })).status, 429, 'the right password waits too')
+  })
+
+  test('with STAFF_STEP_UP: a code is not spent on a change refused for a mistake', async () => {
+    env.STAFF_STEP_UP = true
+    const secret = await twoStepOn(manager)
+    const c = code(secret)
+    const short = await api.post('/admin/v1/staff', { ...NEW_STAFF, password: 'short', confirmCode: c }, { token: manager })
+    assert.equal(short.status, 400)
+    assert.equal(short.body.error.code, 'VALIDATION_ERROR')
+    const taken = await api.post('/admin/v1/staff', { ...NEW_STAFF, email: 'manager@mandimangoes.test', confirmCode: c }, { token: manager })
+    assert.equal(taken.body.error.code, 'STAFF_EXISTS')
+    const added = await api.post('/admin/v1/staff', { ...NEW_STAFF, confirmCode: c }, { token: manager })
+    assert.equal(added.status, 201, `the same code still works once the mistake is fixed: ${JSON.stringify(added.body)}`)
+    assert.equal((await query(`SELECT 1 FROM rate_limits WHERE key LIKE 'step-up:%'`)).rowCount, 0, 'no wrong try was counted')
+  })
+
+  test('with STAFF_STEP_UP: the last manager with two-step on cannot be removed or demoted', async () => {
+    env.STAFF_STEP_UP = true
+    // Asha is a second manager without two-step; the first manager turns it on.
+    assert.equal((await api.post('/admin/v1/staff', { ...NEW_STAFF, confirmCode: PASSWORD }, { token: manager })).status, 201)
+    const asha = await adminToken(api, NEW_STAFF.email, NEW_STAFF.password)
+    await twoStepOn(manager)
+    const [{ id: firstId }] = (await query('SELECT id FROM admin_users WHERE email = $1', ['manager@mandimangoes.test'])).rows
+    const del = await api.raw('DELETE', `/admin/v1/staff/${firstId}`, { token: asha, headers: { 'Content-Type': 'application/json' }, raw: JSON.stringify({ confirmCode: NEW_STAFF.password }) })
+    assert.equal(del.status, 409, JSON.stringify(del.body))
+    assert.equal(del.body.error.code, 'LAST_TWO_STEP_MANAGER')
+    const demote = await api.patch(`/admin/v1/staff/${firstId}`, { role: 'OPERATOR', confirmCode: NEW_STAFF.password }, { token: asha })
+    assert.equal(demote.body.error.code, 'LAST_TWO_STEP_MANAGER')
+    assert.equal((await query(`SELECT role FROM admin_users WHERE id = $1`, [firstId])).rows[0]?.role, 'MANAGER')
+    // Once Asha has two-step on too, the first manager can go.
+    const ashaSecret = await twoStepOn(asha, NEW_STAFF.password)
+    const ok = await api.patch(`/admin/v1/staff/${firstId}`, { role: 'OPERATOR', confirmCode: code(ashaSecret) }, { token: asha })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
   })
 
   test('flag off: a manager token alone adds a manager (the old behaviour)', async () => {

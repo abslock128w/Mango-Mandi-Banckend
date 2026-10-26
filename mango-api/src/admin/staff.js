@@ -11,7 +11,7 @@ import { asyncHandler, badRequest, conflict, notFound, parse } from '../errors.j
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
 import { clearPasswordFailures, clearTwoStep, issueSetupCode } from './shared.js'
-import { requireStepUp } from './step-up.js'
+import { stepUp } from './step-up.js'
 
 export const router = express.Router()
 
@@ -20,6 +20,29 @@ export const router = express.Router()
 const staffDto = (u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.created_at, twoStep: Boolean(u.totp_enabled_at) })
 // SEC-09: 12 characters at least, and not a common password (src/passwords.js).
 const password = staffPassword
+
+/** 404 unless the staff member exists: checked before step-up, so a code isn't spent on a wrong id. */
+async function existing(id) {
+  const { rows } = await query('SELECT id, role, totp_enabled_at FROM admin_users WHERE id = $1', [id])
+  if (!rows.length) throw notFound('No staff member with that id')
+  return rows[0]
+}
+
+/**
+ * SEC-07 (STAFF_STEP_UP): removing or demoting the last manager with two-step
+ * sign-in on is refused, so a stolen session can't leave the shop with only
+ * managers an attacker could have enrolled. Inside a transaction the managers
+ * are locked, so two managers can't remove each other at once.
+ */
+async function keepATwoStepManager(c, targetId, { lock = false } = {}) {
+  if (!env.STAFF_STEP_UP) return
+  const { rows } = await c.query(
+    `SELECT id FROM admin_users WHERE role = 'MANAGER' AND totp_enabled_at IS NOT NULL ORDER BY id${lock ? ' FOR UPDATE' : ''}`,
+  )
+  if (rows.length === 1 && rows[0].id === targetId) {
+    throw conflict('This is the only manager with two-step sign-in on. Another manager turns two-step on first.', 'LAST_TWO_STEP_MANAGER')
+  }
+}
 
 router.get(
   '/staff',
@@ -30,9 +53,10 @@ router.get(
 router.post(
   '/staff',
   requireManager,
-  requireStepUp,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password }), req.body)
+    if ((await query('SELECT 1 FROM admin_users WHERE email = $1', [b.email])).rowCount) throw conflict('Someone already has that email', 'STAFF_EXISTS')
+    await stepUp(req)
     const hash = await bcrypt.hash(b.password, 10)
     // SEC-08 (STAFF_AUDIT_TRAIL): the account, its setup code and the audit row commit together.
     const run = env.STAFF_AUDIT_TRAIL ? tx : (fn) => fn({ query })
@@ -57,12 +81,16 @@ router.post(
 router.patch(
   '/staff/:id',
   requireManager,
-  requireStepUp,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ role: z.enum(ROLES).optional(), password: password.optional() }), req.body)
     if (req.params.id === req.admin.id && b.role && b.role !== 'MANAGER') throw badRequest('You cannot remove your own manager role', 'SELF_DEMOTE')
+    const demoted = b.role && b.role !== 'MANAGER'
+    await existing(req.params.id)
+    if (demoted) await keepATwoStepManager({ query }, req.params.id)
+    await stepUp(req)
     const hash = b.password ? await bcrypt.hash(b.password, 10) : null
     const result = await tx(async (c) => {
+      if (demoted) await keepATwoStepManager(c, req.params.id, { lock: true })
       const { rows } = await c.query(
         `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash), session_version = session_version + 1
          WHERE id = $1 RETURNING id, email, role, created_at, totp_enabled_at`,
@@ -87,8 +115,9 @@ router.patch(
 router.post(
   '/staff/:id/two-step/reset',
   requireManager,
-  requireStepUp,
   asyncHandler(async (req, res) => {
+    await existing(req.params.id)
+    await stepUp(req)
     const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT id FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('No staff member with that id')
@@ -107,8 +136,10 @@ router.post(
 router.post(
   '/staff/:id/two-step/setup-code',
   requireManager,
-  requireStepUp,
   asyncHandler(async (req, res) => {
+    const target = await existing(req.params.id)
+    if (target.totp_enabled_at) throw conflict('Two-step sign-in is already on for them. Reset it if they lost their phone.', 'TWO_STEP_ON')
+    await stepUp(req)
     const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('No staff member with that id')
@@ -124,10 +155,13 @@ router.post(
 router.delete(
   '/staff/:id',
   requireManager,
-  requireStepUp,
   asyncHandler(async (req, res) => {
     if (req.params.id === req.admin.id) throw badRequest('You cannot remove yourself', 'SELF_REMOVE')
+    await existing(req.params.id)
+    await keepATwoStepManager({ query }, req.params.id)
+    await stepUp(req)
     await tx(async (c) => {
+      await keepATwoStepManager(c, req.params.id, { lock: true })
       const r = await c.query('DELETE FROM admin_users WHERE id = $1', [req.params.id])
       if (!r.rowCount) throw notFound('No staff member with that id')
       // Their stops go back to the unassigned pool (SEC-02).

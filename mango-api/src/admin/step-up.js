@@ -3,12 +3,18 @@
 // someone ask the manager to prove it is them again, with `confirmCode` in the
 // body: the 6-digit code from their authenticator app when they have two-step
 // on, otherwise their password. A stolen 15-minute access token alone can no
-// longer mint a manager or take over a colleague's account.
+// longer mint a manager or take over a colleague's account. Turning your own
+// two-step on from a signed-in session asks too (admin/auth.js), or the holder
+// of a stolen token could enroll their own authenticator and answer every
+// later step-up with it.
+//
+// Routes call `stepUp(req)` after they have checked the request, so a one-time
+// code is never spent on a change that is then refused for a typo.
 import bcrypt from 'bcryptjs'
 import { now } from '../clock.js'
 import { query, tx } from '../db.js'
 import { env } from '../env.js'
-import { asyncHandler, HttpError } from '../errors.js'
+import { HttpError } from '../errors.js'
 import { logger } from '../logger.js'
 import { hit } from '../ratelimit.js'
 import { verifyCode } from '../totp.js'
@@ -20,6 +26,8 @@ const key = (id) => `step-up:${id}`
 
 const needed = (method) =>
   new HttpError(403, 'REAUTH_REQUIRED', method === 'code' ? 'Enter the 6-digit code from your authenticator app to confirm.' : 'Enter your password to confirm.', { method })
+
+const lockedError = () => new HttpError(429, 'REAUTH_LOCKED', 'Too many wrong confirmations. Try again in 15 minutes.')
 
 async function locked(id) {
   const { rows } = await query('SELECT hits FROM rate_limits WHERE key = $1 AND reset_at > $2', [key(id), now()])
@@ -44,23 +52,25 @@ function confirmed(adminId, given) {
   })
 }
 
-/** Route guard, after requireManager. A no-op unless STAFF_STEP_UP is on. */
-export const requireStepUp = asyncHandler(async (req, _res, next) => {
-  if (!env.STAFF_STEP_UP) return next()
+/**
+ * Throws unless the caller confirmed it is them (a no-op unless STAFF_STEP_UP is
+ * on). Each confirmation is counted before it is checked, in one statement, so
+ * parallel guesses can't get past the STEP_UP_TRIES lock together.
+ */
+export async function stepUp(req) {
+  if (!env.STAFF_STEP_UP) return
   const given = typeof req.body?.confirmCode === 'string' ? req.body.confirmCode.slice(0, 200) : ''
-  if (await locked(req.admin.id)) {
-    throw new HttpError(429, 'REAUTH_LOCKED', 'Too many wrong confirmations. Try again in 15 minutes.')
-  }
   if (!given) {
+    if (await locked(req.admin.id)) throw lockedError()
     const { rows } = await query('SELECT totp_enabled_at FROM admin_users WHERE id = $1', [req.admin.id])
     throw needed(rows[0]?.totp_enabled_at ? 'code' : 'password')
   }
+  const { hits } = await hit(key(req.admin.id), STEP_UP_WINDOW_MS)
+  if (hits > STEP_UP_TRIES) throw lockedError()
   const r = await confirmed(req.admin.id, given)
   if (!r.ok) {
-    await hit(key(req.admin.id), STEP_UP_WINDOW_MS)
     logger.warn({ staffId: req.admin.id, method: req.method, path: req.path }, 'staff change refused: confirmation was wrong')
     throw new HttpError(403, 'REAUTH_FAILED', r.method === 'code' ? 'That code is not right, or was already used. Wait for the next one.' : 'That password is not right.', { method: r.method })
   }
   await query('DELETE FROM rate_limits WHERE key = $1', [key(req.admin.id)])
-  next()
-})
+}
