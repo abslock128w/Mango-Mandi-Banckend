@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# PLT-16: the jobs only read the code; a step that tried to push or comment is refused.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest

@@ -130,3 +130,16 @@ export async function checkRoleTimeouts(query, { pooled }) {
   }
   return { errors, warnings, ok }
 }
+
+/**
+ * PLT-13 (24 Oct 2026 audit): LOAD-3 answers 503 BUSY when a row lock is not
+ * free in time, which relies on the role's lock_timeout (deploy/RELEASE.md §7).
+ * Without it a request behind a locked stock row waits for the whole statement
+ * timeout. A warning, not a launch stop: the app still works, only slower to
+ * give up.
+ */
+export async function checkLockTimeout(query) {
+  const value = (await query('SHOW lock_timeout')).rows[0]?.lock_timeout
+  if (!noLimit(value)) return { ok: [`lock_timeout is ${value}`], warnings: [] }
+  return { ok: [], warnings: ["lock_timeout is not set for the app's database role: ALTER ROLE <app role> SET lock_timeout = '5s' (deploy/VERCEL.md, step 1)"] }
+}

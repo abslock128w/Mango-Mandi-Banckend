@@ -241,7 +241,34 @@ export async function runPreorderJobs() {
  * One maintenance run. Returns { skipped: true } when another run holds the
  * lease. `budgetMs` is the time the run may take (tests shorten it).
  */
-export async function runMaintenance({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
+/** Runs in progress in this process, so a clean shutdown can wait for them (PLT-14). */
+const inFlight = new Set()
+
+export function runMaintenance(opts) {
+  const run = runOnce(opts)
+  inFlight.add(run)
+  const done = () => inFlight.delete(run)
+  run.then(done, done)
+  return run
+}
+
+/**
+ * PLT-14 (24 Oct 2026 audit): waits up to `ms` for this process's runs in
+ * progress. Resolves true when none is left, false on the deadline (its lease
+ * then expires on its own).
+ */
+export async function settleMaintenance(ms) {
+  if (!inFlight.size) return true
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+  })
+  const settled = await Promise.race([Promise.allSettled([...inFlight]).then(() => true), deadline])
+  clearTimeout(timer)
+  return settled
+}
+
+async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
   return await withBudget(budgetMs, async () => {
     await step('config', loadConfig) // every instance keeps its rules fresh
     const holder = await takeLease('maintenance')

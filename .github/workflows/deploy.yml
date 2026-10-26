@@ -18,9 +18,11 @@ concurrency: production-deploy
 
 jobs:
   deploy:
+    # PLT-16: a CI run on a fork's branch named main never deploys.
     if: >-
       vars.DEPLOY_HOST != '' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-latest
     environment: production
     permissions:

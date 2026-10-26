@@ -5,7 +5,7 @@
 import { adminToken, client, closeAll, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -39,8 +39,14 @@ for a in "$@"; do case "$a" in --file=*) printf '%s' "$FAKE_DUMP" > "\${a#--file
   writeFileSync(join(bin, 'psql'), `#!/usr/bin/env bash
 { echo "ARGS $*"; [ -t 0 ] || cat; echo; } >> "$PSQL_LOG"
 `)
+  // pg_restore --list: reads the fake dump back; one that doesn't start like a custom-format dump is unreadable (PLT-11).
+  writeFileSync(join(bin, 'pg_restore'), `#!/usr/bin/env bash
+f="\${@: -1}"
+head -c 5 "$f" | grep -q '^PGDMP' || { echo "pg_restore: error: input file does not appear to be a valid archive" >&2; exit 1; }
+`)
   chmodSync(join(bin, 'pg_dump'), 0o755)
   chmodSync(join(bin, 'psql'), 0o755)
+  chmodSync(join(bin, 'pg_restore'), 0o755)
   gnupg = join(root, 'gnupg')
   execFileSync('mkdir', ['-m', '700', '-p', gnupg])
   const gpg = (...args) => execFileSync('gpg', ['--homedir', gnupg, '--batch', '--quiet', ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -152,6 +158,21 @@ describe('ops/backup.sh', () => {
     assert.notEqual(r.code, 0)
     assert.deepEqual(r.files, [])
     assert.match(r.sql, /msg=backup failed while dumping the database/)
+  })
+
+  // PLT-11 (24 Oct 2026 audit).
+  test('a dump pg_restore cannot read back fails the run, leaves no file and records no success', () => {
+    const r = backup({ BACKUP_GPG_PUBLIC_KEY_FILE: publicKey, FAKE_DUMP: 'truncated garbage' })
+    assert.notEqual(r.code, 0)
+    assert.deepEqual(r.files, [])
+    assert.match(r.sql, /msg=backup failed while checking the dump/)
+    assert.ok(!okBeat(r.sql))
+  })
+
+  test('the encrypted dump is readable by its owner only', () => {
+    const r = backup({ BACKUP_GPG_PUBLIC_KEY_FILE: publicKey })
+    assert.equal(r.code, 0, r.out)
+    assert.equal(statSync(join(r.dir, r.files[0])).mode & 0o077, 0)
   })
 
   test('without BACKUP_HEARTBEAT (the GitHub Action) nothing is written to the database', () => {

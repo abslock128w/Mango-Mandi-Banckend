@@ -28,7 +28,8 @@ import { parseArgs } from 'node:util'
 import { scanText } from '../../scripts/scan-bundle.mjs'
 
 const EVIL_ORIGIN = 'https://smoke-check.invalid'
-const MAINTENANCE_STALE_S = 300
+// The same limit /ready itself uses (src/readiness.js MAINTENANCE_STALE_S).
+const MAINTENANCE_STALE_S = 240
 
 const originOf = (u) => new URL(u).origin
 const join = (base, path) => `${base.replace(/\/$/, '')}${path}`

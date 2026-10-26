@@ -18,6 +18,8 @@
 #   BACKUP_HEARTBEAT=true       records the outcome in maintenance_runs (step
 #                               'backup'), so the API warns when backups stop
 set -euo pipefail
+# PLT-11: dumps and their encrypted copies are readable by this user only.
+umask 077
 : "${DATABASE_URL:?set DATABASE_URL}"
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 RETAIN_DAYS="${RETAIN_DAYS:-14}"
@@ -84,6 +86,9 @@ stage="dumping the database"
 mkdir -p "$BACKUP_DIR"
 dump="$BACKUP_DIR/mango-$(date -u +%Y%m%dT%H%M%SZ).dump"
 pg_dump --format=custom --no-owner --no-privileges --file="$dump.part" "$DATABASE_URL"
+# PLT-11: a dump that pg_restore can't read is a failed backup, not an "ok" one.
+stage="checking the dump"
+pg_restore --list "$dump.part" >/dev/null || fail "checking the dump: pg_restore cannot read it" "The dump could not be read back; no backup recorded."
 
 if [ -n "$recipient" ]; then
   stage="encrypting the dump"
