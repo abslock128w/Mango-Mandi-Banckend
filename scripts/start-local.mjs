@@ -13,7 +13,8 @@
 // stand-ins are switched off (SEC-01): sign-in codes are printed in this window instead of on
 // screen, and the test-mode pay route (/v1/dev) is not reachable through the shop.
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { connect } from 'node:net'
 import { networkInterfaces } from 'node:os'
@@ -133,6 +134,21 @@ async function stop(code = 0) {
   await db?.stop().catch(() => {})
   process.exit(code)
 }
+/**
+ * Packages are installed again whenever package-lock.json changed since the last install, so a
+ * newer download never runs on older packages (unit-tested in tests/unit/start-local.unit.ts).
+ */
+const INSTALL_MARK = '.mandimangoes-lock'
+const lockHash = (dir) => createHash('sha256').update(readFileSync(path.join(dir, 'package-lock.json'))).digest('hex')
+export function installNeeded(dir) {
+  const mark = path.join(dir, 'node_modules', INSTALL_MARK)
+  if (!existsSync(mark)) return true
+  return readFileSync(mark, 'utf8').trim() !== lockHash(dir)
+}
+export function markInstalled(dir) {
+  writeFileSync(path.join(dir, 'node_modules', INSTALL_MARK), `${lockHash(dir)}\n`)
+}
+
 async function main() {
   const major = Number(process.versions.node.split('.')[0])
   if (major < 22) throw new Error(`Node 22 or newer is needed (this is ${process.versions.node})`)
@@ -144,13 +160,15 @@ async function main() {
     }
   }
 
-  if (!existsSync(path.join(root, 'node_modules'))) {
-    say('Installing the shop and staff panel (first run only, a few minutes)')
+  if (installNeeded(root)) {
+    say('Installing the shop and staff panel (first run or after an update, a few minutes)')
     await run('npm ci --no-audit --no-fund --loglevel=error', root)
+    markInstalled(root)
   }
-  if (!existsSync(path.join(root, 'mango-api', 'node_modules'))) {
-    say('Installing the API (first run only)')
+  if (installNeeded(path.join(root, 'mango-api'))) {
+    say('Installing the API (first run or after an update)')
     await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'mango-api'))
+    markInstalled(path.join(root, 'mango-api'))
   }
   mkdirSync(local, { recursive: true })
   if (!existsSync(path.join(local, 'node_modules', 'embedded-postgres'))) {

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 
 // SEC-01: the one-command local run (scripts/start-local.mjs) keeps the shop on
 // this computer unless asked, and when it is shared (--phone, --wifi) the API's
@@ -13,7 +16,11 @@ interface Plan {
   shopEnv: Record<string, string>
   shopCmd: string
 }
-const { localPlan } = (await import(new URL('../../scripts/start-local.mjs', import.meta.url).href)) as { localPlan: (argv: string[], wifi?: string[]) => Plan }
+const { localPlan, installNeeded, markInstalled } = (await import(new URL('../../scripts/start-local.mjs', import.meta.url).href)) as {
+  localPlan: (argv: string[], wifi?: string[]) => Plan
+  installNeeded: (dir: string) => boolean
+  markInstalled: (dir: string) => void
+}
 
 test('by default nothing leaves this computer: no link, no Wi-Fi, codes on screen', () => {
   const p = localPlan(['node', 'start-local.mjs'], ['192.168.1.20'])
@@ -51,4 +58,20 @@ test('--wifi shares on the Wi-Fi only, with the same protections', () => {
   assert.equal(p.shared, true)
   assert.equal(p.api.OTP_CODE_IN_RESPONSE, 'false')
   assert.equal(p.shopEnv.SHOP_API_PROXY, 'http://localhost:3000')
+})
+
+test('packages are installed again when the downloaded code has a different package-lock.json', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'mm-install-'))
+  try {
+    writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3,"packages":{"node_modules/zod":{"version":"3.25.76"}}}')
+    assert.equal(installNeeded(dir), true, 'no node_modules yet')
+    mkdirSync(path.join(dir, 'node_modules'))
+    assert.equal(installNeeded(dir), true, 'node_modules from an older launcher, never marked')
+    markInstalled(dir)
+    assert.equal(installNeeded(dir), false, 'same lockfile: no reinstall')
+    writeFileSync(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3,"packages":{"node_modules/zod":{"version":"4.6.7"}}}')
+    assert.equal(installNeeded(dir), true, 'updated lockfile: reinstall')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
