@@ -106,6 +106,13 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // MULTI_GIFT: one gift order sent to many recipients, paid once (docs/gifting.md).
+  MULTI_GIFT: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // With MULTI_GIFT: the most recipients one gift order may have.
+  MULTI_GIFT_MAX_RECIPIENTS: z.coerce.number().int().min(1).max(100).default(25),
   // SHOP_SORT_FILTER: sort and filter controls on the shop's home page.
   SHOP_SORT_FILTER: z
     .enum(['true', 'false'])

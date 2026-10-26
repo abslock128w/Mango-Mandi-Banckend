@@ -176,7 +176,7 @@ export async function checkUnpaidLimit(c, customerId, boxes, at = now()) {
   if (!customerId) return
   await c.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [customerId])
   const { rows } = await c.query(
-    `SELECT o.id, o.number, o.hold_expires_at,
+    `SELECT o.id, o.number, o.hold_expires_at, o.gift_order_id,
             COALESCE((SELECT sum(s.quantity) FROM order_stock s WHERE s.order_id = o.id AND s.state = 'held'), 0)::int AS boxes
        FROM orders o
       WHERE o.customer_id = $1 AND o.status = 'PAYMENT_PENDING' AND (o.hold_expires_at IS NULL OR o.hold_expires_at >= $2)
@@ -184,11 +184,14 @@ export async function checkUnpaidLimit(c, customerId, boxes, at = now()) {
     [customerId, at],
   )
   const cfg = getConfig()
-  if (rows.length >= cfg.maxUnpaidOrders) {
+  // A gift order (MULTI_GIFT) is one unpaid order however many deliveries it has: one payment pays them all.
+  const unpaid = new Set(rows.map((r) => r.gift_order_id ?? r.id))
+  if (unpaid.size >= cfg.maxUnpaidOrders) {
     throw new HttpError(409, 'UNPAID_ORDER_EXISTS', `You have an unpaid order (${rows[0].number}). Pay for it or cancel it first.`, {
       orderId: rows[0].id,
       number: rows[0].number,
       holdExpiresAt: rows[0].hold_expires_at,
+      ...(rows[0].gift_order_id ? { giftOrderId: rows[0].gift_order_id } : {}),
     })
   }
   const held = rows.reduce((t, r) => t + r.boxes, 0)
@@ -586,9 +589,14 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
  * here and sent to the gateway after commit (payments.js refundOrder).
  * Returns true when a refund is due.
  */
-export async function customerCancel(c, orderId, customerId, actor) {
+export async function customerCancel(c, orderId, customerId, actor, { wholeGift = false } = {}) {
   const o = await lockOrder(c, orderId)
   if (o.customer_id !== customerId) throw notFound('Order not found')
+  // One delivery of an unpaid gift order (MULTI_GIFT): its one payment is for every recipient, so
+  // the buyer cancels the whole order until it is paid (gifts.js), then any recipient on their own.
+  if (o.gift_order_id && !wholeGift && o.status === 'PAYMENT_PENDING') {
+    throw conflict('This gift order is not paid yet. Cancel the whole gift order, or pay for it and then cancel one recipient.', 'GIFT_NOT_PAID')
+  }
   if (!CUSTOMER_CANCELLABLE.includes(o.status)) {
     const why =
       o.status === 'CANCELLED' ? 'This order is already cancelled.'
@@ -1203,7 +1211,8 @@ export async function sweepExpiredHoldsEach(at = now()) {
  * the hold, whichever comes first. The 2 minutes cover a slow webhook and the
  * next every-minute maintenance run, and keep stock from staying held when the
  * scheduler is down; a payment that lands even later is still honoured as a
- * late payment.
+ * late payment. A gift order's delivery (MULTI_GIFT) is paid through its
+ * parent's Razorpay order, so it gets the 2 minutes too.
  */
 export { LAZY_SWEEP_GATEWAY_GRACE_MS }
 export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
@@ -1212,7 +1221,7 @@ export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
     `SELECT id FROM orders
       WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1
         AND id IN (SELECT order_id FROM order_stock WHERE state = 'held' AND sku = ANY($2))
-        AND ((razorpay_order_id IS NULL AND payment_link_id IS NULL) OR reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
+        AND ((razorpay_order_id IS NULL AND payment_link_id IS NULL AND gift_order_id IS NULL) OR reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
       ORDER BY hold_expires_at LIMIT $3
       FOR UPDATE SKIP LOCKED`,
     [at, skus, limit, new Date(at.getTime() - LAZY_SWEEP_GATEWAY_GRACE_MS)],

@@ -26,6 +26,8 @@
   "GET /customers/:id": ["MANAGER","OPERATOR"],
   "GET /delivery-reviews": ["MANAGER","OPERATOR"],
   "GET /exports/:kind": ["MANAGER"],
+  "GET /gift-orders": ["MANAGER","OPERATOR"],
+  "GET /gift-orders/:id": ["MANAGER","OPERATOR"],
   "GET /manifest": ["MANAGER","OPERATOR","PACKER","RIDER"],
   "GET /orders": ["MANAGER","OPERATOR"],
   "GET /orders/:id": ["MANAGER","OPERATOR","PACKER"],

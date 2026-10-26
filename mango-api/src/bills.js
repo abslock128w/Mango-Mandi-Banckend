@@ -49,7 +49,7 @@ export const billNumber = (prefix, fy, seq) => `${prefix}/${fy.slice(2)}/${Strin
 
 /** A paid order with money taken gets a bill; a free replacement does not (the original's bill stands). */
 export const billable = (o) =>
-  Boolean(o) && o.payment_status === 'SUCCEEDED' && o.total > 0 && !o.replacement_for && !['PAYMENT_PENDING', 'CANCELLED'].includes(o.status)
+  Boolean(o) && o.payment_status === 'SUCCEEDED' && o.total > 0 && !o.replacement_for && !o.gift_order_id && !['PAYMENT_PENDING', 'CANCELLED'].includes(o.status)
 
 /** Splits `amount` over `weights` in proportion, in whole paise; the last share takes the rounding. */
 function share(amount, weights) {
@@ -279,6 +279,7 @@ export async function issueMissingBills(at = now(), limit = 200) {
       WHERE o.payment_status = 'SUCCEEDED' AND o.total > 0 AND o.replacement_for IS NULL
         AND o.status NOT IN ('PAYMENT_PENDING', 'CANCELLED')
         AND (o.placed_at >= $1 OR EXISTS (SELECT 1 FROM order_events e WHERE e.order_id = o.id AND e.status = 'CONFIRMED' AND e.created_at >= $1))
+        AND o.gift_order_id IS NULL
         AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id)
       ORDER BY o.placed_at, o.id LIMIT $2`,
     [since, limit],
@@ -297,8 +298,94 @@ export async function issueMissingBills(at = now(), limit = 200) {
       logger.error({ err, orderId: id }, 'bill could not be issued')
     }
   }
+  // Gift orders (MULTI_GIFT): one bill for the whole order, issued with its payment or here.
+  const gifts = await query(
+    `SELECT g.id FROM gift_orders g
+      WHERE g.payment_status = 'SUCCEEDED' AND g.total > 0 AND g.paid_at >= $1
+        AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.gift_order_id = g.id)
+      ORDER BY g.paid_at, g.id LIMIT $2`,
+    [since, limit],
+  )
+  for (const { id } of gifts.rows) {
+    try {
+      const bill = await tx(async (c) => {
+        await c.query('SELECT 1 FROM gift_orders WHERE id = $1 FOR UPDATE', [id])
+        return issueGiftBill(c, id)
+      })
+      if (bill) issued++
+    } catch (err) {
+      failed.push(id)
+      logger.error({ err, giftOrderId: id }, 'gift order bill could not be issued')
+    }
+  }
   if (failed.length) throw new Error(`${failed.length} paid order(s) still without a bill, e.g. ${failed[0]}`)
   return issued
+}
+
+/**
+ * MULTI_GIFT: the one bill of a gift order, for every delivery in it, with the
+ * buyer's business name and GSTIN if they gave them. Composed by composeBill
+ * from the parent's totals and its deliveries' items (the same box and
+ * ripeness on many deliveries is one line), numbered like any bill and kept on
+ * the first delivery (bills.order_id) with gift_order_id set. The caller holds
+ * the gift order's row lock. Returns null while it has nothing billable (not
+ * paid, or every delivery was cancelled before it was paid).
+ */
+export async function issueGiftBill(c, giftOrderId, at = now()) {
+  const had = await c.query('SELECT * FROM bills WHERE gift_order_id = $1', [giftOrderId])
+  if (had.rows.length) return had.rows[0]
+  const g = (await c.query('SELECT * FROM gift_orders WHERE id = $1', [giftOrderId])).rows[0]
+  if (!g || g.payment_status !== 'SUCCEEDED' || !(g.total > 0)) return null
+  const { rows: kids } = await c.query('SELECT * FROM orders WHERE gift_order_id = $1 ORDER BY gift_position, id', [giftOrderId])
+  if (!kids.length || kids.every((k) => k.status === 'CANCELLED')) return null
+  const { rows: raw } = await c.query(
+    `SELECT i.sku, i.stage, i.unit_price, i.listing_id, i.pricing, SUM(i.quantity)::int AS quantity, SUM(i.line_price)::int AS line_price,
+            MIN(p.name) AS product_name, MIN(p.hsn_code) AS hsn_code, MIN(p.gst_rate) AS gst_rate
+       FROM order_items i JOIN orders o ON o.id = i.order_id LEFT JOIN products p ON p.sku = i.sku
+      WHERE o.gift_order_id = $1
+      GROUP BY i.sku, i.stage, i.unit_price, i.listing_id, i.pricing
+      ORDER BY i.sku, i.stage, i.unit_price`,
+    [giftOrderId],
+  )
+  const order = {
+    number: g.number, subtotal: g.subtotal, discount: g.discount, total: g.total, promo_code: g.promo_code,
+    buyer_business_name: g.buyer_business_name, buyer_gstin: g.buyer_gstin, pincode: null, placed_at: g.placed_at,
+    channel: 'app', preorder_id: null, payment_amount: g.payment_amount,
+  }
+  const { kind, total, snapshot } = composeBill(order, raw)
+  snapshot.order.gift = { recipients: g.recipient_count, deliveries: kids.map((k) => k.number) }
+  const billDate = todayIST(at)
+  const fy = financialYear(billDate)
+  const { rows } = await c.query(
+    `INSERT INTO bill_counters (fy, last_no) VALUES ($1, 1)
+     ON CONFLICT (fy) DO UPDATE SET last_no = bill_counters.last_no + 1 RETURNING last_no`,
+    [fy],
+  )
+  const seq = rows[0].last_no
+  const number = billNumber(trust.numberPrefix, fy, seq)
+  const ins = await c.query(
+    `INSERT INTO bills (id, order_id, fy, seq, number, kind, issued_at, bill_date, total, snapshot, buyer_name, buyer_address, gift_order_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL, $12) RETURNING *`,
+    [newId('bil'), kids[0].id, fy, seq, number, kind, at, billDate, total, snapshot, kids[0].customer_name ?? null, giftOrderId],
+  )
+  logger.info({ giftOrderId, bill: number }, 'gift order bill issued')
+  return ins.rows[0]
+}
+
+/** issueGiftBill on the payment path, under a savepoint: a bill problem never undoes the payment (issueMissingBills retries). */
+export async function issueGiftBillWithPayment(c, giftOrderId) {
+  if (!trust.bills) return null
+  await c.query('SAVEPOINT issue_gift_bill')
+  try {
+    const bill = await issueGiftBill(c, giftOrderId)
+    await c.query('RELEASE SAVEPOINT issue_gift_bill')
+    return bill
+  } catch (err) {
+    await c.query('ROLLBACK TO SAVEPOINT issue_gift_bill')
+    logger.error({ err, giftOrderId }, 'gift order bill not issued with the payment; the maintenance run will issue it')
+    reportError(err, { giftOrderId, step: 'bill' })
+    return null
+  }
 }
 
 /**
@@ -310,7 +397,22 @@ export const BILL_CANCELLED_BY = Object.freeze({ BUYER: 'cancelled by the buyer'
 
 /** Marks the order's bill cancelled (the bill itself stays, with its number). Inside the cancel transaction. `by`: 'BUYER' or 'SHOP'. */
 export async function markBillCancelled(c, orderId, by, at = now()) {
-  await c.query('UPDATE bills SET cancelled_at = $2, cancel_reason = $3 WHERE order_id = $1 AND cancelled_at IS NULL', [orderId, at, BILL_CANCELLED_BY[by] ?? null])
+  // A gift order's bill covers all its deliveries: it is cancelled once every one is (markGiftBillIfAllCancelled).
+  await c.query('UPDATE bills SET cancelled_at = $2, cancel_reason = $3 WHERE order_id = $1 AND gift_order_id IS NULL AND cancelled_at IS NULL', [
+    orderId, at, BILL_CANCELLED_BY[by] ?? null,
+  ])
+  const { rows } = await c.query('SELECT gift_order_id FROM orders WHERE id = $1', [orderId])
+  if (rows[0]?.gift_order_id) await markGiftBillIfAllCancelled(c, rows[0].gift_order_id, by, at)
+}
+
+/** MULTI_GIFT: the gift order's bill is marked cancelled when its last open delivery is cancelled. */
+export async function markGiftBillIfAllCancelled(c, giftOrderId, by, at = now()) {
+  await c.query(
+    `UPDATE bills SET cancelled_at = $2, cancel_reason = $3
+      WHERE gift_order_id = $1 AND cancelled_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.gift_order_id = $1 AND o.status <> 'CANCELLED')`,
+    [giftOrderId, at, BILL_CANCELLED_BY[by] ?? null],
+  )
 }
 
 /**
@@ -328,9 +430,19 @@ export async function reconcileBills(at = now()) {
         SET cancelled_at = COALESCE((SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'CANCELLED'), $1),
             cancel_reason = CASE WHEN o.customer_cancelled_at IS NOT NULL THEN $2 ELSE $3 END
        FROM orders o
-      WHERE o.id = b.order_id AND o.status = 'CANCELLED' AND b.cancelled_at IS NULL`,
+      WHERE o.id = b.order_id AND o.status = 'CANCELLED' AND b.cancelled_at IS NULL AND b.gift_order_id IS NULL`,
     [at, BILL_CANCELLED_BY.BUYER, BILL_CANCELLED_BY.SHOP],
   )
+  // A gift order's bill (MULTI_GIFT): cancelled once every one of its deliveries is.
+  const gifts = await query(
+    `UPDATE bills b
+        SET cancelled_at = $1,
+            cancel_reason = CASE WHEN EXISTS (SELECT 1 FROM orders o WHERE o.gift_order_id = b.gift_order_id AND o.customer_cancelled_at IS NOT NULL) THEN $2 ELSE $3 END
+      WHERE b.gift_order_id IS NOT NULL AND b.cancelled_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.gift_order_id = b.gift_order_id AND o.status <> 'CANCELLED')`,
+    [at, BILL_CANCELLED_BY.BUYER, BILL_CANCELLED_BY.SHOP],
+  )
+  cancelled.rowCount += gifts.rowCount
   const removed = await query(
     `UPDATE bills b SET buyer_name = NULL, buyer_address = NULL, buyer_removed_at = $1
        FROM orders o LEFT JOIN customers cu ON cu.id = o.customer_id

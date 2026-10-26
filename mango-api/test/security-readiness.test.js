@@ -24,6 +24,7 @@ import { addDays, now, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { DEV_CHECKOUT_SECRET } from '../src/payments.js'
+import { env } from '../src/env.js'
 import { usePhotoStore } from '../src/photos.js'
 import { enforceLimitsInTests } from '../src/ratelimit.js'
 import { anonymiseOldOrders } from '../src/retention.js'
@@ -38,6 +39,7 @@ before(async () => {
   api = client(srv.base)
 })
 after(async () => {
+  env.MULTI_GIFT = false
   usePhotoStore(null)
   enforceLimitsInTests(false)
   await srv.close()
@@ -101,6 +103,8 @@ const ISOLATION_CASES = [
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
+  // Gift orders to many recipients (MULTI_GIFT, test/gifting.test.js).
+  'GET /v1/gifts/:id', 'GET /v1/gifts/:id/bill', 'POST /v1/gifts/:id/verify-payment', 'POST /v1/gifts/:id/cancel', 'POST /v1/gifts/:id/recipients/:orderId/cancel',
 ]
 const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
@@ -215,6 +219,14 @@ describe('customer to customer', () => {
     const rid = review.body.review.id
     const address = (await api.get('/v1/me/addresses', A)).body[0].id
     const alert = (await api.post('/v1/stock-alerts', { sku: 'ALP-3', stage: 'RAW', pincode: '560034' }, A)).body.id
+    // A paid gift order to two recipients (MULTI_GIFT).
+    env.MULTI_GIFT = true
+    const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'RIPE', qty: 1 })
+    const gq = await api.post('/v1/gifts/quote', { recipients: [recipient(1), recipient(2)] }, A)
+    assert.equal(gq.status, 200, JSON.stringify(gq.body))
+    const gift = (await api.post('/v1/gifts/confirm', { quoteId: gq.body.quoteId }, { ...A, headers: { 'Idempotency-Key': newId('k') } })).body
+    assert.equal((await api.post('/v1/dev/pay-gift', { giftOrderId: gift.giftOrderId, outcome: 'captured' })).body.result, 'confirmed')
+    const giftKid = (await query('SELECT id FROM orders WHERE gift_order_id = $1 ORDER BY gift_position LIMIT 1', [gift.giftOrderId])).rows[0].id
     // The owner reaches each of them: what follows is about ownership, not the objects.
     assert.equal((await api.get(`/v1/orders/${done.orderId}/delivery-photo`, A)).status, 200)
     assert.equal((await api.get(`/v1/reviews/${rid}/photos/${reviewPhoto}`, A)).status, 200)
@@ -263,6 +275,12 @@ describe('customer to customer', () => {
       ['POST /v1/reviews', () => reviewAs(item), () => reviewAs('itm_none')],
       ['POST /v1/reviews', () => reviewAs(bItem, [looseReviewPhoto]), () => reviewAs(bItem, ['rph_none'])],
       ['POST /v1/reviews/photos', () => api.post('/v1/reviews/photos', { pathname: `review-uploads/${a.customer.id}/up_1` }, B), () => api.post('/v1/reviews/photos', { pathname: `review-uploads/${b.customer.id}/up_none` }, B)],
+      ['GET /v1/gifts/:id', () => api.get(`/v1/gifts/${gift.giftOrderId}`, B), () => api.get('/v1/gifts/gft_none', B)],
+      ['GET /v1/gifts/:id/bill', () => api.get(`/v1/gifts/${gift.giftOrderId}/bill`, B), () => api.get('/v1/gifts/gft_none/bill', B)],
+      ['POST /v1/gifts/:id/verify-payment', () => api.post(`/v1/gifts/${gift.giftOrderId}/verify-payment`, { razorpay_payment_id: 'pay_b', razorpay_order_id: gift.razorpayOrderId, razorpay_signature: sig(gift.razorpayOrderId, 'pay_b') }, B),
+        () => api.post('/v1/gifts/gft_none/verify-payment', { razorpay_payment_id: 'pay_b', razorpay_order_id: gift.razorpayOrderId, razorpay_signature: sig(gift.razorpayOrderId, 'pay_b') }, B)],
+      ['POST /v1/gifts/:id/cancel', () => api.post(`/v1/gifts/${gift.giftOrderId}/cancel`, {}, B), () => api.post('/v1/gifts/gft_none/cancel', {}, B)],
+      ['POST /v1/gifts/:id/recipients/:orderId/cancel', () => api.post(`/v1/gifts/${gift.giftOrderId}/recipients/${giftKid}/cancel`, {}, B), () => api.post(`/v1/gifts/gft_none/recipients/${giftKid}/cancel`, {}, B)],
     ]
     assert.deepEqual([...new Set(cases.map(([r]) => r))].sort(), [...ISOLATION_CASES].sort(), 'a case for every isolation route')
     for (const [route, theirs, none] of cases) {
@@ -272,6 +290,8 @@ describe('customer to customer', () => {
       assert.deepEqual([x.status, x.body?.error?.code], [y.status, y.body?.error?.code], `${route}: A's object must look like one that doesn't exist`)
     }
     assert.deepEqual(await snapshot(), before, "nothing of A's changed")
+    assert.equal((await query('SELECT status FROM gift_orders WHERE id = $1', [gift.giftOrderId])).rows[0].status, 'PAID')
+    env.MULTI_GIFT = false
 
     // B's lists and export carry nothing of A's: no id, no phone, no address, no stored photo path.
     const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101']

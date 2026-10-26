@@ -71,6 +71,8 @@ router.get(
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
+        // A delivery of a gift order to many recipients (MULTI_GIFT).
+        ...(o.gift_order_id ? { giftOrderId: o.gift_order_id } : {}),
       })),
     })
   }),
@@ -78,8 +80,10 @@ router.get(
 
 export async function orderDetail(c, orderId) {
   const { rows } = await c.query(
-    `SELECT o.*, r.number AS replacement_for_number, s.label AS slot_label, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at
-       FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for LEFT JOIN delivery_slots s ON s.id = o.slot_id WHERE o.id = $1`,
+    `SELECT o.*, r.number AS replacement_for_number, s.label AS slot_label, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
+            g.number AS gift_order_number, g.recipient_count AS gift_recipient_count
+       FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for LEFT JOIN delivery_slots s ON s.id = o.slot_id
+       LEFT JOIN gift_orders g ON g.id = o.gift_order_id WHERE o.id = $1`,
     [orderId],
   )
   if (!rows.length) throw notFound('Order not found')
@@ -114,6 +118,8 @@ export async function orderDetail(c, orderId) {
     // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
     retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
+    // MULTI_GIFT: one delivery of a gift order to many recipients, paid with its parent's payment.
+    giftOrder: o.gift_order_id ? { id: o.gift_order_id, number: o.gift_order_number, position: o.gift_position, recipients: o.gift_recipient_count } : null,
     // Only a manager may cancel it: a paid order (refunded in full) and, with ORDER_RULE_CHECKS, a free replacement (INV-07).
     cancelNeedsManager: o.payment_status === 'SUCCEEDED' || (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT'),
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,

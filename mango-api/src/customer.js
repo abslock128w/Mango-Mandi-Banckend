@@ -41,6 +41,7 @@ import { appFeel } from './app-feel-routes.js'
 import { moveFavourites } from './favourites.js'
 import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
+import { customerGifts, devGifts } from './gift-routes.js'
 
 export const router = express.Router()
 
@@ -106,7 +107,7 @@ async function checkOtpBudget(phone, ip) {
 }
 
 /** Indian mobile numbers, normalised to +91XXXXXXXXXX. */
-const phoneSchema = z
+export const phoneSchema = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''))
   .refine((s) => /^[6-9]\d{9}$/.test(s), 'Enter a 10-digit Indian mobile number')
@@ -278,12 +279,12 @@ router.post(
 
 const PIN = z.string().regex(/^\d{6}$/, 'pincode must be 6 digits')
 
-async function serviceable(c, pincode) {
+export async function serviceable(c, pincode) {
   const { rows } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [pincode])
   return rows.length > 0
 }
 
-const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
+export const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
 
 router.get(
   '/delivery/check',
@@ -311,7 +312,7 @@ router.get(
 )
 
 /** Resolves and validates the delivery date for a pincode (pincode gate first). */
-async function deliveryDateFor(c, pincode, wanted) {
+export async function deliveryDateFor(c, pincode, wanted) {
   if (!(await serviceable(c, pincode))) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
   const dates = await orderableDates(c)
   if (!dates.length) throw conflict('No delivery dates are open right now', 'NO_DELIVERY_DAY')
@@ -365,7 +366,10 @@ router.get('/policy', (_req, res) => {
       tracking: env.LIVE_TRACKING,
       favourites: env.FAVOURITES,
       sortFilter: env.SHOP_SORT_FILTER,
+      // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
+      multiGift: env.MULTI_GIFT,
     },
+    ...(env.MULTI_GIFT ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
   })
 })
 
@@ -421,7 +425,7 @@ router.get(
 // Bulk Deals: the catalogue and its photos are public.
 router.use(publicBulk)
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
@@ -430,6 +434,8 @@ router.use(customerReviews)
 router.use(customerBills)
 // Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
 router.use(appFeel)
+// Bulk and corporate gifting (MULTI_GIFT): /gifts..., the caller's own gift orders only.
+router.use(customerGifts)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -598,7 +604,7 @@ router.get(
 )
 
 /** Orders need a mobile number: the rider calls it and WhatsApp updates go to it. */
-async function requirePhone(c, customerId) {
+export async function requirePhone(c, customerId) {
   const { rows } = await c.query('SELECT name, phone FROM customers WHERE id = $1', [customerId])
   if (!rows[0]?.phone) throw conflict('Add your mobile number first, so the rider can reach you.', 'PHONE_REQUIRED')
   return rows[0]
@@ -798,7 +804,7 @@ router.post(
 )
 
 /** Checks the customer's slot choice at quote time; confirm re-checks it under lock. */
-async function quoteSlot(c, date, wanted, boxes) {
+export async function quoteSlot(c, date, wanted, boxes) {
   const slots = await slotsForDate(c, date)
   if (!slots.length) return null
   if (!wanted) throw badRequest('Choose a delivery slot', 'SLOT_REQUIRED')
@@ -809,7 +815,7 @@ async function quoteSlot(c, date, wanted, boxes) {
 }
 
 /** A business buyer's details for the bill: the name as on the GST certificate, and a valid GSTIN. */
-const businessSchema = z
+export const businessSchema = z
   .object({
     name: z.string().trim().min(2, 'Enter the business name as on its GST certificate').max(100),
     gstin: z
@@ -825,13 +831,13 @@ const businessSchema = z
 
 /** The same request, whatever the key order: a retry must send what the first try sent. */
 const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
-const requestHash = (body) => createHash('sha256').update(JSON.stringify(stable(body))).digest('hex')
+export const requestHash = (body) => createHash('sha256').update(JSON.stringify(stable(body))).digest('hex')
 
 /**
  * What an earlier request with this key made, or null. The same key with a
  * different body is a client bug (or a reused key): refused, not replayed.
  */
-async function replayFor(key, hash, table) {
+export async function replayFor(key, hash, table) {
   const { rows } = await query(`SELECT k.request_hash AS idem_hash, t.* FROM idempotency_keys k JOIN ${table} t ON t.id = k.order_id WHERE k.key = $1`, [key])
   const r = rows[0]
   if (r?.idem_hash && r.idem_hash !== hash) {
@@ -845,10 +851,10 @@ async function replayFor(key, hash, table) {
  * Razorpay order or link yet): 409, so the shop retries shortly instead of
  * opening a checkout with nothing to pay.
  */
-function startingPayment() {
+export function startingPayment() {
   return new HttpError(409, 'PAYMENT_STARTING', 'Your payment is still being set up. Please try again in a moment.', { retryAfterSeconds: 2 })
 }
-const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
+export const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
 
 const confirmResponse = (o) => ({
   orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
@@ -898,7 +904,8 @@ router.post(
       if (!ins.rowCount) return null
       const { rows } = await c.query('SELECT * FROM quotes WHERE id = $1 AND customer_id = $2 FOR UPDATE', [b.quoteId, req.customer.id])
       const q = rows[0]
-      if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
+      // A gift order's quote (MULTI_GIFT) is confirmed at /gifts/confirm, never here.
+      if (!q || q.expires_at <= now() || q.data.kind === 'multi-gift') throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
       const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
@@ -994,6 +1001,8 @@ router.get(
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at,
       // Lets the shop point to an unpaid order that is still held (FE-5).
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
+      // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
+      ...(o.gift_order_id ? { giftOrderId: o.gift_order_id, giftRecipient: o.gift_recipient_name } : {}),
     })))
   }),
 )
@@ -1048,6 +1057,8 @@ router.get(
       // The bill, once the order is paid (BILLS_ENABLED): download it from /orders/:id/bill.
       bill: billView(bill),
       business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
+      // MULTI_GIFT: one delivery of a gift order; its payment, bill and cancel of the whole order are on the gift order.
+      giftOrderId: o.gift_order_id ?? null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
@@ -1378,5 +1389,7 @@ devRouter.post(
     res.json({ ok: true })
   }),
 )
+
+devRouter.use(devGifts)
 
 devRouter.post('/reconcile', asyncHandler(async (_req, res) => res.json({ reconciled: await reconcilePendingPayments({ minAgeSeconds: 0 }) })))
