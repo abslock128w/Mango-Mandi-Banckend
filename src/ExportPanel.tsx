@@ -29,7 +29,7 @@ const BY_DATE: ReadonlySet<ExportKind> = new Set<ExportKind>(['orders', 'order-l
  * exports, whether the range is the placed or the delivery date. Shown only to
  * managers while exports are switched on.
  */
-export function ExportPanel({ kinds, title = 'Export to CSV' }: { kinds: ExportKind[]; title?: string }) {
+export function ExportPanel({ kinds }: { kinds: ExportKind[] }) {
   const { me } = useSession()
   const uid = useId()
   const [kind, setKind] = useState<ExportKind>(kinds[0])
@@ -42,7 +42,7 @@ export function ExportPanel({ kinds, title = 'Export to CSV' }: { kinds: ExportK
   const params = { from, to, ...(byDate ? { by } : {}) }
   return (
     <section className="card export-panel" aria-labelledby={`${uid}-h`}>
-      <h2 id={`${uid}-h`}>{title}</h2>
+      <h2 id={`${uid}-h`}>Download as CSV</h2>
       <p className="muted small">
         Up to {EXPORT_MAX_DAYS} days at a time. Customer ids only: no phone numbers or addresses. Every export is recorded in the activity log.
       </p>

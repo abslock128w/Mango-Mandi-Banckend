@@ -49,7 +49,7 @@ export default function Reviews() {
       </div>
       {moderator && <Queue />}
       <Insights />
-      <ExportPanel kinds={['reviews']} title="Export reviews" />
+      <ExportPanel kinds={['reviews']} />
     </>
   )
 }

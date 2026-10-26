@@ -99,14 +99,14 @@ test('an operator finds a customer by phone, sees the masked number, reveals it 
   // Exports are for managers only: no export card for an operator.
   await page.goto('/orders')
   await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Export orders' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
 })
 
 test('a manager’s export card checks the range before anything is sent', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 })
   await staff(page, 'MANAGER')
   await page.goto('/orders')
-  const card = page.getByRole('region', { name: 'Export orders' })
+  const card = page.getByRole('region', { name: 'Download as CSV' })
   await expect(card).toBeVisible()
   await card.getByLabel('What').selectOption({ label: 'Order lines' })
   await card.getByLabel('From').fill('2026-01-01')
@@ -120,9 +120,9 @@ test('a manager’s export card checks the range before anything is sent', async
   await expect(card.getByLabel('Dates are')).toBeVisible()
   await scan(page, 'export card')
   await noSideScroll(page)
-  for (const [path, name] of [['/claims', 'Export claims'], ['/reviews', 'Export reviews'], ['/bulk-deals', 'Export Bulk Deals orders'], ['/analytics', 'Export payments and refunds']]) {
+  for (const [path, button] of [['/claims', 'Download Claims CSV'], ['/reviews', 'Download Reviews CSV'], ['/bulk-deals', 'Download Bulk Deals orders CSV'], ['/analytics', 'Download Payments CSV']]) {
     await page.goto(path)
-    await expect(page.getByRole('region', { name })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Download as CSV' }).getByRole('button', { name: button })).toBeVisible()
   }
 })
 
@@ -140,7 +140,7 @@ test('a packer has no customer search and no profile link; with the features off
   await expect(off.getByRole('link', { name: 'Customer profile' })).toHaveCount(0)
   await expect(off.getByRole('region', { name: 'Bill' })).toHaveCount(0)
   await off.goto('/orders')
-  await expect(off.getByRole('region', { name: 'Export orders' })).toHaveCount(0)
+  await expect(off.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
   const nav = off.getByRole('navigation', { name: 'Main' })
   // The Customers group on desktop; the Menu on a phone.
   await (info.project.name === 'phone' ? off.getByRole('button', { name: 'Menu' }) : nav.getByRole('button', { name: 'Customers' })).click()

@@ -155,7 +155,7 @@ test('a business pays, downloads its bill; a manager downloads it, opens the pro
 
   // An orders export for the last 30 days holds this order, with customer ids, not phone numbers.
   await panel.goto(`${PANEL}/orders`)
-  const exportCard = panel.getByRole('region', { name: 'Export orders' })
+  const exportCard = panel.getByRole('region', { name: 'Download as CSV' })
   const [csv] = await Promise.all([panel.waitForEvent('download'), exportCard.getByRole('button', { name: 'Download Orders CSV' }).click()])
   const rows = await readFile((await csv.path())!, 'utf8')
   expect(rows.split('\n')[0]).toMatch(/^"order","placed_at",/)

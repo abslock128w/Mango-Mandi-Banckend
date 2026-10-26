@@ -155,7 +155,7 @@ export default function Orders() {
           </div>
         </>
       )}
-      <ExportPanel kinds={['orders', 'order-lines']} title="Export orders" />
+      <ExportPanel kinds={['orders', 'order-lines']} />
     </>
   )
 }

@@ -152,7 +152,7 @@ export default function BulkDeals() {
           Orders already placed keep the price they were sold at.
         </p>
       </section>
-      <ExportPanel kinds={['bulk-orders']} title="Export Bulk Deals orders" />
+      <ExportPanel kinds={['bulk-orders']} />
     </>
   )
 }

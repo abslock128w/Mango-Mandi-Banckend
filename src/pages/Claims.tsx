@@ -60,7 +60,7 @@ export default function Claims() {
       )}
 
       {resolving && <ResolveDialog claim={resolving} onClose={() => setResolving(null)} />}
-      <ExportPanel kinds={['claims']} title="Export claims" />
+      <ExportPanel kinds={['claims']} />
     </>
   )
 }

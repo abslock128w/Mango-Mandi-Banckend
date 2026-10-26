@@ -176,7 +176,7 @@ export default function Analytics() {
           </section>
         </>
       )}
-      <ExportPanel kinds={['payments', 'refunds']} title="Export payments and refunds" />
+      <ExportPanel kinds={['payments', 'refunds']} />
     </>
   )
 }
