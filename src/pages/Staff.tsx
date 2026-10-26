@@ -6,6 +6,7 @@ import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime, rupees } from '../for
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import { useStepUp } from '../StepUp'
+import { DailySummaryCard } from './DailySummary'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
 import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
@@ -24,6 +25,8 @@ export default function Staff() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['staff'], queryFn: api.staff })
+  // The evening WhatsApp summary (MANAGER_DAILY_SUMMARY): who gets it, and my own setting.
+  const summaryOn = me?.role === 'MANAGER' && Boolean(me.features?.managerDailySummary)
   // Staff changes may ask the manager to confirm it is them (SEC-07).
   const stepUp = useStepUp()
   const [adding, setAdding] = useState(false)
@@ -112,6 +115,7 @@ export default function Staff() {
                   <th>Email</th>
                   <th>Role</th>
                   <th>Two-step</th>
+                  {summaryOn && <th>Evening summary</th>}
                   <th>Added</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -149,6 +153,7 @@ export default function Staff() {
                         </select>
                       </td>
                       <td>{s.twoStep ? 'On' : 'Off'}</td>
+                      {summaryOn && <td>{s.role === 'MANAGER' ? (s.dailySummary ? 'On' : 'Off') : '—'}</td>}
                       <td>{dateTime(s.createdAt)}</td>
                       <td>
                         <div className="btn-row">
@@ -187,6 +192,8 @@ export default function Staff() {
           ))}
         </ul>
       </section>
+
+      {summaryOn && <DailySummaryCard />}
 
       <Activity />
 

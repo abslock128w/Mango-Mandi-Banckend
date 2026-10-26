@@ -6,6 +6,8 @@ import { date, rupees } from '../format'
 import type { AnalyticsWeek } from '../types'
 import { ExportPanel } from '../ExportPanel'
 import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
+import { useSession } from '../session'
+import { FunnelSection } from './Funnel'
 
 const pct = (r: number | null) => (r == null ? '—' : `${Math.round(r * 1000) / 10}%`)
 /** Whole rupees, for tiles where paise only add noise. */
@@ -19,6 +21,9 @@ export default function Analytics() {
   const from = params.get('from') || null
   const to = params.get('to') || null
   const q = useQuery({ queryKey: ['analytics', from, to], queryFn: () => api.analytics({ from, to }) })
+  // The shop funnel (FUNNEL_ANALYTICS): managers only, while the switch is on.
+  const { me } = useSession()
+  const showFunnel = me?.role === 'MANAGER' && Boolean(me.features?.funnelAnalytics)
 
   function set(key: string, value: string) {
     const p = new URLSearchParams(params)
@@ -176,6 +181,7 @@ export default function Analytics() {
           </section>
         </>
       )}
+      {showFunnel && <FunnelSection />}
       <ExportPanel kinds={['payments', 'refunds']} />
     </>
   )

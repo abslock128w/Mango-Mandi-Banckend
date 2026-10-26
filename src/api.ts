@@ -62,6 +62,11 @@ import type {
   Role,
   StaffMember,
   Summary,
+  DailySummaryPreview,
+  DailySummarySetting,
+  Funnel,
+  ReferralList,
+  ReferralStatus,
 } from './types'
 
 export const API_URL: string = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
@@ -449,6 +454,12 @@ export const api = {
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>, reason?: string) =>
     request<void>('POST', `/claims/${id(claimId)}/resolve`, reason ? { resolution, reason } : { resolution }),
 
+  // Growth (docs/growth.md), managers only; each answers 404 while its switch is off.
+  referrals: (status?: ReferralStatus | null) => request<ReferralList>('GET', `/referrals${qs({ status })}`),
+  funnel: (f: { from?: string | null; to?: string | null } = {}) => request<Funnel>('GET', `/analytics/funnel${qs(f)}`),
+  dailySummarySetting: () => request<DailySummarySetting>('GET', '/me/daily-summary'),
+  saveDailySummarySetting: (body: { optedIn: boolean; phone?: string }) => request<DailySummarySetting>('PUT', '/me/daily-summary', body),
+  dailySummaryPreview: () => request<DailySummaryPreview>('GET', '/daily-summary/preview'),
   promos: () => request<Promo[]>('GET', '/promos'),
   addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),
   updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
