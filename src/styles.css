@@ -878,6 +878,12 @@ abbr[title] {
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
+/* A list of tiles (the customer profile's summary): no bullets, no indent. */
+ul.tiles {
+  list-style: none;
+  padding: 0;
+  margin-top: 0;
+}
 .tile {
   display: block;
   background: var(--surface);
