@@ -8,6 +8,7 @@ import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { ConfirmDialog, Dialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
+import { useCare } from '../features'
 import { OrderReviews } from './Review'
 
 const TONE: Partial<Record<OrderStatus, string>> = {
@@ -127,6 +128,8 @@ function OrderView({ order }: { order: Order }) {
   // The money went back (FE-6): the total row says so rather than "Total".
   const refunded = order.refundStatus === 'REFUNDED' || order.paymentStatus === 'REFUNDED'
   const help = helpLink(`Help with order ${order.number}`)
+  // The help centre (docs/care.md): a question about this order, answered in the shop.
+  const care = useCare()
   // A thank-you once the payment goes through: seen here, or already done when checkout hands over.
   const [thanks, setThanks] = useState(() => Boolean(arrived?.placed) && paid && order.status !== 'CANCELLED')
   // After a cancel or a payment the button that was pressed is gone: move focus to the outcome.
@@ -453,12 +456,18 @@ function OrderView({ order }: { order: Order }) {
       {/* UX-1: always a way to reach us; production builds always have the WhatsApp number. */}
       <p className="small muted center">
         Need help with this order?{' '}
+        {care.helpCentre && (
+          <>
+            <Link to={`/help/requests?order=${encodeURIComponent(order.id)}`}>Ask us about this order</Link>
+            {help ? ' or ' : '.'}
+          </>
+        )}
         {help ? (
           <a href={help} target="_blank" rel="noopener noreferrer">
             Message us on WhatsApp<span className="sr-only"> (opens WhatsApp)</span>
           </a>
         ) : (
-          <Link to="/help">See how to reach us</Link>
+          !care.helpCentre && <Link to="/help">See how to reach us</Link>
         )}
       </p>
 

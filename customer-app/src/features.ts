@@ -11,3 +11,9 @@ export function useFeatures(): ShopFeatures {
   const q = useQuery(policyQuery())
   return { ...FEATURES_OFF, ...(q.data?.features ?? {}) }
 }
+
+/** Customer care (docs/care.md): the help centre and season subscriptions, as /v1/policy says. Off until it answers. */
+export function useCare(): { helpCentre: boolean; subscriptions: boolean; subscriptionsOpen: boolean } {
+  const q = useQuery(policyQuery())
+  return { helpCentre: false, subscriptions: false, subscriptionsOpen: false, ...(q.data?.care ?? {}) }
+}

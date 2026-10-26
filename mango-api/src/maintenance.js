@@ -40,6 +40,7 @@ import { settleReferrals } from './referrals.js'
 import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
+import { runSubscriptionJobs } from './subscriptions.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -342,6 +343,8 @@ async function steps(forceAll) {
   // managers' evening summary. Both queue WhatsApp messages, so they run before the send step.
   if (isOn('REFERRALS')) out.referrals = await step('referrals', () => settleReferrals())
   if (isOn('MANAGER_DAILY_SUMMARY')) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
+  // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
+  if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Browser notifications for the same order steps (WEB_PUSH, push.js).
   if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })

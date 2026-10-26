@@ -108,6 +108,28 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [me.id])
   await c.query("UPDATE push_messages SET status = 'SKIPPED', last_error = 'account deleted' WHERE customer_id = $1 AND status = 'PENDING'", [me.id])
   await c.query('DELETE FROM customer_favourites WHERE customer_id = $1', [me.id])
+  // Customer care (docs/care.md): what they wrote in help requests goes (the shop's replies may quote it, so those go too);
+  // subscriptions stop and lose the address; messages queued about either are not sent.
+  await c.query(
+    `UPDATE help_messages SET body = '(removed when the account was deleted)' WHERE ticket_id IN (SELECT id FROM help_tickets WHERE customer_id = $1)`,
+    [me.id],
+  )
+  await c.query(`UPDATE help_tickets SET status = 'RESOLVED', resolved_at = COALESCE(resolved_at, $2), resolved_by = COALESCE(resolved_by, 'account deleted') WHERE customer_id = $1`, [me.id, now()])
+  await c.query(
+    `UPDATE subscriptions SET status = 'CANCELLED', cancelled_at = COALESCE(cancelled_at, $2), customer_name = NULL, delivery_address = '', updated_at = $2 WHERE customer_id = $1`,
+    [me.id, now()],
+  )
+  await c.query(
+    `UPDATE subscription_cycles SET status = 'CANCELLED', note = 'Account deleted', updated_at = $2
+      WHERE status = 'DUE' AND subscription_id IN (SELECT id FROM subscriptions WHERE customer_id = $1)`,
+    [me.id, now()],
+  )
+  await c.query(
+    `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END
+      WHERE help_ticket_id IN (SELECT id FROM help_tickets WHERE customer_id = $1)
+         OR subscription_cycle_id IN (SELECT y.id FROM subscription_cycles y JOIN subscriptions s ON s.id = y.subscription_id WHERE s.customer_id = $1)`,
+    [me.id],
+  )
   if (me.phone) {
     await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
     await c.query('DELETE FROM wa_inbound WHERE phone = $1', [me.phone])

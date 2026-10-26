@@ -8,6 +8,7 @@ import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 import { MyReviews } from './Review'
 import { FavouritesCard, NotificationsCard } from './AppFeelCards'
 import { ReferralCard } from './Referral'
+import { YourSubscriptions } from './Subscriptions'
 
 export default function Account() {
   const { profile } = useStore()
@@ -56,6 +57,7 @@ export default function Account() {
       </section>
 
       <ReferralCard />
+      <YourSubscriptions />
 
       <FavouritesCard />
 

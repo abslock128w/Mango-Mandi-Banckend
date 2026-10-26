@@ -37,8 +37,8 @@ export const PANEL_SWITCHES = [
   { key: 'MANAGER_DAILY_SUMMARY', label: 'Daily summary', description: 'A WhatsApp message to managers each evening with the day’s numbers.' },
   { key: 'STOCK_FORECAST', label: 'Stock forecast', description: 'The “boxes to buy” suggestion on the Planning page (managers).' },
   { key: 'PURCHASE_RECORDS', label: 'Farms and purchases', description: 'Farms, what each batch cost, and margins (costs are for managers only).' },
-  { key: 'HELP_CENTRE', label: 'Help centre', description: 'The help pages and contact form in the shop.' },
-  { key: 'SUBSCRIPTIONS', label: 'Subscriptions', description: 'Customers can get a box on a repeating schedule.' },
+  { key: 'HELP_CENTRE', label: 'Help centre', description: 'Customers ask for help from an order or the Help page; staff answer on the Help desk.' },
+  { key: 'SUBSCRIPTIONS', label: 'Subscriptions', description: 'A box every week or fortnight in the season, each one paid for as a normal order (no auto-debit).' },
   { key: 'MULTI_GIFT', label: 'Gifts to many addresses', description: 'One order can send gift boxes to several addresses.' },
   { key: 'SHOP_LANGUAGES', label: 'Shop languages', description: 'Customers can read the shop in another language.' },
 ]

@@ -68,6 +68,8 @@ export interface ShopPolicy {
   features?: ShopFeatures
   /** With "Send to many" on: the most recipients one gift order may have. */
   multiGiftMaxRecipients?: number
+  /** Customer care (docs/care.md): present only while the help centre or subscriptions are on. */
+  care?: { helpCentre: boolean; subscriptions: boolean; subscriptionsOpen: boolean }
 }
 /** Which app-feel parts the API has switched on. */
 export interface ShopFeatures {
@@ -386,6 +388,94 @@ export interface Order {
   /** Live tracking (when switched on): set only while out for delivery with a rider. */
   tracking?: Tracking | null
 }
+// ---------- Customer care (docs/care.md) ----------
+
+export type HelpStatus = 'OPEN' | 'WAITING_CUSTOMER' | 'RESOLVED'
+export interface HelpTopic {
+  id: string
+  label: string
+}
+/** GET /v1/me/help: the topics to choose from and the limits the form shows. */
+export interface HelpSetup {
+  topics: HelpTopic[]
+  messageMax: number
+  firstMessageMin: number
+  dailyLimit: number
+}
+export interface HelpRequestSummary {
+  id: string
+  number: string
+  topic: string
+  topicLabel: string
+  status: HelpStatus
+  order: { id: string; number: string | null } | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  lastMessage?: { from: 'MandiMangoes' | 'You'; preview: string; at: string }
+}
+export interface HelpRequest extends HelpRequestSummary {
+  messages: { id: string; from: 'MANDIMANGOES' | 'YOU'; body: string; at: string }[]
+}
+
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'ENDED'
+export type Frequency = 'WEEKLY' | 'FORTNIGHTLY'
+export interface SubscriptionCycle {
+  id: string
+  scheduledFor: string
+  deliveryDate: string | null
+  slotId: string | null
+  status: 'DUE' | 'ORDERED' | 'SKIPPED' | 'MISSED' | 'CANCELLED'
+  note: string | null
+  order: { id: string; number: string; status: OrderStatus; paymentStatus: string; holdExpiresAt: string | null } | null
+  /** Pay is offered: set up, not paid, the subscription running and a day still left. */
+  canPay: boolean
+  paid: boolean
+  awaitingPayment: boolean
+}
+export interface Subscription {
+  id: string
+  number: string
+  status: SubscriptionStatus
+  sku: string
+  productName: string
+  unitPrice: number | null
+  stage: Stage
+  qty: number
+  frequency: Frequency
+  /** ISO weekday, 1 = Monday … 7 = Sunday. */
+  weekday: number
+  firstDate: string
+  endDate: string
+  slotId: string | null
+  address: { name: string | null; address: string; pincode: string } | null
+  pincode: string
+  createdAt: string
+  pausedAt: string | null
+  cancelledAt: string | null
+  cycles: SubscriptionCycle[]
+  /** The next dates not set up yet: what can be skipped ahead of time. */
+  upcoming: string[]
+  history?: { action: string; reason: string | null; at: string }[]
+}
+export interface SubscriptionList {
+  items: Subscription[]
+  /** Whether a new subscription can start (the season has not ended). */
+  open: boolean
+  seasonEnd: string | null
+  leadDays: number
+}
+export interface NewSubscription {
+  sku: string
+  stage: Stage
+  qty: number
+  frequency: Frequency
+  weekday: number
+  slotId: string | null
+  addressId: string
+  endDate: string
+}
+
 export interface SavedAddress {
   id: string
   name: string | null
@@ -853,6 +943,22 @@ export const api = {
   addStockAlert: (input: { sku: string; stage: Stage; pincode: string }) => request<StockAlert>('POST', '/stock-alerts', input),
   removeStockAlert: (alertId: string) => request<void>('DELETE', `/stock-alerts/${id(alertId)}`),
   addresses: () => request<SavedAddress[]>('GET', '/me/addresses'),
+  // Customer care (docs/care.md): help requests and season subscriptions, the caller's own only.
+  helpSetup: () => request<HelpSetup>('GET', '/me/help'),
+  helpRequests: () => request<{ items: HelpRequestSummary[] }>('GET', '/me/help/requests'),
+  helpRequest: (requestId: string) => request<HelpRequest>('GET', `/me/help/requests/${id(requestId)}`),
+  openHelpRequest: (input: { topic: string; orderId: string | null; message: string }) => request<HelpRequest>('POST', '/me/help/requests', input),
+  replyHelpRequest: (requestId: string, message: string) => request<HelpRequest>('POST', `/me/help/requests/${id(requestId)}/messages`, { message }),
+  subscriptions: () => request<SubscriptionList>('GET', '/me/subscriptions'),
+  subscription: (subId: string) => request<Subscription>('GET', `/me/subscriptions/${id(subId)}`),
+  subscribe: (input: NewSubscription) => request<Subscription>('POST', '/me/subscriptions', input),
+  pauseSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/pause`),
+  resumeSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/resume`),
+  cancelSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/cancel`),
+  skipDelivery: (subId: string, scheduledFor: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/skip`, { scheduledFor }),
+  /** Makes (or hands back) the ordinary unpaid order for one delivery; it is paid for on its order page. */
+  payDelivery: (subId: string, cycleId: string, idempotencyKey: string) =>
+    request<Confirmed>('POST', `/me/subscriptions/${id(subId)}/cycles/${id(cycleId)}/pay`, {}, { 'Idempotency-Key': idempotencyKey }),
   forgetAddress: (addressId: string) => request<void>('DELETE', `/me/addresses/${id(addressId)}`),
   claims: () => request<Claim[]>('GET', '/claims'),
   raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoIds: string[] }) =>

@@ -140,6 +140,22 @@ const schema = z.object({
   MANAGER_SUMMARY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM, 24-hour, IST').default('20:00'),
   // The approved Meta template's full name (no prefix is added).
   MANAGER_SUMMARY_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/).default('mandimangoes_daily_summary'),
+  // Customer care (docs/care.md). Each is off unless set, so each can be rolled back on its own.
+  // HELP_CENTRE: signed-in customers open help requests (about an order, or general) and follow
+  // a message thread with the shop; staff answer them on the panel's Help desk.
+  HELP_CENTRE: flag(),
+  // New help requests one customer may open in 24 hours.
+  HELP_DAILY_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
+  // SUBSCRIPTIONS: a box every week or fortnight until the season ends. No auto-debit: before
+  // each delivery the customer is reminded and pays for that box as an ordinary order.
+  SUBSCRIPTIONS: flag(),
+  // The last day a subscription may run to (YYYY-MM-DD). Unset: subscriptions can't be started.
+  SUBSCRIPTION_SEASON_END: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'SUBSCRIPTION_SEASON_END must be YYYY-MM-DD').optional(),
+  // How many days before a delivery its cycle is set up and the "pay for this box" reminder goes out.
+  SUBSCRIPTION_LEAD_DAYS: z.coerce.number().int().min(1).max(5).default(2),
+  // WhatsApp for both: mandi_help_reply and mandi_subscription_due. Turn on once Meta approves them;
+  // until then customers see replies and reminders in the shop (and as browser notifications with WEB_PUSH).
+  WHATSAPP_CARE_UPDATES: flag(),
   // Stocktake (cycle count) sessions and their review (docs/warehouse/STOCKTAKE.md). Needs WAREHOUSE_V2.
   WAREHOUSE_STOCKTAKE: z
     .enum(['true', 'false'])

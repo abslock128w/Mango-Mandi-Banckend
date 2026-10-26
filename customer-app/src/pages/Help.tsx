@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { STAGE_HINT, STAGE_LABEL, helpLink, helpNumber } from '../format'
 import { policyQuery } from '../queries'
+import { useCare } from '../features'
 import type { Stage } from '../api'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -36,6 +37,18 @@ export function SupportContact() {
   )
 }
 
+/** The help centre (docs/care.md): ask a question in the shop and follow the reply there. Only while it is on. */
+function AskInShop() {
+  const care = useCare()
+  if (!care.helpCentre) return null
+  return (
+    <p>
+      <Link to="/help/requests">Ask us a question</Link> here in the shop and follow our reply under your account. Asking about an order? Use
+      "Ask us about this order" on its page. Mangoes damaged or missing? Report it from the order page instead, so we can send a replacement.
+    </p>
+  )
+}
+
 export default function Help() {
   const policy = usePolicy().data
   const hours = policy?.claimWindowHours
@@ -45,6 +58,7 @@ export default function Help() {
       <p className="lead">How ordering from MandiMangoes works, and how to reach us.</p>
 
       <h2>Talk to us</h2>
+      <AskInShop />
       <SupportContact />
 
       <h2>How ordering works</h2>

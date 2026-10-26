@@ -44,6 +44,8 @@ import { moveFavourites } from './favourites.js'
 import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
+import { care } from './care-routes.js'
+import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
 
@@ -376,6 +378,11 @@ router.get('/policy', (_req, res) => {
       multiGift: isOn('MULTI_GIFT'),
     },
     ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
+    // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
+    // Named only while one is on, so an API with both off answers as before.
+    ...(isOn('HELP_CENTRE') || isOn('SUBSCRIPTIONS')
+      ? { care: { helpCentre: isOn('HELP_CENTRE'), subscriptions: isOn('SUBSCRIPTIONS'), subscriptionsOpen: subscriptionsOpen() } }
+      : {}),
   })
 })
 
@@ -446,6 +453,8 @@ router.use(appFeel)
 router.use(growthMe)
 // Bulk and corporate gifting (MULTI_GIFT): /gifts..., the caller's own gift orders only.
 router.use(customerGifts)
+// Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
+router.use(care)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -605,6 +614,19 @@ router.get(
            FROM bills b JOIN orders o ON o.id = b.order_id WHERE o.customer_id = $1 ORDER BY b.issued_at`,
       ),
       favourites: await all('SELECT sku, created_at FROM customer_favourites WHERE customer_id = $1 ORDER BY created_at'),
+      // Help requests with every message in them, and subscriptions with their deliveries (docs/care.md).
+      helpRequests: await all(
+        `SELECT t.number, t.topic, t.status, t.order_id, t.created_at, t.resolved_at,
+                (SELECT json_agg(json_build_object('from', CASE m.author WHEN 'STAFF' THEN 'MandiMangoes' ELSE 'you' END, 'message', m.body, 'at', m.created_at) ORDER BY m.created_at)
+                   FROM help_messages m WHERE m.ticket_id = t.id) AS messages
+           FROM help_tickets t WHERE t.customer_id = $1 ORDER BY t.created_at`,
+      ),
+      subscriptions: await all(
+        `SELECT s.number, s.sku, s.stage, s.qty, s.frequency, s.first_date, s.end_date, s.status, s.customer_name, s.delivery_address, s.pincode, s.created_at,
+                (SELECT json_agg(json_build_object('scheduledFor', y.scheduled_for, 'deliveryDate', y.delivery_date, 'status', y.status, 'orderId', y.order_id) ORDER BY y.scheduled_for)
+                   FROM subscription_cycles y WHERE y.subscription_id = s.id) AS deliveries
+           FROM subscriptions s WHERE s.customer_id = $1 ORDER BY s.created_at`,
+      ),
       // Which push service each browser uses and when; the endpoint and keys are capabilities, not data about the customer.
       notificationBrowsers: (await query('SELECT endpoint, created_at, last_sent_at FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at', [id])).rows.map(
         (r) => ({ pushService: new URL(r.endpoint).host, createdAt: r.created_at, lastSentAt: r.last_sent_at }),
@@ -686,6 +708,9 @@ router.post(
       // Hearts and notification browsers come along too (docs/app-feel.md); without this the delete below would fail on them.
       await moveFavourites(c, me.id, target.id)
       await movePushSubscriptions(c, me.id, target.id)
+      // Help requests and subscriptions (docs/care.md) come along too.
+      await c.query('UPDATE help_tickets SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE subscriptions SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
@@ -993,6 +1018,46 @@ async function startPayment(order, key) {
     throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
   }
 }
+
+/**
+ * Pays for one delivery of a subscription (SUBSCRIPTIONS, docs/care.md): makes
+ * the ordinary unpaid order for it (subscriptions.js orderCycle: the checkout's
+ * unpaid-order limits, capacity, slot and stock rules) and starts its payment
+ * exactly as checkout does. Needs an Idempotency-Key: a retry replays the order
+ * instead of making a second one. The answer is checkout's.
+ */
+router.post(
+  '/me/subscriptions/:id/cycles/:cycleId/pay',
+  asyncHandler(async (req, res) => {
+    if (!isOn('SUBSCRIPTIONS')) throw notFound()
+    const rawKey = req.get('Idempotency-Key')
+    if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    const key = `${req.customer.id}:sub:${rawKey}`
+    const hash = requestHash({ subscriptionId: req.params.id, cycleId: req.params.cycleId })
+    const existing = () => replayFor(key, hash, 'orders')
+    const replay = await existing()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) {
+      if (!startedLongAgo(replay)) throw startingPayment()
+      return res.status(200).json(confirmResponse(await startPayment(replay, key)))
+    }
+    if (replay) return res.status(200).json(confirmResponse(replay))
+    const out = await tx(async (c) => {
+      const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
+      if (!ins.rowCount) return null
+      const r = await orderCycle(c, { customerId: req.customer.id, subscriptionId: req.params.id, cycleId: req.params.cycleId }, req.actor)
+      await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, r.order.id])
+      return r
+    })
+    if (!out) {
+      const first = await existing()
+      if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
+      return res.status(200).json(confirmResponse(first))
+    }
+    // A payment already started for this delivery and still held: carry on with it.
+    if (out.existing) return res.status(200).json(confirmResponse(out.order.razorpay_order_id ? out.order : await startPayment(out.order, key)))
+    res.status(201).json(confirmResponse(await startPayment(out.order, key)))
+  }),
+)
 
 // ---------------------------------------------------------------- orders
 

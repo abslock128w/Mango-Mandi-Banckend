@@ -28,6 +28,10 @@ const Quality = lazy(() => import('./pages/Quality'))
 const Help = lazy(() => import('./pages/Help'))
 const Terms = lazy(() => import('./pages/Terms'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
+const HelpRequests = lazy(() => import('./pages/HelpRequests'))
+const HelpRequestPage = lazy(() => import('./pages/HelpRequests').then((m) => ({ default: m.HelpRequestPage })))
+const NewSubscription = lazy(() => import('./pages/Subscriptions').then((m) => ({ default: m.NewSubscription })))
+const SubscriptionPage = lazy(() => import('./pages/Subscriptions').then((m) => ({ default: m.SubscriptionPage })))
 const BulkDeal = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealPage })))
 const InvitePage = lazy(() => import('./pages/Referral').then((m) => ({ default: m.InvitePage })))
 const GiftMany = lazy(() => import('./pages/GiftMany'))
@@ -69,6 +73,10 @@ function routeTitle(path: string) {
   if (path === '/privacy') return 'Privacy notice'
   if (path === '/quality') return 'How we pick and check'
   if (path === '/help') return 'Help'
+  if (path === '/help/requests') return 'Ask us a question'
+  if (/^\/help\/requests\/[^/]+$/.test(path)) return 'Your question'
+  if (path === '/account/subscriptions/new') return 'Start a subscription'
+  if (/^\/account\/subscriptions\/[^/]+$/.test(path)) return 'Your subscription'
   if (path === '/terms') return 'Terms of sale'
   if (path === '/account') return 'Your account'
   if (path === '/checkout') return 'Delivery details'
@@ -113,7 +121,7 @@ export default function App() {
   useFunnel()
 
   useEffect(() => {
-    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info', 'gift-order', 'gift-orders'].includes(String(q.queryKey[0])) })
+    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info', 'gift-order', 'gift-orders', 'help-requests', 'help-request', 'subscriptions', 'subscription', 'subscription-slots'].includes(String(q.queryKey[0])) })
     window.addEventListener(SIGNOUT_EVENT, onOut)
     return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
   }, [queryClient])
@@ -203,6 +211,10 @@ export default function App() {
           <Route path="/help" element={<Page><Help /></Page>} />
           <Route path="/terms" element={<Page><Terms /></Page>} />
           <Route path="/account" element={<RequireSignIn><Page><Account /></Page></RequireSignIn>} />
+          <Route path="/help/requests" element={<RequireSignIn><Page><HelpRequests /></Page></RequireSignIn>} />
+          <Route path="/help/requests/:id" element={<RequireSignIn><Page><HelpRequestPage /></Page></RequireSignIn>} />
+          <Route path="/account/subscriptions/new" element={<RequireSignIn><Page><NewSubscription /></Page></RequireSignIn>} />
+          <Route path="/account/subscriptions/:id" element={<RequireSignIn><Page><SubscriptionPage /></Page></RequireSignIn>} />
           <Route path="/checkout" element={<RequireSignIn><Page><Checkout /></Page></RequireSignIn>} />
           <Route path="/orders" element={<RequireSignIn><Page><Orders /></Page></RequireSignIn>} />
           <Route path="/orders/:id" element={<RequireSignIn><Page><OrderPage /></Page></RequireSignIn>} />

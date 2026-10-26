@@ -30,6 +30,7 @@ import { router as ops } from './admin/ops.js'
 import { staffBills } from './bill-routes.js'
 import { router as growth } from './admin/growth.js'
 import { router as gifts } from './admin/gifts.js'
+import { router as care } from './admin/care.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -66,3 +67,4 @@ router.use(customers) // customer profile, phone search and reveal (CUSTOMER_PRO
 router.use(exportsRouter) // CSV exports, manager only (STAFF_EXPORTS_ENABLED)
 router.use(growth) // /referrals, /analytics/funnel, /me/daily-summary, /daily-summary/preview, manager only (docs/growth.md)
 router.use(ops) // stock forecast, farms and purchases, feature switches (docs/ops.md)
+router.use(care) // Help desk (HELP_CENTRE) and Subscriptions (SUBSCRIPTIONS): managers and operators

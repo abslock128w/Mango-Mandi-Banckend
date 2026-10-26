@@ -39,6 +39,8 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     label: 'Customers',
     links: [
       ['/customers', 'Find a customer', 'customers'],
+      ['/help-desk', 'Help desk', 'helpDesk'],
+      ['/subscriptions', 'Subscriptions', 'subscriptions'],
       ['/claims', 'Claims', 'claims'],
       ['/reviews', 'Reviews', 'reviews'],
       ['/pincodes', 'Pincodes', 'pincodes'],
@@ -59,10 +61,12 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
 ]
 
 /** Screens that exist only while the API has their switch on (/auth/me features). */
-function switchedOn(me: Me | null, screen: Screen): boolean {
+function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'customers') return !!me?.features?.customerProfiles
   if (screen === 'farms') return !!me?.features?.purchaseRecords
   if (screen === 'settings') return !!me?.features?.panelSwitches
+  if (screen === 'helpDesk') return !!me?.features?.helpDesk
+  if (screen === 'subscriptions') return !!me?.features?.subscriptions
   return true
 }
 
@@ -88,7 +92,8 @@ export default function Layout() {
   const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
     ...g,
     // Customer profiles only exist while the API has them switched on (/auth/me features).
-    // Farms and Settings only while their switches are on (docs/ops.md).
+    // Farms and Settings only while their switches are on (docs/ops.md), and so do the Help desk and
+    // Subscriptions (docs/care.md).
     links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && switchedOn(me, screen)).map(([to, label]): [string, string] => [to, label]),
   }))
   // The box-tracked warehouse: its group only exists while /auth/me says it is on.

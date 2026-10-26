@@ -233,6 +233,9 @@ me.get(
         ...(isOn('STOCK_FORECAST') ? { stockForecast: true } : {}),
         ...(isOn('PURCHASE_RECORDS') ? { purchaseRecords: true } : {}),
         ...(env.PANEL_FEATURE_SWITCHES ? { panelSwitches: true } : {}),
+        // Customer care (docs/care.md): named only while on, so the panel shows the Help desk and Subscriptions pages.
+        ...(isOn('HELP_CENTRE') ? { helpDesk: true } : {}),
+        ...(isOn('SUBSCRIPTIONS') ? { subscriptions: true } : {}),
       },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),

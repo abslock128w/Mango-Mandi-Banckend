@@ -116,6 +116,16 @@ export const OPERATOR_ROUTES = [
   route('POST', '/reviews/bulk'),
   route('PUT', '/reviews/:id/reply'),
   route('DELETE', '/reviews/:id/reply'),
+  // Customer care (docs/care.md): the Help desk and the Subscriptions list. Replies, resolves,
+  // pauses and cancels are written to the audit in their own transaction (admin/care.js).
+  route('GET', '/help/requests'),
+  route('GET', '/help/requests/:id'),
+  route('POST', '/help/requests/:id/reply'),
+  route('POST', '/help/requests/:id/resolve'),
+  route('POST', '/help/requests/:id/reopen'),
+  route('GET', '/subscriptions'),
+  route('POST', '/subscriptions/:id/pause'),
+  route('POST', '/subscriptions/:id/cancel'),
   ...warehouseFor('OPERATOR'),
 ]
 

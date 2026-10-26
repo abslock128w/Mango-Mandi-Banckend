@@ -36,6 +36,11 @@ import type {
   SignInResult,
   Promo,
   NewPromo,
+  HelpInbox,
+  HelpRequestDetail,
+  HelpStatus,
+  HelpTopic,
+  SubscriptionList,
   OrderDetail,
   OrderListItem,
   GiftOrderListItem,
@@ -471,6 +476,18 @@ export const api = {
   dailySummarySetting: () => request<DailySummarySetting>('GET', '/me/daily-summary'),
   saveDailySummarySetting: (body: { optedIn: boolean; phone?: string }) => request<DailySummarySetting>('PUT', '/me/daily-summary', body),
   dailySummaryPreview: () => request<DailySummaryPreview>('GET', '/daily-summary/preview'),
+  // Customer care (docs/care.md): the Help desk and the Subscriptions list, managers and operators.
+  helpRequests: (f: { status?: HelpStatus | null; topic?: HelpTopic | null; q?: string | null } = {}) =>
+    request<HelpInbox>('GET', `/help/requests${qs({ status: f.status ?? undefined, topic: f.topic ?? undefined, q: f.q || undefined })}`),
+  helpRequest: (requestId: string) => request<HelpRequestDetail>('GET', `/help/requests/${id(requestId)}`),
+  replyHelpRequest: (requestId: string, message: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reply`, { message }),
+  resolveHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/resolve`),
+  reopenHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reopen`),
+  subscriptions: (status: 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null = null) => request<SubscriptionList>('GET', `/subscriptions${qs({ status: status ?? undefined })}`),
+  /** Pause or cancel needs a reason (5+ characters); it is kept in the activity log. */
+  pauseSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/pause`, { reason }),
+  cancelSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/cancel`, { reason }),
+
   promos: () => request<Promo[]>('GET', '/promos'),
   addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),
   updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
