@@ -6,7 +6,18 @@
 -- records and the lot lineage of repacked boxes (box_origins). Boxes and
 -- their events stay: a repacked box keeps parent_box_ids and its REPACKED /
 -- REPACK_CREATED events, a box marked missing stays missing, so stock counts
--- stay right. Open stocktake and repack sessions are cancelled first (their
+-- stay right. Boxes made by a repack already count in their lot's label
+-- counts (target, generated, verified), which is how the previous release
+-- counts a lot, so its lot checks, receive scans, added boxes and voids keep
+-- working on those lots (REPACK.md, Rollback).
+--
+-- Before running it: the previous release's lot QC passes every QC-pending box
+-- of a lot by the lot's sample, repacked boxes included. QC (by scan) or hold
+-- every repacked box still waiting for QC first. They are listed by:
+--   SELECT b.id, b.code, l.code AS lot FROM boxes b JOIN box_lots l ON l.id = b.lot_id
+--    WHERE b.parent_box_ids <> '{}' AND b.quality = 'pending' AND b.lifecycle = 'in_stock';
+--
+-- Open stocktake and repack sessions are cancelled first (their
 -- staged boxes dropped: nothing had changed for them). Finished sessions of
 -- the two types stay as history; the type check is restored NOT VALID so
 -- those rows remain readable while no new ones can be started.

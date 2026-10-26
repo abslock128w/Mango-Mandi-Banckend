@@ -55,8 +55,11 @@ while it is picked, packed or dispatched; a box on the floor has a location.
 A repacked box keeps its parents in `boxes.parent_box_ids`, and every lot and
 batch its fruit came from in `box_origins` (a merge links all of them). It
 lives on the lot and stock line of its oldest source, with a sequence number
-above `REPACK_SEQ_BASE` (1,000,000), so intake counts never include it. Trace,
-lot trace and recalls follow both links (`LINEAGE_DOWN` in reports.js).
+above `REPACK_SEQ_BASE` (1,000,000), so intake numbering never meets it, and
+counts in that lot's label counts (target, generated, verified). Trace, lot
+trace and recalls follow both links (`LINEAGE_DOWN` in reports.js). Fruit of
+a condemned or exhausted batch is never repacked; condemning a batch later
+holds the boxes elsewhere that carry its fruit (REPACK.md).
 
 Stocktake findings and reviews are in `wh_stocktake_lines` and
 `wh_stocktake_reviews`; repacks in `wh_repacks` (migration 037).

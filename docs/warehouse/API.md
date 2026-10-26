@@ -36,14 +36,22 @@ a box, lot or location in another warehouse is a 404.
 - `GET /warehouse/settings` adds `features: { stocktake, repack, cameraScan }`,
   `repackReasons`, `repackPlaces` and `damageReasons`.
 - `POST /warehouse/operations/:id/finalize` takes a body only for a repack:
-  `{ outputs: [{ weightG, fruitCount? }], fruitRemoved, weightLostG, note? }`
-  (REPACK.md). A repack source that changed since its scan answers 409
-  STALE_SCAN (`boxes`) and is taken out of the session.
-- `POST /warehouse/stocktakes/:id/review` takes `{ missing: [boxId], keep: [boxId], note? }`
-  covering every box waiting for review; above the D8 limit it answers
-  `status: pending_approval` and `/approve` or `/reject` by a second person
-  decides (STOCKTAKE.md).
-- `POST /warehouse/boxes/:id/damage` takes `{ fruitRemoved?, weightLostG?, reasonCode, reason }`.
+  `{ outputs: [{ weightG, fruitCount? }], fruitRemoved, weightLostG?, note? }`
+  (REPACK.md). A staged box (pack, dispatch or repack) that changed since its
+  scan answers 409 STALE_SCAN (`boxes`), and a repack source whose batch was
+  condemned answers 409 BATCH_OUT_OF_SERVICE; either way the box is taken out
+  of the session, so the next finish goes on without it. Weights that do not
+  add up answer 400 WEIGHT_MISMATCH, fruit counts 400 FRUIT_MISMATCH.
+- `POST /warehouse/stocktakes/:id/review` takes `{ missing: [boxId], keep: [boxId], rest?, note? }`
+  covering every box waiting for review (`rest: 'missing' | 'keep'` decides
+  the ones not listed); the counter gets 403 SELF_REVIEW unless a manager;
+  the answer adds `heldToFind` (kept boxes on orders, now held); above the D8
+  limit it answers `status: pending_approval` and `/approve` or `/reject` by
+  a second person decides (STOCKTAKE.md).
+- `PATCH /admin/v1/batches/:id/status` to CONDEMNED (warehouse on) adds
+  `heldRepackedBoxes`: boxes on other batches holding its fruit, now held.
+- `POST /warehouse/boxes/:id/damage` takes `{ fruitRemoved?, weightLostG?, reasonCode, reason }`
+  (`weightLostG` is required for a box with no fruit count).
 
 ## Routes
 

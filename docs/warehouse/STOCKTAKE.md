@@ -30,13 +30,26 @@ panel: Warehouse → Stocktake, and the Scan screen. Tests:
      with its own event (LOCATION_CORRECTED, FOUND, HOLD_ADDED);
    - a box recorded here and in stock but not scanned becomes a proposed
      `not_found` line; one that is picked, packed or returned becomes
-     `not_found_allocated` (it can only be kept, then looked into);
+     `not_found_allocated` (it can only be kept; see the review);
    - nothing is marked missing yet;
    - stock lines move with the sellable boxes (`on_hand` stays equal to them);
      a shortfall on an order follows the existing shortfall path.
 
 4. **Review** (`POST /warehouse/stocktakes/:id/review`, `warehouse.stocktake`):
-   decide every proposed box as `missing` or `keep`. Up to the D8 limit
+   decide every proposed box as `missing` or `keep`:
+   `{ missing: [boxId], keep: [boxId], rest?: 'missing' | 'keep', note? }`.
+   `rest` decides every box not listed, so a count of thousands of boxes is
+   reviewed in one short request (each list holds at most 2,000 ids and a
+   request body at most 100 kB; the panel switches to `rest` above 500 boxes,
+   listing only the boxes decided the other way). `rest: 'missing'` still
+   keeps the boxes that can only be kept. Without `rest`, every box must be
+   listed. **The counter does not review their own count** (`SELF_REVIEW`,
+   403) unless they are a manager (DECISIONS N2). A kept `not_found_allocated`
+   box (picked, packed or returned, not where it was recorded) gets an
+   **investigation hold** ("Not found in a count of … while on order …") if it
+   has not changed since the count, so its order shows under held boxes on
+   orders and the box under investigations on Warehouse → Exceptions until
+   someone finds it (the response says how many: `heldToFind`). Up to the D8 limit
    (10 boxes and 20 kg) it applies at once; above it, it waits for a second
    person with `adjust.approve` who neither counted nor reviewed it
    (`/approve`, `/reject`; `SELF_APPROVAL` otherwise). Applying marks each box

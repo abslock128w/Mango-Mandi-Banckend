@@ -213,12 +213,16 @@ old for the retry stops for a manager (as when no younger stock is free).
 | # | Decision | Confirm |
 |---|---|---|
 | N1 | Supervisors (OPERATOR) may repack, split, merge and record partial damage (`warehouse.repack`), as they may count and write off. | yes |
-| N2 | The person who counted may also review the count below the D8 limit (both need `warehouse.stocktake`); above it a second person with `adjust.approve`, who neither counted nor reviewed, decides. | yes |
-| N3 | A count marks nothing missing by itself: not-found boxes wait for a review. A box picked, packed or returned but not found can only be kept (take it off its order, or write it off). | yes |
+| N2 | The person who counted does not review their own count (`SELF_REVIEW`), unless they are a manager; below the D8 limit the review applies at once, above it a second person with `adjust.approve`, who neither counted nor reviewed, decides. | yes |
+| N3 | A count marks nothing missing by itself: not-found boxes wait for a review. A box picked, packed or returned but not found can only be kept (take it off its order, or write it off); kept, it gets an investigation hold so the order shows in the exceptions queue. | yes |
 | N4 | A review applies to a box only if nothing changed since the count (version, lifecycle and place); otherwise that box is `superseded` and left alone. Boxes changed by someone else during the count are ignored. | no |
 | N5 | A box scanned in a count that is recorded dispatched, written off, voided, repacked or never received gets an investigation hold; nothing else changes. | yes |
 | N6 | New boxes from a repack need QC again when the product requires QC or any source had not passed; recall and investigation holds follow the fruit; damage and QC holds are what the repack deals with. | yes |
 | N7 | Repacks happen at receiving, QC hold, packing or returns places, never on a storage shelf, so new boxes are not sellable until put away. | yes |
-| N8 | New boxes live on the lot and stock line of their oldest source (earliest best-before, so FEFO holds), numbered above 1,000,000 and excluded from intake counts, and link every lot they contain in `box_origins`. | no |
+| N8 | New boxes live on the lot and stock line of their oldest source (earliest best-before, so FEFO holds), numbered above 1,000,000, and link every lot they contain in `box_origins`. They count in the lot's label counts (target, generated, verified) so the previous release's lot checks hold on rollback. | no |
 | N9 | Camera scanning uses the browser's BarcodeDetector only; no JavaScript QR decoder is bundled. Warehouse phones are Android Chrome (which has it) and hand scanners stay the main tool; a decoder would add bundle weight and a dependency for a fallback. Revisit if iPhones are used on the floor. | yes |
 | N10 | Each part has its own flag, default off: `WAREHOUSE_STOCKTAKE`, `WAREHOUSE_REPACK`, `WAREHOUSE_CAMERA_SCAN` (on top of `WAREHOUSE_V2`). | no |
+| N11 | Fruit of a condemned or exhausted batch never goes into a repack. Condemning a batch later puts an investigation hold on every box elsewhere that holds its fruit. | yes |
+| N12 | A repack's weights must add up: in = new boxes + weight taken out, within the product's weight tolerance of what went in. Left out, weight taken out is recorded as in − out. Fruit counts must add up when every box has one. | yes |
+| N13 | A box has one recall hold; releasing a recall hands each of its boxes to another recall still in force that reaches it (also for one lot in two recalls), instead of freeing it. | no |
+| N14 | Camera scanning suppresses each code for 2 seconds after it was last seen, per code (two labels in view are each sent once). | no |

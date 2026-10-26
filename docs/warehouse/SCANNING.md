@@ -74,10 +74,13 @@ queue until someone presses Continue. The server cannot tell a camera scan
 from a typed one, so every rule above applies unchanged.
 
 - The same code is not sent again while it stays in view, nor within 2 seconds
-  of last being seen (`codeGate`, `src/warehouse/camera.ts`).
+  of last being seen (`codeGate`, `src/warehouse/camera.ts`). Each code keeps
+  its own last sighting, so two labels in view at once (a box and its shelf)
+  are each sent once, not on every frame.
 - The camera starts only when asked, prefers the back camera, and is released
   when the screen closes, when the page is hidden (another tab, phone locked),
-  and on **Stop camera**.
+  and on **Stop camera**, also while the browser is still opening it: a camera
+  that arrives after that is stopped at once and never shown.
 - **Light** (torch) and a camera choice appear only where the device offers them.
 - Without https (`isSecureContext`), without `BarcodeDetector` or its QR
   format, with no camera, or when permission is refused, the screen says why

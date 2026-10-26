@@ -66,6 +66,32 @@ Databases: `localhost:5432/mango_wh_n7_test`, `mango_wh_n7full_test`,
 | Panel, every spec | `PANEL_PORT=5185 PW_CHROMIUM_PATH=/opt/pw-browsers/chromium npx playwright test` | 404 pass, 14 skip, 0 fail (skips: live-API specs, screenshots, the two real-API specs) |
 | Panel on the real API | `tests/warehouse-real.spec.ts` on `mango_wh_n7ui_test`, API on :3013 with every warehouse flag on, no demo data | 2 pass: the original flow, then count, review missing, found again in another place, merge two boxes, labels PDF, books match |
 
+### Warehouse next: review fixes
+
+Two reviews found: condemned fruit could be repacked back into sellable stock;
+a merged box from two recalled lots was freed by releasing one recall; the
+previous release broke on lots holding repacked boxes (rollback); big counts
+could not be reviewed; repack weights were not reconciled; a kept box on an
+order raised nothing; the counter could review their own count; partial damage
+by fruit alone on an uncounted box changed nothing; the camera re-sent two
+codes in view every frame and could start while the page was hidden. All
+fixed (REPACK.md, STOCKTAKE.md, DECISIONS N2, N3, N8, N11–N14). Also fixed: a
+pack or dispatch finish refusing a stale box no longer leaves it staged.
+
+Databases: `localhost:5432/mango_wh_fix_test`, `mango_wh_fixfull_test`, `mango_wh_fixui_test`.
+
+| When | Command | Result |
+|---|---|---|
+| New API tests on the old code | `node --test test/warehouse-next.test.js` with `mango-api/src` stashed | 11 new fail, 11 old pass |
+| New API tests | `node --test test/warehouse-next.test.js` | 22 pass, 0 fail |
+| Previous release on repack data | throwaway probe: 61ac961's `lots.js` and `reports.js` loaded against a database with a split | reconciliation clean, `addBoxes` and `refreshLotCounts` work (with the builder's code: fails) |
+| Related suites, fixtures | warehouse-next, warehouse, warehouse-checks, warehouse-units, auth-matrix, security-readiness, migrations with `UPDATE_ROUTE_INVENTORY=1 UPDATE_ROLE_POLICY=1` | 266 tests: 265 pass, 1 fail (migration numbering gap, 035/036 on other branches); fixtures unchanged |
+| Full API suite | `TEST_DATABASE_URL=…/mango_wh_fixfull_test npm test` | 727 tests: 725 pass, 1 skip, 1 fail (the same numbering gap) |
+| Panel | `npm run lint`, `npm run typecheck`, `npx eslint mango-api/src mango-api/test` | all pass |
+| Panel | `npm run test:unit` | 37 pass, 0 fail (new: per-code camera gate, review body) |
+| Panel | `npx playwright test tests/warehouse-next.spec.ts tests/warehouse.spec.ts` | 76 pass, 2 skip (screenshots); the two new camera specs fail on the old camera code |
+| Panel on the real API | `tests/warehouse-real.spec.ts` on `mango_wh_fixui_test`, API on :3013, every warehouse flag on | 2 pass |
+
 ## Existing tests changed
 
 - `test/flow.test.js`: the exact `/auth/me` body now includes
