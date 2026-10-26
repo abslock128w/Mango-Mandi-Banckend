@@ -5,6 +5,7 @@ import { adminToken, checkout, client, closeAll, customerToken, makeBatch, reset
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
+import { setBudget, withBudget } from '../src/budget.js'
 import { handleInbound } from '../src/chat.js'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
@@ -296,6 +297,65 @@ describe('PAY-08: the daily check of payments Razorpay captured', () => {
       assert.deepEqual(rows.map((r) => r.payment_id), ['pay_forged', 'pay_orphan1'])
       const att = await api.get('/admin/v1/attention', { token: manager })
       assert.equal(att.body.webhookFailures.find((w) => w.paymentId === 'pay_orphan1')?.refundable, true)
+    } finally {
+      rzp.restore()
+    }
+  })
+
+  /** 250 captured payments that match nothing, 100 a page; `cut(skip)` true ends the run's time while that page loads. */
+  function manyPayments(cut) {
+    const all = Array.from({ length: 250 }, (_, i) => ({ id: `pay_bulk${String(i).padStart(3, '0')}`, status: 'captured', amount: 100, currency: 'INR', notes: {} }))
+    return stubRazorpay((method, path) => {
+      if (method !== 'GET' || !path.startsWith('/payments?')) return null
+      const skip = Number(new URLSearchParams(path.split('?')[1]).get('skip'))
+      if (cut(skip)) setBudget(0)
+      return { items: all.slice(skip, skip + 100) }
+    })
+  }
+  const listed = (calls) => calls.filter((x) => x.startsWith('GET /payments?')).map((x) => Number(new URLSearchParams(x.split('?')[1]).get('skip')))
+  const flaggedRows = async () => (await query(`SELECT COUNT(*)::int AS n FROM webhook_failures WHERE event_key LIKE 'recon:pay_bulk%'`)).rows[0].n
+
+  test('a list longer than one run is handled page by page and the next run carries on where it stopped', async () => {
+    let cuts = 0
+    const rzp = manyPayments((skip) => skip === 0 && !cuts++)
+    try {
+      const first = await withBudget(45_000, () => reconcileRecentPayments())
+      assert.deepEqual([first.partial, first.captured, first.flagged], [true, 100, 100], 'the first page is handled before time runs out')
+      later(MIN)
+      const second = await withBudget(45_000, () => reconcileRecentPayments())
+      assert.deepEqual([second.partial, second.captured, second.flagged], [undefined, 150, 150])
+      assert.deepEqual(listed(rzp.calls), [0, 100, 200], 'each page is asked for once, not again from the start')
+      assert.equal(await flaggedRows(), 250)
+      // Done: the next check starts a new window from the first page.
+      later(MIN)
+      const third = await withBudget(45_000, () => reconcileRecentPayments())
+      assert.deepEqual([third.captured, third.flagged], [250, 0])
+      assert.deepEqual(listed(rzp.calls).slice(3), [0, 100, 200])
+    } finally {
+      rzp.restore()
+    }
+  })
+
+  test('in the maintenance run a partial check carries on next minute and is marked done once it gets through', async () => {
+    env.PAYMENT_DAILY_RECON = true
+    const rzp = manyPayments((skip) => skip === 0 || skip === 100)
+    try {
+      let out = await runMaintenance()
+      assert.equal(out.paymentRecon?.partial, true)
+      later(MIN)
+      out = await runMaintenance()
+      assert.equal(out.paymentRecon?.partial, true)
+      later(MIN)
+      out = await runMaintenance()
+      assert.equal(out.paymentRecon?.partial, undefined)
+      assert.equal(await flaggedRows(), 250)
+      later(MIN)
+      out = await runMaintenance()
+      assert.equal(out.paymentRecon, undefined, 'done for the day')
+      assert.deepEqual(listed(rzp.calls), [0, 100, 200])
+      const run = (await query(`SELECT last_ok_at, cursor FROM maintenance_runs WHERE step = 'payment-recon'`)).rows[0]
+      assert.ok(run.last_ok_at)
+      assert.equal(run.cursor, null)
     } finally {
       rzp.restore()
     }

@@ -868,46 +868,77 @@ export const RECON_DAYS = 3
  * - otherwise it is listed once in Needs attention (refundable by a manager).
  * Safe to run again: applying a payment twice is a no-op, and each unmatched
  * payment is listed once. Returns counts; { partial: true } when it ran out
- * of time (the next run starts it again).
+ * of time.
+ *
+ * Razorpay's list is handled page by page, and after each page where it got
+ * to (the window and the offset) is saved in maintenance_runs.cursor. A run
+ * that runs out of time leaves that cursor, so the next run (a minute later:
+ * a partial step is not marked done) carries on with the same window from the
+ * next page instead of starting again. The window is fixed when the check
+ * starts, so payments made since then never shift the pages. A cursor older
+ * than a day is dropped (the new 3-day window covers it).
  */
 export async function reconcileRecentPayments({ at = now(), days = RECON_DAYS } = {}) {
   const out = { captured: 0, applied: 0, flagged: 0 }
   if (!hasKeys() && isProd) return out
-  const from = new Date(at.getTime() - days * 86_400_000)
-  let payments
-  if (hasKeys()) {
-    payments = []
-    for (let skip = 0; ; skip += 100) {
-      if (!canStartCall(GATEWAY_CALL_MS)) return { ...out, partial: true }
-      const page = await razorpay('GET', `/payments?from=${Math.floor(from / 1000)}&to=${Math.floor(at / 1000)}&count=100&skip=${skip}`)
-      const items = gatewayItems(page, 'pay_', 'payment list')
-      payments.push(...items)
-      if (items.length < 100) break
-    }
-  } else {
-    payments = await listGatewayPayments(from, at)
+  if (!hasKeys()) {
+    for (const p of await listGatewayPayments(new Date(at.getTime() - days * 86_400_000), at)) await reconcileOne(p, out)
+    return out
   }
-  for (const p of payments) {
-    if (p.status !== 'captured') continue
-    out.captured++
-    if (await knownPayment(p.id)) continue
-    const orderId = await findOrderId({ query }, p)
-    const preorderId = orderId ? null : await linkListsPayment(p)
-    if (orderId || preorderId) {
-      const r = await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))
-      if (r !== 'rejected') out.applied++
-      await sendDueRefunds(refundsFor({ result: r, orderId, preorderId }))
-      continue
-    }
-    const key = `recon:${p.id}`
-    if ((await query('SELECT 1 FROM webhook_failures WHERE event_key = $1', [key])).rowCount) continue
-    out.flagged++
-    logger.error({ paymentId: p.id }, 'daily payment check: a captured payment matches no order or booking')
-    await recordWebhookFailure(
-      'razorpay', `Daily check: captured payment ${p.id} (${p.amount} paise) matches no order or booking we hold`, key, { query }, p.id,
-    )
+  const saved = await readReconCursor()
+  const cur = saved && at.getTime() - saved.to < 86_400_000 ? saved : { from: at.getTime() - days * 86_400_000, to: at.getTime(), skip: 0 }
+  for (;;) {
+    if (!canStartCall(GATEWAY_CALL_MS)) return { ...out, partial: true }
+    const page = await razorpay('GET', `/payments?from=${Math.floor(cur.from / 1000)}&to=${Math.floor(cur.to / 1000)}&count=100&skip=${cur.skip}`)
+    const items = gatewayItems(page, 'pay_', 'payment list')
+    for (const p of items) await reconcileOne(p, out)
+    if (items.length < 100) break
+    cur.skip += 100
+    await saveReconCursor(cur)
   }
+  if (saved || cur.skip) await saveReconCursor(null)
   return out
+}
+
+const RECON_STEP = 'payment-recon'
+
+async function readReconCursor() {
+  const raw = (await query('SELECT cursor FROM maintenance_runs WHERE step = $1', [RECON_STEP])).rows[0]?.cursor
+  if (!raw) return null
+  try {
+    const c = JSON.parse(raw)
+    return [c.from, c.to, c.skip].every(Number.isSafeInteger) ? c : null
+  } catch {
+    logger.warn('daily payment check: saved place unreadable; starting again')
+    return null
+  }
+}
+
+const saveReconCursor = (cur) =>
+  query(`INSERT INTO maintenance_runs (step, cursor) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET cursor = $2`, [
+    RECON_STEP, cur ? JSON.stringify(cur) : null,
+  ])
+
+/** One payment from Razorpay's list: applied, already ours, or listed once in Needs attention. */
+async function reconcileOne(p, out) {
+  if (p.status !== 'captured') return
+  out.captured++
+  if (await knownPayment(p.id)) return
+  const orderId = await findOrderId({ query }, p)
+  const preorderId = orderId ? null : await linkListsPayment(p)
+  if (orderId || preorderId) {
+    const r = await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r, orderId, preorderId }))
+    return
+  }
+  const key = `recon:${p.id}`
+  if ((await query('SELECT 1 FROM webhook_failures WHERE event_key = $1', [key])).rowCount) return
+  out.flagged++
+  logger.error({ paymentId: p.id }, 'daily payment check: a captured payment matches no order or booking')
+  await recordWebhookFailure(
+    'razorpay', `Daily check: captured payment ${p.id} (${p.amount} paise) matches no order or booking we hold`, key, { query }, p.id,
+  )
 }
 
 /**
