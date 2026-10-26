@@ -5,6 +5,7 @@ import { now } from './clock.js'
 import { conflict, notFound } from './errors.js'
 import { scrubCustomerReviews } from './reviews.js'
 import { ORDER_AUDIT_PERSONAL_KEYS } from './access.js'
+import { removeBillBuyers } from './bills.js'
 
 /**
  * SEC-R3: the staff audit rows of these orders lose the delivery details they
@@ -64,6 +65,8 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
     [me.id],
   )
   await scrubOrderAudit(c, `SELECT id FROM orders WHERE customer_id = $1`, [me.id])
+  // Their bills keep the number, lines and amounts (and any business name and GSTIN) for the books.
+  await removeBillBuyers(c, `SELECT id FROM orders WHERE customer_id = $1`, [me.id], deletedAt)
   const deliveryPics = await c.query(
     `SELECT blob_path FROM delivery_photos WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL FOR UPDATE`,
     [me.id],

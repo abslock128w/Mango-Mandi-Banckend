@@ -11,6 +11,7 @@ import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, nextDeli
 import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from './errors.js'
 import { newId } from './ids.js'
 import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
+import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
@@ -481,6 +482,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   if (amount != null && amount !== o.total) {
     logger.warn({ orderId: o.id, amount, total: o.total }, 'captured amount differs from order total')
   }
+  // The bill's number is taken last, so the counter row stays locked only until this commits.
+  await issueBillWithPayment(c, o.id)
   return { order: o, result: lateFrom ? 'confirmed_late' : 'confirmed' }
 }
 
@@ -509,6 +512,8 @@ async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
     [o.id, pay],
   )
   await addEvent(c, o.id, o.status, 'CANCELLED', actor, reason)
+  // A bill already issued stays, with its number, marked cancelled.
+  await markBillCancelled(c, o.id, reason)
 }
 
 /**

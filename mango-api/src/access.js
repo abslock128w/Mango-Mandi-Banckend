@@ -68,6 +68,7 @@ export const OPERATOR_ROUTES = [
   route('POST', '/orders/:id/rebalance'),
   route('POST', '/orders/:id/reschedule'),
   route('POST', '/orders/:id/returned-stock'), // boxes back from a cancelled or returned order (INV-F)
+  route('GET', '/orders/:id/bill'), // written to the audit (bill-routes.js)
   route('GET', '/pack-list'),
   // Giving stops to riders (SEC-02): riders see only their own.
   route('GET', '/riders'),
@@ -81,6 +82,10 @@ export const OPERATOR_ROUTES = [
   route('GET', '/claims/:id/photos/:photoId'),
   route('POST', '/claims/:id/review'),
   route('POST', '/claims/:id/resolve'), // some replacements need a manager (claim limits)
+  // The customer profile: every look, search and reveal is written to the audit (admin/customers.js).
+  route('POST', '/customers/search'),
+  route('GET', '/customers/:id'),
+  route('POST', '/customers/:id/reveal'),
   route('GET', '/pincodes'),
   route('POST', '/pincodes'),
   route('PATCH', '/pincodes/:pincode'),

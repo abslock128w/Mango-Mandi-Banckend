@@ -33,6 +33,10 @@ import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
+import { billFor, billView } from './bills.js'
+import { customerBills } from './bill-routes.js'
+import { gstinProblem, normaliseGstin } from './gstin.js'
+import { trust } from './trust-config.js'
 
 export const router = express.Router()
 
@@ -401,6 +405,8 @@ router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/s
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
 router.use(customerReviews)
+// The bill PDF of the customer's own paid order (BILLS_ENABLED).
+router.use(customerBills)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -553,6 +559,10 @@ router.get(
       ratings: await all('SELECT * FROM order_ratings WHERE customer_id = $1'),
       reviews: await all('SELECT * FROM reviews WHERE customer_id = $1 ORDER BY created_at'),
       stockAlerts: await all('SELECT * FROM stock_alerts WHERE customer_id = $1 ORDER BY created_at'),
+      bills: await all(
+        `SELECT b.number, b.kind, b.bill_date, b.total, b.buyer_name, b.buyer_address, b.snapshot -> 'buyer' AS business, b.cancelled_at
+           FROM bills b JOIN orders o ON o.id = b.order_id WHERE o.customer_id = $1 ORDER BY b.issued_at`,
+      ),
     })
   }),
 )
@@ -744,7 +754,8 @@ router.post(
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
       // UX-3: how long the boxes are held once Pay is tapped, from the live rule (the review step says so).
-      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes }
+      // bills: the shop offers business details (name and GSTIN) for the bill only while bills are on.
+      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes, bills: trust.bills }
     })
     res.json(quote)
   }),
@@ -760,6 +771,21 @@ async function quoteSlot(c, date, wanted, boxes) {
   if (s.remainingBoxes != null && s.remainingBoxes < boxes) throw conflict(`The ${s.label} slot on ${date} is fully booked`, 'SLOT_FULL')
   return { id: s.id, label: s.label, startsAt: s.startsAt, endsAt: s.endsAt }
 }
+
+/** A business buyer's details for the bill: the name as on the GST certificate, and a valid GSTIN. */
+const businessSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Enter the business name as on its GST certificate').max(100),
+    gstin: z
+      .string()
+      .max(20)
+      .transform(normaliseGstin)
+      .superRefine((g, ctx) => {
+        const problem = gstinProblem(g)
+        if (problem) ctx.addIssue({ code: 'custom', message: problem })
+      }),
+  })
+  .strict()
 
 /** The same request, whatever the key order: a retry must send what the first try sent. */
 const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
@@ -811,9 +837,12 @@ router.post(
           })
           .optional()
           .nullable(),
+        // Optional: a business buying, printed on the bill (BILLS_ENABLED). The GSTIN's check character is verified.
+        business: businessSchema.optional().nullable(),
       }),
       req.body,
     )
+    if (b.business && !trust.bills) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
     const key = `${req.customer.id}:${rawKey}`
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
@@ -862,6 +891,9 @@ router.post(
         req.actor,
       )
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
+      if (b.business) {
+        await c.query('UPDATE orders SET buyer_business_name = $2, buyer_gstin = $3 WHERE id = $1', [created.id, b.business.name, b.business.gstin])
+      }
       // A gift goes to someone else's address, which isn't ours to keep offering.
       if (!b.gift) await rememberAddress(c, req.customer.id, { name: b.name ?? cust.name, address: b.address, pincode: q.data.pincode })
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, created.id])
@@ -934,7 +966,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered, bill] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -946,6 +978,7 @@ router.get(
       o.status === 'DELIVERED'
         ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
         : { rows: [] },
+      trust.bills ? billFor({ query }, o.id) : null,
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
@@ -974,6 +1007,9 @@ router.get(
       retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
       // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
       findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
+      // The bill, once the order is paid (BILLS_ENABLED): download it from /orders/:id/bill.
+      bill: billView(bill),
+      business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,

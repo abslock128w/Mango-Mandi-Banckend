@@ -295,6 +295,7 @@ export function staffView(r, photos = [], reply = null) {
     displayName: r.display_name,
     anonymous: r.anonymous,
     customerName: r.customer_name ?? null,
+    customerId: r.customer_id,
     orderId: r.order_id,
     orderNumber: r.order_number ?? null,
     sku: r.sku,

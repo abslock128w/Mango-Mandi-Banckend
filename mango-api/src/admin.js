@@ -24,6 +24,9 @@ import { router as preorders } from './admin/preorders.js'
 import { router as recovery } from './admin/recovery.js'
 import { router as bulk } from './admin/bulk.js'
 import { router as warehouse, warehouseGate } from './admin/warehouse.js'
+import { router as customers } from './admin/customers.js'
+import { router as exportsRouter } from './admin/exports.js'
+import { staffBills } from './bill-routes.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -54,3 +57,6 @@ router.use(preorders) // /preorders, /preorder-capacity
 router.use(warehouse) // Warehouse and box traceability (WAREHOUSE_V2)
 router.use(bulk) // Bulk Deals: listings, tiers, photos, publishing, history (manager only)
 router.use(recovery) // manager ways out of Needs attention items (ledger repair, webhooks, refunds, sign out all)
+router.use(staffBills) // GET /orders/:id/bill (BILLS_ENABLED)
+router.use(customers) // customer profile, phone search and reveal (CUSTOMER_PROFILES_ENABLED)
+router.use(exportsRouter) // CSV exports, manager only (STAFF_EXPORTS_ENABLED)

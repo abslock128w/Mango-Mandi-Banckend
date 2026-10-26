@@ -34,6 +34,8 @@ import { anonymiseOldOrders, pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders } from './stock-watch.js'
+import { issueMissingBills } from './bills.js'
+import { trust } from './trust-config.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -280,6 +282,8 @@ async function steps(forceAll) {
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
+  // Bills for preorders that just became orders, and for any payment whose bill failed (BILLS_ENABLED).
+  if (trust.bills) out.bills = await step('bills', () => issueMissingBills())
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
   if (forceAll || t - (last.retention ?? 0) > DAILY_MS) out.anonymised = await step('retention', () => anonymiseOldOrders())
