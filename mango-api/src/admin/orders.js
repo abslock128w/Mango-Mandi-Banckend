@@ -104,6 +104,8 @@ export async function orderDetail(c, orderId) {
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
+    // Only a manager may cancel it: a paid order (refunded in full) and, with ORDER_RULE_CHECKS, a free replacement (INV-07).
+    cancelNeedsManager: o.payment_status === 'SUCCEEDED' || (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT'),
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
       kind: n.kind, channel: n.channel, status: n.status, attempts: n.attempts, createdAt: n.created_at, sentAt: n.sent_at, error: n.last_error,

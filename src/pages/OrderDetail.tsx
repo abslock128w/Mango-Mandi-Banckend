@@ -142,6 +142,8 @@ function OrderView({ order }: { order: Order }) {
   const manager = me?.role === 'MANAGER'
   // Unpaid: any staff who can change orders cancels it. Paid: only a manager, with a full refund.
   const canCancel = changeOrder && (paid ? REFUNDABLE : CANCELLABLE).includes(order.status)
+  // A free replacement settles a claim: the API may keep its cancel for a manager too (INV-07).
+  const managerCancels = paid || order.cancelNeedsManager === true
 
   function onActionError(err: unknown) {
     if (isStale(err)) toast.error(CONFLICT_MESSAGE)
@@ -266,16 +268,16 @@ function OrderView({ order }: { order: Order }) {
           </button>
         )}
         {canCancel &&
-          (paid ? (
+          (managerCancels ? (
             <GatedButton allowed={manager} className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
-              Cancel and refund
+              {paid ? 'Cancel and refund' : 'Cancel order'}
             </GatedButton>
           ) : (
             <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
               Cancel order
             </button>
           ))}
-        {canCancel && paid && !manager && <ManagerOnlyNote what="Cancelling a paid order" />}
+        {canCancel && managerCancels && !manager && <ManagerOnlyNote what={paid ? 'Cancelling a paid order' : 'Cancelling a replacement'} />}
         {moves.length === 0 && !canCancel && (
           <span className="muted">No actions available.</span>
         )}

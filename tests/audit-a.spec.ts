@@ -12,16 +12,19 @@ test('Needs attention: a held refund, a late truck and preorder drift each say w
   const state = await mockApi(page, { signedIn: true })
   state.attention = {
     ...state.attention,
-    stuckRefunds: [{ type: 'order', id: 'o2', number: 'ORD-1043', requestedAt: '2026-10-15T03:00:00Z', paymentId: null, state: 'held' }],
+    stuckRefunds: [
+      { type: 'order', id: 'o2', number: 'ORD-1043', requestedAt: '2026-10-15T03:00:00Z', paymentId: null, state: 'held', dispute: { id: 'disp_9', status: 'open' } },
+    ],
     lateArrivals: [{ id: 'b1', variety: 'Alphonso', farm: 'Ratnagiri', etaDate: '2026-10-13', promised: 4, sellingPaused: true }],
     preorderCapacityDrift: [{ sku: 'ALP-3', weekStart: '2027-03-01', reserved: 0, booked: 2 }],
   }
   await page.goto('/')
   const refunds = card(page).locator('.attention-group', { hasText: 'Refunds not sent' })
   await expect(refunds).toContainText('Refund held')
-  await expect(refunds).toContainText('the payment has a chargeback')
-  // A manager can still settle it once the bank has paid the customer.
-  await expect(refunds.getByRole('button', { name: 'Paid back another way for ORD-1043' })).toBeVisible()
+  await expect(refunds).toContainText('opened chargeback disp_9')
+  await expect(refunds).toContainText('Answer it in the Razorpay dashboard')
+  // While the bank has not decided there is nothing to settle (the API refuses it too).
+  await expect(refunds.getByRole('button', { name: 'Paid back another way for ORD-1043' })).toHaveCount(0)
 
   const stock = card(page).locator('.attention-group', { hasText: 'Stock counts to check' })
   await expect(stock).toContainText('Batch still in transit')
@@ -33,6 +36,44 @@ test('Needs attention: a held refund, a late truck and preorder drift each say w
 
   const axe = await new AxeBuilder({ page }).include('section.attention').withTags(['wcag2a', 'wcag2aa']).analyze()
   expect(axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
+})
+
+test('Needs attention: a refund held by a lost chargeback is settled with the dispute id', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = {
+    ...state.attention,
+    stuckRefunds: [
+      { type: 'order', id: 'o2', number: 'ORD-1043', requestedAt: '2026-10-15T03:00:00Z', paymentId: null, state: 'held', dispute: { id: 'disp_9', status: 'lost' } },
+    ],
+  }
+  await page.goto('/')
+  const refunds = card(page).locator('.attention-group', { hasText: 'Refunds not sent' })
+  await expect(refunds).toContainText('chargeback disp_9 was lost')
+  await expect(refunds).toContainText('with the dispute id as the reference')
+  await refunds.getByRole('button', { name: 'Paid back another way for ORD-1043' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Paid back by the bank: ORD-1043' })
+  await expect(dialog.getByLabel('Dispute id')).toHaveValue('disp_9')
+  await expect(dialog).not.toContainText('UTR')
+  await dialog.getByLabel('What you checked').fill('Razorpay shows the chargeback lost on 14 Oct')
+  await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await expect
+    .poll(() => state.calls.filter((c) => c.path === '/refunds/o2/paid-another-way').map((c) => c.body))
+    .toEqual([{ type: 'order', reference: 'disp_9', reason: 'Razorpay shows the chargeback lost on 14 Oct' }])
+  await expect(dialog).toBeHidden()
+})
+
+test('Order page: an operator sees a free replacement\'s cancel as manager-only when the API says so', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  // A free replacement: no payment of its own (as the API sends it), its cancel kept for a manager.
+  Object.assign(state.order, { status: 'CONFIRMED', payment: { status: null, method: 'REPLACEMENT', amount: null }, cancelNeedsManager: true })
+  await page.goto('/orders/o1')
+  const cancel = page.getByRole('button', { name: /^Cancel order/ })
+  await expect(cancel).toBeDisabled()
+  await expect(page.getByText('Cancelling a replacement: requires manager role.')).toBeVisible()
+  // Without the API's word (the rule switched off) it stays an ordinary cancel.
+  Object.assign(state.order, { cancelNeedsManager: false })
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Cancel order' })).toBeEnabled()
 })
 
 test('Receive batch: a retry of the same intake sends the same Idempotency-Key; a changed intake a new one', async ({ page }) => {

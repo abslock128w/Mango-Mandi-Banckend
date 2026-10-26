@@ -214,6 +214,8 @@ describe('INV-07: cancelling a free replacement', () => {
     env.ORDER_RULE_CHECKS = true
     const r = await replacement()
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
+    // The order page is told, so the panel offers the cancel to a manager only.
+    assert.equal((await api.get(`/admin/v1/orders/${r.id}`, { token: ops })).body.cancelNeedsManager, true)
     const refused = await cancel(r.id, ops)
     assert.equal(refused.status, 403, JSON.stringify(refused.body))
     assert.equal((await query('SELECT status FROM orders WHERE id = $1', [r.id])).rows[0].status, 'CONFIRMED')
@@ -224,6 +226,7 @@ describe('INV-07: cancelling a free replacement', () => {
   test('with the flag off an operator can, as before (rollback)', async () => {
     const r = await replacement()
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
+    assert.equal((await api.get(`/admin/v1/orders/${r.id}`, { token: ops })).body.cancelNeedsManager, false)
     assert.equal((await cancel(r.id, ops)).status, 204)
   })
 })

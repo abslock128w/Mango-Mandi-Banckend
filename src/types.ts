@@ -281,6 +281,8 @@ export interface OrderDetail {
   atRisk?: boolean
   atRiskReason?: string | null
   replacementFor?: { id: string; number: string } | null
+  /** Only a manager may cancel it: a paid order, and (when the API checks it) a free replacement. */
+  cancelNeedsManager?: boolean
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
@@ -610,6 +612,8 @@ export interface Attention {
     requestedAt: string
     paymentId?: string | null
     state?: 'unsent' | 'unconfirmed' | 'held'
+    /** On a held refund: the chargeback holding it. Open until the bank decides; once lost or closed it is settled as paid back. */
+    dispute?: { id: string; status: string } | null
   }[]
   /** Not yet marked resolved. refundable: a captured payment that still matches nothing (a manager may refund it). */
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string; paymentId?: string | null; refundable?: boolean }[]
