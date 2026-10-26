@@ -31,6 +31,8 @@
   "GET /delivery-reviews": ["MANAGER","OPERATOR"],
   "GET /exports/:kind": ["MANAGER"],
   "GET /farms": ["MANAGER","OPERATOR","QC"],
+  "GET /gift-orders": ["MANAGER","OPERATOR"],
+  "GET /gift-orders/:id": ["MANAGER","OPERATOR"],
   "GET /manifest": ["MANAGER","OPERATOR","PACKER","RIDER"],
   "GET /me/daily-summary": ["MANAGER"],
   "GET /orders": ["MANAGER","OPERATOR"],

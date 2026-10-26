@@ -2307,3 +2307,66 @@ main:focus {
 .referral-entry { margin-bottom: 1rem; }
 .referral-rewards { padding-left: 1.2rem; }
 .referral-rewards li { margin-bottom: 0.4rem; }
+/* Send to many (MULTI_GIFT): the recipients editor, one card per recipient, fields stacked on a phone */
+.card-inset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  background: var(--surface);
+}
+.card-inset h2 {
+  font-size: var(--text-md);
+  margin: 0;
+}
+.gift-recipients {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+}
+.gift-recipient .title-row {
+  margin-bottom: var(--space-2);
+}
+.gift-pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 var(--space-3);
+}
+@media (min-width: 480px) {
+  .gift-pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.gift-many select,
+.gift-many input[type='number'] {
+  width: 100%;
+  min-height: 44px;
+}
+.file-btn {
+  position: relative;
+  cursor: pointer;
+}
+.file-btn:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+.csv-problems {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+.gift-review-list {
+  padding-left: var(--space-4);
+}
+.gift-review-list .line > div,
+.gift-recipient-row > div {
+  display: grid;
+  gap: 2px;
+}
+.gift-recipient-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}

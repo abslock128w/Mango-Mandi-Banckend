@@ -137,8 +137,11 @@ const POLICY = object<ShopPolicy>({
       installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean',
       // Growth switches (docs/growth.md).
       referrals: optional('boolean'), funnel: optional('boolean'),
+      multiGift: optional('boolean'),
     }),
   ),
+  // Gift orders to many recipients (MULTI_GIFT): sent only while it is on.
+  multiGiftMaxRecipients: optional('int'),
 })
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
@@ -165,6 +168,8 @@ const CONFIRMED = object<Confirmed>({
 })
 const ORDER_SUMMARY = object<OrderSummary>({
   id: 'string', number: 'string', status: oneOf(STATUSES), deliveryDate: 'day', total: 'int', itemCount: 'int', placedAt: 'time', holdExpiresAt: optional(nullable('time')),
+  // Only on a delivery of a gift order to many recipients (MULTI_GIFT).
+  giftOrderId: optional('string'), giftRecipient: optional(nullable('string')),
 })
 type Item = Order['items'][number]
 const BULK_TIER_SOLD = object<NonNullable<Item['bulk']>['tier']>({ minQty: 'int', maxQty: nullable('int'), unitPrice: 'int' })
@@ -204,6 +209,7 @@ const ORDER = object<Order>({
     total: 'int', cancelled: 'boolean', cancelledAt: nullable('time'),
   }))),
   business: optional(nullable(object<NonNullable<Order['business']>>({ name: 'string', gstin: 'string' }))),
+  giftOrderId: optional(nullable('string')),
   // LIVE_TRACKING: set only while out for delivery with a rider (app-feel.spec.ts checks it with a value).
   tracking: optional(nullable(object<Tracking>({ stopsAway: 'int', minutesPerStop: 'int', etaMinutes: 'int' }))),
 })

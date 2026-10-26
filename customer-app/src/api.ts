@@ -66,6 +66,8 @@ export interface ShopPolicy {
   bills?: boolean
   /** The shop's switchable parts (docs/app-feel.md); an older API leaves it out, which means all off. */
   features?: ShopFeatures
+  /** With "Send to many" on: the most recipients one gift order may have. */
+  multiGiftMaxRecipients?: number
 }
 /** Which app-feel parts the API has switched on. */
 export interface ShopFeatures {
@@ -83,6 +85,8 @@ export interface ShopFeatures {
   referrals?: boolean
   /** Anonymous funnel steps: visit, box viewed, added to cart, checkout started (docs/growth.md). */
   funnel?: boolean
+  /** "Send to many": one gift order to many recipients (MULTI_GIFT). */
+  multiGift?: boolean
 }
 /** My refer-a-friend state (GET /v1/me/referral). Amounts in paise except the two rupee rules. */
 export interface ReferralView {
@@ -202,6 +206,101 @@ export interface Gift {
   recipientPhone: string
   message?: string | null
 }
+/** One recipient of a gift order to many (MULTI_GIFT), as the shop sends it. */
+export interface GiftRecipientInput {
+  name: string
+  phone: string
+  address: string
+  pincode: string
+  sku: string
+  stage: Stage
+  qty: number
+  note?: string | null
+}
+/** A recipient as the review prices it. */
+export interface GiftQuoteRecipient extends GiftRecipientInput {
+  boxName: string
+  unitPrice: number
+  linePrice: number
+  eatBy: string
+}
+export interface GiftQuote {
+  quoteId: string
+  deliveryDate: string
+  slot: Slot | null
+  recipients: GiftQuoteRecipient[]
+  boxes: number
+  subtotal: number
+  promo: { code: string; description: string | null } | null
+  discount: number
+  total: number
+  expiresAt: string
+  holdMinutes: number
+  bills?: boolean
+}
+/** A problem with one recipient, by row (1 = the first), from RECIPIENTS_INVALID. */
+export interface RecipientProblem {
+  row: number
+  field: string
+  message: string
+}
+export interface GiftConfirmed {
+  giftOrderId: string
+  number: string
+  status: GiftOrderStatus
+  total: number
+  deliveryDate: string
+  recipientCount: number
+  razorpayOrderId: string | null
+  razorpayKeyId: string | null
+  holdExpiresAt: string | null
+}
+export type GiftOrderStatus = 'PAYMENT_PENDING' | 'PAID' | 'CANCELLED'
+export interface GiftOrderSummary {
+  id: string
+  number: string
+  status: GiftOrderStatus
+  deliveryDate: string
+  recipientCount: number
+  total: number
+  placedAt: string
+}
+export interface GiftOrder extends GiftOrderSummary {
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'CANCELLED' | 'FAILED'
+  paidAt: string | null
+  slot: Slot | null
+  boxes: number
+  subtotal: number
+  discount: number
+  promoCode: string | null
+  business: BusinessDetails | null
+  razorpayOrderId: string | null
+  razorpayKeyId: string | null
+  holdExpiresAt: string | null
+  cancelReason: 'HOLD_EXPIRED' | 'OTHER' | null
+  cancellable: boolean
+  bill: OrderBill | null
+  recipients: {
+    orderId: string
+    number: string
+    position: number
+    status: OrderStatus
+    name: string
+    phone: string
+    note: string | null
+    address: string
+    pincode: string
+    sku: string | null
+    boxName: string | null
+    stage: Stage | null
+    qty: number
+    linePrice: number
+    discount: number
+    total: number
+    cancellable: boolean
+    refundStatus: 'PENDING' | 'REFUNDED' | null
+  }[]
+}
 export interface Confirmed {
   orderId: string
   number: string
@@ -222,6 +321,9 @@ export interface OrderSummary {
   placedAt: string
   /** Set while the order waits for payment with its boxes held. */
   holdExpiresAt?: string | null
+  /** A delivery of a gift order to many recipients: its gift order, and who it goes to. */
+  giftOrderId?: string
+  giftRecipient?: string | null
 }
 export interface Order {
   id: string
@@ -236,6 +338,8 @@ export interface Order {
   promoCode: string | null
   total: number
   gift: Gift | null
+  /** One delivery of a gift order to many recipients: its payment, bill and whole-order cancel are on the gift order. */
+  giftOrderId?: string | null
   paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
@@ -654,6 +758,16 @@ export interface PaymentState {
   orderStatus: OrderStatus
 }
 
+/** A signed-in download (a gift order's bill, the recipients template), as an object URL. */
+async function fileUrl(path: string, code: string, message: string): Promise<string> {
+  if (!accessToken && profile) await refreshOnce()
+  const get = () => fetch(`${API_URL}/v1${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+  let res = await get()
+  if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+  if (!res.ok) throw new ApiError(res.status, code, message)
+  return URL.createObjectURL(await res.blob())
+}
+
 export const api = {
   requestCode: (phone: string, channel?: 'sms' | 'whatsapp', captchaToken?: string) =>
     raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', { phone, ...(channel ? { channel } : {}), ...(captchaToken ? { captchaToken } : {}) }),
@@ -815,10 +929,24 @@ export const api = {
     return URL.createObjectURL(await res.blob())
   },
 
+  // Gift orders to many recipients (MULTI_GIFT).
+  giftQuote: (input: { recipients: GiftRecipientInput[]; deliveryDate: string | null; slotId: string | null; promoCode?: string | null }) =>
+    request<GiftQuote>('POST', '/gifts/quote', input),
+  giftConfirm: (input: { quoteId: string; name?: string; business?: BusinessDetails | null }, idempotencyKey: string) =>
+    request<GiftConfirmed>('POST', '/gifts/confirm', input, { 'Idempotency-Key': idempotencyKey }),
+  giftOrders: () => request<GiftOrderSummary[]>('GET', '/gifts'),
+  giftOrder: (giftOrderId: string) => request<GiftOrder>('GET', `/gifts/${id(giftOrderId)}`),
+  verifyGiftPayment: (giftOrderId: string, reply: CheckoutReply) => request<PaymentState>('POST', `/gifts/${id(giftOrderId)}/verify-payment`, reply),
+  cancelGiftOrder: (giftOrderId: string) => request<void>('POST', `/gifts/${id(giftOrderId)}/cancel`),
+  cancelGiftRecipient: (giftOrderId: string, orderId: string) => request<void>('POST', `/gifts/${id(giftOrderId)}/recipients/${id(orderId)}/cancel`),
+  giftBillUrl: (giftOrderId: string) => fileUrl(`/gifts/${id(giftOrderId)}/bill`, 'BILL_UNAVAILABLE', 'The bill could not be downloaded. Try again in a minute.'),
+  giftTemplateUrl: () => fileUrl('/gifts/template.csv', 'TEMPLATE_UNAVAILABLE', 'The template could not be downloaded. Try again in a minute.'),
+
   /** Development only: the API's stand-in for Razorpay. */
   devPay: (orderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay', { orderId, outcome }),
   devPayPreorder: (preorderId: string, outcome: 'captured' | 'failed') =>
     raw<{ result: string }>('POST', '/dev/pay-preorder', { preorderId, outcome }),
+  devPayGift: (giftOrderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay-gift', { giftOrderId, outcome }),
 }
 
 export function errorMessage(err: unknown): string {

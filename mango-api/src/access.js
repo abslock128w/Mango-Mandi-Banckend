@@ -74,6 +74,9 @@ export const OPERATOR_ROUTES = [
   route('POST', '/orders/:id/reschedule'),
   route('POST', '/orders/:id/returned-stock'), // boxes back from a cancelled or returned order (INV-F)
   route('GET', '/orders/:id/bill'), // written to the audit (bill-routes.js)
+  // Gift orders to many recipients with their deliveries (MULTI_GIFT), read only: as the order list.
+  route('GET', '/gift-orders'),
+  route('GET', '/gift-orders/:id'),
   route('GET', '/pack-list'),
   // Giving stops to riders (SEC-02): riders see only their own.
   route('GET', '/riders'),

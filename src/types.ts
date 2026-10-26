@@ -29,6 +29,8 @@ export interface Me {
     stockForecast?: boolean
     purchaseRecords?: boolean
     panelSwitches?: boolean
+    /** Gift orders on Orders (MULTI_GIFT, docs/gifting.md). */
+    multiGift?: boolean
   }
 }
 
@@ -226,6 +228,40 @@ export interface OrderListItem {
   atRisk?: boolean
   /** Where the customer placed it: the app or the WhatsApp chat. */
   channel?: 'app' | 'whatsapp'
+  /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
+  giftOrderId?: string
+}
+
+/** A gift order to many recipients (MULTI_GIFT, docs/gifting.md): one payment, one bill, a delivery order per recipient. */
+export interface GiftOrderListItem {
+  id: string
+  number: string
+  status: 'PAYMENT_PENDING' | 'PAID' | 'CANCELLED'
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'CANCELLED' | 'FAILED'
+  customerName: string | null
+  deliveryDate: string
+  placedAt: string
+  paidAt: string | null
+  recipientCount: number
+  boxes: number
+  subtotal: number
+  discount: number
+  promoCode: string | null
+  total: number
+  business: { name: string; gstin: string } | null
+  children: {
+    id: string
+    number: string
+    position: number
+    status: OrderStatus
+    deliveryDate: string
+    pincode: string | null
+    recipientName: string | null
+    total: number
+    atRisk?: boolean
+    box: { sku: string; name: string; stage: string; qty: number } | null
+    refund: { requestedAt: string; refundedAt: string | null } | null
+  }[]
 }
 
 export interface Paged<T> {
@@ -299,6 +335,8 @@ export interface OrderDetail {
   /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
   retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
+  /** One recipient's delivery of a gift order to many (MULTI_GIFT): the gift order, this delivery's place in it, how many recipients. */
+  giftOrder?: { id: string; number: string; position: number; recipients: number } | null
   /** Only a manager may cancel it: a paid order, and (when the API checks it) a free replacement. */
   cancelNeedsManager?: boolean
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null

@@ -222,9 +222,10 @@ me.get(
       // The panel shows the Warehouse area only when it is on, with what this role may do there.
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: effectivePermissions(req.admin.role, env) } : { enabled: false, permissions: [] },
       // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
-      // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
+      // Deliveries (LIVE_TRACKING, docs/app-feel.md), and Gift orders on Orders (MULTI_GIFT, docs/gifting.md). The role
+      // still decides who may use them.
       features: {
-        bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'),
+        bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'), multiGift: isOn('MULTI_GIFT'),
         // Growth (docs/growth.md): managers' Referrals view, the funnel on Analytics, and the evening summary.
         referrals: isOn('REFERRALS'), funnelAnalytics: isOn('FUNNEL_ANALYTICS'), managerDailySummary: isOn('MANAGER_DAILY_SUMMARY'),
         // Staff operations (docs/ops.md), named only while on (a missing field means off to the panel).

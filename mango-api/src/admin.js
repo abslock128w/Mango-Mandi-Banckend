@@ -29,6 +29,7 @@ import { router as exportsRouter } from './admin/exports.js'
 import { router as ops } from './admin/ops.js'
 import { staffBills } from './bill-routes.js'
 import { router as growth } from './admin/growth.js'
+import { router as gifts } from './admin/gifts.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -50,6 +51,7 @@ router.use(reports) // /summary, /analytics, /attention, /notifications/:id/retr
 router.use(products)
 router.use(batches)
 router.use(orders) // and /pack-list
+router.use(gifts) // /gift-orders: gift orders to many recipients with their deliveries (MULTI_GIFT)
 router.use(deliveries) // /manifest, dispatch, /riders, delivery photos and reports, /delivery-reviews
 router.use(promos)
 router.use(staff)

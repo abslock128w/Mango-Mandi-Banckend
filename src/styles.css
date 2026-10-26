@@ -2199,3 +2199,9 @@ tr.row-flagged td {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* ---------- Gift orders to many recipients (MULTI_GIFT, docs/gifting.md) ---------- */
+
+.gift-head h2 {
+  margin: 0;
+}

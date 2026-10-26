@@ -13,6 +13,7 @@ import { logger } from './logger.js'
 import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
 import { findPreorderId, processPreorderPayment, refundPreorder } from './preorders.js'
+import { processGiftPayment } from './gifts.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
@@ -192,11 +193,26 @@ async function findOrderId(c, entity, link = null) {
 }
 
 /**
+ * MULTI_GIFT: the gift order a payment is for. Only our own Razorpay order id
+ * is trusted (a gift order is paid in Checkout, never by a link).
+ */
+export async function findGiftOrderId(c, entity) {
+  if (!entity?.order_id) return null
+  const { rows } = await c.query('SELECT id FROM gift_orders WHERE razorpay_order_id = $1', [entity.order_id])
+  return rows[0]?.id ?? null
+}
+
+/**
  * Applies one captured payment found by polling Razorpay (reconcile, replay)
  * after the same checks a webhook gets. Returns the result, or 'rejected'.
+ * A gift order's deliveries due a refund (paid after the buyer cancelled) are
+ * sent by the maintenance loop (processDueRefunds).
  */
 export async function applyCapture(c, table, id, p) {
   if (await checkCapture(c, { table, id, paymentId: p.id, amount: p.amount, currency: p.currency })) return 'rejected'
+  if (table === 'gift_orders') {
+    return (await processGiftPayment(c, { giftOrderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+  }
   if (table === 'preorders') {
     return processPreorderPayment(c, { preorderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
   }
@@ -211,7 +227,8 @@ export async function applyCapture(c, table, id, p) {
  * (it bought nothing). Returns null when the payment is fine, else a reason.
  */
 export async function checkCapture(c, { table, id, paymentId, amount, currency }) {
-  const { rows } = await c.query(`SELECT total, payment_id FROM ${table === 'preorders' ? 'preorders' : 'orders'} WHERE id = $1`, [id])
+  const from = table === 'preorders' ? 'preorders' : table === 'gift_orders' ? 'gift_orders' : 'orders'
+  const { rows } = await c.query(`SELECT total, payment_id FROM ${from} WHERE id = $1`, [id])
   const total = rows[0]?.total
   let reason = null
   if (!paymentId) reason = 'captured payment has no payment id'
@@ -224,9 +241,14 @@ export async function checkCapture(c, { table, id, paymentId, amount, currency }
   logger.error({ table, id, paymentId, amount, currency, total }, `payment rejected: ${reason}`)
   await recordWebhookFailure('razorpay', `Payment ${paymentId ?? '(no id)'} for ${id} not accepted: ${reason}`, paymentId, c)
   if (paymentId && paymentId !== rows[0]?.payment_id) {
+    // A gift order's refundable payment is recorded against its first delivery (duplicate_payments points at orders).
+    const orderId =
+      table === 'preorders' ? null
+        : table === 'gift_orders' ? ((await c.query('SELECT id FROM orders WHERE gift_order_id = $1 ORDER BY gift_position, id LIMIT 1', [id])).rows[0]?.id ?? null)
+          : id
     await c.query(
       `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [paymentId, table === 'preorders' ? null : id, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
+      [paymentId, orderId, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
     )
   }
   return reason
@@ -282,6 +304,19 @@ export async function handleWebhook(event, eventId) {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
+    // MULTI_GIFT: one Razorpay order pays for a whole gift order.
+    const giftOrderId = orderId || link ? null : await findGiftOrderId(c, entity)
+    if (giftOrderId) {
+      if (kind !== 'payment.failed') {
+        const bad = await checkCapture(c, { table: 'gift_orders', id: giftOrderId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+        if (bad) return { result: 'rejected', giftOrderId, reason: bad }
+      }
+      const r = await processGiftPayment(c, {
+        giftOrderId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
+        amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
+      })
+      return { result: r.result, giftOrderId, refundOrderIds: r.refundOrderIds }
+    }
     if (!orderId) {
       const preorderId = await findPreorderId(c, entity, link)
       if (preorderId) {
@@ -328,12 +363,14 @@ export async function handleWebhook(event, eventId) {
   })
 }
 
-/** Which refunds a payment result made due: { orderId, preorderId, duplicates }. */
+/** Which refunds a payment result made due: { orderId, preorderId, orderIds, duplicates }. */
 export function refundsFor(out) {
   const due = out?.result === 'refund_due'
   return {
     orderId: due ? (out.orderId ?? null) : null,
     preorderId: due ? (out.preorderId ?? null) : null,
+    // A gift order (MULTI_GIFT): the deliveries the buyer cancelled before its payment landed.
+    orderIds: out?.refundOrderIds ?? [],
     duplicates: out?.result === 'duplicate_payment' || out?.result === 'rejected',
   }
 }
@@ -345,9 +382,10 @@ export function refundsFor(out) {
  * and the maintenance loop can't pay twice, and anything that fails here is
  * retried by maintenance (processDueRefunds, refundDuplicatePayments). Never throws.
  */
-export async function sendDueRefunds({ orderId = null, preorderId = null, duplicates = false } = {}) {
+export async function sendDueRefunds({ orderId = null, preorderId = null, orderIds = [], duplicates = false } = {}) {
   const log = (what) => (err) => logger.error({ err, orderId, preorderId }, `${what} refund failed; maintenance will retry`)
   if (orderId) await refundOrder(orderId).catch(log('order'))
+  for (const id of orderIds) await refundOrder(id).catch(log('gift delivery'))
   if (preorderId) await refundPreorder(preorderId).catch(log('preorder'))
   if (duplicates) await refundDuplicatePayments().catch(log('duplicate payment'))
 }
@@ -408,7 +446,10 @@ async function handleDisputeEvent(event, eventId) {
  */
 async function captureAuthorized(entity) {
   if (!entity.id || !entity.order_id) return { ignored: true }
-  const { rows } = await query('SELECT id, total FROM orders WHERE razorpay_order_id = $1', [entity.order_id])
+  const { rows } = await query(
+    'SELECT id, total FROM orders WHERE razorpay_order_id = $1 UNION ALL SELECT id, total FROM gift_orders WHERE razorpay_order_id = $1',
+    [entity.order_id],
+  )
   const o = rows[0]
   if (!o || entity.amount !== o.total || (entity.currency ?? 'INR') !== 'INR') return { ignored: true }
   if (!hasKeys()) return { ignored: true }
@@ -557,7 +598,56 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
       logger.error({ err, orderId: o.id }, 'payment reconciliation failed for order')
     }
   }
+  // MULTI_GIFT: gift orders still unpaid, for a day after they were placed (a payment can land after the hold).
+  const gifts = await query(
+    `SELECT id, razorpay_order_id FROM gift_orders
+      WHERE razorpay_order_id IS NOT NULL AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at < $1 AND placed_at > $2
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $3)
+      ORDER BY (status = 'PAYMENT_PENDING') DESC, reconcile_checked_at NULLS FIRST, placed_at DESC LIMIT 50`,
+    [new Date(at.getTime() - minAgeSeconds * 1000), new Date(at.getTime() - 86_400_000), new Date(at.getTime() - 50_000)],
+  )
+  for (const g of gifts.rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) break
+    try {
+      await query('UPDATE gift_orders SET reconcile_checked_at = $2 WHERE id = $1', [g.id, now()])
+      const r = await reconcileGift(g)
+      if (r && r !== 'rejected') n++
+    } catch (err) {
+      logger.error({ err, giftOrderId: g.id }, 'payment reconciliation failed for gift order')
+    }
+  }
   return n
+}
+
+/** MULTI_GIFT: reconcileOrder for a gift order's Razorpay order. */
+async function reconcileGift(g) {
+  const payments = await fetchPayments(g.razorpay_order_id)
+  const captured = payments.find((p) => p.status === 'captured')
+  if (captured) return tx((c) => applyCapture(c, 'gift_orders', g.id, captured))
+  const authorized = payments.find((p) => p.status === 'authorized')
+  if (authorized) await captureAuthorized({ id: authorized.id, order_id: g.razorpay_order_id, amount: authorized.amount, currency: authorized.currency })
+  return null
+}
+
+/**
+ * MULTI_GIFT: reconcileOrderNow for a gift order (the buyer back from Checkout,
+ * or its page asking): at most one gateway check every `throttleMs`.
+ */
+export async function reconcileGiftNow(giftOrderId, { minAgeMs = 0, throttleMs = 10_000 } = {}) {
+  if (!hasKeys() && isProd) return null
+  const at = now()
+  const { rows } = await query(
+    `UPDATE gift_orders SET reconcile_checked_at = $2
+      WHERE id = $1 AND razorpay_order_id IS NOT NULL AND placed_at <= $3 AND payment_status IN ('INITIATED', 'CANCELLED')
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $4)
+      RETURNING id, razorpay_order_id`,
+    [giftOrderId, at, new Date(at.getTime() - minAgeMs), new Date(at.getTime() - throttleMs)],
+  )
+  if (!rows.length) return 'skipped'
+  const r = await reconcileGift(rows[0])
+  // Deliveries the buyer cancelled before paying are refunded by the maintenance loop, as for a late payment on any cancelled order.
+  if (r === 'duplicate_payment' || r === 'rejected') background(sendDueRefunds({ duplicates: true }))
+  return r
 }
 
 /**
@@ -625,7 +715,7 @@ export async function claimRefund(table, id, at = now()) {
     `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1
       WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
         AND (refund_attempted_at IS NULL OR refund_attempted_at < $3)
-        AND NOT ($4 AND ${disputeHolds(`${table}.payment_id`)})
+        AND NOT ($4 AND ${disputeHolds(table === 'orders' ? ORDER_PAYMENT_ID : `${table}.payment_id`)})
       RETURNING *`,
     [id, at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
@@ -642,6 +732,9 @@ export async function claimRefund(table, id, at = now()) {
  * dispute id as the reference).
  */
 export const disputeHolds = (col) => `EXISTS (SELECT 1 FROM payment_disputes pd WHERE pd.payment_id = ${col} AND pd.status <> 'won')`
+
+/** The payment an order was paid with: its own, or for a gift order's delivery (MULTI_GIFT) its parent's. */
+const ORDER_PAYMENT_ID = `COALESCE(orders.payment_id, (SELECT g.payment_id FROM gift_orders g WHERE g.id = orders.gift_order_id))`
 
 /** Dispute states in which the bank has decided; any other state is still open. */
 export const DISPUTE_DECIDED = ['won', 'lost', 'closed']
@@ -681,13 +774,17 @@ export async function liveGatewayRefunds(paymentId) {
   return gatewayItems(await razorpay('GET', `/payments/${encodeURIComponent(paymentId)}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
 }
 
-export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
+export async function gatewayRefund({ paymentId, amount, receipt, notes, shared = false }) {
   if (hasKeys()) {
     if (!paymentId) throw new Error(`${receipt} has no payment id to refund`)
     const pid = encodeURIComponent(paymentId)
     // Refunds already made for this payment (by an earlier attempt, or by hand
-    // in the Razorpay dashboard) count; only what is still owed is sent.
-    const live = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
+    // in the Razorpay dashboard) count; only what is still owed is sent. A
+    // payment `shared` by a gift order's deliveries (MULTI_GIFT) is refunded in
+    // parts, one per delivery: only the refunds made for this delivery (by its
+    // orderId note) count toward it.
+    const all = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
+    const live = shared ? all.filter((r) => r.notes?.orderId === notes?.orderId) : all
     const done = live.reduce((sum, r) => sum + (r.amount ?? 0), 0)
     const owed = amount == null ? null : amount - done
     if (live.length && (owed == null || owed <= 0)) return live[0].id
@@ -706,8 +803,11 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
 export async function refundOrder(orderId) {
   const o = await claimRefund('orders', orderId)
   if (!o) return null
+  // A gift order's delivery (MULTI_GIFT) was paid by its parent's payment: it gets back its own amount only.
+  const giftPayment = o.gift_order_id ? ((await query('SELECT payment_id FROM gift_orders WHERE id = $1', [o.gift_order_id])).rows[0]?.payment_id ?? null) : null
   const refundId = await gatewayRefund({
-    paymentId: o.payment_id, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
+    paymentId: o.payment_id ?? giftPayment, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
+    shared: Boolean(o.gift_order_id),
   })
   if (!refundId) return null
   try {
@@ -736,7 +836,7 @@ export async function refundOrder(orderId) {
 export async function processDueRefunds() {
   const safety = env.REFUND_SAFETY_CHECKS
   const { rows } = await query(
-    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('orders.payment_id')})
+    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds(ORDER_PAYMENT_ID)})
       ORDER BY refund_requested_at LIMIT 50`,
     [safety],
   )
@@ -953,6 +1053,13 @@ async function reconcileOne(p, out) {
   out.captured++
   if (await knownPayment(p.id)) return
   const orderId = await findOrderId({ query }, p)
+  const giftOrderId = orderId ? null : await findGiftOrderId({ query }, p)
+  if (giftOrderId) {
+    const r = await tx((c) => applyCapture(c, 'gift_orders', giftOrderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r }))
+    return
+  }
   const preorderId = orderId ? null : await linkListsPayment(p)
   if (orderId || preorderId) {
     const r = await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))
@@ -987,6 +1094,7 @@ export async function knownPayment(id, c = { query }) {
   const { rows } = await c.query(
     `SELECT 1 FROM orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM preorders WHERE payment_id = $1
+      UNION ALL SELECT 1 FROM gift_orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM duplicate_payments WHERE payment_id = $1 LIMIT 1`,
     [id],
   )
@@ -1038,6 +1146,11 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
   for (const p of await listGatewayPayments(from, to)) {
     if (p.status !== 'captured' || (await knownPayment(p.id))) continue
     const orderId = await findOrderId({ query }, p)
+    const giftOrderId = orderId ? null : await findGiftOrderId({ query }, p)
+    if (giftOrderId) {
+      if ((await tx((c) => applyCapture(c, 'gift_orders', giftOrderId, p))) !== 'rejected') out.applied++
+      continue
+    }
     const preorderId = orderId ? null : await findPreorderId({ query }, p, null)
     if (orderId || preorderId) {
       if ((await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))) !== 'rejected') out.applied++

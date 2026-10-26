@@ -144,7 +144,8 @@ function OrderView({ order }: { order: Order }) {
     if (thanks) thanksNote.current?.focus()
   }, [thanks])
   const canMove = MOVABLE.includes(order.status)
-  const canCancel = CANCELLABLE.includes(order.status)
+  // An unpaid gift order's delivery is cancelled with its whole gift order (MULTI_GIFT).
+  const canCancel = CANCELLABLE.includes(order.status) && !(order.giftOrderId && order.status === 'PAYMENT_PENDING')
   const refund = paid ? ' for a full refund' : ''
   const policy =
     order.status === 'CONFIRMED'
@@ -160,6 +161,12 @@ function OrderView({ order }: { order: Order }) {
         <StatusPill status={order.status} />
       </PageHeader>
 
+      {order.giftOrderId && (
+        <p className="small">
+          One delivery of a gift order to many. <Link to={`/gifts/${order.giftOrderId}`}>Open the gift order</Link> for its payment, its bill and every recipient.
+        </p>
+      )}
+
       {thanks && order.status !== 'CANCELLED' && (
         <section className="card note-card thanks-card" ref={thanksNote} tabIndex={-1} aria-labelledby="thanks-title">
           <p id="thanks-title">
@@ -169,7 +176,8 @@ function OrderView({ order }: { order: Order }) {
         </section>
       )}
 
-      {order.status === 'PAYMENT_PENDING' && (
+      {/* A gift order's delivery is paid with the gift order (MULTI_GIFT): pay there, never here. */}
+      {order.status === 'PAYMENT_PENDING' && !order.giftOrderId && (
         <section className="card note-card" aria-live="polite">
           <p>
             <strong>Waiting for your payment to be confirmed.</strong> This page updates on its own.
