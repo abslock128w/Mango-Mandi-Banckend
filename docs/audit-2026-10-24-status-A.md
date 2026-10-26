@@ -15,7 +15,8 @@ Status words:
 
 Commits: `6b4f79f` payments, `89a3b8e` inventory, `3483975` database, `0715ce5`
 docs (this file, sandbox scenarios, Neon steps), and a last commit that adds the
-panel spec `tests/audit-a.spec.ts` and the re-check below.
+panel spec `tests/audit-a.spec.ts` and the re-check below, and `02e7ce0` (the one
+existing test changed, INV-04).
 
 ## Register
 
@@ -41,7 +42,7 @@ panel spec `tests/audit-a.spec.ts` and the re-check below.
 | INV-01 | fixed, behind `ORDER_RULE_CHECKS` | `delivery.js:157` `chooseSlot({ mustFit })` refuses with 409 `SLOT_FULL` instead of the least-booked slot; used by customer and staff reschedules (`orders.js:328`, `:384`) and the bulk move (`admin/orders.js`, "No stock or slot room" in its not-moved list). Late payments, retries and replacements keep the old "never fail on a slot" rule. Test: `audit-a-inventory.test.js` "INV-01" | `89a3b8e` |
 | INV-02 | fixed, behind `STOCK_INTAKE_CHECKS` | `admin/batches.js:25` optional `Idempotency-Key` on `POST /admin/v1/batches` (same key and body: the first batch is returned, 200; different body: 422 `IDEMPOTENCY_KEY_REUSED`); more than `BATCH_INTAKE_MANAGER_BOXES` boxes from a non-manager: 403 `MANAGER_APPROVAL_NEEDED` (`:121`). The panel's Receive dialog sends one key per intake and reuses it on a retry (`src/pages/Batches.tsx`, `src/api.ts`). Test: "INV-02" | `89a3b8e` |
 | INV-03 | needs owner | The cutoff is judged when the payment lands (`orders.js` `processPayment`, `stale`). Owner picks: (a) judge it against when the order was placed while the hold is valid, or (b) stop offering D+1 a few minutes before 18:00. Both are small code changes once decided. | – |
-| INV-04 | fixed (no flag: the catalogue now agrees with checkout) | `inventory.js:45`: an expired hold with a Razorpay order or link counts as free only after the same 2-minute gateway grace the lazy sweep uses (`LAZY_SWEEP_GATEWAY_GRACE_MS`, `inventory.js:23`, moved here from orders.js). Test: "INV-04" | `89a3b8e` |
+| INV-04 | fixed (no flag: the catalogue now agrees with checkout) | `inventory.js:45`: an expired hold with a Razorpay order or link counts as free only after the same 2-minute gateway grace the lazy sweep uses (`LAZY_SWEEP_GATEWAY_GRACE_MS`, `inventory.js:23`, moved here from orders.js). Test: "INV-04". Existing test changed: `remediation-p0.test.js` "the catalogue counts boxes on an expired hold as available before anything sweeps it" expected the bug (3 boxes shown one minute after the hold); it now expects 0 inside the grace and 3 after it | `89a3b8e`, `02e7ce0` |
 | INV-05 | needs owner | One unpaid order and one unpaid booking per customer are allowed at once, by design (`preorders.js` `checkUnpaidPreorders` comment). Owner decides whether to keep that or count both under one limit. | – |
 | INV-06 | fixed (no flag: read-only check and an alert) | `stock-watch.js:23` `preorderCapacityDrift` compares `preorder_capacity.reserved` with the boxes of live bookings; the hourly audit alerts at most once an hour (`maintenance.js:215-221`) and Needs attention lists the weeks. Test: "INV-06" | `89a3b8e` |
 | INV-07 | fixed, behind `ORDER_RULE_CHECKS` | `orders.js:552`: only a manager can cancel a replacement order (it settles a claim). Test: "INV-07" | `89a3b8e` |
@@ -132,3 +133,23 @@ migration 038): 26 of 32 tests fail; the 6 that pass are the 5 flag-off rollback
 tests and DB-02 "an order that cannot be cancelled is flagged and the rest still
 go" (the old in-transaction sweep already did that). DB-01 fails with `40P01`,
 DB-02 with "longest transaction: 421 statements". On the branch all 32 pass.
+
+### Checks run on the branch head (26 Oct 2026)
+
+- `npm run lint`, `npm run typecheck`, `npm run test:unit` (28 pass): clean.
+- The three audit-A API files: 32 of 32 pass.
+- `auth-matrix.test.js` and `security-readiness.test.js` with
+  `UPDATE_ROUTE_INVENTORY=1 UPDATE_ROLE_POLICY=1`: 189 pass, no fixture change
+  (no route was added).
+- Full API run (`npm test` in `mango-api/`): 728 tests, 726 pass, 1 skip, 1 fail:
+  the migration numbering test above, which passes once 035-037 are merged.
+- Panel Playwright: `audit-a.spec.ts` (4 pass) and the related `recovery`,
+  `screens`, `a11y`, `phase3` and `inventory` specs (210 pass). The shop was not
+  changed.
+
+### For the local demo launcher
+
+Set `REFUND_SAFETY_CHECKS=true`, `PAYMENT_DAILY_RECON=true`,
+`ORDER_RULE_CHECKS=true` and `STOCK_INTAKE_CHECKS=true` (with the default
+`BATCH_INTAKE_MANAGER_BOXES=1000`). Without Razorpay keys the daily payment check
+reads the dev stand-in gateway, so it calls nothing outside.
