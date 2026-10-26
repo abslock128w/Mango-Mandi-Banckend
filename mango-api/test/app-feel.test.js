@@ -216,9 +216,10 @@ describe('the switches the shop and panel read', () => {
     assert.equal((await api.get('/v1/policy')).body.features.push, true)
 
     const rider = await addRider()
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: rider })).body.features, { riderRoute: true })
+    // /auth/me features also carries the trust pack's switches (docs/trust.md); this test checks the rider's one.
+    assert.equal((await api.get('/admin/v1/auth/me', { token: rider })).body.features.riderRoute, true)
     env.LIVE_TRACKING = false
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: rider })).body.features, { riderRoute: false })
+    assert.equal((await api.get('/admin/v1/auth/me', { token: rider })).body.features.riderRoute, false)
   })
 
   test('while a switch is off its routes do not exist', async () => {
