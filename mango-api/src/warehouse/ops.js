@@ -16,7 +16,7 @@ import { tx } from '../db.js'
 import { env } from '../env.js'
 import { HttpError } from '../errors.js'
 import { newId } from '../ids.js'
-import { ledger, lineInfo, pack, release, sellableAs } from '../inventory.js'
+import { ledger, lineInfo, lockLines, pack, release, sellableAs } from '../inventory.js'
 import { logger } from '../logger.js'
 import { addEvent, assertTransition, lockOrder, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { hit } from '../ratelimit.js'
@@ -425,7 +425,8 @@ const HANDLERS = {
       if (!reason) {
         reject('NON_FEFO', `${formatBoxCode(box.code)} is not from the reserved batch${lot ? ` (${lot.code})` : ''}. Pick from that batch, or give a reason.`, { needsReason: true, expectedLot: lot?.code ?? null })
       }
-      await c.query('SELECT id FROM batch_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[box.line_id, expected.line_id]])
+      // Both lines in the one line order (DB-01), so a payment or cancel holding both can't deadlock with this pick.
+      await lockLines(c, [box.line_id, expected.line_id])
       const upd = await c.query(
         `UPDATE batch_lines SET committed = committed + 1 WHERE id = $1 AND on_hand - held - committed - reserve_buffer >= 1 RETURNING batch_id`,
         [box.line_id],

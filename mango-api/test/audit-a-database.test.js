@@ -106,6 +106,19 @@ describe('DB-01: one lock order for batch lines', () => {
   })
 })
 
+test('DB-01: no code locks several batch lines by line id alone (the lock order is LINE_LOCK_ORDER, or SKU then id inside one batch)', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs')
+  const dir = new URL('../src/', import.meta.url)
+  const files = readdirSync(dir, { recursive: true }).filter((f) => String(f).endsWith('.js'))
+  const bad = []
+  for (const f of files) {
+    readFileSync(new URL(String(f), dir), 'utf8').split('\n').forEach((line, i) => {
+      if (/batch_lines/.test(line) && /ORDER BY (l\.)?id FOR UPDATE/.test(line)) bad.push(`${f}:${i + 1}`)
+    })
+  }
+  assert.deepEqual(bad, [])
+})
+
 describe('DB-02: the scheduled sweep cancels each expired hold in its own transaction', () => {
   test('30 expired 2-SKU holds: every one cancelled, no transaction longer than 50 statements', async () => {
     await makeBatch({ variety: 'Alphonso', age: 4, rating: 'RIPE', lines: { 'ALP-3': 100 } })
