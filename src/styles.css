@@ -1946,7 +1946,8 @@ tr.row-flagged td {
   font-size: var(--text-md);
   margin: 0 0 var(--space-2);
 }
-/* The two main buttons, side by side; on a phone they stay at the bottom of the screen, under the thumb. */
+/* The two main buttons, side by side; on a phone they are fixed to the bottom of the screen, under the
+   thumb, whatever the rider scrolls to, and the route leaves room below its list so nothing hides under them. */
 .route-actions {
   display: grid;
   grid-template-columns: 1fr 2fr;
@@ -1955,13 +1956,19 @@ tr.row-flagged td {
 }
 @media (max-width: 640px) {
   .route-actions {
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: 0;
     z-index: 5;
-    margin: var(--space-3) calc(-1 * var(--space-4)) 0;
+    margin: 0;
     padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom));
     background: var(--surface);
     border-top: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .rider-route.has-current {
+    padding-bottom: calc(56px + 2 * var(--space-2) + var(--space-4) + env(safe-area-inset-bottom));
   }
 }
 .route-list-title {

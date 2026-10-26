@@ -29,6 +29,16 @@ function secondStop(api: MockState) {
   api.manifest.orders = 3
 }
 
+/** More packed stops after those, so the route is longer than a phone's screen. */
+function moreStops(api: MockState, n: number) {
+  const first = api.manifest.runs[0].stops[0].orders[0]
+  for (let i = 0; i < n; i++) {
+    const order = { ...first, id: `ox${i}`, number: `ORD-20${10 + i}`, customerName: `Customer ${i + 1}`, deliveryAddress: `${i + 1} Long Road`, status: 'PACKED' } as ManifestOrder
+    api.manifest.runs[0].stops.push({ pincode: `4000${60 + i}`, city: 'Mumbai', zone: 'Bandra', orders: [order] })
+  }
+  api.manifest.orders += n
+}
+
 const scan = async (page: import('@playwright/test').Page) => {
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
@@ -52,7 +62,7 @@ test('a rider starts the route, moves on, and delivers each stop with the usual 
   await scan(page)
 
   await page.getByRole('button', { name: 'Start route' }).click()
-  expect(api.calls.find((c) => c.path === '/manifest/dispatch')?.body).toEqual({ date: '2026-10-16' })
+  await expect.poll(() => api.calls.find((c) => c.path === '/manifest/dispatch')?.body).toEqual({ date: '2026-10-16' })
   const current = page.getByRole('article')
   await expect(current).toContainText('Stop 1 of 2')
   await expect(current.getByRole('heading', { name: 'Asha Rao (order ORD-1042)' })).toBeVisible()
@@ -95,6 +105,38 @@ test('a rider starts the route, moves on, and delivers each stop with the usual 
   // The full list is a tap away, and keeps the existing view.
   await page.getByRole('button', { name: 'Full list' }).click()
   await expect(page.getByRole('status', { name: 'Run summary' })).toBeVisible()
+})
+
+test('on a phone, Next stop and Delivered stay at the bottom of the screen while the rider scrolls the list', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 })
+  const api = await mockApi(page, { signedIn: true, role: 'RIDER' })
+  await routeSwitch(page, true)
+  secondStop(api)
+  moreStops(api, 8)
+  await page.goto('/deliveries?date=2026-10-16')
+  await page.getByRole('button', { name: 'Start route' }).click()
+  const current = page.getByRole('article')
+  await expect(current).toContainText('Stop 1 of 10')
+  const bar = page.locator('.route-actions')
+  const atBottom = async () => {
+    const box = (await bar.boundingBox())!
+    return Math.abs(box.y + box.height - 700) <= 1
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 300)).toBe(true)
+  expect(await atBottom()).toBe(true)
+  await page.evaluate(() => window.scrollBy(0, 600))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300)
+  expect(await atBottom()).toBe(true)
+  // Scrolled to the very end, the last stop is above the buttons, not hidden under them.
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect.poll(atBottom).toBe(true)
+  const last = (await page.getByRole('listitem').filter({ hasText: 'Customer 8' }).boundingBox())!
+  expect(last.y + last.height).toBeLessThanOrEqual((await bar.boundingBox())!.y)
+  // Still the buttons of the current stop, and still big enough for a thumb.
+  await expect(bar.getByRole('button', { name: 'Delivered ORD-1042' })).toBeVisible()
+  for (const b of await bar.getByRole('button').all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(56)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  await scan(page)
 })
 
 test('with the switch off, or for staff, the Deliveries page is the list as before', async ({ page }) => {

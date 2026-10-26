@@ -267,7 +267,7 @@ function RiderRoute({
   }
 
   return (
-    <section className="rider-route" aria-label="Your route">
+    <section className={current ? 'rider-route has-current' : 'rider-route'} aria-label="Your route">
       <p className="run-summary" role="status" aria-label="Route summary">
         <span>
           <strong>{done}</strong> of <strong>{packed.length}</strong> {packed.length === 1 ? 'stop' : 'stops'} done
@@ -329,7 +329,7 @@ function RiderRoute({
               Couldn't deliver<span className="sr-only"> {current.o.number}</span>
             </button>
           </div>
-          {/* Thumb reach: the two main buttons sit at the bottom of the screen on a phone. */}
+          {/* Thumb reach: on a phone the two main buttons are fixed to the bottom of the screen. */}
           <div className="route-actions">
             <button type="button" className="btn btn-big" disabled={out.length < 2} onClick={next}>
               Next stop
