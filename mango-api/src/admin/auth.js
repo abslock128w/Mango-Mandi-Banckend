@@ -222,7 +222,11 @@ me.get(
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: effectivePermissions(req.admin.role, env) } : { enabled: false, permissions: [] },
       // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
       // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
-      features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING },
+      features: {
+        bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING,
+        // Growth (docs/growth.md): managers' Referrals view, the funnel on Analytics, and the evening summary.
+        referrals: env.REFERRALS, funnelAnalytics: env.FUNNEL_ANALYTICS, managerDailySummary: env.MANAGER_DAILY_SUMMARY,
+      },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),

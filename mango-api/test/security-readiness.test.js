@@ -121,7 +121,7 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
@@ -130,6 +130,8 @@ describe('every route is filed', () => {
       'GET /v1/policy', 'GET /v1/preorders/weeks', 'GET /v1/products', 'GET /v1/products/:sku/photo', 'GET /v1/products/:sku/reviews', 'GET /v1/review-photos/:id',
       'POST /admin/v1/auth/google', 'POST /admin/v1/auth/login', 'POST /admin/v1/auth/logout', 'POST /admin/v1/auth/refresh', 'POST /admin/v1/auth/two-step',
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',
+      // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
+      'POST /v1/events',
     ])
   })
 })

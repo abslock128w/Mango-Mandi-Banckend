@@ -14,6 +14,8 @@ export async function applyPromo(c, rawCode, customerId, subtotal, { lock = fals
   const { rows } = await c.query(`SELECT * FROM promo_codes WHERE code = $1${lock ? ' FOR UPDATE' : ''}`, [code])
   const p = rows[0]
   if (!p || !p.active) throw fail('That promo code is not valid', 'PROMO_INVALID')
+  // A referral thank-you (docs/growth.md) is for the one customer it was given to.
+  if (p.owner_customer_id && p.owner_customer_id !== customerId) throw fail('That promo code is not valid', 'PROMO_INVALID')
   const today = todayIST()
   if (p.starts_on && today < p.starts_on) throw fail('That promo code is not active yet', 'PROMO_NOT_STARTED')
   if (p.ends_on && today > p.ends_on) throw fail('That promo code has expired', 'PROMO_EXPIRED')

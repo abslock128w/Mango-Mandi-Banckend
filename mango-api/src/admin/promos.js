@@ -20,7 +20,7 @@ router.get(
                      WHERE r.code = p.code AND o.status <> 'CANCELLED') AS uses,
               (SELECT COALESCE(SUM(r.discount), 0)::int FROM promo_redemptions r JOIN orders o ON o.id = r.order_id
                      WHERE r.code = p.code AND o.status <> 'CANCELLED' AND o.payment_status = 'SUCCEEDED') AS given
-         FROM promo_codes p ORDER BY p.active DESC, p.created_at DESC`,
+         FROM promo_codes p WHERE p.owner_customer_id IS NULL ORDER BY p.active DESC, p.created_at DESC`,
     )
     res.json(rows.map((p) => ({ ...promoView(p, p.uses), discountGiven: p.given })))
   }),
@@ -68,7 +68,10 @@ router.post(
   }),
 )
 
-/** Turn a code off or on, or change its end date, limit or note. The discount itself can't change once made. */
+/**
+ * Turn a code off or on, or change its end date, limit or note. The discount itself can't change once made.
+ * Referral thank-you codes (one customer's own) are listed with the referrals, not here; they can still be turned off.
+ */
 router.patch(
   '/promos/:code',
   requireManager,

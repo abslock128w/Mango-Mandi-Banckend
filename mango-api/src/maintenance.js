@@ -37,6 +37,9 @@ import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
 import { issueMissingBills, reconcileBills } from './bills.js'
 import { trust } from './trust-config.js'
+import { settleReferrals } from './referrals.js'
+import { sendManagerSummaries } from './manager-summary.js'
+import { rollupAndPruneFunnel } from './funnel.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -335,6 +338,10 @@ async function steps(forceAll) {
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
+  // Growth (docs/growth.md): referral thank-yous once a friend's first order is delivered, and the
+  // managers' evening summary. Both queue WhatsApp messages, so they run before the send step.
+  if (env.REFERRALS) out.referrals = await step('referrals', () => settleReferrals())
+  if (env.MANAGER_DAILY_SUMMARY) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Browser notifications for the same order steps (WEB_PUSH, push.js).
   if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })
@@ -349,7 +356,11 @@ async function steps(forceAll) {
   }
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
-  if (forceAll || t - (last.retention ?? 0) > DAILY_MS) out.anonymised = await step('retention', () => anonymiseOldOrders())
+  if (forceAll || t - (last.retention ?? 0) > DAILY_MS) {
+    out.anonymised = await step('retention', () => anonymiseOldOrders())
+    // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
+    out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
+  }
   const lastFull = last['rebalance-all'] ?? 0
   if (forceAll || (last['rebalance-requested'] ?? 0) > lastFull || t - lastFull > DAILY_MS) {
     out.rebalanced = await step('rebalance-all', () => rebalanceAllOpen())

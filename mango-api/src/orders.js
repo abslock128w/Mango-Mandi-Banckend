@@ -19,6 +19,7 @@ import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
+import { recordPaid } from './funnel.js'
 import { enqueueOrderPush, noRetryPush } from './push.js'
 import { trackedLine } from './warehouse/core.js'
 import { assertBoxesReadyFor, assertNoTrackedCommitted, restockPacked } from './warehouse/stock.js'
@@ -513,6 +514,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   if (amount != null && amount !== o.total) {
     logger.warn({ orderId: o.id, amount, total: o.total }, 'captured amount differs from order total')
   }
+  // FUNNEL_ANALYTICS (docs/growth.md): "paid" for the browser that started this checkout, recorded here and never by the shop.
+  await recordPaid(c, o.id)
   // The bill's number is taken last, so the counter row stays locked only until this commits.
   await issueBillWithPayment(c, o.id)
   return { order: o, result: lateFrom ? 'confirmed_late' : 'confirmed' }

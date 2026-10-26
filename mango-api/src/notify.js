@@ -49,7 +49,9 @@ export async function enqueue(c, orderId, eventId, kind, { delayMs = 0 } = {}) {
 }
 
 /** The Meta template a kind is sent with. The gift message reuses the out-for-delivery one, addressed to the recipient. */
-export const templateFor = (kind) => templateName(kind === 'GIFT_OUT_FOR_DELIVERY' ? 'OUT_FOR_DELIVERY' : kind)
+export const templateFor = (kind) =>
+  // The managers' evening summary (docs/growth.md) has its own full template name, without the prefix.
+  kind === 'MANAGER_DAILY_SUMMARY' ? env.MANAGER_SUMMARY_TEMPLATE : templateName(kind === 'GIFT_OUT_FOR_DELIVERY' ? 'OUT_FOR_DELIVERY' : kind)
 
 /** Queues a preorder message (booked, spot open, moved, refunded). */
 export async function enqueuePreorder(c, preorderId, kind) {
@@ -140,6 +142,12 @@ export function paramsFor(n) {
       return [name, n.number, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start)]
     case 'PREORDER_SPOT_OPEN':
       return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
+    case 'REFERRAL_REWARD':
+      // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
+      return [name, rupees(n.reward_amount ?? 0), n.reward_code ?? '', n.reward_ends_on ? dateWords(n.reward_ends_on) : 'soon', rupees(n.reward_min ?? 0)]
+    case 'MANAGER_DAILY_SUMMARY':
+      // Made when the summary was taken (manager-summary.js), so a late retry still says what the day was.
+      return (n.summary_params ?? []).map(String)
     case 'CLAIM_RECEIVED':
       return [name, n.number]
     case 'CLAIM_REJECTED':
@@ -214,11 +222,17 @@ async function sendBatch(sender, limit, at) {
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
-            COALESCE(o.customer_name, p.customer_name, ac.name) AS customer_name,
-            (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason
+            COALESCE(o.customer_name, p.customer_name, ac.name, rc.name) AS customer_name,
+            (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason,
+            rr.promo_code AS reward_code, rr.amount AS reward_amount, rp.ends_on AS reward_ends_on, rp.min_subtotal AS reward_min,
+            rc.deleted_at AS reward_customer_deleted_at,
+            ms.params AS summary_params, ma.role AS summary_role, ma.daily_summary_opt_in AS summary_opt_in, ma.daily_summary_phone AS summary_phone
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
        LEFT JOIN stock_alerts a ON a.id = n.stock_alert_id LEFT JOIN customers ac ON ac.id = a.customer_id
+       LEFT JOIN referral_rewards rr ON rr.id = n.referral_reward_id LEFT JOIN customers rc ON rc.id = rr.customer_id
+       LEFT JOIN promo_codes rp ON rp.code = rr.promo_code
+       LEFT JOIN manager_summaries ms ON ms.id = n.manager_summary_id LEFT JOIN admin_users ma ON ma.id = ms.admin_id
       WHERE n.id = ANY($1) ORDER BY n.created_at`,
     [claimed.rows.map((r) => r.id)],
   )
@@ -246,6 +260,13 @@ function staleReason(n) {
   if (env.PROVIDER_CHECKS) {
     const why = staleSince(n)
     if (why) return why
+  }
+  // docs/growth.md: a thank-you for an account deleted since, and a summary for someone who
+  // opted out, stopped being a manager or changed the number since it was made.
+  if (n.kind === 'REFERRAL_REWARD' && n.reward_customer_deleted_at) return 'account deleted since'
+  if (n.kind === 'MANAGER_DAILY_SUMMARY') {
+    if (n.summary_role !== 'MANAGER' || !n.summary_opt_in) return 'summary turned off since'
+    if (n.summary_phone !== n.phone) return 'number changed since'
   }
   const s = n.order_status
   if (!s) return null
