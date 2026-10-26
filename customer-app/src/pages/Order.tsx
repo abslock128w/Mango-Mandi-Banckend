@@ -3,12 +3,15 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, signedInPhone, type Order, type OrderBill, type OrderStatus, type Stage, type Tracking } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
+import { tierRange } from '../bulk'
 import { DayChips, SlotPicker } from '../forms'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { ConfirmDialog, Dialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
 import { CARE, MangoArt } from '../mango'
 import { useStore } from '../store'
 import { useCare } from '../features'
+import { useT } from '../i18n'
+import { t as tr, type Key } from '../i18n-core.ts'
 import { OrderReviews } from './Review'
 
 const TONE: Partial<Record<OrderStatus, string>> = {
@@ -22,11 +25,11 @@ export function StatusPill({ status }: { status: OrderStatus }) {
   return <span className={`pill pill-${TONE[status] ?? 'info'}`}>{STATUS_LABEL[status]}</span>
 }
 
-const STEPS: { label: string; status: OrderStatus; reached: OrderStatus[] }[] = [
-  { label: 'Confirmed', status: 'CONFIRMED', reached: ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Packed', status: 'PACKED', reached: ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Out for delivery', status: 'OUT_FOR_DELIVERY', reached: ['OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
-  { label: 'Delivered', status: 'DELIVERED', reached: ['DELIVERED'] },
+const STEPS: { label: Key; status: OrderStatus; reached: OrderStatus[] }[] = [
+  { label: 'status.confirmed', status: 'CONFIRMED', reached: ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'status.packed', status: 'PACKED', reached: ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'status.outForDelivery', status: 'OUT_FOR_DELIVERY', reached: ['OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED'] },
+  { label: 'status.delivered', status: 'DELIVERED', reached: ['DELIVERED'] },
 ]
 /** Orders a customer can still move to another day: confirmed, before packing starts. Mirrors the API. */
 const MOVABLE: OrderStatus[] = ['CONFIRMED']
@@ -41,11 +44,12 @@ const latePaymentPossible = (o: Order | undefined) =>
   o.refundStatus === null &&
   Boolean(o.cancelledAt) &&
   Date.now() - new Date(o.cancelledAt!).getTime() < LATE_PAYMENT_WATCH_MS
-const ISSUE_LABEL = { DAMAGED: 'Damaged or spoilt', WRONG_ITEM: 'Wrong item', NOT_DELIVERED: 'Not delivered' }
+const ISSUE_LABEL = { DAMAGED: 'order.issue.damaged', WRONG_ITEM: 'order.issue.wrong', NOT_DELIVERED: 'order.issue.missing' } as const
 
 export default function OrderPage() {
   const { id = '' } = useParams()
   const queryClient = useQueryClient()
+  const t = useT()
   const q = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
@@ -64,14 +68,14 @@ export default function OrderPage() {
       return false
     },
   })
-  if (q.isPending) return <Spinner label="Loading your order" />
+  if (q.isPending) return <Spinner label={t('order.loading')} />
   if (q.isError) {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card">
-          <DocTitle title="Order not found" />
-          <h1>Order not found</h1>
-          <Link to="/orders">See my orders</Link>
+          <DocTitle title={t('order.notFound')} />
+          <h1>{t('order.notFound')}</h1>
+          <Link to="/orders">{t('order.seeMine')}</Link>
         </section>
       )
     }
@@ -84,6 +88,7 @@ function OrderView({ order }: { order: Order }) {
   const queryClient = useQueryClient()
   const [cancelling, setCancelling] = useState(false)
   const [moving, setMoving] = useState(false)
+  const t = useT()
   const { setQty, setBulk, setWhere } = useStore()
   const navigate = useNavigate()
   const buyAgain = () => {
@@ -149,32 +154,31 @@ function OrderView({ order }: { order: Order }) {
   const canMove = MOVABLE.includes(order.status)
   // An unpaid gift order's delivery is cancelled with its whole gift order (MULTI_GIFT).
   const canCancel = CANCELLABLE.includes(order.status) && !(order.giftOrderId && order.status === 'PAYMENT_PENDING')
-  const refund = paid ? ' for a full refund' : ''
   const policy =
     order.status === 'CONFIRMED'
-      ? `You can change the day until we start preparing it, and cancel${refund} until it's packed.`
+      ? t(paid ? 'order.policyConfirmedPaid' : 'order.policyConfirmed')
       : order.status === 'PROCESSING'
-        ? `We're preparing your boxes. You can still cancel${refund} until they're packed.`
-        : `You can cancel${refund} until it's packed.`
+        ? t(paid ? 'order.policyPreparingPaid' : 'order.policyPreparing')
+        : t(paid ? 'order.policyOtherPaid' : 'order.policyOther')
 
   return (
     <>
-      <DocTitle title={`Order ${order.number}`} />
-      <PageHeader title={`Order ${order.number}`}>
+      <DocTitle title={t('pay.description', { number: order.number })} />
+      <PageHeader title={t('pay.description', { number: order.number })}>
         <StatusPill status={order.status} />
       </PageHeader>
 
       {order.giftOrderId && (
         <p className="small">
-          One delivery of a gift order to many. <Link to={`/gifts/${order.giftOrderId}`}>Open the gift order</Link> for its payment, its bill and every recipient.
+          {t.rich('order.partOfGift', { link: <Link to={`/gifts/${order.giftOrderId}`}>{t('order.openGift')}</Link> })}
         </p>
       )}
 
       {thanks && order.status !== 'CANCELLED' && (
         <section className="card note-card thanks-card" ref={thanksNote} tabIndex={-1} aria-labelledby="thanks-title">
           <p id="thanks-title">
-            <strong>Thank you, your order is placed.</strong> We'll deliver it on {day(order.deliveryDate)}
-            {order.slot && `, ${slotText(order.slot)}`}.
+            <strong>{t('order.thanks')}</strong>{' '}
+            {t('order.deliverOn', { when: order.slot ? `${day(order.deliveryDate)}, ${slotText(order.slot)}` : day(order.deliveryDate) })}
           </p>
         </section>
       )}
@@ -183,29 +187,28 @@ function OrderView({ order }: { order: Order }) {
       {order.status === 'PAYMENT_PENDING' && !order.giftOrderId && (
         <section className="card note-card" aria-live="polite">
           <p>
-            <strong>Waiting for your payment to be confirmed.</strong> This page updates on its own.
-            {order.holdExpiresAt && holdOpen && <> Your boxes are held until {when(order.holdExpiresAt)}.</>}
+            <strong>{t('order.waitingPay')}</strong> {t('order.updatesItself')}
+            {order.holdExpiresAt && holdOpen && <> {t('order.heldUntil', { when: when(order.holdExpiresAt) })}</>}
           </p>
           {payKey && order.razorpayOrderId && canPay && (
             <button type="button" className="btn btn-primary" disabled={payAgain.isPending} onClick={() => payAgain.mutate()}>
-              Pay {rupees(order.total)}
+              {t('checkout.pay', { total: rupees(order.total) })}
             </button>
           )}
           {payKey && holdOpen && !canPay && (
             <p className="small">
-              The hold on your boxes is about to end. If you've already paid, stay here: this page updates when the payment reaches us. Please
-              don't pay again.
+              {t('order.holdEnding')}
             </p>
           )}
           {import.meta.env.DEV && !payKey && (
             <div className="dev-pay">
-              <p className="small muted">Test mode: Razorpay isn't set up, so choose how the payment ends.</p>
+              <p className="small muted">{t('order.devPay')}</p>
               <div className="row">
                 <button type="button" className="btn btn-primary" disabled={devPay.isPending} onClick={() => devPay.mutate('captured')}>
-                  Payment succeeds
+                  {t('order.devSucceeds')}
                 </button>
                 <button type="button" className="btn" disabled={devPay.isPending} onClick={() => devPay.mutate('failed')}>
-                  Payment fails
+                  {t('order.devFails')}
                 </button>
               </div>
             </div>
@@ -217,24 +220,19 @@ function OrderView({ order }: { order: Order }) {
       {order.status === 'CANCELLED' && (
         <section className="card note-card" ref={cancelledNote} tabIndex={-1}>
           <p>
-            <strong>This order was cancelled.</strong>{' '}
+            <strong>{t('order.cancelled')}</strong>{' '}
             {order.refundStatus === 'REFUNDED'
-              ? `Your refund of ${rupees(order.total)} has been sent. Banks take up to 5 to 7 days to show it.`
+              ? t('order.refundSent', { total: rupees(order.total) })
               : order.refundStatus === 'PENDING'
-                ? `Your full refund of ${rupees(order.total)} is on its way.`
+                ? t('order.refundPending', { total: rupees(order.total) })
                 : order.cancelReason === 'HOLD_EXPIRED'
-                  ? "We didn't receive your payment in time."
-                  : 'We have no payment for this order. If money has left your account, it is refunded in full.'}
+                  ? t('order.notInTime')
+                  : t('order.noPayment')}
           </p>
           {order.cancelReason === 'HOLD_EXPIRED' && order.refundStatus === null && (
             <p className="small">
-              If money has left your account, please don't pay again. A payment that arrives late is still matched to this order and confirmed,
-              moved to the next day with stock if these boxes have sold out.{' '}
-              {latePaymentPossible(order) ? 'This page keeps checking.' : (
-                <>
-                  Check My orders again later, or <Link to="/help">contact us</Link>.
-                </>
-              )}
+              {t('order.latePayment')}{' '}
+              {latePaymentPossible(order) ? t('order.keepsChecking') : t.rich('order.checkLater', { link: <Link to="/help">{t('order.contactUs')}</Link> })}
             </p>
           )}
         </section>
@@ -243,12 +241,12 @@ function OrderView({ order }: { order: Order }) {
       {order.status === 'OUT_FOR_DELIVERY' && order.deliveryCode && (
         <section className="card note-card code-card" aria-labelledby="code-title">
           <p id="code-title">
-            <strong>Your mangoes are on the way.</strong> Give the rider this code when they arrive:
+            <strong>{t('order.onTheWay')}</strong> {t('order.giveCode')}
           </p>
-          <p className="delivery-code" aria-label={`Delivery code ${order.deliveryCode.split('').join(' ')}`}>
+          <p className="delivery-code" aria-label={t('order.codeLabel', { code: order.deliveryCode.split('').join(' ') })}>
             {order.deliveryCode}
           </p>
-          <p className="muted small">Only share it once you have the boxes in hand.</p>
+          <p className="muted small">{t('order.shareOnce')}</p>
         </section>
       )}
 
@@ -256,12 +254,13 @@ function OrderView({ order }: { order: Order }) {
 
       {order.status === 'DELIVERED' && order.delivery && (
         <section className="card">
-          <h2>Delivered</h2>
+          <h2>{t('status.delivered')}</h2>
           <p>
-            {when(order.delivery.at)}
-            {order.delivery.method === 'code' && ', handed to you with your code.'}
-            {order.delivery.method === 'photo' && `, left with ${order.delivery.receivedBy ?? 'someone at your address'}.`}
-            {order.delivery.method !== 'code' && order.delivery.method !== 'photo' && '.'}
+            {order.delivery.method === 'code'
+              ? t('order.handedWithCode', { when: when(order.delivery.at) })
+              : order.delivery.method === 'photo'
+                ? t('order.leftWith', { when: when(order.delivery.at), who: order.delivery.receivedBy ?? t('order.someone') })
+                : t('order.deliveredAt', { when: when(order.delivery.at) })}
           </p>
           {order.delivery.hasPhoto && <DeliveryPhoto orderId={order.id} />}
         </section>
@@ -270,28 +269,29 @@ function OrderView({ order }: { order: Order }) {
       {order.status === 'DELIVERED' &&
         (claim ? (
           <section className="card">
-            <h2>Your report</h2>
+            <h2>{t('order.yourReport')}</h2>
             <p>
-              {ISSUE_LABEL[claim.issueType]}:{' '}
-              {claim.status === 'RESOLVED'
-                ? claim.resolution === 'REPLACEMENT_APPROVED'
-                  ? 'a free replacement is on its way'
-                  : 'we looked into it and could not offer a replacement'
-                : 'we are looking into it'}
-              .
+              {t(
+                claim.status === 'RESOLVED'
+                  ? claim.resolution === 'REPLACEMENT_APPROVED'
+                    ? 'order.claimReplacing'
+                    : 'order.claimRejected'
+                  : 'order.claimLooking',
+                { issue: t(ISSUE_LABEL[claim.issueType]) },
+              )}
             </p>
             {/* UX-4: staff give a reason for every rejection; the customer sees it in their words. */}
             {claim.status === 'RESOLVED' && claim.resolution === 'REJECTED' && claim.rejectionReason && (
               <p className="claim-reason">
-                <strong>Why:</strong> {claim.rejectionReason}
+                <strong>{t('order.why')}</strong> {claim.rejectionReason}
               </p>
             )}
             {claim.status === 'RESOLVED' && claim.resolution === 'REJECTED' && (
               <p className="small muted">
-                If you think we got it wrong, <Link to="/help">talk to us</Link>.
+                {t.rich('order.gotItWrong', { link: <Link to="/help">{t('order.talkToUs')}</Link> })}
               </p>
             )}
-            {claim.replacementOrder && <Link to={`/orders/${claim.replacementOrder.id}`}>See replacement order {claim.replacementOrder.number}</Link>}
+            {claim.replacementOrder && <Link to={`/orders/${claim.replacementOrder.id}`}>{t('order.seeReplacement', { number: claim.replacementOrder.number })}</Link>}
           </section>
         ) : (
           <ClaimPrompt order={order} loading={claims.isPending} />
@@ -300,8 +300,7 @@ function OrderView({ order }: { order: Order }) {
       {order.findingStock && (
         <section className="card note-card" role="status">
           <p>
-            <strong>We're finding fresh stock for your order.</strong> Your payment is safe. The delivery day may change, and we'll message you on
-            WhatsApp as soon as it's settled. You can still cancel for a full refund until it's packed.
+            <strong>{t('order.findingStock')}</strong> {t('order.findingStockBody')}
           </p>
         </section>
       )}
@@ -311,40 +310,39 @@ function OrderView({ order }: { order: Order }) {
           {/* No retry booked after the last attempt: never name the missed day as the next one. */}
           {order.retryScheduled === false ? (
             <p>
-              <strong>We missed you{order.deliveryFailures > 1 ? ' again' : ''}.</strong> We'll call you to arrange a new delivery.
+              <strong>{order.deliveryFailures > 1 ? t('order.missedAgain') : t('order.missed')}</strong> {t('order.willCall')}
             </p>
           ) : (
             <p>
-              <strong>We missed you.</strong> We'll try again on {day(order.deliveryDate)}.
+              <strong>{t('order.missed')}</strong> {t('order.tryAgainOn', { day: day(order.deliveryDate) })}
             </p>
           )}
         </section>
       )}
 
       {(canMove || canCancel) && (
-        <section className="card order-actions" aria-label="Change or cancel">
+        <section className="card order-actions" aria-label={t('order.changeOrCancel')}>
           <p className="small">{policy}</p>
           <div className="order-actions-row">
             {canMove && (
               <button type="button" className="btn" onClick={() => setMoving(true)}>
-                Change delivery day
+                {t('order.changeDay')}
               </button>
             )}
             <button type="button" className="btn btn-danger-quiet" onClick={() => setCancelling(true)}>
-              Cancel order
+              {t('order.cancel')}
             </button>
           </div>
         </section>
       )}
       {PACKED_ON.includes(order.status) && (
         <p className="muted small order-policy">
-          It's packed, so it can no longer be cancelled or moved. If a box arrives damaged, report it within {order.claimWindowHours} hours of delivery
-          for a free replacement.
+          {t('order.packedPolicy', { hours: order.claimWindowHours })}
         </p>
       )}
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && (
-        <ol className="steps" aria-label="Progress">
+        <ol className="steps" aria-label={t('order.progress')}>
           {STEPS.map((s) => {
             const done = s.reached.includes(order.status)
             // The latest time the order reached this step (a retried delivery goes out more than once).
@@ -353,8 +351,8 @@ function OrderView({ order }: { order: Order }) {
               <li key={s.label} className={done ? 'done' : ''}>
                 <span className="dot" aria-hidden="true" />
                 <span>
-                  {s.label}
-                  <span className="sr-only">{done ? ', done' : ', not yet'}</span>
+                  {t(s.label)}
+                  <span className="sr-only">{done ? t('order.stepDone') : t('order.stepNotYet')}</span>
                 </span>
                 {at && (
                   // "19 Oct" over "10:27 am", so four steps fit side by side on a phone.
@@ -375,18 +373,18 @@ function OrderView({ order }: { order: Order }) {
       <section className="card">
         <dl className="facts">
           <div>
-            <dt>{order.status === 'DELIVERED' ? 'Delivered' : 'Arrives'}</dt>
+            <dt>{order.status === 'DELIVERED' ? t('status.delivered') : t('checkout.arrives')}</dt>
             <dd>
               {day(order.deliveryDate)}
               {order.slot && `, ${slotText(order.slot)}`}
             </dd>
           </div>
           <div>
-            <dt>To</dt>
+            <dt>{t('checkout.to')}</dt>
             <dd>
               {order.gift && (
                 <>
-                  {order.gift.recipientName} (a gift)
+                  {t('checkout.aGift', { name: order.gift.recipientName })}
                   <br />
                 </>
               )}
@@ -395,7 +393,7 @@ function OrderView({ order }: { order: Order }) {
           </div>
           {order.gift?.message && (
             <div>
-              <dt>Note</dt>
+              <dt>{t('checkout.note')}</dt>
               <dd>{order.gift.message}</dd>
             </div>
           )}
@@ -405,19 +403,19 @@ function OrderView({ order }: { order: Order }) {
             <li key={`${i.sku}-${i.stage}`} className="line">
               <div>
                 <strong>
-                  {i.bulk && <span className="bulk-tag">Bulk</span>}
+                  {i.bulk && <span className="bulk-tag">{t('bulk.tag')}</span>}
                   {i.quantity} × {i.bulk ? i.bulk.title : i.name}
                 </strong>
                 {i.bulk && (
                   <span className="muted small">
-                    {i.name} · {rupees(i.unitPrice)} a box, the price for {i.bulk.tier.maxQty == null ? `${i.bulk.tier.minQty}+` : `${i.bulk.tier.minQty} to ${i.bulk.tier.maxQty}`} boxes
+                    {i.name} · {t('order.bulkPrice', { price: rupees(i.unitPrice), range: tierRange(i.bulk.tier) })}
                   </span>
                 )}
                 {i.stage && (
                   <span className="muted small">
                     {STAGE_LABEL[i.stage]}
-                    {i.readyOn && i.readyOn !== order.deliveryDate && ` · ready to eat around ${day(i.readyOn)}`}
-                    {i.eatBy && ` · eat by ${day(i.eatBy)}`}
+                    {i.readyOn && i.readyOn !== order.deliveryDate && ` · ${t('order.readyAround', { day: day(i.readyOn) })}`}
+                    {i.eatBy && ` · ${t('checkout.eatBy', { day: day(i.eatBy) })}`}
                   </span>
                 )}
               </div>
@@ -427,12 +425,12 @@ function OrderView({ order }: { order: Order }) {
         </ul>
         {order.discount > 0 && (
           <div className="sum-row discount">
-            <span>Promo {order.promoCode}</span>
+            <span>{t('checkout.promo', { code: order.promoCode ?? '' })}</span>
             <span>−{rupees(order.discount)}</span>
           </div>
         )}
         <div className="total-row">
-          <span>{refunded ? 'Refunded' : paid ? 'Paid' : 'Total'}</span>
+          <span>{refunded ? t('order.refunded') : paid ? t('gift.status.paid') : t('common.total')}</span>
           <strong>{rupees(order.total)}</strong>
         </div>
       </section>
@@ -445,29 +443,29 @@ function OrderView({ order }: { order: Order }) {
 
       {['DELIVERED', 'CANCELLED'].includes(order.status) && (
         <button type="button" className="btn btn-block btn-primary" onClick={buyAgain}>
-          Buy these again
+          {t('order.buyAgain')}
         </button>
       )}
 
       <Link to="/orders" className="btn btn-block btn-quiet">
-        All my orders
+        {t('order.allMine')}
       </Link>
 
       {/* UX-1: always a way to reach us; production builds always have the WhatsApp number. */}
       <p className="small muted center">
-        Need help with this order?{' '}
+        {t('order.needHelp')}{' '}
         {care.helpCentre && (
           <>
-            <Link to={`/help/requests?order=${encodeURIComponent(order.id)}`}>Ask us about this order</Link>
-            {help ? ' or ' : '.'}
+            <Link to={`/help/requests?order=${encodeURIComponent(order.id)}`}>{t('order.askAbout')}</Link>
+            {help ? ` ${t('order.or')} ` : '.'}
           </>
         )}
         {help ? (
           <a href={help} target="_blank" rel="noopener noreferrer">
-            Message us on WhatsApp<span className="sr-only"> (opens WhatsApp)</span>
+            {t('order.messageWhatsApp')}<span className="sr-only"> {t('common.opensWhatsApp')}</span>
           </a>
         ) : (
-          !care.helpCentre && <Link to="/help">See how to reach us</Link>
+          !care.helpCentre && <Link to="/help">{t('order.howToReach')}</Link>
         )}
       </p>
 
@@ -475,16 +473,16 @@ function OrderView({ order }: { order: Order }) {
 
       {cancelling && (
         <ConfirmDialog
-          title={`Cancel order ${order.number}?`}
-          keepLabel="Keep order"
-          confirmLabel="Cancel order"
-          busyLabel="Cancelling…"
+          title={t('order.cancelConfirm', { number: order.number })}
+          keepLabel={t('order.keep')}
+          confirmLabel={t('order.cancel')}
+          busyLabel={t('order.cancelling')}
           busy={cancel.isPending}
           error={cancel.error}
           onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
         >
-          <p>{paid ? `You'll get a full refund of ${rupees(order.total)} to the way you paid.` : 'No payment has reached us for this order. If you have just paid, cancelling refunds it in full.'}</p>
+          <p>{paid ? t('order.cancelRefund', { total: rupees(order.total) }) : t('order.cancelNoPayment')}</p>
         </ConfirmDialog>
       )}
     </>
@@ -497,8 +495,8 @@ function roughTime(minutes: number) {
   const m = Math.max(5, Math.round(minutes / 5) * 5)
   const h = Math.floor(m / 60)
   const rest = m % 60
-  const mins = (n: number) => `${n} ${n === 1 ? 'minute' : 'minutes'}`
-  return h ? `about ${h} ${h === 1 ? 'hour' : 'hours'}${rest ? ` ${mins(rest)}` : ''}` : `about ${mins(m)}`
+  if (!h) return tr('order.aboutMinutes', { count: m })
+  return rest ? tr('order.aboutHoursMinutes', { count: h, minutes: tr('order.minutes', { count: rest }) }) : tr('order.aboutHours', { count: h })
 }
 
 /**
@@ -508,18 +506,16 @@ function roughTime(minutes: number) {
  */
 function RiderNearby({ tracking }: { tracking: Tracking }) {
   const n = tracking.stopsAway
+  const t = useT()
   return (
     <section className="card note-card tracking-card" aria-labelledby="tracking-title">
       <h2 id="tracking-title" className="sub-title">
-        Where's my rider?
+        {t('track.title')}
       </h2>
       <p role="status">
-        <strong>{n === 0 ? "You're the rider's next stop." : `Your rider is ${n} ${n === 1 ? 'stop' : 'stops'} away.`}</strong> Expect them in{' '}
-        {roughTime(tracking.etaMinutes)}.
+        <strong>{n === 0 ? t('track.next') : t('track.stopsAway', { count: n })}</strong> {t('track.expect', { time: roughTime(tracking.etaMinutes) })}
       </p>
-      <p className="muted small">
-        A rough guess of {tracking.minutesPerStop} minutes a stop, counted along the rider's route. There's no live map, and traffic can change it.
-      </p>
+      <p className="muted small">{t('track.guess', { minutes: tracking.minutesPerStop })}</p>
     </section>
   )
 }
@@ -528,19 +524,20 @@ function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
   // The window comes from the API, from the latest delivery and the live rule.
   const deadline = order.claimUntil ? new Date(order.claimUntil) : null
   const open = deadline != null && deadline.getTime() > Date.now()
+  const t = useT()
   // Until the reports load we don't know whether one was sent: keep the space, show nothing.
   if (loading) return null
   const report = (
     <Link to={`/orders/${order.id}/claim`} className="btn btn-block">
-      Report a problem with this order
+      {t('order.reportProblem')}
     </Link>
   )
   // Past our count of the window the link stays: the API has the last word on a late report.
   if (!open) return report
   return (
-    <section className="card claim-prompt" aria-label="Report a problem">
+    <section className="card claim-prompt" aria-label={t('title.claim')}>
       <p>
-        <strong>Something wrong?</strong> Report it by {when(deadline!.toISOString())} for a free replacement.
+        <strong>{t('order.somethingWrong')}</strong> {t('order.reportBy', { when: when(deadline!.toISOString()) })}
       </p>
       {report}
     </section>
@@ -550,6 +547,7 @@ function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
 function DeliveryPhoto({ orderId }: { orderId: string }) {
   const [url, setUrl] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const t = useT()
   useEffect(() => {
     let made: string | null = null
     let live = true
@@ -566,24 +564,25 @@ function DeliveryPhoto({ orderId }: { orderId: string }) {
       if (made) URL.revokeObjectURL(made)
     }
   }, [orderId])
-  if (failed) return <p className="muted small">The photo could not be loaded.</p>
-  if (!url) return <p className="muted small">Loading the rider's photo…</p>
-  return <img className="delivery-photo" src={url} alt="The rider's photo of your delivery" />
+  if (failed) return <p className="muted small">{t('error.photoUnavailable')}</p>
+  if (!url) return <p className="muted small">{t('order.loadingPhoto')}</p>
+  return <img className="delivery-photo" src={url} alt={t('order.photoAlt')} />
 }
 
 /** How to look after what arrived, for each ripeness in the order. */
 function CareTips({ stages }: { stages: Stage[] }) {
+  const t = useT()
   return (
     <section className="card" aria-labelledby="care-title">
-      <h2 id="care-title">Looking after your mangoes</h2>
+      <h2 id="care-title">{t('order.careTitle')}</h2>
       {stages.map((st) => (
         <div key={st} className="care">
           <MangoArt stage={st} size={40} />
           <div>
             <h3>{CARE[st].title}</h3>
             <ul>
-              {CARE[st].tips.map((t) => (
-                <li key={t}>{t}</li>
+              {CARE[st].tips.map((tip) => (
+                <li key={tip}>{tip}</li>
               ))}
             </ul>
           </div>
@@ -596,6 +595,7 @@ function CareTips({ stages }: { stages: Stage[] }) {
 /** Pick another open day (and time) for an order that isn't being packed yet. */
 function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => void; onMoved: () => void }) {
   const days = useQuery({ queryKey: ['delivery-check', order.pincode], queryFn: () => api.checkPincode(order.pincode) })
+  const t = useT()
   const [date, setDate] = useState<string | null>(null)
   const [slotId, setSlotId] = useState<string | null>(null)
   const slots = useQuery({ queryKey: ['slots', order.pincode, date], queryFn: () => api.slots(order.pincode, date!), enabled: Boolean(date) })
@@ -609,37 +609,37 @@ function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => 
   const choices = (days.data?.deliveryDates ?? []).filter((d) => d !== order.deliveryDate)
   const needSlot = Boolean(slots.data?.slots.length)
   const problem = move.error instanceof ApiError && move.error.code === 'STOCK_INSUFFICIENT'
-    ? "We don't have enough of these mangoes at the right ripeness for that day. Try another day."
+    ? t('move.notEnough')
     : move.error instanceof ApiError && move.error.code === 'SLOT_FULL'
-      ? 'That time just filled up. Choose another one.'
+      ? t('move.slotFull')
       : move.error
 
   return (
     <Dialog
-      title="Change delivery day"
+      title={t('order.changeDay')}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn btn-quiet" onClick={onClose}>
-            Keep {day(order.deliveryDate)}
+            {t('move.keep', { day: day(order.deliveryDate) })}
           </button>
           <button type="button" className="btn btn-primary" disabled={!date || (needSlot && !slotId) || move.isPending} onClick={() => move.mutate()}>
-            {move.isPending ? 'Moving…' : 'Move my order'}
+            {move.isPending ? t('move.moving') : t('move.cta')}
           </button>
         </>
       }
     >
       {days.isPending ? (
-        <Spinner label="Loading delivery days" />
+        <Spinner label={t('move.loadingDays')} />
       ) : days.isError ? (
         <ErrorNote error={days.error} onRetry={() => days.refetch()} />
       ) : choices.length === 0 ? (
-        <p>There are no other delivery days open right now.</p>
+        <p>{t('move.noDays')}</p>
       ) : (
         <>
-          <p className="muted small">Your boxes are packed for the ripeness you chose on the new day.</p>
+          <p className="muted small">{t('move.ripeness')}</p>
           <DayChips
-            label="New delivery day"
+            label={t('move.newDay')}
             days={choices}
             value={date}
             format={day}
@@ -648,7 +648,7 @@ function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => 
               setSlotId(null)
             }}
           />
-          {date && slots.isPending && <Spinner label="Loading delivery times" />}
+          {date && slots.isPending && <Spinner label={t('checkout.loadingTimes')} />}
           {needSlot && <SlotPicker name="move-slot" slots={slots.data!.slots} value={slotId} onChange={setSlotId} />}
         </>
       )}
@@ -663,6 +663,7 @@ function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => 
  * anyone else). A cancelled order keeps its bill, marked cancelled.
  */
 function BillCard({ order, bill }: { order: Order; bill: OrderBill }) {
+  const t = useT()
   const download = useMutation({
     mutationFn: async () => {
       const url = await api.billUrl(order.id)
@@ -677,18 +678,12 @@ function BillCard({ order, bill }: { order: Order; bill: OrderBill }) {
   })
   return (
     <section className="card bill-card" aria-labelledby="bill-title">
-      <h2 id="bill-title">Your bill</h2>
-      <p>
-        {bill.title} <strong>{bill.number}</strong>, dated {day(bill.billDate)}, for {rupees(bill.total)}.
-      </p>
-      {order.business && (
-        <p className="muted small">
-          Billed to {order.business.name}, GSTIN {order.business.gstin}.
-        </p>
-      )}
-      {bill.cancelled && <p className="note small">This order was cancelled, so the bill is marked cancelled. It keeps its number.</p>}
+      <h2 id="bill-title">{t('bill.title')}</h2>
+      <p>{t.rich('bill.line', { title: bill.title, number: <strong>{bill.number}</strong>, day: day(bill.billDate), total: rupees(bill.total) })}</p>
+      {order.business && <p className="muted small">{t('bill.billedTo', { name: order.business.name, gstin: order.business.gstin })}</p>}
+      {bill.cancelled && <p className="note small">{t('bill.cancelled')}</p>}
       <button type="button" className="btn btn-block" disabled={download.isPending} onClick={() => download.mutate()}>
-        {download.isPending ? 'Preparing your bill…' : 'Download bill (PDF)'}
+        {download.isPending ? t('bill.preparing') : t('bill.download')}
       </button>
       <ErrorNote error={download.error} />
     </section>

@@ -5,6 +5,7 @@
 // step (with nothing personal in it) to that browser through its push service; public/sw.js shows it.
 import { SIGNOUT_EVENT, api, onBeforeSignOut, type PushSubscriptionInput } from './api'
 import { shopRegistration, swSupported, workerUrl } from './pwa'
+import { t } from './i18n-core.ts'
 
 /** This browser can show web notifications at all (an iPhone only from the Home Screen app). */
 export const pushSupported = () => swSupported() && typeof window !== 'undefined' && 'PushManager' in window && 'Notification' in window
@@ -41,10 +42,10 @@ export class PushRefused extends Error {}
  * subscription, then the API. `installApp` decides whether the worker also keeps the app shell.
  */
 export async function turnOn(publicKey: string, installApp: boolean) {
-  if (!pushSupported()) throw new PushRefused('This browser cannot show notifications.')
+  if (!pushSupported()) throw new PushRefused(t('push.unsupported'))
   const answer = await Notification.requestPermission()
-  if (answer === 'denied') throw new PushRefused("Notifications are blocked for MandiMangoes in this browser. Allow them in the browser's site settings, then try again.")
-  if (answer !== 'granted') throw new PushRefused('Notifications were not turned on.')
+  if (answer === 'denied') throw new PushRefused(t('push.blocked'))
+  if (answer !== 'granted') throw new PushRefused(t('push.notTurnedOn'))
   await navigator.serviceWorker.register(workerUrl(installApp), { scope: '/' })
   const reg = await navigator.serviceWorker.ready
   const key = keyBytes(publicKey)

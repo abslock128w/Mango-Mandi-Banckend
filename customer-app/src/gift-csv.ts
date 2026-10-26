@@ -5,6 +5,7 @@
 // API serves (GET /v1/gifts/template.csv); a cell the template made safe for
 // spreadsheets ('=...) is read back without its leading apostrophe.
 import type { GiftRecipientInput, RecipientProblem, Stage } from './api'
+import { t } from './i18n-core.ts'
 
 export const CSV_COLUMNS = ['name', 'phone', 'address', 'pincode', 'box', 'ripeness', 'boxes', 'note'] as const
 
@@ -61,15 +62,15 @@ export function recipientsFromCsv(
 ): { recipients: GiftRecipientInput[]; problems: RecipientProblem[] } {
   const rows = parseCsv(text)
   const problems: RecipientProblem[] = []
-  if (!rows.length) return { recipients: [], problems: [{ row: 0, field: 'file', message: 'The file is empty.' }] }
+  if (!rows.length) return { recipients: [], problems: [{ row: 0, field: 'file', message: t('csv.empty') }] }
   const head = rows[0].map((h) => unguard(h).toLowerCase())
   const at = Object.fromEntries(CSV_COLUMNS.map((c) => [c, head.indexOf(c)])) as Record<(typeof CSV_COLUMNS)[number], number>
   const missing = CSV_COLUMNS.filter((c) => c !== 'note' && at[c] < 0)
   if (missing.length) {
-    return { recipients: [], problems: [{ row: 0, field: 'file', message: `The first row must name the columns. Missing: ${missing.join(', ')}. Start from the template.` }] }
+    return { recipients: [], problems: [{ row: 0, field: 'file', message: t('csv.missingColumns', { columns: missing.join(', ') }) }] }
   }
   const body = rows.slice(1)
-  if (body.length > maxRecipients) problems.push({ row: 0, field: 'file', message: `A gift order can have up to ${maxRecipients} recipients; this file has ${body.length}.` })
+  if (body.length > maxRecipients) problems.push({ row: 0, field: 'file', message: t('csv.tooMany', { max: maxRecipients, count: body.length }) })
   const recipients: GiftRecipientInput[] = []
   body.slice(0, maxRecipients).forEach((cells, i) => {
     const row = i + 1
@@ -83,8 +84,8 @@ export function recipientsFromCsv(
       sku: box?.sku ?? get('box'), stage: stage ?? 'RIPE', qty: Number.isInteger(qty) ? qty : 0, note: get('note') || null,
     }
     for (const p of recipientProblems(r)) problems.push({ row, ...p })
-    if (!box) problems.push({ row, field: 'sku', message: get('box') ? `"${get('box')}" is not a box we sell` : 'Choose a box' })
-    if (!stage) problems.push({ row, field: 'stage', message: 'Ripeness must be raw, semi-ripe or ripe' })
+    if (!box) problems.push({ row, field: 'sku', message: get('box') ? t('csv.unknownBox', { box: get('box') }) : t('csv.chooseBox') })
+    if (!stage) problems.push({ row, field: 'stage', message: t('csv.ripeness') })
     recipients.push(r)
   })
   return { recipients, problems }
@@ -93,11 +94,11 @@ export function recipientsFromCsv(
 /** The quick checks the shop makes on one recipient before the API checks everything again. */
 export function recipientProblems(r: GiftRecipientInput): { field: string; message: string }[] {
   const out: { field: string; message: string }[] = []
-  if (!r.name.trim()) out.push({ field: 'name', message: "Enter the recipient's name" })
-  if (!/^(\+?91|0)?[6-9]\d{9}$/.test(r.phone.replace(/[\s-]/g, ''))) out.push({ field: 'phone', message: 'Enter a 10-digit Indian mobile number' })
-  if (r.address.trim().length < 10) out.push({ field: 'address', message: 'Enter the full delivery address' })
-  if (!/^\d{6}$/.test(r.pincode.trim())) out.push({ field: 'pincode', message: 'The pincode must be 6 digits' })
-  if (!Number.isInteger(r.qty) || r.qty < 1) out.push({ field: 'qty', message: 'At least 1 box' })
-  if ((r.note ?? '').length > 200) out.push({ field: 'note', message: 'The note can be up to 200 characters' })
+  if (!r.name.trim()) out.push({ field: 'name', message: t('csv.name') })
+  if (!/^(\+?91|0)?[6-9]\d{9}$/.test(r.phone.replace(/[\s-]/g, ''))) out.push({ field: 'phone', message: t('csv.phone') })
+  if (r.address.trim().length < 10) out.push({ field: 'address', message: t('csv.address') })
+  if (!/^\d{6}$/.test(r.pincode.trim())) out.push({ field: 'pincode', message: t('csv.pincode') })
+  if (!Number.isInteger(r.qty) || r.qty < 1) out.push({ field: 'qty', message: t('csv.qty') })
+  if ((r.note ?? '').length > 200) out.push({ field: 'note', message: t('csv.note') })
   return out
 }

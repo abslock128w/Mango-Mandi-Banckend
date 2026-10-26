@@ -13,21 +13,34 @@ import { useCare } from '../features'
 import { when } from '../format'
 import { Field } from '../forms'
 import { DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
+import { useT, type T } from '../i18n'
+import type { Key } from '../i18n-core.ts'
 
-export const HELP_STATUS_LABEL: Record<HelpStatus, string> = { OPEN: 'Open', WAITING_CUSTOMER: 'Waiting for you', RESOLVED: 'Resolved' }
+const HELP_STATUS_LABEL: Record<HelpStatus, Key> = { OPEN: 'helpReq.status.open', WAITING_CUSTOMER: 'helpReq.status.waiting', RESOLVED: 'helpReq.status.resolved' }
 const STATUS_TONE: Record<HelpStatus, string> = { OPEN: 'pill-info', WAITING_CUSTOMER: 'pill-warn', RESOLVED: 'pill-good' }
 
+/** The API's topics (mango-api src/help.js), in the shop's language; a topic added later shows the API's own label. */
+const TOPIC_LABEL: Record<string, Key> = {
+  DELIVERY: 'helpReq.topic.delivery',
+  PAYMENT: 'helpReq.topic.payment',
+  CHANGE_ORDER: 'helpReq.topic.changeOrder',
+  SUBSCRIPTION: 'helpReq.topic.subscription',
+  ACCOUNT: 'helpReq.topic.account',
+  OTHER: 'helpReq.topic.other',
+}
+const topicLabel = (t: T, id: string, label: string) => (Object.prototype.hasOwnProperty.call(TOPIC_LABEL, id) ? t(TOPIC_LABEL[id]) : label)
+
 export function HelpStatusPill({ status }: { status: HelpStatus }) {
-  return <span className={`pill ${STATUS_TONE[status]}`}>{HELP_STATUS_LABEL[status]}</span>
+  const t = useT()
+  return <span className={`pill ${STATUS_TONE[status]}`}>{t(HELP_STATUS_LABEL[status])}</span>
 }
 
 function Off() {
+  const t = useT()
   return (
     <section className="card narrow">
-      <h1>Help requests</h1>
-      <p>
-        Asking us from the shop isn't open yet. See <Link to="/help">Help</Link> for how to reach us.
-      </p>
+      <h1>{t('helpReq.title')}</h1>
+      <p>{t.rich('helpReq.off', { link: <Link to="/help">{t('nav.help')}</Link> })}</p>
     </section>
   )
 }
@@ -50,6 +63,7 @@ function NewRequest({ orderId }: { orderId: string | null }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const formId = useId()
+  const t = useT()
   const setup = useQuery({ queryKey: ['help-setup'], queryFn: api.helpSetup, staleTime: 5 * 60_000 })
   const order = useQuery({ queryKey: ['order', orderId], queryFn: () => api.order(orderId!), enabled: !!orderId })
   const [topic, setTopic] = useState('')
@@ -65,8 +79,8 @@ function NewRequest({ orderId }: { orderId: string | null }) {
   })
   const min = setup.data?.firstMessageMin ?? 5
   const max = setup.data?.messageMax ?? 2000
-  const topicError = tried && !topic ? 'Choose what it is about' : null
-  const messageError = tried && message.trim().length < min ? `Tell us a little more (${min} characters or more)` : null
+  const topicError = tried && !topic ? t('helpReq.chooseTopic') : null
+  const messageError = tried && message.trim().length < min ? t('helpReq.more', { min }) : null
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -77,40 +91,34 @@ function NewRequest({ orderId }: { orderId: string | null }) {
 
   return (
     <section className="card narrow" aria-labelledby={`${formId}-title`}>
-      <h1 id={`${formId}-title`}>{orderId && order.data ? `Ask about order ${order.data.number}` : 'Ask us a question'}</h1>
+      <h1 id={`${formId}-title`}>{orderId && order.data ? t('helpReq.askAbout', { number: order.data.number }) : t('title.helpRequests')}</h1>
       <p className="note">
-        Mangoes damaged, spoilt, wrong or missing?{' '}
-        {orderId ? (
-          <Link to={`/orders/${encodeURIComponent(orderId)}/claim`}>Report a problem with this order</Link>
-        ) : (
-          <>
-            Report it from the order in <Link to="/orders">My orders</Link>
-          </>
-        )}{' '}
-        and we'll send a replacement if we can. That is quicker than a question here.
+        {orderId
+          ? t.rich('helpReq.claimFirstOrder', { link: <Link to={`/orders/${encodeURIComponent(orderId)}/claim`}>{t('order.reportProblem')}</Link> })
+          : t.rich('helpReq.claimFirst', { link: <Link to="/orders">{t('title.orders')}</Link> })}
       </p>
       {setup.isPending ? (
-        <Spinner label="Loading" />
+        <Spinner />
       ) : setup.isError ? (
         <ErrorNote error={setup.error} onRetry={() => setup.refetch()} />
       ) : (
         <form onSubmit={onSubmit} noValidate>
-          <Field id={`${formId}-topic`} label="What is it about?" error={topicError}>
+          <Field id={`${formId}-topic`} label={t('helpReq.topicLabel')} error={topicError}>
             <select value={topic} onChange={(e) => setTopic(e.target.value)}>
-              <option value="">Choose one</option>
-              {setup.data.topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
+              <option value="">{t('helpReq.chooseOne')}</option>
+              {setup.data.topics.map((tp) => (
+                <option key={tp.id} value={tp.id}>
+                  {topicLabel(t, tp.id, tp.label)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field id={`${formId}-message`} label="Your message" hint={`${message.length}/${max}. We reply here; you can add to it any time.`} error={messageError}>
+          <Field id={`${formId}-message`} label={t('helpReq.message')} hint={t('helpReq.messageHint', { length: message.length, max })} error={messageError}>
             <textarea rows={5} maxLength={max} value={message} onChange={(e) => setMessage(e.target.value)} />
           </Field>
           <ErrorNote error={open.error} />
           <button type="submit" className="btn btn-primary btn-block" disabled={open.isPending}>
-            {open.isPending ? 'Sending…' : 'Send'}
+            {open.isPending ? t('auth.sending') : t('helpReq.send')}
           </button>
         </form>
       )}
@@ -120,27 +128,28 @@ function NewRequest({ orderId }: { orderId: string | null }) {
 
 function MyRequests() {
   const q = useQuery({ queryKey: ['help-requests'], queryFn: api.helpRequests })
+  const t = useT()
   return (
     <section className="card narrow" aria-labelledby="my-help-requests">
-      <h2 id="my-help-requests">Your questions</h2>
+      <h2 id="my-help-requests">{t('helpReq.yours')}</h2>
       {q.isPending ? (
-        <Spinner label="Loading your questions" />
+        <Spinner label={t('helpReq.loadingYours')} />
       ) : q.isError ? (
         <ErrorNote error={q.error} onRetry={() => q.refetch()} />
       ) : q.data.items.length === 0 ? (
-        <p className="muted">Questions you send us are kept here with our replies.</p>
+        <p className="muted">{t('helpReq.empty')}</p>
       ) : (
         <ul className="plain-list help-list">
           {q.data.items.map((r) => (
             <li key={r.id}>
               <Link to={`/help/requests/${encodeURIComponent(r.id)}`}>
-                <strong>{r.number}</strong> · {r.topicLabel}
+                <strong>{r.number}</strong> · {topicLabel(t, r.topic, r.topicLabel)}
                 {r.order?.number ? ` · ${r.order.number}` : ''}
               </Link>{' '}
               <HelpStatusPill status={r.status} />
               {r.lastMessage && (
                 <span className="muted small help-preview">
-                  {r.lastMessage.from}: {r.lastMessage.preview}
+                  {r.lastMessage.from === 'You' ? t('helpReq.you') : r.lastMessage.from}: {r.lastMessage.preview}
                 </span>
               )}
             </li>
@@ -156,8 +165,9 @@ export function HelpRequestPage() {
   const { id = '' } = useParams()
   const care = useCare()
   const q = useQuery({ queryKey: ['help-request', id], queryFn: () => api.helpRequest(id), enabled: care.helpCentre })
+  const t = useT()
   if (!care.helpCentre) return <Off />
-  if (q.isPending) return <Spinner label="Loading your question" />
+  if (q.isPending) return <Spinner label={t('helpReq.loadingOne')} />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   return <Thread r={q.data} />
 }
@@ -166,6 +176,7 @@ function Thread({ r }: { r: HelpRequest }) {
   const queryClient = useQueryClient()
   const formId = useId()
   const [message, setMessage] = useState('')
+  const t = useT()
   const reply = useMutation({
     mutationFn: () => api.replyHelpRequest(r.id, message.trim()),
     onSuccess: (next) => {
@@ -182,41 +193,41 @@ function Thread({ r }: { r: HelpRequest }) {
 
   return (
     <section className="card narrow" aria-labelledby={`${formId}-title`}>
-      <DocTitle title={`Question ${r.number}`} />
+      <DocTitle title={t('helpReq.question', { number: r.number })} />
       <Link to="/help/requests" className="back-link">
-        ← Your questions
+        ← {t('helpReq.yours')}
       </Link>
       <PageHeader title={<span id={`${formId}-title`}>{r.number}</span>}>
         <HelpStatusPill status={r.status} />
       </PageHeader>
       <p className="muted">
-        {r.topicLabel}
+        {topicLabel(t, r.topic, r.topicLabel)}
         {r.order && (
           <>
             {' · '}
-            <Link to={`/orders/${encodeURIComponent(r.order.id)}`}>Order {r.order.number}</Link>
+            <Link to={`/orders/${encodeURIComponent(r.order.id)}`}>{t('pay.description', { number: r.order.number ?? '' })}</Link>
           </>
         )}
       </p>
-      {r.status === 'WAITING_CUSTOMER' && <p className="note">We replied. Tell us if that sorted it, or if you need anything else.</p>}
-      {r.status === 'RESOLVED' && <p className="note">We have marked this resolved. Write again below if you still need help, and it opens again.</p>}
-      <ol className="help-thread" aria-label="Messages">
+      {r.status === 'WAITING_CUSTOMER' && <p className="note">{t('helpReq.replied')}</p>}
+      {r.status === 'RESOLVED' && <p className="note">{t('helpReq.resolved')}</p>}
+      <ol className="help-thread" aria-label={t('helpReq.messages')}>
         {r.messages.map((m) => (
           <li key={m.id} className={m.from === 'MANDIMANGOES' ? 'help-msg help-msg-shop' : 'help-msg help-msg-you'}>
             <span className="small muted">
-              {m.from === 'MANDIMANGOES' ? 'MandiMangoes' : 'You'} · {when(m.at)}
+              {m.from === 'MANDIMANGOES' ? 'MandiMangoes' : t('helpReq.you')} · {when(m.at)}
             </span>
             <p className="pre-wrap">{m.body}</p>
           </li>
         ))}
       </ol>
       <form onSubmit={onSubmit}>
-        <Field id={`${formId}-reply`} label="Write a reply">
+        <Field id={`${formId}-reply`} label={t('helpReq.writeReply')}>
           <textarea rows={3} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} />
         </Field>
         <ErrorNote error={reply.error} />
         <button type="submit" className="btn btn-primary btn-block" disabled={!message.trim() || reply.isPending}>
-          {reply.isPending ? 'Sending…' : 'Send reply'}
+          {reply.isPending ? t('auth.sending') : t('helpReq.sendReply')}
         </button>
       </form>
     </section>

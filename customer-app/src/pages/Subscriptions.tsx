@@ -14,32 +14,37 @@ import { STAGE_LABEL, day, rupees, slotText } from '../format'
 import { Field, Stepper } from '../forms'
 import { productsQuery } from '../queries'
 import { ConfirmDialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
+import { useT } from '../i18n'
+import { t, type Key } from '../i18n-core.ts'
 
-const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7]
+const weekdayName = (n: number) => t(`sub.day.${n}` as Key)
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
-const STATUS_LABEL: Record<SubscriptionStatus, string> = { ACTIVE: 'Running', PAUSED: 'Paused', CANCELLED: 'Cancelled', ENDED: 'Ended' }
+const STATUS_LABEL: Record<SubscriptionStatus, Key> = { ACTIVE: 'sub.status.active', PAUSED: 'sub.status.paused', CANCELLED: 'sub.status.cancelled', ENDED: 'sub.status.ended' }
 const STATUS_TONE: Record<SubscriptionStatus, string> = { ACTIVE: 'pill-good', PAUSED: 'pill-warn', CANCELLED: 'pill-muted', ENDED: 'pill-muted' }
 /** Mirrors the API's limit on boxes per delivery. */
 const MAX_BOXES = 20
 
 function StatusPill({ status }: { status: SubscriptionStatus }) {
-  return <span className={`pill ${STATUS_TONE[status]}`}>{STATUS_LABEL[status]}</span>
+  const t = useT()
+  return <span className={`pill ${STATUS_TONE[status]}`}>{t(STATUS_LABEL[status])}</span>
 }
 
-const every = (s: { frequency: Frequency; weekday: number }) => `${s.frequency === 'WEEKLY' ? 'Every' : 'Every other'} ${WEEKDAYS[s.weekday - 1]}`
-const boxText = (s: Subscription) => `${s.qty} × ${s.productName} (${STAGE_LABEL[s.stage]})`
+const every = (s: { frequency: Frequency; weekday: number }) => t(s.frequency === 'WEEKLY' ? 'sub.everyWeek' : 'sub.everyOtherWeek', { day: weekdayName(s.weekday) })
+const boxText = (s: Subscription) => t('sub.boxText', { qty: s.qty, name: s.productName, stage: STAGE_LABEL[s.stage] })
 
 /** The Account page's "Your subscriptions" card. Nothing while the switch is off. */
 export function YourSubscriptions() {
   const care = useCare()
+  const t = useT()
   const q = useQuery({ queryKey: ['subscriptions'], queryFn: api.subscriptions, enabled: care.subscriptions })
   if (!care.subscriptions) return null
   return (
     <section className="card narrow" aria-labelledby="your-subscriptions">
-      <h2 id="your-subscriptions">Your subscriptions</h2>
-      <p className="muted small">A box every week or every other week this season. We remind you to pay a couple of days before each one; nothing is taken from your account on its own.</p>
+      <h2 id="your-subscriptions">{t('sub.yours')}</h2>
+      <p className="muted small">{t('sub.yoursLead')}</p>
       {q.isPending ? (
-        <Spinner label="Loading your subscriptions" />
+        <Spinner label={t('sub.loadingAll')} />
       ) : q.isError ? (
         <ErrorNote error={q.error} onRetry={() => q.refetch()} />
       ) : (
@@ -55,8 +60,8 @@ export function YourSubscriptions() {
                     </Link>{' '}
                     <StatusPill status={s.status} />
                     <span className="muted small help-preview">
-                      {every(s)}, until {day(s.endDate)}
-                      {due ? ` · Box for ${day(due.deliveryDate ?? due.scheduledFor)} waiting for payment` : ''}
+                      {t('sub.until', { every: every(s), day: day(s.endDate) })}
+                      {due ? t('sub.dueWaiting', { day: day(due.deliveryDate ?? due.scheduledFor) }) : ''}
                     </span>
                   </li>
                 )
@@ -65,10 +70,10 @@ export function YourSubscriptions() {
           )}
           {q.data.open ? (
             <Link to="/account/subscriptions/new" className="btn btn-block">
-              Start a subscription
+              {t('sub.start')}
             </Link>
           ) : (
-            <p className="muted small">New subscriptions are closed for this season.</p>
+            <p className="muted small">{t('sub.closed')}</p>
           )}
         </>
       )}
@@ -77,11 +82,12 @@ export function YourSubscriptions() {
 }
 
 function Off() {
+  const t = useT()
   return (
     <section className="card narrow">
-      <h1>Subscriptions</h1>
+      <h1>{t('sub.title')}</h1>
       <p>
-        Subscriptions aren't open right now. <Link to="/">Order a box</Link> or <Link to="/preorder">book ahead</Link> instead.
+        {t.rich('sub.off', { order: <Link to="/">{t('sub.orderBox')}</Link>, book: <Link to="/preorder">{t('sub.bookAhead')}</Link> })}
       </p>
     </section>
   )
@@ -90,6 +96,7 @@ function Off() {
 /** /account/subscriptions/new */
 export function NewSubscription() {
   const care = useCare()
+  const t = useT()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const formId = useId()
@@ -118,7 +125,7 @@ export function NewSubscription() {
   })
 
   if (!care.subscriptions) return <Off />
-  if (products.isPending || addresses.isPending || list.isPending) return <Spinner label="Loading" />
+  if (products.isPending || addresses.isPending || list.isPending) return <Spinner label={t('common.loading')} />
   const loadError = products.error ?? addresses.error ?? list.error
   if (loadError) return <ErrorNote error={loadError} />
   const seasonEnd = list.data?.seasonEnd ?? null
@@ -126,10 +133,10 @@ export function NewSubscription() {
   const product = products.data?.items.find((p) => p.sku === sku) ?? null
   const slotList = slots.data?.slots ?? []
   const errors = {
-    sku: tried && !sku ? 'Choose a box' : null,
-    address: tried && !addressId ? 'Choose where to deliver' : null,
-    slot: tried && slotList.length > 0 && !slotId ? 'Choose a delivery time' : null,
-    endDate: tried && !endDate ? 'Choose the last day' : null,
+    sku: tried && !sku ? t('sub.chooseBox') : null,
+    address: tried && !addressId ? t('sub.chooseAddress') : null,
+    slot: tried && slotList.length > 0 && !slotId ? t('sub.chooseTime') : null,
+    endDate: tried && !endDate ? t('sub.chooseEnd') : null,
   }
 
   function onSubmit(e: FormEvent) {
@@ -142,31 +149,28 @@ export function NewSubscription() {
   return (
     <section className="card narrow" aria-labelledby={`${formId}-title`}>
       <Link to="/account" className="back-link">
-        ← Your account
+        {t('sub.backAccount')}
       </Link>
-      <h1 id={`${formId}-title`}>Start a subscription</h1>
-      <p>
-        We set up each box a couple of days before it comes and send you a reminder to pay for it. Nothing is taken from your account on its
-        own, and there is no wallet: you pay for each box like any order. Skip, pause or cancel any time from your account.
-      </p>
+      <h1 id={`${formId}-title`}>{t('sub.start')}</h1>
+      <p>{t('sub.newLead')}</p>
       {addresses.data && addresses.data.length === 0 ? (
         <p className="note">
-          Subscriptions go to an address you have ordered to before. <Link to="/">Order a box</Link> first, and it is saved for next time.
+          {t.rich('sub.needAddress', { order: <Link to="/">{t('sub.orderBox')}</Link> })}
         </p>
       ) : (
         <form onSubmit={onSubmit} noValidate>
-          <Field id={`${formId}-sku`} label="Box" error={errors.sku}>
+          <Field id={`${formId}-sku`} label={t('sub.box')} error={errors.sku}>
             <select value={sku} onChange={(e) => setSku(e.target.value)}>
-              <option value="">Choose a box</option>
+              <option value="">{t('sub.chooseBox')}</option>
               {products.data?.items.map((p) => (
                 <option key={p.sku} value={p.sku}>
-                  {p.name}, {rupees(p.price)}
+                  {t('sub.boxOption', { name: p.name, price: rupees(p.price) })}
                 </option>
               ))}
             </select>
           </Field>
           <fieldset className="field">
-            <legend>Ripeness when it arrives</legend>
+            <legend>{t('sub.ripeness')}</legend>
             <div className="options">
               {STAGES.map((s) => (
                 <label key={s} className="option">
@@ -175,36 +179,36 @@ export function NewSubscription() {
                 </label>
               ))}
             </div>
-            <p className="muted small">The same price for every ripeness.</p>
+            <p className="muted small">{t('sub.samePrice')}</p>
           </fieldset>
           <div className="field">
-            <Stepper label="Boxes each time" showLabel value={qty} min={1} max={MAX_BOXES} onChange={setQty} lessLabel="One box fewer" moreLabel="One box more" />
-            {product && <p className="muted small">{rupees(product.price * qty)} each time.</p>}
+            <Stepper label={t('sub.boxesEach')} showLabel value={qty} min={1} max={MAX_BOXES} onChange={setQty} lessLabel={t('sub.oneFewer')} moreLabel={t('sub.oneMore')} />
+            {product && <p className="muted small">{t('sub.eachTime', { price: rupees(product.price * qty) })}</p>}
           </div>
           <fieldset className="field">
-            <legend>How often</legend>
+            <legend>{t('sub.howOften')}</legend>
             <div className="options">
               <label className="option">
                 <input type="radio" name={`${formId}-freq`} checked={frequency === 'WEEKLY'} onChange={() => setFrequency('WEEKLY')} />
-                <span>Every week</span>
+                <span>{t('sub.weekly')}</span>
               </label>
               <label className="option">
                 <input type="radio" name={`${formId}-freq`} checked={frequency === 'FORTNIGHTLY'} onChange={() => setFrequency('FORTNIGHTLY')} />
-                <span>Every other week</span>
+                <span>{t('sub.fortnightly')}</span>
               </label>
             </div>
           </fieldset>
-          <Field id={`${formId}-day`} label="Delivery day">
+          <Field id={`${formId}-day`} label={t('sub.day')}>
             <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}>
-              {WEEKDAYS.map((w, i) => (
-                <option key={w} value={i + 1}>
-                  {w}
+              {WEEKDAYS.map((n) => (
+                <option key={n} value={n}>
+                  {weekdayName(n)}
                 </option>
               ))}
             </select>
           </Field>
           <fieldset className="field" aria-describedby={errors.address ? `${formId}-addr-error` : undefined}>
-            <legend>Deliver to</legend>
+            <legend>{t('sub.deliverTo')}</legend>
             <div className="options">
               {addresses.data?.map((a) => (
                 <label key={a.id} className="option">
@@ -232,7 +236,7 @@ export function NewSubscription() {
           </fieldset>
           {slotList.length > 0 && (
             <fieldset className="field" aria-describedby={errors.slot ? `${formId}-slot-error` : undefined}>
-              <legend>Delivery time</legend>
+              <legend>{t('sub.time')}</legend>
               <div className="options">
                 {slotList.map((s) => (
                   <label key={s.id} className="option">
@@ -241,7 +245,7 @@ export function NewSubscription() {
                   </label>
                 ))}
               </div>
-              <p className="muted small">If your time is full on a day, we use another time that day.</p>
+              <p className="muted small">{t('sub.timeFull')}</p>
               {errors.slot && (
                 <p id={`${formId}-slot-error`} className="field-error" role="alert">
                   {errors.slot}
@@ -250,12 +254,12 @@ export function NewSubscription() {
             </fieldset>
           )}
           <ErrorNote error={slots.error} />
-          <Field id={`${formId}-end`} label="Last delivery no later than" hint={`The season ends on ${day(seasonEnd)}.`} error={errors.endDate}>
+          <Field id={`${formId}-end`} label={t('sub.lastDay')} hint={t('sub.seasonEnds', { day: day(seasonEnd) })} error={errors.endDate}>
             <input type="date" value={endDate} max={seasonEnd} onChange={(e) => setEndDate(e.target.value)} />
           </Field>
           <ErrorNote error={create.error} />
           <button type="submit" className="btn btn-primary btn-block" disabled={create.isPending}>
-            {create.isPending ? 'Starting…' : 'Start subscription'}
+            {create.isPending ? t('sub.starting') : t('sub.startBtn')}
           </button>
         </form>
       )}
@@ -267,14 +271,16 @@ export function NewSubscription() {
 export function SubscriptionPage() {
   const { id = '' } = useParams()
   const care = useCare()
+  const t = useT()
   const q = useQuery({ queryKey: ['subscription', id], queryFn: () => api.subscription(id), enabled: care.subscriptions })
   if (!care.subscriptions) return <Off />
-  if (q.isPending) return <Spinner label="Loading your subscription" />
+  if (q.isPending) return <Spinner label={t('sub.loadingOne')} />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   return <Detail s={q.data} />
 }
 
 function Detail({ s }: { s: Subscription }) {
+  const t = useT()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [cancelling, setCancelling] = useState(false)
@@ -323,52 +329,50 @@ function Detail({ s }: { s: Subscription }) {
   return (
     <>
       <section className="card narrow" aria-labelledby="sub-title">
-        <DocTitle title={`Subscription ${s.number}`} />
+        <DocTitle title={t('sub.docTitle', { number: s.number })} />
         <Link to="/account" className="back-link">
-          ← Your account
+          {t('sub.backAccount')}
         </Link>
         <PageHeader title={<span id="sub-title">{boxText(s)}</span>}>
           <StatusPill status={s.status} />
         </PageHeader>
         <dl className="details">
-          <dt>When</dt>
-          <dd>
-            {every(s)}, until {day(s.endDate)}
-          </dd>
+          <dt>{t('sub.when')}</dt>
+          <dd>{t('sub.until', { every: every(s), day: day(s.endDate) })}</dd>
           {s.unitPrice != null && (
             <>
-              <dt>Each box</dt>
-              <dd>{rupees(s.unitPrice * s.qty)}, paid each time (no auto-debit)</dd>
+              <dt>{t('sub.eachBox')}</dt>
+              <dd>{t('sub.paidEachTime', { price: rupees(s.unitPrice * s.qty) })}</dd>
             </>
           )}
           {s.address && (
             <>
-              <dt>Deliver to</dt>
+              <dt>{t('sub.deliverTo')}</dt>
               <dd>
                 {s.address.name && <strong>{s.address.name}, </strong>}
                 {s.address.address}
               </dd>
             </>
           )}
-          <dt>Number</dt>
+          <dt>{t('sub.number')}</dt>
           <dd>{s.number}</dd>
         </dl>
-        {s.status === 'PAUSED' && <p className="note">Paused: no boxes are set up until you resume.</p>}
-        {s.status === 'ENDED' && <p className="note">This subscription has reached its end date.</p>}
+        {s.status === 'PAUSED' && <p className="note">{t('sub.pausedNote')}</p>}
+        {s.status === 'ENDED' && <p className="note">{t('sub.endedNote')}</p>}
         <div className="row">
           {s.status === 'ACTIVE' && (
             <button type="button" className="btn" disabled={pause.isPending} onClick={() => pause.mutate()}>
-              {pause.isPending ? 'Pausing…' : 'Pause'}
+              {pause.isPending ? t('sub.pausing') : t('sub.pause')}
             </button>
           )}
           {s.status === 'PAUSED' && (
             <button type="button" className="btn btn-primary" disabled={resume.isPending} onClick={() => resume.mutate()}>
-              {resume.isPending ? 'Resuming…' : 'Resume'}
+              {resume.isPending ? t('sub.resuming') : t('sub.resume')}
             </button>
           )}
           {running && (
             <button type="button" className="btn btn-quiet" onClick={() => setCancelling(true)}>
-              Cancel subscription
+              {t('sub.cancel')}
             </button>
           )}
         </div>
@@ -376,9 +380,9 @@ function Detail({ s }: { s: Subscription }) {
       </section>
 
       <section className="card narrow" aria-labelledby="sub-coming">
-        <h2 id="sub-coming">Coming boxes</h2>
+        <h2 id="sub-coming">{t('sub.coming')}</h2>
         {coming.length === 0 && (s.status !== 'ACTIVE' || s.upcoming.length === 0) ? (
-          <p className="muted">None coming.</p>
+          <p className="muted">{t('sub.none')}</p>
         ) : (
           <ul className="sub-cycles">
             {coming.map((y) => (
@@ -388,9 +392,10 @@ function Detail({ s }: { s: Subscription }) {
               s.upcoming.map((d) => (
                 <li key={d}>
                   <span>{day(d)}</span>
-                  <span className="muted small">We remind you to pay a couple of days before.</span>
+                  <span className="muted small">{t('sub.remind')}</span>
                   <button type="button" className="link-btn" onClick={() => setSkipping(d)}>
-                    Skip<span className="sr-only"> {day(d)}</span>
+                    {t('sub.skip')}
+                    <span className="sr-only"> {day(d)}</span>
                   </button>
                 </li>
               ))}
@@ -401,13 +406,13 @@ function Detail({ s }: { s: Subscription }) {
 
       {past.length > 0 && (
         <section className="card narrow" aria-labelledby="sub-past">
-          <h2 id="sub-past">Earlier boxes</h2>
+          <h2 id="sub-past">{t('sub.earlier')}</h2>
           <ul className="sub-cycles">
             {past.map((y) => (
               <li key={y.id}>
                 <span>{day(y.deliveryDate ?? y.scheduledFor)}</span>
                 <span className="muted small">{pastText(y)}</span>
-                {y.order && <Link to={`/orders/${encodeURIComponent(y.order.id)}`}>Order {y.order.number}</Link>}
+                {y.order && <Link to={`/orders/${encodeURIComponent(y.order.id)}`}>{t('sub.order', { number: y.order.number })}</Link>}
               </li>
             ))}
           </ul>
@@ -416,30 +421,30 @@ function Detail({ s }: { s: Subscription }) {
 
       {skipping && (
         <ConfirmDialog
-          title={`Skip the box for ${day(skipping)}?`}
-          keepLabel="Keep it"
-          confirmLabel="Skip this box"
-          busyLabel="Skipping…"
+          title={t('sub.skipTitle', { day: day(skipping) })}
+          keepLabel={t('sub.keepIt')}
+          confirmLabel={t('sub.skipBox')}
+          busyLabel={t('sub.skipping')}
           busy={skip.isPending}
           error={skip.error}
           onConfirm={() => skip.mutate(skipping)}
           onClose={() => setSkipping(null)}
         >
-          <p>Nothing comes that week, and your next box is not affected.</p>
+          <p>{t('sub.skipBody')}</p>
         </ConfirmDialog>
       )}
       {cancelling && (
         <ConfirmDialog
-          title="Cancel this subscription?"
-          keepLabel="Keep subscription"
-          confirmLabel="Cancel subscription"
-          busyLabel="Cancelling…"
+          title={t('sub.cancelTitle')}
+          keepLabel={t('sub.keepSub')}
+          confirmLabel={t('sub.cancel')}
+          busyLabel={t('sub.cancelling')}
           busy={cancel.isPending}
           error={cancel.error}
           onConfirm={() => cancel.mutate()}
           onClose={() => setCancelling(false)}
         >
-          <p>No more boxes are set up. A box you have already paid for still comes; you can cancel that order from its page before it is packed.</p>
+          <p>{t('sub.cancelBody')}</p>
         </ConfirmDialog>
       )}
     </>
@@ -447,25 +452,28 @@ function Detail({ s }: { s: Subscription }) {
 }
 
 function CycleRow({ y, onPay, paying, onSkip }: { y: SubscriptionCycle; onPay: () => void; paying: boolean; onSkip?: () => void }) {
+  const t = useT()
   const date = day(y.deliveryDate ?? y.scheduledFor)
   return (
     <li>
       <span>{date}</span>
       {y.paid && y.order ? (
-        <Link to={`/orders/${encodeURIComponent(y.order.id)}`}>Paid · order {y.order.number}</Link>
+        <Link to={`/orders/${encodeURIComponent(y.order.id)}`}>{t('sub.paidOrder', { number: y.order.number })}</Link>
       ) : y.awaitingPayment && y.order ? (
         <Link to={`/orders/${encodeURIComponent(y.order.id)}`} className="btn btn-primary">
-          Finish paying<span className="sr-only"> for {date}</span>
+          {t('sub.finishPaying')}
+          <span className="sr-only">{t('sub.forDate', { day: date })}</span>
         </Link>
       ) : (
         <button type="button" className="btn btn-primary" disabled={paying} onClick={onPay}>
-          {paying ? 'Setting up…' : 'Pay for this box'}
-          <span className="sr-only"> for {date}</span>
+          {paying ? t('sub.settingUp') : t('sub.payBox')}
+          <span className="sr-only">{t('sub.forDate', { day: date })}</span>
         </button>
       )}
       {onSkip && (
         <button type="button" className="link-btn" onClick={onSkip}>
-          Skip<span className="sr-only"> {date}</span>
+          {t('sub.skip')}
+          <span className="sr-only"> {date}</span>
         </button>
       )}
       {y.note && <span className="muted small help-preview">{y.note}</span>}
@@ -474,11 +482,11 @@ function CycleRow({ y, onPay, paying, onSkip }: { y: SubscriptionCycle; onPay: (
 }
 
 function pastText(y: SubscriptionCycle) {
-  if (y.paid) return 'Paid'
-  if (y.status === 'SKIPPED') return 'Skipped'
-  if (y.status === 'MISSED') return 'Missed: not paid for in time, or no day had stock'
-  if (y.status === 'CANCELLED') return 'Called off'
-  if (y.order?.status === 'CANCELLED') return 'Payment not finished'
-  if (y.status === 'DUE') return 'Not paid for in time'
+  if (y.paid) return t('sub.past.paid')
+  if (y.status === 'SKIPPED') return t('sub.past.skipped')
+  if (y.status === 'MISSED') return t('sub.past.missed')
+  if (y.status === 'CANCELLED') return t('sub.past.calledOff')
+  if (y.order?.status === 'CANCELLED') return t('sub.past.payNotFinished')
+  if (y.status === 'DUE') return t('sub.past.notPaid')
   return y.status.toLowerCase()
 }

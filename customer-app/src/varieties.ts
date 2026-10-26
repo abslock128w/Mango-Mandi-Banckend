@@ -1,3 +1,5 @@
+import { t, type Key } from './i18n-core.ts'
+
 /**
  * Short stories for the varieties we are likely to sell, shown on the product page and the
  * home shelves. Products are added by managers, so a variety missing here simply shows no story.
@@ -11,56 +13,34 @@ export interface VarietyStory {
   season: string
 }
 
+/** A story whose words are read in the shop's language each time (the variety's name stays as it is). */
+function story(name: string, slug: string): VarietyStory {
+  const k = (field: string) => `variety.${slug}.${field}` as Key
+  return {
+    name,
+    get from() {
+      return t(k('from'))
+    },
+    get taste() {
+      return t(k('taste'))
+    },
+    get bestFor() {
+      return t(k('bestFor'))
+    },
+    get season() {
+      return t(k('season'))
+    },
+  }
+}
+
 const STORIES: VarietyStory[] = [
-  {
-    name: 'Alphonso',
-    from: 'The Konkan coast of Maharashtra, around Ratnagiri and Devgad, where it is called Hapus.',
-    taste: 'Saffron flesh, rich and sweet, with a strong scent and almost no fibre.',
-    bestFor: 'Eating in slices, aamras, milkshakes and desserts.',
-    season: 'Usually April to early June.',
-  },
-  {
-    name: 'Badami',
-    from: 'North Karnataka, which is why it is often called Karnataka Alphonso.',
-    taste: 'Close to Alphonso: sweet and smooth, a little milder, with very little fibre.',
-    bestFor: 'Eating fresh, and aamras on a budget.',
-    season: 'Usually April to June.',
-  },
-  {
-    name: 'Kesar',
-    from: 'The foothills of Gir in Gujarat.',
-    taste: 'Bright orange flesh, very sweet and fragrant.',
-    bestFor: 'Aamras, shrikhand and ice cream.',
-    season: 'Usually May to July.',
-  },
-  {
-    name: 'Banganapalli',
-    from: 'Kurnool and nearby districts of Andhra Pradesh. Also called Benishan.',
-    taste: 'Large and golden, mildly sweet, firm and fibreless.',
-    bestFor: 'Eating in slices and fruit salads.',
-    season: 'Usually April to June.',
-  },
-  {
-    name: 'Mallika',
-    from: 'A cross of Neelam and Dasheri, grown widely around Karnataka.',
-    taste: 'Honey-sweet, with deep orange flesh and little fibre.',
-    bestFor: 'Eating fresh and desserts.',
-    season: 'Usually May and June.',
-  },
-  {
-    name: 'Imam Pasand',
-    from: 'Andhra Pradesh and Tamil Nadu.',
-    taste: 'Big, juicy and rich, with a thin skin.',
-    bestFor: 'Eating fresh.',
-    season: 'Usually May and June.',
-  },
-  {
-    name: 'Totapuri',
-    from: 'Karnataka, Andhra Pradesh and Tamil Nadu. Named for its parrot-beak tip.',
-    taste: 'Tangy and firm, less sweet than the others.',
-    bestFor: 'Pickles, salads and pulp.',
-    season: 'Usually May to July.',
-  },
+  story('Alphonso', 'alphonso'),
+  story('Badami', 'badami'),
+  story('Kesar', 'kesar'),
+  story('Banganapalli', 'banganapalli'),
+  story('Mallika', 'mallika'),
+  story('Imam Pasand', 'imampasand'),
+  story('Totapuri', 'totapuri'),
 ]
 
 const byKey = new Map(STORIES.map((s) => [s.name.toLowerCase(), s]))

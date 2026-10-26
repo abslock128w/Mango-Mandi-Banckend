@@ -10,6 +10,8 @@ import { catalogueQuery, productReviewsQuery } from './queries'
 import { Spinner, pageTitle } from './ui'
 import { useShellWorker } from './pwa'
 import { trackStep, useFunnel } from './growth'
+import { useT } from './i18n'
+import { t as tr, type Key } from './i18n-core.ts'
 
 // Home is in the first download; every other page's code loads when it is first opened.
 const Cart = lazy(() => import('./pages/Cart'))
@@ -38,8 +40,9 @@ const GiftMany = lazy(() => import('./pages/GiftMany'))
 const GiftOrderPage = lazy(() => import('./pages/GiftOrder'))
 
 /** A page whose code is still loading. */
-function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
-  return <Suspense fallback={fallback}>{children}</Suspense>
+function Page({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
+  const t = useT()
+  return <Suspense fallback={fallback ?? <Spinner label={t('common.loading')} />}>{children}</Suspense>
 }
 
 /**
@@ -67,33 +70,36 @@ function ProductRoute() {
 
 /** Each route's browser title; pages with a name or number (a box, an order) refine it once it loads. */
 function routeTitle(path: string) {
-  if (path === '/') return 'Pick your mangoes'
-  if (path === '/cart') return 'Your cart'
-  if (path === '/sign-in') return 'Sign in'
-  if (path === '/privacy') return 'Privacy notice'
-  if (path === '/quality') return 'How we pick and check'
-  if (path === '/help') return 'Help'
-  if (path === '/help/requests') return 'Ask us a question'
-  if (/^\/help\/requests\/[^/]+$/.test(path)) return 'Your question'
-  if (path === '/account/subscriptions/new') return 'Start a subscription'
-  if (/^\/account\/subscriptions\/[^/]+$/.test(path)) return 'Your subscription'
-  if (path === '/terms') return 'Terms of sale'
-  if (path === '/account') return 'Your account'
-  if (path === '/checkout') return 'Delivery details'
-  if (path === '/orders') return 'My orders'
-  if (/^\/orders\/[^/]+\/claim$/.test(path)) return 'Report a problem'
-  if (/^\/orders\/[^/]+$/.test(path)) return 'Your order'
-  if (/^\/mangoes\//.test(path)) return 'Mangoes'
-  if (/^\/review\//.test(path)) return 'Write a review'
-  if (/^\/reviews\/[^/]+\/edit$/.test(path)) return 'Change your review'
-  if (path === '/preorder') return 'Book ahead'
-  if (path === '/bulk') return 'Bulk Deals'
-  if (/^\/bulk\//.test(path)) return 'Bulk deal'
-  if (/^\/preorders\//.test(path)) return 'Your booking'
-  if (/^\/invite\//.test(path)) return 'A friend invited you'
-  if (path === '/gifts/new') return 'Send to many'
-  if (/^\/gifts\/[^/]+$/.test(path)) return 'Your gift order'
-  return 'Page not found'
+  return tr(routeTitleKey(path))
+}
+function routeTitleKey(path: string): Key {
+  if (path === '/') return 'title.home'
+  if (path === '/cart') return 'title.cart'
+  if (path === '/sign-in') return 'signIn.title'
+  if (path === '/privacy') return 'title.privacy'
+  if (path === '/quality') return 'title.quality'
+  if (path === '/help') return 'nav.help'
+  if (path === '/help/requests') return 'title.helpRequests'
+  if (/^\/help\/requests\/[^/]+$/.test(path)) return 'title.helpRequest'
+  if (path === '/account/subscriptions/new') return 'title.newSubscription'
+  if (/^\/account\/subscriptions\/[^/]+$/.test(path)) return 'title.subscription'
+  if (path === '/terms') return 'title.terms'
+  if (path === '/account') return 'title.account'
+  if (path === '/checkout') return 'title.checkout'
+  if (path === '/orders') return 'title.orders'
+  if (/^\/orders\/[^/]+\/claim$/.test(path)) return 'title.claim'
+  if (/^\/orders\/[^/]+$/.test(path)) return 'title.order'
+  if (/^\/mangoes\//.test(path)) return 'title.product'
+  if (/^\/review\//.test(path)) return 'title.review'
+  if (/^\/reviews\/[^/]+\/edit$/.test(path)) return 'title.editReview'
+  if (path === '/preorder') return 'nav.bookAhead'
+  if (path === '/bulk') return 'nav.bulk'
+  if (/^\/bulk\//.test(path)) return 'title.bulkDeal'
+  if (/^\/preorders\//.test(path)) return 'title.preorder'
+  if (/^\/invite\//.test(path)) return 'title.invite'
+  if (path === '/gifts/new') return 'title.giftMany'
+  if (/^\/gifts\/[^/]+$/.test(path)) return 'title.giftOrder'
+  return 'title.notFound'
 }
 
 /** Pages laid out across the wider desktop container (tiles, product and checkout columns); the rest stay one readable column. */
@@ -108,6 +114,7 @@ function RequireSignIn({ children }: { children: JSX.Element }) {
 
 export default function App() {
   const { cart, bulk, profile } = useStore()
+  const t = useT()
   const queryClient = useQueryClient()
   const location = useLocation()
   const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
@@ -132,7 +139,7 @@ export default function App() {
   // A layout effect runs before every page's own effects, so a page's more specific title wins.
   useLayoutEffect(() => {
     document.title = pageTitle(routeTitle(location.pathname))
-  }, [location.pathname])
+  }, [location.pathname, t])
   const skip = (e: MouseEvent) => {
     // Move focus without adding #main to the address (the router owns the URL).
     e.preventDefault()
@@ -141,7 +148,7 @@ export default function App() {
     main?.scrollIntoView()
   }
   const cartLink = (
-    <NavLink to="/cart" className="tab" aria-label={`Cart, ${boxes} ${boxes === 1 ? 'box' : 'boxes'}`}>
+    <NavLink to="/cart" className="tab" aria-label={t('nav.cartCount', { count: boxes })}>
       <span className="tab-icon-wrap">
         <TabIcon d="M3 4h2l2.4 11h11.2L21 7H6.2M9 20a1 1 0 1 0 0-.01M18 20a1 1 0 1 0 0-.01" />
         {boxes > 0 && (
@@ -150,26 +157,26 @@ export default function App() {
           </span>
         )}
       </span>
-      <span aria-hidden="true">Cart</span>
+      <span aria-hidden="true">{t('nav.cart')}</span>
     </NavLink>
   )
   const mainLinks = (
     <>
       <NavLink to="/" end className="tab">
         <TabIcon d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z" />
-        <span>Home</span>
+        <span>{t('nav.home')}</span>
       </NavLink>
       <NavLink to="/preorder" className="tab">
         <TabIcon d="M4 6h16v14H4zM4 10h16M8 3v5M16 3v5" />
-        <span>Book ahead</span>
+        <span>{t('nav.bookAhead')}</span>
       </NavLink>
       <NavLink to="/bulk" className="tab">
         <TabIcon d="M3 8l9-5 9 5-9 5zM3 8v8l9 5 9-5V8M12 13v8" />
-        <span>Bulk Deals</span>
+        <span>{t('nav.bulk')}</span>
       </NavLink>
       <NavLink to="/orders" className="tab">
         <TabIcon d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6" />
-        <span>Orders</span>
+        <span>{t('nav.orders')}</span>
       </NavLink>
       {cartLink}
     </>
@@ -178,16 +185,16 @@ export default function App() {
   return (
     <>
       <a href="#main" className="skip-link" onClick={skip}>
-        Skip to content
+        {t('nav.skip')}
       </a>
       <header className={profile ? 'top signed-in' : 'top'}>
         <div className="top-inner">
           <div className="top-row">
-            <Link to="/" className="brand" aria-label="MandiMangoes, home">
+            <Link to="/" className="brand" aria-label={t('nav.brandHome')}>
               <img src="/brand/mark-96.webp" width="40" height="40" alt="" className="brand-mark" />
             </Link>
             <WhereButton />
-            <NavLink to={profile ? '/account' : '/sign-in'} className="profile-btn" aria-label={profile ? 'Account' : 'Sign in'}>
+            <NavLink to={profile ? '/account' : '/sign-in'} className="profile-btn" aria-label={profile ? t('nav.account') : t('signIn.title')}>
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
                 <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="2" />
                 <path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -196,7 +203,7 @@ export default function App() {
           </div>
           <SearchBar />
           {/* Desktop only: the same links as the bottom tabs, in the header, with the cart count. */}
-          <nav aria-label="Main" className="top-nav">
+          <nav aria-label={t('nav.main')} className="top-nav">
             {mainLinks}
           </nav>
         </div>
@@ -233,9 +240,9 @@ export default function App() {
             path="*"
             element={
               <section className="card">
-                <h1>Page not found</h1>
+                <h1>{t('title.notFound')}</h1>
                 <Link to="/" className="btn btn-primary">
-                  Back to the shop
+                  {t('common.backToShop')}
                 </Link>
               </section>
             }
@@ -243,24 +250,24 @@ export default function App() {
         </Routes>
       </main>
       <footer className={focused ? 'foot foot-flat' : 'foot'}>
-        <p>Mangoes picked for the day you want to eat them, delivered to your door.</p>
+        <p>{t('footer.tagline')}</p>
         {/* UX-1: a way to reach us on every page. Production builds always have the WhatsApp number (support.ts). */}
         <p>
-          <Link to="/help">Help</Link>
+          <Link to="/help">{t('nav.help')}</Link>
           {help && (
             <>
               {' · '}
               <a href={help} target="_blank" rel="noopener noreferrer">
-                Help on WhatsApp<span className="sr-only"> (opens WhatsApp)</span>
+                {t('common.helpOnWhatsApp')}<span className="sr-only"> {t('common.opensWhatsApp')}</span>
               </a>
             </>
           )}
           {' · '}
-          <Link to="/terms">Terms of sale</Link> · <Link to="/quality">How we pick and check</Link> · <Link to="/privacy">Privacy notice</Link>
+          <Link to="/terms">{t('title.terms')}</Link> · <Link to="/quality">{t('title.quality')}</Link> · <Link to="/privacy">{t('title.privacy')}</Link>
         </p>
       </footer>
       {!focused && (
-      <nav aria-label="Main" className="tabbar">
+      <nav aria-label={t('nav.main')} className="tabbar">
         {mainLinks}
       </nav>
       )}
@@ -290,11 +297,12 @@ function TabIcon({ d }: { d: string }) {
 /** The delivery pincode at the top; opens the pincode form on the home page. */
 function WhereButton() {
   const { pincode } = useStore()
+  const t = useT()
   return (
-    <Link to="/?where=1" className="where-btn" aria-label={pincode ? `Delivering to ${pincode}, change` : 'Choose where to deliver'}>
-      <span className="where-label">{pincode ? 'Delivering to' : 'Deliver to'}</span>
+    <Link to="/?where=1" className="where-btn" aria-label={pincode ? t('where.changeLabel', { pincode }) : t('where.chooseLabel')}>
+      <span className="where-label">{pincode ? t('where.deliveringTo') : t('where.deliverTo')}</span>
       <span className="where-value">
-        {pincode ?? 'Set your pincode'}
+        {pincode ?? t('where.setPincode')}
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
           <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
         </svg>
@@ -310,6 +318,7 @@ const SEARCH_DELAY_MS = 250
 function SearchBar() {
   const location = useLocation()
   const navigate = useNavigate()
+  const t = useT()
   const [params] = useSearchParams()
   const onHome = location.pathname === '/'
   const current = onHome ? (params.get('q') ?? '') : ''
@@ -345,8 +354,8 @@ function SearchBar() {
       </svg>
       <input
         type="search"
-        aria-label="Search mangoes"
-        placeholder="Search mangoes, e.g. Alphonso"
+        aria-label={t('search.label')}
+        placeholder={t('search.placeholder')}
         value={draft}
         onChange={(e) => {
           const q = e.target.value

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type StockAlert } from '../api'
 import { STAGE_LABEL, day } from '../format'
+import { LanguagePicker, useLanguage, useT } from '../i18n'
 import { useStore } from '../store'
 import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 import { MyReviews } from './Review'
@@ -13,6 +14,7 @@ import { YourSubscriptions } from './Subscriptions'
 export default function Account() {
   const { profile } = useStore()
   const navigate = useNavigate()
+  const t = useT()
   const [confirming, setConfirming] = useState(false)
   const remove = useMutation({
     mutationFn: api.deleteAccount,
@@ -24,37 +26,42 @@ export default function Account() {
   return (
     <>
       <section className="card narrow" aria-labelledby="account">
-        <h1 id="account">Your account</h1>
+        <h1 id="account">{t('title.account')}</h1>
         <dl className="details">
-          <dt>Mobile number</dt>
-          <dd>{profile?.phone ? `+91 ${profile.phone.replace(/^\+91/, '')}` : 'Not added yet'}</dd>
+          <dt>{t('auth.mobile')}</dt>
+          <dd>{profile?.phone ? `+91 ${profile.phone.replace(/^\+91/, '')}` : t('account.notAdded')}</dd>
           {profile?.email && (
             <>
-              <dt>Google account</dt>
+              <dt>{t('account.google')}</dt>
               <dd>{profile.email}</dd>
             </>
           )}
           {profile?.name && (
             <>
-              <dt>Name</dt>
+              <dt>{t('account.name')}</dt>
               <dd>{profile.name}</dd>
             </>
           )}
         </dl>
         <p className="small muted">
-          How we use these details is in our <Link to="/privacy">privacy notice</Link>. Questions about an order? See <Link to="/help">Help</Link>{' '}
-          and our <Link to="/terms">terms of sale</Link>.
+          {t.rich('account.detailsNote', {
+            privacy: <Link to="/privacy">{t('signIn.privacyNotice')}</Link>,
+            help: <Link to="/help">{t('nav.help')}</Link>,
+            terms: <Link to="/terms">{t('help.termsLink')}</Link>,
+          })}
         </p>
         <div className="row">
           <button type="button" className="btn btn-quiet" onClick={() => void api.signOut()}>
-            Sign out
+            {t('account.signOut')}
           </button>
           <button type="button" className="btn btn-quiet" disabled={everywhere.isPending} onClick={() => everywhere.mutate()}>
-            {everywhere.isPending ? 'Signing out…' : 'Sign out on every device'}
+            {everywhere.isPending ? t('account.signingOut') : t('account.signOutEverywhere')}
           </button>
         </div>
         <ErrorNote error={everywhere.error} />
       </section>
+
+      <LanguageCard />
 
       <ReferralCard />
       <YourSubscriptions />
@@ -72,36 +79,48 @@ export default function Account() {
       <YourData />
 
       <section className="card narrow" aria-labelledby="delete-account">
-        <h2 id="delete-account">Delete your account</h2>
-        <p>
-          We remove your name, mobile number, email and delivery addresses. Past orders keep only their amounts, for our accounts. You can't
-          delete your account while an order or booking is on its way.
-        </p>
+        <h2 id="delete-account">{t('account.deleteTitle')}</h2>
+        <p>{t('account.deleteBody')}</p>
         <button type="button" className="btn btn-danger" onClick={() => setConfirming(true)}>
-          Delete my account
+          {t('account.deleteMine')}
         </button>
       </section>
 
       {confirming && (
         <ConfirmDialog
-          title="Delete your account?"
-          keepLabel="Keep my account"
-          confirmLabel="Delete account"
-          busyLabel="Deleting…"
+          title={t('account.deleteConfirm')}
+          keepLabel={t('account.keep')}
+          confirmLabel={t('account.deleteAccount')}
+          busyLabel={t('account.deleting')}
           busy={remove.isPending}
           error={remove.error}
           onConfirm={() => remove.mutate()}
           onClose={() => setConfirming(false)}
         >
-          <p>This can't be undone. Your order history goes, and you'll be signed out.</p>
+          <p>{t('account.deleteWarning')}</p>
         </ConfirmDialog>
       )}
     </>
   )
 }
 
+/** The shop's language (SHOP_LANGUAGES, docs/languages.md): saved to the account. Nothing while the switch is off. */
+function LanguageCard() {
+  const { available } = useLanguage()
+  const t = useT()
+  if (!available) return null
+  return (
+    <section className="card narrow" aria-labelledby="language">
+      <h2 id="language">{t('lang.title')}</h2>
+      <p className="small muted">{t('lang.accountHint')}</p>
+      <LanguagePicker />
+    </section>
+  )
+}
+
 function SavedAddresses() {
   const queryClient = useQueryClient()
+  const t = useT()
   const q = useQuery({ queryKey: ['addresses'], queryFn: api.addresses })
   const forget = useMutation({
     mutationFn: api.forgetAddress,
@@ -109,13 +128,13 @@ function SavedAddresses() {
   })
   return (
     <section className="card narrow" aria-labelledby="addresses">
-      <h2 id="addresses">Saved addresses</h2>
+      <h2 id="addresses">{t('account.addresses')}</h2>
       {q.isPending ? (
-        <Spinner label="Loading addresses" />
+        <Spinner label={t('account.loadingAddresses')} />
       ) : q.isError ? (
         <ErrorNote error={q.error} onRetry={() => q.refetch()} />
       ) : q.data.length === 0 ? (
-        <p className="muted">Addresses you order to are kept here, so next time you can pick one instead of typing it.</p>
+        <p className="muted">{t('account.addressesEmpty')}</p>
       ) : (
         <ul className="address-list">
           {q.data.map((a) => (
@@ -123,10 +142,10 @@ function SavedAddresses() {
               <div>
                 {a.name && <strong>{a.name}</strong>}
                 <span>{a.address}</span>
-                <span className="muted small">Pincode {a.pincode}</span>
+                <span className="muted small">{t('account.pincode', { pincode: a.pincode })}</span>
               </div>
-              <button type="button" className="link-btn" disabled={forget.isPending} onClick={() => forget.mutate(a.id)} aria-label={`Remove ${a.address}`}>
-                Remove
+              <button type="button" className="link-btn" disabled={forget.isPending} onClick={() => forget.mutate(a.id)} aria-label={t('common.removeItem', { label: a.address })}>
+                {t('common.remove')}
               </button>
             </li>
           ))}
@@ -140,6 +159,7 @@ function SavedAddresses() {
 /** WhatsApp messages the customer chooses: the reminder, and back-in-stock alerts. */
 function Messages() {
   const queryClient = useQueryClient()
+  const t = useT()
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings })
   const alerts = useQuery({ queryKey: ['stock-alerts'], queryFn: api.stockAlerts })
   // Shown at once, put back if the save fails.
@@ -154,11 +174,15 @@ function Messages() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock-alerts'] }),
   })
   const status = (a: StockAlert) =>
-    a.notifiedAt ? `Back in stock${a.availableOn ? ` from ${day(a.availableOn)}` : ''}: we sent you a message` : `Waiting, until ${day(a.expiresAt.slice(0, 10))}`
+    a.notifiedAt
+      ? a.availableOn
+        ? t('alerts.backFrom', { day: day(a.availableOn) })
+        : t('alerts.back')
+      : t('alerts.waiting', { day: day(a.expiresAt.slice(0, 10)) })
   return (
     <section className="card narrow" aria-labelledby="messages">
-      <h2 id="messages">WhatsApp messages</h2>
-      <p className="small muted">Order updates always come. These are up to you.</p>
+      <h2 id="messages">{t('account.whatsapp')}</h2>
+      <p className="small muted">{t('account.whatsappHint')}</p>
       {settings.isError ? (
         <ErrorNote error={settings.error} onRetry={() => settings.refetch()} />
       ) : (
@@ -172,17 +196,17 @@ function Messages() {
               save.mutate({ remindersOptIn: e.target.checked })
             }}
           />
-          <span>Remind me to order again a week after a delivery</span>
+          <span>{t('account.remindMe')}</span>
         </label>
       )}
       <ErrorNote error={save.error} />
-      <h3 className="sub-title">Tell me when it's back</h3>
+      <h3 className="sub-title">{t('alerts.title')}</h3>
       {alerts.isPending ? (
-        <Spinner label="Loading alerts" />
+        <Spinner label={t('alerts.loading')} />
       ) : alerts.isError ? (
         <ErrorNote error={alerts.error} onRetry={() => alerts.refetch()} />
       ) : alerts.data.length === 0 ? (
-        <p className="muted small">When a box is sold out, tap "Tell me when it's back" and we'll message you once it's in stock.</p>
+        <p className="muted small">{t('alerts.empty')}</p>
       ) : (
         <ul className="address-list">
           {alerts.data.map((a) => (
@@ -194,8 +218,8 @@ function Messages() {
                 <span className="muted small">{status(a)}</span>
               </div>
               {!a.notifiedAt && (
-                <button type="button" className="link-btn" disabled={remove.isPending} onClick={() => remove.mutate(a.id)} aria-label={`Stop the alert for ${a.name}, ${STAGE_LABEL[a.stage]}`}>
-                  Stop
+                <button type="button" className="link-btn" disabled={remove.isPending} onClick={() => remove.mutate(a.id)} aria-label={t('alerts.stopLabel', { name: a.name, stage: STAGE_LABEL[a.stage] })}>
+                  {t('alerts.stop')}
                 </button>
               )}
             </li>
@@ -209,6 +233,7 @@ function Messages() {
 
 /** A copy of what we hold about the customer, saved as a JSON file. */
 function YourData() {
+  const t = useT()
   const download = useMutation({
     mutationFn: api.exportData,
     onSuccess: (data) => {
@@ -222,10 +247,10 @@ function YourData() {
   })
   return (
     <section className="card narrow" aria-labelledby="your-data">
-      <h2 id="your-data">Your data</h2>
-      <p className="small muted">Download a copy of everything we keep about you: your account, addresses, orders, bookings, claims and reviews.</p>
+      <h2 id="your-data">{t('account.data')}</h2>
+      <p className="small muted">{t('account.dataHint')}</p>
       <button type="button" className="btn btn-quiet" disabled={download.isPending} onClick={() => download.mutate()}>
-        {download.isPending ? 'Preparing…' : 'Download my data'}
+        {download.isPending ? t('account.preparing') : t('account.download')}
       </button>
       <ErrorNote error={download.error} />
     </section>

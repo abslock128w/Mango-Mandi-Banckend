@@ -13,6 +13,8 @@ import { gstinProblem, tidyGstin } from '../gstin'
 import { funnelId, trackStep } from '../growth'
 import { ReferralEntry } from './Referral'
 import { useFeatures } from '../features'
+import { useT } from '../i18n'
+import { t as tr } from '../i18n-core.ts'
 
 function loadAddress() {
   try {
@@ -39,9 +41,9 @@ export async function syncCart(cart: CartLine[], bulk: BulkCartLine[] = []) {
       await api.setBulkLine(l.listingId, l.stage, l.qty)
     } catch (err) {
       if (err instanceof ApiError && (err.code === 'BULK_UNAVAILABLE' || err.code === 'BULK_STAGE_INVALID' || err.status === 404)) {
-        throw new ApiError(409, 'BULK_UNAVAILABLE', `${l.title} (${STAGE_LABEL[l.stage]}) is no longer on sale`, { listingId: l.listingId, stage: l.stage })
+        throw new ApiError(409, 'BULK_UNAVAILABLE', tr('checkout.bulkGone', { title: l.title, stage: STAGE_LABEL[l.stage] }), { listingId: l.listingId, stage: l.stage })
       }
-      if (err instanceof ApiError && err.code === 'BULK_QTY_INVALID') throw new ApiError(400, 'BULK_QTY_INVALID', `${l.title}: ${err.message}. Change it in your cart.`, err.detail)
+      if (err instanceof ApiError && err.code === 'BULK_QTY_INVALID') throw new ApiError(400, 'BULK_QTY_INVALID', tr('checkout.bulkQty', { title: l.title, reason: err.message }), err.detail)
       throw err
     }
   }
@@ -50,7 +52,7 @@ export async function syncCart(cart: CartLine[], bulk: BulkCartLine[] = []) {
       await api.setCartLine(l.sku, l.stage, l.qty)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'INVALID_SKU') {
-        throw new ApiError(409, 'PRODUCT_UNAVAILABLE', `${l.name} is no longer sold`, { sku: l.sku, stage: l.stage })
+        throw new ApiError(409, 'PRODUCT_UNAVAILABLE', tr('checkout.noLongerSold', { name: l.name }), { sku: l.sku, stage: l.stage })
       }
       throw err
     }
@@ -96,6 +98,7 @@ function CheckoutForm() {
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
+  const t = useT()
   const saved = useRef(loadAddress())
   const [name, setName] = useState(saved.current.name ?? '')
   const [address, setAddress] = useState(saved.current.address ?? '')
@@ -126,7 +129,7 @@ function CheckoutForm() {
   const [picked, setPicked] = useState<string | null>(null)
   const typedOwn = useRef(false)
   // Start from the address used last time (or the most recent saved one), until the customer types their own.
-  const squash = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim()
+  const squash = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
   if (!typedOwn.current && picked === null && savedHere.length) {
     const match = address.trim() ? savedHere.find((a) => squash(a.address) === squash(address)) : savedHere[0]
     if (match) {
@@ -224,7 +227,7 @@ function CheckoutForm() {
         idemKey.current = crypto.randomUUID()
         quoteSpent.current = false
         setQuote(q)
-        if (q.total !== quote!.total) throw new Error(`The total is now ${rupees(q.total)}. Check it and tap Pay again.`)
+        if (q.total !== quote!.total) throw new Error(t('checkout.totalNow', { total: rupees(q.total) }))
       }
       const input = {
         quoteId: q.quoteId,
@@ -276,13 +279,13 @@ function CheckoutForm() {
   function submit(e: FormEvent) {
     e.preventDefault()
     const found: Partial<Record<At, string>> = {}
-    if (slots.data?.slots.length && !slotId) found.slot = 'Choose a delivery time.'
-    if (isGift && !gift.recipientName.trim()) found['gift-name'] = "Enter the name of the person you're sending it to."
+    if (slots.data?.slots.length && !slotId) found.slot = t('checkout.chooseTime')
+    if (isGift && !gift.recipientName.trim()) found['gift-name'] = t('checkout.giftName')
     if (isGift && !/^(\+?91|0)?[6-9]\d{9}$/.test(gift.recipientPhone.replace(/[\s-]/g, ''))) {
-      found['gift-phone'] = 'Enter their 10-digit mobile number, so the rider can reach them.'
+      found['gift-phone'] = t('checkout.giftPhone')
     }
-    if (address.trim().length < 10) found.address = 'Enter the full delivery address, with house number and landmark.'
-    if (withBusiness && business.name.trim().length < 2) found['business-name'] = 'Enter the business name as it is on the GST certificate.'
+    if (address.trim().length < 10) found.address = t('checkout.address')
+    if (withBusiness && business.name.trim().length < 2) found['business-name'] = t('checkout.businessName')
     if (withBusiness) {
       const bad = gstinProblem(business.gstin)
       if (bad) found.gstin = bad
@@ -312,26 +315,26 @@ function CheckoutForm() {
     const changed = quote.lines.filter((l) => wasPrice(l) != null)
     return (
       <section className="card checkout-review">
-        <DocTitle title="Review and pay" />
+        <DocTitle title={t('checkout.reviewTitle')} />
         <h1 ref={heading} tabIndex={-1}>
-          Review and pay
+          {t('checkout.reviewTitle')}
         </h1>
         {/* UX-8: say so before Pay, not only when Pay is refused. */}
         <UnpaidOrderBanner />
         <dl className="facts">
           <div>
-            <dt>Arrives</dt>
+            <dt>{t('checkout.arrives')}</dt>
             <dd>
               {day(quote.deliveryDate)}
               {quote.slot && `, ${slotText(quote.slot)}`}
             </dd>
           </div>
           <div>
-            <dt>To</dt>
+            <dt>{t('checkout.to')}</dt>
             <dd>
               {(isGift ? gift.recipientName : name) && (
                 <>
-                  {isGift ? `${gift.recipientName.trim()} (a gift)` : name}
+                  {isGift ? t('checkout.aGift', { name: gift.recipientName.trim() }) : name}
                   <br />
                 </>
               )}
@@ -340,24 +343,24 @@ function CheckoutForm() {
           </div>
           {isGift && gift.message.trim() && (
             <div>
-              <dt>Note</dt>
+              <dt>{t('checkout.note')}</dt>
               <dd>{gift.message.trim()}</dd>
             </div>
           )}
           {withBusiness && (
             <div>
-              <dt>Bill to</dt>
+              <dt>{t('checkout.billTo')}</dt>
               <dd>
                 {business.name.trim()}
                 <br />
-                GSTIN {tidyGstin(business.gstin)}
+                {t('checkout.gstinValue', { gstin: tidyGstin(business.gstin) })}
               </dd>
             </div>
           )}
         </dl>
         {changed.length > 0 && (
           <p className="note small" role="status">
-            {changed.length === 1 ? 'A price has' : 'Some prices have'} changed since you added {changed.length === 1 ? 'it' : 'them'} to your cart. The total below is what you pay.
+            {t('checkout.pricesChanged', { count: changed.length })}
           </p>
         )}
         <ul className="lines">
@@ -365,16 +368,16 @@ function CheckoutForm() {
             <li key={`${l.listingId ?? ''}-${l.sku}-${l.stage}`} className="line">
               <div>
                 <strong>
-                  {l.listingId && <span className="bulk-tag">Bulk</span>}
+                  {l.listingId && <span className="bulk-tag">{t('bulk.tag')}</span>}
                   {l.qty} × {l.title ?? l.name}
                 </strong>
                 <span className="muted small">
-                  {l.listingId && `${l.name} · ${rupees(l.unitPrice)} a box · `}
-                  {STAGE_LABEL[l.stage]} · eat by {day(l.eatBy)}
+                  {l.listingId && `${l.name} · ${t('price.aBox', { price: rupees(l.unitPrice) })} · `}
+                  {STAGE_LABEL[l.stage]} · {t('checkout.eatBy', { day: day(l.eatBy) })}
                 </span>
                 {wasPrice(l) != null && (
                   <span className="small price-changed">
-                    Now {rupees(l.unitPrice)} each (was {rupees(wasPrice(l)!)})
+                    {t('checkout.nowWas', { now: rupees(l.unitPrice), was: rupees(wasPrice(l)!) })}
                   </span>
                 )}
               </div>
@@ -385,12 +388,12 @@ function CheckoutForm() {
         {quote.promo && (
           <>
             <div className="sum-row">
-              <span>Boxes</span>
+              <span>{t('checkout.boxes')}</span>
               <span>{rupees(quote.subtotal)}</span>
             </div>
             <div className="sum-row discount">
               <span>
-                Promo {quote.promo.code}
+                {t('checkout.promo', { code: quote.promo.code })}
                 {quote.promo.description && <span className="muted small"> · {quote.promo.description}</span>}
               </span>
               <span>−{rupees(quote.discount)}</span>
@@ -399,21 +402,20 @@ function CheckoutForm() {
         )}
         {/* UX-3: the whole cost before Pay. Delivery is always free. */}
         <div className="sum-row">
-          <span>Delivery</span>
-          <span>Free</span>
+          <span>{t('review.sub.delivery')}</span>
+          <span>{t('checkout.free')}</span>
         </div>
         <div className="total-row">
-          <span>Total</span>
+          <span>{t('common.total')}</span>
           <strong>{rupees(quote.total)}</strong>
         </div>
         <p className="muted small">
-          Your boxes are held for {quote.holdMinutes ? `${quote.holdMinutes} minutes` : 'a few minutes'} while you pay. You can cancel for a full
-          refund any time before your order is packed.
+          {quote.holdMinutes ? t('checkout.heldMinutes', { minutes: quote.holdMinutes }) : t('checkout.heldFew')}
         </p>
         <ErrorNote
           error={
             unsold
-              ? `${unsold.message}, so we took it out of your cart. Nothing was charged.${!empty ? ' Tap Pay to see the new total.' : ''}`
+              ? t(empty ? 'checkout.unsold' : 'checkout.unsoldPay', { reason: unsold.message })
               : pay.error
                 ? quoteProblem(pay.error)
                 : null
@@ -421,27 +423,27 @@ function CheckoutForm() {
         />
         {pay.error instanceof ApiError && pay.error.code === 'UNPAID_ORDER_EXISTS' && typeof pay.error.detail.orderId === 'string' && (
           <Link to={`/orders/${pay.error.detail.orderId}`} className="btn btn-block">
-            Open your unpaid order
+            {t('checkout.openUnpaid')}
           </Link>
         )}
         {unsold && empty ? (
           <Link to="/" className="btn btn-primary btn-block">
-            Choose other mangoes
+            {t('checkout.chooseOther')}
           </Link>
         ) : (
           <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending} onClick={() => pay.mutate()} aria-describedby="pay-trust">
-            {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
+            {pay.isPending ? t('checkout.openingPayment') : t('checkout.pay', { total: rupees(quote.total) })}
           </button>
         )}
         {/* UX-3: who takes the money and how, at the moment of paying. */}
         <p className="small center pay-trust" id="pay-trust">
-          Secure payment by Razorpay. UPI, cards, netbanking. No cash on delivery.{' '}
+          {t('checkout.secure')}{' '}
           <span className="muted">
-            See our <Link to="/terms">terms of sale</Link> and <Link to="/help">help</Link>.
+            {t.rich('checkout.seeTerms', { terms: <Link to="/terms">{t('help.termsLink')}</Link>, help: <Link to="/help">{t('checkout.helpLink')}</Link> })}
           </span>
         </p>
         <button type="button" className="btn btn-block btn-quiet" disabled={pay.isPending} onClick={backToForm}>
-          Change details
+          {t('checkout.changeDetails')}
         </button>
       </section>
     )
@@ -455,23 +457,23 @@ function CheckoutForm() {
   return (
     <div className="checkout-layout">
       <section className="card">
-        <DocTitle title="Delivery details" />
+        <DocTitle title={t('title.checkout')} />
         <h1 ref={heading} tabIndex={-1}>
-          Delivery details
+          {t('title.checkout')}
         </h1>
         <UnpaidOrderBanner />
         <ReferralEntry />
         <form onSubmit={submit} noValidate>
           {slots.isPending ? (
-            <Spinner label="Loading delivery times" />
+            <Spinner label={t('checkout.loadingTimes')} />
           ) : slots.isError ? (
             <ErrorNote error={slots.error} onRetry={() => slots.refetch()} />
           ) : (
             <>
               <fieldset className="field">
-                <legend>When should it arrive?</legend>
+                <legend>{t('checkout.when')}</legend>
                 <DayChips
-                  label="When should it arrive?"
+                  label={t('checkout.when')}
                   days={days.data?.deliveryDates ?? [slots.data.deliveryDate]}
                   value={slots.data.deliveryDate}
                   format={day}
@@ -481,7 +483,7 @@ function CheckoutForm() {
                     setWhere(pincode, d)
                   }}
                 />
-                {days.data?.cutoffTime && <p className="muted small">Orders for the next day close at {days.data.cutoffTime.replace(' IST', '')} (India time).</p>}
+                {days.data?.cutoffTime && <p className="muted small">{t('checkout.cutoff', { time: days.data.cutoffTime.replace(' IST', '') })}</p>}
               </fieldset>
               <SlotPicker
                 name="slot"
@@ -509,23 +511,21 @@ function CheckoutForm() {
                 }
               }}
             />
-            <span>This is a gift for someone else</span>
+            <span>{t('checkout.isGift')}</span>
           </label>
           {isGift && (
             <fieldset className="field gift-fields">
-              <legend>Who is it for?</legend>
+              <legend>{t('checkout.whoFor')}</legend>
               {features.multiGift && (
-                <p className="small">
-                  Sending boxes to several people? <Link to="/gifts/new">Send to many</Link>: one order, one payment, a box for each.
-                </p>
+                <p className="small">{t.rich('checkout.sendToMany', { link: <Link to="/gifts/new">{t('title.giftMany')}</Link> })}</p>
               )}
-              <Field id="gift-name" label="Their name" error={errorAt('gift-name')}>
+              <Field id="gift-name" label={t('checkout.theirName')} error={errorAt('gift-name')}>
                 <input maxLength={80} value={gift.recipientName} onChange={(e) => setGift({ ...gift, recipientName: e.target.value })} />
               </Field>
               <Field
                 id="gift-phone"
-                label="Their mobile number"
-                hint="The rider calls them. Your order updates and the delivery code still come to you, so pass the code on."
+                label={t('checkout.theirMobile')}
+                hint={t('checkout.theirMobileHint')}
                 error={errorAt('gift-phone')}
               >
                 {(control) => (
@@ -542,19 +542,19 @@ function CheckoutForm() {
                   </div>
                 )}
               </Field>
-              <Field id="gift-note" label="A note in the box (optional)">
+              <Field id="gift-note" label={t('checkout.giftNote')}>
                 <textarea rows={2} maxLength={200} value={gift.message} onChange={(e) => setGift({ ...gift, message: e.target.value })} />
               </Field>
             </fieldset>
           )}
-          <Field id="name" label="Your name">
+          <Field id="name" label={t('checkout.yourName')}>
             <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           {!isGift && <AddressPicker addresses={savedHere} value={picked} onChange={choose} />}
           <Field
             id="address"
-            label="Delivery address"
-            hint={`${isGift ? 'Their address: house' : 'House'} or flat number, street, area and a landmark. Pincode ${pincode}.`}
+            label={t('checkout.deliveryAddress')}
+            hint={t(isGift ? 'checkout.addressHintGift' : 'checkout.addressHint', { pincode })}
             error={errorAt('address')}
             hidden={!addressShown}
           >
@@ -573,12 +573,12 @@ function CheckoutForm() {
             <>
               <label className="option gift-toggle">
                 <input type="checkbox" checked={isBusiness} onChange={(e) => setIsBusiness(e.target.checked)} />
-                <span>Buying for a business? Add its name and GSTIN to the bill</span>
+                <span>{t('checkout.forBusiness')}</span>
               </label>
               {isBusiness && (
                 <fieldset className="field gift-fields">
-                  <legend>Business details for the bill</legend>
-                  <Field id="business-name" label="Business name" hint="As it is on the GST certificate." error={errorAt('business-name')}>
+                  <legend>{t('checkout.businessLegend')}</legend>
+                  <Field id="business-name" label={t('checkout.businessNameLabel')} hint={t('checkout.businessNameHint')} error={errorAt('business-name')}>
                     <input
                       autoComplete="organization"
                       maxLength={100}
@@ -589,7 +589,7 @@ function CheckoutForm() {
                       }}
                     />
                   </Field>
-                  <Field id="gstin" label="GSTIN" hint="15 characters, for example 29ABCDE1234F1ZW." error={errorAt('gstin')}>
+                  <Field id="gstin" label={t('checkout.gstinLabel')} hint={t('checkout.gstinHint')} error={errorAt('gstin')}>
                     <input
                       autoComplete="off"
                       autoCapitalize="characters"
@@ -606,7 +606,7 @@ function CheckoutForm() {
               )}
             </>
           )}
-          <Field id="promo" label="Promo code (optional)" hint={bulk.length ? "Promo codes apply to regular boxes, not bulk deals." : undefined} error={errorAt('promo')}>
+          <Field id="promo" label={t('checkout.promoLabel')} hint={bulk.length ? t('checkout.promoHint') : undefined} error={errorAt('promo')}>
             <input
               autoComplete="off"
               autoCapitalize="characters"
@@ -625,7 +625,7 @@ function CheckoutForm() {
           )}
           <ErrorNote error={reviewError} />
           <button type="submit" className="btn btn-primary btn-block" disabled={review.isPending || slots.isPending}>
-            {review.isPending ? 'Checking stock…' : 'Review order'}
+            {review.isPending ? t('fav.checking') : t('checkout.reviewOrder')}
           </button>
         </form>
       </section>
@@ -640,19 +640,20 @@ function CheckoutForm() {
  */
 function CartSummary({ cart, bulk }: { cart: CartLine[]; bulk: BulkCartLine[] }) {
   const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
+  const t = useT()
   return (
     <aside className="card order-summary" aria-labelledby="summary-title">
-      <h2 id="summary-title">Your order</h2>
+      <h2 id="summary-title">{t('title.order')}</h2>
       <ul className="lines">
         {bulk.map((l) => (
           <li key={`bulk-${l.listingId}-${l.stage}`} className="line">
             <div>
               <strong>
-                <span className="bulk-tag">Bulk</span>
+                <span className="bulk-tag">{t('bulk.tag')}</span>
                 {l.qty} × {l.title}
               </strong>
               <span className="muted small">
-                {l.name}, {STAGE_LABEL[l.stage]} · {rupees(l.unitPrice)} a box
+                {l.name}, {STAGE_LABEL[l.stage]} · {t('price.aBox', { price: rupees(l.unitPrice) })}
               </span>
             </div>
             <span className="line-price">{rupees(l.unitPrice * l.qty)}</span>
@@ -671,18 +672,16 @@ function CartSummary({ cart, bulk }: { cart: CartLine[]; bulk: BulkCartLine[] })
         ))}
       </ul>
       <div className="sum-row">
-        <span>Delivery</span>
-        <span>Free</span>
+        <span>{t('review.sub.delivery')}</span>
+        <span>{t('checkout.free')}</span>
       </div>
       <div className="total-row">
-        <span>
-          {boxes} {boxes === 1 ? 'box' : 'boxes'}
-        </span>
+        <span>{t('common.boxes', { count: boxes })}</span>
         <strong>{rupees(cart.reduce((s, l) => s + l.price * l.qty, 0) + bulk.reduce((s, l) => s + l.unitPrice * l.qty, 0))}</strong>
       </div>
-      <p className="muted small">Stock and price are checked for your day when you review the order.</p>
+      <p className="muted small">{t('checkout.summaryNote')}</p>
       <Link to="/cart" className="link-btn">
-        Change the boxes
+        {t('checkout.changeBoxes')}
       </Link>
     </aside>
   )
@@ -695,17 +694,17 @@ function quoteProblem(err: unknown, cart: CartLine[] = [], bulk: BulkCartLine[] 
     const name =
       (err.detail.listingId ? bulk.find((l) => l.listingId === err.detail.listingId)?.title : null) ??
       cart.find((l) => l.sku === err.detail.sku)?.name ??
-      'One of your mangoes'
-    return `${name} has run short for this day. Lower the number of boxes or pick another day.`
+      tr('checkout.oneOfYours')
+    return tr('checkout.runShort', { name })
   }
-  if (err.code === 'SLOT_FULL') return 'That delivery time just filled up. Choose another one.'
-  if (err.code.startsWith('PROMO_')) return `${err.message}. Change or clear the promo code to go on.`
-  if (err.code === 'PAYMENT_GATEWAY_ERROR') return "We couldn't start the payment, and nothing was charged. Tap Pay to try again."
-  if (err.code === 'PAYMENT_STARTING') return 'Your payment is still being set up. Tap Pay again in a moment.'
-  if (err.code === 'PRODUCT_UNAVAILABLE') return `${err.message}, so we took it out of your cart. Review the order again.`
-  if (err.code === 'PRICE_CHANGED') return `${err.message} Nothing was charged. Tap Pay to see the new total.`
+  if (err.code === 'SLOT_FULL') return tr('checkout.slotFull')
+  if (err.code.startsWith('PROMO_')) return tr('checkout.promoProblem', { reason: err.message })
+  if (err.code === 'PAYMENT_GATEWAY_ERROR') return tr('checkout.gatewayError')
+  if (err.code === 'PAYMENT_STARTING') return tr('checkout.paymentStarting')
+  if (err.code === 'PRODUCT_UNAVAILABLE') return tr('checkout.takenOut', { reason: err.message })
+  if (err.code === 'PRICE_CHANGED') return tr('checkout.priceChanged', { reason: err.message })
   if (err.code === 'CART_CONFLICT' || err.code === 'BULK_QTY_INVALID') return `${err.message}`
-  if (err.code === 'BULK_UNAVAILABLE') return `${err.message}, so we took it out of your cart. Review the order again.`
-  if (err.code === 'QUOTE_EXPIRED') return 'This took a little long and the price hold ended. Tap Change details and review again.'
-  return err.message
+  if (err.code === 'BULK_UNAVAILABLE') return tr('checkout.takenOut', { reason: err.message })
+  if (err.code === 'QUOTE_EXPIRED') return tr('checkout.quoteExpired')
+  return errorMessage(err)
 }

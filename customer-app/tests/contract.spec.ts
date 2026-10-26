@@ -138,6 +138,8 @@ const POLICY = object<ShopPolicy>({
       // Growth switches (docs/growth.md).
       referrals: optional('boolean'), funnel: optional('boolean'),
       multiGift: optional('boolean'),
+      // Shop languages (docs/languages.md).
+      languages: optional('boolean'),
     }),
   ),
   // Gift orders to many recipients (MULTI_GIFT): sent only while it is on.

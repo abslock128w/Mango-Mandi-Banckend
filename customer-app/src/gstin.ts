@@ -3,6 +3,8 @@
 // state code, the 10-character PAN, the entity number, 'Z' (for normal
 // registrations) and a check character: the base-36 Luhn check over the first 14.
 
+import { t } from './i18n-core.ts'
+
 const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const SHAPE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][A-Z0-9][0-9A-Z]$/
 /** GST state and union territory codes in use (the first two digits). */
@@ -26,9 +28,9 @@ export function gstinCheckChar(first14: string): string {
 /** What is wrong with a typed GSTIN, in words for the customer, or null when it is fine. */
 export function gstinProblem(raw: string): string | null {
   const g = tidyGstin(raw)
-  if (!g) return 'Enter the GSTIN from the GST certificate.'
-  if (g.length !== 15) return `A GSTIN has 15 characters; this has ${g.length}.`
-  if (!SHAPE.test(g) || !STATE_CODES.has(g.slice(0, 2))) return 'That is not a GSTIN. It starts with a 2-digit state code, then the 10-character PAN.'
-  if (gstinCheckChar(g.slice(0, 14)) !== g[14]) return 'That GSTIN has a typo: check it against the GST certificate.'
+  if (!g) return t('gstin.enter')
+  if (g.length !== 15) return t('gstin.length', { count: g.length })
+  if (!SHAPE.test(g) || !STATE_CODES.has(g.slice(0, 2))) return t('gstin.shape')
+  if (gstinCheckChar(g.slice(0, 14)) !== g[14]) return t('gstin.typo')
   return null
 }

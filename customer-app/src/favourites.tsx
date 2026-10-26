@@ -5,6 +5,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, errorMessage, type FavouriteList } from './api'
 import { useFeatures } from './features'
+import { useT } from './i18n'
+import { t } from './i18n-core.ts'
 import { useStore } from './store'
 
 const GUEST_KEY = 'mm.favourites'
@@ -108,7 +110,7 @@ export function FavouritesProvider({ children }: { children: ReactNode }) {
       if (signedIn) return mutate({ sku, add })
       setProblem(null)
       if (add && guest.length >= MAX_GUEST_FAVOURITES) {
-        return setProblem({ sku, message: `You can keep up to ${MAX_GUEST_FAVOURITES} favourites. Remove one first.` })
+        return setProblem({ sku, message: t('fav.limit', { max: MAX_GUEST_FAVOURITES }) })
       }
       setGuest((g) => (add ? [sku, ...g.filter((s) => s !== sku)] : g.filter((s) => s !== sku)))
     },
@@ -131,10 +133,11 @@ export function useFavourites() {
 /** The heart: a toggle button, pressed when the box is a favourite. Nothing while the switch is off. */
 export function HeartButton({ sku, name, className = '' }: { sku: string; name: string; className?: string }) {
   const f = useFavourites()
+  const tt = useT()
   if (!f.on) return null
   const on = f.has(sku)
   return (
-    <button type="button" className={`heart ${className}`.trim()} aria-pressed={on} aria-label={`Favourite: ${name}`} onClick={() => f.toggle(sku)}>
+    <button type="button" className={`heart ${className}`.trim()} aria-pressed={on} aria-label={tt('fav.label', { name })} onClick={() => f.toggle(sku)}>
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path
           d="M12 20.5s-7.5-4.6-9.3-9.2C1.4 8 3.4 4.5 7 4.5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.6 0 5.6 3.5 4.3 6.8-1.8 4.6-9.3 9.2-9.3 9.2z"

@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { GoogleButton, PhoneCodeForm } from '../auth-ui'
+import { LanguagePicker, useT } from '../i18n'
 import { safeNext } from '../next'
 import { useStore } from '../store'
 
 export default function SignIn() {
   const { profile } = useStore()
+  const t = useT()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = safeNext(params.get('next'))
@@ -21,7 +23,8 @@ export default function SignIn() {
   return (
     <section className="card narrow">
       <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="96" height="96" alt="MandiMangoes" className="signin-logo" />
-      <h1>Sign in</h1>
+      <h1>{t('signIn.title')}</h1>
+      <LanguagePicker compact />
       <GoogleButton onSignedIn={finish} onError={setGoogleError} />
       {googleError && (
         <p className="field-error" role="alert">
@@ -30,7 +33,7 @@ export default function SignIn() {
       )}
       <PhoneCodeForm mode="signin" onDone={finish} />
       <p className="small muted consent">
-        By continuing you agree to how we use your details, set out in our <Link to="/privacy">privacy notice</Link>.
+        {t.rich('signIn.consent', { privacy: <Link to="/privacy">{t('signIn.privacyNotice')}</Link> })}
       </p>
     </section>
   )

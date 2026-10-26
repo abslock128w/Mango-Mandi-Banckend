@@ -13,6 +13,8 @@ import { day, rupees } from '../format'
 import { forgetInvite, invitedCode, rememberInvite } from '../growth'
 import { policyQuery } from '../queries'
 import { useStore } from '../store'
+import { useT } from '../i18n'
+import type { Key } from '../i18n-core.ts'
 import { ErrorNote, Spinner } from '../ui'
 
 const referralQuery = { queryKey: ['referral'], queryFn: api.referral }
@@ -33,16 +35,17 @@ function useApply(onDone?: () => void) {
   })
 }
 
-const ENTERED_TEXT: Record<NonNullable<ReferralView['entered']>['status'], string> = {
-  PENDING: 'Your friend gets their thank-you, and you get yours, once your first order is delivered.',
-  REWARDED: 'Your first order was delivered: your thank-you code is below.',
-  VOID: 'This referral ended without a thank-you',
+const ENTERED_TEXT: Record<NonNullable<ReferralView['entered']>['status'], Key> = {
+  PENDING: 'ref.entered.pending',
+  REWARDED: 'ref.entered.rewarded',
+  VOID: 'ref.entered.void',
 }
 
 /** A friend's code: a field and a button, in its own small form. */
 function CodeForm({ initial, label, onDone }: { initial: string; label: string; onDone?: () => void }) {
   const [code, setCode] = useState(initial)
   const apply = useApply(onDone)
+  const t = useT()
   function submit(e: FormEvent) {
     e.preventDefault()
     if (code.trim()) apply.mutate(code)
@@ -64,7 +67,7 @@ function CodeForm({ initial, label, onDone }: { initial: string; label: string; 
             }}
           />
           <button type="submit" className="btn" disabled={apply.isPending || !code.trim()}>
-            {apply.isPending ? 'Checking…' : 'Use code'}
+            {apply.isPending ? t('auth.checking') : t('ref.useCode')}
           </button>
         </div>
       </div>
@@ -79,12 +82,13 @@ export function ReferralCard() {
   const q = useReferral(on)
   const [copied, setCopied] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
+  const t = useT()
   if (!on) return null
 
   async function share(v: ReferralView) {
     if (!v.shareUrl) return
     setShareError(null)
-    const text = `Try MandiMangoes: ${rupees(v.rewardRupees * 100)} off your next box after your first order is delivered. My code: ${v.code}`
+    const text = t('ref.shareText', { amount: rupees(v.rewardRupees * 100), code: v.code ?? '' })
     try {
       if (navigator.share) {
         await navigator.share({ title: 'MandiMangoes', text, url: v.shareUrl })
@@ -95,69 +99,70 @@ export function ReferralCard() {
     } catch (err) {
       // Closing the share sheet is not a problem.
       if (err instanceof DOMException && err.name === 'AbortError') return
-      setShareError('Could not share the link from this browser. Copy it from the box above.')
+      setShareError(t('ref.shareFailed'))
     }
   }
 
   return (
     <section className="card narrow" aria-labelledby="refer">
-      <h2 id="refer">Refer a friend</h2>
+      <h2 id="refer">{t('ref.title')}</h2>
       {q.isPending ? (
-        <Spinner label="Loading your referral code" />
+        <Spinner label={t('ref.loading')} />
       ) : q.isError ? (
         <ErrorNote error={q.error} onRetry={() => q.refetch()} />
       ) : (
         <>
           <p className="small">
-            When a friend's first order of {rupees(q.data.minOrderRupees * 100)} or more is delivered, you both get {rupees(q.data.rewardRupees * 100)} off a
-            later order of boxes.
+            {t('ref.how', { min: rupees(q.data.minOrderRupees * 100), amount: rupees(q.data.rewardRupees * 100) })}
           </p>
           {q.data.code ? (
             <>
               <dl className="details">
-                <dt>Your code</dt>
+                <dt>{t('ref.yourCode')}</dt>
                 <dd>
                   <strong data-testid="referral-code">{q.data.code}</strong>
                 </dd>
-                <dt>Your link</dt>
+<dt>{t('ref.yourLink')}</dt>
                 <dd>
-                  <input aria-label="Your invite link" readOnly value={q.data.shareUrl ?? ''} onFocus={(e) => e.currentTarget.select()} />
+                  <input aria-label={t('ref.inviteLink')} readOnly value={q.data.shareUrl ?? ''} onFocus={(e) => e.currentTarget.select()} />
                 </dd>
               </dl>
               <div className="row">
                 <button type="button" className="btn" onClick={() => void share(q.data)}>
-                  Share link
+                  {t('ref.share')}
                 </button>
                 {copied && (
                   <span className="small" role="status">
-                    Link copied
+                    {t('ref.copied')}
                   </span>
                 )}
               </div>
               {shareError && <ErrorNote error={shareError} />}
               <p className="small muted">
-                Friends so far: {q.data.friends.rewarded} thanked, {q.data.friends.pending} waiting for their first delivery.
+                {t('ref.friends', { rewarded: q.data.friends.rewarded, pending: q.data.friends.pending })}
               </p>
             </>
           ) : (
-            <p className="small">Add your mobile number at checkout to get your own code.</p>
+            <p className="small">{t('ref.addMobile')}</p>
           )}
           {q.data.entered && (
             <p className="small" data-testid="referral-entered">
-              You used a friend's code. {ENTERED_TEXT[q.data.entered.status]}
+              {t('ref.usedCode')} {t(ENTERED_TEXT[q.data.entered.status])}
               {q.data.entered.reason ? `: ${q.data.entered.reason}.` : ''}
             </p>
           )}
-          {q.data.canEnterCode && <CodeForm initial={invitedCode() ?? ''} label="Got a code from a friend?" />}
+          {q.data.canEnterCode && <CodeForm initial={invitedCode() ?? ''} label={t('ref.gotCode')} />}
           {q.data.rewards.length > 0 && (
             <>
-              <h3>Your thank-you codes</h3>
+              <h3>{t('ref.rewards')}</h3>
               <ul className="referral-rewards">
                 {q.data.rewards.map((r) => (
                   <li key={r.code}>
-                    <strong>{r.code}</strong>: {rupees(r.amount)} off boxes, on orders of {rupees(r.minSubtotal)} or more
-                    {r.endsOn ? `, until ${day(r.endsOn)}` : ''}. Thanks for {r.for}.{' '}
-                    <span className="muted">{r.state === 'READY' ? 'Ready to use at checkout.' : r.state === 'USED' ? 'Used.' : 'Expired.'}</span>
+                    <strong>{r.code}</strong>:{' '}
+                    {r.endsOn
+                      ? t('ref.rewardUntil', { amount: rupees(r.amount), min: rupees(r.minSubtotal), day: day(r.endsOn), for: r.for })
+                      : t('ref.reward', { amount: rupees(r.amount), min: rupees(r.minSubtotal), for: r.for })}{' '}
+                    <span className="muted">{r.state === 'READY' ? t('ref.ready') : r.state === 'USED' ? t('ref.used') : t('ref.expired')}</span>
                   </li>
                 ))}
               </ul>
@@ -175,17 +180,18 @@ export function ReferralEntry() {
   const on = Boolean(features.referrals)
   const q = useReferral(on)
   const [done, setDone] = useState(false)
+  const t = useT()
   if (!on) return null
   if (done)
     return (
       <p className="note" role="status">
-        Friend's code added. You both get a thank-you once this first order is delivered.
+        {t('ref.added')}
       </p>
     )
   if (!q.data?.canEnterCode) return null
   return (
     <div className="referral-entry">
-      <CodeForm initial={invitedCode() ?? ''} label="Friend's referral code (optional)" onDone={() => setDone(true)} />
+      <CodeForm initial={invitedCode() ?? ''} label={t('ref.codeOptional')} onDone={() => setDone(true)} />
     </div>
   )
 }
@@ -197,22 +203,20 @@ export function InvitePage() {
   const policy = useQuery(policyQuery())
   const { profile } = useStore()
   const [kept] = useState(() => rememberInvite(code))
+  const t = useT()
   // A code that can't be one, or refer-a-friend switched off: just the shop.
   if (!kept || (policy.isSuccess && !features.referrals)) return <Navigate to="/" replace />
   return (
     <section className="card narrow" aria-labelledby="invite">
-      <h1 id="invite">A friend invited you</h1>
-      <p>
-        Your friend's code <strong>{kept}</strong> is saved on this device. It is added at checkout on your first order. Once that order is delivered,
-        you both get a thank-you code for a later order.
-      </p>
+      <h1 id="invite">{t('title.invite')}</h1>
+      <p>{t.rich('ref.inviteBody', { code: <strong>{kept}</strong> })}</p>
       <div className="row">
         <Link to="/" className="btn btn-primary">
-          Pick your mangoes
+          {t('title.home')}
         </Link>
         {!profile && (
           <Link to="/sign-in" className="btn">
-            Sign in
+            {t('signIn.title')}
           </Link>
         )}
       </div>

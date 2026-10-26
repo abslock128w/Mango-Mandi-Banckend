@@ -3,15 +3,23 @@
 // a reload all show the same list. No browser or React here, so it is unit tested on its own
 // (customer-app/tests/unit/shop-view.unit.ts).
 import type { Stage } from './api'
+import { t, type Key } from './i18n-core.ts'
 
 export type SortKey = 'featured' | 'price-low' | 'price-high' | 'rating' | 'name'
 
+const sort = (key: SortKey, label: Key) => ({
+  key,
+  /** In the shop's language. */
+  get label() {
+    return t(label)
+  },
+})
 export const SORTS: { key: SortKey; label: string }[] = [
-  { key: 'featured', label: 'Our order' },
-  { key: 'price-low', label: 'Price: low to high' },
-  { key: 'price-high', label: 'Price: high to low' },
-  { key: 'rating', label: 'Rating: best first' },
-  { key: 'name', label: 'Name: A to Z' },
+  sort('featured', 'sort.featured'),
+  sort('price-low', 'sort.priceLow'),
+  sort('price-high', 'sort.priceHigh'),
+  sort('rating', 'sort.rating'),
+  sort('name', 'sort.name'),
 ]
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']

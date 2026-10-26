@@ -1,3 +1,5 @@
+import { t } from './i18n-core.ts'
+
 // Claim photos are shrunk on the phone before upload: a 12 MP camera shot
 // becomes a ~150 KB JPEG, which uploads fast on a weak signal.
 
@@ -8,7 +10,7 @@ export async function shrinkPhoto(file: Blob): Promise<Blob> {
   try {
     bitmap = await createImageBitmap(file)
   } catch {
-    throw new Error('That file is not a photo. Choose a photo instead.')
+    throw new Error(t('photo.notPhoto'))
   }
   const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height))
   const canvas = document.createElement('canvas')
@@ -17,6 +19,6 @@ export async function shrinkPhoto(file: Blob): Promise<Blob> {
   canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
   bitmap.close()
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.72))
-  if (!blob) throw new Error('Could not read the photo. Try another one.')
+  if (!blob) throw new Error(t('photo.unreadable'))
   return blob
 }
