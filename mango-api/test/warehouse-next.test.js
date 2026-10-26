@@ -580,3 +580,254 @@ describe('recall drill', () => {
     await booksBalance()
   })
 })
+
+// ---------------------------------------------------------------- food safety, recalls, weights, counts and rollback
+
+const condemn = (batchId, token = manager) => api.patch(`/admin/v1/batches/${batchId}/status`, { status: 'CONDEMNED', reason: 'Lab found residue' }, { token })
+const pickableNow = async (id) => (await query('SELECT box_pickable($1, $2) AS p', [id, todayIST()])).rows[0].p
+
+describe('repack and condemned fruit', () => {
+  test('a box of a condemned batch cannot go into a repack, at scan or at finish, and the good box goes on alone', async () => {
+    const a = await stockedLot({ count: 2, harvestedAgo: 5 })
+    const b = await stockedLot({ count: 2, harvestedAgo: 3 })
+    const packing = (await loc('packing')).id
+    // Condemned before the scan: refused at the scan.
+    const rp = await startOp('repack', { locationId: packing, reasonCode: 'merge_partials', reason: 'Two part boxes' })
+    assert.deepEqual((await scan(rp.id, [P(a.boxes[0]), P(b.boxes[0])])).map((r) => r.code), ['OK', 'OK'])
+    ok(await condemn(b.lot.batchId))
+    const late = await scan(rp.id, [P(b.boxes[1])])
+    assert.deepEqual([late[0].result, late[0].code], ['rejected', 'BATCH_OUT_OF_SERVICE'])
+    // Condemned after the scan: the finish refuses it, takes it out, and changes nothing.
+    const refused = await finalize(rp.id, { outputs: [{ weightG: 5900 }] })
+    assert.equal(refused.status, 409, JSON.stringify(refused.body))
+    assert.equal(refused.body.error.code, 'BATCH_OUT_OF_SERVICE')
+    assert.deepEqual(refused.body.error.boxes, [formatBoxCode(b.boxes[0].code)])
+    assert.equal(refused.body.error.unstage, undefined)
+    assert.equal((await box(a.boxes[0].id)).lifecycle, 'in_stock')
+    assert.equal(ok(await api.get(`${W}/operations/${rp.id}`, { token: manager })).progress.staged, 1)
+    const done = ok(await finalize(rp.id, { outputs: [{ weightG: 2950 }] }))
+    const out = await box(done.result.outputs[0].id)
+    const origins = (await query('SELECT batch_id FROM box_origins WHERE box_id = $1', [out.id])).rows.map((r) => r.batch_id)
+    assert.deepEqual(origins, [a.lot.batchId], 'no condemned fruit in the new box')
+    assert.equal((await box(b.boxes[0].id)).lifecycle, 'in_stock', 'the condemned box stays for its write-off')
+    await booksBalance()
+  })
+
+  test('condemning a batch later holds the merged boxes that carry its fruit on another batch', async () => {
+    const a = await stockedLot({ count: 2, harvestedAgo: 5 })
+    const b = await stockedLot({ count: 2, harvestedAgo: 3 })
+    const rp = await startOp('repack', { locationId: (await loc('packing')).id, reasonCode: 'merge_partials', reason: 'Two part boxes' })
+    await scan(rp.id, [P(a.boxes[0]), P(b.boxes[0])])
+    const [made] = ok(await finalize(rp.id, { outputs: [{ weightG: 5800 }] })).result.outputs
+    const out = await box(made.id)
+    assert.equal(out.batch_id, a.lot.batchId, 'on the oldest batch')
+    const qc = await startOp('qc', { result: 'passed' })
+    await scan(qc.id, [P(out)])
+    await moveTo('storage', [out])
+    assert.equal(await pickableNow(out.id), true)
+    assert.equal((await lineOf(a.lot.lineId)).on_hand, 2)
+
+    const res = ok(await condemn(b.lot.batchId))
+    assert.equal(res.heldRepackedBoxes, 1)
+    assert.deepEqual(await holdsOf(out.id), ['investigation_hold'])
+    assert.equal(await pickableNow(out.id), false, 'condemned fruit is off sale wherever it went')
+    assert.equal((await lineOf(a.lot.lineId)).on_hand, 1, 'the good batch counts only its own clean box')
+    const ex = ok(await api.get(`${W}/exceptions`, { token: manager }))
+    assert.ok(ex.investigations.some((i) => i.boxId === out.id && /condemned batch/.test(i.reason)))
+    await booksBalance()
+  })
+})
+
+describe('recalls that overlap', () => {
+  test('a box merged from two recalled lots stays held until both recalls are released', async () => {
+    const a = await stockedLot({ count: 2, harvestedAgo: 5 })
+    const b = await stockedLot({ count: 2, harvestedAgo: 3 })
+    const ra = ok(await api.post(`${W}/recalls`, { lotIds: [a.lot.id], reason: 'Supplier A notice' }, { token: manager }), 201)
+    const rb = ok(await api.post(`${W}/recalls`, { lotIds: [b.lot.id], reason: 'Supplier B notice' }, { token: manager }), 201)
+    const rp = await startOp('repack', { locationId: (await loc('packing')).id, reasonCode: 'merge_partials', reason: 'Two part boxes' })
+    await scan(rp.id, [P(a.boxes[0]), P(b.boxes[0])])
+    const [made] = ok(await finalize(rp.id, { outputs: [{ weightG: 5800 }] })).result.outputs
+    const qc = await startOp('qc', { result: 'passed' })
+    await scan(qc.id, [P(await box(made.id))])
+    const recallOf = async (id) => (await query(`SELECT recall_id FROM box_holds WHERE box_id = $1 AND kind = 'recall_hold' AND released_at IS NULL`, [id])).rows.map((r) => r.recall_id)
+    assert.equal((await recallOf(made.id)).length, 1)
+
+    // Release the recall the box's hold names: the other one, still in force, takes the box over.
+    const first = (await recallOf(made.id))[0]
+    const second = first === ra.id ? rb.id : ra.id
+    ok(await api.post(`${W}/recalls/${first}/release`, { reason: 'Lab test clear' }, { token: manager }))
+    assert.deepEqual(await recallOf(made.id), [second])
+    assert.equal(ok(await api.get(`${W}/recalls/${second}`, { token: manager })).held >= 1, true)
+    // Still recalled: it cannot be put away as stock.
+    const mv = await startOp('move', { locationId: (await loc('storage')).id })
+    const refused = await scan(mv.id, [P(await box(made.id))])
+    assert.deepEqual([refused[0].result, refused[0].code], ['rejected', 'LOCATION_TYPE_NOT_ALLOWED'])
+    ok(await api.post(`${W}/recalls/${second}/release`, { reason: 'Lab test clear' }, { token: manager }))
+    assert.deepEqual(await recallOf(made.id), [])
+    await moveTo('storage', [await box(made.id)])
+    assert.equal(await pickableNow(made.id), true)
+    await booksBalance()
+  })
+
+  test('a lot in two recalls: releasing one leaves its boxes held by the other', async () => {
+    const { lot, boxes } = await stockedLot({ count: 2 })
+    const r1 = ok(await api.post(`${W}/recalls`, { lotIds: [lot.id], reason: 'Notice one' }, { token: manager }), 201)
+    const r2 = ok(await api.post(`${W}/recalls`, { lotIds: [lot.id], reason: 'Notice two' }, { token: manager }), 201)
+    assert.equal(r2.held, 0, 'already held by the first')
+    ok(await api.post(`${W}/recalls/${r1.id}/release`, { reason: 'Notice one withdrawn' }, { token: manager }))
+    for (const b of boxes) assert.deepEqual(await holdsOf(b.id), ['recall_hold'])
+    assert.equal((await lineOf(lot.lineId)).on_hand, 0)
+    ok(await api.post(`${W}/recalls/${r2.id}/release`, { reason: 'Notice two withdrawn' }, { token: manager }))
+    for (const b of boxes) assert.deepEqual(await holdsOf(b.id), [])
+    assert.equal((await lineOf(lot.lineId)).on_hand, 2)
+    await booksBalance()
+  })
+})
+
+describe('repack weights', () => {
+  test('what went in must equal the new boxes plus the weight taken out, within the weighing tolerance', async () => {
+    const { boxes } = await stockedLot({ count: 4 })
+    const packing = (await loc('packing')).id
+    const rp = await startOp('repack', { locationId: packing, reasonCode: 'spoiled_fruit', reason: 'Soft fruit out' })
+    await scan(rp.id, [P(boxes[0]), P(boxes[1])])
+    // 6 kg in, 1 kg out, nothing recorded as taken out.
+    const vanished = await finalize(rp.id, { outputs: [{ weightG: 1000 }], fruitRemoved: 0, weightLostG: 0 })
+    assert.deepEqual([vanished.status, vanished.body.error.code], [400, 'WEIGHT_MISMATCH'])
+    // More accounted for than went in.
+    const tooMuch = await finalize(rp.id, { outputs: [{ weightG: 3000 }], weightLostG: 4000 })
+    assert.deepEqual([tooMuch.status, tooMuch.body.error.code], [400, 'WEIGHT_MISMATCH'])
+    assert.equal((await box(boxes[0].id)).lifecycle, 'in_stock')
+    // Within 3% of 6 kg (180 g) is fine.
+    const done = ok(await finalize(rp.id, { outputs: [{ weightG: 4000 }], fruitRemoved: 6, weightLostG: 1850 }))
+    assert.equal(done.status, 'completed')
+
+    // Left out, the weight taken out is recorded as what the scales say went.
+    const rp2 = await startOp('repack', { locationId: packing, reasonCode: 'spoiled_fruit', reason: 'Two soft fruit' })
+    await scan(rp2.id, [P(boxes[2])])
+    ok(await finalize(rp2.id, { outputs: [{ weightG: 2400 }], fruitRemoved: 2 }))
+    const rec = (await query('SELECT fruit_removed, weight_lost_g FROM wh_repacks WHERE operation_id = $1', [rp2.id])).rows[0]
+    assert.deepEqual([rec.fruit_removed, rec.weight_lost_g], [2, 600])
+    await booksBalance()
+  })
+
+  test('fruit counts add up when every box in and out has one', async () => {
+    const { boxes } = await stockedLot({ count: 2 })
+    await query('UPDATE boxes SET fruit_count = 12 WHERE id = $1', [boxes[0].id])
+    const rp = await startOp('repack', { locationId: (await loc('packing')).id, reasonCode: 'spoiled_fruit', reason: 'Soft fruit out' })
+    await scan(rp.id, [P(boxes[0])])
+    const wrong = await finalize(rp.id, { outputs: [{ weightG: 2500, fruitCount: 11 }], fruitRemoved: 2 })
+    assert.deepEqual([wrong.status, wrong.body.error.code], [400, 'FRUIT_MISMATCH'])
+    ok(await finalize(rp.id, { outputs: [{ weightG: 2500, fruitCount: 10 }], fruitRemoved: 2 }))
+    await booksBalance()
+  })
+
+  test('partial damage with fruit taken out of a box with no fruit count needs the weight', async () => {
+    const { boxes } = await stockedLot({ count: 1 })
+    const r = await api.post(`${W}/boxes/${boxes[0].id}/damage`, { fruitRemoved: 3, reasonCode: 'spoiled_fruit', reason: 'three soft' }, { token: manager })
+    assert.equal(r.status, 400)
+    assert.match(r.body.error.message, /no fruit count/)
+    const after = await box(boxes[0].id)
+    assert.deepEqual([after.fruit_count, after.measured_weight_g ?? after.nominal_weight_g], [null, 3000])
+    const events = ok(await api.get(`${W}/boxes/${boxes[0].id}/events`, { token: manager })).map((e) => e.type)
+    assert.equal(events.includes('PARTIAL_DAMAGE'), false)
+  })
+})
+
+describe('stocktake review rules', () => {
+  test('the counter reviews their own count only as a manager', async () => {
+    const { boxes } = await stockedLot({ count: 2 })
+    const op = await ops()
+    const count = await startOp('stocktake', { locationId: (await loc('storage')).id }, op)
+    await scan(count.id, [P(boxes[0])], op)
+    ok(await finalize(count.id, {}, op))
+    const self = await api.post(`${W}/stocktakes/${count.id}/review`, { missing: [boxes[1].id] }, { token: op })
+    assert.deepEqual([self.status, self.body.error.code], [403, 'SELF_REVIEW'])
+    assert.equal((await box(boxes[1].id)).lifecycle, 'in_stock')
+    ok(await api.post(`${W}/stocktakes/${count.id}/review`, { missing: [boxes[1].id] }, { token: manager }))
+    assert.equal((await box(boxes[1].id)).lifecycle, 'missing')
+    await booksBalance()
+  })
+
+  test('rest decides every box not listed; boxes on an order are kept, held and show as exceptions', async () => {
+    const { lot, boxes } = await stockedLot({ count: 5 })
+    const o = await paidOrder(1)
+    const pick = await startOp('pick', { orderId: o.id })
+    assert.notEqual((await scan(pick.id, [P(boxes[0])], manager, { reason: 'test' }))[0].result, 'rejected')
+    // Pick staging holds the picked box; storage holds the other four. Count storage and find only one.
+    tick()
+    const count = await startOp('stocktake', { locationId: (await loc('storage')).id })
+    await scan(count.id, [P(boxes[1])])
+    ok(await finalize(count.id))
+    const staging = await startOp('stocktake', { locationId: (await loc('pick_staging')).id })
+    const r2 = ok(await finalize(staging.id))
+    assert.equal(r2.result.notFoundAllocated, 1)
+
+    // One short request for the shelf: keep box 2, the rest missing.
+    const review = ok(await api.post(`${W}/stocktakes/${count.id}/review`, { keep: [boxes[2].id], rest: 'missing' }, { token: (await ops()) }))
+    assert.deepEqual([review.status, review.missing, review.kept], ['applied', 2, 1])
+    assert.deepEqual([(await box(boxes[3].id)).lifecycle, (await box(boxes[4].id)).lifecycle, (await box(boxes[2].id)).lifecycle], ['missing', 'missing', 'in_stock'])
+    assert.equal((await lineOf(lot.lineId)).on_hand, 2)
+
+    // rest: missing still keeps the picked box (it can only be kept), and holds it for someone to find.
+    const kept = ok(await api.post(`${W}/stocktakes/${staging.id}/review`, { rest: 'missing' }, { token: (await ops()) }))
+    assert.deepEqual([kept.missing, kept.kept, kept.heldToFind], [0, 1, 1])
+    assert.equal((await box(boxes[0].id)).lifecycle, 'picked')
+    assert.deepEqual(await holdsOf(boxes[0].id), ['investigation_hold'])
+    const ex = ok(await api.get(`${W}/exceptions`, { token: manager }))
+    assert.ok(ex.heldBoxesOnOrders.some((h) => h.boxId === boxes[0].id && h.orderId === o.id))
+    assert.ok(ex.investigations.some((i) => i.boxId === boxes[0].id && /Not found in a count/.test(i.reason)))
+    await booksBalance()
+  })
+})
+
+describe('staged sessions after a refused finish', () => {
+  test('a pack finish that finds a box changed takes it out of the session, so the next finish goes through', async () => {
+    const { boxes } = await stockedLot({ count: 3 })
+    const o = await paidOrder(1)
+    const pick = await startOp('pick', { orderId: o.id })
+    await scan(pick.id, [P(boxes[0])], manager, { reason: 'test' })
+    const pack = await startOp('pack', { orderId: o.id })
+    assert.equal((await scan(pack.id, [P(boxes[0])]))[0].result, 'accepted')
+    // A box staged here that is no longer this order's (as when it changed after its scan).
+    await query('INSERT INTO wh_staged (operation_id, box_id, scan_id, staged_at) VALUES ($1, $2, $3, now())', [pack.id, boxes[1].id, randomUUID()])
+    const refused = await finalize(pack.id)
+    assert.deepEqual([refused.status, refused.body.error.code], [409, 'STALE_SCAN'])
+    assert.deepEqual(refused.body.error.boxes, [formatBoxCode(boxes[1].code)])
+    assert.equal(refused.body.error.unstage, undefined, 'internal ids stay on the server')
+    assert.equal(ok(await api.get(`${W}/operations/${pack.id}`, { token: manager })).progress.staged, 1)
+    const done = ok(await finalize(pack.id))
+    assert.equal(done.status, 'completed')
+    assert.equal((await box(boxes[0].id)).lifecycle, 'packed')
+    assert.equal((await box(boxes[1].id)).lifecycle, 'in_stock')
+    await booksBalance()
+  })
+})
+
+describe('lot counts with repacked boxes (rollback safety)', () => {
+  test('new boxes count on their lot like any label, so the previous release reads consistent lot counts', async () => {
+    const { lot, boxes } = await stockedLot({ count: 2 })
+    const rp = await startOp('repack', { locationId: (await loc('packing')).id, reasonCode: 'split', reason: 'Split for two orders' })
+    await scan(rp.id, [P(boxes[0])])
+    ok(await finalize(rp.id, { outputs: [{ weightG: 1500 }, { weightG: 1500 }] }))
+    const stored = (await query('SELECT target_count, generated_count, verified_count, voided_count FROM box_lots WHERE id = $1', [lot.id])).rows[0]
+    // The previous release recounts a lot over every one of its boxes (034's refreshLotCounts, no filter).
+    const actual = (await query(
+      `SELECT count(*)::int AS generated, count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified, count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes WHERE lot_id = $1`,
+      [lot.id],
+    )).rows[0]
+    assert.deepEqual([stored.generated_count, stored.verified_count, stored.voided_count], [actual.generated, actual.verified, actual.voided])
+    assert.deepEqual([stored.target_count, actual.generated], [4, 4])
+    // That recount, run as the previous release runs it, keeps every lot check.
+    await query(
+      `UPDATE box_lots l SET generated_count = x.generated, verified_count = x.verified, voided_count = x.voided
+         FROM (SELECT count(*)::int AS generated, count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified,
+                      count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes WHERE lot_id = $1) x WHERE l.id = $1`,
+      [lot.id],
+    )
+    // Adding intake boxes later numbers them below the repack range and keeps the counts.
+    ok(await api.post(`${W}/lots/${lot.id}/add-boxes`, { count: 1, reason: 'One more on the truck' }, { token: manager }))
+    const seqs = (await query('SELECT seq FROM boxes WHERE lot_id = $1 ORDER BY seq', [lot.id])).rows.map((r) => r.seq)
+    assert.deepEqual(seqs, [1, 2, 3, 1_000_001, 1_000_002])
+    await booksBalance()
+  })
+})
