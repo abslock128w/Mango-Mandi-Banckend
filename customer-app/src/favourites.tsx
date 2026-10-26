@@ -53,7 +53,6 @@ export function FavouritesProvider({ children }: { children: ReactNode }) {
   const [guest, setGuest] = useState(loadGuest)
   const [problem, setProblem] = useState<Favourites['problem']>(null)
   const signedIn = Boolean(profile)
-  const list = useFavouriteList(on && signedIn)
   useEffect(() => saveGuest(guest), [guest])
 
   // After signing in, a guest's hearts go to the account once; the device copy goes when the API has them.
@@ -64,6 +63,10 @@ export function FavouritesProvider({ children }: { children: ReactNode }) {
       setGuest((g) => g.filter((s) => !skus.includes(s)))
     },
   })
+  // The account's list is read only once the guest's hearts are in it (or could not be handed over):
+  // a read racing the merge could answer with the list from before it and hide the merged hearts.
+  const handingOver = signedIn && guest.length > 0 && !merge.isError
+  const list = useFavouriteList(on && signedIn && !handingOver)
   const merging = useRef(false)
   const { mutate: mergeNow } = merge
   useEffect(() => {

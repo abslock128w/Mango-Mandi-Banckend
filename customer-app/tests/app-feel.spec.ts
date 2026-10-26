@@ -184,12 +184,33 @@ test('favourites: a guest hearts boxes, they follow the sign-in, and the Account
     await expect(page.getByRole('button', { name: `Favourite: ${name}` })).toHaveAttribute('aria-pressed', 'true')
     await noA11yViolations(page)
 
-    // Signing in hands the hearts to the account, and the device forgets its copy.
+    // Signing in hands the hearts to the account, and the device forgets its copy. A read of the
+    // list taken before the merge lands must not wipe the merged hearts: the network is made to
+    // answer such a read last (it waits for the merge), so the race shows every time if it exists.
+    const later = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+    let listRead = () => {}
+    const listWasRead = new Promise<void>((r) => (listRead = r))
+    let mergeLanded = () => {}
+    const mergeHasLanded = new Promise<void>((r) => (mergeLanded = r))
+    await page.route(`${API}/v1/me/favourites`, async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const response = await route.fetch()
+      listRead()
+      await Promise.race([mergeHasLanded, later(3000)])
+      await route.fulfill({ response })
+    })
+    await page.route(`${API}/v1/me/favourites/merge`, async (route) => {
+      await Promise.race([listWasRead, later(1500)])
+      const response = await route.fetch()
+      await route.fulfill({ response })
+      mergeLanded()
+    })
     const phone = phoneFor('6', info.project.name)
     await page.goto('/sign-in?next=/account')
     await signInOnPage(page, phone)
     const favourites = page.getByRole('region', { name: 'Favourites' })
     await expect(favourites.getByRole('listitem')).toHaveCount(2)
+    await page.unrouteAll({ behavior: 'wait' })
     await expect.poll(() => page.evaluate(() => localStorage.getItem('mm.favourites'))).toBeNull()
     const me = await apiCustomer(request, phone)
     const stored = await (await request.get(`${API}/v1/me/favourites`, me.as)).json()
