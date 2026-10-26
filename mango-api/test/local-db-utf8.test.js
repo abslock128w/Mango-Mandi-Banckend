@@ -10,7 +10,8 @@ import { closeAll, resetDb } from './helpers.js'
 import { pool } from '../src/db.js'
 import { migrate } from '../src/migrate.js'
 
-const base = new URL(process.env.DATABASE_URL)
+// Straight to the server: a pooler (CI runs the suite through PgBouncer, as on Neon) only knows the test database.
+const base = new URL(process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL)
 const name = (suffix) => `${base.pathname.slice(1).replace(/_test$/, '')}_${suffix}_test`
 const OLD = name('win1252')
 const NEW = name('utf8copy')
