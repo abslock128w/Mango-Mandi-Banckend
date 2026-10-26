@@ -126,7 +126,7 @@ export default function Deliveries() {
             <NextDay day={day} onPick={setDay} />
           </>
         ) : (
-          <RiderRoute manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
+          <RiderRoute key={day} manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
         )
       ) : q.isPending ? (
         <Spinner />
@@ -223,6 +223,29 @@ const FINISHED = new Set(['DELIVERED', 'CANCELLED', 'RTO'])
  * the bottom of the screen. Delivered opens the same proof dialog as the list (code or photo).
  * "Next stop" only moves on here (say nobody answers yet); the skipped stop comes round again.
  */
+/**
+ * Stops the rider put off with "Next stop", kept on this phone for the day so a reload or a
+ * locked screen does not lose them. Only order ids, nothing about the customer; the server
+ * does not know (the customer's "N stops away" counts in manifest order).
+ */
+const skippedKey = (day: string) => `mm.route.skipped.${day}`
+function loadSkipped(day: string): string[] {
+  try {
+    const raw: unknown = JSON.parse(sessionStorage.getItem(skippedKey(day)) ?? '[]')
+    return Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : []
+  } catch {
+    return []
+  }
+}
+function saveSkipped(day: string, ids: string[]) {
+  try {
+    if (ids.length) sessionStorage.setItem(skippedKey(day), JSON.stringify(ids))
+    else sessionStorage.removeItem(skippedKey(day))
+  } catch {
+    // Storage blocked: the put-off stops last as long as the page.
+  }
+}
+
 function RiderRoute({
   manifest,
   day,
@@ -236,7 +259,11 @@ function RiderRoute({
 }) {
   const toast = useToast()
   const refresh = useRefresh(day)
-  const [skipped, setSkipped] = useState<string[]>([])
+  const [skipped, setSkippedNow] = useState<string[]>(() => loadSkipped(day))
+  const setSkipped = (ids: string[]) => {
+    setSkippedNow(ids)
+    saveSkipped(day, ids)
+  }
   const route = manifest.runs.flatMap((r) => r.stops.flatMap((s) => s.orders.map((o) => ({ o, pincode: s.pincode, slot: r.slot }))))
   const packed = route.filter(({ o }) => o.packed)
   const unpacked = route.length - packed.length

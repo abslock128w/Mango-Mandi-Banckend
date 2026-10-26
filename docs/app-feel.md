@@ -79,6 +79,13 @@ Additive only: three new tables, nothing existing is altered.
   `(event_id, kind)`. Finished rows are pruned after 30 days.
 - `customer_favourites`: `(customer_id, sku)`. Up to 50 per customer. A product
   deleted outright takes its hearts with it.
+- `customer_id` is `ON DELETE CASCADE` on all three. The only hard delete of a
+  customer is the account join (`POST /v1/me/phone/verify`: a Google account
+  joining the phone account that already has that number). This release first
+  moves the joining account's hearts (up to the cap, the joined account's own
+  kept), browsers (newest ten kept) and queued pushes to the joined account;
+  the previous release does not know these tables, and the cascade keeps its
+  join working on the new schema.
 
 Live tracking needs no schema; it reads the rider's run from `orders`.
 
@@ -114,6 +121,13 @@ Live tracking needs no schema; it reads the rider's run from `orders`.
   per kind plus a link to `/orders/<id>`; no name, address, phone, amount or
   item. An update about an order that has since moved on is skipped, not sent
   late; anything older than a day is dropped.
+- It follows the WhatsApp message's holds. A late payment that finds no stock
+  (INV-B) holds the "confirmed" push with the WhatsApp confirmation; once stock
+  is found only the new confirmation is pushed. A missed delivery that is not
+  rescheduled on its own (attempts used up, or the boxes too old for the retry
+  day, INV-E) is pushed as "We missed you: MandiMangoes will be in touch about
+  your order" (kind `DELIVERY_FAILED_NO_RETRY`) instead of "will be tried
+  again".
 - The maintenance loop's `push` step sends due messages. A 404 or 410 from the
   push service deletes the subscription at once; 429 and 5xx are retried with
   backoff; other refusals count towards removal after repeated failures.
@@ -140,10 +154,14 @@ Live tracking needs no schema; it reads the rider's run from `orders`.
 - Panel, Deliveries, signed in as RIDER with the switch on: a route view of
   today's stops in the same order, Start route (takes the packed run out for
   delivery), the current stop with Call and Map, and large Delivered and Next
-  stop buttons fixed at the bottom on a phone. Delivered opens the existing
-  proof dialog, so the delivery-proof rules are unchanged. Next stop only
-  moves on in the page (the skipped stop comes round again); it changes
-  nothing on the server. The full list stays one tap away.
+  stop buttons fixed to the bottom of the screen on a phone (up to 640px wide;
+  the route leaves room under its list so the last stop is never hidden).
+  Delivered opens the existing proof dialog, so the delivery-proof rules are
+  unchanged. Next stop moves on in the page (the skipped stop comes round
+  again); the put-off stops are kept in that tab's `sessionStorage` for the
+  day (order ids only), so a reload keeps them. It changes nothing on the
+  server, so the customer's "N stops away" still counts in route order. The
+  full list stays one tap away.
 
 ## Sort and filter (C6)
 
@@ -160,6 +178,8 @@ announces the count, and Clear filters resets the view.
 - Guests: kept on the device (`localStorage`, up to 50). Signed in: kept on the
   server; the device's hearts are merged in on sign-in and leave the device
   once the API has them (after a failed merge they stay and go next visit).
+  The account's list is read only after the merge has landed (or failed), so
+  a read from before the merge never hides the merged hearts.
 - Account → Favourites: one tap adds one box of a ripeness in stock to the
   cart; a sold-out favourite offers the existing back-in-stock alert.
 - Routes: `GET /v1/me/favourites`, `PUT`/`DELETE /v1/me/favourites/:sku`,
@@ -187,5 +207,7 @@ the previous release never reads them.
 ## Limits
 
 - The ETA is minutes per stop times stops, not a measurement.
+- A stop the rider put off with Next stop is not known to the server: the
+  customer's count still follows route order until that stop is delivered.
 - Push on iOS needs the shop added to the home screen (Safari 16.4+).
 - Favourites add one box per tap; the customer picks the ripeness.

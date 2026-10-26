@@ -79,6 +79,10 @@ test('a rider starts the route, moves on, and delivers each stop with the usual 
   await next.click()
   await expect(current).toContainText('Stop 2 of 2')
   await expect(list.getByRole('listitem').first()).toContainText('put off for now')
+  // A reload (or the phone dropping the page) keeps the stop put off.
+  await page.reload()
+  await expect(current).toContainText('Stop 2 of 2')
+  await expect(list.getByRole('listitem').first()).toContainText('put off for now')
   await current.getByRole('button', { name: 'Delivered ORD-1045' }).click()
   const dialog = page.getByRole('dialog', { name: 'Deliver ORD-1045' })
   // The proof rules still apply: a wrong code is refused by the API.
