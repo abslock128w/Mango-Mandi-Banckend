@@ -447,6 +447,13 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /staff/:id/two-step/setup-code': 'Gave out a two-step setup code',
   'POST /me/two-step/enable': 'Turned on two-step sign-in',
   'POST /me/two-step/disable': 'Turned off two-step sign-in',
+  // SEC-08: views of customer details (shown with "Include views of customer details").
+  'GET /orders/:id': 'Opened an order',
+  'GET /orders': 'Searched orders',
+  'GET /manifest': 'Opened the delivery list',
+  'GET /claims': 'Opened the claims list',
+  'GET /orders/:id/delivery-photos/:photoId': 'Viewed a delivery photo',
+  'GET /claims/:id/photos/:photoId': 'Viewed a claim photo',
 }
 
 function describe(a: AuditEntry) {
@@ -476,9 +483,10 @@ function Activity() {
   const from = params.get('from') || null
   const to = params.get('to') || null
   const page = Number(params.get('page') || 1)
+  const reads = params.get('reads') === '1'
   const q = useQuery({
-    queryKey: ['audit', staff, from, to, page],
-    queryFn: () => api.audit({ staff, from, to, page }),
+    queryKey: ['audit', staff, from, to, page, reads],
+    queryFn: () => api.audit({ staff, from, to, page, reads }),
     placeholderData: keepPreviousData,
   })
 
@@ -522,6 +530,9 @@ function Activity() {
           </label>
           <input id="act-to" type="date" value={to ?? ''} onChange={(e) => set('to', e.target.value)} />
         </div>
+        <label className="check-row">
+          <input type="checkbox" checked={reads} onChange={(e) => set('reads', e.target.checked ? '1' : null)} /> Include views of customer details
+        </label>
       </div>
       {q.isPending ? (
         <Spinner />

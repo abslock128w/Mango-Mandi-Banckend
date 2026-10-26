@@ -248,10 +248,12 @@ router.get(
         from: z.string().refine(isDate).optional(),
         to: z.string().refine(isDate).optional(),
         page: z.coerce.number().int().min(1).max(10_000).default(1),
+        // SEC-08: views of customer details (STAFF_AUDIT_TRAIL) are listed only when asked for.
+        reads: z.enum(['true', 'false']).default('false'),
       }),
       req.query,
     )
-    const where = []
+    const where = f.reads === 'true' ? [] : ["action NOT LIKE 'GET %'"]
     const params = []
     const add = (sql, v) => {
       params.push(v)

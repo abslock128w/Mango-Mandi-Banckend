@@ -2,10 +2,11 @@
 import bcrypt from 'bcryptjs'
 import express from 'express'
 import { z } from 'zod'
-import { ROLES } from '../access.js'
+import { auditInTx, ROLES } from '../access.js'
 import { forgetStaff, requireManager } from '../auth.js'
 import { now } from '../clock.js'
 import { query, tx } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, conflict, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
@@ -32,16 +33,23 @@ router.post(
   requireStepUp,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password }), req.body)
-    const { rows } = await query(
-      `INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (email) DO NOTHING RETURNING id, email, role, created_at`,
-      [newId('adm'), b.email, await bcrypt.hash(b.password, 10), b.role],
-    )
-    if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
-    req.params.id = rows[0].id
-    // Shown once: they need it to set up two-step sign-in where it is required.
-    const setupCode = await issueSetupCode({ query }, rows[0].id)
-    res.status(201).json({ ...staffDto(rows[0]), setupCode })
+    const hash = await bcrypt.hash(b.password, 10)
+    // SEC-08 (STAFF_AUDIT_TRAIL): the account, its setup code and the audit row commit together.
+    const run = env.STAFF_AUDIT_TRAIL ? tx : (fn) => fn({ query })
+    const { row, setupCode } = await run(async (c) => {
+      const { rows } = await c.query(
+        `INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (email) DO NOTHING RETURNING id, email, role, created_at`,
+        [newId('adm'), b.email, hash, b.role],
+      )
+      if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
+      req.params.id = rows[0].id
+      // Shown once: they need it to set up two-step sign-in where it is required.
+      const code = await issueSetupCode(c, rows[0].id)
+      await auditInTx(c, req, { target: rows[0].id })
+      return { row: rows[0], setupCode: code }
+    })
+    res.status(201).json({ ...staffDto(row), setupCode })
   }),
 )
 
@@ -64,6 +72,7 @@ router.patch(
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
       // A new password also lifts a lock from wrong passwords.
       if (hash) await clearPasswordFailures(rows[0].email, c)
+      await auditInTx(c, req)
       return rows[0]
     })
     forgetStaff(req.params.id)
@@ -86,6 +95,7 @@ router.post(
       await clearTwoStep(c, req.params.id)
       await c.query('UPDATE admin_users SET session_version = session_version + 1 WHERE id = $1', [req.params.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      await auditInTx(c, req)
       return issueSetupCode(c, req.params.id)
     })
     forgetStaff(req.params.id)
@@ -103,6 +113,7 @@ router.post(
       const { rows } = await c.query('SELECT totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('No staff member with that id')
       if (rows[0].totp_enabled_at) throw conflict('Two-step sign-in is already on for them. Reset it if they lost their phone.', 'TWO_STEP_ON')
+      await auditInTx(c, req)
       return issueSetupCode(c, req.params.id)
     })
     res.json({ setupCode })
@@ -122,6 +133,7 @@ router.delete(
       // Their stops go back to the unassigned pool (SEC-02).
       await c.query('UPDATE orders SET rider_id = NULL WHERE rider_id = $1', [req.params.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
+      await auditInTx(c, req)
     })
     forgetStaff(req.params.id)
     res.status(204).end()

@@ -439,8 +439,9 @@ export const api = {
   updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
     request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),
   removeStaff: (staffId: string, confirmCode?: string) => request<void>('DELETE', `/staff/${id(staffId)}`, confirmBody(confirmCode)),
-  audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number } = {}) =>
-    request<AuditPage>('GET', `/audit${qs(f)}`),
+  /** `reads`: also list views of customer details (recorded with STAFF_AUDIT_TRAIL on the server). */
+  audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number; reads?: boolean } = {}) =>
+    request<AuditPage>('GET', `/audit${qs({ ...f, reads: f.reads ? 'true' : undefined })}`),
 
   pincodes: () => request<Pincode[]>('GET', '/pincodes'),
   addPincode: (input: { pincode: string; city: string; zone?: string }) =>

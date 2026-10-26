@@ -1,12 +1,15 @@
 // 24 Oct 2026 audit, staff-account leftovers (docs/audit-2026-10-24-status-B.md).
-// SEC-07 behind STAFF_STEP_UP. Each flag-on test failed on the code before the
+// SEC-07 behind STAFF_STEP_UP, SEC-08 behind STAFF_AUDIT_TRAIL. Each flag-on test failed on the code before the
 // fix; the flag-off tests show the rollback keeps the old behaviour.
-import { adminToken, client, closeAll, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
+import { setTimeout as delay } from 'node:timers/promises'
+import { drainBackground } from '../src/background.js'
 import { now, setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
+import { logger } from '../src/logger.js'
 import { STEP_UP_TRIES } from '../src/admin/step-up.js'
 import { codeAt, stepAt } from '../src/totp.js'
 
@@ -27,12 +30,18 @@ beforeEach(async () => {
 })
 afterEach(() => {
   env.STAFF_STEP_UP = false
+  env.STAFF_AUDIT_TRAIL = false
 })
 
 const PASSWORD = 'manager123'
 const NEW_STAFF = { email: 'asha@mandimangoes.test', role: 'MANAGER', password: 'long-enough-1' }
 const later = (s) => setNow(new Date(now().getTime() + s * 1000).toISOString())
 const code = (secret) => codeAt(secret, stepAt(now().getTime()))
+/** After-response audit writes start on the response's 'finish'; give them a moment, then wait for them. */
+const settled = async () => {
+  await delay(50)
+  await drainBackground()
+}
 
 describe('SEC-07: staff changes ask the manager to confirm it is them', () => {
   test('with STAFF_STEP_UP and no two-step: the password confirms each change; a token alone does nothing', async () => {
@@ -97,5 +106,96 @@ describe('SEC-07: staff changes ask the manager to confirm it is them', () => {
 
   test('flag off: a manager token alone adds a manager (the old behaviour)', async () => {
     assert.equal((await api.post('/admin/v1/staff', NEW_STAFF, { token: manager })).status, 201)
+  })
+})
+
+describe('SEC-08: staff-account changes are recorded with the change; views of customer details are recorded', () => {
+  test('with STAFF_AUDIT_TRAIL: if the audit row cannot be written, the new manager is not created either', async () => {
+    env.STAFF_AUDIT_TRAIL = true
+    await query('ALTER TABLE staff_audit RENAME TO staff_audit_gone')
+    const r = await api.post('/admin/v1/staff', NEW_STAFF, { token: manager })
+    await query('ALTER TABLE staff_audit_gone RENAME TO staff_audit')
+    assert.equal(r.status, 500)
+    assert.equal((await query('SELECT 1 FROM admin_users WHERE email = $1', [NEW_STAFF.email])).rowCount, 0)
+    // With the table back, the change and its row land together, without the password.
+    const ok = await api.post('/admin/v1/staff', NEW_STAFF, { token: manager })
+    assert.equal(ok.status, 201)
+    const { rows } = await query(`SELECT action, target, detail FROM staff_audit WHERE action = 'POST /staff'`)
+    assert.equal(rows.length, 1, 'written once, not again after the response')
+    assert.equal(rows[0].target, ok.body.id)
+    assert.equal(rows[0].detail.password, '[removed]')
+  })
+
+  test('flag off: the change goes through and its audit row is lost (the old behaviour)', async () => {
+    await query('ALTER TABLE staff_audit RENAME TO staff_audit_gone')
+    const r = await api.post('/admin/v1/staff', NEW_STAFF, { token: manager })
+    await settled()
+    await query('ALTER TABLE staff_audit_gone RENAME TO staff_audit')
+    assert.equal(r.status, 201)
+    assert.equal((await query(`SELECT 1 FROM staff_audit WHERE action = 'POST /staff'`)).rowCount, 0)
+  })
+
+  async function anOrder() {
+    await makeBatch({ age: 4, rating: 'RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    assert.equal(o.status, 201)
+    return o.body.orderId
+  }
+  const reads = async () => (await query(`SELECT action, target, detail FROM staff_audit WHERE action LIKE 'GET %' ORDER BY created_at, id`)).rows
+
+  test('with STAFF_AUDIT_TRAIL: opening an order and searching are recorded, at most every 10 minutes, without the search words', async () => {
+    env.STAFF_AUDIT_TRAIL = true
+    const id = await anOrder()
+    assert.equal((await api.get(`/admin/v1/orders/${id}`, { token: manager })).status, 200)
+    assert.equal((await api.get(`/admin/v1/orders/${id}`, { token: manager })).status, 200)
+    assert.equal((await api.get('/admin/v1/orders?q=98765', { token: manager })).status, 200)
+    assert.equal((await api.get('/admin/v1/orders', { token: manager })).status, 200, 'a plain list is not a search')
+    await settled()
+    assert.deepEqual(await reads(), [
+      { action: 'GET /orders/:id', target: id, detail: null },
+      { action: 'GET /orders', target: null, detail: { search: true } },
+    ])
+    later(11 * 60)
+    await api.get(`/admin/v1/orders/${id}`, { token: manager })
+    await settled()
+    assert.equal((await reads()).length, 3)
+    // The activity list leaves views out unless asked.
+    const plain = await api.get('/admin/v1/audit', { token: manager })
+    assert.equal(plain.body.items.some((a) => a.action.startsWith('GET ')), false)
+    const withReads = await api.get('/admin/v1/audit?reads=true', { token: manager })
+    assert.equal(withReads.body.items.filter((a) => a.action.startsWith('GET ')).length, 3)
+  })
+
+  test('flag off: views leave no row (the old behaviour)', async () => {
+    const id = await anOrder()
+    await api.get(`/admin/v1/orders/${id}`, { token: manager })
+    await settled()
+    assert.deepEqual(await reads(), [])
+  })
+
+  test('with STAFF_AUDIT_TRAIL: a refused staff request is logged with who and where', async () => {
+    await api.post('/admin/v1/staff', { email: 'pia@mandimangoes.test', role: 'PACKER', password: 'long-enough-1' }, { token: manager })
+    const packer = await adminToken(api, 'pia@mandimangoes.test', 'long-enough-1')
+    const seen = []
+    const warn = logger.warn
+    logger.warn = function (obj, msg) {
+      if (msg === 'staff request refused') seen.push(obj)
+      return warn.apply(this, arguments)
+    }
+    try {
+      assert.equal((await api.get('/admin/v1/staff', { token: packer })).status, 403)
+      assert.equal(seen.length, 0, 'flag off: not logged')
+      env.STAFF_AUDIT_TRAIL = true
+      assert.equal((await api.get('/admin/v1/staff', { token: packer })).status, 403)
+      assert.equal((await api.get('/admin/v1/audit', { token: packer })).status, 403)
+    } finally {
+      logger.warn = warn
+    }
+    assert.equal(seen.length, 2)
+    assert.equal(seen[0].role, 'PACKER')
+    assert.equal(seen[0].method, 'GET')
+    assert.equal(seen[0].path, '/admin/v1/staff')
+    assert.ok(seen[0].staffId)
   })
 })

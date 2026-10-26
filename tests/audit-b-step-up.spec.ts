@@ -96,3 +96,17 @@ test("the confirmation has no WCAG A/AA violations and fits a 375px phone", asyn
   await confirm.getByRole('button', { name: 'Confirm' }).click()
   await expect(page.getByRole('dialog', { name: 'Setup code for packer@mandimangoes.test' })).toBeVisible()
 })
+
+// SEC-08: views of customer details are in the activity log only when asked for.
+test('Activity can include views of customer details', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/staff')
+  const box = page.getByRole('checkbox', { name: 'Include views of customer details' })
+  await expect(box).not.toBeChecked()
+  const asked = page.waitForRequest((r) => r.url().includes('/admin/v1/audit') && r.url().includes('reads=true'))
+  await box.check()
+  await asked
+  await expect(page).toHaveURL(/reads=1/)
+  const label = (await page.locator('label.check-row').boundingBox())!
+  expect(label.height).toBeGreaterThanOrEqual(44)
+})

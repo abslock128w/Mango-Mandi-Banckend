@@ -744,6 +744,15 @@ legend {
   align-items: center;
   margin: 0;
 }
+/* A single checkbox beside filters, as tall as a tap target. */
+.check-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  min-height: var(--tap-min);
+  margin: 0;
+  font-weight: 400;
+}
 /* Full-width option rows: an easy thumb target for each choice. */
 .option-list {
   display: grid;

@@ -9,7 +9,9 @@ import { addDays, now, todayIST } from './clock.js'
 import { query } from './db.js'
 import { forbidden, notFound } from './errors.js'
 import { newId } from './ids.js'
+import { env } from './env.js'
 import { logger } from './logger.js'
+import { hit } from './ratelimit.js'
 import { ROLE_PERMISSIONS, WAREHOUSE_ROUTES } from './warehouse/permissions.js'
 
 export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
@@ -259,18 +261,71 @@ export async function audit(admin, action, { target = null, detail = null, reque
   }
 }
 
+const targetOf = (req) => {
+  const p = req.params ?? {}
+  return p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? p.code ?? p.sku ?? null)
+}
+
+/**
+ * SEC-08 (24 Oct 2026 audit, STAFF_AUDIT_TRAIL): the route's audit row written
+ * inside its own transaction, so the change and its record commit or fail
+ * together; the after-response row is then skipped. A no-op with the flag off.
+ */
+export async function auditInTx(c, req, extra = {}) {
+  if (!env.STAFF_AUDIT_TRAIL) return
+  await c.query(
+    `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, request_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [newId('aud'), req.admin.id ?? null, req.admin.email, req.admin.role, `${req.method} ${req.route.path}`, extra.target ?? targetOf(req), clean({ ...req.body, ...extra.detail }), req.id ?? null, now()],
+  )
+  req.audited = true
+}
+
+/**
+ * SEC-08 (STAFF_AUDIT_TRAIL): GETs that show customers' personal details leave a
+ * compact "viewed" row (who, which route, on what; never the search words).
+ * At most one per person, route and target in READ_AUDIT_MS.
+ */
+const READ_AUDITED = new Set(['/orders/:id', '/manifest', '/claims', '/orders/:id/delivery-photos/:photoId', '/claims/:id/photos/:photoId'])
+export const READ_AUDIT_MS = 10 * 60_000
+async function auditRead(req) {
+  const action = `GET ${req.route.path}`
+  const target = targetOf(req) ?? (typeof req.query?.date === 'string' ? req.query.date.slice(0, 10) : null)
+  const { hits } = await hit(`read-audit:${req.admin.id}:${action}:${target ?? ''}`, READ_AUDIT_MS)
+  if (hits > 1) return
+  await audit(req.admin, action, { target, detail: req.route.path === '/orders' ? { search: true } : null, requestId: req.id })
+}
+const auditsRead = (req) => READ_AUDITED.has(req.route.path) || (req.route.path === '/orders' && typeof req.query?.q === 'string' && req.query.q.trim() !== '')
+
+/** SEC-08 (STAFF_AUDIT_TRAIL): a refused staff request (403) is logged with who and where, not only answered. */
+export function watchRefusals(req, res, next) {
+  if (env.STAFF_AUDIT_TRAIL) {
+    res.on('finish', () => {
+      if (res.statusCode !== 403 || !req.admin) return
+      logger.warn({ staffId: req.admin.id, role: req.admin.role, method: req.method, path: `${req.baseUrl}${req.path}` }, 'staff request refused')
+    })
+  }
+  next()
+}
+
 /**
  * Records every successful staff change (any non-GET request that ended below
  * 400) once the response is sent: who, which route, on what, with what body.
  */
 export function auditStaffChanges(req, res, next) {
-  if (req.method === 'GET' || req.method === 'HEAD') return next()
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (env.STAFF_AUDIT_TRAIL && req.method === 'GET') {
+      res.on('finish', () => {
+        if (res.statusCode >= 400 || !req.admin || !req.route || !auditsRead(req)) return
+        background(auditRead(req))
+      })
+    }
+    return next()
+  }
   res.on('finish', () => {
     // req.audited: the route wrote its own, fuller row inside its transaction (product changes).
     if (res.statusCode >= 400 || !req.admin || !req.route || req.audited) return
-    const p = req.params ?? {}
-    const target = p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? p.code ?? p.sku ?? null)
-    background(audit(req.admin, `${req.method} ${req.route.path}`, { target, detail: clean(req.body), requestId: req.id }))
+    background(audit(req.admin, `${req.method} ${req.route.path}`, { target: targetOf(req), detail: clean(req.body), requestId: req.id }))
   })
   next()
 }

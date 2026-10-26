@@ -1,7 +1,7 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
 import express from 'express'
 import { z } from 'zod'
-import { isPacker, redactForPacker } from '../access.js'
+import { auditInTx, isPacker, redactForPacker } from '../access.js'
 import { requireManager } from '../auth.js'
 import { addDays, isDate, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
@@ -169,7 +169,11 @@ router.post(
       z.object({ reason: z.string().trim().min(1, 'reason is required').max(500), refund: z.boolean().default(false) }),
       req.body ?? {},
     )
-    const refundDue = await tx((c) => cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund }))
+    const refundDue = await tx(async (c) => {
+      const due = await cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund })
+      await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and any refund) is never left without its record
+      return due
+    })
     if (refundDue) {
       await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
     }
