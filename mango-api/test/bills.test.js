@@ -4,7 +4,7 @@
 // details checked at checkout, the PDF for the owner and for managers and
 // operators (audited), and a cancelled order's bill kept and marked.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
