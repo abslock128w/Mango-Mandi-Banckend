@@ -159,8 +159,9 @@ test('a season subscription: start it, pay for the box as an ordinary order, ski
   await page.getByRole('radio', { name: 'Every week' }).check()
   await page.getByLabel('Delivery day').selectOption(String(isoWeekday(first)))
   await page.getByRole('radio', { name: /Koramangala/ }).check()
-  const slot = page.getByRole('group', { name: 'Delivery time' })
-  if (await slot.count()) await slot.getByRole('radio').first().check()
+  // The delivery times load once the address is picked (when the shop uses times).
+  const times = (await (await request.get(`${API}/v1/delivery/slots?pincode=560034`, c.as)).json()) as { slots: unknown[] }
+  if (times.slots.length) await page.getByRole('group', { name: 'Delivery time' }).getByRole('radio').first().check()
   const end = page.getByLabel('Last delivery no later than')
   const seasonEnd = await end.getAttribute('max')
   expect(seasonEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/)
