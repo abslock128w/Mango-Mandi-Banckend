@@ -2,9 +2,19 @@
 // signed-in request() as the rest of the panel; see src/api.ts.
 
 import { apiBlobUrl, apiRequest } from '../api'
+import type { ReviewBody } from './stocktakeReview'
 import type {
   Box,
   BoxEvent,
+  DamageReason,
+  DamageResult,
+  Repack,
+  RepackFinish,
+  RepackRow,
+  Stocktake,
+  StocktakeDecision,
+  StocktakeRow,
+  WhSettings,
   HoldKind,
   BoxTrace,
   IntakeInput,
@@ -52,6 +62,7 @@ export const LABELS_PER_PDF = 1000
 
 export const wh = {
   overview: () => apiRequest<WhOverview>('GET', `${W}/overview`),
+  settings: () => apiRequest<WhSettings>('GET', `${W}/settings`),
   products: () => apiRequest<WhProduct[]>('GET', `${W}/products`),
   updateProduct: (sku: string, b: ProductPatch) => apiRequest<WhProduct>('PATCH', `${W}/products/${id(sku)}`, b),
 
@@ -90,6 +101,9 @@ export const wh = {
     apiRequest<{ box: Box; outOfTolerance: boolean; shortfall?: unknown }>('POST', `${W}/boxes/${id(boxId)}/measure`, b),
   restock: (boxId: string, reason: string) => apiRequest<Box>('POST', `${W}/boxes/${id(boxId)}/restock`, { reason }),
   requestWriteOff: (b: { boxIds: string[]; reasonCode: WriteOffReason; reason: string }) => apiRequest<WriteOffResult>('POST', `${W}/write-offs`, b),
+  /** Fruit taken out of a box without repacking it. */
+  damage: (boxId: string, b: { fruitRemoved?: number; weightLostG?: number; reasonCode: DamageReason; reason: string }) =>
+    apiRequest<DamageResult>('POST', `${W}/boxes/${id(boxId)}/damage`, b),
   boxLabelUrl: (boxId: string) => apiBlobUrl(`${W}/boxes/${id(boxId)}/label.pdf`),
 
   // Locations
@@ -105,8 +119,22 @@ export const wh = {
   operation: (opId: string) => apiRequest<Operation>('GET', `${W}/operations/${id(opId)}`),
   scans: (opId: string, scans: ScanInput[]) => apiRequest<{ results: Scan[] }>('POST', `${W}/operations/${id(opId)}/scans`, { scans }),
   undo: (opId: string) => apiRequest<{ undone: Scan }>('POST', `${W}/operations/${id(opId)}/undo`),
-  finalize: (opId: string) => apiRequest<Operation>('POST', `${W}/operations/${id(opId)}/finalize`),
+  /** Pack, dispatch and stocktake send no body; a repack says what came out. */
+  finalize: (opId: string, body?: RepackFinish) => apiRequest<Operation>('POST', `${W}/operations/${id(opId)}/finalize`, body),
   cancel: (opId: string) => apiRequest<Operation>('POST', `${W}/operations/${id(opId)}/cancel`),
+
+  // Stocktake
+  stocktakes: () => apiRequest<StocktakeRow[]>('GET', `${W}/stocktakes`),
+  stocktake: (opId: string) => apiRequest<Stocktake>('GET', `${W}/stocktakes/${id(opId)}`),
+  reviewStocktake: (opId: string, b: ReviewBody) =>
+    apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/review`, b),
+  approveStocktake: (opId: string) => apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/approve`),
+  rejectStocktake: (opId: string) => apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/reject`),
+
+  // Repack
+  repacks: () => apiRequest<RepackRow[]>('GET', `${W}/repacks`),
+  repack: (opId: string) => apiRequest<Repack>('GET', `${W}/repacks/${id(opId)}`),
+  repackLabelsUrl: (opId: string, layout: 'roll' | 'a4' = 'roll') => apiBlobUrl(`${W}/repacks/${id(opId)}/labels.pdf${qs({ layout })}`),
 
   // Picking
   pickQueue: () => apiRequest<PickQueueRow[]>('GET', `${W}/pick-queue`),

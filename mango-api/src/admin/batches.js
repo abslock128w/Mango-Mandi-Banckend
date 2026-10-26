@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig } from '../config.js'
+import { env } from '../env.js'
 import { query, tx } from '../db.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
@@ -11,6 +12,7 @@ import { ADJUST_REASONS, ledger } from '../inventory.js'
 import { lockBatchOrders, rebalanceBatchOrders, recordShortArrival, takeBatchOutOfService } from '../orders.js'
 import { findProduct, productName } from '../products.js'
 import { STAGES } from '../stage.js'
+import { batchesCarryingFruitOf, holdFruitOfBatch } from '../warehouse/repack.js'
 import { LIST_LIMIT } from './shared.js'
 
 export const router = express.Router()
@@ -129,7 +131,9 @@ router.patch(
     )
     if (status === 'CONDEMNED' && req.admin.role !== 'MANAGER') return requireManager(req, res, next)
     const result = await tx(async (c) => {
-      await lockBatchOrders(c, [req.params.id]) // orders before the batch (INV-03)
+      // Condemning also holds repacked boxes on other batches that carry this batch's fruit: their orders are locked first too.
+      const carriers = status === 'CONDEMNED' && env.WAREHOUSE_V2 ? await batchesCarryingFruitOf(c, req.params.id) : []
+      await lockBatchOrders(c, [req.params.id, ...carriers]) // orders before the batch (INV-03)
       const { rows } = await c.query('SELECT * FROM batches WHERE id = $1 FOR UPDATE', [req.params.id])
       if (!rows.length) throw notFound('Batch not found')
       const b = rows[0]
@@ -154,6 +158,10 @@ router.patch(
         batchId: b.id, eventType: 'STATUS', sku: null, delta: 0, actorId: req.admin.id, reason: `${b.status} → ${status}${reason ? `: ${reason}` : ''}`,
       })
       const actor = req.actor
+      if (status === 'CONDEMNED' && env.WAREHOUSE_V2) {
+        const out = await takeBatchOutOfService(c, b.id, status, actor, reason || null)
+        return { ...out, heldRepackedBoxes: await holdFruitOfBatch(c, b.id, actor, reason || null) }
+      }
       if (status === 'CONDEMNED' || status === 'EXHAUSTED') return takeBatchOutOfService(c, b.id, status, actor, reason || null)
       const touched = await rebalanceBatchOrders(c, [b.id], actor)
       return { rebalancedOrders: touched.filter((r) => r.changed && !r.atRisk).map((r) => r.number), atRiskOrders: touched.filter((r) => r.atRisk).map((r) => r.number) }

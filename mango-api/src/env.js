@@ -100,6 +100,21 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Stocktake (cycle count) sessions and their review (docs/warehouse/STOCKTAKE.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_STOCKTAKE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Repack, split, merge and partial damage (docs/warehouse/REPACK.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_REPACK: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Offer the device camera as a scanner in the panel's scan screens (docs/warehouse/SCANNING.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_CAMERA_SCAN: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The most boxes one intake may label (brief 8.1).
   WAREHOUSE_MAX_LOT: z.coerce.number().int().min(1).max(20000).default(5000),
   // Minutes an open scan session may sit idle before it expires.

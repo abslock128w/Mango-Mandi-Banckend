@@ -2,7 +2,7 @@
 import { googleOn, verifyGoogleCredential } from '../google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
-import { ROLE_PERMISSIONS } from '../warehouse/permissions.js'
+import { effectivePermissions } from '../warehouse/permissions.js'
 import jwt from 'jsonwebtoken'
 import { hit, sharedLimiter } from '../ratelimit.js'
 import { z } from 'zod'
@@ -218,7 +218,7 @@ me.get(
     res.json({
       email: req.admin.email, role: req.admin.role,
       // The panel shows the Warehouse area only when it is on, with what this role may do there.
-      warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: ROLE_PERMISSIONS[req.admin.role] ?? [] } : { enabled: false, permissions: [] },
+      warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: effectivePermissions(req.admin.role, env) } : { enabled: false, permissions: [] },
       // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
       // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
       features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING },

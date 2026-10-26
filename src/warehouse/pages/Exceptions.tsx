@@ -16,7 +16,7 @@ export default function Exceptions() {
   if (q.isPending) return <Spinner />
   if (q.isError) return <QueryError error={q.error} onRetry={() => q.refetch()} />
   const x = q.data
-  const total = Object.values(x).reduce((n, list) => n + list.length, 0)
+  const total = Object.values(x).reduce((n, list) => n + (list?.length ?? 0), 0)
 
   return (
     <>
@@ -66,6 +66,21 @@ export default function Exceptions() {
           <>
             <Link to={`/warehouse/boxes/${r.boxId}`}>{r.code}</Link>
             {r.reason ? ` · ${r.reason}` : ''} · since {dateTime(r.since)}
+          </>
+        )}
+      </Group>
+      <Group title="Counts waiting for a review" items={x.stocktakeReviews ?? []}>
+        {(r) => (
+          <>
+            <Link to={`/warehouse/stocktake/${r.operationId}`}>{r.locationName}</Link> ·{' '}
+            {r.toReview ? `${r.toReview} not found, to review` : `${r.toApprove} to approve by a second person`} · counted {dateTime(r.finishedAt)}
+          </>
+        )}
+      </Group>
+      <Group title="Boxes marked missing" items={x.missingBoxes ?? []}>
+        {(r) => (
+          <>
+            <Link to={`/warehouse/boxes/${r.boxId}`}>{r.code}</Link> · {r.skuName} · since {dateTime(r.since)}
           </>
         )}
       </Group>

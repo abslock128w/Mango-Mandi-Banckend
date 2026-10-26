@@ -41,10 +41,28 @@ should fix things.
 | dispatched | returned | Return scan (return_hold added; D7) |
 | returned | in_stock | Restock, only for products that allow it; needs QC again |
 | in_stock, returned, missing | disposed | Write-off (second approver above 10 boxes or 20 kg; D8) |
+| in_stock | missing | Stocktake review: recorded here, not found, decided missing (second approver above the D8 limit) |
+| missing | in_stock | Found in a stocktake (location set to the counted place) |
+| in_stock | repacked | Repack finalize: the source ends; its new boxes are created in_stock at the repack place |
+| (none) | in_stock | Repack finalize: a new box with parent_box_ids, the earliest best-before and new label |
 | generated, in_stock | voided | Lot voided before anything left stock |
 
 Database constraints back the important ones: a box has an order exactly
 while it is picked, packed or dispatched; a box on the floor has a location.
+
+## Lineage
+
+A repacked box keeps its parents in `boxes.parent_box_ids`, and every lot and
+batch its fruit came from in `box_origins` (a merge links all of them). It
+lives on the lot and stock line of its oldest source, with a sequence number
+above `REPACK_SEQ_BASE` (1,000,000), so intake numbering never meets it, and
+counts in that lot's label counts (target, generated, verified). Trace, lot
+trace and recalls follow both links (`LINEAGE_DOWN` in reports.js). Fruit of
+a condemned or exhausted batch is never repacked; condemning a batch later
+holds the boxes elsewhere that carry its fruit (REPACK.md).
+
+Stocktake findings and reviews are in `wh_stocktake_lines` and
+`wh_stocktake_reviews`; repacks in `wh_repacks` (migration 037).
 
 ## History
 

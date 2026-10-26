@@ -21,8 +21,10 @@ import { boxLabel, labelsPdf, labelSize, locationLabel } from '../warehouse/labe
 import {
   addBoxes, checkIntake, closeLot, confirmCount, CONTINUE_CHUNK, correctLot, createLot, generateMore, lockLot, lotView, SINGLE_TX_LIMIT, voidBoxes, voidLot,
 } from '../warehouse/lots.js'
-import { cancelOperation, finalizeOperation, getOperation, listOperations, OP_TYPES, startOperation, submitScans, undoLastScan } from '../warehouse/ops.js'
-import { can, managerOnly, ROLE_PERMISSIONS, WAREHOUSE_ROUTES } from '../warehouse/permissions.js'
+import { cancelOperation, finalizeOperation, getOperation, listOperations, OP_TYPES, opTypeOn, startOperation, submitScans, undoLastScan, unstageBoxes } from '../warehouse/ops.js'
+import { can, effectivePermissions, featureOn, managerOnly, routeFeature, WAREHOUSE_ROUTES } from '../warehouse/permissions.js'
+import { DAMAGE_REASONS, getRepack, listRepacks, MAX_OUTPUTS, recordDamage, REPACK_PLACES, REPACK_REASONS, repackOutputsForLabels } from '../warehouse/repack.js'
+import { decideStocktakeReview, getStocktake, listStocktakes, reviewStocktake } from '../warehouse/stocktake.js'
 import {
   continueRecall, EXPORTS, exceptions, exportReport, listProductSettings, listRecalls, overview, pickList, pickQueue, reconciliation, recallView, releaseRecall,
   startRecall, traceBox, traceLot, updateProductSettings,
@@ -30,9 +32,16 @@ import {
 
 export const router = express.Router()
 
-/** Off unless WAREHOUSE_V2: every warehouse path is a plain 404, before sign-in checks, so nothing about it shows. */
+/**
+ * Off unless WAREHOUSE_V2: every warehouse path is a plain 404, before sign-in
+ * checks, so nothing about it shows. Stocktake and repack routes are also 404
+ * while their own flag (WAREHOUSE_STOCKTAKE, WAREHOUSE_REPACK) is off.
+ */
 export function warehouseGate(req, _res, next) {
-  if (!env.WAREHOUSE_V2 && (req.path === '/warehouse' || req.path.startsWith('/warehouse/'))) return next(notFound())
+  if (!(req.path === '/warehouse' || req.path.startsWith('/warehouse/'))) return next()
+  if (!env.WAREHOUSE_V2) return next(notFound())
+  const feature = routeFeature(req.path)
+  if (feature && !featureOn(feature, env)) return next(notFound())
   next()
 }
 
@@ -72,10 +81,12 @@ get('/warehouse/overview', async (req, res) => res.json(await overview({ query }
 
 get('/warehouse/settings', async (req, res) => {
   const { rows } = await query('SELECT id, name, active FROM warehouses WHERE id = $1', [req.wh.warehouseId])
-  const mine = ROLE_PERMISSIONS[req.admin.role] ?? []
+  const mine = effectivePermissions(req.admin.role, env)
   res.json({
     enabled: true, warehouse: rows[0], permissions: mine, labelMm: labelSize(), writeOffLimit: WRITE_OFF_LIMIT, writeOffReasons: WRITE_OFF_REASONS,
-    locationTypes: LOCATION_TYPES, holdKinds: HOLD_KINDS, operationTypes: OP_TYPES, idleMinutes: env.WAREHOUSE_OP_IDLE_MINUTES, maxLot: env.WAREHOUSE_MAX_LOT,
+    locationTypes: LOCATION_TYPES, holdKinds: HOLD_KINDS, operationTypes: OP_TYPES.filter(opTypeOn), idleMinutes: env.WAREHOUSE_OP_IDLE_MINUTES, maxLot: env.WAREHOUSE_MAX_LOT,
+    features: { stocktake: env.WAREHOUSE_STOCKTAKE, repack: env.WAREHOUSE_REPACK, cameraScan: env.WAREHOUSE_CAMERA_SCAN },
+    repackReasons: REPACK_REASONS, repackPlaces: REPACK_PLACES, damageReasons: DAMAGE_REASONS,
   })
 })
 
@@ -313,6 +324,13 @@ post('/warehouse/boxes/:id/restock', boxAction(async (c, box, req) => {
   await restockReturned(c, box, parse(z.object({ reason }).strict(), req.body ?? {}), req.wh)
   return boxView(await readBox(c, box.id))
 }))
+post('/warehouse/boxes/:id/damage', boxAction(async (c, box, req) => {
+  const b = parse(z.object({
+    fruitRemoved: z.number().int().min(0).max(200).optional(), weightLostG: z.number().int().min(0).max(100_000).optional(), reasonCode: z.enum(DAMAGE_REASONS), reason,
+  }).strict(), req.body ?? {})
+  const r = await recordDamage(c, box, b, req.wh)
+  return { box: boxView(await readBox(c, box.id)), belowTolerance: r.belowTolerance, needsReview: r.needsReview, shortfall: r.shortfall }
+}))
 
 // ---------------------------------------------------------------- write-offs
 
@@ -366,7 +384,27 @@ post('/warehouse/operations/:id/scans', async (req, res) => {
   res.json({ results: await submitScans(req.params.id, b.scans, req.wh) })
 })
 post('/warehouse/operations/:id/undo', async (req, res) => res.json(await tx((c) => undoLastScan(c, req.params.id, req.wh))))
-post('/warehouse/operations/:id/finalize', async (req, res) => res.json(await tx((c) => finalizeOperation(c, req.params.id, req.wh))))
+// A repack's finish says what came out; other sessions send no body.
+const finalizeBody = z.object({
+  outputs: z.array(z.object({ weightG: z.number().int().min(1).max(100_000), fruitCount: z.number().int().min(1).max(200).optional() }).strict()).min(1).max(MAX_OUTPUTS).optional(),
+  fruitRemoved: z.number().int().min(0).max(10_000).optional(),
+  weightLostG: z.number().int().min(0).max(1_000_000).optional(),
+  note: z.string().trim().max(200).optional(),
+}).strict()
+post('/warehouse/operations/:id/finalize', async (req, res) => {
+  const b = parse(finalizeBody, req.body ?? {})
+  try {
+    res.json(await tx((c) => finalizeOperation(c, req.params.id, req.wh, b)))
+  } catch (err) {
+    // A box that changed since it was scanned (or whose batch was condemned) is taken out of the session; the refused finish rolled back.
+    const unstage = ['STALE_SCAN', 'BATCH_OUT_OF_SERVICE'].includes(err?.code) ? err.extra?.unstage : null
+    if (Array.isArray(unstage) && unstage.length) {
+      await tx((c) => unstageBoxes(c, req.params.id, unstage, req.wh))
+      delete err.extra.unstage
+    }
+    throw err
+  }
+})
 post('/warehouse/operations/:id/cancel', async (req, res) => res.json(await tx((c) => cancelOperation(c, req.params.id, req.wh))))
 
 get('/warehouse/orders/:id/pick-list', async (req, res) => res.json(await pickList({ query }, req.params.id, req.wh.warehouseId)))
@@ -409,6 +447,29 @@ get('/warehouse/export/:report', async (req, res) => {
   res.set('Content-Disposition', `attachment; filename="warehouse-${report}.csv"`)
   res.set('Cache-Control', 'no-store')
   res.send(body)
+})
+
+// ---------------------------------------------------------------- stocktake
+
+get('/warehouse/stocktakes', async (req, res) => res.json(await listStocktakes({ query }, req.wh)))
+get('/warehouse/stocktakes/:id', async (req, res) => res.json(await getStocktake({ query }, req.params.id, req.wh)))
+post('/warehouse/stocktakes/:id/review', async (req, res) => {
+  // `rest` decides every box not listed, so a count of thousands of boxes is reviewed in one short request.
+  const b = parse(z.object({
+    missing: z.array(uuid).max(2000).default([]), keep: z.array(uuid).max(2000).default([]), rest: z.enum(['missing', 'keep']).optional(), note: z.string().trim().max(300).optional(),
+  }).strict(), req.body ?? {})
+  res.json(await tx((c) => reviewStocktake(c, req.params.id, { missing: b.missing, keep: b.keep, rest: b.rest ?? null, note: b.note || null }, req.wh)))
+})
+post('/warehouse/stocktakes/:id/approve', async (req, res) => res.json(await tx((c) => decideStocktakeReview(c, req.params.id, true, req.wh))))
+post('/warehouse/stocktakes/:id/reject', async (req, res) => res.json(await tx((c) => decideStocktakeReview(c, req.params.id, false, req.wh))))
+
+// ---------------------------------------------------------------- repack
+
+get('/warehouse/repacks', async (req, res) => res.json(await listRepacks({ query }, req.wh)))
+get('/warehouse/repacks/:id', async (req, res) => res.json(await getRepack({ query }, req.params.id, req.wh)))
+get('/warehouse/repacks/:id/labels.pdf', async (req, res) => {
+  const boxes = await repackOutputsForLabels({ query }, req.params.id, req.wh)
+  pdf(res, `repack-${req.params.id}.pdf`, labelsPdf(boxes.map((b) => boxLabel(b, b.lot_code)), { layout: req.query.layout === 'a4' ? 'a4' : 'roll' }))
 })
 
 // Every table entry has a handler (and the other way round, via guard()).

@@ -46,6 +46,10 @@ const WhProducts = lazy(() => import('./warehouse/pages/Products'))
 const WhBoxTrace = lazy(() => import('./warehouse/pages/BoxTrace'))
 const WhLotTrace = lazy(() => import('./warehouse/pages/LotTrace'))
 const WhRecall = lazy(() => import('./warehouse/pages/RecallDetail'))
+const WhStocktake = lazy(() => import('./warehouse/pages/Stocktake'))
+const WhStocktakeDetail = lazy(() => import('./warehouse/pages/StocktakeDetail'))
+const WhRepack = lazy(() => import('./warehouse/pages/Repack'))
+const WhRepackDetail = lazy(() => import('./warehouse/pages/RepackDetail'))
 const TwoStepPage = lazy(() => import('./pages/TwoStep'))
 const TwoStepGate = lazy(() => import('./pages/TwoStep').then((m) => ({ default: m.TwoStepGate })))
 import { canSee, homeFor, type Screen } from './permissions'
@@ -172,6 +176,10 @@ export default function App() {
               <Route path="/warehouse/boxes/:id/trace" element={<WhOnly perm="warehouse.view"><WhBoxTrace /></WhOnly>} />
               <Route path="/warehouse/lots/:id/trace" element={<WhOnly perm="warehouse.view"><WhLotTrace /></WhOnly>} />
               <Route path="/warehouse/recalls/:id" element={<WhOnly perm="warehouse.view"><WhRecall /></WhOnly>} />
+              <Route path="/warehouse/stocktake" element={<WhOnly perm="warehouse.stocktake"><WhStocktake /></WhOnly>} />
+              <Route path="/warehouse/stocktake/:id" element={<WhOnly perm="warehouse.stocktake"><WhStocktakeDetail /></WhOnly>} />
+              <Route path="/warehouse/repack" element={<WhOnly perm="warehouse.repack"><WhRepack /></WhOnly>} />
+              <Route path="/warehouse/repack/:id" element={<WhOnly perm="warehouse.repack"><WhRepackDetail /></WhOnly>} />
               <Route path="/two-step" element={<TwoStepPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>

@@ -30,6 +30,28 @@ a box, lot or location in another warehouse is a 404.
 - `GET /warehouse/trace/*` and recalls include customer name and phone only
   for roles with `recall.view_customers` (managers).
 - `/auth/me` includes `warehouse: { enabled, permissions }` for the panel.
+  Permissions of a feature switched off (`warehouse.stocktake` while
+  `WAREHOUSE_STOCKTAKE` is off, `warehouse.repack` while `WAREHOUSE_REPACK` is
+  off) are left out, and that feature's routes answer 404.
+- `GET /warehouse/settings` adds `features: { stocktake, repack, cameraScan }`,
+  `repackReasons`, `repackPlaces` and `damageReasons`.
+- `POST /warehouse/operations/:id/finalize` takes a body only for a repack:
+  `{ outputs: [{ weightG, fruitCount? }], fruitRemoved, weightLostG?, note? }`
+  (REPACK.md). A staged box (pack, dispatch or repack) that changed since its
+  scan answers 409 STALE_SCAN (`boxes`), and a repack source whose batch was
+  condemned answers 409 BATCH_OUT_OF_SERVICE; either way the box is taken out
+  of the session, so the next finish goes on without it. Weights that do not
+  add up answer 400 WEIGHT_MISMATCH, fruit counts 400 FRUIT_MISMATCH.
+- `POST /warehouse/stocktakes/:id/review` takes `{ missing: [boxId], keep: [boxId], rest?, note? }`
+  covering every box waiting for review (`rest: 'missing' | 'keep'` decides
+  the ones not listed); the counter gets 403 SELF_REVIEW unless a manager;
+  the answer adds `heldToFind` (kept boxes on orders, now held); above the D8
+  limit it answers `status: pending_approval` and `/approve` or `/reject` by
+  a second person decides (STOCKTAKE.md).
+- `PATCH /admin/v1/batches/:id/status` to CONDEMNED (warehouse on) adds
+  `heldRepackedBoxes`: boxes on other batches holding its fruit, now held.
+- `POST /warehouse/boxes/:id/damage` takes `{ fruitRemoved?, weightLostG?, reasonCode, reason }`
+  (`weightLostG` is required for a box with no fruit count).
 
 ## Routes
 
@@ -64,6 +86,7 @@ a box, lot or location in another warehouse is a 404.
 | POST | `/warehouse/boxes/:id/holds/:kind/release` | warehouse.qc | MANAGER, OPERATOR, QC |
 | POST | `/warehouse/boxes/:id/measure` | warehouse.qc | MANAGER, OPERATOR, QC |
 | POST | `/warehouse/boxes/:id/restock` | warehouse.returns | MANAGER, OPERATOR, PACKER |
+| POST | `/warehouse/boxes/:id/damage` | warehouse.repack | MANAGER, OPERATOR |
 | POST | `/warehouse/write-offs` | warehouse.adjust | MANAGER, OPERATOR |
 | GET | `/warehouse/write-offs` | warehouse.view | MANAGER, OPERATOR, QC, PACKER |
 | POST | `/warehouse/write-offs/:id/approve` | adjust.approve | MANAGER |
@@ -91,4 +114,15 @@ a box, lot or location in another warehouse is a 404.
 | POST | `/warehouse/recalls/:id/release` | recall.manage | MANAGER |
 | GET | `/warehouse/recalls/:id` | warehouse.view | MANAGER, OPERATOR, QC, PACKER |
 | GET | `/warehouse/export/:report` | reports.export | MANAGER, OPERATOR |
+| GET | `/warehouse/stocktakes` | warehouse.stocktake | MANAGER, OPERATOR |
+| GET | `/warehouse/stocktakes/:id` | warehouse.stocktake | MANAGER, OPERATOR |
+| POST | `/warehouse/stocktakes/:id/review` | warehouse.stocktake | MANAGER, OPERATOR |
+| POST | `/warehouse/stocktakes/:id/approve` | adjust.approve | MANAGER |
+| POST | `/warehouse/stocktakes/:id/reject` | adjust.approve | MANAGER |
+| GET | `/warehouse/repacks` | warehouse.repack | MANAGER, OPERATOR |
+| GET | `/warehouse/repacks/:id` | warehouse.repack | MANAGER, OPERATOR |
+| GET | `/warehouse/repacks/:id/labels.pdf` | labels.print | MANAGER, OPERATOR, QC |
+
+Starting, scanning and finishing a stocktake or repack session also needs
+`warehouse.stocktake` or `warehouse.repack` (the session type's permission).
 
