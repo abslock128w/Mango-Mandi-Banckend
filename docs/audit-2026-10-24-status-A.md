@@ -13,8 +13,9 @@ Status words:
 - **docs**: the finding was about documentation; the documentation is fixed.
 - **not worth fixing now**: the reason is written.
 
-Commits: `6b4f79f` payments, `89a3b8e` inventory, `3483975` database, and the
-docs commit that adds this file.
+Commits: `6b4f79f` payments, `89a3b8e` inventory, `3483975` database, `0715ce5`
+docs (this file, sandbox scenarios, Neon steps), and a last commit that adds the
+panel spec `tests/audit-a.spec.ts` and the re-check below.
 
 ## Register
 
@@ -87,15 +88,25 @@ Indexes and NOT VALID checks only. The previous release writes nothing the check
 refuse, so it runs safely on the new schema. Index builds block writes on their table
 while they build (batch_ledger is the largest; under a second at 200k rows).
 Numbering: 035-037 come from other branches; until they are merged, the "no gaps"
-test in `test/migrations.test.js` fails on this branch alone.
+test in `test/migrations.test.js` ("migration files are numbered in order with no
+gaps or repeats") fails on this branch alone. That is expected and is not changed
+here; it passes once the branches are merged in number order.
 
-### API changes
+### API and panel changes
 
 - `POST /admin/v1/batches` accepts an optional `Idempotency-Key` header (at most 100
   characters); with `STOCK_INTAKE_CHECKS` a repeat answers 200 (not 201) with the
   first batch. No new routes.
 - `GET /admin/v1/attention` adds `preorderCapacityDrift` and `lateArrivals`; stuck
-  refunds can have `state: 'held'`. The panel shows them under Needs attention.
+  refunds can have `state: 'held'`. The panel shows them under Needs attention
+  ("Refund held", with "Paid back another way" still offered to a manager; "Batch
+  still in transit"; "Preorder capacity disagrees with the bookings", under
+  "Stock counts to check").
+- The panel's Receive batch dialog sends an `Idempotency-Key`: the same key while
+  the form is unchanged (a double tap, a retry after an error), a new one once any
+  field changes. The API ignores it unless `STOCK_INTAKE_CHECKS` is on.
+- Panel spec `tests/audit-a.spec.ts` covers both (phone and desktop, with an axe
+  scan of Needs attention).
 
 ### Limits
 
@@ -114,3 +125,10 @@ fail; the 5 that pass are the flag-off rollback tests, which assert the old
 behaviour), `audit-a-database.test.js` on `89a3b8e` without migration 038 (9 of 10
 fail; DB-01 with `40P01`, DB-02 with a 421-statement transaction). Exports that did
 not exist yet were replaced by the old behaviour in those copies.
+
+Re-checked on 26 Oct 2026 in a copy of `61ac961` (the three test files copied in,
+the missing exports replaced by the old behaviour, a fresh database without
+migration 038): 26 of 32 tests fail; the 6 that pass are the 5 flag-off rollback
+tests and DB-02 "an order that cannot be cancelled is flagged and the rest still
+go" (the old in-transaction sweep already did that). DB-01 fails with `40P01`,
+DB-02 with "longest transaction: 421 statements". On the branch all 32 pass.
