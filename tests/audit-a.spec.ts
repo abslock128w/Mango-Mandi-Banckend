@@ -76,6 +76,30 @@ test('Order page: an operator sees a free replacement\'s cancel as manager-only 
   await expect(page.getByRole('button', { name: 'Cancel order' })).toBeEnabled()
 })
 
+test('Needs attention: a manager recounts a drifted preorder week from its bookings', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = { ...state.attention, preorderCapacityDrift: [{ sku: 'ALP-3', weekStart: '2027-03-01', reserved: 4, booked: 2 }] }
+  await page.goto('/')
+  const stock = card(page).locator('.attention-group', { hasText: 'Stock counts to check' })
+  await stock.getByRole('button', { name: /^Recount from the bookings for ALP-3/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Recount preorder capacity for ALP-3?' })
+  await expect(dialog).toContainText('taken 4, the bookings hold 2. After the recount, taken is 2.')
+  await dialog.getByLabel('What you checked').fill('the four bookings on the Preorders page')
+  await dialog.getByRole('button', { name: 'Recount' }).click()
+  await expect
+    .poll(() => state.calls.find((c) => c.path === '/preorder-capacity/2027-03-01/ALP-3/recount')?.body)
+    .toEqual({ reserved: 4, booked: 2, reason: 'the four bookings on the Preorders page' })
+  await expect(page.getByText('Preorder capacity for ALP-3 recounted')).toBeVisible()
+})
+
+test('Needs attention: an operator sees preorder drift but no recount button', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  state.attention = { ...state.attention, preorderCapacityDrift: [{ sku: 'ALP-3', weekStart: '2027-03-01', reserved: 4, booked: 2 }] }
+  await page.goto('/')
+  await expect(card(page)).toContainText('Preorder capacity disagrees with the bookings')
+  await expect(card(page).getByRole('button', { name: /Recount/ })).toHaveCount(0)
+})
+
 test('Receive batch: a retry of the same intake sends the same Idempotency-Key; a changed intake a new one', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   const keys: string[] = []

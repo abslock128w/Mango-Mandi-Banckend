@@ -14,6 +14,9 @@ import { ledger, lockLines, restock } from './inventory.js'
 import { addEvent, MAX_DELIVERY_ATTEMPTS } from './orders.js'
 import { trackedLine } from './warehouse/core.js'
 
+/** Booking states that take preorder capacity (a converted booking keeps it). */
+export const CAPACITY_STATUSES = ['PAYMENT_PENDING', 'BOOKED', 'CONVERTED']
+
 /**
  * INV-06: weeks whose reserved preorder capacity disagrees with the bookings
  * that hold it (PAYMENT_PENDING, BOOKED and CONVERTED take capacity; a
@@ -26,7 +29,7 @@ export async function preorderCapacityDrift(c, limit = 100) {
             COALESCE(k.reserved, 0)::int AS reserved, COALESCE(b.n, 0)::int AS booked
        FROM preorder_capacity k
        FULL JOIN (SELECT sku, week_start, SUM(qty) AS n FROM preorders
-                   WHERE status IN ('PAYMENT_PENDING', 'BOOKED', 'CONVERTED') GROUP BY sku, week_start) b
+                   WHERE status = ANY('{${CAPACITY_STATUSES}}') GROUP BY sku, week_start) b
          ON b.sku = k.sku AND b.week_start = k.week_start
       WHERE COALESCE(k.reserved, 0) <> COALESCE(b.n, 0)
       ORDER BY 2, 1 LIMIT $1`,

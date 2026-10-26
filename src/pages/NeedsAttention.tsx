@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
 import { useSession } from '../session'
 import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
@@ -69,6 +69,7 @@ export default function NeedsAttention() {
       if (a.kind === 'resolve') return api.resolveWebhookFailure(a.hook.id, reason)
       if (a.kind === 'refund-payment') return api.refundUnmatchedPayment(a.hook.id, reason)
       if (a.kind === 'keep') return api.keepPreorder(a.preorder.id, reason)
+      if (a.kind === 'recount') return api.recountPreorderCapacity(a.week.weekStart, a.week.sku, { reserved: a.week.reserved, booked: a.week.booked }, reason)
       const r = a.refund
       return r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason)
     },
@@ -80,9 +81,15 @@ export default function NeedsAttention() {
             ? `Refund of ${a.hook.paymentId} queued`
             : a.kind === 'keep'
               ? `Preorder ${a.preorder.number} kept`
-              : `Refund for ${a.refund.number} recorded as paid back`,
+              : a.kind === 'recount'
+                ? `Preorder capacity for ${a.week.sku} recounted`
+                : `Refund for ${a.refund.number} recorded as paid back`,
       ),
-    onError: (err) => toast.error(err),
+    onError: (err) => {
+      toast.error(err)
+      // A recount refused because the bookings moved: show the new numbers.
+      if (err instanceof ApiError && err.code === 'PREVIEW_CHANGED') queryClient.invalidateQueries({ queryKey: ['attention'] })
+    },
   })
   const check = useMutation({
     mutationFn: ({ d, ok, note }: { d: PhotoDelivery; ok: boolean; note?: string }) => api.reviewDelivery(d.id, ok, note),
@@ -265,7 +272,15 @@ export default function NeedsAttention() {
             {' '}
             (taken {w.reserved}, booked {w.booked})
           </span>
-          . Check that week on the <Link to="/preorders">Preorders</Link> page before opening more spots.
+          . Check that week on the <Link to="/preorders">Preorders</Link> page; if the bookings are right, recount the week from them.
+          {manager ? (
+            <>
+              {' '}
+              <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'recount', week: w })}>
+                Recount from the bookings<span className="sr-only"> for {w.sku}, week of {date(w.weekStart)}</span>
+              </button>
+            </>
+          ) : null}
         </li>
       )),
       ...drift.map((l) => (
@@ -432,6 +447,7 @@ type StuckRefund = Attention['stuckRefunds'][number]
 /** A held refund whose chargeback the bank has not decided yet: nothing to settle until it does (the API refuses it too). */
 const disputeOpen = (r: StuckRefund) => r.state === 'held' && !['won', 'lost', 'closed'].includes(r.dispute?.status ?? 'open')
 type PreorderDecision = NonNullable<Attention['preorderDecisions']>[number]
+type PreorderDrift = NonNullable<Attention['preorderCapacityDrift']>[number]
 /** A manager's way out of one item (each is recorded in the staff activity with its reason). */
 type Act =
   | { kind: 'repair'; drift: LedgerDrift }
@@ -439,6 +455,7 @@ type Act =
   | { kind: 'refund-payment'; hook: Hook }
   | { kind: 'keep'; preorder: PreorderDecision }
   | { kind: 'settle'; refund: StuckRefund }
+  | { kind: 'recount'; week: PreorderDrift }
 
 function RecoveryDialog({
   act,
@@ -499,6 +516,24 @@ function RecoveryDialog({
         onSubmit={(r) => onSave(r)}
       >
         <p className="muted">{act.preorder.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  if (act.kind === 'recount') {
+    const w = act.week
+    return (
+      <ReasonDialog
+        {...common}
+        tone="primary"
+        title={`Recount preorder capacity for ${w.sku}?`}
+        label="What you checked"
+        confirmLabel="Recount"
+        hint="Taken capacity is set to what the live bookings hold. Spots it frees go to the waitlist."
+        onSubmit={(r) => onSave(r)}
+      >
+        <p className="muted">
+          Week of {date(w.weekStart)}: taken {w.reserved}, the bookings hold {w.booked}. After the recount, taken is {w.booked}.
+        </p>
       </ReasonDialog>
     )
   }

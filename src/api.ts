@@ -261,6 +261,9 @@ export const api = {
   refundUnmatchedPayment: (failureId: string, reason: string) =>
     request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason }),
   keepPreorder: (preorderId: string, reason: string) => request<unknown>('POST', `/preorders/${id(preorderId)}/keep`, { reason }),
+  /** INV-06: sets a week's taken preorder capacity from its bookings; reserved and booked are the numbers shown. */
+  recountPreorderCapacity: (weekStart: string, sku: string, seen: { reserved: number; booked: number }, reason: string) =>
+    request<{ recounted: boolean; reserved: number; booked: number }>('POST', `/preorder-capacity/${id(weekStart)}/${id(sku)}/recount`, { ...seen, reason }),
   refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string) =>
     request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason }),
   signOutAllStaff: (reason: string, keepMe = true) => request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe }),
