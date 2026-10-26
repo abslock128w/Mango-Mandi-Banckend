@@ -29,8 +29,8 @@ const PROFILE: CustomerProfile = {
     { id: 'o9', number: 'ORD-1050', status: 'CONFIRMED', placedAt: '2026-09-06T05:10:00Z', deliveryDate: '2026-09-07', total: 0, discount: 0, boxes: 1, paymentStatus: null, channel: 'app', replacement: true, refund: null, business: null, bill: null },
   ],
   ordersShown: 3,
-  claims: [{ id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', issueType: 'DAMAGED', status: 'RESOLVED', resolution: 'REPLACEMENT', createdAt: '2026-09-04T09:00:00Z', resolvedAt: '2026-09-05T09:00:00Z', replacementOrder: { id: 'o9', number: 'ORD-1050' } }],
-  reviews: [{ id: 'r1', orderId: 'o2', orderNumber: 'ORD-1043', sku: 'ALP-3', productName: 'Alphonso 3kg Box', rating: 5, status: 'PUBLISHED', comment: 'Sweet and ripe on day two.', createdAt: '2026-09-06T08:00:00Z' }],
+  claims: [{ id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', issueType: 'DAMAGED', status: 'RESOLVED', resolution: 'REPLACEMENT_APPROVED', createdAt: '2026-09-04T09:00:00Z', resolvedAt: '2026-09-05T09:00:00Z', replacementOrder: { id: 'o9', number: 'ORD-1050' } }],
+  reviews: [{ id: 'r1', orderId: 'o2', orderNumber: 'ORD-1043', sku: 'ALP-3', productName: 'Alphonso 3kg Box', rating: 5, status: 'APPROVED', comment: 'Sweet and ripe on day two.', createdAt: '2026-09-06T08:00:00Z' }],
   ratings: [{ orderId: 'o2', orderNumber: 'ORD-1043', stars: 4, comment: null, at: '2026-09-05T08:00:00Z' }],
   addresses: [{ id: 'adr1', name: 'Home', address: '12 Marine Drive, Koramangala, Bengaluru', pincode: '560034', lastUsedAt: '2026-10-14T06:00:00Z' }],
 }
