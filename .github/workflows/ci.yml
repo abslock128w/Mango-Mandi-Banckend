@@ -178,6 +178,8 @@ jobs:
         run: |
           # A throwaway VAPID key pair for this run only (browser notifications use the log provider).
           eval "$(node scripts/vapid-keys.mjs | sed 's/^/export /')"
+          # Customer care (docs/care.md): a season that ends 90 days from today, so the subscription specs run.
+          export SUBSCRIPTION_SEASON_END="$(date -u -d '+90 days' +%F)"
           nohup node src/index.js > ../api.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ready && exit 0; sleep 1; done
           cat ../api.log; exit 1
@@ -194,6 +196,9 @@ jobs:
           FAVOURITES: 'true'
           SHOP_INSTALL: 'true'
           SHOP_SORT_FILTER: 'true'
+          # Customer care (docs/care.md), on so customer-app/tests/care.spec.ts runs.
+          HELP_CENTRE: 'true'
+          SUBSCRIPTIONS: 'true'
       - run: npx playwright install --with-deps chromium
       - name: PDF text tool for the bill checks
         run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils

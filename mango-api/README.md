@@ -83,6 +83,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_reorder_reminder` | a week after a delivery, only for customers who turned reminders on, between 10 AM and 7 PM, not if they ordered since (marketing) | name, box they had, shop link |
 | `mandi_claim_received` | a customer reports a problem with a delivered order (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number; "Open order" URL button |
 | `mandi_claim_rejected` | staff reject a claim; a replacement sends `mandi_replacement_confirmed` instead (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number, the reason staff gave (shown to the customer); "Open order" URL button |
+| `mandi_help_reply` | staff reply to a help request (utility, docs/care.md). **New: needs Meta approval; only sent once `HELP_CENTRE=true` and `WHATSAPP_CARE_UPDATES=true`** | name, request number ("HLP-12"), link to the request |
+| `mandi_subscription_due` | a subscription's next box is set up and waits for payment, `SUBSCRIPTION_LEAD_DAYS` before it (utility). **New: needs Meta approval; only sent once `SUBSCRIPTIONS=true` and `WHATSAPP_CARE_UPDATES=true`** | name, box ("2 × Alphonso 3kg Box"), date ("Sat, 17 Oct"), link to the subscription |
 
 An order without a slot says "during the day" in place of the slot.
 

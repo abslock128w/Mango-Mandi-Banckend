@@ -33,9 +33,10 @@ test('by default nothing leaves this computer: no link, no Wi-Fi, codes on scree
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174')
   assert.equal(p.api.OTP_CODE_IN_RESPONSE, undefined)
   assert.equal(p.api.WAREHOUSE_V2, 'true')
-  for (const flag of ['WAREHOUSE_STOCKTAKE', 'WAREHOUSE_REPACK', 'WAREHOUSE_CAMERA_SCAN', 'LIVE_TRACKING', 'FAVOURITES', 'SHOP_SORT_FILTER', 'SHOW_ERROR_DETAILS']) {
+  for (const flag of ['WAREHOUSE_STOCKTAKE', 'WAREHOUSE_REPACK', 'WAREHOUSE_CAMERA_SCAN', 'LIVE_TRACKING', 'FAVOURITES', 'SHOP_SORT_FILTER', 'SHOW_ERROR_DETAILS', 'HELP_CENTRE', 'SUBSCRIPTIONS']) {
     assert.equal(p.api[flag], 'true', flag)
   }
+  assert.match(p.api.SUBSCRIPTION_SEASON_END, /^\d{4}-\d{2}-\d{2}$/)
 })
 
 test('--no-phone (the old way to keep it local) still means local', () => {
