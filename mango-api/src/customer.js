@@ -33,6 +33,9 @@ import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
+import { appFeel } from './app-feel-routes.js'
+import { pushPublicKey } from './push.js'
+import { trackingFor } from './route.js'
 
 export const router = express.Router()
 
@@ -341,7 +344,17 @@ router.get(
  */
 router.get('/policy', (_req, res) => {
   const cfg = getConfig()
-  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours })
+  res.json({
+    holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
+    // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
+    features: {
+      installApp: env.SHOP_INSTALL,
+      push: Boolean(pushPublicKey()),
+      tracking: env.LIVE_TRACKING,
+      favourites: env.FAVOURITES,
+      sortFilter: env.SHOP_SORT_FILTER,
+    },
+  })
 })
 
 /**
@@ -401,6 +414,8 @@ router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/s
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
 router.use(customerReviews)
+// Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
+router.use(appFeel)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -515,6 +530,8 @@ router.post(
     await tx(async (c) => {
       await c.query('UPDATE customers SET session_version = session_version + 1 WHERE id = $1', [req.customer.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [req.customer.id, now()])
+      // A phone left signed in would still show order updates: browser notifications end too.
+      await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [req.customer.id])
     })
     forgetCustomer(req.customer.id)
     logger.info({ customerId: req.customer.id }, 'customer signed out everywhere')
@@ -530,8 +547,8 @@ const exportRows = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r
 /**
  * A copy of everything the shop holds about the customer (DPDP Act; ASVS
  * 8.3.2), as JSON: the account, saved addresses, orders with their items,
- * bookings, claims, ratings, reviews and back-in-stock alerts. Photos are
- * listed, not included.
+ * bookings, claims, ratings, reviews, back-in-stock alerts, favourites and the
+ * browsers with notifications on. Photos are listed, not included.
  */
 router.get(
   '/me/export',
@@ -553,6 +570,11 @@ router.get(
       ratings: await all('SELECT * FROM order_ratings WHERE customer_id = $1'),
       reviews: await all('SELECT * FROM reviews WHERE customer_id = $1 ORDER BY created_at'),
       stockAlerts: await all('SELECT * FROM stock_alerts WHERE customer_id = $1 ORDER BY created_at'),
+      favourites: await all('SELECT sku, created_at FROM customer_favourites WHERE customer_id = $1 ORDER BY created_at'),
+      // Which push service each browser uses and when; the endpoint and keys are capabilities, not data about the customer.
+      notificationBrowsers: (await query('SELECT endpoint, created_at, last_sent_at FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at', [id])).rows.map(
+        (r) => ({ pushService: new URL(r.endpoint).host, createdAt: r.created_at, lastSentAt: r.last_sent_at }),
+      ),
     })
   }),
 )
@@ -934,7 +956,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered, tracking] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -946,6 +968,8 @@ router.get(
       o.status === 'DELIVERED'
         ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
         : { rows: [] },
+      // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
+      env.LIVE_TRACKING ? trackingFor({ query }, o) : null,
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
@@ -981,6 +1005,7 @@ router.get(
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
+      tracking,
       ...proof,
     })
   }),

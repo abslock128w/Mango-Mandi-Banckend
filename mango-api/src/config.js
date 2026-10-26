@@ -43,6 +43,9 @@ const rulesFields = z.object({
   outForDeliveryAlertHours: z.number().int().min(1).max(48).default(8),
   maxPreorderMoves: z.number().int().min(1).max(20).default(3),
   seasonEndsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
+  // Live tracking (LIVE_TRACKING): the rough minutes a rider spends per stop, for the shop's
+  // "N stops away, about M minutes". Older rule versions get the default.
+  minutesPerStop: z.number().int().min(1).max(120).default(10),
   stageProfiles: z.record(z.string(), profile).refine((p) => 'default' in p, 'a "default" profile is required'),
 })
 const retireAfterSellable = [(r) => r.retireAge > r.maxSellableAge, { message: 'retireAge must be greater than maxSellableAge' }]
@@ -76,6 +79,7 @@ export const DEFAULT_RULES = {
   outForDeliveryAlertHours: 8,
   maxPreorderMoves: 3,
   seasonEndsOn: null,
+  minutesPerStop: 10,
   stageProfiles: {
     default: [
       { stage: 'RAW', minAge: 3, maxAge: 3 },

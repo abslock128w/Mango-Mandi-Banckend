@@ -218,6 +218,8 @@ me.get(
       email: req.admin.email, role: req.admin.role,
       // The panel shows the Warehouse area only when it is on, with what this role may do there.
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: ROLE_PERMISSIONS[req.admin.role] ?? [] } : { enabled: false, permissions: [] },
+      // Switchable panel parts (docs/app-feel.md): the riders' Route view on Deliveries (LIVE_TRACKING).
+      features: { riderRoute: env.LIVE_TRACKING },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),
