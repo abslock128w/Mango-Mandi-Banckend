@@ -101,7 +101,7 @@ export default function RepackDetail() {
 
 function BoxTable({ title, boxes, empty }: { title: string; boxes: RepackBox[]; empty: string }) {
   return (
-    <section aria-label={title}>
+    <div>
       <h2>{title}</h2>
       {boxes.length === 0 ? (
         <EmptyState>{empty}</EmptyState>
@@ -139,6 +139,6 @@ function BoxTable({ title, boxes, empty }: { title: string; boxes: RepackBox[]; 
           </table>
         </div>
       )}
-    </section>
+    </div>
   )
 }

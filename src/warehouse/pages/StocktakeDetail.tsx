@@ -94,8 +94,8 @@ export default function StocktakeDetail() {
       {s.status === 'completed' && toReview.length > 0 && <ReviewForm stocktake={s} lines={toReview} />}
       {s.review && <ReviewCard stocktake={s} />}
 
-      <section aria-labelledby="st-lines">
-        <h2 id="st-lines">Boxes that did not match</h2>
+      <div>
+        <h2>Boxes that did not match</h2>
         {s.lines.length === 0 ? (
           <EmptyState>{s.status === 'completed' ? 'Every box was where it was recorded.' : 'Nothing yet: differences show when the count is finished.'}</EmptyState>
         ) : (
@@ -131,7 +131,7 @@ export default function StocktakeDetail() {
             </table>
           </div>
         )}
-      </section>
+      </div>
     </>
   )
 }

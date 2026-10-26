@@ -1669,6 +1669,8 @@ tr.row-flagged td {
     padding: 0;
     border: none;
     text-align: left;
+    /* A long email or code wraps inside its card instead of pushing the page sideways. */
+    overflow-wrap: anywhere;
   }
   .table-cards td.card-title {
     grid-column: 1;
