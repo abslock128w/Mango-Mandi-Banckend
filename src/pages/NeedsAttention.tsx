@@ -13,6 +13,7 @@ const STEP_LABEL: Record<string, string> = {
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
   notifications: 'Sending WhatsApp updates',
+  push: 'Sending browser notifications',
   sweep: 'Releasing unpaid holds',
   'warehouse-sessions': 'Closing idle warehouse scan sessions',
   cleanup: 'Clean-up',

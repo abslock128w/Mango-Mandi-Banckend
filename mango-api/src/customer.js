@@ -37,6 +37,10 @@ import { billFor, billView } from './bills.js'
 import { customerBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
 import { trust } from './trust-config.js'
+import { appFeel } from './app-feel-routes.js'
+import { moveFavourites } from './favourites.js'
+import { movePushSubscriptions, pushPublicKey } from './push.js'
+import { trackingFor } from './route.js'
 
 export const router = express.Router()
 
@@ -345,8 +349,19 @@ router.get(
  */
 router.get('/policy', (_req, res) => {
   const cfg = getConfig()
-  // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
-  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours, bills: trust.bills })
+  res.json({
+    holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
+    // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
+    bills: trust.bills,
+    // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
+    features: {
+      installApp: env.SHOP_INSTALL,
+      push: Boolean(pushPublicKey()),
+      tracking: env.LIVE_TRACKING,
+      favourites: env.FAVOURITES,
+      sortFilter: env.SHOP_SORT_FILTER,
+    },
+  })
 })
 
 /**
@@ -408,6 +423,8 @@ router.use(cartBulk)
 router.use(customerReviews)
 // The bill PDF of the customer's own paid order (BILLS_ENABLED).
 router.use(customerBills)
+// Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
+router.use(appFeel)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -522,6 +539,8 @@ router.post(
     await tx(async (c) => {
       await c.query('UPDATE customers SET session_version = session_version + 1 WHERE id = $1', [req.customer.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [req.customer.id, now()])
+      // A phone left signed in would still show order updates: browser notifications end too.
+      await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [req.customer.id])
     })
     forgetCustomer(req.customer.id)
     logger.info({ customerId: req.customer.id }, 'customer signed out everywhere')
@@ -537,8 +556,8 @@ const exportRows = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r
 /**
  * A copy of everything the shop holds about the customer (DPDP Act; ASVS
  * 8.3.2), as JSON: the account, saved addresses, orders with their items,
- * bookings, claims, ratings, reviews and back-in-stock alerts. Photos are
- * listed, not included.
+ * bookings, claims, ratings, reviews, back-in-stock alerts, favourites and the
+ * browsers with notifications on. Photos are listed, not included.
  */
 router.get(
   '/me/export',
@@ -563,6 +582,11 @@ router.get(
       bills: await all(
         `SELECT b.number, b.kind, b.bill_date, b.total, b.buyer_name, b.buyer_address, b.snapshot -> 'buyer' AS business, b.cancelled_at
            FROM bills b JOIN orders o ON o.id = b.order_id WHERE o.customer_id = $1 ORDER BY b.issued_at`,
+      ),
+      favourites: await all('SELECT sku, created_at FROM customer_favourites WHERE customer_id = $1 ORDER BY created_at'),
+      // Which push service each browser uses and when; the endpoint and keys are capabilities, not data about the customer.
+      notificationBrowsers: (await query('SELECT endpoint, created_at, last_sent_at FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at', [id])).rows.map(
+        (r) => ({ pushService: new URL(r.endpoint).host, createdAt: r.created_at, lastSentAt: r.last_sent_at }),
       ),
     })
   }),
@@ -635,6 +659,9 @@ router.post(
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query('UPDATE reviews SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      // Hearts and notification browsers come along too (docs/app-feel.md); without this the delete below would fail on them.
+      await moveFavourites(c, me.id, target.id)
+      await movePushSubscriptions(c, me.id, target.id)
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
       const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
@@ -967,7 +994,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered, bill] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -980,6 +1007,8 @@ router.get(
         ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
         : { rows: [] },
       trust.bills ? billFor({ query }, o.id) : null,
+      // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
+      env.LIVE_TRACKING ? trackingFor({ query }, o) : null,
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
@@ -1018,6 +1047,7 @@ router.get(
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
+      tracking,
       ...proof,
     })
   }),

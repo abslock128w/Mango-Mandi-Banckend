@@ -12,6 +12,7 @@ import { Dialog, DocTitle, ErrorNote, Skeleton } from '../ui'
 import { storyFor } from '../varieties'
 import { catalogueQuery, productReviewsQuery, productsQuery } from '../queries'
 import { BuySkeleton } from './BuySkeleton'
+import { HeartButton, HeartProblem } from '../favourites'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 /** Reviews shown before "See all", so the page stays short. */
@@ -292,6 +293,8 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           <header className="product-head">
             <div className="product-name">
               <h1 id="product-title">{name ?? <span className="sk-text">Mango box</span>}</h1>
+              {known && <HeartButton sku={known.sku} name={known.name} className="product-heart" />}
+              {known && <HeartProblem sku={known.sku} />}
               {known && <ProductRating sku={known.sku} variety={known.variety} href="#reviews" summary={summary} />}
               {known && (
                 <p className="buy-price">
@@ -362,6 +365,8 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           {!p.photoUrl && <span className="head-art"><MangoArt stage={item?.stage ?? 'RIPE'} size={72} /></span>}
           <div className="product-name">
             <h1 id="product-title">{p.name}</h1>
+            <HeartButton sku={p.sku} name={p.name} className="product-heart" />
+            <HeartProblem sku={p.sku} />
             <ProductRating sku={p.sku} variety={p.variety} href="#reviews" summary={summary} />
             <p className="buy-price">
               <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>

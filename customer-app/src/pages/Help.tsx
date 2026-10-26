@@ -7,14 +7,14 @@
 // The rules quoted (hold, cutoff, days ahead, report window) come from the API's live rules.
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api } from '../api'
 import { STAGE_HINT, STAGE_LABEL, helpLink, helpNumber } from '../format'
+import { policyQuery } from '../queries'
 import type { Stage } from '../api'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
 /** The shop's live rules, for help and terms text. */
-export const usePolicy = () => useQuery({ queryKey: ['policy'], queryFn: api.policy, staleTime: 10 * 60_000 })
+export const usePolicy = () => useQuery(policyQuery())
 
 /** How to reach a person: WhatsApp (link and number). Production builds always have the number. */
 export function SupportContact() {

@@ -219,8 +219,9 @@ me.get(
       email: req.admin.email, role: req.admin.role,
       // The panel shows the Warehouse area only when it is on, with what this role may do there.
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: ROLE_PERMISSIONS[req.admin.role] ?? [] } : { enabled: false, permissions: [] },
-      // Bills, customer profiles and CSV exports (docs/trust.md): which are switched on. The role still decides who may use them.
-      features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports },
+      // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
+      // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
+      features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '../../tests/fixtures'
 import { managerToken } from './staff'
-import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
+import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopFeatures, ShopPolicy, Slot, SlotOnDate, Stage, Tracking, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
 // API sends. Every endpoint the order journey uses is called here, and each
@@ -128,7 +128,12 @@ const PRODUCTS = object<{ items: ProductListing[] }>({
     }),
   ),
 })
-const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int', bills: optional('boolean') })
+const POLICY = object<ShopPolicy>({
+  holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int',
+  bills: optional('boolean'),
+  // App feel switches (docs/app-feel.md).
+  features: optional(object<ShopFeatures>({ installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean' })),
+})
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
 type CartLine = Awaited<ReturnType<typeof api.serverCart>>['lines'][number]
@@ -193,6 +198,8 @@ const ORDER = object<Order>({
     total: 'int', cancelled: 'boolean', cancelledAt: nullable('time'),
   }))),
   business: optional(nullable(object<NonNullable<Order['business']>>({ name: 'string', gstin: 'string' }))),
+  // LIVE_TRACKING: set only while out for delivery with a rider (app-feel.spec.ts checks it with a value).
+  tracking: optional(nullable(object<Tracking>({ stopsAway: 'int', minutesPerStop: 'int', etaMinutes: 'int' }))),
 })
 // The shop does not call it today; checked so a payment poll written later starts from the truth.
 const PAYMENT_STATUS: Spec = { object: { status: nullable(oneOf(PAYMENT)), orderStatus: oneOf(STATUSES) } }

@@ -55,6 +55,16 @@ export default [
     rules: { 'require-await': 'off', 'no-promise-executor-return': 'off' },
   },
   {
+    // The shop's service worker: plain JavaScript served as is (docs/app-feel.md).
+    files: ['customer-app/public/sw.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'script',
+      globals: Object.fromEntries(['self', 'caches', 'fetch', 'Request', 'Response', 'URL', 'console'].map((name) => [name, 'readonly'])),
+    },
+    rules: { 'no-undef': 'error', 'no-unused-vars': ['error', { caughtErrors: 'none' }], 'require-await': 'error', 'no-unreachable': 'error' },
+  },
+  {
     files: ['mango-api/ops/load/**/*.js'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...nodeGlobals, __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly' } },
     rules: { 'no-undef': 'error', 'no-unused-vars': ['error', { caughtErrors: 'none' }] },

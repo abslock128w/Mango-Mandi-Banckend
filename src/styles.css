@@ -1952,3 +1952,99 @@ tr.row-flagged td {
   align-items: center;
   gap: var(--space-2);
 }
+
+/* ---------- Rider route, one stop at a time (LIVE_TRACKING, docs/app-feel.md) ---------- */
+
+.route-switch {
+  margin-bottom: var(--space-3);
+}
+.btn-big {
+  min-height: 56px;
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+.route-start .btn-big {
+  width: 100%;
+}
+.route-current h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-1);
+}
+.route-address {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-2);
+}
+/* The two main buttons, side by side; on a phone they are fixed to the bottom of the screen, under the
+   thumb, whatever the rider scrolls to, and the route leaves room below its list so nothing hides under them. */
+.route-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+@media (max-width: 640px) {
+  .route-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    margin: 0;
+    padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .rider-route.has-current {
+    padding-bottom: calc(56px + 2 * var(--space-2) + var(--space-4) + env(safe-area-inset-bottom));
+  }
+}
+.route-list-title {
+  font-size: var(--text-md);
+  margin: var(--space-4) 0 var(--space-2);
+}
+.route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.route-stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.route-stop:first-child {
+  border-top: none;
+}
+.route-stop.current {
+  background: var(--green-100);
+  margin: 0 calc(-1 * var(--space-2));
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  border-radius: var(--radius);
+}
+.route-n {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+.route-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.route-who .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

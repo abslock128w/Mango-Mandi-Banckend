@@ -6,6 +6,7 @@ import { STAGE_LABEL, day } from '../format'
 import { useStore } from '../store'
 import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 import { MyReviews } from './Review'
+import { FavouritesCard, NotificationsCard } from './AppFeelCards'
 
 export default function Account() {
   const { profile } = useStore()
@@ -53,7 +54,11 @@ export default function Account() {
         <ErrorNote error={everywhere.error} />
       </section>
 
+      <FavouritesCard />
+
       <Messages />
+
+      <NotificationsCard />
 
       <SavedAddresses />
 

@@ -15,6 +15,7 @@ import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
+import { enqueueOrderPush, noRetryPush } from './push.js'
 import { trackedLine } from './warehouse/core.js'
 import { assertBoxesReadyFor, assertNoTrackedCommitted, restockPacked } from './warehouse/stock.js'
 
@@ -206,6 +207,8 @@ const CONFIRMATION_RELEASED = 'held, then sent again once stock was found'
  */
 async function holdConfirmation(c, orderId, eventId) {
   await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1 AND status = 'PENDING'`, [eventId, CONFIRMATION_HELD])
+  // The browser notification (WEB_PUSH) says "confirmed" too: held the same way.
+  await c.query(`UPDATE push_messages SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1 AND status = 'PENDING'`, [eventId, CONFIRMATION_HELD])
 }
 
 /** Once the order has its stock, the held confirmation goes out with the date it will really come (a fresh row, same kinds). */
@@ -214,11 +217,16 @@ async function releaseHeldConfirmation(c, orderId) {
     `UPDATE notifications SET last_error = $3 WHERE order_id = $1 AND status = 'SKIPPED' AND last_error = $2 RETURNING kind`,
     [orderId, CONFIRMATION_HELD, CONFIRMATION_RELEASED],
   )
-  if (!rows.length) return
+  const { rows: pushed } = await c.query(
+    `UPDATE push_messages SET last_error = $3 WHERE order_id = $1 AND status = 'SKIPPED' AND last_error = $2 RETURNING kind`,
+    [orderId, CONFIRMATION_HELD, CONFIRMATION_RELEASED],
+  )
+  if (!rows.length && !pushed.length) return
   const eventId = newId('cnf')
-  for (const kind of new Set(rows.map((r) => r.kind))) {
-    await enqueue(c, orderId, eventId, kind, kind === 'RIPENESS_GUIDE' ? { delayMs: 60_000 } : {})
-  }
+  const kinds = new Set(rows.map((r) => r.kind))
+  // enqueue() queues the WhatsApp message and its push together.
+  for (const kind of kinds) await enqueue(c, orderId, eventId, kind, kind === 'RIPENESS_GUIDE' ? { delayMs: 60_000 } : {})
+  for (const kind of new Set(pushed.map((r) => r.kind))) if (!kinds.has(kind)) await enqueueOrderPush(c, orderId, eventId, kind)
 }
 
 /**
@@ -698,6 +706,8 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     // The usual message promises a retry date the boxes can't make; a manager decides first (INV-E).
     await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'retry needs a manager: stock too old for the retry date' WHERE event_id = $1`, [eventId])
   }
+  // The browser notification must not promise a retry either: it says we'll be in touch.
+  if (attemptsUsedUp || retryStuck) await noRetryPush(c, eventId)
   if (to === 'DELIVERY_FAILED') await rebalanceOrder(c, o.id, actor)
   if (['DELIVERED', 'RTO'].includes(to)) await c.query('UPDATE orders SET at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id])
 }

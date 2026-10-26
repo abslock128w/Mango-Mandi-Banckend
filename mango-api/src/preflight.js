@@ -4,6 +4,8 @@
 // whole list (and checks the database) without starting the server.
 import { checkTrustProduction, readTrustConfig } from './trust-config.js'
 
+import { pushProblems } from './push-checks.js'
+
 export const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
 
 /** A Neon endpoint without its -pooler suffix, so the pooled and direct URLs compare equal. */
@@ -109,6 +111,9 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   const trustCheck = checkTrustProduction(readTrustConfig({ ...process.env, ...env, NODE_ENV: 'production' }))
   errors.push(...trustCheck.errors)
   warnings.push(...trustCheck.warnings)
+  const push = pushProblems(env)
+  errors.push(...push.errors)
+  warnings.push(...push.warnings)
 
   return { errors, warnings }
 }

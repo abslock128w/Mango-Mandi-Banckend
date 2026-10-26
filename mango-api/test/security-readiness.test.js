@@ -89,8 +89,10 @@ const POLICY = JSON.parse(readFileSync(new URL('./fixtures/role-policy.json', im
 
 /**
  * Customer routes that name one of the customer's own objects (in the path or
- * the body), each proven below. EXEMPT: keyed to the caller's own cart, so
- * there is no other customer's object to reach.
+ * the body), each proven below. EXEMPT: keyed to the caller's own cart or
+ * favourites list (the :sku is a box in the public catalogue), so there is no
+ * other customer's object to reach; test/app-feel.test.js shows one customer
+ * can't take another's heart away.
  */
 const ISOLATION_CASES = [
   'GET /v1/orders/:id', 'GET /v1/orders/:id/bill', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
@@ -100,7 +102,7 @@ const ISOLATION_CASES = [
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
 ]
-const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId']
+const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
 describe('every route is filed', () => {
   test('the whole app matches the reviewed inventory (test/fixtures/route-inventory.json)', () => {

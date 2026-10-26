@@ -8,6 +8,7 @@ import { dispatchOrder, FAIL_REASONS, MAX_PHOTO_BYTES, photo, photoReviews, reco
 import { query, tx } from '../db.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { productName } from '../products.js'
+import { ROUTE_ORDER } from '../route.js'
 
 export const router = express.Router()
 
@@ -34,7 +35,7 @@ router.get(
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
          LEFT JOIN admin_users r ON r.id = o.rider_id
         WHERE o.delivery_date = $1 AND o.status = ANY($2) ${rider ? 'AND o.rider_id = $3' : ''}
-        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, o.number`,
+        ORDER BY ${ROUTE_ORDER}`,
       rider ? [date, statuses, req.admin.id] : [date, statuses],
     )
     // Packed stops nobody has yet: a rider can take them by starting the run (they see only how many).

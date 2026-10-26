@@ -10,6 +10,8 @@
   "DELETE /v1/cart/items/:sku": "customer",
   "DELETE /v1/me": "customer",
   "DELETE /v1/me/addresses/:id": "customer",
+  "DELETE /v1/me/favourites/:sku": "customer",
+  "DELETE /v1/me/push/subscription": "customer",
   "DELETE /v1/reviews/:id": "customer",
   "DELETE /v1/stock-alerts/:id": "customer",
   "GET /admin/v1/analytics": "staff",
@@ -93,6 +95,8 @@
   "GET /v1/me": "customer",
   "GET /v1/me/addresses": "customer",
   "GET /v1/me/export": "customer",
+  "GET /v1/me/favourites": "customer",
+  "GET /v1/me/push": "customer",
   "GET /v1/me/reviews": "customer",
   "GET /v1/orders": "customer",
   "GET /v1/orders/:id": "customer",
@@ -221,6 +225,7 @@
   "POST /v1/dev/pay": "dev-only",
   "POST /v1/dev/pay-preorder": "dev-only",
   "POST /v1/dev/reconcile": "dev-only",
+  "POST /v1/me/favourites/merge": "customer",
   "POST /v1/me/phone/request": "customer",
   "POST /v1/me/phone/verify": "customer",
   "POST /v1/me/sign-out-everywhere": "customer",
@@ -241,5 +246,7 @@
   "PUT /admin/v1/preorder-capacity/:weekStart/:sku": "staff",
   "PUT /admin/v1/products/:sku/photo": "staff",
   "PUT /admin/v1/reviews/:id/reply": "staff",
+  "PUT /v1/me/favourites/:sku": "customer",
+  "PUT /v1/me/push/subscription": "customer",
   "PUT /v1/orders/:id/rating": "customer"
 }

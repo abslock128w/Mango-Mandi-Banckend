@@ -93,8 +93,13 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
   test('GET /v1/policy gives the live rules the help and terms pages quote', async () => {
     const r = await api.get('/v1/policy')
     assert.equal(r.status, 200)
-    // bills: whether checkout takes business details for the bill (on outside production: trust-config.js).
-    assert.deepEqual(r.body, { holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24, bills: true })
+    assert.deepEqual(r.body, {
+      holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24,
+      // bills: whether checkout takes business details for the bill (on outside production: trust-config.js).
+      bills: true,
+      // App feel switches (docs/app-feel.md): all off unless set.
+      features: { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false },
+    })
   })
 
   test('the quote says how many minutes the boxes are held', async () => {

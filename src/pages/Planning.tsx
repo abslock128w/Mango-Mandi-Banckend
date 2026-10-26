@@ -667,10 +667,11 @@ const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'lowStockThreshold', label: 'Low stock alert (boxes)', hint: 'Shown on Today at or below this.' },
   { key: 'outForDeliveryAlertHours', label: 'Out for delivery alert (hours)', hint: 'An order out for delivery longer than this shows as overdue.' },
   { key: 'maxPreorderMoves', label: 'Preorder moves before review', hint: 'A preorder moved forward more weeks than this waits for a manager.' },
+  { key: 'minutesPerStop', label: 'Minutes per delivery stop', hint: 'For the shop\'s "your rider is N stops away, about M minutes" (1 to 120).' },
 ]
 
 /** What the API uses for rules an older rules version doesn't have yet. */
-const RULE_DEFAULTS: Partial<Record<keyof Rules, number>> = { outForDeliveryAlertHours: 8, maxPreorderMoves: 3 }
+const RULE_DEFAULTS: Partial<Record<keyof Rules, number>> = { outForDeliveryAlertHours: 8, maxPreorderMoves: 3, minutesPerStop: 10 }
 
 function RulesCard() {
   const { me } = useSession()

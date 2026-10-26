@@ -14,8 +14,9 @@ export interface Me {
   twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
   /** The box-tracked warehouse: off unless the API has it switched on; the permissions this role holds there. */
   warehouse?: { enabled: boolean; permissions: string[] }
-  /** Bills, customer profiles and CSV exports (docs/trust.md): which are switched on. The role still decides who may use them. */
-  features?: { bills: boolean; customerProfiles: boolean; exports: boolean }
+  /** Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view
+   *  (docs/app-feel.md). An older API leaves a field out, which means off. The role still decides who may use them. */
+  features?: { bills?: boolean; customerProfiles?: boolean; exports?: boolean; riderRoute?: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -516,6 +517,8 @@ export interface Rules {
   outForDeliveryAlertHours?: number
   /** A preorder moved forward more times than this waits for a manager. */
   maxPreorderMoves?: number
+  /** Live tracking: rough minutes a rider spends per stop, for "N stops away" (docs/app-feel.md). */
+  minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
   seasonEndsOn?: string | null
   stageProfiles: Record<string, StageWindow[]>
