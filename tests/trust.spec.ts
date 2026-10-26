@@ -102,6 +102,20 @@ test('an operator finds a customer by phone, sees the masked number, reveals it 
   await expect(page.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
 })
 
+test('every opening of a profile is fetched (and so audited), even straight back from an order', async ({ page }) => {
+  const api = await staff(page, 'MANAGER')
+  const views = () => api.calls.filter((c) => c.method === 'GET' && c.path === `/customers/${PROFILE.id}`).length
+  await page.goto(`/customers/${PROFILE.id}`)
+  await expect(page.getByRole('heading', { name: 'Asha Rao', level: 1 })).toBeVisible()
+  expect(views()).toBe(1)
+  await page.getByRole('region', { name: /^Orders/ }).getByRole('link', { name: /ORD-1042/ }).click()
+  await expect(page.getByRole('heading', { name: /ORD-1042/ })).toBeVisible()
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Asha Rao', level: 1 })).toBeVisible()
+  // Within seconds of the first view: a cached profile would have been shown without asking the API.
+  await expect.poll(views).toBe(2)
+})
+
 test('a manager’s export card checks the range before anything is sent', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 })
   await staff(page, 'MANAGER')

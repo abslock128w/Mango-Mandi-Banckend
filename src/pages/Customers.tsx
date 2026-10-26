@@ -109,7 +109,17 @@ export function CustomerProfilePage() {
   const { me } = useSession()
   const { id = '' } = useParams()
   const allowed = trustAllowed(me, 'customerProfiles')
-  const q = useQuery({ queryKey: ['customer', id], queryFn: () => api.customer(id), enabled: allowed, staleTime: 60_000 })
+  // Every opening of a profile is a view the API must record, so the profile is never shown from a
+  // cache: fetched on each mount, dropped on leaving, and not refetched just because the tab regained focus.
+  const q = useQuery({
+    queryKey: ['customer', id],
+    queryFn: () => api.customer(id),
+    enabled: allowed,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  })
   usePageTitle(q.data ? (q.data.name ?? 'Customer') : q.isError ? 'Customer not found' : 'Customer')
   if (!allowed) return <NotFound notAllowed />
   if (q.isPending) return <Spinner />
