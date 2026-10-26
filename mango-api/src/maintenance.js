@@ -27,7 +27,7 @@ import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreor
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
-import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
+import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { anonymiseOldOrders, pruneNotifications } from './retention.js'
@@ -275,6 +275,10 @@ async function steps(forceAll) {
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
   out.refundChecks = await step('refund-checks', () => reconcileRefunds(), { sliceMs: SLICE.duplicates })
+  // PAY-08: once a day, every payment Razorpay captured in the last 3 days is matched or listed.
+  if (env.PAYMENT_DAILY_RECON && (forceAll || t - (last['payment-recon'] ?? 0) > DAILY_MS)) {
+    out.paymentRecon = await step('payment-recon', () => reconcileRecentPayments(), { sliceMs: SLICE.reconcile })
+  }
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
@@ -309,13 +313,17 @@ async function steps(forceAll) {
 export async function checkHealth(out = {}, at = now()) {
   const { rows } = await query(
     `SELECT (SELECT COUNT(*)::int FROM notifications WHERE status = 'PENDING' AND next_attempt_at < $1) AS messages,
-            (SELECT COUNT(*)::int FROM orders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
-          + (SELECT COUNT(*)::int FROM preorders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
-          + (SELECT COUNT(*)::int FROM duplicate_payments WHERE found_at < $2 AND refunded_at IS NULL) AS refunds,
+            (SELECT COUNT(*)::int FROM orders WHERE refund_requested_at < $2 AND refunded_at IS NULL AND NOT ($5 AND ${disputeHolds('orders.payment_id')}))
+          + (SELECT COUNT(*)::int FROM preorders WHERE refund_requested_at < $2 AND refunded_at IS NULL AND NOT ($5 AND ${disputeHolds('preorders.payment_id')}))
+          + (SELECT COUNT(*)::int FROM duplicate_payments WHERE found_at < $2 AND refunded_at IS NULL
+                AND NOT ($5 AND ${disputeHolds('duplicate_payments.payment_id')})) AS refunds,
             (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'razorpay' AND created_at > $3 AND resolved_at IS NULL) AS webhooks,
             (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > $4) AS failed,
             (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done`,
-    [new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS)],
+    [
+      new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS),
+      env.REFUND_SAFETY_CHECKS,
+    ],
   )
   const h = rows[0]
   const problems = []

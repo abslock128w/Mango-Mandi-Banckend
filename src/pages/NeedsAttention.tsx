@@ -25,6 +25,7 @@ const STEP_LABEL: Record<string, string> = {
   'review-stats': 'Review totals check',
   backup: 'Nightly backup',
   'refund-checks': 'Checking refunds with Razorpay',
+  'payment-recon': "Daily check of Razorpay's payments",
   'stock-alerts': 'Sending back-in-stock alerts',
   reminders: 'Sending reorder reminders',
   retention: 'Removing old personal data',
@@ -216,9 +217,19 @@ export default function NeedsAttention() {
     },
     { key: 'refunds', title: 'Refunds not sent', items: a.stuckRefunds.map((r) => (
       <li key={`${r.type}-${r.id}-${r.number}`}>
-        <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
-        for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
-        {manager && (r.state ?? 'unsent') === 'unsent' ? (
+        {r.state === 'held' ? (
+          <>
+            <strong>Refund held</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked for
+            at {dateTime(r.requestedAt)}: the payment has a chargeback (see Payment disputes). It goes out on its own if we win the
+            dispute. If the bank gave the money back, record it as paid back another way with the dispute id.
+          </>
+        ) : (
+          <>
+            <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
+            for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+          </>
+        )}
+        {manager && (r.state ?? 'unsent') !== 'unconfirmed' ? (
           <>
             {' '}
             <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'settle', refund: r })}>

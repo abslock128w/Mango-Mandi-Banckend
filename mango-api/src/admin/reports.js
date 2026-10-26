@@ -7,10 +7,12 @@ import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
 import { photoReviews } from '../delivery-proof.js'
 import { query } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
 import { auditLedger, SELLABLE_STATUSES } from '../inventory.js'
 import { backupStatus } from '../maintenance.js'
 import { MAX_DELIVERY_ATTEMPTS } from '../orders.js'
+import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
 import { overdueOrders, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 
@@ -106,14 +108,18 @@ router.get(
         [week],
       ),
       query(
-        `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id, 'unsent' AS state FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+        `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id,
+                CASE WHEN $3 AND ${disputeHolds('orders.payment_id')} THEN 'held' ELSE 'unsent' END AS state
+           FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
-         SELECT 'preorder', id, number, refund_requested_at, NULL, 'unsent' FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
+         SELECT 'preorder', id, number, refund_requested_at, NULL, CASE WHEN $3 AND ${disputeHolds('preorders.payment_id')} THEN 'held' ELSE 'unsent' END
+           FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
          -- A second payment, or a payment that matched no order (type 'payment', its id as the id).
          SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
                 COALESCE(d.order_id, d.preorder_id, d.payment_id),
-                COALESCE(o.number || ' (second payment)', p.number || ' (second payment)', d.payment_id || ' (payment with no order)'), d.found_at, d.payment_id, 'unsent'
+                COALESCE(o.number || ' (second payment)', p.number || ' (second payment)', d.payment_id || ' (payment with no order)'), d.found_at, d.payment_id,
+                CASE WHEN $3 AND ${disputeHolds('d.payment_id')} THEN 'held' ELSE 'unsent' END
            FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
           WHERE d.found_at < $1 AND d.refunded_at IS NULL
          UNION ALL
@@ -129,7 +135,7 @@ router.get(
                 d.found_at, d.payment_id, 'unconfirmed'
            FROM duplicate_payments d WHERE d.refund_status = 'pending' AND d.refunded_at < $2
          ORDER BY refund_requested_at LIMIT 50`,
-        [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000)],
+        [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000), env.REFUND_SAFETY_CHECKS],
       ),
       // Not yet marked resolved; payment problems stay listed at any age (PAY-04). refundable: a captured payment that still matches nothing we hold.
       query(
@@ -187,7 +193,8 @@ router.get(
         id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
-      // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent.
+      // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent;
+      // 'held': not sent while a chargeback on the payment is open or was lost (PAY-06, REFUND_SAFETY_CHECKS).
       stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state })),
       // Missed too many times: someone calls the customer, then sends it out again from the order page.
       failedDeliveries: calls.rows.map((o) => ({

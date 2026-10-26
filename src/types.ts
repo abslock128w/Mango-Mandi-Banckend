@@ -600,9 +600,17 @@ export interface Attention {
   }[]
   /**
    * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
-   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way).
+   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way);
+   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06).
    */
-  stuckRefunds: { type: 'order' | 'preorder' | 'payment'; id: string; number: string; requestedAt: string; paymentId?: string | null; state?: 'unsent' | 'unconfirmed' }[]
+  stuckRefunds: {
+    type: 'order' | 'preorder' | 'payment'
+    id: string
+    number: string
+    requestedAt: string
+    paymentId?: string | null
+    state?: 'unsent' | 'unconfirmed' | 'held'
+  }[]
   /** Not yet marked resolved. refundable: a captured payment that still matches nothing (a manager may refund it). */
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string; paymentId?: string | null; refundable?: boolean }[]
   /** Chargebacks still open at Razorpay; answered in the Razorpay dashboard. */

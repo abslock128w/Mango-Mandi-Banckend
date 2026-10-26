@@ -17,6 +17,7 @@ import { forgetStaff, requireManager } from '../auth.js'
 import { background } from '../background.js'
 import { now } from '../clock.js'
 import { query, tx } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, conflict, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { auditLedger, ledger } from '../inventory.js'
@@ -260,6 +261,13 @@ router.post(
     } catch (err) {
       if (err instanceof HttpError) throw err
       logger.warn({ err, id: req.params.id }, 'could not check Razorpay before recording a refund paid another way')
+      // PAY-05: this route exists for "sent, then the save failed", exactly when Razorpay may hold a refund we don't.
+      if (env.REFUND_SAFETY_CHECKS) {
+        throw conflict(
+          "Razorpay could not be checked just now, so we can't tell whether it already sent this refund. Try again in a few minutes; recording it now could pay the customer twice.",
+          'RAZORPAY_UNCHECKED',
+        )
+      }
       checkNote = ' (Razorpay could not be checked)'
     }
     const out = await tx(async (c) => {

@@ -160,6 +160,36 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Fixes from the 24 Oct 2026 audit that change what staff, customers or the
+  // background run may do (docs/audit-2026-10-24-status-A.md). Each is off
+  // unless set to true, so turning one off is the rollback.
+  // PAY-05, PAY-06: "paid back another way" is refused while Razorpay can't be
+  // checked, and no refund goes out automatically while a chargeback is open.
+  REFUND_SAFETY_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // PAY-08: once a day, every payment Razorpay captured in the last 3 days is
+  // matched to an order or booking, or listed in Needs attention.
+  PAYMENT_DAILY_RECON: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // INV-01, INV-07, INV-10: a reschedule never overfills a delivery slot, only a
+  // manager cancels a free replacement, and a chat order re-checks its pincode.
+  ORDER_RULE_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // INV-02, INV-08: a batch intake sent twice (same Idempotency-Key) makes one
+  // batch, a big intake needs a manager, and stock still in transit after its
+  // arrival date stops selling to new orders.
+  STOCK_INTAKE_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // With STOCK_INTAKE_CHECKS: the most boxes a non-manager may bring in with one batch.
+  BATCH_INTAKE_MANAGER_BOXES: z.coerce.number().int().min(1).max(100_000).default(1000),
 })
 
 // Empty values (KEY= in .env) mean "use the default".
