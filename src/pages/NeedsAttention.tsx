@@ -219,11 +219,19 @@ export default function NeedsAttention() {
     },
     { key: 'refunds', title: 'Refunds not sent', items: a.stuckRefunds.map((r) => (
       <li key={`${r.type}-${r.id}-${r.number}`}>
-        {r.state === 'held' ? (
+        {r.state === 'held' && disputeOpen(r) ? (
           <>
             <strong>Refund held</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked for
-            at {dateTime(r.requestedAt)}: the payment has a chargeback (see Payment disputes). It goes out on its own if we win the
-            dispute. If the bank gave the money back, record it as paid back another way with the dispute id.
+            at {dateTime(r.requestedAt)}: the customer opened chargeback {r.dispute?.id ?? 'a chargeback'} on the payment (see Payment
+            disputes). Answer it in the Razorpay dashboard. If we win, the refund goes out on its own; if we lose, the bank has given
+            the money back and you record it here.
+          </>
+        ) : r.state === 'held' ? (
+          <>
+            <strong>Refund held</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked for
+            at {dateTime(r.requestedAt)}: chargeback {r.dispute?.id} was {humanize(r.dispute?.status ?? 'lost').toLowerCase()}, so the
+            bank has already given the customer the money back. Record it as paid back another way, with the dispute id as the
+            reference, so it is not refunded twice.
           </>
         ) : (
           <>
@@ -231,7 +239,7 @@ export default function NeedsAttention() {
             for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
           </>
         )}
-        {manager && (r.state ?? 'unsent') !== 'unconfirmed' ? (
+        {manager && (r.state ?? 'unsent') !== 'unconfirmed' && !disputeOpen(r) ? (
           <>
             {' '}
             <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'settle', refund: r })}>
@@ -421,6 +429,8 @@ function DoubtDialog({ d, pending, error, onClose, onSave }: { d: PhotoDelivery;
 
 type Hook = Attention['webhookFailures'][number]
 type StuckRefund = Attention['stuckRefunds'][number]
+/** A held refund whose chargeback the bank has not decided yet: nothing to settle until it does (the API refuses it too). */
+const disputeOpen = (r: StuckRefund) => r.state === 'held' && !['won', 'lost', 'closed'].includes(r.dispute?.status ?? 'open')
 type PreorderDecision = NonNullable<Attention['preorderDecisions']>[number]
 /** A manager's way out of one item (each is recorded in the staff activity with its reason). */
 type Act =
@@ -444,7 +454,9 @@ function RecoveryDialog({
   onSave: (reason: string, reference?: string) => void
 }) {
   const refId = useId()
-  const [reference, setReference] = useState('')
+  // A refund held by a lost chargeback is settled with the dispute id as the reference.
+  const chargedBack = act.kind === 'settle' && act.refund.state === 'held' ? act.refund.dispute : null
+  const [reference, setReference] = useState(chargedBack?.id ?? '')
   const common = { busy: pending, error, onClose, maxLength: 500 }
   if (act.kind === 'resolve') {
     return (
@@ -487,6 +499,26 @@ function RecoveryDialog({
         onSubmit={(r) => onSave(r)}
       >
         <p className="muted">{act.preorder.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  if (chargedBack) {
+    return (
+      <ReasonDialog
+        {...common}
+        title={`Paid back by the bank: ${act.refund.number}`}
+        label="What you checked"
+        confirmLabel="Record as paid back"
+        hint="Check in the Razorpay dashboard that the bank decided the chargeback against us. Retries stop; it still counts as a refund in reports."
+        onSubmit={(r) => onSave(r, reference.trim())}
+      >
+        <div className="field">
+          <label htmlFor={refId}>Dispute id</label>
+          <input id={refId} value={reference} maxLength={100} onChange={(e) => setReference(e.target.value)} aria-describedby={`${refId}-hint`} />
+          <p id={`${refId}-hint`} className="hint">
+            The chargeback that gave the customer the money back ({humanize(chargedBack.status).toLowerCase()}).
+          </p>
+        </div>
       </ReasonDialog>
     )
   }

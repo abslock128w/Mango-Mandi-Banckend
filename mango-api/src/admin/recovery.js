@@ -23,7 +23,7 @@ import { newId } from '../ids.js'
 import { auditLedger, ledger } from '../inventory.js'
 import { logger } from '../logger.js'
 import { addEvent } from '../orders.js'
-import { knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
+import { DISPUTE_DECIDED, holdingDispute, knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
 import { preordersNeedingDecision } from '../stock-watch.js'
 
 export const router = express.Router()
@@ -232,7 +232,9 @@ const REFUND_TABLES = {
  * it), marked refund_status 'manual' and refund_id 'manual:<reference>'.
  * type: order, preorder, or payment (a second payment or one that matched no
  * order, by its payment id). Not while a refund attempt holds the lease, and
- * not when Razorpay already shows a refund for the payment.
+ * not when Razorpay already shows a refund for the payment. With
+ * REFUND_SAFETY_CHECKS, not while a chargeback on the payment is still open
+ * (a lost one is settled here, with the dispute id as the reference).
  */
 router.post(
   '/refunds/:id/paid-another-way',
@@ -253,6 +255,16 @@ router.post(
       throw conflict('This refund is already recorded as sent', 'ALREADY_REFUNDED')
     }
     if (at - row[t.requested] < REFUND_STUCK_MS) throw conflict('This refund was asked for less than 30 minutes ago. Give Razorpay time to send it.', 'REFUND_NOT_STUCK')
+    // PAY-06: while a chargeback is open the bank may still give the money back itself; paying now could pay twice.
+    if (env.REFUND_SAFETY_CHECKS) {
+      const d = await holdingDispute(row.payment_id)
+      if (d && !DISPUTE_DECIDED.includes(d.status)) {
+        throw conflict(
+          `Chargeback ${d.id} on this payment is still open, so the bank may give the customer the money back itself. Answer it in the Razorpay dashboard and wait for the bank's decision.`,
+          'DISPUTE_OPEN',
+        )
+      }
+    }
     // Razorpay may have taken a refund we never recorded (sent, then the save failed): that one counts, not a second payout.
     let checkNote = ''
     try {

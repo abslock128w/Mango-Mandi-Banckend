@@ -643,6 +643,23 @@ export async function claimRefund(table, id, at = now()) {
  */
 export const disputeHolds = (col) => `EXISTS (SELECT 1 FROM payment_disputes pd WHERE pd.payment_id = ${col} AND pd.status <> 'won')`
 
+/** Dispute states in which the bank has decided; any other state is still open. */
+export const DISPUTE_DECIDED = ['won', 'lost', 'closed']
+
+/**
+ * The dispute that holds a payment's refund (PAY-06): the latest one not won,
+ * as { id, status }, or null. While its status is not in DISPUTE_DECIDED the
+ * bank has not decided yet.
+ */
+export async function holdingDispute(paymentId, c = { query }) {
+  if (!paymentId) return null
+  const { rows } = await c.query(
+    `SELECT dispute_id, status FROM payment_disputes WHERE payment_id = $1 AND status <> 'won' ORDER BY updated_at DESC, dispute_id LIMIT 1`,
+    [paymentId],
+  )
+  return rows[0] ? { id: rows[0].dispute_id, status: rows[0].status } : null
+}
+
 /**
  * PAY-B2: Razorpay treats a refund's `receipt` as an idempotency key ("Create
  * a Normal Refund"), so a refund sent again after one failed needs a new one.
@@ -711,13 +728,24 @@ export async function refundOrder(orderId) {
   }
 }
 
-/** Retries refunds that were requested but not yet sent. */
+/**
+ * Retries refunds that were requested but not yet sent. Refunds a chargeback
+ * holds (PAY-06) are left out of the pick, so held ones never fill the batch
+ * and keep the rest waiting; claimRefund checks again.
+ */
 export async function processDueRefunds() {
+  const safety = env.REFUND_SAFETY_CHECKS
   const { rows } = await query(
-    'SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50',
+    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('orders.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
   )
   let n = 0
-  const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
+  const pre = await query(
+    `SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('preorders.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
+  )
   for (const p of pre.rows) {
     if (!canStartCall(GATEWAY_CALL_MS)) return n
     try {

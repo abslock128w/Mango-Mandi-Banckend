@@ -221,6 +221,63 @@ describe('PAY-06: refunds while a chargeback is open', () => {
     assert.equal(att.body.stuckRefunds.find((r) => r.paymentId === 'pay_disp')?.state, 'held')
   })
 
+  test('50 refunds held by lost chargebacks do not stop a newer refund from going out', async () => {
+    env.REFUND_SAFETY_CHECKS = true
+    const { order } = await paidOrder()
+    const old = new Date(now().getTime() - 2 * DAY)
+    // 50 older cancelled paid orders (copies of this one), each with a lost chargeback.
+    await tx(async (c) => {
+      await c.query('CREATE TEMP TABLE held_src ON COMMIT DROP AS SELECT o.*, g FROM orders o, generate_series(1, 50) g WHERE o.id = $1', [order.orderId])
+      await c.query(
+        `UPDATE held_src SET id = 'ord_held' || g, number = 'HELD-' || g, payment_id = 'pay_held' || g, razorpay_order_id = NULL,
+                status = 'CANCELLED', refund_requested_at = $1::timestamptz + g * interval '1 second'`,
+        [old],
+      )
+      await c.query('ALTER TABLE held_src DROP COLUMN g')
+      await c.query('INSERT INTO orders SELECT * FROM held_src')
+      await c.query(
+        `INSERT INTO payment_disputes (dispute_id, payment_id, order_id, status, last_event, created_at, updated_at)
+         SELECT 'disp_held' || g, 'pay_held' || g, 'ord_held' || g, 'lost', 'payment.dispute.lost', $1, $1 FROM generate_series(1, 50) g`,
+        [old],
+      )
+    })
+    // The undisputed one: cancelled, its first refund attempt lost (only the request is recorded).
+    await query(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = $2, refund_requested_at = $2 WHERE id = $1`, [order.orderId, now()])
+    later(31 * MIN)
+    assert.equal(await processDueRefunds(), 1)
+    const o = await ord(order.orderId)
+    assert.match(o.refund_id ?? '', /^rfnd_dev_/)
+    const held = (await query(`SELECT COUNT(*)::int AS n FROM orders WHERE id LIKE 'ord_held%' AND refunded_at IS NULL`)).rows[0].n
+    assert.equal(held, 50, 'the held ones stay held')
+  })
+
+  test('"paid back another way" is refused while the chargeback is open, and accepted once it is lost', async () => {
+    env.REFUND_SAFETY_CHECKS = true
+    const { cust, order } = await paidOrder()
+    await query(`UPDATE orders SET payment_id = 'pay_disp' WHERE id = $1`, [order.orderId])
+    await dispute('open')
+    assert.equal((await api.post(`/v1/orders/${order.orderId}/cancel`, {}, { token: cust.accessToken })).status, 204)
+    await drainBackground()
+    later(31 * MIN)
+    const settle = () =>
+      api.post(`/admin/v1/refunds/${order.orderId}/paid-another-way`, { type: 'order', reference: 'disp_auda', reason: 'the bank returned it' }, { token: manager })
+    const r = await settle()
+    assert.equal(r.status, 409, JSON.stringify(r.body))
+    assert.equal(r.body.error.code, 'DISPUTE_OPEN')
+    let o = await ord(order.orderId)
+    assert.deepEqual([o.refund_id, o.refunded_at, o.payment_status], [null, null, 'SUCCEEDED'])
+    // Needs attention says which dispute holds it and that it is still open.
+    let att = await api.get('/admin/v1/attention', { token: manager })
+    assert.deepEqual(att.body.stuckRefunds.find((x) => x.id === order.orderId)?.dispute, { id: 'disp_auda', status: 'open' })
+    await dispute('lost')
+    att = await api.get('/admin/v1/attention', { token: manager })
+    assert.deepEqual(att.body.stuckRefunds.find((x) => x.id === order.orderId)?.dispute, { id: 'disp_auda', status: 'lost' })
+    const ok = await settle()
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    o = await ord(order.orderId)
+    assert.deepEqual([o.refund_id, o.refund_status, o.payment_status], ['manual:disp_auda', 'manual', 'REFUNDED'])
+  })
+
   test('with the flag off the refund goes out as before (rollback)', async () => {
     const { cust, order } = await paidOrder()
     await query(`UPDATE orders SET payment_id = 'pay_disp' WHERE id = $1`, [order.orderId])

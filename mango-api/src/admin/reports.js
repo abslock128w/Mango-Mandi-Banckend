@@ -86,6 +86,11 @@ router.get(
 // ---------------------------------------------------------------- needs attention
 
 const LOOP_STALE_MS = 5 * 60_000
+/** SQL: the dispute that holds the refund of the payment in `col` ({ id, status } as json), or null (PAY-06). */
+const disputeOf = (col) =>
+  `(SELECT json_build_object('id', pd.dispute_id, 'status', pd.status) FROM payment_disputes pd
+     WHERE pd.payment_id = ${col} AND pd.status <> 'won' ORDER BY pd.updated_at DESC, pd.dispute_id LIMIT 1)`
+
 const REFUND_STUCK_MS = 30 * 60_000
 const maskPhone = (p) => (p ? `${p.slice(0, -6)}••••${p.slice(-2)}` : null)
 
@@ -109,30 +114,33 @@ router.get(
       ),
       query(
         `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id,
-                CASE WHEN $3 AND ${disputeHolds('orders.payment_id')} THEN 'held' ELSE 'unsent' END AS state
+                CASE WHEN $3 AND ${disputeHolds('orders.payment_id')} THEN 'held' ELSE 'unsent' END AS state,
+                CASE WHEN $3 THEN ${disputeOf('orders.payment_id')} END AS dispute
            FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
-         SELECT 'preorder', id, number, refund_requested_at, NULL, CASE WHEN $3 AND ${disputeHolds('preorders.payment_id')} THEN 'held' ELSE 'unsent' END
+         SELECT 'preorder', id, number, refund_requested_at, NULL, CASE WHEN $3 AND ${disputeHolds('preorders.payment_id')} THEN 'held' ELSE 'unsent' END,
+                CASE WHEN $3 THEN ${disputeOf('preorders.payment_id')} END
            FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
          UNION ALL
          -- A second payment, or a payment that matched no order (type 'payment', its id as the id).
          SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
                 COALESCE(d.order_id, d.preorder_id, d.payment_id),
                 COALESCE(o.number || ' (second payment)', p.number || ' (second payment)', d.payment_id || ' (payment with no order)'), d.found_at, d.payment_id,
-                CASE WHEN $3 AND ${disputeHolds('d.payment_id')} THEN 'held' ELSE 'unsent' END
+                CASE WHEN $3 AND ${disputeHolds('d.payment_id')} THEN 'held' ELSE 'unsent' END,
+                CASE WHEN $3 THEN ${disputeOf('d.payment_id')} END
            FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
           WHERE d.found_at < $1 AND d.refunded_at IS NULL
          UNION ALL
          -- PAY-02: sent, but Razorpay hasn't said it went through after 5 days.
-         SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed' FROM orders
+         SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL FROM orders
           WHERE refund_status = 'pending' AND refunded_at < $2
          UNION ALL
-         SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed' FROM preorders
+         SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL FROM preorders
           WHERE refund_status = 'pending' AND refunded_at < $2
          UNION ALL
          SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
                 COALESCE(d.order_id, d.preorder_id, d.payment_id), d.payment_id || ' (refund sent, not confirmed by Razorpay)',
-                d.found_at, d.payment_id, 'unconfirmed'
+                d.found_at, d.payment_id, 'unconfirmed', NULL
            FROM duplicate_payments d WHERE d.refund_status = 'pending' AND d.refunded_at < $2
          ORDER BY refund_requested_at LIMIT 50`,
         [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000), env.REFUND_SAFETY_CHECKS],
@@ -197,8 +205,12 @@ router.get(
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
       // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent;
-      // 'held': not sent while a chargeback on the payment is open or was lost (PAY-06, REFUND_SAFETY_CHECKS).
-      stuckRefunds: refunds.rows.map((r) => ({ type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state })),
+      // 'held': not sent while a chargeback on the payment is open or was lost (PAY-06, REFUND_SAFETY_CHECKS), with the dispute
+      // that holds it ({ id, status }: open until the bank decides; a lost one is settled as paid back another way).
+      stuckRefunds: refunds.rows.map((r) => ({
+        type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state,
+        ...(r.state === 'held' ? { dispute: r.dispute } : {}),
+      })),
       // Missed too many times: someone calls the customer, then sends it out again from the order page.
       failedDeliveries: calls.rows.map((o) => ({
         id: o.id, number: o.number, name: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone, attempts: o.delivery_failures,
