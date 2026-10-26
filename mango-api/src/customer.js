@@ -38,6 +38,7 @@ import { customerBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
 import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
+import { languages } from './language-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
 import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
@@ -376,6 +377,8 @@ router.get('/policy', (_req, res) => {
       funnel: isOn('FUNNEL_ANALYTICS'),
       // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
       multiGift: isOn('MULTI_GIFT'),
+      // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
+      languages: isOn('SHOP_LANGUAGES'),
     },
     ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
     // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
@@ -455,6 +458,8 @@ router.use(growthMe)
 router.use(customerGifts)
 // Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
 router.use(care)
+// The shop language the customer chose: /me/language (language-routes.js, docs/languages.md).
+router.use(languages)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -594,7 +599,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const id = req.customer.id
     const all = (sql) => query(sql, [id]).then((r) => exportRows(r.rows))
-    const [account] = await all('SELECT id, phone, name, email, reminders_opt_in, created_at FROM customers WHERE id = $1 AND deleted_at IS NULL')
+    const [account] = await all('SELECT id, phone, name, email, reminders_opt_in, language, created_at FROM customers WHERE id = $1 AND deleted_at IS NULL')
     if (!account) throw notFound('Customer not found')
     const orders = await all('SELECT * FROM orders WHERE customer_id = $1 ORDER BY placed_at')
     const items = await query('SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY order_id', [orders.map((o) => o.id)]).then((r) => exportRows(r.rows))
@@ -713,8 +718,9 @@ router.post(
       await c.query('UPDATE subscriptions SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
-      const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
-        target.id, me.google_sub, me.email, me.name,
+      // The shop language (docs/languages.md): the phone account's own choice wins; otherwise the joining account's.
+      const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4), language = COALESCE(language, $5) WHERE id = $1 RETURNING *', [
+        target.id, me.google_sub, me.email, me.name, me.language ?? null,
       ])
       return { customer: up.rows[0], joined: true }
     })
