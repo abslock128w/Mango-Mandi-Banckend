@@ -33,7 +33,7 @@ import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { anonymiseOldOrders, pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
-import { overdueOrders } from './stock-watch.js'
+import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -209,6 +209,16 @@ export async function runAudit(at = now()) {
     if (at.getTime() - last >= HOURLY_MS) {
       reportProblem('Stock counters disagree with the ledger: stop and investigate before selling more', { lines: drift.length, sample: drift.slice(0, 5) })
       await markRun('alert-ledger-drift')
+    }
+  }
+  // INV-06: preorder capacity counters against the bookings that hold them.
+  const weeks = await preorderCapacityDrift({ query })
+  if (weeks.length) {
+    logger.error({ weeks: weeks.slice(0, 20) }, 'preorder audit: reserved capacity disagrees with the bookings')
+    const last = (await lastRuns())['alert-preorder-capacity'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Preorder capacity counters disagree with the bookings: check the weeks before opening more', { weeks: weeks.length, sample: weeks.slice(0, 5) })
+      await markRun('alert-preorder-capacity')
     }
   }
   return drift

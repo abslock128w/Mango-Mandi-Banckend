@@ -226,6 +226,13 @@ async function placeOrder(c, s, cust) {
     s.data.cart = []
     return { replies: [text('Sorry, one of those boxes is no longer sold. Please pick again.'), ...(await catalogue(c, s))] }
   }
+  // INV-10: the pincode was checked when it was typed; deliveries there may have stopped since.
+  if (env.ORDER_RULE_CHECKS && !(await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [s.data.pincode])).rowCount) {
+    const pin = s.data.pincode
+    s.state = 'IDLE'
+    s.data = {}
+    return { replies: [text(`Sorry, we no longer deliver to ${pin}. Nothing was booked. Start again with another pincode.`), MENU] }
+  }
   const r = await attempt(c, async () => {
     await checkUnpaidLimit(c, s.customerId, s.data.cart.reduce((t, l) => t + l.qty, 0))
     return createOrder(

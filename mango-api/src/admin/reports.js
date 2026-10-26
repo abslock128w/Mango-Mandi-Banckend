@@ -14,7 +14,7 @@ import { backupStatus } from '../maintenance.js'
 import { MAX_DELIVERY_ATTEMPTS } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
-import { overdueOrders, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
+import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 
 export const router = express.Router()
 
@@ -99,7 +99,7 @@ router.get(
   asyncHandler(async (_req, res) => {
     const at = now()
     const week = new Date(at.getTime() - 7 * 86_400_000)
-    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes] = await Promise.all([
+    const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
         `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -178,6 +178,9 @@ router.get(
            LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
           WHERE d.status NOT IN ('won', 'lost', 'closed') ORDER BY d.respond_by NULLS LAST, d.created_at LIMIT 50`,
       ),
+      // INV-06, INV-08: preorder capacity counters that drifted, and trucks late to arrive.
+      preorderCapacityDrift({ query }, 50),
+      lateArrivals({ query }, at),
     ])
     const tick = runs.rows.find((r) => r.step === 'tick')
     res.json({
@@ -210,6 +213,9 @@ router.get(
         order: d.order_id ? { id: d.order_id, number: d.order_number } : null, preorderNumber: d.preorder_number,
       })),
       ledgerDrift: drift.slice(0, 50),
+      preorderCapacityDrift: preorderDrift,
+      // sellingPaused: STOCK_INTAKE_CHECKS is on, so their stock no longer sells to new orders.
+      lateArrivals: lateTrucks.map((b) => ({ ...b, sellingPaused: env.STOCK_INTAKE_CHECKS })),
       overdueOrders: overdue.slice(0, 50),
       preorderDecisions: preorderCalls.slice(0, 50),
       returnedStock: returned.slice(0, 50),

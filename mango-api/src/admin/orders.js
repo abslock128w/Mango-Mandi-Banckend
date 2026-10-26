@@ -7,6 +7,7 @@ import { addDays, isDate, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
 import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
@@ -286,7 +287,8 @@ router.post(
           // Changed since we listed it (packed, cancelled or moved): leave it.
           if (!o || o.delivery_date !== b.fromDate || !['CONFIRMED', 'PROCESSING'].includes(o.status)) return 'changed'
           if (b.slotId) o.slot_id = b.slotId
-          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why)
+          // INV-01: with ORDER_RULE_CHECKS a full slot moves the order on to the next date with room, like missing stock.
+          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
           if (!d) return null
           await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
           await rebalanceOrder(c, o.id, req.actor)
@@ -294,7 +296,7 @@ router.post(
         })
         if (date === 'changed') notMoved.push({ ...brief(p), reason: 'Changed while moving; check it by hand' })
         else if (date) moved.push({ ...brief(p), deliveryDate: date })
-        else notMoved.push({ ...brief(p), reason: `No stock on ${b.toDate} or any later open date` })
+        else notMoved.push({ ...brief(p), reason: `No stock${env.ORDER_RULE_CHECKS ? ' or slot room' : ''} on ${b.toDate} or any later open date` })
       } catch (err) {
         notMoved.push({ ...brief(p), reason: err.message })
       }

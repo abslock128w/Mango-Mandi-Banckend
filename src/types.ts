@@ -633,6 +633,10 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
+  preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
+  /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */
+  lateArrivals?: { id: string; variety: string; farm: string | null; etaDate: string; promised: number; sellingPaused: boolean }[]
   /** Paid orders past their date or out for delivery too long. */
   overdueOrders?: OverdueOrder[]
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */

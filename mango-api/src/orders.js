@@ -9,8 +9,9 @@ import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
 import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, nextDeliveryDay, orderableDates } from './delivery.js'
 import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from './errors.js'
+import { env } from './env.js'
 import { newId } from './ids.js'
-import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
+import { allocate, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
@@ -93,6 +94,9 @@ export async function lockOrder(c, orderId) {
 
 const stockRows = async (c, orderId, states) =>
   (await c.query('SELECT * FROM order_stock WHERE order_id = $1 AND state = ANY($2) ORDER BY id', [orderId, states])).rows
+
+const boxCount = async (c, orderId) =>
+  (await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [orderId])).rows[0].n
 
 const orderItems = async (c, orderId) =>
   (await c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId])).rows
@@ -295,7 +299,7 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
  * go back on the shelf and the order is allocated afresh, so it is packed
  * again for the new date: one box consumed per box ordered (INV-1).
  */
-export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
+export async function placeOnFirstDateWithStock(c, o, dates, actor, why, { slotMustFit = false } = {}) {
   const items = await orderItems(c, o.id)
   const boxes = items.reduce((s, i) => s + i.quantity, 0)
   for (const date of dates) {
@@ -310,7 +314,7 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
         unpacked = true
       }
       await checkCapacity(c, date, boxes, o.id)
-      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id })
+      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id, mustFit: slotMustFit })
       let full = true
       for (const i of items) {
         const have = packed.filter((r) => r.sku === i.sku && r.stage === i.stage).reduce((n, r) => n + r.quantity, 0)
@@ -363,8 +367,12 @@ export async function moveOrderToDate(c, orderId, { deliveryDate, slotId = null,
     await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
   }
   const from = o.delivery_date
-  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why)
-  if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  // INV-01: without a slot named, the order keeps its slot or takes one with room, never one that is full.
+  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
+  if (!date) {
+    if (env.ORDER_RULE_CHECKS) await chooseSlot(c, deliveryDate, await boxCount(c, o.id), o.slot_id ?? null, { excludeOrderId: o.id, mustFit: true })
+    throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  }
   await rebalanceOrder(c, o.id, actor)
   return from
 }
@@ -523,6 +531,10 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
   const o = await lockOrder(c, orderId)
   if (o.status === 'CANCELLED') throw conflict('This order is already cancelled')
   const paid = o.payment_status === 'SUCCEEDED'
+  // INV-07: a free replacement settles a claim; cancelling it undoes that decision, which is a manager's.
+  if (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT' && !manager) {
+    throw forbidden('Only a manager can cancel a replacement, because it settles a claim')
+  }
   if (paid) {
     if (!manager) throw forbidden('Only a manager can cancel a paid order, because it is refunded in full')
     if (!MANAGER_REFUNDABLE.includes(o.status)) throw badRequest(`A ${o.status} order cannot be cancelled`, 'INVALID_TRANSITION')
@@ -1017,7 +1029,7 @@ export async function sweepExpiredHolds(c, at = now()) {
  * scheduler is down; a payment that lands even later is still honoured as a
  * late payment.
  */
-export const LAZY_SWEEP_GATEWAY_GRACE_MS = 2 * 60_000
+export { LAZY_SWEEP_GATEWAY_GRACE_MS }
 export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
   if (!skus.length) return 0
   const { rows } = await c.query(

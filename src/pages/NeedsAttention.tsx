@@ -123,6 +123,8 @@ export default function NeedsAttention() {
   const retries = a.retryDecisions ?? []
   const preorders = a.preorderDecisions ?? []
   const returned = a.returnedStock ?? []
+  const preorderDrift = a.preorderCapacityDrift ?? []
+  const lateTrucks = a.lateArrivals ?? []
 
   const photoItem = (d: PhotoDelivery) => (
     <li key={`photo-${d.id}`}>
@@ -239,7 +241,26 @@ export default function NeedsAttention() {
         ) : null}
       </li>
     )) },
-    { key: 'drift', title: 'Stock counts to check', items: drift.map((l) => (
+    { key: 'drift', title: 'Stock counts to check', items: [
+      ...lateTrucks.map((b) => (
+        <li key={`late-${b.id}`}>
+          <strong>Batch still in transit</strong>: <Link to={`/batches/${b.id}`}>{b.variety}{b.farm ? ` from ${b.farm}` : ''}</Link> was due{' '}
+          {date(b.etaDate)}
+          {b.promised ? <span className="muted"> ({b.promised} boxes already promised to orders)</span> : null}. Mark it arrived when it comes, or
+          record a short arrival.{b.sellingPaused ? ' Until then it does not sell to new orders.' : ''}
+        </li>
+      )),
+      ...preorderDrift.map((w) => (
+        <li key={`pre-drift-${w.sku}-${w.weekStart}`}>
+          <strong>Preorder capacity disagrees with the bookings</strong> for {w.sku} in the week of {date(w.weekStart)}
+          <span className="muted">
+            {' '}
+            (taken {w.reserved}, booked {w.booked})
+          </span>
+          . Check that week on the <Link to="/preorders">Preorders</Link> page before opening more spots.
+        </li>
+      )),
+      ...drift.map((l) => (
       <li key={`drift-${l.lineId}`}>
         <strong>Stock counts disagree with the ledger</strong> for {l.sku} in <Link to={`/batches/${l.batchId}`}>its batch</Link>
         <span className="muted">
@@ -256,7 +277,8 @@ export default function NeedsAttention() {
           </>
         ) : null}
       </li>
-    )) },
+    )),
+    ] },
     { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
       <li key={`returned-${r.id}`}>
         <strong>
