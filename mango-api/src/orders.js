@@ -499,7 +499,8 @@ async function hasRoom(c, o) {
   }
 }
 
-async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
+/** `billBy`: who the order's bill (if one was issued) says cancelled it, 'SHOP' or 'BUYER' (never the typed reason). */
+async function cancelInTx(c, o, actor, reason, paymentStatus = null, billBy = 'SHOP') {
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Cancel ${o.number}`)
   if (RESTOCKABLE.includes(o.status)) {
     // Labelled boxes are taken off the order and wait at pick staging (warehouse/stock.js).
@@ -513,7 +514,7 @@ async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
   )
   await addEvent(c, o.id, o.status, 'CANCELLED', actor, reason)
   // A bill already issued stays, with its number, marked cancelled.
-  await markBillCancelled(c, o.id, reason)
+  await markBillCancelled(c, o.id, billBy)
 }
 
 /**
@@ -560,7 +561,7 @@ export async function customerCancel(c, orderId, customerId, actor) {
     throw conflict(why, 'NOT_CANCELLABLE')
   }
   const paid = o.payment_status === 'SUCCEEDED'
-  await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer')
+  await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer', null, 'BUYER')
   await c.query(
     `UPDATE orders SET customer_cancelled_at = $2, refund_requested_at = CASE WHEN $3 THEN $2 ELSE refund_requested_at END WHERE id = $1`,
     [o.id, now(), paid],

@@ -4,16 +4,17 @@
 // details checked at checkout, the PDF for the owner and for managers and
 // operators (audited), and a cancelled order's bill kept and marked.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
-import { billable, billNumber, composeBill, financialYear, issueBill, issueMissingBills, removeBillBuyers } from '../src/bills.js'
+import { BILL_CATCH_UP_DAYS, billable, billNumber, composeBill, financialYear, issueBill, issueMissingBills, reconcileBills, removeBillBuyers } from '../src/bills.js'
 import { billPdf, printable, rupees } from '../src/bill-pdf.js'
-import { setNow } from '../src/clock.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
 import { gstinCheckChar, gstinProblem } from '../src/gstin.js'
 import { newId } from '../src/ids.js'
+import { runMaintenance, runPreorderJobs } from '../src/maintenance.js'
 import { checkTrustProduction, readTrustConfig, setTrustConfig, trust } from '../src/trust-config.js'
 
 let srv
@@ -33,7 +34,10 @@ beforeEach(async () => {
   await resetDb()
   manager = await adminToken(api)
 })
-afterEach(() => setTrustConfig({}))
+afterEach(() => {
+  setTrustConfig({})
+  setNow(null)
+})
 
 const BOX = 189_900
 const ADDRESS = '12, 4th Cross, Koramangala, Bengaluru'
@@ -217,6 +221,22 @@ describe('issuing bills', () => {
     for (const token of [packer, qc]) assert.equal((await download(`/admin/v1/orders/${orderId}/bill`, token)).status, 403)
   })
 
+  test('a packer’s order detail carries no customer id, business details or bill', async () => {
+    const { orderId } = await paidOrder(1, { business: { name: 'Tasty Caterers Pvt Ltd', gstin: BUYER_GSTIN } })
+    const full = (await api.get(`/admin/v1/orders/${orderId}`, { token: manager })).body
+    assert.ok(full.customerId)
+    assert.deepEqual(full.business, { name: 'Tasty Caterers Pvt Ltd', gstin: BUYER_GSTIN })
+    assert.equal(full.bill.number, 'MM/26-27/000001')
+    const packer = await adminToken(api, 'packer@mandimangoes.test', 'packer123')
+    const r = await api.get(`/admin/v1/orders/${orderId}`, { token: packer })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.equal(r.body.customerId, null)
+    assert.equal(r.body.business, null)
+    assert.equal(r.body.bill, null)
+    const text = JSON.stringify(r.body)
+    for (const leak of ['MM/26-27/000001', BUYER_GSTIN, 'Tasty Caterers', full.customerId]) assert.ok(!text.includes(leak), `a packer sees ${leak}`)
+  })
+
   test('numbers are gapless and never shared when payments land at the same moment', async () => {
     const orders = []
     for (let i = 0; i < 12; i++) {
@@ -306,6 +326,18 @@ describe('issuing bills', () => {
     await assert.rejects(query(`UPDATE bills SET snapshot = '{}' WHERE order_id = $1`, [orderId]), /cannot be changed/)
     await assert.rejects(query(`UPDATE bills SET buyer_name = 'X' WHERE order_id = $1`, [orderId]), /only be removed/)
     await assert.rejects(query(`DELETE FROM bills WHERE order_id = $1`, [orderId]), /never deleted/)
+    // Row triggers do not fire on TRUNCATE: it is refused on its own, for the bills and their numbering.
+    await assert.rejects(query('TRUNCATE bills'), /never wiped/)
+    await assert.rejects(query('TRUNCATE orders CASCADE'), /never wiped/)
+    await assert.rejects(query('TRUNCATE bill_counters'), /never wiped/)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 1)
+
+    // The delivery day can still move after payment; the bill does not print it, so it never goes stale.
+    assert.ok(!text.includes('Delivery day'), text)
+    const day = (await query('SELECT delivery_date FROM orders WHERE id = $1', [orderId])).rows[0].delivery_date
+    const moved = await api.post(`/v1/orders/${orderId}/reschedule`, { deliveryDate: addDays(day, 1) }, { token: cust.accessToken })
+    assert.equal(moved.status, 204, JSON.stringify(moved.body))
+    assert.deepEqual((await download(`/v1/orders/${orderId}/bill`, cust.accessToken)).body, first.body, 'a reschedule leaves the bill as issued')
   })
 
   test('business details: checked at checkout, printed on the bill', async () => {
@@ -332,18 +364,28 @@ describe('issuing bills', () => {
 
   test('a cancelled order keeps its bill and number, marked cancelled; a free replacement gets none', async () => {
     const { orderId, cust } = await paidOrder()
-    const r = await api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: 'Pincode flooded, cannot deliver', refund: true }, { token: manager })
+    const internal = 'INTERNAL: flagged by ops, do not serve'
+    const r = await api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: internal, refund: true }, { token: manager })
     assert.equal(r.status, 204, JSON.stringify(r.body))
     const b = await billRow(orderId)
     assert.equal(b.number, 'MM/26-27/000001')
     assert.ok(b.cancelled_at)
+    assert.equal(b.cancel_reason, 'cancelled by the shop')
     const view = (await api.get(`/v1/orders/${orderId}`, { token: cust.accessToken })).body.bill
     assert.equal(view.cancelled, true)
-    const text = pdfText((await download(`/v1/orders/${orderId}/bill`, cust.accessToken)).body)
-    assert.match(text, /CANCELLED on/)
-    assert.match(text, /Pincode\s+flooded/)
+    // The reason staff typed stays on the order's history; the bill the customer downloads says only who cancelled.
+    for (const path of [`/v1/orders/${orderId}/bill`, `/admin/v1/orders/${orderId}/bill`]) {
+      const text = pdfText((await download(path, path.startsWith('/admin') ? manager : cust.accessToken)).body)
+      assert.match(text, /CANCELLED on .*: the order was cancelled by the shop\./)
+      assert.ok(!/INTERNAL|flagged|do not serve/.test(text), text)
+    }
+    // A buyer's own cancel (before packing) says so.
+    const own = await paidOrder()
+    assert.equal((await api.post(`/v1/orders/${own.orderId}/cancel`, {}, { token: own.cust.accessToken })).status, 204)
+    assert.equal((await billRow(own.orderId)).cancel_reason, 'cancelled by the buyer')
+    assert.match(pdfText((await download(`/v1/orders/${own.orderId}/bill`, own.cust.accessToken)).body), /the order was cancelled by the buyer\./)
     // The next bill takes the next number: a cancelled number is never reused.
-    assert.equal((await billRow((await paidOrder()).orderId)).number, 'MM/26-27/000002')
+    assert.equal((await billRow((await paidOrder()).orderId)).number, 'MM/26-27/000003')
 
     // Delivered, claimed, replaced: the replacement is free and has no bill of its own.
     const d = await paidOrder()
@@ -386,11 +428,11 @@ describe('issuing bills', () => {
     assert.match(text, /Rs\. 15,990\.00/)
   })
 
-  test('a preorder that becomes an order is billed by the maintenance step; privacy removes the buyer but keeps the bill', async () => {
+  test('a paid order without a bill is billed by the maintenance step; privacy removes the buyer but keeps the bill', async () => {
     setTrustConfig({ BILLS_ENABLED: 'false' })
     const { orderId } = await paidOrder()
     setTrustConfig({})
-    // As a converted preorder (or a payment whose bill failed) would be: paid, no bill yet.
+    // Paid while bills were off, switched on within the week: the catch-up bills it.
     assert.equal(await issueMissingBills(), 1)
     assert.equal(await issueMissingBills(), 0, 'only once')
     const b = await billRow(orderId)
@@ -403,6 +445,93 @@ describe('issuing bills', () => {
     const text = pdfText(billPdf(gone))
     assert.match(text, /removed \(privacy\)/)
     assert.ok(!text.includes('Ravi Kumar'))
+  })
+
+  test('a paid preorder that becomes an order is billed by the maintenance run', async () => {
+    let week = addDays(todayIST(), 6)
+    while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
+    setNow(`${addDays(week, -6)}T04:30:00Z`) // 10:00 IST six days before: inside the allocator's horizon
+    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 10 }, { token: manager })).status, 200)
+    const cust = await customerToken(api)
+    const booked = await api.post(
+      '/v1/preorders',
+      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
+      { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
+    )
+    assert.equal(booked.status, 201, JSON.stringify(booked.body))
+    const p = (await query('SELECT * FROM preorders WHERE id = $1', [booked.body.id])).rows[0]
+    const { raw, signature } = signWebhook({
+      event: 'payment_link.paid',
+      payload: {
+        payment_link: { entity: { id: p.payment_link_id, notes: { preorderId: p.id }, status: 'paid' } },
+        payment: { entity: { id: `pay_${p.id}`, amount: p.total, method: 'upi' } },
+      },
+    })
+    assert.equal((await api.raw('POST', '/webhooks/razorpay', { raw, headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': signature } })).status, 200)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 0, 'a booking is not an order: no bill yet')
+    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // ripe (age 6) on Monday
+    // The maintenance run converts it and then bills the new order, in the same run.
+    const out = await runMaintenance({ forceAll: true })
+    assert.equal(out.preorders?.converted, 1, JSON.stringify(out))
+    const o = (await query('SELECT * FROM orders WHERE preorder_id = $1', [p.id])).rows[0]
+    assert.ok(o, 'the preorder became an order')
+    const b = await billRow(o.id)
+    assert.equal(b?.number, 'MM/26-27/000001')
+    assert.equal(b.total, p.total)
+    const text = pdfText((await download(`/v1/orders/${o.id}/bill`, cust.accessToken)).body)
+    assert.ok(text.includes(o.number), text)
+    assert.equal((await runPreorderJobs()).converted, 0)
+    assert.equal(await issueMissingBills(), 0, 'billed once')
+  })
+
+  test('a bill that keeps failing stays reported, however old the order, and is issued once it can be', async () => {
+    // Bills are on and the maintenance step has run: from here on every paid order is tracked.
+    assert.equal(await issueMissingBills(), 0)
+    const { o } = await placed(2)
+    assert.equal(o.status, 201, JSON.stringify(o.body))
+    const id = o.body.orderId
+    // An order whose lines do not add up is never billed (composeBill throws); the payment still lands.
+    await query('UPDATE order_items SET line_price = line_price + 1 WHERE order_id = $1', [id])
+    assert.equal((await pay(id)).body.result, 'confirmed')
+    assert.equal(await billRow(id), undefined)
+    await assert.rejects(issueMissingBills(), /still without a bill/)
+    // Well past the catch-up window, the order is still a failing bill, not forgotten.
+    setNow(new Date(now().getTime() + (BILL_CATCH_UP_DAYS + 3) * 86_400_000).toISOString())
+    await assert.rejects(issueMissingBills(), /still without a bill/)
+    await query('UPDATE order_items SET line_price = line_price - 1 WHERE order_id = $1', [id])
+    assert.equal(await issueMissingBills(), 1)
+    assert.equal((await billRow(id)).number, 'MM/26-27/000001')
+  })
+
+  test('bills catch up with cancels and privacy removals another release made without them', async () => {
+    const a = await paidOrder()
+    const b = await paidOrder()
+    const c3 = await paidOrder()
+    const d = await paidOrder()
+    // As the previous release (no bills code) would leave them, on this schema.
+    await query(`UPDATE orders SET status = 'CANCELLED', staff_cancelled_at = now() WHERE id = $1`, [a.orderId])
+    await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, reason, created_at) VALUES ($1, $2, 'CONFIRMED', 'CANCELLED', 'admin:x', 'INTERNAL: not for the customer', now())`, [newId('evt'), a.orderId])
+    await query(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = now() WHERE id = $1`, [b.orderId])
+    await query(`UPDATE orders SET customer_name = NULL, delivery_address = NULL, pii_removed_at = now() WHERE id = $1`, [c3.orderId])
+    await query(`UPDATE customers SET deleted_at = now() WHERE id = (SELECT customer_id FROM orders WHERE id = $1)`, [d.orderId])
+    for (const x of [a, b, c3, d]) assert.equal((await billRow(x.orderId)).cancelled_at, null)
+
+    // The maintenance run's bills step catches them up, once.
+    await runMaintenance({ forceAll: true })
+    const ba = await billRow(a.orderId)
+    assert.ok(ba.cancelled_at)
+    assert.equal(ba.cancel_reason, 'cancelled by the shop')
+    assert.ok(!pdfText(billPdf(ba)).includes('INTERNAL'))
+    assert.equal((await billRow(b.orderId)).cancel_reason, 'cancelled by the buyer')
+    for (const x of [c3, d]) {
+      const row = await billRow(x.orderId)
+      assert.equal(row.buyer_name, null)
+      assert.equal(row.buyer_address, null)
+      assert.ok(row.buyer_removed_at)
+      assert.equal(row.cancelled_at, null)
+    }
+    assert.equal((await billRow(a.orderId)).buyer_name, 'Ravi Kumar', 'only the removed ones lose their buyer')
+    assert.deepEqual(await reconcileBills(), { cancelled: 0, buyersRemoved: 0 })
   })
 
   test('switched off: no bill is issued and the downloads answer 404', async () => {

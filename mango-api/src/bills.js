@@ -170,10 +170,10 @@ export function composeBill(o, items, cfg = trust) {
       },
       buyer: { businessName: o.buyer_business_name ?? null, gstin: o.buyer_gstin ?? null, pincode: o.pincode ?? null },
       placeOfSupply,
+      // No delivery day: it may still move after payment (a reschedule), and the bill never changes.
       order: {
         number: o.number,
         placedAt: o.placed_at instanceof Date ? o.placed_at.toISOString() : o.placed_at,
-        deliveryDate: o.delivery_date,
         channel: o.channel,
         preorder: Boolean(o.preorder_id),
       },
@@ -249,25 +249,39 @@ export async function issueBillWithPayment(c, orderId) {
   }
 }
 
-/** How far back the maintenance run looks for paid orders still without a bill. */
+/** How far before bills were first switched on the catch-up step looks for paid orders still without a bill. */
 export const BILL_CATCH_UP_DAYS = 7
+
+/**
+ * When bills were first switched on: written once, by the first catch-up run
+ * with bills on, and kept. The catch-up looks back from this fixed moment, not
+ * from now, so a paid order whose bill keeps failing never ages out of it.
+ */
+async function billsStartedAt(at) {
+  await query('INSERT INTO bills_started (singleton, started_at) VALUES (TRUE, $1) ON CONFLICT (singleton) DO NOTHING', [at])
+  return (await query('SELECT started_at FROM bills_started')).rows[0].started_at
+}
 
 /**
  * Bills for paid orders that have none: preorders that became orders (their
  * conversion runs in the maintenance loop), and any payment whose bill failed.
+ * Every paid order placed or paid since bills were switched on (less
+ * BILL_CATCH_UP_DAYS) is a candidate, however old, so a bill that keeps
+ * failing keeps the step failing on Needs attention until it is issued.
  * One short transaction per order, locking the order first (as payments and
- * cancels do). Throws after the batch if any failed, so the step shows as
- * failing on Needs attention.
+ * cancels do). Throws after the batch if any failed.
  */
 export async function issueMissingBills(at = now(), limit = 200) {
   if (!trust.bills) return 0
+  const since = new Date((await billsStartedAt(at)).getTime() - BILL_CATCH_UP_DAYS * 86_400_000)
   const { rows } = await query(
     `SELECT o.id FROM orders o
       WHERE o.payment_status = 'SUCCEEDED' AND o.total > 0 AND o.replacement_for IS NULL
-        AND o.status NOT IN ('PAYMENT_PENDING', 'CANCELLED') AND o.placed_at >= $1
+        AND o.status NOT IN ('PAYMENT_PENDING', 'CANCELLED')
+        AND (o.placed_at >= $1 OR EXISTS (SELECT 1 FROM order_events e WHERE e.order_id = o.id AND e.status = 'CONFIRMED' AND e.created_at >= $1))
         AND NOT EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id)
       ORDER BY o.placed_at, o.id LIMIT $2`,
-    [new Date(at.getTime() - BILL_CATCH_UP_DAYS * 86_400_000), limit],
+    [since, limit],
   )
   let issued = 0
   const failed = []
@@ -287,9 +301,44 @@ export async function issueMissingBills(at = now(), limit = 200) {
   return issued
 }
 
-/** Marks the order's bill cancelled (the bill itself stays, with its number). Inside the cancel transaction. */
-export async function markBillCancelled(c, orderId, reason, at = now()) {
-  await c.query('UPDATE bills SET cancelled_at = $2, cancel_reason = $3 WHERE order_id = $1 AND cancelled_at IS NULL', [orderId, at, reason ? String(reason).slice(0, 300) : null])
+/**
+ * What a cancelled bill says about who cancelled. Fixed, customer-safe words:
+ * the reason staff type stays on the order's history and is never printed on
+ * a document the customer downloads.
+ */
+export const BILL_CANCELLED_BY = Object.freeze({ BUYER: 'cancelled by the buyer', SHOP: 'cancelled by the shop' })
+
+/** Marks the order's bill cancelled (the bill itself stays, with its number). Inside the cancel transaction. `by`: 'BUYER' or 'SHOP'. */
+export async function markBillCancelled(c, orderId, by, at = now()) {
+  await c.query('UPDATE bills SET cancelled_at = $2, cancel_reason = $3 WHERE order_id = $1 AND cancelled_at IS NULL', [orderId, at, BILL_CANCELLED_BY[by] ?? null])
+}
+
+/**
+ * Catches bills up with what happened to their orders outside this code: a
+ * cancel, an account deletion or a retention run done by a release without
+ * bills (for example while rolled back on this schema). Marks cancelled the
+ * bills of cancelled orders, and removes the consumer's name and address from
+ * bills whose order has had its details removed or whose customer deleted
+ * their account. Idempotent; part of the maintenance step `bills`.
+ */
+export async function reconcileBills(at = now()) {
+  if (!trust.bills) return { cancelled: 0, buyersRemoved: 0 }
+  const cancelled = await query(
+    `UPDATE bills b
+        SET cancelled_at = COALESCE((SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'CANCELLED'), $1),
+            cancel_reason = CASE WHEN o.customer_cancelled_at IS NOT NULL THEN $2 ELSE $3 END
+       FROM orders o
+      WHERE o.id = b.order_id AND o.status = 'CANCELLED' AND b.cancelled_at IS NULL`,
+    [at, BILL_CANCELLED_BY.BUYER, BILL_CANCELLED_BY.SHOP],
+  )
+  const removed = await query(
+    `UPDATE bills b SET buyer_name = NULL, buyer_address = NULL, buyer_removed_at = $1
+       FROM orders o LEFT JOIN customers cu ON cu.id = o.customer_id
+      WHERE o.id = b.order_id AND b.buyer_removed_at IS NULL AND (o.pii_removed_at IS NOT NULL OR cu.deleted_at IS NOT NULL)`,
+    [at],
+  )
+  if (cancelled.rowCount || removed.rowCount) logger.warn({ cancelled: cancelled.rowCount, buyersRemoved: removed.rowCount }, 'bills caught up with their orders')
+  return { cancelled: cancelled.rowCount, buyersRemoved: removed.rowCount }
 }
 
 /**

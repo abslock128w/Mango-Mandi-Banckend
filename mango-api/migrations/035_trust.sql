@@ -3,7 +3,7 @@
 -- (The customer profile and the CSV exports read existing tables and the
 -- staff_audit trail; they need no schema.)
 --
--- locks: two new tables, plus two nullable columns with no default on orders
+-- locks: three new tables, plus two nullable columns with no default on orders
 -- (a brief lock, no rewrite, no scan). Expand-only: the previous release never
 -- reads or writes any of this and keeps working while both versions serve.
 
@@ -19,6 +19,15 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS buyer_gstin TEXT;
 CREATE TABLE bill_counters (
   fy       TEXT PRIMARY KEY CHECK (fy ~ '^[0-9]{4}-[0-9]{2}$'),
   last_no  INTEGER NOT NULL CHECK (last_no >= 0)
+);
+
+-- When bills were first switched on (one row, written by the first maintenance
+-- run with BILLS_ENABLED on). The catch-up step bills every paid order since
+-- then (less a week), however long a bill has been failing, so a paid order
+-- never ages out of it unbilled and unreported.
+CREATE TABLE bills_started (
+  singleton   BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+  started_at  TIMESTAMPTZ NOT NULL
 );
 
 -- An issued bill. Everything printed on it is copied here when the number is
@@ -72,3 +81,14 @@ END;
 $$;
 
 CREATE TRIGGER bills_keep_issued BEFORE UPDATE OR DELETE ON bills FOR EACH ROW EXECUTE FUNCTION bills_keep_issued();
+
+-- Row triggers do not fire on TRUNCATE, so it is refused on its own: TRUNCATE
+-- bills (or of orders CASCADE) would wipe every issued bill, and of the
+-- counters would restart a year's numbering.
+CREATE FUNCTION bills_no_truncate() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'issued bills and their numbering are never wiped: TRUNCATE % is not allowed', TG_TABLE_NAME USING ERRCODE = 'check_violation';
+END;
+$$;
+CREATE TRIGGER bills_no_truncate BEFORE TRUNCATE ON bills FOR EACH STATEMENT EXECUTE FUNCTION bills_no_truncate();
+CREATE TRIGGER bill_counters_no_truncate BEFORE TRUNCATE ON bill_counters FOR EACH STATEMENT EXECUTE FUNCTION bills_no_truncate();

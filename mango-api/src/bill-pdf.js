@@ -4,7 +4,10 @@
 // rupee sign) and letters outside Latin are left out, with a note saying so.
 // Drawn from the bill's snapshot, so a bill reads the same every time it is
 // downloaded; only the CANCELLED stamp is added once the order is cancelled.
-import { BILL_TITLES } from './bills.js'
+import { BILL_CANCELLED_BY, BILL_TITLES } from './bills.js'
+
+/** The only cancel wordings a bill prints (fixed, customer-safe; a typed staff reason never reaches a bill). */
+const CANCEL_WORDING = new Set(Object.values(BILL_CANCELLED_BY))
 
 const PAGE_W = 595.28
 const PAGE_H = 841.89
@@ -181,8 +184,8 @@ export function billPdf(bill) {
   page.text(RIGHT, page.y - 12, 'MandiMangoes', { size: 12, bold: true, align: 'right' })
   page.y -= 34
   if (bill.cancelled_at) {
-    const why = bill.cancel_reason ? ` (${String(bill.cancel_reason).replace(/[.\s]+$/, '')})` : ''
-    for (const l of wrap(`CANCELLED on ${dayLabel(bill.cancelled_at)}: the order was cancelled${why}. This bill stays on record with its number.`, 9.5, RIGHT - MARGIN, true)) {
+    const by = CANCEL_WORDING.has(bill.cancel_reason) ? bill.cancel_reason : 'cancelled'
+    for (const l of wrap(`CANCELLED on ${dayLabel(bill.cancelled_at)}: the order was ${by}. This bill stays on record with its number.`, 9.5, RIGHT - MARGIN, true)) {
       page.text(MARGIN, page.y, l, { size: 9.5, bold: true })
       page.y -= 13
     }
@@ -227,7 +230,6 @@ export function billPdf(bill) {
   kv('Date', dayLabel(bill.bill_date))
   kv('Order', s.order.number)
   kv('Order placed', dayLabel(s.order.placedAt))
-  kv('Delivery day', dayLabel(s.order.deliveryDate))
   kv('Place of supply', `${s.placeOfSupply.stateName} (${s.placeOfSupply.stateCode})`)
   page.y = Math.min(leftBottom, ry) - 8
   page.line(MARGIN, page.y, RIGHT, page.y)
