@@ -229,7 +229,7 @@ export function redactForPacker(order) {
 }
 
 // The customer's delivery code is a secret too.
-const SECRET_KEYS = /password|token|secret|^code$|setupcode/i
+const SECRET_KEYS = /password|token|secret|^code$|setupcode|confirmcode/i
 // SEC-R3: where the rider stood and who took the box are the customer's data. They are
 // kept in delivery_attempts (erased with the account, anonymised after PII_RETENTION_MONTHS),
 // not copied into the audit trail. A delivery note stays (staff read it there) and is

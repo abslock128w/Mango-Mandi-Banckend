@@ -5,6 +5,7 @@ import { api } from '../api'
 import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime, rupees } from '../format'
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
+import { useStepUp } from '../StepUp'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
 import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
@@ -23,6 +24,8 @@ export default function Staff() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['staff'], queryFn: api.staff })
+  // Staff changes may ask the manager to confirm it is them (SEC-07).
+  const stepUp = useStepUp()
   const [adding, setAdding] = useState(false)
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
@@ -38,7 +41,7 @@ export default function Staff() {
   }
 
   const setRole = useMutation({
-    mutationFn: (p: { id: string; role: Role }) => api.updateStaff(p.id, { role: p.role }),
+    mutationFn: (p: { id: string; role: Role }) => stepUp.run((code) => api.updateStaff(p.id, { role: p.role }, code)),
     onSuccess: (s) => {
       toast.success(`${s.email} is now ${ROLE_LABEL[s.role]}. They will need to sign in again.`)
       setChanging(null)
@@ -46,7 +49,7 @@ export default function Staff() {
     },
   })
   const remove = useMutation({
-    mutationFn: (id: string) => api.removeStaff(id),
+    mutationFn: (id: string) => stepUp.run((code) => api.removeStaff(id, code)),
     onSuccess: () => {
       toast.success(`${removing?.email} removed`)
       setRemoving(null)
@@ -69,7 +72,7 @@ export default function Staff() {
   })
 
   const resetTwoStep = useMutation({
-    mutationFn: (id: string) => api.resetTwoStep(id),
+    mutationFn: (id: string) => stepUp.run((code) => api.resetTwoStep(id, code)),
     onSuccess: (r) => {
       if (unlocking) setShownCode({ email: unlocking.email, code: r.setupCode })
       setUnlocking(null)
@@ -77,7 +80,7 @@ export default function Staff() {
     },
   })
   const newSetupCode = useMutation({
-    mutationFn: (s: StaffMember) => api.newSetupCode(s.id).then((r) => ({ email: s.email, code: r.setupCode })),
+    mutationFn: (s: StaffMember) => stepUp.run((code) => api.newSetupCode(s.id, code)).then((r) => ({ email: s.email, code: r.setupCode })),
     onSuccess: (c) => setShownCode(c),
     onError: (err) => toast.error(err),
   })
@@ -205,6 +208,7 @@ export default function Staff() {
 
       {adding && (
         <AddDialog
+          confirm={stepUp.run}
           onClose={() => setAdding(false)}
           onDone={(s) => {
             refresh()
@@ -228,7 +232,7 @@ export default function Staff() {
           </p>
         </Dialog>
       )}
-      {resetting && <PasswordDialog member={resetting} onClose={() => setResetting(null)} />}
+      {resetting && <PasswordDialog member={resetting} confirm={stepUp.run} onClose={() => setResetting(null)} />}
       {unlocking && (
         <ConfirmDialog
           title={`Reset two-step sign-in for ${unlocking.email}?`}
@@ -276,18 +280,22 @@ export default function Staff() {
           </div>
         </ReasonDialog>
       )}
+      {stepUp.dialog}
     </>
   )
 }
 
-function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: StaffMember) => void }) {
+/** Sends a staff change, asking the manager to confirm it is them when the server wants that (useStepUp). */
+type Confirm = ReturnType<typeof useStepUp>['run']
+
+function AddDialog({ confirm, onClose, onDone }: { confirm: Confirm; onClose: () => void; onDone: (s: StaffMember) => void }) {
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('PACKER')
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const add = useMutation({
-    mutationFn: () => api.addStaff({ email: email.trim(), role, password }),
+    mutationFn: () => confirm((code) => api.addStaff({ email: email.trim(), role, password }, code)),
     onSuccess: (s) => {
       toast.success(`${s.email} added as ${ROLE_LABEL[s.role]}`)
       onClose()
@@ -347,12 +355,12 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: Staff
   )
 }
 
-function PasswordDialog({ member, onClose }: { member: StaffMember; onClose: () => void }) {
+function PasswordDialog({ member, confirm, onClose }: { member: StaffMember; confirm: Confirm; onClose: () => void }) {
   const toast = useToast()
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const save = useMutation({
-    mutationFn: () => api.updateStaff(member.id, { password }),
+    mutationFn: () => confirm((code) => api.updateStaff(member.id, { password }, code)),
     onSuccess: () => {
       toast.success(`Password changed for ${member.email}`)
       onClose()

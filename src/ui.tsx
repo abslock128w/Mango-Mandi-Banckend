@@ -404,6 +404,9 @@ export function Dialog({
     first?.focus()
 
     function onKey(e: globalThis.KeyboardEvent) {
+      // A dialog opened over this one (a confirmation) handles the keys while it is open.
+      const backdrops = document.querySelectorAll('.backdrop')
+      if (el && backdrops.length > 1 && !backdrops[backdrops.length - 1].contains(el)) return
       if (e.key === 'Escape') {
         e.stopPropagation()
         closeRef.current()

@@ -10,6 +10,7 @@ import { asyncHandler, badRequest, conflict, notFound, parse } from '../errors.j
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
 import { clearPasswordFailures, clearTwoStep, issueSetupCode } from './shared.js'
+import { requireStepUp } from './step-up.js'
 
 export const router = express.Router()
 
@@ -28,6 +29,7 @@ router.get(
 router.post(
   '/staff',
   requireManager,
+  requireStepUp,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password }), req.body)
     const { rows } = await query(
@@ -47,6 +49,7 @@ router.post(
 router.patch(
   '/staff/:id',
   requireManager,
+  requireStepUp,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ role: z.enum(ROLES).optional(), password: password.optional() }), req.body)
     if (req.params.id === req.admin.id && b.role && b.role !== 'MANAGER') throw badRequest('You cannot remove your own manager role', 'SELF_DEMOTE')
@@ -75,6 +78,7 @@ router.patch(
 router.post(
   '/staff/:id/two-step/reset',
   requireManager,
+  requireStepUp,
   asyncHandler(async (req, res) => {
     const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT id FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
@@ -93,6 +97,7 @@ router.post(
 router.post(
   '/staff/:id/two-step/setup-code',
   requireManager,
+  requireStepUp,
   asyncHandler(async (req, res) => {
     const setupCode = await tx(async (c) => {
       const { rows } = await c.query('SELECT totp_enabled_at FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
@@ -108,6 +113,7 @@ router.post(
 router.delete(
   '/staff/:id',
   requireManager,
+  requireStepUp,
   asyncHandler(async (req, res) => {
     if (req.params.id === req.admin.id) throw badRequest('You cannot remove yourself', 'SELF_REMOVE')
     await tx(async (c) => {

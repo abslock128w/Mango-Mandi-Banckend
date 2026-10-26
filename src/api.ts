@@ -152,6 +152,9 @@ export async function apiBlobUrl(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob())
 }
 
+/** The body of a staff change confirmed with the manager's code or password; none when not asked. */
+const confirmBody = (confirmCode?: string) => (confirmCode ? { confirmCode } : undefined)
+
 function qs(params: Record<string, string | number | undefined | null>): string {
   const p = new URLSearchParams()
   for (const [k, v] of Object.entries(params)) {
@@ -231,9 +234,11 @@ export const api = {
   },
   me: () => request<Me>('GET', '/auth/me'),
   /** Clears someone's two-step sign-in. Returns the setup code they need to set it up again (shown once). */
-  resetTwoStep: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  resetTwoStep: (staffId: string, confirmCode?: string) =>
+    request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`, confirmBody(confirmCode)),
   /** A new setup code for someone who hasn't set up two-step sign-in yet (shown once). */
-  newSetupCode: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`),
+  newSetupCode: (staffId: string, confirmCode?: string) =>
+    request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`, confirmBody(confirmCode)),
 
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {
@@ -428,10 +433,12 @@ export const api = {
   updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
     request<Promo>('PATCH', `/promos/${id(code)}`, patch),
   staff: () => request<StaffMember[]>('GET', '/staff'),
-  addStaff: (input: { email: string; role: Role; password: string }) => request<StaffMember>('POST', '/staff', input),
-  updateStaff: (staffId: string, patch: { role?: Role; password?: string }) =>
-    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, patch),
-  removeStaff: (staffId: string) => request<void>('DELETE', `/staff/${id(staffId)}`),
+  // Staff changes carry `confirmCode` when the server asks the manager to confirm it is them (SEC-07, STAFF_STEP_UP).
+  addStaff: (input: { email: string; role: Role; password: string }, confirmCode?: string) =>
+    request<StaffMember>('POST', '/staff', { ...input, ...confirmBody(confirmCode) }),
+  updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
+    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),
+  removeStaff: (staffId: string, confirmCode?: string) => request<void>('DELETE', `/staff/${id(staffId)}`, confirmBody(confirmCode)),
   audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number } = {}) =>
     request<AuditPage>('GET', `/audit${qs(f)}`),
 
