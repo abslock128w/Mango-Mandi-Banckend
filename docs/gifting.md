@@ -28,7 +28,7 @@ flag:
 The local launcher (`scripts/start-local.mjs`) turns `MULTI_GIFT` on for the
 demo.
 
-Migration: `mango-api/migrations/043_gifting.sql`.
+Migration: `mango-api/migrations/042_gifting.sql`.
 
 ## How it works
 
@@ -188,4 +188,4 @@ Staff routes (managers and operators, as for the order list; 404 while off):
 - **Buyer messages:** the buyer gets the existing order-confirmed message for each delivery, not one message for the whole gift order.
   - **Owner:** if one summary message is wanted, approve a WhatsApp template for it, so it can be added.
 - **One day per order:** all recipients get the same day and slot. Different days need separate gift orders.
-- **Turning it on:** set `MULTI_GIFT=true` (and optionally `MULTI_GIFT_MAX_RECIPIENTS`) on the API, and run migration 043.
+- **Turning it on:** set `MULTI_GIFT=true` (and optionally `MULTI_GIFT_MAX_RECIPIENTS`) on the API, and run migration 042.
