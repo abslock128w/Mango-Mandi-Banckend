@@ -4,8 +4,8 @@
 // move boxes to, a QC result, an order to pick, pack or dispatch), then scan
 // boxes into it. Immediate operations (receive, move, QC, pick, unpick,
 // return) commit each accepted scan in its own transaction. Staged operations
-// (pack, dispatch) only collect scans; finalize checks the whole set again
-// under locks and applies it all or nothing.
+// (pack, dispatch, stocktake, repack) only collect scans; finalize checks the
+// whole set again under locks and applies it all or nothing.
 //
 // Every scan carries a client-made scan_id. Sending the same scan_id again
 // (a retry after a dropped connection) returns the stored result and changes
@@ -25,14 +25,19 @@ import {
   addHold, applyLineDeltas, changeBox, lockBox, lockBoxes, moveProblem, newDeltas, pickProblem, readBox, releaseHold, trackedLine, WhError, whError,
 } from './core.js'
 import { finishReceiving, receivingPlace } from './lots.js'
-import { can, OP_PERMISSION } from './permissions.js'
+import { can, featureOn, OP_PERMISSION } from './permissions.js'
+import { finalizeRepack, repackContext, repackScan } from './repack.js'
 import { pickUnit, stagingPlace, unpickUnit } from './stock.js'
+import { finalizeStocktake, stocktakeContext, stocktakeCounts, stocktakeScan } from './stocktake.js'
 
 export const OP_TYPES = Object.keys(OP_PERMISSION)
 export const OP_CLASS = Object.freeze({
   receive: 'immediate', move: 'immediate', qc: 'immediate', pick: 'immediate', unpick: 'immediate', return: 'immediate',
-  pack: 'staged', dispatch: 'staged',
+  pack: 'staged', dispatch: 'staged', stocktake: 'staged', repack: 'staged',
 })
+
+/** False while the operation type's own feature flag is off (stocktake, repack): such sessions are treated as not there. */
+export const opTypeOn = (type) => featureOn(OP_PERMISSION[type], env)
 export const MAX_SCANS_PER_REQUEST = 50
 /** Unknown codes one person may scan per minute before scans are refused (someone scanning random labels). */
 export const UNKNOWN_LIMIT = 20
@@ -76,7 +81,7 @@ export async function expireIdleOperations(c) {
 
 async function lockOp(c, opId, who) {
   const { rows } = await c.query('SELECT * FROM wh_operations WHERE id = $1 AND warehouse_id = $2 FOR UPDATE', [opId, who.warehouseId])
-  if (!rows.length) throw whError('NOT_FOUND', 'Operation not found', 404)
+  if (!rows.length || !opTypeOn(rows[0].type)) throw whError('NOT_FOUND', 'Operation not found', 404)
   return expireIfIdle(c, rows[0])
 }
 
@@ -110,6 +115,7 @@ async function locationIn(c, id, warehouseId) {
  */
 export async function startOperation(c, { type, context = {} }, who) {
   if (!OP_TYPES.includes(type)) throw whError('VALIDATION_ERROR', `Unknown operation ${type}`, 400)
+  if (!opTypeOn(type)) throw whError('NOT_FOUND', 'Not found', 404)
   need(who, OP_PERMISSION[type])
   const at = now()
   const op = { id: newId('wop'), type, class: OP_CLASS[type], context: {}, location_id: null, order_id: null, lot_id: null }
@@ -136,6 +142,20 @@ export async function startOperation(c, { type, context = {} }, who) {
     if (context.result !== 'passed' && !codes.length) throw whError('VALIDATION_ERROR', 'Pick at least one reason for a failed or review result', 400)
     const note = String(context.note ?? '').trim().slice(0, 300) || null
     op.context = { result: context.result, reasonCodes: codes, note }
+  } else if (type === 'stocktake') {
+    op.context = await stocktakeContext(c, context, who, at)
+    op.location_id = op.context.locationId
+    // One open count per location (a unique index backs this): resume your own, or wait for the other person's.
+    const { rows } = await c.query(`SELECT * FROM wh_operations WHERE location_id = $1 AND type = 'stocktake' AND status IN ('open', 'finalizing') FOR UPDATE`, [op.location_id])
+    for (const open of rows) {
+      const fresh = await expireIfIdle(c, open)
+      if (fresh.status !== 'open') continue
+      if (fresh.owner_id === who.actor.id) return opView(fresh, { resumed: true })
+      throw whError('OPERATION_LOCKED', `Someone else is already counting ${op.context.locationName}.`)
+    }
+  } else if (type === 'repack') {
+    op.context = await repackContext(c, context, who)
+    op.location_id = op.context.locationId
   } else {
     if (!context.orderId) throw whError('VALIDATION_ERROR', 'Choose the order', 400)
     await lockOrder(c, context.orderId)
@@ -170,12 +190,21 @@ export async function startOperation(c, { type, context = {} }, who) {
       }
     }
   }
-  const { rows } = await c.query(
-    `INSERT INTO wh_operations (id, type, class, warehouse_id, context, location_id, order_id, lot_id, status, owner_id, started_at, last_activity_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $10) RETURNING *`,
-    [op.id, type, op.class, who.warehouseId, op.context, op.location_id, op.order_id, op.lot_id, who.actor.id, at],
-  )
-  return opView(rows[0])
+  await c.query('SAVEPOINT start_op')
+  try {
+    const { rows } = await c.query(
+      `INSERT INTO wh_operations (id, type, class, warehouse_id, context, location_id, order_id, lot_id, status, owner_id, started_at, last_activity_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'open', $9, $10, $10) RETURNING *`,
+      [op.id, type, op.class, who.warehouseId, op.context, op.location_id, op.order_id, op.lot_id, who.actor.id, at],
+    )
+    await c.query('RELEASE SAVEPOINT start_op')
+    return opView(rows[0])
+  } catch (err) {
+    await c.query('ROLLBACK TO SAVEPOINT start_op')
+    // Two people starting a count of the same place at the same moment: the index lets one in.
+    if (err.code === '23505' && err.constraint === 'wh_operations_one_open_stocktake') throw whError('OPERATION_LOCKED', `Someone else is already counting ${op.context.locationName}.`)
+    throw err
+  }
 }
 
 // ---------------------------------------------------------------- scans
@@ -477,6 +506,14 @@ const HANDLERS = {
     return stage(c, op, box0, s)
   },
 
+  stocktake(c, op, box0, s) {
+    return stocktakeScan(c, op, box0, s)
+  },
+
+  repack(c, op, box0, s) {
+    return repackScan(c, op, box0, s)
+  },
+
   dispatch(c, op, box0, s) {
     if (box0.order_id !== op.order_id) reject('NOT_FROM_THIS_ORDER', `${box0.code} belongs to another order. Set it aside.`)
     if (box0.lifecycle === 'dispatched') reject('ALREADY_DISPATCHED', `${box0.code} has already left.`)
@@ -524,13 +561,18 @@ async function unpickBox(c, o, boxId, who, why, event) {
   return { code: formatBoxCode(box.code), atRisk: Boolean(r?.atRisk) }
 }
 
-/** Stages a box on a pack or dispatch session; one taken from another open session moves here (a warning). */
+/**
+ * Stages a box on a pack or dispatch session; one taken from another open
+ * session of the same type moves here (a warning). Stocktake and repack
+ * staging is never taken: a box can be counted, or wait for a repack, while packed elsewhere.
+ */
 async function stage(c, op, box, s) {
   const elsewhere = (await c.query(
-    `SELECT st.operation_id FROM wh_staged st JOIN wh_operations o ON o.id = st.operation_id WHERE st.box_id = $1 AND st.operation_id <> $2 AND o.status = 'open'`,
-    [box.id, op.id],
+    `SELECT st.operation_id FROM wh_staged st JOIN wh_operations o ON o.id = st.operation_id
+      WHERE st.box_id = $1 AND st.operation_id <> $2 AND o.status = 'open' AND o.type = $3`,
+    [box.id, op.id, op.type],
   )).rows
-  await c.query('DELETE FROM wh_staged WHERE box_id = $1 AND operation_id <> $2', [box.id, op.id])
+  await c.query('DELETE FROM wh_staged WHERE box_id = $1 AND operation_id <> $2 AND operation_id IN (SELECT id FROM wh_operations WHERE type = $3)', [box.id, op.id, op.type])
   await c.query('INSERT INTO wh_staged (operation_id, box_id, scan_id, staged_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [op.id, box.id, s.scanId, now()])
   const counts = await stagedCounts(c, op)
   const message = `${formatBoxCode(box.code)} scanned (${counts.staged} of ${counts.needed}).`
@@ -539,6 +581,8 @@ async function stage(c, op, box, s) {
 }
 
 async function stagedCounts(c, op) {
+  if (op.type === 'stocktake') return stocktakeCounts(c, op)
+  if (op.type === 'repack') return { staged: (await c.query('SELECT count(*)::int AS n FROM wh_staged WHERE operation_id = $1', [op.id])).rows[0].n, needed: 0 }
   const want = op.type === 'pack' ? 'picked' : 'packed'
   const { rows } = await c.query(
     `SELECT (SELECT count(*)::int FROM wh_staged WHERE operation_id = $1) AS staged,
@@ -558,20 +602,29 @@ function weight(s) {
 // ---------------------------------------------------------------- finalize, undo, cancel
 
 /**
- * Finalizes a staged session (pack or dispatch): re-checks every staged box
- * under locks, requires the complete set for the order, then applies it in
- * one transaction. A completed session returns its stored result.
+ * Finalizes a staged session: re-checks every staged box under locks, then
+ * applies it in one transaction. Pack and dispatch require the complete set
+ * for the order; stocktake and repack have their own rules (stocktake.js,
+ * repack.js; `body` carries a repack's new boxes). A completed session
+ * returns its stored result.
  */
-export async function finalizeOperation(c, opId, who) {
+export async function finalizeOperation(c, opId, who, body = {}) {
   const op0 = (await c.query('SELECT * FROM wh_operations WHERE id = $1 AND warehouse_id = $2', [opId, who.warehouseId])).rows[0]
   if (!op0) throw whError('NOT_FOUND', 'Operation not found', 404)
   if (op0.order_id) await lockOrder(c, op0.order_id)
   const op = await lockOp(c, opId, who)
   ownerOnly(op, who)
   need(who, OP_PERMISSION[op.type])
-  if (op.class !== 'staged') throw whError('VALIDATION_ERROR', 'Only pack and dispatch sessions are finalized', 400)
+  if (op.class !== 'staged') throw whError('VALIDATION_ERROR', 'Only pack, dispatch, stocktake and repack sessions are finalized', 400)
   if (op.status === 'completed') return opView(op, { replayed: true })
   if (op.status !== 'open') throw closedError(op)
+  if (op.type === 'stocktake' || op.type === 'repack') {
+    const result = op.type === 'stocktake' ? await finalizeStocktake(c, op, who) : await finalizeRepack(c, op, who, body)
+    await c.query('DELETE FROM wh_staged WHERE operation_id = $1', [op.id])
+    const { rows } = await c.query(`UPDATE wh_operations SET status = 'completed', finished_at = $2, last_activity_at = $2, result = $3 WHERE id = $1 RETURNING *`, [op.id, now(), result])
+    logger.info({ operationId: op.id, type: op.type, adminId: who.actor.id }, 'warehouse: session finished')
+    return opView(rows[0])
+  }
   const o = (await c.query('SELECT * FROM orders WHERE id = $1', [op.order_id])).rows[0]
   const want = op.type === 'pack' ? 'picked' : 'packed'
   const staged = (await c.query('SELECT box_id FROM wh_staged WHERE operation_id = $1', [op.id])).rows.map((r) => r.box_id)
@@ -618,6 +671,21 @@ export async function finalizeOperation(c, opId, who) {
   const result = { orderId: o.id, orderNumber: o.number, boxes: needed.map((b) => formatBoxCode(b.code)), status: op.type === 'pack' ? 'PACKED' : 'SHIPPED' }
   const { rows } = await c.query(`UPDATE wh_operations SET status = 'completed', finished_at = $2, last_activity_at = $2, result = $3 WHERE id = $1 RETURNING *`, [op.id, now(), result])
   return opView(rows[0])
+}
+
+/**
+ * Takes boxes out of a staged session after a finalize refused them as stale
+ * (its own transaction: the refused finalize rolled back). Their scans become
+ * undone, so scanning one again is checked afresh instead of being a duplicate.
+ */
+export async function unstageBoxes(c, opId, boxIds, who) {
+  const op = await lockOp(c, opId, who)
+  ownerOnly(op, who)
+  if (op.status !== 'open' || !boxIds.length) return 0
+  const del = await c.query('DELETE FROM wh_staged WHERE operation_id = $1 AND box_id = ANY($2::uuid[])', [op.id, boxIds])
+  const upd = await c.query(`UPDATE wh_scans SET result = 'undone' WHERE operation_id = $1 AND box_id = ANY($2::uuid[]) AND result IN ('accepted', 'warning')`, [op.id, boxIds])
+  await c.query('UPDATE wh_operations SET accepted_count = greatest(accepted_count - $2, 0), last_activity_at = $3 WHERE id = $1', [op.id, upd.rowCount, now()])
+  return del.rowCount
 }
 
 async function lockBoxesSorted(c, ids) {

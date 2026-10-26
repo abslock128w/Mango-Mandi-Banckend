@@ -201,16 +201,17 @@ export async function generateMore(c, lotId, actor, n = CONTINUE_CHUNK) {
   if (!lot) throw whError('NOT_FOUND', 'Lot not found', 404)
   if (lot.status !== 'generating' && lot.generated_count >= lot.target_count) return lot
   // The real count, in case an earlier chunk committed boxes but died before updating the lot.
-  const have = (await c.query('SELECT coalesce(max(seq), 0)::int AS n FROM boxes WHERE lot_id = $1', [lotId])).rows[0].n
+  // Boxes made by a repack (parent_box_ids set) join a lot but are not its intake labels.
+  const have = (await c.query(`SELECT coalesce(max(seq), 0)::int AS n FROM boxes WHERE lot_id = $1 AND parent_box_ids = '{}'`, [lotId])).rows[0].n
   const to = Math.min(lot.target_count, have + n)
   if (to > have) await insertBoxes(c, lot, have + 1, to, actor)
-  const generated = (await c.query('SELECT count(*)::int AS n FROM boxes WHERE lot_id = $1', [lotId])).rows[0].n
+  const generated = (await c.query(`SELECT count(*)::int AS n FROM boxes WHERE lot_id = $1 AND parent_box_ids = '{}'`, [lotId])).rows[0].n
   const status = lot.status === 'generating' && generated >= lot.target_count ? 'receiving' : lot.status
   const upd = await c.query('UPDATE box_lots SET generated_count = $2, status = $3, updated_at = $4 WHERE id = $1 RETURNING *', [lotId, generated, status, now()])
   return upd.rows[0]
 }
 
-/** Lot counts recomputed from its boxes (the truth), saved on the lot. */
+/** Lot counts recomputed from its intake boxes (the truth), saved on the lot. Repacked-in boxes are not intake labels. */
 export async function refreshLotCounts(c, lotId) {
   const { rows } = await c.query(
     `UPDATE box_lots l SET
@@ -218,7 +219,7 @@ export async function refreshLotCounts(c, lotId) {
        FROM (SELECT count(*)::int AS generated,
                     count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified,
                     count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided
-               FROM boxes WHERE lot_id = $1) x
+               FROM boxes WHERE lot_id = $1 AND parent_box_ids = '{}') x
       WHERE l.id = $1 RETURNING l.*`,
     [lotId, now()],
   )
@@ -298,7 +299,7 @@ export async function voidBoxes(c, lot, { count = null, boxIds = null, reason },
 export async function addBoxes(c, lot, { count, reason }, actor) {
   if (['closed', 'voided'].includes(lot.status)) throw whError('INVALID_TRANSITION', `This lot is ${lot.status}; it takes no new boxes`)
   if (lot.target_count + count > env.WAREHOUSE_MAX_LOT) throw whError('VALIDATION_ERROR', `A lot holds at most ${env.WAREHOUSE_MAX_LOT} boxes`, 400)
-  const from = (await c.query('SELECT coalesce(max(seq), 0)::int AS n FROM boxes WHERE lot_id = $1', [lot.id])).rows[0].n + 1
+  const from = (await c.query(`SELECT coalesce(max(seq), 0)::int AS n FROM boxes WHERE lot_id = $1 AND parent_box_ids = '{}'`, [lot.id])).rows[0].n + 1
   await c.query(`UPDATE box_lots SET target_count = target_count + $2, status = CASE WHEN status = 'received' THEN 'receiving' ELSE status END, updated_at = $3 WHERE id = $1`, [
     lot.id, count, now(),
   ])
@@ -306,7 +307,7 @@ export async function addBoxes(c, lot, { count, reason }, actor) {
   await insertBoxes(c, fresh, from, from + count - 1, actor)
   await c.query(
     `INSERT INTO box_events (id, box_id, type, actor_id, created_at, reason_code, reason)
-     SELECT 'bev_' || replace(gen_random_uuid()::text, '-', ''), id, 'ADDED_TO_LOT', $2, $3, 'extra_boxes', $4 FROM boxes WHERE lot_id = $1 AND seq >= $5`,
+     SELECT 'bev_' || replace(gen_random_uuid()::text, '-', ''), id, 'ADDED_TO_LOT', $2, $3, 'extra_boxes', $4 FROM boxes WHERE lot_id = $1 AND seq >= $5 AND parent_box_ids = '{}'`,
     [lot.id, actor.id, now(), reason, from],
   )
   return refreshLotCounts(c, lot.id)

@@ -217,10 +217,13 @@ export async function listWriteOffs(c, who, status = null) {
 /** Boxes a lot-wide action changes per request; the response says whether to call again (`more`). */
 export const BULK_CHUNK = 400
 
-/** QC a whole lot at once (bulk-first): every received box still waiting for QC passes, except those named. */
+/**
+ * QC a whole lot at once (bulk-first): every received box still waiting for QC passes, except those named.
+ * Boxes made by a repack are QC'd one by one (scan), never by the lot's sample.
+ */
 export async function qcLot(c, lot, { exceptBoxIds = [], note = null }, who) {
   const { rows } = await c.query(
-    `SELECT id FROM boxes WHERE lot_id = $1 AND quality = 'pending' AND lifecycle = 'in_stock' AND NOT (id = ANY($2::uuid[])) ORDER BY id LIMIT $3`,
+    `SELECT id FROM boxes WHERE lot_id = $1 AND quality = 'pending' AND lifecycle = 'in_stock' AND parent_box_ids = '{}' AND NOT (id = ANY($2::uuid[])) ORDER BY id LIMIT $3`,
     [lot.id, exceptBoxIds, BULK_CHUNK + 1],
   )
   const more = rows.length > BULK_CHUNK
@@ -234,7 +237,7 @@ export async function qcLot(c, lot, { exceptBoxIds = [], note = null }, who) {
     passed++
   }
   await applyLineDeltas(c, d, who.actor, `Lot ${lot.code}: QC passed`)
-  const waiting = (await c.query(`SELECT count(*)::int AS n FROM boxes WHERE lot_id = $1 AND quality = 'pending' AND lifecycle <> 'voided'`, [lot.id])).rows[0].n
+  const waiting = (await c.query(`SELECT count(*)::int AS n FROM boxes WHERE lot_id = $1 AND quality = 'pending' AND lifecycle <> 'voided' AND parent_box_ids = '{}'`, [lot.id])).rows[0].n
   return { passed, stillPending: waiting, more }
 }
 

@@ -11,6 +11,18 @@ import { addHold, applyLineDeltas, lockBoxes, newDeltas, releaseHold, whError } 
 import { boxView } from './boxes.js'
 import { can } from './permissions.js'
 
+/**
+ * Every box of the given lots and every box made from them by repacks, at
+ * most 10 repack generations down, each once (its shallowest depth). $1 is the
+ * lot id array. A box whose fruit came from a lot (box_origins) counts even
+ * when it sits on another lot's line.
+ */
+const LINEAGE_DOWN = `WITH RECURSIVE down (id, depth) AS (
+    SELECT id, 0 FROM boxes WHERE lot_id = ANY($1)
+    UNION SELECT box_id, 0 FROM box_origins WHERE lot_id = ANY($1)
+    UNION SELECT b.id, d.depth + 1 FROM boxes b JOIN down d ON b.parent_box_ids @> ARRAY[d.id] WHERE d.depth < 10),
+  lineage AS (SELECT id, min(depth) AS depth FROM down GROUP BY id)`
+
 /** Boxes still physically here (not gone for good, not out on a delivery). */
 const ON_SITE = `b.lifecycle IN ('generated', 'in_stock', 'picked', 'packed', 'returned')`
 
@@ -114,7 +126,7 @@ export async function exceptions(c, warehouseId) {
   const today = todayIST()
   const cap = 50
   const q = async (sql, params) => (await c.query(sql, params)).rows
-  const [atRisk, heldOnOrders, unverified, staleOps, expiring, failedNotes, pendingWo, staging, investigations] = await Promise.all([
+  const [atRisk, heldOnOrders, unverified, staleOps, expiring, failedNotes, pendingWo, staging, investigations, counts, missing] = await Promise.all([
     q(`SELECT o.id, o.number, o.status, o.delivery_date, o.at_risk_reason FROM orders o
         WHERE o.at_risk AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
           AND EXISTS (SELECT 1 FROM order_items i JOIN products p ON p.sku = i.sku WHERE i.order_id = o.id AND p.box_tracking_enabled)
@@ -139,6 +151,13 @@ export async function exceptions(c, warehouseId) {
         ORDER BY b.updated_at LIMIT $3`, [warehouseId, new Date(at.getTime() - 2 * 3_600_000), cap]),
     q(`SELECT b.id, b.code, h.reason, h.added_at FROM box_holds h JOIN boxes b ON b.id = h.box_id
         WHERE b.warehouse_id = $1 AND h.kind = 'investigation_hold' AND h.released_at IS NULL ORDER BY h.added_at LIMIT $2`, [warehouseId, cap]),
+    // Counts with boxes waiting for a supervisor's review, or a second person's approval.
+    q(`SELECT o.id, o.context->>'locationName' AS location_name, o.finished_at,
+              count(*) FILTER (WHERE l.status = 'proposed')::int AS to_review, count(*) FILTER (WHERE l.status = 'pending_approval')::int AS to_approve
+         FROM wh_operations o JOIN wh_stocktake_lines l ON l.operation_id = o.id
+        WHERE o.warehouse_id = $1 AND o.type = 'stocktake' AND l.status IN ('proposed', 'pending_approval')
+        GROUP BY o.id ORDER BY o.finished_at LIMIT $2`, [warehouseId, cap]),
+    q(`SELECT b.id, b.code, b.sku_name, b.updated_at FROM boxes b WHERE b.warehouse_id = $1 AND b.lifecycle = 'missing' ORDER BY b.updated_at LIMIT $2`, [warehouseId, cap]),
   ])
   const fmt = (r) => ({ ...r, ...(r.code && /^[0-9A-Z]{9}$/.test(r.code) ? { code: formatBoxCode(r.code) } : {}) })
   return {
@@ -151,6 +170,8 @@ export async function exceptions(c, warehouseId) {
     pendingWriteOffs: pendingWo.map((r) => ({ id: r.id, boxes: r.boxes, reason: r.reason, requestedAt: r.requested_at })),
     boxesToPutAway: staging.map(fmt).map((r) => ({ boxId: r.id, code: r.code, skuName: r.sku_name, since: r.updated_at })),
     investigations: investigations.map((r) => ({ boxId: r.id, code: formatBoxCode(r.code), reason: r.reason, since: r.added_at })),
+    stocktakeReviews: counts.map((r) => ({ operationId: r.id, locationName: r.location_name, finishedAt: r.finished_at, toReview: r.to_review, toApprove: r.to_approve })),
+    missingBoxes: missing.map((r) => ({ boxId: r.id, code: formatBoxCode(r.code), skuName: r.sku_name, since: r.updated_at })),
   }
 }
 
@@ -189,7 +210,7 @@ export async function reconciliation(c, warehouseId) {
            OR (b.lifecycle = 'packed' AND o.status = 'CONFIRMED')) LIMIT 200`, [warehouseId]),
     q(`SELECT l.id, l.code, l.generated_count, l.verified_count, l.voided_count, x.generated, x.verified, x.voided FROM box_lots l
          JOIN (SELECT lot_id, count(*)::int AS generated, count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified,
-                      count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes GROUP BY lot_id) x ON x.lot_id = l.id
+                      count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes WHERE parent_box_ids = '{}' GROUP BY lot_id) x ON x.lot_id = l.id
         WHERE l.warehouse_id = $1 AND (l.generated_count <> x.generated OR l.verified_count <> x.verified OR l.voided_count <> x.voided)`, [warehouseId]),
     auditLedger(c),
   ])
@@ -220,16 +241,31 @@ export async function traceBox(c, box, who) {
         [box.parent_box_ids],
       )).rows.map((p) => ({ id: p.id, code: formatBoxCode(p.code), lotId: p.lot_id, depth: p.depth }))
     : []
+  // Backward: every lot and batch the fruit came from (a merged box has several). Forward: boxes made from this one.
+  const origins = (await c.query(
+    `SELECT DISTINCT l.id, l.code, l.supplier, l.received_on, bt.id AS batch_id, bt.variety, bt.plucked_on, bt.farm
+       FROM (SELECT lot_id FROM box_origins WHERE box_id = $1 UNION SELECT $2::text) o JOIN box_lots l ON l.id = o.lot_id JOIN batches bt ON bt.id = l.batch_id
+      ORDER BY l.code`,
+    [box.id, box.lot_id],
+  )).rows
+  const descendants = (await c.query(
+    `WITH RECURSIVE down (id, depth) AS (SELECT $1::uuid, 0 UNION SELECT b.id, d.depth + 1 FROM boxes b JOIN down d ON b.parent_box_ids @> ARRAY[d.id] WHERE d.depth < 10)
+     SELECT b.id, b.code, b.lifecycle, b.order_id, min(d.depth) AS depth FROM down d JOIN boxes b ON b.id = d.id WHERE d.depth > 0
+      GROUP BY b.id ORDER BY min(d.depth), b.code`,
+    [box.id],
+  )).rows
   const events = (await c.query(
     `SELECT e.*, a.email AS actor_email FROM box_events e LEFT JOIN admin_users a ON a.id = e.actor_id WHERE e.box_id = $1 ORDER BY e.created_at, e.id`,
     [box.id],
   )).rows
-  const orderIds = [...new Set(events.map((e) => e.order_id).filter(Boolean))]
+  const orderIds = [...new Set([...events.map((e) => e.order_id), ...descendants.map((d) => d.order_id)].filter(Boolean))]
   return {
     box: boxView(box),
     lot: lot && { id: lot.id, code: lot.code, supplier: lot.supplier, harvestedOn: lot.harvested_on, receivedOn: lot.received_on, bestBefore: lot.best_before, isLegacy: lot.is_legacy },
     batch: batch && { id: batch.id, variety: batch.variety, pluckedOn: batch.plucked_on, farm: batch.farm, status: batch.status },
     parents,
+    origins: origins.map((o) => ({ lotId: o.id, lotCode: o.code, supplier: o.supplier, receivedOn: o.received_on, batchId: o.batch_id, variety: o.variety, pluckedOn: o.plucked_on, farm: o.farm })),
+    descendants: descendants.map((d) => ({ id: d.id, code: formatBoxCode(d.code), lifecycle: d.lifecycle, orderId: d.order_id, depth: d.depth })),
     orders: await ordersFor(c, orderIds, who),
     events: events.map((e) => ({ type: e.type, at: e.created_at, actor: e.actor_email, fromLifecycle: e.from_lifecycle, toLifecycle: e.to_lifecycle, fromLocation: e.from_location, toLocation: e.to_location, quality: e.to_quality, fromQuality: e.from_quality, toQuality: e.to_quality, holdAdded: e.hold_added, holdReleased: e.hold_released, orderId: e.order_id, reasonCode: e.reason_code, reason: e.reason })),
   }
@@ -248,14 +284,13 @@ export async function traceLot(c, lotId, who) {
   const lot = (await c.query('SELECT * FROM box_lots WHERE id = $1 AND warehouse_id = $2', [lotId, who.warehouseId])).rows[0]
   if (!lot) throw whError('NOT_FOUND', 'Lot not found', 404)
   const { rows: boxes } = await c.query(
-    `WITH RECURSIVE down (id, depth) AS (
-        SELECT id, 0 FROM boxes WHERE lot_id = $1
-        UNION SELECT b.id, d.depth + 1 FROM boxes b JOIN down d ON b.parent_box_ids @> ARRAY[d.id] WHERE d.depth < 10)
-     SELECT b.id, b.code, b.lifecycle, b.quality, b.order_id, b.location_id, l.name AS location_name, d.depth,
+    `${LINEAGE_DOWN}
+     SELECT b.id, b.code, b.lifecycle, b.quality, b.order_id, b.location_id, l.name AS location_name,
+            CASE WHEN b.parent_box_ids <> '{}' THEN greatest(d.depth, 1) ELSE d.depth END AS depth,
             (SELECT e.order_id FROM box_events e WHERE e.box_id = b.id AND e.order_id IS NOT NULL ORDER BY e.created_at DESC, e.id DESC LIMIT 1) AS last_order_id,
             (SELECT coalesce(array_agg(h.kind), '{}') FROM box_holds h WHERE h.box_id = b.id AND h.released_at IS NULL) AS holds
-       FROM down d JOIN boxes b ON b.id = d.id LEFT JOIN wh_locations l ON l.id = b.location_id ORDER BY d.depth, b.code`,
-    [lot.id],
+       FROM lineage d JOIN boxes b ON b.id = d.id LEFT JOIN wh_locations l ON l.id = b.location_id ORDER BY 8, b.code`,
+    [[lot.id]],
   )
   const byState = {}
   for (const b of boxes) byState[b.lifecycle] = (byState[b.lifecycle] ?? 0) + 1
@@ -275,10 +310,8 @@ const RECALL_CHUNK = 200
 /** The boxes a recall holds: every box of its lots (and repack descendants) still here and not yet held by it. */
 const recallTargets = (c, recall, limit) =>
   c.query(
-    `WITH RECURSIVE down (id, depth) AS (
-        SELECT id, 0 FROM boxes WHERE lot_id = ANY($1)
-        UNION SELECT b.id, d.depth + 1 FROM boxes b JOIN down d ON b.parent_box_ids @> ARRAY[d.id] WHERE d.depth < 10)
-     SELECT b.id FROM down d JOIN boxes b ON b.id = d.id
+    `${LINEAGE_DOWN}
+     SELECT b.id FROM lineage d JOIN boxes b ON b.id = d.id
       WHERE b.lifecycle IN ('generated', 'in_stock', 'picked', 'packed', 'returned', 'missing')
         AND NOT EXISTS (SELECT 1 FROM box_holds h WHERE h.box_id = b.id AND h.kind = 'recall_hold' AND h.released_at IS NULL)
       ORDER BY b.id LIMIT $2`,
@@ -335,14 +368,17 @@ export async function releaseRecall(c, id, { reason }, who) {
   return recallView(c, upd[0], who)
 }
 
+/** A recall's reach: its lots' boxes and their repack descendants, by state, and every order any of them left on. */
 export async function recallView(c, r, who) {
   const { rows } = await c.query(
-    `SELECT b.lifecycle, count(*)::int AS n FROM boxes b WHERE b.lot_id = ANY($1) GROUP BY b.lifecycle`,
+    `${LINEAGE_DOWN}
+     SELECT b.lifecycle, count(*)::int AS n FROM lineage d JOIN boxes b ON b.id = d.id GROUP BY b.lifecycle`,
     [r.lot_ids],
   )
   const gone = (await c.query(
-    `SELECT DISTINCT b.order_id FROM boxes b WHERE b.lot_id = ANY($1) AND b.lifecycle = 'dispatched'
-     UNION SELECT DISTINCT e.order_id FROM box_events e JOIN boxes b ON b.id = e.box_id WHERE b.lot_id = ANY($1) AND e.type = 'DISPATCHED'`,
+    `${LINEAGE_DOWN}
+     SELECT DISTINCT b.order_id FROM lineage d JOIN boxes b ON b.id = d.id WHERE b.lifecycle = 'dispatched'
+     UNION SELECT DISTINCT e.order_id FROM lineage d JOIN box_events e ON e.box_id = d.id WHERE e.type = 'DISPATCHED'`,
     [r.lot_ids],
   )).rows.map((x) => x.order_id).filter(Boolean)
   return {
