@@ -150,3 +150,88 @@ test('real API: labels on, intake, receive by scanning, QC, put away, pick, pack
   await page.goto('/warehouse')
   await expect(page.getByRole('list', { name: 'Boxes' })).toContainText('In stock')
 })
+
+// Runs after the test above on the same database (three boxes left in Storage
+// A). Needs WAREHOUSE_STOCKTAKE and WAREHOUSE_REPACK on in the API.
+test('real API: count a shelf, review the box not found, find it again, merge two boxes, books match', async ({ page }) => {
+  test.skip(test.info().project.name !== 'desktop', 'Runs once, on desktop')
+  test.setTimeout(180_000)
+  await page.goto('/login')
+  await page.getByLabel('Work email').fill('manager@mandimangoes.test')
+  await page.getByLabel('Password').fill('manager123')
+  await page.getByRole('button', { name: /Sign in/ }).click()
+  await expect(page.getByRole('button', { name: 'Warehouse' })).toBeVisible()
+
+  const onShelf = sql(
+    `SELECT b.id || ' ' || b.label_token FROM boxes b JOIN wh_locations l ON l.id = b.location_id WHERE l.name = 'Storage A' AND b.lifecycle = 'in_stock' ORDER BY b.seq`,
+  )
+    .split('\n')
+    .map((r) => r.split(' '))
+  expect(onShelf).toHaveLength(3)
+  const [[keptA, tokenA], [keptB, tokenB], [lostId, lostToken]] = onShelf
+
+  // 1. Count Storage A, scanning two of its three boxes.
+  await page.goto('/warehouse/stocktake')
+  await page.getByRole('link', { name: 'Start a count' }).click()
+  await page.getByLabel('Place to count').selectOption({ label: 'Storage A (Storage)' })
+  await page.getByRole('button', { name: 'Start scanning' }).click()
+  await expect(scanInput(page)).toBeFocused()
+  await scan(page, `MMB1:${tokenA}`)
+  await scan(page, `MMB1:${tokenB}`)
+  await expect(page.locator('.wh-scan-accepted')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Finish count' }).click()
+  await page.getByRole('dialog', { name: 'Finish this count?' }).getByRole('button', { name: 'Finish count' }).click()
+  await expect(page.getByText('1 box was not found.')).toBeVisible()
+  expect(sql(`SELECT lifecycle FROM boxes WHERE id = '${lostId}'`)).toBe('in_stock')
+
+  // 2. The review marks it missing; stock follows.
+  await page.getByRole('link', { name: 'Open the count' }).click()
+  const review = page.getByRole('region', { name: /Review boxes not found/ })
+  await review.getByLabel('Mark missing').check()
+  await review.getByRole('button', { name: 'Save review' }).click()
+  await expect(page.getByText('Review saved: 1 marked missing.')).toBeVisible()
+  expect(sql(`SELECT lifecycle || ' ' || coalesce(location_id, '-') FROM boxes WHERE id = '${lostId}'`)).toBe('missing -')
+
+  // 3. It turns up in the cold room: a count there brings it back.
+  await page.goto('/warehouse/scan?type=stocktake')
+  await page.getByLabel('Place to count').selectOption({ label: 'Cold room (Cold storage)' })
+  await page.getByRole('button', { name: 'Start scanning' }).click()
+  await scan(page, `MMB1:${lostToken}`)
+  await expect(results(page).first()).toContainText('was recorded missing')
+  await page.getByRole('button', { name: 'Finish count' }).click()
+  await page.getByRole('dialog', { name: 'Finish this count?' }).getByRole('button', { name: 'Finish count' }).click()
+  await expect(page.getByRole('heading', { name: 'Count finished' })).toBeVisible()
+  expect(sql(`SELECT b.lifecycle || ' ' || l.name FROM boxes b JOIN wh_locations l ON l.id = b.location_id WHERE b.id = '${lostId}'`)).toBe('in_stock Cold room')
+
+  // 4. Merge the two counted boxes at Packing into one new box.
+  await page.goto('/warehouse/repack')
+  await page.getByRole('link', { name: 'Start a repack' }).click()
+  await page.getByLabel('Where you repack').selectOption({ label: 'Packing (Packing)' })
+  await page.getByLabel('Why repack?').selectOption({ label: 'Merge part-full boxes' })
+  await page.getByLabel('What is being done').fill('Two boxes with soft fruit into one')
+  await page.getByRole('button', { name: 'Start scanning' }).click()
+  await scan(page, `MMB1:${tokenA}`)
+  await scan(page, `MMB1:${tokenB}`)
+  await expect(page.locator('.wh-scan-accepted')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Finish repack' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Finish repack' })
+  await expect(dialog).toContainText('Going in: 2 boxes, 6 kg')
+  await dialog.getByLabel('Weight in grams').fill('5600')
+  await dialog.getByLabel('Fruit taken out').fill('2')
+  await dialog.getByLabel('Weight taken out (g)').fill('400')
+  await dialog.getByRole('button', { name: 'Make 1 new box' }).click()
+  const done = page.getByRole('region', { name: 'Repack done' })
+  await expect(done).toContainText('2 boxes in, 1 new box out')
+  const [labels] = await Promise.all([page.waitForEvent('download'), done.getByRole('button', { name: 'Download new labels' }).click()])
+  expect(labels.suggestedFilename()).toMatch(/^repack-labels-.+\.pdf$/)
+  expect(sql(`SELECT string_agg(lifecycle, ',') FROM boxes WHERE id IN ('${keptA}', '${keptB}')`)).toBe('repacked,repacked')
+  const made = sql(`SELECT id FROM boxes WHERE parent_box_ids @> ARRAY['${keptA}', '${keptB}']::uuid[]`)
+  expect(made).not.toBe('')
+  expect(Number(sql(`SELECT count(*) FROM box_origins WHERE box_id = '${made}'`))).toBeGreaterThanOrEqual(1)
+
+  // 5. The new box's trace names both parents; the books still match.
+  await page.goto(`/warehouse/boxes/${made}/trace`)
+  await expect(page.getByRole('heading', { name: 'Repacked from' })).toBeVisible()
+  await page.goto('/warehouse/reports')
+  await expect(page.getByText('Everything matches')).toBeVisible()
+})
