@@ -172,6 +172,8 @@ jobs:
       - name: Start mango-api with demo data
         working-directory: mango-api
         run: |
+          # A throwaway VAPID key pair for this run only (browser notifications use the log provider).
+          eval "$(node scripts/vapid-keys.mjs | sed 's/^/export /')"
           nohup node src/index.js > ../api.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://localhost:3000/ready && exit 0; sleep 1; done
           cat ../api.log; exit 1
@@ -180,6 +182,14 @@ jobs:
           COOKIE_SECURE: 'false'
           ENABLE_DEV_ROUTES: 'true'
           LOG_LEVEL: warn
+          # App feel (docs/app-feel.md), on so customer-app/tests/app-feel.spec.ts runs; every other spec runs with them on too.
+          WEB_PUSH: 'true'
+          WEB_PUSH_PROVIDER: log
+          VAPID_SUBJECT: mailto:ops@mandimangoes.test
+          LIVE_TRACKING: 'true'
+          FAVOURITES: 'true'
+          SHOP_INSTALL: 'true'
+          SHOP_SORT_FILTER: 'true'
       - run: npx playwright install --with-deps chromium
       - name: Day in the life, and the panel mock's contract, against the real API
         run: npx playwright test tests/contract.spec.ts tests/day-in-the-life.spec.ts

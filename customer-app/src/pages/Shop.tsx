@@ -374,12 +374,12 @@ function ViewControls({
             ))}
           </select>
         </div>
-        {varieties.length > 1 && (
+        {(varieties.length > 1 || view.variety) && (
           <div className="view-field">
             <label htmlFor={`${id}-variety`}>Variety</label>
             <select id={`${id}-variety`} value={view.variety ?? ''} onChange={(e) => onChange({ ...view, variety: e.target.value || null })}>
               <option value="">All varieties</option>
-              {varieties.map((v) => (
+              {(view.variety && !varieties.includes(view.variety) ? [...varieties, view.variety] : varieties).map((v) => (
                 <option key={v} value={v}>
                   {v}
                 </option>
@@ -389,12 +389,12 @@ function ViewControls({
         )}
         {stockKnown && (
           <div className="view-field">
-            <label htmlFor={`${id}-ripe`}>Ripeness in stock</label>
+            <label htmlFor={`${id}-ripe`}>Ripeness</label>
             <select id={`${id}-ripe`} value={view.ripeness ?? ''} onChange={(e) => onChange({ ...view, ripeness: (e.target.value || null) as Stage | null })}>
               <option value="">Any ripeness</option>
               {STAGES.map((st) => (
                 <option key={st} value={st}>
-                  {STAGE_LABEL[st]}
+                  {STAGE_LABEL[st]} in stock
                 </option>
               ))}
             </select>
