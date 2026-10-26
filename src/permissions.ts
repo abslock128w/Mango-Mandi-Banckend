@@ -10,7 +10,7 @@
 // QC: receiving batches, QC and stock counts.
 // RIDER: the day's deliveries, marked with the customer's code or a photo.
 
-import type { OrderStatus, Role } from './types'
+import type { Me, OrderStatus, Role } from './types'
 
 export type Action = 'condemnBatch' | 'deletePincode' | 'editRules' | 'moveDay' | 'manageStaff' | 'changeOrder'
 
@@ -57,10 +57,11 @@ export type Screen =
   | 'products'
   | 'reviews'
   | 'bulkDeals'
+  | 'customers'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',
-  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews']),
+  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
   // QC sees the Reviews page's ripeness accuracy only (no moderation).
   QC: new Set<Screen>(['batches', 'reviews']),
@@ -82,4 +83,14 @@ export function homeFor(role: Role | null | undefined): string {
   if (role === 'QC') return '/batches'
   if (role === 'RIDER') return '/deliveries'
   return '/today'
+}
+
+/**
+ * Bills, customer profiles and CSV exports (docs/trust.md): each needs its switch on (/auth/me
+ * features) and the right role. Bills and profiles: managers and operators. Exports: managers.
+ */
+export function trustAllowed(me: Me | null | undefined, feature: 'bills' | 'customerProfiles' | 'exports'): boolean {
+  if (!me?.features?.[feature]) return false
+  if (feature === 'exports') return me.role === 'MANAGER'
+  return me.role === 'MANAGER' || me.role === 'OPERATOR'
 }

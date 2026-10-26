@@ -15,6 +15,7 @@ import { env } from '../env.js'
 import { asyncHandler, badRequest, conflict, HttpError, parse, unauthorized } from '../errors.js'
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
+import { trust } from '../trust-config.js'
 import { clearPasswordFailures, clearTwoStep, passwordFailed, passwordLocked, PW_LOCKED, SETUP_CODE_TRIES_PER_HOUR } from './shared.js'
 
 const COOKIE = 'mango_admin_rt'
@@ -218,6 +219,8 @@ me.get(
       email: req.admin.email, role: req.admin.role,
       // The panel shows the Warehouse area only when it is on, with what this role may do there.
       warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: ROLE_PERMISSIONS[req.admin.role] ?? [] } : { enabled: false, permissions: [] },
+      // Bills, customer profiles and CSV exports (docs/trust.md): which are switched on. The role still decides who may use them.
+      features: { bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),

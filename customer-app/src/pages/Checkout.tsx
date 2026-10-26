@@ -9,6 +9,7 @@ import { AddressPicker, DayChips, Field, SlotPicker } from '../forms'
 import { DocTitle, ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 import { UnpaidOrderBanner } from '../unpaid'
+import { gstinProblem, tidyGstin } from '../gstin'
 
 function loadAddress() {
   try {
@@ -54,9 +55,9 @@ export async function syncCart(cart: CartLine[], bulk: BulkCartLine[] = []) {
 }
 
 /** Where a form problem shows: under its field. */
-type At = 'slot' | 'gift-name' | 'gift-phone' | 'address' | 'promo'
+type At = 'slot' | 'gift-name' | 'gift-phone' | 'address' | 'business-name' | 'gstin' | 'promo'
 /** The fields in page order, so the first one with a problem gets focus. */
-const FIELD_ORDER: At[] = ['slot', 'gift-name', 'gift-phone', 'address', 'promo']
+const FIELD_ORDER: At[] = ['slot', 'gift-name', 'gift-phone', 'address', 'business-name', 'gstin', 'promo']
 
 /** Moves focus to a field: a text box by its id, the delivery times to the first one that can be picked. */
 function focusField(at: At) {
@@ -99,6 +100,12 @@ function CheckoutForm() {
   const [promoCode, setPromoCode] = useState('')
   const [isGift, setIsGift] = useState(false)
   const [gift, setGift] = useState({ recipientName: '', recipientPhone: '', message: '' })
+  // Optional: a business buying, for its name and GSTIN on the bill (only while the shop issues bills).
+  const policy = useQuery({ queryKey: ['policy'], queryFn: api.policy, staleTime: 10 * 60_000 })
+  const billsOn = policy.data?.bills === true
+  const [isBusiness, setIsBusiness] = useState(false)
+  const [business, setBusiness] = useState({ name: '', gstin: '' })
+  const withBusiness = billsOn && isBusiness
   const [problems, setProblems] = useState<Partial<Record<At, string>>>({})
   const [quote, setQuote] = useState<Quote | null>(null)
   const idemKey = useRef<string | null>(null)
@@ -216,6 +223,7 @@ function CheckoutForm() {
         address: address.trim(),
         name: name.trim() || undefined,
         gift: isGift ? { recipientName: gift.recipientName.trim(), recipientPhone: gift.recipientPhone.trim(), message: gift.message.trim() || null } : null,
+        ...(withBusiness ? { business: { name: business.name.trim(), gstin: tidyGstin(business.gstin) } } : {}),
       }
       let c: Confirmed
       for (let attempt = 1; ; attempt++) {
@@ -264,6 +272,11 @@ function CheckoutForm() {
       found['gift-phone'] = 'Enter their 10-digit mobile number, so the rider can reach them.'
     }
     if (address.trim().length < 10) found.address = 'Enter the full delivery address, with house number and landmark.'
+    if (withBusiness && business.name.trim().length < 2) found['business-name'] = 'Enter the business name as it is on the GST certificate.'
+    if (withBusiness) {
+      const bad = gstinProblem(business.gstin)
+      if (bad) found.gstin = bad
+    }
     setProblems(found)
     const first = FIELD_ORDER.find((at) => found[at])
     if (first) {
@@ -319,6 +332,16 @@ function CheckoutForm() {
             <div>
               <dt>Note</dt>
               <dd>{gift.message.trim()}</dd>
+            </div>
+          )}
+          {withBusiness && (
+            <div>
+              <dt>Bill to</dt>
+              <dd>
+                {business.name.trim()}
+                <br />
+                GSTIN {tidyGstin(business.gstin)}
+              </dd>
             </div>
           )}
         </dl>
@@ -530,6 +553,43 @@ function CheckoutForm() {
               }}
             />
           </Field>
+          {billsOn && (
+            <>
+              <label className="option gift-toggle">
+                <input type="checkbox" checked={isBusiness} onChange={(e) => setIsBusiness(e.target.checked)} />
+                <span>Buying for a business? Add its name and GSTIN to the bill</span>
+              </label>
+              {isBusiness && (
+                <fieldset className="field gift-fields">
+                  <legend>Business details for the bill</legend>
+                  <Field id="business-name" label="Business name" hint="As it is on the GST certificate." error={errorAt('business-name')}>
+                    <input
+                      autoComplete="organization"
+                      maxLength={100}
+                      value={business.name}
+                      onChange={(e) => {
+                        setBusiness({ ...business, name: e.target.value })
+                        if (problems['business-name']) setProblems({ ...problems, 'business-name': undefined })
+                      }}
+                    />
+                  </Field>
+                  <Field id="gstin" label="GSTIN" hint="15 characters, for example 29ABCDE1234F1ZW." error={errorAt('gstin')}>
+                    <input
+                      autoComplete="off"
+                      autoCapitalize="characters"
+                      spellCheck={false}
+                      maxLength={20}
+                      value={business.gstin}
+                      onChange={(e) => {
+                        setBusiness({ ...business, gstin: e.target.value.toUpperCase() })
+                        if (problems.gstin) setProblems({ ...problems, gstin: undefined })
+                      }}
+                    />
+                  </Field>
+                </fieldset>
+              )}
+            </>
+          )}
           <Field id="promo" label="Promo code (optional)" hint={bulk.length ? "Promo codes apply to regular boxes, not bulk deals." : undefined} error={errorAt('promo')}>
             <input
               autoComplete="off"

@@ -128,7 +128,7 @@ const PRODUCTS = object<{ items: ProductListing[] }>({
     }),
   ),
 })
-const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int' })
+const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int', bills: optional('boolean') })
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
 type CartLine = Awaited<ReturnType<typeof api.serverCart>>['lines'][number]
@@ -146,7 +146,7 @@ const QUOTE = object<Quote>({
     sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', eatBy: 'day', listingId: optional('string'), title: optional('string'),
   })),
   subtotal: 'int', promo: nullable(object<NonNullable<Quote['promo']>>({ code: 'string', description: nullable('string') })), discount: 'int', total: 'int', expiresAt: 'time',
-  holdMinutes: optional('int'),
+  holdMinutes: optional('int'), bills: optional('boolean'),
 })
 const CONFIRMED = object<Confirmed>({
   orderId: 'string', number: 'string', status: oneOf(STATUSES), total: 'int', deliveryDate: 'day',
@@ -187,6 +187,12 @@ const ORDER = object<Order>({
   delivery: optional(nullable(object<Delivery>({ at: 'time', method: nullable(oneOf(DELIVERY_METHOD)), receivedBy: nullable('string'), hasPhoto: 'boolean' }))),
   rating: optional(nullable(object<NonNullable<Order['rating']>>({ stars: 'int', comment: nullable('string'), at: 'time' }))),
   claimWindowHours: 'number', claimUntil: nullable('time'), deliveryFailures: 'int', retryScheduled: nullable('boolean'), findingStock: optional('boolean'),
+  // Set once paid (bills on); the paid, cancelled and delivered orders below carry one.
+  bill: optional(nullable(object<NonNullable<Order['bill']>>({
+    id: 'string', number: 'string', kind: oneOf(['RECEIPT', 'BILL_OF_SUPPLY', 'TAX_INVOICE', 'INVOICE_CUM_BILL_OF_SUPPLY']), title: 'string', issuedAt: 'time', billDate: 'day',
+    total: 'int', cancelled: 'boolean', cancelledAt: nullable('time'),
+  }))),
+  business: optional(nullable(object<NonNullable<Order['business']>>({ name: 'string', gstin: 'string' }))),
 })
 // The shop does not call it today; checked so a payment poll written later starts from the truth.
 const PAYMENT_STATUS: Spec = { object: { status: nullable(oneOf(PAYMENT)), orderStatus: oneOf(STATUSES) } }

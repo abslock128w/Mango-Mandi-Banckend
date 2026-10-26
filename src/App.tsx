@@ -28,6 +28,8 @@ const Promos = lazy(() => import('./pages/Promos'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealEditor })))
 const Reviews = lazy(() => import('./pages/Reviews'))
+const Customers = lazy(() => import('./pages/Customers'))
+const CustomerProfilePage = lazy(() => import('./pages/Customers').then((m) => ({ default: m.CustomerProfilePage })))
 const WhOverview = lazy(() => import('./warehouse/pages/Overview'))
 const WhReceive = lazy(() => import('./warehouse/pages/Receive'))
 const WhLots = lazy(() => import('./warehouse/pages/Lots'))
@@ -144,6 +146,8 @@ export default function App() {
               <Route path="/analytics" element={<Only screen="analytics"><Analytics /></Only>} />
               <Route path="/claims" element={<Only screen="claims"><Claims /></Only>} />
               <Route path="/reviews" element={<Only screen="reviews"><Reviews /></Only>} />
+              <Route path="/customers" element={<Only screen="customers"><Customers /></Only>} />
+              <Route path="/customers/:id" element={<Only screen="customers"><CustomerProfilePage /></Only>} />
               <Route path="/pincodes" element={<Only screen="pincodes"><Pincodes /></Only>} />
               <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />
               <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />

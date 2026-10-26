@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
+import { ApiError, api, signedInPhone, type Order, type OrderBill, type OrderStatus, type Stage } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
 import { DayChips, SlotPicker } from '../forms'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
@@ -424,6 +424,8 @@ function OrderView({ order }: { order: Order }) {
         </div>
       </section>
 
+      {order.bill && <BillCard order={order} bill={order.bill} />}
+
       {order.status === 'DELIVERED' && <OrderReviews orderId={order.id} />}
 
       {!['PAYMENT_PENDING', 'CANCELLED', 'RTO'].includes(order.status) && stages.length > 0 && <CareTips stages={stages} />}
@@ -601,5 +603,43 @@ function MoveDialog({ order, onClose, onMoved }: { order: Order; onClose: () => 
       )}
       <ErrorNote error={problem} />
     </Dialog>
+  )
+}
+
+/**
+ * The order's bill, once it is paid: its number and a download. Only the
+ * customer who placed the order can download it (the API answers 404 to
+ * anyone else). A cancelled order keeps its bill, marked cancelled.
+ */
+function BillCard({ order, bill }: { order: Order; bill: OrderBill }) {
+  const download = useMutation({
+    mutationFn: async () => {
+      const url = await api.billUrl(order.id)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `MandiMangoes-bill-${bill.number.replace(/\//g, '-')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    },
+  })
+  return (
+    <section className="card bill-card" aria-labelledby="bill-title">
+      <h2 id="bill-title">Your bill</h2>
+      <p>
+        {bill.title} <strong>{bill.number}</strong>, dated {day(bill.billDate)}, for {rupees(bill.total)}.
+      </p>
+      {order.business && (
+        <p className="muted small">
+          Billed to {order.business.name}, GSTIN {order.business.gstin}.
+        </p>
+      )}
+      {bill.cancelled && <p className="note small">This order was cancelled, so the bill is marked cancelled. It keeps its number.</p>}
+      <button type="button" className="btn btn-block" disabled={download.isPending} onClick={() => download.mutate()}>
+        {download.isPending ? 'Preparing your bill…' : 'Download bill (PDF)'}
+      </button>
+      <ErrorNote error={download.error} />
+    </section>
   )
 }

@@ -36,6 +36,7 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     id: 'customers',
     label: 'Customers',
     links: [
+      ['/customers', 'Find a customer', 'customers'],
       ['/claims', 'Claims', 'claims'],
       ['/reviews', 'Reviews', 'reviews'],
       ['/pincodes', 'Pincodes', 'pincodes'],
@@ -75,7 +76,8 @@ export default function Layout() {
 
   const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
     ...g,
-    links: g.links.filter(([, , screen]) => canSee(me?.role, screen)).map(([to, label]): [string, string] => [to, label]),
+    // Customer profiles only exist while the API has them switched on (/auth/me features).
+    links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && (screen !== 'customers' || !!me?.features?.customerProfiles)).map(([to, label]): [string, string] => [to, label]),
   }))
   // The box-tracked warehouse: its group only exists while /auth/me says it is on.
   if (me?.warehouse?.enabled) {

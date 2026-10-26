@@ -15,6 +15,8 @@ import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
 import { productName } from '../products.js'
 import { bookReturnedStock, WRITE_OFF_REASONS } from '../stock-watch.js'
+import { billFor, billView } from '../bills.js'
+import { trust } from '../trust-config.js'
 
 export const router = express.Router()
 
@@ -81,7 +83,7 @@ export async function orderDetail(c, orderId) {
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events, notes, deliveryAttempts, rating] = await Promise.all([
+  const [items, stock, events, notes, deliveryAttempts, rating, bill] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -92,11 +94,17 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
     c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
+    trust.bills ? billFor(c, orderId) : null,
   ])
   const r = rating.rows[0]
   return {
     rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
+    // The account behind the order, for the customer profile (CUSTOMER_PROFILES_ENABLED).
+    customerId: o.customer_id,
+    // Business details the buyer gave for the bill, and the bill once paid (BILLS_ENABLED).
+    business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
+    bill: billView(bill),
     // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
     attempt: o.delivery_failures + 1,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,

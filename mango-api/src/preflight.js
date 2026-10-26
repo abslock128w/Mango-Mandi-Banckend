@@ -2,6 +2,7 @@
 // are things that work but leave a feature off or a risk open.
 // env.js runs this on every production start; `npm run preflight` prints the
 // whole list (and checks the database) without starting the server.
+import { checkTrustProduction, readTrustConfig } from './trust-config.js'
 
 export const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
 
@@ -104,6 +105,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
   else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
+  // Bills, customer profiles and exports (trust-config.js): the seller printed on bills must be set.
+  const trustCheck = checkTrustProduction(readTrustConfig({ ...process.env, ...env, NODE_ENV: 'production' }))
+  errors.push(...trustCheck.errors)
+  warnings.push(...trustCheck.warnings)
 
   return { errors, warnings }
 }

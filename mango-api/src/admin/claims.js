@@ -82,7 +82,7 @@ router.get(
       rows.map((c) => ({
         ...(risks.has(c.id) ? risks.get(c.id) : {}),
         photos: (photosOf.get(c.id) ?? []).map((p) => ({ id: p.id })),
-        id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone,
+        id: c.id, orderId: c.order_id, orderNumber: c.order_number, orderTotal: c.order_total, customerPhone: c.phone, customerId: c.customer_id,
         issueType: c.issue_type, description: c.description, affectedItems: c.affected_items, photoUrl: isOwnPhotoUrl(c.photo_url) ? c.photo_url : null,
         status: c.status, resolution: c.resolution, rejectionReason: c.resolution_note ?? null, createdAt: c.created_at,
         replacementOrder: c.replacement_order_id ? { id: c.replacement_order_id, number: c.replacement_number } : null,

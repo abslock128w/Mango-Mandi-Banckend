@@ -93,7 +93,7 @@ const POLICY = JSON.parse(readFileSync(new URL('./fixtures/role-policy.json', im
  * there is no other customer's object to reach.
  */
 const ISOLATION_CASES = [
-  'GET /v1/orders/:id', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
+  'GET /v1/orders/:id', 'GET /v1/orders/:id/bill', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
   'POST /v1/orders/:id/cancel', 'POST /v1/orders/:id/reschedule', 'PUT /v1/orders/:id/rating',
   'GET /v1/preorders/:id', 'POST /v1/preorders/:id/cancel',
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
@@ -242,6 +242,7 @@ describe('customer to customer', () => {
     // [route, B on A's object, B on an object that doesn't exist]
     const cases = [
       ['GET /v1/orders/:id', () => api.get(`/v1/orders/${done.orderId}`, B), () => api.get('/v1/orders/ord_none', B)],
+      ['GET /v1/orders/:id/bill', () => api.get(`/v1/orders/${done.orderId}/bill`, B), () => api.get('/v1/orders/ord_none/bill', B)],
       ['GET /v1/orders/:id/delivery-photo', () => api.get(`/v1/orders/${done.orderId}/delivery-photo`, B), () => api.get('/v1/orders/ord_none/delivery-photo', B)],
       ['GET /v1/orders/:id/payment-status', () => api.get(`/v1/orders/${open.orderId}/payment-status`, B), () => api.get('/v1/orders/ord_none/payment-status', B)],
       ['POST /v1/orders/:id/verify-payment', () => verify(open.orderId, open.razorpayOrderId), () => verify('ord_none', open.razorpayOrderId)],

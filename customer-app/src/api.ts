@@ -62,6 +62,8 @@ export interface ShopPolicy {
   cutoffTime: string
   maxDaysAhead: number
   claimWindowHours: number
+  /** Whether checkout takes a business name and GSTIN for the bill (bills switched on). Older APIs leave it out. */
+  bills?: boolean
 }
 /** A box on sale with its price, known before a pincode (GET /v1/products): no stock or ripeness. */
 export interface ProductListing {
@@ -107,6 +109,25 @@ export interface Quote {
   expiresAt: string
   /** How long the boxes are held once Pay is tapped (the live rule); older APIs leave it out. */
   holdMinutes?: number
+  /** Whether business details for the bill are taken (bills switched on). Older APIs leave it out. */
+  bills?: boolean
+}
+/** A business buying: printed on the bill. The GSTIN's check character is verified by the API too. */
+export interface BusinessDetails {
+  name: string
+  gstin: string
+}
+/** The order's numbered bill, once it is paid. A cancelled order keeps its bill, marked cancelled. */
+export interface OrderBill {
+  id: string
+  number: string
+  kind: 'RECEIPT' | 'BILL_OF_SUPPLY' | 'TAX_INVOICE' | 'INVOICE_CUM_BILL_OF_SUPPLY'
+  title: string
+  issuedAt: string
+  billDate: string
+  total: number
+  cancelled: boolean
+  cancelledAt: string | null
 }
 export interface Gift {
   recipientName: string
@@ -186,6 +207,10 @@ export interface Order {
   retryScheduled: boolean | null
   /** Paid, but no stock for its date yet: the day may change and we message once it's settled. */
   findingStock?: boolean
+  /** The bill, once paid (while bills are on); download it with api.billUrl. */
+  bill?: OrderBill | null
+  /** Business details given at checkout for the bill. */
+  business?: BusinessDetails | null
 }
 export interface SavedAddress {
   id: string
@@ -599,7 +624,7 @@ export const api = {
   bulkPrice: (dealId: string, qty: number) => raw<BulkPrice>('GET', `/bulk-deals/${id(dealId)}/price${qs({ qty: String(qty) })}`),
   setCartLine: (sku: string, stage: Stage, qty: number) => request<void>('POST', '/cart/items', { sku, stage, qty }),
   quote: (input: { pincode: string; deliveryDate: string; slotId: string | null; promoCode?: string | null }) => request<Quote>('POST', '/checkout/quote', input),
-  confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null }, idempotencyKey: string) =>
+  confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null; business?: BusinessDetails | null }, idempotencyKey: string) =>
     request<Confirmed>('POST', '/checkout/confirm', input, { 'Idempotency-Key': idempotencyKey }),
 
   orders: () => request<OrderSummary[]>('GET', '/orders'),
@@ -639,6 +664,16 @@ export const api = {
     let res = await get()
     if (res.status === 401 && profile && (await refreshOnce())) res = await get()
     if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
+    return URL.createObjectURL(await res.blob())
+  },
+
+  /** The bill PDF of my own paid order, as an object URL (it needs the sign-in, so it is fetched). */
+  async billUrl(orderId: string): Promise<string> {
+    if (!accessToken && profile) await refreshOnce()
+    const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/bill`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+    let res = await get()
+    if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+    if (!res.ok) throw new ApiError(res.status, 'BILL_UNAVAILABLE', 'The bill could not be downloaded. Try again in a minute.')
     return URL.createObjectURL(await res.blob())
   },
 

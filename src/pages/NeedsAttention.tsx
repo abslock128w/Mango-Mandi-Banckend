@@ -25,6 +25,7 @@ const STEP_LABEL: Record<string, string> = {
   'review-stats': 'Review totals check',
   backup: 'Nightly backup',
   'refund-checks': 'Checking refunds with Razorpay',
+  bills: 'Issuing bills for paid orders',
   'stock-alerts': 'Sending back-in-stock alerts',
   reminders: 'Sending reorder reminders',
   retention: 'Removing old personal data',

@@ -80,6 +80,8 @@ describe('staff auth', () => {
       email: 'ops@mandimangoes.test', role: 'OPERATOR', twoStep: { enabled: false, required: false, setupCodeNeeded: false },
       // The Warehouse area is on in tests (setup-env.js); /auth/me says so with the role's warehouse permissions.
       warehouse: { enabled: true, permissions: ROLE_PERMISSIONS.OPERATOR },
+      // Bills, customer profiles and exports are on outside production (trust-config.js).
+      features: { bills: true, customerProfiles: true, exports: true },
     })
     const b = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'CONDEMNED' }, { token: ops })).status, 403)

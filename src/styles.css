@@ -878,6 +878,12 @@ abbr[title] {
   gap: var(--space-3);
   margin-bottom: var(--space-5);
 }
+/* A list of tiles (the customer profile's summary): no bullets, no indent. */
+ul.tiles {
+  list-style: none;
+  padding: 0;
+  margin-top: 0;
+}
 .tile {
   display: block;
   background: var(--surface);
@@ -1923,4 +1929,26 @@ tr.row-flagged td {
   .wh-session-counts {
     gap: var(--space-2) var(--space-4);
   }
+}
+
+/* ---------- Customer profiles, bills and exports (docs/trust.md) ---------- */
+
+/* A link that sits in a line of text but still gets a 44px tap height. */
+.inline-link,
+.match-link {
+  display: inline-block;
+  padding-block: calc((var(--tap-min) - 1lh) / 2);
+  margin-block: calc((1lh - var(--tap-min)) / 2);
+}
+.match-link {
+  margin-block: 0;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.bill-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
