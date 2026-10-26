@@ -11,13 +11,19 @@
 //   - carries recall and investigation holds over (a recall still finds and
 //     releases them); new boxes need QC again when the product requires it or
 //     any source had not passed;
+//   - checks the weights add up: what went in = new boxes + weight taken out,
+//     within the product's weighing tolerance;
 //   - ends the sources as repacked.
+// Fruit from a condemned or exhausted batch never goes into a repack (it would
+// come out as sellable stock on another batch), and when a batch is condemned
+// later, boxes holding its fruit are held (holdFruitOfBatch).
 // Partial damage without a repack adjusts a box's weight and fruit count with
 // an event; below the product's tolerance the box goes to review.
 import { now } from '../clock.js'
 import { logger } from '../logger.js'
 import { formatBoxCode, newBoxCode, newToken } from './codes.js'
 import { addHold, applyLineDeltas, changeBox, HOLD_KINDS, lockBoxes, newDeltas, releaseHold, whError, writeEvent } from './core.js'
+import { REPACK_SEQ_BASE, refreshLotCounts } from './lots.js'
 
 export const REPACK_REASONS = ['spoiled_fruit', 'damaged_box', 'merge_partials', 'split', 'other']
 export const DAMAGE_REASONS = ['spoiled_fruit', 'damaged_box', 'other']
@@ -28,11 +34,17 @@ export const CARRIED_HOLDS = ['recall_hold', 'investigation_hold']
 export const MAX_SOURCES = 50
 export const MAX_OUTPUTS = 20
 /**
- * New boxes join the lot of their oldest source with sequence numbers from
- * here, far above any intake label (a lot holds at most 20,000), so intake
- * numbering and lot counts never meet them (they also have parent_box_ids).
+ * New boxes join the lot of their oldest source, numbered from
+ * REPACK_SEQ_BASE (lots.js), so intake numbering never meets them. They do
+ * count in the lot's label counts (target, generated, verified), the same way
+ * the previous release counts every box of a lot, so its checks keep holding
+ * if it runs on this data.
  */
-export const REPACK_SEQ_BASE = 1_000_000
+export { REPACK_SEQ_BASE }
+/** The schema's ceiling on a lot's label count (034 box_lots.target_count). */
+const LOT_LABEL_CEILING = 20_000
+/** Batches whose fruit is off sale for good. */
+const OUT_OF_SERVICE = ['CONDEMNED', 'EXHAUSTED']
 
 const reject = (code, message, extra) => {
   throw whError(code, message, 409, extra)
@@ -60,10 +72,31 @@ function sourceProblem(box) {
   return null
 }
 
+/**
+ * Boxes (of those given) holding fruit from a condemned or exhausted batch:
+ * their own batch or any batch their fruit came from. id → batch row.
+ */
+async function outOfServiceFruit(c, boxIds) {
+  const { rows } = await c.query(
+    `SELECT DISTINCT ON (x.box_id) x.box_id, bt.id AS batch_id, bt.status FROM (
+        SELECT id AS box_id, batch_id FROM boxes WHERE id = ANY($1::uuid[])
+        UNION SELECT box_id, batch_id FROM box_origins WHERE box_id = ANY($1::uuid[])) x
+       JOIN batches bt ON bt.id = x.batch_id
+      WHERE bt.status = ANY($2) ORDER BY x.box_id, bt.id`,
+    [boxIds, OUT_OF_SERVICE],
+  )
+  return new Map(rows.map((r) => [r.box_id, r]))
+}
+
+const outOfServiceMessage = (box, batch) =>
+  `${formatBoxCode(box.code)} holds fruit from batch ${batch.batch_id}, which is ${batch.status.toLowerCase()}. It cannot be repacked: write it off.`
+
 /** A scan in a repack: the box goes in, if it can. Staging changes nothing yet. */
 export async function repackScan(c, op, box, s) {
   const p = sourceProblem(box)
   if (p) reject(...p)
+  const condemned = (await outOfServiceFruit(c, [box.id])).get(box.id)
+  if (condemned) reject('BATCH_OUT_OF_SERVICE', outOfServiceMessage(box, condemned))
   const staged = (await c.query('SELECT b.sku, b.sku_name FROM wh_staged st JOIN boxes b ON b.id = st.box_id WHERE st.operation_id = $1', [op.id])).rows
   const other = staged.find((x) => x.sku !== box.sku)
   if (other) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} is ${box.sku_name}; this repack is ${other.sku_name}. One product per box.`)
@@ -89,10 +122,10 @@ async function insertOutput(c, row) {
     await c.query('SAVEPOINT repack_box')
     try {
       const { rows } = await c.query(
-        `INSERT INTO boxes (code, label_token, lot_id, line_id, batch_id, sku, sku_name, seq, warehouse_id, location_id, lifecycle, quality,
+        `INSERT INTO boxes (code, label_token, lot_id, line_id, batch_id, sku, sku_name, seq, warehouse_id, location_id, lifecycle, quality, verification,
                             nominal_weight_g, measured_weight_g, fruit_count, best_before, parent_box_ids, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'in_stock', $11, $12, $13, $14, $15, $16, $17, $17) RETURNING *`,
-        [code, token, row.lot_id, row.line_id, row.batch_id, row.sku, row.sku_name, row.seq, row.warehouse_id, row.location_id, row.quality,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'in_stock', $11, $12, $13, $14, $15, $16, $17, $18, $18) RETURNING *`,
+        [code, token, row.lot_id, row.line_id, row.batch_id, row.sku, row.sku_name, row.seq, row.warehouse_id, row.location_id, row.quality, row.verification,
           row.nominal_weight_g, row.measured_weight_g, row.fruit_count, row.best_before, row.parent_box_ids, row.at],
       )
       await c.query('RELEASE SAVEPOINT repack_box')
@@ -119,8 +152,8 @@ export async function finalizeRepack(c, op, who, body) {
     if (o.fruitCount != null && (!Number.isInteger(o.fruitCount) || o.fruitCount < 1 || o.fruitCount > 200)) throw whError('VALIDATION_ERROR', 'Fruit count must be 1 to 200', 400)
   }
   const fruitRemoved = Number(body.fruitRemoved ?? 0)
-  const weightLostG = Number(body.weightLostG ?? 0)
-  if (!Number.isInteger(fruitRemoved) || fruitRemoved < 0 || !Number.isInteger(weightLostG) || weightLostG < 0) {
+  const declaredLostG = body.weightLostG == null ? null : Number(body.weightLostG)
+  if (!Number.isInteger(fruitRemoved) || fruitRemoved < 0 || (declaredLostG !== null && (!Number.isInteger(declaredLostG) || declaredLostG < 0))) {
     throw whError('VALIDATION_ERROR', 'Fruit removed and weight lost are whole numbers, 0 or more', 400)
   }
   const ids = (await c.query('SELECT box_id FROM wh_staged WHERE operation_id = $1', [op.id])).rows.map((r) => r.box_id)
@@ -133,6 +166,14 @@ export async function finalizeRepack(c, op, who, body) {
       boxes: codes, unstage: stale.map((b) => b.id),
     })
   }
+  // A batch condemned (or retired) after the scan: its fruit stays out.
+  const condemned = await outOfServiceFruit(c, sources.map((b) => b.id))
+  if (condemned.size) {
+    const bad = sources.filter((b) => condemned.has(b.id))
+    throw whError('BATCH_OUT_OF_SERVICE', `${bad.map((b) => outOfServiceMessage(b, condemned.get(b.id))).join(' ')} ${bad.length === 1 ? 'It is' : 'They are'} taken out of this repack.`, 409, {
+      boxes: bad.map((b) => formatBoxCode(b.code)), unstage: bad.map((b) => b.id),
+    })
+  }
   if (new Set(sources.map((b) => b.sku)).size > 1) throw whError('WRONG_VARIANT', 'The boxes going in are different products. One product per box.')
   const loc = (await c.query('SELECT * FROM wh_locations WHERE id = $1', [op.location_id])).rows[0]
   if (!loc?.active || !REPACK_PLACES.includes(loc.type)) throw whError('LOCATION_INACTIVE', `${loc?.name ?? 'The repack place'} can no longer take boxes. Start a new repack.`)
@@ -140,10 +181,27 @@ export async function finalizeRepack(c, op, who, body) {
   const tol = Number(product.weight_tolerance_pct)
   const inGrams = sources.reduce((g, b) => g + grams(b), 0)
   const outGrams = outputs.reduce((g, o) => g + o.weightG, 0)
-  if (outGrams > inGrams * (1 + tol / 100)) {
+  // Scales differ a little: the product's weight tolerance of what went in.
+  const slack = Math.round((inGrams * tol) / 100)
+  if (outGrams > inGrams + slack) {
     throw whError('VALIDATION_ERROR', `The new boxes weigh ${outGrams} g, more than the ${inGrams} g that went in. Weigh them again.`, 400)
   }
-  if (weightLostG > inGrams) throw whError('VALIDATION_ERROR', `Weight lost cannot be more than the ${inGrams} g that went in`, 400)
+  // Weight taken out not given: it is what the scales say went missing.
+  const weightLostG = declaredLostG ?? Math.max(0, inGrams - outGrams)
+  if (Math.abs(inGrams - outGrams - weightLostG) > slack) {
+    throw whError(
+      'WEIGHT_MISMATCH',
+      `${inGrams} g went in, but the new boxes (${outGrams} g) and the weight taken out (${weightLostG} g) come to ${outGrams + weightLostG} g. Weigh again, or record what was taken out.`,
+      400,
+      { inGrams, outGrams, weightLostG, toleranceG: slack },
+    )
+  }
+  // Fruit counts, when every box going in and coming out has one, must add up too.
+  const inFruit = sources.every((b) => b.fruit_count != null) ? sources.reduce((n, b) => n + b.fruit_count, 0) : null
+  const outFruit = outputs.every((o) => o.fruitCount != null) ? outputs.reduce((n, o) => n + o.fruitCount, 0) : null
+  if (inFruit !== null && outFruit !== null && inFruit - fruitRemoved !== outFruit) {
+    throw whError('FRUIT_MISMATCH', `${inFruit} fruit went in and ${fruitRemoved} were taken out, so the new boxes should hold ${inFruit - fruitRemoved}, not ${outFruit}. Count again.`, 400, { inFruit, outFruit, fruitRemoved })
+  }
 
   // The oldest fruit decides the date and the stock line (FEFO keeps working).
   const primary = [...sources].sort((a, b) => (a.best_before < b.best_before ? -1 : a.best_before > b.best_before ? 1 : a.id < b.id ? -1 : 1))[0]
@@ -154,7 +212,10 @@ export async function finalizeRepack(c, op, who, body) {
   const needsQc = product.requires_qc || sources.some((b) => b.quality !== 'passed')
   const nominal = product.nominal_weight_g ?? primary.nominal_weight_g
   // New sequence numbers on the primary lot (locked, so two repacks into one lot never collide).
-  await c.query('SELECT id FROM box_lots WHERE id = $1 FOR UPDATE', [primary.lot_id])
+  const lot = (await c.query('SELECT id, target_count FROM box_lots WHERE id = $1 FOR UPDATE', [primary.lot_id])).rows[0]
+  if (lot.target_count + outputs.length > LOT_LABEL_CEILING) {
+    throw whError('VALIDATION_ERROR', `The lot of the oldest box already has ${lot.target_count} labels; it cannot take ${outputs.length} more.`, 409)
+  }
   let seq = (await c.query('SELECT coalesce(max(seq), $2)::int AS n FROM boxes WHERE lot_id = $1 AND seq > $2', [primary.lot_id, REPACK_SEQ_BASE])).rows[0].n
   const origins = (await c.query(
     `SELECT lot_id, batch_id FROM boxes WHERE id = ANY($1::uuid[]) UNION SELECT lot_id, batch_id FROM box_origins WHERE box_id = ANY($1::uuid[])`,
@@ -169,7 +230,7 @@ export async function finalizeRepack(c, op, who, body) {
     const quality = needsQc ? 'pending' : outOfTolerance(o.weightG, nominal, tol) ? 'needs_review' : 'passed'
     const row = await insertOutput(c, {
       lot_id: primary.lot_id, line_id: primary.line_id, batch_id: primary.batch_id, sku: primary.sku, sku_name: primary.sku_name, seq: ++seq,
-      warehouse_id: primary.warehouse_id, location_id: loc.id, quality, nominal_weight_g: nominal, measured_weight_g: o.weightG,
+      warehouse_id: primary.warehouse_id, location_id: loc.id, quality, verification: primary.verification ?? 'scanned', nominal_weight_g: nominal, measured_weight_g: o.weightG,
       fruit_count: o.fruitCount ?? null, best_before: primary.best_before, parent_box_ids: sources.map((b) => b.id), at,
     })
     await c.query('INSERT INTO box_labels (token, box_id, issued_at, issued_by) VALUES ($1, $2, $3, $4)', [row.label_token, row.id, at, who.actor.id])
@@ -186,6 +247,9 @@ export async function finalizeRepack(c, op, who, body) {
     if ((await c.query('SELECT box_shelf_sellable($1) AS s', [row.id])).rows[0].s) deltas.set(row.line_id, (deltas.get(row.line_id) ?? 0) + 1)
     made.push({ id: row.id, code: formatBoxCode(row.code), quality, weightG: o.weightG })
   }
+  // The new labels count on the lot like any other (target, generated, verified), so lot checks hold in every release.
+  await c.query('UPDATE box_lots SET target_count = target_count + $2, updated_at = $3 WHERE id = $1', [lot.id, made.length, at])
+  await refreshLotCounts(c, lot.id)
   const into = made.map((m) => m.code)
   for (const b of sources) {
     const kinds = [...b.holds]
@@ -209,6 +273,46 @@ export async function finalizeRepack(c, op, who, body) {
   }
 }
 
+// ---------------------------------------------------------------- condemned fruit in repacked boxes
+
+/** Lifecycles of a box that has not left for good (as a recall reaches). */
+const NOT_LEFT = ['generated', 'in_stock', 'picked', 'packed', 'returned', 'missing']
+
+const mixedIn = (c, batchId) =>
+  c.query(
+    `SELECT DISTINCT b.id, b.batch_id FROM box_origins o JOIN boxes b ON b.id = o.box_id
+      WHERE o.batch_id = $1 AND b.batch_id <> $1 AND b.lifecycle = ANY($2) ORDER BY b.id`,
+    [batchId, NOT_LEFT],
+  )
+
+/**
+ * The other batches whose stock lines carry boxes with this batch's fruit (a
+ * repack mixed it in). Their orders are locked before the batch when it is
+ * condemned, the usual order (INV-03).
+ */
+export async function batchesCarryingFruitOf(c, batchId) {
+  return [...new Set((await mixedIn(c, batchId)).rows.map((r) => r.batch_id))]
+}
+
+/**
+ * When a batch is condemned: every box still here that holds its fruit but
+ * sits on another batch's line (a merge put it there) gets an investigation
+ * hold, so it leaves stock until someone looks at it. The condemned batch's
+ * own boxes already stop being sellable with the batch. Returns how many were held.
+ */
+export async function holdFruitOfBatch(c, batchId, actor, why = null) {
+  const ids = (await mixedIn(c, batchId)).rows.map((r) => r.id)
+  if (!ids.length) return 0
+  const reason = `Holds fruit from condemned batch ${batchId}${why ? `: ${why}` : ''}`.slice(0, 300)
+  const d = newDeltas()
+  let held = 0
+  for (const b of (await lockBoxes(c, ids)).values()) {
+    if (await addHold(c, b, 'investigation_hold', reason, { type: 'HOLD_ADDED', actor, reasonCode: 'condemned', meta: { batchId } }, d)) held++
+  }
+  await applyLineDeltas(c, d, actor, `Batch ${batchId} condemned: repacked boxes with its fruit held`)
+  return held
+}
+
 // ---------------------------------------------------------------- partial damage
 
 /**
@@ -221,6 +325,9 @@ export async function recordDamage(c, box, { fruitRemoved = 0, weightLostG = 0, 
   if (!fruitRemoved && !weightLostG) throw whError('VALIDATION_ERROR', 'Say how much fruit or weight was taken out', 400)
   const p = sourceProblem(box)
   if (p) throw whError(...p)
+  if (!weightLostG && box.fruit_count == null) {
+    throw whError('VALIDATION_ERROR', 'This box has no fruit count, so weigh it: say how much weight was taken out.', 400)
+  }
   const product = (await c.query('SELECT weight_tolerance_pct FROM products WHERE sku = $1', [box.sku])).rows[0]
   const before = grams(box)
   const weightAfter = before - weightLostG

@@ -210,7 +210,7 @@ export async function reconciliation(c, warehouseId) {
            OR (b.lifecycle = 'packed' AND o.status = 'CONFIRMED')) LIMIT 200`, [warehouseId]),
     q(`SELECT l.id, l.code, l.generated_count, l.verified_count, l.voided_count, x.generated, x.verified, x.voided FROM box_lots l
          JOIN (SELECT lot_id, count(*)::int AS generated, count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified,
-                      count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes WHERE parent_box_ids = '{}' GROUP BY lot_id) x ON x.lot_id = l.id
+                      count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes GROUP BY lot_id) x ON x.lot_id = l.id
         WHERE l.warehouse_id = $1 AND (l.generated_count <> x.generated OR l.verified_count <> x.verified OR l.voided_count <> x.voided)`, [warehouseId]),
     auditLedger(c),
   ])
@@ -307,15 +307,18 @@ export async function traceLot(c, lotId, who) {
 
 const RECALL_CHUNK = 200
 
+/** Lifecycles a recall holds: the box has not left for good. */
+const RECALL_REACH = ['generated', 'in_stock', 'picked', 'packed', 'returned', 'missing']
+
 /** The boxes a recall holds: every box of its lots (and repack descendants) still here and not yet held by it. */
 const recallTargets = (c, recall, limit) =>
   c.query(
     `${LINEAGE_DOWN}
      SELECT b.id FROM lineage d JOIN boxes b ON b.id = d.id
-      WHERE b.lifecycle IN ('generated', 'in_stock', 'picked', 'packed', 'returned', 'missing')
+      WHERE b.lifecycle = ANY($3)
         AND NOT EXISTS (SELECT 1 FROM box_holds h WHERE h.box_id = b.id AND h.kind = 'recall_hold' AND h.released_at IS NULL)
       ORDER BY b.id LIMIT $2`,
-    [recall.lot_ids, limit],
+    [recall.lot_ids, limit, RECALL_REACH],
   )
 
 /** Starts a recall: holds the first chunk of boxes now; continueRecall holds the rest. */
@@ -350,16 +353,45 @@ export async function continueRecall(c, id, who) {
   return recallView(c, upd[0], who)
 }
 
-/** Ends a recall: releases only the recall holds it placed (other holds stay). */
+/**
+ * Ends a recall: releases only the recall holds it placed (other holds stay).
+ * A box has one recall hold however many recalls reach it (a box of a lot in
+ * two recalls, or a box merged from two recalled lots), so a box still within
+ * another recall in force is handed to that recall instead of being freed.
+ */
 export async function releaseRecall(c, id, { reason }, who) {
-  const recall = (await c.query('SELECT * FROM wh_recalls WHERE id = $1 AND warehouse_id = $2 FOR UPDATE', [id, who.warehouseId])).rows[0]
+  // This recall and every other one in force, locked in id order (two releases at once never deadlock).
+  const locked = (await c.query(
+    `SELECT * FROM wh_recalls WHERE warehouse_id = $1 AND (id = $2 OR status IN ('running', 'done')) ORDER BY id FOR UPDATE`,
+    [who.warehouseId, id],
+  )).rows
+  const recall = locked.find((r) => r.id === id)
   if (!recall) throw whError('NOT_FOUND', 'Recall not found', 404)
   if (recall.status === 'released') return recallView(c, recall, who)
   const { rows } = await c.query(`SELECT box_id FROM box_holds WHERE recall_id = $1 AND kind = 'recall_hold' AND released_at IS NULL ORDER BY box_id`, [id])
-  const d = newDeltas()
-  for (const b of (await lockBoxes(c, rows.map((r) => r.box_id))).values()) {
-    await releaseHold(c, b, 'recall_hold', `Recall released: ${reason}`, { type: 'HOLD_RELEASED', actor: who.actor, reasonCode: 'recall', meta: { recallId: id } }, d)
+  const heldIds = rows.map((r) => r.box_id)
+  // The other recalls in force, oldest first: which of these boxes each still reaches.
+  const others = locked.filter((r) => r.id !== id).sort((x, y) => (x.created_at - y.created_at) || (x.id < y.id ? -1 : 1))
+  const handOver = new Map()
+  for (const o of others) {
+    if (handOver.size === heldIds.length) break
+    const left = heldIds.filter((x) => !handOver.has(x))
+    const { rows: reach } = await c.query(
+      `${LINEAGE_DOWN} SELECT b.id FROM lineage d JOIN boxes b ON b.id = d.id WHERE b.id = ANY($2::uuid[]) AND b.lifecycle = ANY($3)`,
+      [o.lot_ids, left, RECALL_REACH],
+    )
+    for (const r of reach) handOver.set(r.id, o)
   }
+  const d = newDeltas()
+  const handed = new Map()
+  for (const b of (await lockBoxes(c, heldIds)).values()) {
+    await releaseHold(c, b, 'recall_hold', `Recall released: ${reason}`, { type: 'HOLD_RELEASED', actor: who.actor, reasonCode: 'recall', meta: { recallId: id } }, d)
+    const next = handOver.get(b.id)
+    if (next && (await addHold(c, b, 'recall_hold', `Recall: ${next.reason}`, { type: 'HOLD_ADDED', actor: who.actor, reasonCode: 'recall', meta: { recallId: next.id, from: id } }, d, { recallId: next.id }))) {
+      handed.set(next.id, (handed.get(next.id) ?? 0) + 1)
+    }
+  }
+  for (const [rid, n] of handed) await c.query('UPDATE wh_recalls SET held_count = held_count + $2 WHERE id = $1', [rid, n])
   await applyLineDeltas(c, d, who.actor, `Recall ${id} released`)
   const { rows: upd } = await c.query(
     `UPDATE wh_recalls SET status = 'released', released_by = $2, released_at = $3, release_reason = $4 WHERE id = $1 RETURNING *`,
