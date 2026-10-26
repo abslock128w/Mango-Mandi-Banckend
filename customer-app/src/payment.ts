@@ -43,6 +43,8 @@ function loadScript() {
 export async function openRazorpay(
   p: { orderId: string; key: string; rzp: string; total: number; number: string; holdExpiresAt?: string | null },
   phone: string | null,
+  // A gift order to many recipients hands the reply to its own route (MULTI_GIFT).
+  verify: (orderId: string, reply: CheckoutReply) => Promise<unknown> = api.verifyPayment,
 ) {
   const secondsLeft = p.holdExpiresAt ? Math.floor((new Date(p.holdExpiresAt).getTime() - Date.now()) / 1000) : null
   await loadScript()
@@ -60,7 +62,7 @@ export async function openRazorpay(
       // The window closes with the hold, never later (a payment that still lands late is honoured on the server).
       ...(secondsLeft != null ? { timeout: Math.max(1, secondsLeft) } : {}),
       handler: (reply: CheckoutReply) => {
-        api.verifyPayment(p.orderId, reply).then(
+        verify(p.orderId, reply).then(
           () => resolve(),
           () => resolve(),
         )

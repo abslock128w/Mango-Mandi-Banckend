@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ShopFeatures } from './api'
 import { policyQuery } from './queries'
 
-export const FEATURES_OFF: ShopFeatures = { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false }
+export const FEATURES_OFF: ShopFeatures = { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false, multiGift: false }
 
 export function useFeatures(): ShopFeatures {
   const q = useQuery(policyQuery())

@@ -10,6 +10,7 @@ import { DocTitle, ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 import { UnpaidOrderBanner } from '../unpaid'
 import { gstinProblem, tidyGstin } from '../gstin'
+import { useFeatures } from '../features'
 
 function loadAddress() {
   try {
@@ -102,6 +103,7 @@ function CheckoutForm() {
   const [gift, setGift] = useState({ recipientName: '', recipientPhone: '', message: '' })
   // Optional: a business buying, for its name and GSTIN on the bill (only while the shop issues bills).
   const policy = useQuery({ queryKey: ['policy'], queryFn: api.policy, staleTime: 10 * 60_000 })
+  const features = useFeatures()
   const billsOn = policy.data?.bills === true
   const [isBusiness, setIsBusiness] = useState(false)
   const [business, setBusiness] = useState({ name: '', gstin: '' })
@@ -503,6 +505,11 @@ function CheckoutForm() {
           {isGift && (
             <fieldset className="field gift-fields">
               <legend>Who is it for?</legend>
+              {features.multiGift && (
+                <p className="small">
+                  Sending boxes to several people? <Link to="/gifts/new">Send to many</Link>: one order, one payment, a box for each.
+                </p>
+              )}
               <Field id="gift-name" label="Their name" error={errorAt('gift-name')}>
                 <input maxLength={80} value={gift.recipientName} onChange={(e) => setGift({ ...gift, recipientName: e.target.value })} />
               </Field>

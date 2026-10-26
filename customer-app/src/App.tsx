@@ -28,6 +28,8 @@ const Help = lazy(() => import('./pages/Help'))
 const Terms = lazy(() => import('./pages/Terms'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDeal = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealPage })))
+const GiftMany = lazy(() => import('./pages/GiftMany'))
+const GiftOrderPage = lazy(() => import('./pages/GiftOrder'))
 
 /** A page whose code is still loading. */
 function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
@@ -74,6 +76,8 @@ function routeTitle(path: string) {
   if (path === '/bulk') return 'Bulk Deals'
   if (/^\/bulk\//.test(path)) return 'Bulk deal'
   if (/^\/preorders\//.test(path)) return 'Your booking'
+  if (path === '/gifts/new') return 'Send to many'
+  if (/^\/gifts\/[^/]+$/.test(path)) return 'Your gift order'
   return 'Page not found'
 }
 
@@ -100,7 +104,7 @@ export default function App() {
   useShellWorker()
 
   useEffect(() => {
-    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info'].includes(String(q.queryKey[0])) })
+    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info', 'gift-order', 'gift-orders'].includes(String(q.queryKey[0])) })
     window.addEventListener(SIGNOUT_EVENT, onOut)
     return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
   }, [queryClient])
@@ -201,6 +205,8 @@ export default function App() {
           <Route path="/bulk" element={<Page><BulkDeals /></Page>} />
           <Route path="/bulk/:id" element={<Page><BulkDeal /></Page>} />
           <Route path="/preorders/:id" element={<RequireSignIn><Page><PreorderPage /></Page></RequireSignIn>} />
+          <Route path="/gifts/new" element={<RequireSignIn><Page><GiftMany /></Page></RequireSignIn>} />
+          <Route path="/gifts/:id" element={<RequireSignIn><Page><GiftOrderPage /></Page></RequireSignIn>} />
           <Route
             path="*"
             element={
