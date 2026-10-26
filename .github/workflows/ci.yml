@@ -181,7 +181,16 @@ jobs:
           # Customer care (docs/care.md): a season that ends 90 days from today, so the subscription specs run.
           export SUBSCRIPTION_SEASON_END="$(date -u -d '+90 days' +%F)"
           nohup node src/index.js > ../api.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:3000/ready && exit 0; sleep 1; done
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ready; then
+              # Every spec books from the same few days, so the demo's 40 boxes per delivery time run out partway
+              # through the suite; give this throwaway database room. A full time (SLOT_FULL) is covered by the
+              # API tests, and customer-app/tests/checkout.ts still handles one if it happens.
+              psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE delivery_slots SET max_boxes = 1000 WHERE max_boxes IS NOT NULL'
+              exit 0
+            fi
+            sleep 1
+          done
           cat ../api.log; exit 1
         env:
           NODE_ENV: development
