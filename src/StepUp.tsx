@@ -15,7 +15,7 @@ const STEP_UP_CODES = new Set(['REAUTH_REQUIRED', 'REAUTH_FAILED'])
  * Cancelling rejects with the server's own refusal, so the calling dialog
  * shows why nothing changed.
  */
-export function useStepUp(): { run: <T>(call: (confirmCode?: string) => Promise<T>) => Promise<T>; dialog: ReactNode } {
+export function useStepUp(why = STAFF_CHANGE_WHY): { run: <T>(call: (confirmCode?: string) => Promise<T>) => Promise<T>; dialog: ReactNode } {
   const [ask, setAsk] = useState<Ask | null>(null)
 
   async function run<T>(call: (confirmCode?: string) => Promise<T>): Promise<T> {
@@ -34,10 +34,12 @@ export function useStepUp(): { run: <T>(call: (confirmCode?: string) => Promise<
     }
   }
 
-  return { run, dialog: ask ? <StepUpDialog ask={ask} /> : null }
+  return { run, dialog: ask ? <StepUpDialog ask={ask} why={why} /> : null }
 }
 
-function StepUpDialog({ ask }: { ask: Ask }) {
+const STAFF_CHANGE_WHY = "Changes to staff accounts need you to confirm who you are, so a session left open can't be used to add or take over an account."
+
+function StepUpDialog({ ask, why }: { ask: Ask; why: string }) {
   const [value, setValue] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const done = useRef(false)
@@ -72,7 +74,7 @@ function StepUpDialog({ ask }: { ask: Ask }) {
       }
     >
       <form id="step-up-form" onSubmit={onSubmit} noValidate>
-        <p>Changes to staff accounts need you to confirm who you are, so a session left open can't be used to add or take over an account.</p>
+        <p>{why}</p>
         <div className="field">
           <label htmlFor="step-up-value">{code ? 'Code from your authenticator app' : 'Your password'}</label>
           <input

@@ -2,6 +2,7 @@
 // recovery codes, or turn it off where the role does not require it.
 import { useEffect, useState, type FormEvent } from 'react'
 import { api } from '../api'
+import { useStepUp } from '../StepUp'
 import { useSession } from '../session'
 import { FormError, usePageTitle, useToast } from '../ui'
 
@@ -125,6 +126,8 @@ function Setup() {
   const [codes, setCodes] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  // SEC-07 (STAFF_STEP_UP): turning two-step on from a signed-in session asks for the password first.
+  const stepUp = useStepUp("Turning on two-step sign-in needs your password, so a session left open can't be tied to someone else's phone.")
 
   useEffect(() => {
     if (!secret) return
@@ -142,7 +145,7 @@ function Setup() {
     setBusy(true)
     setError(null)
     try {
-      setSecret(await api.twoStepSetup(needsCode ? setupCode.trim() : undefined))
+      setSecret(await stepUp.run((confirmCode) => api.twoStepSetup(needsCode ? setupCode.trim() : undefined, confirmCode)))
     } catch (err) {
       setError(err)
     } finally {
@@ -190,36 +193,39 @@ function Setup() {
   }
   if (!secret) {
     return (
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void start()
-        }}
-        noValidate
-      >
-        {needsCode && (
-          <div className="field">
-            <label htmlFor="setup-code-from-manager">Setup code from your manager</label>
-            <input
-              id="setup-code-from-manager"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              maxLength={9}
-              value={setupCode}
-              aria-describedby="setup-code-hint"
-              onChange={(e) => setSetupCode(e.target.value)}
-            />
-            <p className="hint" id="setup-code-hint">
-              Like k7qd-2mxp. A manager gives you one when they add you or reset your two-step sign-in.
-            </p>
-          </div>
-        )}
-        <FormError error={error} />
-        <button type="submit" className="btn btn-primary" disabled={busy || (needsCode && setupCode.trim().length < 8)}>
-          {busy ? 'Starting…' : 'Set up two-step sign-in'}
-        </button>
-      </form>
+      <>
+        {stepUp.dialog}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void start()
+          }}
+          noValidate
+        >
+          {needsCode && (
+            <div className="field">
+              <label htmlFor="setup-code-from-manager">Setup code from your manager</label>
+              <input
+                id="setup-code-from-manager"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={9}
+                value={setupCode}
+                aria-describedby="setup-code-hint"
+                onChange={(e) => setSetupCode(e.target.value)}
+              />
+              <p className="hint" id="setup-code-hint">
+                Like k7qd-2mxp. A manager gives you one when they add you or reset your two-step sign-in.
+              </p>
+            </div>
+          )}
+          <FormError error={error} />
+          <button type="submit" className="btn btn-primary" disabled={busy || (needsCode && setupCode.trim().length < 8)}>
+            {busy ? 'Starting…' : 'Set up two-step sign-in'}
+          </button>
+        </form>
+      </>
     )
   }
   return (

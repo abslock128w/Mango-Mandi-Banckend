@@ -218,8 +218,8 @@ export const api = {
   },
 
   /** Starts setting up two-step sign-in: the secret for the authenticator app. */
-  twoStepSetup: (setupCode?: string) =>
-    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', setupCode ? { setupCode } : {}),
+  twoStepSetup: (setupCode?: string, confirmCode?: string) =>
+    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', { ...(setupCode ? { setupCode } : {}), ...confirmBody(confirmCode) }),
   /** Confirms a code from the app. Returns the recovery codes, shown this once. */
   async twoStepEnable(code: string): Promise<string[]> {
     const r = await request<{ recoveryCodes: string[]; accessToken: string }>('POST', '/me/two-step/enable', { code })

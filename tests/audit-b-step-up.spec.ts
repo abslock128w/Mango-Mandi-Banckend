@@ -97,6 +97,35 @@ test("the confirmation has no WCAG A/AA violations and fits a 375px phone", asyn
   await expect(page.getByRole('dialog', { name: 'Setup code for packer@mandimangoes.test' })).toBeVisible()
 })
 
+test('turning two-step on from a signed-in session asks for the password first', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const api = await mockApi(page, { signedIn: true })
+  // The API's step-up check on POST /me/two-step/setup (an ordinary session, two-step off).
+  await page.route('**/admin/v1/me/two-step/setup', async (route: Route) => {
+    const body = (route.request().postDataJSON() ?? {}) as { confirmCode?: string }
+    if (body.confirmCode === 'manager123') return route.fallback()
+    const [code, message] = body.confirmCode ? ['REAUTH_FAILED', 'That password is not right.'] : ['REAUTH_REQUIRED', 'Enter your password to confirm.']
+    return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code, message, method: 'password', requestId: 'req_1' } }) })
+  })
+  await page.goto('/two-step')
+  await page.getByRole('button', { name: 'Set up two-step sign-in' }).click()
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" })
+  await expect(confirm).toContainText('Turning on two-step sign-in needs your password')
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()
+  expect(results.violations.map((v) => v.id)).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+  // Cancel: no secret is shown, and the page says why.
+  await confirm.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('alert')).toContainText('Enter your password to confirm.')
+  await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Set up two-step sign-in' }).click()
+  await confirm.getByLabel('Your password').fill('manager123')
+  await confirm.getByRole('button', { name: 'Confirm' }).click()
+  await expect(page.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible()
+  expect(api.calls.filter((c) => c.path === '/me/two-step/setup').map((c) => c.body)).toEqual([{ confirmCode: 'manager123' }])
+})
+
 // SEC-08: views of customer details are in the activity log only when asked for.
 test('Activity can include views of customer details', async ({ page }) => {
   await mockApi(page, { signedIn: true })
