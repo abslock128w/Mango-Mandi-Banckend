@@ -2301,3 +2301,9 @@ main:focus {
 .tracking-card .sub-title {
   margin-top: 0;
 }
+
+/* Refer a friend (docs/growth.md). */
+.referral-form .row input { flex: 1 1 10rem; min-width: 0; }
+.referral-entry { margin-bottom: 1rem; }
+.referral-rewards { padding-left: 1.2rem; }
+.referral-rewards li { margin-bottom: 0.4rem; }

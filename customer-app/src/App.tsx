@@ -9,6 +9,7 @@ import { BuySkeleton } from './pages/BuySkeleton'
 import { catalogueQuery, productReviewsQuery } from './queries'
 import { Spinner, pageTitle } from './ui'
 import { useShellWorker } from './pwa'
+import { trackStep, useFunnel } from './growth'
 
 // Home is in the first download; every other page's code loads when it is first opened.
 const Cart = lazy(() => import('./pages/Cart'))
@@ -28,6 +29,7 @@ const Help = lazy(() => import('./pages/Help'))
 const Terms = lazy(() => import('./pages/Terms'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDeal = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealPage })))
+const InvitePage = lazy(() => import('./pages/Referral').then((m) => ({ default: m.InvitePage })))
 
 /** A page whose code is still loading. */
 function Page({ children, fallback = <Spinner label="Loading" /> }: { children: ReactNode; fallback?: ReactNode }) {
@@ -46,6 +48,10 @@ function ProductRoute() {
     void queryClient.prefetchInfiniteQuery(productReviewsQuery(sku))
     if (pincode) void queryClient.prefetchQuery(catalogueQuery(pincode, date))
   }, [queryClient, sku, pincode, date])
+  // Funnel (docs/growth.md): a box was looked at. Sent once a day per browser at most.
+  useEffect(() => {
+    trackStep('product_view')
+  }, [sku])
   return (
     <Page fallback={<BuySkeleton />}>
       <ProductPage />
@@ -74,6 +80,7 @@ function routeTitle(path: string) {
   if (path === '/bulk') return 'Bulk Deals'
   if (/^\/bulk\//.test(path)) return 'Bulk deal'
   if (/^\/preorders\//.test(path)) return 'Your booking'
+  if (/^\/invite\//.test(path)) return 'A friend invited you'
   return 'Page not found'
 }
 
@@ -98,6 +105,8 @@ export default function App() {
   const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
   // The app shell worker follows the API's switches (SHOP_INSTALL, WEB_PUSH).
   useShellWorker()
+  // The anonymous funnel steps follow the API's switch (FUNNEL_ANALYTICS); the visit is counted here.
+  useFunnel()
 
   useEffect(() => {
     const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info'].includes(String(q.queryKey[0])) })
@@ -201,6 +210,7 @@ export default function App() {
           <Route path="/bulk" element={<Page><BulkDeals /></Page>} />
           <Route path="/bulk/:id" element={<Page><BulkDeal /></Page>} />
           <Route path="/preorders/:id" element={<RequireSignIn><Page><PreorderPage /></Page></RequireSignIn>} />
+          <Route path="/invite/:code" element={<Page><InvitePage /></Page>} />
           <Route
             path="*"
             element={

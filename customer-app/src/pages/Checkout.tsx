@@ -10,6 +10,8 @@ import { DocTitle, ErrorNote, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
 import { UnpaidOrderBanner } from '../unpaid'
 import { gstinProblem, tidyGstin } from '../gstin'
+import { funnelId, trackStep } from '../growth'
+import { ReferralEntry } from './Referral'
 
 function loadAddress() {
   try {
@@ -98,6 +100,10 @@ function CheckoutForm() {
   const [address, setAddress] = useState(saved.current.address ?? '')
   const [slotId, setSlotId] = useState<string | null>(null)
   const [promoCode, setPromoCode] = useState('')
+  // Funnel (docs/growth.md): checkout was started.
+  useEffect(() => {
+    trackStep('checkout_start')
+  }, [])
   const [isGift, setIsGift] = useState(false)
   const [gift, setGift] = useState({ recipientName: '', recipientPhone: '', message: '' })
   // Optional: a business buying, for its name and GSTIN on the bill (only while the shop issues bills).
@@ -224,6 +230,8 @@ function CheckoutForm() {
         name: name.trim() || undefined,
         gift: isGift ? { recipientName: gift.recipientName.trim(), recipientPhone: gift.recipientPhone.trim(), message: gift.message.trim() || null } : null,
         ...(withBusiness ? { business: { name: business.name.trim(), gstin: tidyGstin(business.gstin) } } : {}),
+        // Only the random browser id, so the API can count "paid" for this browser's funnel.
+        ...(funnelId() ? { funnelId: funnelId()! } : {}),
       }
       let c: Confirmed
       for (let attempt = 1; ; attempt++) {
@@ -450,6 +458,7 @@ function CheckoutForm() {
           Delivery details
         </h1>
         <UnpaidOrderBanner />
+        <ReferralEntry />
         <form onSubmit={submit} noValidate>
           {slots.isPending ? (
             <Spinner label="Loading delivery times" />
