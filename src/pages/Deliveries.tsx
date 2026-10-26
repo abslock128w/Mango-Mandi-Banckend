@@ -57,6 +57,10 @@ export default function Deliveries() {
   // Riders get the to-deliver view by default; anyone can switch it.
   const [focusChoice, setFocusChoice] = useState<boolean | null>(null)
   const focus = focusChoice ?? rider
+  // LIVE_TRACKING: riders get their stops one at a time, in route order (docs/app-feel.md); the list stays a tap away.
+  const routeOn = rider && Boolean(me?.features?.riderRoute)
+  const [view, setView] = useState<'route' | 'list'>('route')
+  const routeView = routeOn && view === 'route'
   const refresh = useRefresh(day)
   // Managers and operators give stops to riders; riders see only their own (SEC-02).
   const canAssign = me?.role === 'MANAGER' || me?.role === 'OPERATOR'
@@ -104,8 +108,27 @@ export default function Deliveries() {
         )}
       </div>
 
-      {rider && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
-      {q.isPending ? (
+      {routeOn && (
+        <div className="segmented no-print route-switch" role="group" aria-label="Show stops">
+          <button type="button" className="btn" aria-pressed={view === 'route'} onClick={() => setView('route')}>
+            One at a time
+          </button>
+          <button type="button" className="btn" aria-pressed={view === 'list'} onClick={() => setView('list')}>
+            Full list
+          </button>
+        </div>
+      )}
+      {rider && !routeView && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
+      {routeView && q.data ? (
+        q.data.runs.length === 0 && !q.data.unassigned ? (
+          <>
+            <EmptyState>No deliveries on {date(day)}.</EmptyState>
+            <NextDay day={day} onPick={setDay} />
+          </>
+        ) : (
+          <RiderRoute manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
+        )
+      ) : q.isPending ? (
         <Spinner />
       ) : q.isError ? (
         <QueryError error={q.error} onRetry={() => q.refetch()} />
@@ -187,6 +210,166 @@ function TakeStops({ day, count: n }: { day: string; count: number }) {
         Take {n === 1 ? 'it' : 'them'} and start
       </button>
     </div>
+  )
+}
+
+/** Delivered, or otherwise finished for the day (cancelled, returned). */
+const FINISHED = new Set(['DELIVERED', 'CANCELLED', 'RTO'])
+
+/**
+ * The rider's run one stop at a time (LIVE_TRACKING), for a phone held in one hand: the stops in
+ * route order (the same order the customer's "N stops away" counts along), "Start route" to send
+ * them out, then the current stop with big Delivered, Couldn't deliver and Next stop buttons at
+ * the bottom of the screen. Delivered opens the same proof dialog as the list (code or photo).
+ * "Next stop" only moves on here (say nobody answers yet); the skipped stop comes round again.
+ */
+function RiderRoute({
+  manifest,
+  day,
+  onDelivered,
+  onMissed,
+}: {
+  manifest: Manifest
+  day: string
+  onDelivered: (o: ManifestOrder) => void
+  onMissed: (o: ManifestOrder) => void
+}) {
+  const toast = useToast()
+  const refresh = useRefresh(day)
+  const [skipped, setSkipped] = useState<string[]>([])
+  const route = manifest.runs.flatMap((r) => r.stops.flatMap((s) => s.orders.map((o) => ({ o, pincode: s.pincode, slot: r.slot }))))
+  const packed = route.filter(({ o }) => o.packed)
+  const unpacked = route.length - packed.length
+  const ready = packed.filter(({ o }) => READY.has(o.status)).length
+  const out = packed.filter(({ o }) => o.status === 'OUT_FOR_DELIVERY')
+  const done = packed.filter(({ o }) => FINISHED.has(o.status)).length
+  const unassigned = manifest.unassigned ?? 0
+  // The first stop still out that wasn't put off with "Next stop"; once every one was, round again.
+  const waiting = out.filter(({ o }) => !skipped.includes(o.id))
+  const current = waiting[0] ?? out[0] ?? null
+  const position = current ? packed.findIndex(({ o }) => o.id === current.o.id) + 1 : 0
+
+  const start = useMutation({
+    mutationFn: () => api.takeRun(day),
+    onSuccess: (r) => {
+      toast.success(`${count(r.dispatched.length, 'stop', 'stops')} out for delivery`)
+      if (r.skipped.length) toast.info(`Not sent: ${r.skipped.map((s) => `${s.number} (${s.reason.toLowerCase()})`).join(', ')}`)
+      setSkipped([])
+      refresh()
+    },
+    onError: (err) => toast.error(err),
+  })
+  const next = () => {
+    if (!current) return
+    const rest = waiting.filter(({ o }) => o.id !== current.o.id)
+    // Every other stop was put off too: start the round again from the top, leaving this one for last.
+    setSkipped(rest.length ? [...skipped, current.o.id] : [current.o.id])
+  }
+
+  return (
+    <section className="rider-route" aria-label="Your route">
+      <p className="run-summary" role="status" aria-label="Route summary">
+        <span>
+          <strong>{done}</strong> of <strong>{packed.length}</strong> {packed.length === 1 ? 'stop' : 'stops'} done
+          {unpacked > 0 && (
+            <>
+              {' '}
+              · <strong>{unpacked}</strong> not packed yet
+            </>
+          )}
+        </span>
+      </p>
+
+      {(ready > 0 || unassigned > 0) && (
+        <div className="card route-start">
+          <p className="mt-0">
+            {ready > 0 && `${count(ready, 'packed stop is', 'packed stops are')} ready to go out.`}
+            {unassigned > 0 && ` Starting also takes ${count(unassigned, 'packed stop', 'packed stops')} nobody has yet.`} Every order is paid: you
+            collect nothing.
+          </p>
+          <button type="button" className="btn btn-primary btn-big" disabled={start.isPending} onClick={() => start.mutate()}>
+            {start.isPending ? 'Starting…' : out.length ? 'Send the rest out' : 'Start route'}
+          </button>
+        </div>
+      )}
+
+      {current ? (
+        <article className="card route-current" aria-labelledby="route-current-title">
+          <p className="small muted mt-0">
+            Stop {position} of {packed.length}
+            {current.slot ? ` · ${current.slot.label} ${current.slot.startsAt}–${current.slot.endsAt}` : ''}
+          </p>
+          <h2 id="route-current-title" className="mt-0">
+            {current.o.customerName ?? 'Customer'}<span className="sr-only"> (order {current.o.number})</span>
+          </h2>
+          <p className="route-address">
+            {current.o.deliveryAddress ?? 'No address'}, {current.pincode}
+          </p>
+          {current.o.gift && (
+            <p className="small">
+              <Badge>Gift</Badge> from {current.o.gift.from ?? 'a customer'}
+              {current.o.gift.message && <> · “{current.o.gift.message}”</>}
+            </p>
+          )}
+          <p className="small muted">
+            {current.o.number} · {current.o.items.map((i) => `${i.quantity} × ${i.productName}${i.stage ? ` (${RIPENESS_LABEL[i.stage]})` : ''}`).join(', ')}
+          </p>
+          <div className="btn-row">
+            {current.o.phone && (
+              <a className="btn" href={telHref(current.o.phone)}>
+                Call<span className="sr-only"> {current.o.customerName}</span>
+              </a>
+            )}
+            {current.o.deliveryAddress && (
+              <a className="btn" href={mapsLink(current.o, current.pincode)} target="_blank" rel="noreferrer">
+                Map<span className="sr-only"> for {current.o.number}</span>
+              </a>
+            )}
+            <button type="button" className="btn" onClick={() => onMissed(current.o)}>
+              Couldn't deliver<span className="sr-only"> {current.o.number}</span>
+            </button>
+          </div>
+          {/* Thumb reach: the two main buttons sit at the bottom of the screen on a phone. */}
+          <div className="route-actions">
+            <button type="button" className="btn btn-big" disabled={out.length < 2} onClick={next}>
+              Next stop
+            </button>
+            <button type="button" className="btn btn-primary btn-big" onClick={() => onDelivered(current.o)}>
+              Delivered<span className="sr-only"> {current.o.number}</span>
+            </button>
+          </div>
+          {out.length < 2 && <p className="small muted mb-0">This is the last stop out for delivery.</p>}
+        </article>
+      ) : (
+        packed.length > 0 &&
+        ready === 0 && (
+          <p className="card">{done === packed.length ? `All ${count(done, 'stop', 'stops')} done. Thank you!` : 'Nothing is out for delivery right now.'}</p>
+        )
+      )}
+
+      {packed.length > 0 && (
+        <>
+          <h2 className="route-list-title">Your stops in order</h2>
+          <ol className="route-list">
+            {packed.map(({ o, pincode }, i) => (
+              <li key={o.id} className={current?.o.id === o.id ? 'route-stop current' : 'route-stop'} aria-current={current?.o.id === o.id ? 'step' : undefined}>
+                <span className="route-n" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <span className="route-who">
+                  <strong>{o.customerName ?? '—'}</strong>
+                  <span className="small muted">
+                    {o.number} · {pincode}
+                    {skipped.includes(o.id) && o.status === 'OUT_FOR_DELIVERY' ? ' · put off for now' : ''}
+                  </span>
+                </span>
+                <OrderBadge status={o.status} />
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
   )
 }
 

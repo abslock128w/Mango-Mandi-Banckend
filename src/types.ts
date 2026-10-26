@@ -14,6 +14,8 @@ export interface Me {
   twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
   /** The box-tracked warehouse: off unless the API has it switched on; the permissions this role holds there. */
   warehouse?: { enabled: boolean; permissions: string[] }
+  /** Switchable panel parts (docs/app-feel.md); an older API leaves it out, which means off. */
+  features?: { riderRoute: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
