@@ -61,7 +61,11 @@ describe('lazy hold expiry (INV-01)', () => {
     const first = await customerToken(api)
     assert.equal((await checkout(api, first.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 3 }])).status, 201)
     assert.equal(await catalogueQty('ALP-3', 'RIPE'), 0)
+    // Inside the 2-minute gateway grace (PAY-B5) checkout can't take them yet,
+    // so the catalogue doesn't offer them either (INV-04, 24 Oct 2026 audit).
     at(11)
+    assert.equal(await catalogueQty('ALP-3', 'RIPE'), 0)
+    at(12.5)
     assert.equal(await catalogueQty('ALP-3', 'RIPE'), 3)
   })
 
