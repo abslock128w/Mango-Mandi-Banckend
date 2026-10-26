@@ -3,6 +3,7 @@ import pg from 'pg'
 import { env, onVercel } from './env.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { reportProblem } from './sentry.js'
 
 // DATE columns come back as plain "YYYY-MM-DD" strings, not JS Dates in local time.
 pg.types.setTypeParser(1082, (v) => v)
@@ -70,6 +71,7 @@ export async function tx(fn, { retries = 2 } = {}) {
       if (!RETRYABLE.has(err?.code) || attempt >= retries) throw err
       metrics.dbRetries.inc({ code: err.code })
       logger.warn({ sqlState: err.code, attempt: attempt + 1 }, 'transaction retried')
+      reportRetry(err.code, attempt + 1)
       await new Promise((r) => {
         setTimeout(r, 10 + Math.random() * 40 * (attempt + 1))
       })
@@ -77,14 +79,58 @@ export async function tx(fn, { retries = 2 } = {}) {
   }
 }
 
+/**
+ * DB-05: a retry is a symptom (DB-01 hid deadlocks this way), and on Vercel
+ * nothing scrapes /metrics, so the first retry per SQL state each hour on an
+ * instance goes to Sentry as well.
+ */
+const RETRY_REPORT_MS = 60 * 60_000
+const lastRetryReport = new Map()
+function reportRetry(code, attempt) {
+  const t = Date.now()
+  if (t - (lastRetryReport.get(code) ?? -Infinity) < RETRY_REPORT_MS) return
+  lastRetryReport.set(code, t)
+  reportProblem(`A database transaction was retried after ${code === '40P01' ? 'a deadlock' : 'a serialization failure'} (${code})`, {
+    sqlState: code,
+    attempt,
+  })
+}
+
+/** Tests: forget when retries were last reported. */
+export const resetRetryReportsForTests = () => lastRetryReport.clear()
+
+const afterCommitFns = new WeakMap()
+
+/**
+ * DB-05: runs fn once the transaction `c` commits, and never if it rolls back,
+ * so a counter bumped inside a retried transaction counts once. Outside tx()
+ * (a bare client, a test wrapper) fn runs at once.
+ */
+export function afterCommit(c, fn) {
+  const fns = afterCommitFns.get(c)
+  if (fns) fns.push(fn)
+  else fn()
+}
+
 async function txOnce(fn) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    afterCommitFns.set(client, [])
     const result = await fn(client)
     await client.query('COMMIT')
+    const done = afterCommitFns.get(client) ?? []
+    afterCommitFns.delete(client)
+    for (const f of done) {
+      try {
+        f()
+      } catch (err) {
+        logger.error({ err }, 'after-commit hook failed')
+      }
+    }
     return result
   } catch (err) {
+    afterCommitFns.delete(client)
     await client.query('ROLLBACK').catch(() => {})
     throw err
   } finally {

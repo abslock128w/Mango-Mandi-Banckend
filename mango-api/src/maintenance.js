@@ -24,7 +24,7 @@ import { logger } from './logger.js'
 import { expireIdleOperations } from './warehouse/ops.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
-import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
+import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
@@ -269,7 +269,7 @@ async function steps(forceAll) {
   // a slow outside service can't starve the rest. The cheap database steps
   // (sweep, retire, audit) run early, so they always get their turn.
   out.reconciled = await step('reconcile', () => reconcilePendingPayments(), { sliceMs: SLICE.reconcile })
-  out.expired = await step('sweep', () => tx((c) => sweepExpiredHolds(c)))
+  out.expired = await step('sweep', () => sweepExpiredHoldsEach())
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.retired = await step('retire', retireBatches)
   // Scan sessions left open past the idle limit expire (their staged scans are dropped).

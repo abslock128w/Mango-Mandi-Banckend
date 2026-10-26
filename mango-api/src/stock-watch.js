@@ -10,7 +10,7 @@
 import { diffDays, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { badRequest, conflict, notFound } from './errors.js'
-import { ledger, restock } from './inventory.js'
+import { ledger, lockLines, restock } from './inventory.js'
 import { addEvent, MAX_DELIVERY_ATTEMPTS } from './orders.js'
 import { trackedLine } from './warehouse/core.js'
 
@@ -150,8 +150,8 @@ export async function bookReturnedStock(c, orderId, { action, reasonCode = null,
       throw conflict('These boxes are labelled: book them in with a Return scan in the warehouse (Warehouse → Scan → Return).', 'USE_WAREHOUSE_RETURNS')
     }
   }
-  // Lines in id order, after the order: the lock order every stock change uses.
-  await c.query('SELECT id FROM batch_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[...new Set(packed.map((r) => r.line_id))]])
+  // Lines after the order, in the line order every stock change uses (DB-01).
+  await lockLines(c, packed.map((r) => r.line_id))
   const boxes = packed.reduce((n, r) => n + r.quantity, 0)
   const why = reason.trim()
   if (action === 'RESTOCK') {

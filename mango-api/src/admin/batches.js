@@ -220,7 +220,7 @@ router.post(
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
       // Lock the lines before the reading lands: an allocation in flight either
       // finishes first (and is rebalanced below) or re-checks the stage after us (INV-6).
-      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [req.params.id])
+      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY sku COLLATE "C", id FOR UPDATE', [req.params.id])
       const today = todayIST()
       const dup = await c.query(
         `SELECT 1 FROM batch_qc WHERE batch_id = $1 AND logged_by = $2 AND (logged_at AT TIME ZONE 'Asia/Kolkata')::date = $3 LIMIT 1`,

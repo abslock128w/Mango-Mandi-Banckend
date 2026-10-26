@@ -198,6 +198,26 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
   return qty - left
 }
 
+/**
+ * DB-01: the one order every transaction locks batch_lines rows in. It is the
+ * order allocate() takes them (SKUs by code point, then FEFO within a SKU), so
+ * a checkout, a payment, a cancel and a batch operation that touch the same
+ * lines queue behind each other instead of deadlocking.
+ */
+export const LINE_LOCK_ORDER = 'l.sku COLLATE "C", b.plucked_on, b.id, l.id'
+
+/** Code-point order of SKUs, the order allocate() is called in (matches COLLATE "C"). */
+export const bySku = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Locks these lines in LINE_LOCK_ORDER. */
+export async function lockLines(c, lineIds) {
+  if (!lineIds.length) return
+  await c.query(
+    `SELECT l.id FROM batch_lines l JOIN batches b ON b.id = l.batch_id WHERE l.id = ANY($1) ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
+    [[...new Set(lineIds)]],
+  )
+}
+
 /** Returns a held or committed order_stock row to the pool (all of it, or `qty`). */
 export async function release(c, row, actor, reason, qty = row.quantity) {
   const col = row.state === 'held' ? 'held' : 'committed'
