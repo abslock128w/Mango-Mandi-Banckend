@@ -175,25 +175,55 @@ async function applyMissing(c, op, lines, review, who) {
 }
 
 /**
- * A supervisor's decision on every proposed line of a finished count: each
- * box is either marked missing or kept as recorded. A box on an order can
- * only be kept (take it off the order first). Over the D8 limit, the missing
- * part waits for a second person.
+ * Kept boxes that were on an order (or returned) and not found where they
+ * were recorded get an investigation hold, so the order shows in the
+ * exceptions queue (a held box on an order) until someone finds the box.
+ * Only boxes unchanged since the count; one that moved on is left alone.
  */
-export async function reviewStocktake(c, opId, { missing = [], keep = [], note = null }, who) {
+async function holdKeptAllocated(c, op, lines, who) {
+  if (!lines.length) return 0
+  const boxes = await lockBoxes(c, lines.map((l) => l.box_id))
+  const deltas = newDeltas()
+  let held = 0
+  for (const l of [...lines].sort((a, b) => (a.box_id < b.box_id ? -1 : 1))) {
+    const b = boxes.get(l.box_id)
+    if (!b || b.version !== l.box_version || b.lifecycle !== l.recorded_lifecycle || b.location_id !== l.recorded_location_id) continue
+    const order = b.order_id ? (await c.query('SELECT number FROM orders WHERE id = $1', [b.order_id])).rows[0]?.number : null
+    const why = `Not found in a count of ${op.context.locationName}${order ? ` while on order ${order}` : ''}`
+    if (await addHold(c, b, 'investigation_hold', why, { type: 'HOLD_ADDED', actor: who.actor, operationId: op.id, reasonCode: 'stocktake', meta: { orderId: b.order_id ?? null } }, deltas)) held++
+  }
+  await applyLineDeltas(c, deltas, who.actor, `Stocktake of ${op.context.locationName}: boxes to look for`)
+  return held
+}
+
+/**
+ * A supervisor's decision on every proposed line of a finished count: each
+ * box is either marked missing or kept as recorded. `rest` ('missing' or
+ * 'keep') decides every line not listed, so a big count is reviewed with a
+ * short request; `rest: 'missing'` keeps the boxes that can only be kept. A
+ * box on an order can only be kept (take it off the order first); a kept one
+ * gets an investigation hold. Over the D8 limit, the missing part waits for a
+ * second person. Only a manager may review a count they did themselves.
+ */
+export async function reviewStocktake(c, opId, { missing: listedMissing = [], keep: listedKeep = [], rest = null, note = null }, who) {
   const op = await lockStocktake(c, opId, who)
   if (op.status !== 'completed') throw whError('INVALID_TRANSITION', 'Finish the count before reviewing it')
+  if (op.owner_id === who.actor.id && who.role !== 'MANAGER') throw whError('SELF_REVIEW', 'Someone who did not count this must review it (or a manager)', 403)
   if ((await c.query('SELECT 1 FROM wh_stocktake_reviews WHERE operation_id = $1', [op.id])).rowCount) throw whError('INVALID_TRANSITION', 'This count has already been reviewed')
   const lines = (await c.query(`SELECT * FROM wh_stocktake_lines WHERE operation_id = $1 AND status = 'proposed' ORDER BY box_id FOR UPDATE`, [op.id])).rows
   if (!lines.length) throw whError('NOTHING_TO_REVIEW', 'Nothing in this count needs a review')
   const byBox = new Map(lines.map((l) => [l.box_id, l]))
-  const all = [...missing, ...keep]
-  if (new Set(all).size !== all.length) throw whError('VALIDATION_ERROR', 'A box is listed twice', 400)
-  if (all.some((id) => !byBox.has(id))) throw whError('VALIDATION_ERROR', 'A box listed is not waiting for review in this count', 400)
-  if (all.length !== lines.length) throw whError('VALIDATION_ERROR', `Decide every box: ${lines.length - all.length} not decided yet`, 400)
-  if (missing.some((id) => byBox.get(id).kind !== 'not_found')) {
+  const listed = [...listedMissing, ...listedKeep]
+  if (new Set(listed).size !== listed.length) throw whError('VALIDATION_ERROR', 'A box is listed twice', 400)
+  if (listed.some((id) => !byBox.has(id))) throw whError('VALIDATION_ERROR', 'A box listed is not waiting for review in this count', 400)
+  if (listedMissing.some((id) => byBox.get(id).kind !== 'not_found')) {
     throw whError('VALIDATION_ERROR', 'A box on an order or a returned box cannot be marked missing here: take it off the order or write it off', 400)
   }
+  const decided = new Set(listed)
+  const undecided = lines.filter((l) => !decided.has(l.box_id))
+  if (undecided.length && !rest) throw whError('VALIDATION_ERROR', `Decide every box: ${undecided.length} not decided yet`, 400)
+  const missing = [...listedMissing, ...(rest === 'missing' ? undecided.filter((l) => l.kind === 'not_found').map((l) => l.box_id) : [])]
+  const keep = [...listedKeep, ...undecided.filter((l) => rest === 'keep' || l.kind !== 'not_found').map((l) => l.box_id)]
   const boxes = await lockBoxes(c, missing)
   const grams = [...boxes.values()].reduce((g, b) => g + (b.measured_weight_g ?? b.nominal_weight_g), 0)
   const big = missing.length > WRITE_OFF_LIMIT.boxes || grams > WRITE_OFF_LIMIT.grams
@@ -208,12 +238,13 @@ export async function reviewStocktake(c, opId, { missing = [], keep = [], note =
     [op.id, keep, review.id, who.actor.id, now()],
   )
   await c.query(`UPDATE wh_stocktake_lines SET review_id = $3 WHERE operation_id = $1 AND box_id = ANY($2::uuid[])`, [op.id, missing, review.id])
+  const heldToFind = await holdKeptAllocated(c, op, keep.map((id) => byBox.get(id)).filter((l) => l.kind === 'not_found_allocated'), who)
   if (big) {
     await c.query(`UPDATE wh_stocktake_lines SET status = 'pending_approval' WHERE operation_id = $1 AND box_id = ANY($2::uuid[])`, [op.id, missing])
-    return { reviewId: review.id, status: 'pending_approval', missing: missing.length, grams, kept: keep.length }
+    return { reviewId: review.id, status: 'pending_approval', missing: missing.length, grams, kept: keep.length, heldToFind }
   }
   const r = await applyMissing(c, op, missing.map((id) => byBox.get(id)), review, who)
-  return { reviewId: review.id, status: 'applied', missing: r.missing.length, superseded: r.superseded, kept: keep.length, grams, shortfall: r.shortfall }
+  return { reviewId: review.id, status: 'applied', missing: r.missing.length, superseded: r.superseded, kept: keep.length, heldToFind, grams, shortfall: r.shortfall }
 }
 
 /** The second person's decision on a big review (D8): apply the missing boxes, or leave them as recorded. */

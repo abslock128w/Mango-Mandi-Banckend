@@ -396,8 +396,8 @@ post('/warehouse/operations/:id/finalize', async (req, res) => {
   try {
     res.json(await tx((c) => finalizeOperation(c, req.params.id, req.wh, b)))
   } catch (err) {
-    // A repack source that changed since it was scanned is taken out of the session (the refused finish rolled back).
-    const unstage = err?.code === 'STALE_SCAN' ? err.extra?.unstage : null
+    // A box that changed since it was scanned (or whose batch was condemned) is taken out of the session; the refused finish rolled back.
+    const unstage = ['STALE_SCAN', 'BATCH_OUT_OF_SERVICE'].includes(err?.code) ? err.extra?.unstage : null
     if (Array.isArray(unstage) && unstage.length) {
       await tx((c) => unstageBoxes(c, req.params.id, unstage, req.wh))
       delete err.extra.unstage
@@ -454,8 +454,11 @@ get('/warehouse/export/:report', async (req, res) => {
 get('/warehouse/stocktakes', async (req, res) => res.json(await listStocktakes({ query }, req.wh)))
 get('/warehouse/stocktakes/:id', async (req, res) => res.json(await getStocktake({ query }, req.params.id, req.wh)))
 post('/warehouse/stocktakes/:id/review', async (req, res) => {
-  const b = parse(z.object({ missing: z.array(uuid).max(2000).default([]), keep: z.array(uuid).max(2000).default([]), note: z.string().trim().max(300).optional() }).strict(), req.body ?? {})
-  res.json(await tx((c) => reviewStocktake(c, req.params.id, { missing: b.missing, keep: b.keep, note: b.note || null }, req.wh)))
+  // `rest` decides every box not listed, so a count of thousands of boxes is reviewed in one short request.
+  const b = parse(z.object({
+    missing: z.array(uuid).max(2000).default([]), keep: z.array(uuid).max(2000).default([]), rest: z.enum(['missing', 'keep']).optional(), note: z.string().trim().max(300).optional(),
+  }).strict(), req.body ?? {})
+  res.json(await tx((c) => reviewStocktake(c, req.params.id, { missing: b.missing, keep: b.keep, rest: b.rest ?? null, note: b.note || null }, req.wh)))
 })
 post('/warehouse/stocktakes/:id/approve', async (req, res) => res.json(await tx((c) => decideStocktakeReview(c, req.params.id, true, req.wh))))
 post('/warehouse/stocktakes/:id/reject', async (req, res) => res.json(await tx((c) => decideStocktakeReview(c, req.params.id, false, req.wh))))

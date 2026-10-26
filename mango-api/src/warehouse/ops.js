@@ -634,8 +634,8 @@ export async function finalizeOperation(c, opId, who, body = {}) {
   const stale = staged.filter((id) => !needed.some((b) => b.id === id))
   if (stale.length) {
     const codes = boxes.filter((b) => stale.includes(b.id)).map((b) => formatBoxCode(b.code))
-    await c.query('DELETE FROM wh_staged WHERE operation_id = $1 AND box_id = ANY($2::uuid[])', [op.id, stale])
-    throw whError('STALE_SCAN', `${codes.join(', ')} changed since ${codes.length === 1 ? 'it was' : 'they were'} scanned. Scan again.`, 409, { boxes: codes })
+    // The refused finish rolls back, so the route takes them out of the session in its own transaction (unstageBoxes).
+    throw whError('STALE_SCAN', `${codes.join(', ')} changed since ${codes.length === 1 ? 'it was' : 'they were'} scanned. Scan again.`, 409, { boxes: codes, unstage: stale })
   }
   const missing = needed.filter((b) => !staged.includes(b.id)).map((b) => formatBoxCode(b.code))
   if (missing.length) throw whError('INCOMPLETE_SET', `${missing.length} ${missing.length === 1 ? 'box is' : 'boxes are'} not scanned yet: ${missing.slice(0, 10).join(', ')}.`, 409, { missing })
