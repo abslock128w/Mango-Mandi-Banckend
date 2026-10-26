@@ -58,6 +58,48 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // App feel (docs/app-feel.md). Each is off unless set, so each can be rolled back on its own.
+  // WEB_PUSH: customers may turn on browser notifications on the Account page, and order updates
+  // are pushed to them beside WhatsApp. Needs VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT.
+  WEB_PUSH: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // vapid: send to the browser's push service (production). log: write a line instead (the default,
+  // so development and tests never reach a real push service).
+  WEB_PUSH_PROVIDER: z.enum(['log', 'vapid']).default('log'),
+  // The application server keys (RFC 8292), base64url: the public key is the 65-byte P-256 point,
+  // the private key the 32-byte scalar. `node scripts/vapid-keys.mjs` makes a pair.
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  // Who the push services can contact about our messages: mailto: or https: (RFC 8292).
+  VAPID_SUBJECT: z.string().default(''),
+  // Push service hosts a subscription's endpoint may point at (the API posts to it, so it is an
+  // allowlist, not a guess). "*.x" matches any subdomain of x.
+  WEB_PUSH_HOSTS: z
+    .string()
+    .default('fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com,*.push.apple.com,*.notify.windows.com'),
+  // LIVE_TRACKING: "your rider is N stops away" on the shop's order page, and the riders' Route view
+  // on the panel's Deliveries page. Minutes per stop are a selling rule (minutesPerStop).
+  LIVE_TRACKING: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // FAVOURITES: hearts on the shop's boxes and a Favourites list on the Account page.
+  FAVOURITES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // SHOP_INSTALL: the shop registers its service worker (static app shell only) and offers "Install app".
+  SHOP_INSTALL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // SHOP_SORT_FILTER: sort and filter controls on the shop's home page.
+  SHOP_SORT_FILTER: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The most boxes one intake may label (brief 8.1).
   WAREHOUSE_MAX_LOT: z.coerce.number().int().min(1).max(20000).default(5000),
   // Minutes an open scan session may sit idle before it expires.
@@ -187,6 +229,11 @@ env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')
+  process.exit(1)
+}
+
+if (env.WEB_PUSH_PROVIDER === 'vapid' && !(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT)) {
+  console.error('WEB_PUSH_PROVIDER=vapid needs VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT')
   process.exit(1)
 }
 

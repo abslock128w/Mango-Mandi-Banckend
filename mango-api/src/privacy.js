@@ -95,6 +95,10 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
+  // Browser notifications and hearted boxes (docs/app-feel.md): nothing of them is kept.
+  await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [me.id])
+  await c.query("UPDATE push_messages SET status = 'SKIPPED', last_error = 'account deleted' WHERE customer_id = $1 AND status = 'PENDING'", [me.id])
+  await c.query('DELETE FROM customer_favourites WHERE customer_id = $1', [me.id])
   if (me.phone) {
     await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
     await c.query('DELETE FROM wa_inbound WHERE phone = $1', [me.phone])

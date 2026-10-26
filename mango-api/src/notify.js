@@ -10,6 +10,7 @@ import { newId } from './ids.js'
 import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
+import { enqueueOrderPush } from './push.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { templateName, whatsappSender } from './whatsapp.js'
 
@@ -42,6 +43,8 @@ export async function enqueue(c, orderId, eventId, kind, { delayMs = 0 } = {}) {
   if (o?.phone) await add(kind, o.phone)
   // A gift: the recipient is at the door, so they get the delivery code too.
   if (kind === 'OUT_FOR_DELIVERY' && o?.gift_recipient_phone && o.gift_recipient_phone !== o.phone) await add('GIFT_OUT_FOR_DELIVERY', o.gift_recipient_phone)
+  // The same order step as a browser notification, for a customer who turned them on (WEB_PUSH).
+  await enqueueOrderPush(c, orderId, eventId, kind)
 }
 
 /** The Meta template a kind is sent with. The gift message reuses the out-for-delivery one, addressed to the recipient. */

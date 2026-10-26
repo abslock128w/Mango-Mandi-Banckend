@@ -26,6 +26,7 @@ import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
+import { prunePushMessages, sendDuePush } from './push.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
@@ -62,7 +63,7 @@ async function lastRuns() {
 }
 
 /** The most of the run each outside-calling step may use, in ms. */
-export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, alerts: 3_000, notifications: 10_000, preorders: 8_000 }
+export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, alerts: 3_000, notifications: 10_000, push: 5_000, preorders: 8_000 }
 
 /** Steps that need this much time left are put off to the next run. */
 const STEP_MIN_MS = 3_000
@@ -141,6 +142,8 @@ export async function cleanupExpired(at = now()) {
   await cleanupReviewPhotos(at)
   // Finished messages older than 180 days (bounded per run; never PENDING ones).
   await pruneNotifications(at)
+  // Browser notifications sent or given up on over 30 days ago (bounded per run).
+  await prunePushMessages(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
@@ -279,6 +282,8 @@ async function steps(forceAll) {
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
+  // Browser notifications for the same order steps (WEB_PUSH, push.js).
+  if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
