@@ -181,8 +181,8 @@ export function billPdf(bill) {
   page.text(RIGHT, page.y - 12, 'MandiMangoes', { size: 12, bold: true, align: 'right' })
   page.y -= 34
   if (bill.cancelled_at) {
-    const why = bill.cancel_reason ? `: ${bill.cancel_reason}` : ''
-    for (const l of wrap(`CANCELLED on ${dayLabel(bill.cancelled_at)}. The order was cancelled${why}. This bill stays on record with its number.`, 9.5, RIGHT - MARGIN, true)) {
+    const why = bill.cancel_reason ? ` (${String(bill.cancel_reason).replace(/[.\s]+$/, '')})` : ''
+    for (const l of wrap(`CANCELLED on ${dayLabel(bill.cancelled_at)}: the order was cancelled${why}. This bill stays on record with its number.`, 9.5, RIGHT - MARGIN, true)) {
       page.text(MARGIN, page.y, l, { size: 9.5, bold: true })
       page.y -= 13
     }
