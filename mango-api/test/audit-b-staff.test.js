@@ -6,9 +6,10 @@ import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { drainBackground } from '../src/background.js'
-import { now, setNow } from '../src/clock.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
+import { newId } from '../src/ids.js'
 import { logger } from '../src/logger.js'
 import { STEP_UP_TRIES } from '../src/admin/step-up.js'
 import { codeAt, stepAt } from '../src/totp.js'
@@ -204,6 +205,34 @@ describe('SEC-08: staff-account changes are recorded with the change; views of c
     await query('ALTER TABLE staff_audit_gone RENAME TO staff_audit')
     assert.equal(r.status, 201)
     assert.equal((await query(`SELECT 1 FROM staff_audit WHERE action = 'POST /staff'`)).rowCount, 0)
+  })
+
+  test("with STAFF_AUDIT_TRAIL: a manager's booking cancel and its audit row commit together", async () => {
+    let week = addDays(todayIST(), 6)
+    while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
+    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 5 }, { token: manager })).status, 200)
+    const cust = await customerToken(api)
+    const booked = await api.post(
+      '/v1/preorders',
+      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
+    )
+    assert.equal(booked.status, 201, JSON.stringify(booked.body))
+    const id = booked.body.id
+    const status = async () => (await query('SELECT status FROM preorders WHERE id = $1', [id])).rows[0].status
+    const before = await status()
+    env.STAFF_AUDIT_TRAIL = true
+    await query('ALTER TABLE staff_audit RENAME TO staff_audit_gone')
+    const r = await api.post(`/admin/v1/preorders/${id}/cancel`, { reason: 'Orchard short this week' }, { token: manager })
+    await query('ALTER TABLE staff_audit_gone RENAME TO staff_audit')
+    assert.equal(r.status, 500)
+    assert.equal(await status(), before, 'not cancelled without its record')
+    const ok = await api.post(`/admin/v1/preorders/${id}/cancel`, { reason: 'Orchard short this week' }, { token: manager })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    assert.equal(await status(), 'CANCELLED')
+    await settled()
+    const { rows } = await query(`SELECT target, detail FROM staff_audit WHERE action = 'POST /preorders/:id/cancel'`)
+    assert.deepEqual(rows, [{ target: id, detail: { reason: 'Orchard short this week' } }], 'written once, in the transaction')
   })
 
   async function anOrder() {
