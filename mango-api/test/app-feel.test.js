@@ -1,7 +1,7 @@
 // App feel (docs/app-feel.md): browser notifications (RFC 8291 + RFC 8292,
 // sent through a stub, never a real push service), live tracking without GPS,
 // favourites, and the switches the shop and panel read.
-import { closeAll, adminToken, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createPublicKey, randomBytes, verify } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -12,6 +12,7 @@ import { newId } from '../src/ids.js'
 import { cleanupExpired, runMaintenance } from '../src/maintenance.js'
 import { checkProduction } from '../src/preflight.js'
 import { moveFavourites } from '../src/favourites.js'
+import { CONFIRMATION_HELD } from '../src/orders.js'
 import { loadProducts } from '../src/products.js'
 import { endpointHint, MAX_SUBSCRIPTIONS, payloadFor, sendDuePush, usePushSender } from '../src/push.js'
 import { pushProblems } from '../src/push-checks.js'
@@ -336,6 +337,62 @@ describe('browser notifications for order updates', () => {
     // Sent once only.
     assert.equal(await sendDuePush(), 0)
     assert.equal(calls.length, 2)
+  })
+
+  test('a confirmation held for stock (INV-B) holds its push too; one push goes when stock is found', async () => {
+    pushOnForTest()
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 2 } })
+    const a = await customerToken(api)
+    assert.equal((await api.put('/v1/me/push/subscription', browser().json, { token: a.accessToken })).status, 201)
+    const calls = stubSender()
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    setNow(new Date(Date.parse(T0) + 12.5 * 60_000).toISOString()) // A's hold runs out
+    const b = await customerToken(api)
+    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }]) // takes the boxes
+    assert.equal(cb.status, 201)
+    await api.post('/v1/dev/pay', { orderId: cb.body.orderId, outcome: 'captured' })
+    await api.post('/v1/dev/pay', { orderId: ca.body.orderId, outcome: 'captured' }) // late, no stock anywhere
+    assert.deepEqual((await pushRows(a.customer.id)).map((m) => [m.kind, m.status, m.last_error]), [['ORDER_CONFIRMED', 'SKIPPED', CONFIRMATION_HELD]])
+    assert.equal(await sendDuePush(), 0)
+    assert.equal(calls.length, 0)
+
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
+    const r = await api.post(`/admin/v1/orders/${ca.body.orderId}/rebalance`, undefined, { token: admin })
+    assert.deepEqual(r.body, { changed: true, atRisk: false })
+    assert.equal(await sendDuePush(), 1)
+    assert.deepEqual(calls.map((c) => JSON.parse(c.payload).body), ['Your MandiMangoes order is confirmed'])
+    assert.equal(await sendDuePush(), 0)
+    assert.equal(calls.length, 1)
+  })
+
+  test('a missed delivery that will not be retried on its own does not promise a retry', async () => {
+    pushOnForTest()
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const cust = await customerToken(api)
+    assert.equal((await api.put('/v1/me/push/subscription', browser().json, { token: cust.accessToken })).status, 201)
+    const first = await paidOrder(cust)
+    const last = await paidOrder(cust)
+    await sendDuePush()
+    const calls = stubSender()
+    const failNow = async (id) => {
+      await pack(id)
+      assert.equal((await api.post(`/admin/v1/orders/${id}/dispatch`, {}, { token: admin })).status, 204)
+      const { attempt } = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body
+      const f = await api.post(`/admin/v1/orders/${id}/delivery`, { outcome: 'FAILED', reason: 'NOT_HOME', attempt }, { token: admin })
+      assert.equal(f.status, 200, JSON.stringify(f.body))
+    }
+    await failNow(first.id)
+    // Two misses already: this third one is not rescheduled; staff call first.
+    await query('UPDATE orders SET delivery_failures = 2 WHERE id = $1', [last.id])
+    await failNow(last.id)
+    assert.equal((await api.get(`/v1/orders/${last.id}`, { token: cust.accessToken })).body.retryScheduled, false)
+    await sendDuePush()
+    const said = Object.fromEntries(calls.map((c) => JSON.parse(c.payload)).map((p) => [p.url, p.body]))
+    assert.equal(said[`/orders/${first.id}`], 'We missed you: your MandiMangoes order will be tried again')
+    assert.equal(said[`/orders/${last.id}`], 'We missed you: MandiMangoes will be in touch about your order')
+    assert.deepEqual((await query('SELECT kind, status FROM push_messages WHERE order_id = $1 AND kind LIKE $2', [last.id, 'DELIVERY_FAILED%'])).rows, [
+      { kind: 'DELIVERY_FAILED_NO_RETRY', status: 'SENT' },
+    ])
   })
 
   test('the maintenance loop sends them, and the real sender path encrypts for the browser', async () => {

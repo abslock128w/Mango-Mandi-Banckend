@@ -36,6 +36,8 @@ const TEXT = {
   OUT_FOR_DELIVERY: 'Your MandiMangoes order is out for delivery',
   DELIVERED: 'Your MandiMangoes order has been delivered',
   DELIVERY_FAILED: 'We missed you: your MandiMangoes order will be tried again',
+  // A missed delivery that is not rescheduled on its own (attempts used up, or the boxes too old for the retry day).
+  DELIVERY_FAILED_NO_RETRY: 'We missed you: MandiMangoes will be in touch about your order',
   DATE_MOVED: 'Your MandiMangoes order has a new delivery day',
   CANCELLED: 'Your MandiMangoes order was cancelled',
 }
@@ -145,6 +147,11 @@ export async function enqueueOrderPush(c, orderId, eventId, kind) {
   )
 }
 
+/** A missed delivery that will not be tried again on its own: its push says we'll be in touch, not that it will be retried. */
+export async function noRetryPush(c, eventId) {
+  await c.query(`UPDATE push_messages SET kind = 'DELIVERY_FAILED_NO_RETRY' WHERE event_id = $1 AND kind = 'DELIVERY_FAILED' AND status = 'PENDING'`, [eventId])
+}
+
 // ---------------------------------------------------------------- sending
 
 /** Tests swap the sender (and so never reach a push service). */
@@ -179,7 +186,7 @@ function staleReason(m) {
   if (!s) return null
   if (['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED', 'DATE_MOVED'].includes(m.kind) && s === 'CANCELLED') return 'order cancelled since'
   if (m.kind === 'OUT_FOR_DELIVERY' && s !== 'OUT_FOR_DELIVERY') return `order is ${s} now`
-  if (m.kind === 'DELIVERY_FAILED' && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
+  if ((m.kind === 'DELIVERY_FAILED' || m.kind === 'DELIVERY_FAILED_NO_RETRY') && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
   return null
 }
 
