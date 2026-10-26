@@ -74,7 +74,8 @@ test('a packer gets neither stocktake nor repack; QC staff neither', async ({ pa
 // ---------------------------------------------------------------- stocktake
 
 test('stocktake: count a place, finish, review what was not found', async ({ page }) => {
-  const { api, whs } = await signIn(page, 'OPERATOR')
+  // A manager may review their own count; anyone else needs a second person (next test).
+  const { api, whs } = await signIn(page, 'MANAGER')
   await page.goto('/today')
   await (await openNavTo(page, 'Stocktake')).click()
   await expect(page.getByRole('heading', { name: 'Stocktake', level: 1 })).toBeVisible()
@@ -124,6 +125,23 @@ test('stocktake: count a place, finish, review what was not found', async ({ pag
   await expect(page.getByRole('region', { name: 'Review', exact: true })).toContainText('Applied')
   await expect(page.getByRole('row', { name: /AAAA-0002-2/ })).toContainText('Marked missing')
   await expect(page.getByRole('row', { name: /AAAA-0003-3/ })).toContainText('Kept as recorded')
+})
+
+test('stocktake: a supervisor does not review their own count', async ({ page }) => {
+  const { whs } = await signIn(page, 'OPERATOR')
+  await page.goto('/warehouse/scan?type=stocktake')
+  await page.getByLabel('Place to count').selectOption({ label: 'A · Shelf A (Storage)' })
+  await page.getByRole('button', { name: 'Start scanning' }).click()
+  await scan(page, 'AAAA-0001-1')
+  await expect(results(page).first()).toContainText('AAAA-0001-1 counted')
+  await page.getByRole('button', { name: 'Finish count' }).click()
+  await page.getByRole('dialog', { name: 'Finish this count?' }).getByRole('button', { name: 'Finish count' }).click()
+  await page.getByRole('link', { name: 'Open the count' }).click()
+  const review = page.getByRole('region', { name: /Review boxes not found/ })
+  await expect(review).toContainText('You did this count, so someone else reviews it')
+  await expect(review.getByRole('button', { name: 'Save review' })).toHaveCount(0)
+  await axe(page)
+  expect(whs.reviewBodies).toEqual([])
 })
 
 test('stocktake: a big review waits for a second manager; the supervisor cannot approve it', async ({ page }) => {
@@ -236,7 +254,8 @@ test('repack: a split makes several new boxes, and a box can be removed from the
   await dialog.getByRole('button', { name: 'Remove new box 3' }).click()
   await dialog.getByRole('button', { name: 'Make 2 new boxes' }).click()
   await expect(page.getByRole('region', { name: 'Repack done' })).toContainText('1 box in, 2 new boxes out')
-  expect(whs.finalizeBodies).toEqual([{ outputs: [{ weightG: 1500 }, { weightG: 1400, fruitCount: 6 }], fruitRemoved: 0, weightLostG: 0 }])
+  // Weight taken out left blank: the API records the difference.
+  expect(whs.finalizeBodies).toEqual([{ outputs: [{ weightG: 1500 }, { weightG: 1400, fruitCount: 6 }], fruitRemoved: 0 }])
 })
 
 test('partial damage: fruit taken out of a box, below tolerance it needs review', async ({ page }) => {
@@ -297,18 +316,25 @@ interface CamOpts {
   deny?: string
   cameras?: number
   torch?: boolean
+  /** getUserMedia waits until the test calls window.__cam.open() (the browser still asking). */
+  hold?: boolean
 }
 
 /**
  * A stand-in camera and QR reader: getUserMedia returns a canvas stream whose
  * track counts stop() calls, and BarcodeDetector reads codes the test queues
- * in window.__cam.codes (one per frame).
+ * in window.__cam.codes (one per frame) plus every code in window.__cam.inView
+ * (in every frame, like labels held in front of the camera).
  */
 async function fakeCamera(page: Page, opts: CamOpts = {}) {
   await page.addInitScript((o: CamOpts) => {
-    type Cam = { codes: string[]; stopped: number; started: number; torch: boolean[]; constraints: unknown[] }
+    type Cam = { codes: string[]; inView: string[]; stopped: number; started: number; torch: boolean[]; constraints: unknown[]; open: () => void }
     const w = window as unknown as { __cam: Cam; BarcodeDetector?: unknown }
-    w.__cam = { codes: [], stopped: 0, started: 0, torch: [], constraints: [] }
+    let opened: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      opened = resolve
+    })
+    w.__cam = { codes: [], inView: [], stopped: 0, started: 0, torch: [], constraints: [], open: () => opened() }
     if (o.secure === false) Object.defineProperty(window, 'isSecureContext', { get: () => false })
     if (o.detector === false) delete w.BarcodeDetector
     else {
@@ -318,7 +344,7 @@ async function fakeCamera(page: Page, opts: CamOpts = {}) {
         }
         async detect() {
           const c = w.__cam.codes.shift()
-          return c ? [{ rawValue: c }] : []
+          return [...(c ? [c] : []), ...w.__cam.inView].map((rawValue) => ({ rawValue }))
         }
       }
     }
@@ -326,6 +352,7 @@ async function fakeCamera(page: Page, opts: CamOpts = {}) {
     md.getUserMedia = async (constraints?: MediaStreamConstraints) => {
       w.__cam.constraints.push(constraints)
       if (o.deny) throw new DOMException('Refused', o.deny)
+      if (o.hold) await gate
       const canvas = document.createElement('canvas')
       canvas.width = 320
       canvas.height = 240
@@ -360,7 +387,11 @@ async function fakeCamera(page: Page, opts: CamOpts = {}) {
   }, opts)
 }
 
-const cam = (page: Page) => page.evaluate(() => (window as unknown as { __cam: { stopped: number; started: number; torch: boolean[]; codes: string[] } }).__cam)
+const cam = (page: Page) =>
+  page.evaluate(() => {
+    const c = (window as unknown as { __cam: { stopped: number; started: number; torch: boolean[]; codes: string[] } }).__cam
+    return { stopped: c.stopped, started: c.started, torch: c.torch, codes: c.codes }
+  })
 const showCode = (page: Page, ...codes: string[]) => page.evaluate((c) => (window as unknown as { __cam: { codes: string[] } }).__cam.codes.push(...c), codes)
 
 async function moveSession(page: Page) {
@@ -442,6 +473,42 @@ test('camera: let go when the page is hidden and when leaving the screen', async
   await page.locator('a.back-link', { hasText: 'Scan' }).click()
   await expect(page.getByRole('heading', { name: 'Start scanning' })).toBeVisible()
   await expect.poll(async () => (await cam(page)).stopped).toBe(2)
+})
+
+test('camera: hidden while the browser is still opening it, the camera is given straight back', async ({ page }) => {
+  await fakeCamera(page, { hold: true })
+  await signIn(page, 'MANAGER', { cameraScan: true })
+  await moveSession(page)
+  await page.getByRole('button', { name: 'Use camera' }).click()
+  await expect(page.getByText('Starting the camera…')).toBeVisible()
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect(page.getByRole('alert')).toContainText('The camera was turned off while this page was hidden.')
+  // The browser hands the camera over after the page was hidden: it is stopped at once and never shown.
+  await page.evaluate(() => (window as unknown as { __cam: { open: () => void } }).__cam.open())
+  await expect.poll(async () => (await cam(page)).stopped).toBe(1)
+  expect((await cam(page)).started).toBe(1)
+  await expect(page.getByLabel(/Camera view/)).toBeHidden()
+  await expect(page.getByText('Camera on')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Use camera' })).toBeVisible()
+})
+
+test('camera: two labels in view at once are each sent once, not every frame', async ({ page }) => {
+  await fakeCamera(page)
+  const { whs } = await signIn(page, 'MANAGER', { cameraScan: true })
+  await moveSession(page)
+  await page.getByRole('button', { name: 'Use camera' }).click()
+  await expect(page.getByText('Camera on')).toBeVisible()
+  await page.evaluate(() => {
+    ;(window as unknown as { __cam: { inView: string[] } }).__cam.inView.push('7K2M-QX4P-3', '7K2M-QX4R-8')
+  })
+  await expect(results(page)).toHaveCount(2)
+  // Both stay in view for well over a second (about ten frames): still one scan each.
+  await page.waitForTimeout(1500)
+  expect(whs.scanRequests.flat().map((x) => x.input).sort()).toEqual(['7K2M-QX4P-3', '7K2M-QX4R-8'])
+  await page.getByRole('button', { name: 'Stop camera' }).click()
 })
 
 test('camera: refused permission is explained and typing still works', async ({ page }) => {

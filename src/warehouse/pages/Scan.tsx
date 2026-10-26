@@ -808,7 +808,8 @@ function RepackFinishDialog({
   const [rows, setRows] = useState<NewBoxRow[]>([{ key: 1, weight: '', fruit: '' }])
   const nextKey = useRef(2)
   const [fruitRemoved, setFruitRemoved] = useState('0')
-  const [weightLost, setWeightLost] = useState('0')
+  // Blank: the API records what went in less what came out.
+  const [weightLost, setWeightLost] = useState('')
   const [note, setNote] = useState('')
   const [formError, setFormError] = useState<unknown>(null)
 
@@ -835,11 +836,11 @@ function RepackFinishDialog({
       }
     }
     const fruit = wholeNumber(fruitRemoved, 0, 10_000)
-    const lost = wholeNumber(weightLost, 0, 1_000_000)
+    const lost = weightLost.trim() === '' ? undefined : wholeNumber(weightLost, 0, 1_000_000)
     if (fruit === null) return setFormError('Fruit taken out is a whole number (0 if none).')
-    if (lost === null) return setFormError('Weight taken out is in whole grams (0 if none).')
+    if (lost === null) return setFormError('Weight taken out is in whole grams, or leave it blank.')
     setFormError(null)
-    onSubmit({ outputs, fruitRemoved: fruit, weightLostG: lost, ...(note.trim() ? { note: note.trim() } : {}) })
+    onSubmit({ outputs, fruitRemoved: fruit, ...(lost !== undefined ? { weightLostG: lost } : {}), ...(note.trim() ? { note: note.trim() } : {}) })
   }
 
   return (
@@ -913,7 +914,19 @@ function RepackFinishDialog({
           </div>
           <div className="field">
             <label htmlFor="rp-weight-out">Weight taken out (g)</label>
-            <input id="rp-weight-out" type="number" inputMode="numeric" min={0} step={1} value={weightLost} onChange={(e) => setWeightLost(e.target.value)} />
+            <input
+              id="rp-weight-out"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              value={weightLost}
+              onChange={(e) => setWeightLost(e.target.value)}
+              aria-describedby="rp-weight-out-hint"
+            />
+            <p className="hint" id="rp-weight-out-hint">
+              Blank: the difference is recorded ({inG ? `${Math.max(0, inG - outG)} g` : 'in less out'}).
+            </p>
           </div>
         </div>
         <div className="field">
@@ -922,7 +935,7 @@ function RepackFinishDialog({
         </div>
         <p className="hint" aria-live="polite">
           Out: {kg(outG)} in {rows.length} {rows.length === 1 ? 'box' : 'boxes'}
-          {inG ? ` of ${kg(inG)} in` : ''}.
+          {inG ? ` of ${kg(inG)} in` : ''}. What went in must equal the new boxes plus the weight taken out.
         </p>
         <FormError error={formError ?? error} />
       </form>

@@ -459,6 +459,8 @@ export interface StocktakeDecision {
   kept?: number
   superseded?: number
   grams?: number
+  /** Kept boxes on an order, held for investigation until they are found. */
+  heldToFind?: number
 }
 
 // ---------------------------------------------------------------- repack
@@ -476,7 +478,8 @@ export interface RepackOutputInput {
 export interface RepackFinish {
   outputs: RepackOutputInput[]
   fruitRemoved: number
-  weightLostG: number
+  /** Left out: the API records what went in less what came out. */
+  weightLostG?: number
   note?: string
 }
 

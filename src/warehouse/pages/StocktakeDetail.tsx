@@ -7,9 +7,11 @@ import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { dateTime } from '../../format'
 import { Badge, BackLink, ConfirmDialog, EmptyState, FormError, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../../ui'
+import { useSession } from '../../session'
 import { useWh } from '../access'
 import { wh } from '../api'
 import { HOLD_LABEL, LIFECYCLE_LABEL, OP_STATUS_LABEL, STOCKTAKE_KIND_LABEL, STOCKTAKE_LINE_LABEL, STOCKTAKE_REVIEW_LABEL, opStatusTone } from '../labels'
+import { reviewBody, type ReviewChoice } from '../stocktakeReview'
 import type { Stocktake, StocktakeLine } from '../types'
 import { kg } from '../ui'
 
@@ -140,11 +142,16 @@ const recorded = (l: StocktakeLine) => [LIFECYCLE_LABEL[l.recordedLifecycle] ?? 
 const now = (l: StocktakeLine) =>
   [LIFECYCLE_LABEL[l.lifecycle] ?? l.lifecycle, l.location, l.orderNumber ? `on ${l.orderNumber}` : null, ...l.holds.map((h) => HOLD_LABEL[h] ?? h)].filter(Boolean).join(' · ')
 
-type Choice = 'missing' | 'keep'
+type Choice = ReviewChoice
 
-/** Every box the count did not find is either marked missing or kept as recorded; a box on an order can only be kept. */
+/**
+ * Every box the count did not find is either marked missing or kept as
+ * recorded; a box on an order can only be kept (and is then held for someone
+ * to look for it). Someone other than the counter reviews, or a manager.
+ */
 function ReviewForm({ stocktake, lines }: { stocktake: Stocktake; lines: StocktakeLine[] }) {
   const { can } = useWh()
+  const { me } = useSession()
   const toast = useToast()
   const queryClient = useQueryClient()
   const [choice, setChoice] = useState<Record<string, Choice>>({})
@@ -152,21 +159,34 @@ function ReviewForm({ stocktake, lines }: { stocktake: Stocktake; lines: Stockta
   const [formError, setFormError] = useState<unknown>(null)
   const m = useMutation({
     mutationFn: () =>
-      wh.reviewStocktake(stocktake.id, {
-        missing: lines.filter((l) => choice[l.boxId] === 'missing').map((l) => l.boxId),
-        keep: lines.filter((l) => choice[l.boxId] === 'keep').map((l) => l.boxId),
-        ...(note.trim() ? { note: note.trim() } : {}),
-      }),
+      wh.reviewStocktake(
+        stocktake.id,
+        reviewBody(
+          lines.map((l) => l.boxId),
+          choice,
+          note,
+        ),
+      ),
     onSuccess: (r) => {
       toast.success(
         r.status === 'pending_approval'
           ? `Sent for approval: a second person must approve marking ${r.missing} ${r.missing === 1 ? 'box' : 'boxes'} missing.`
-          : `Review saved: ${r.missing} marked missing${r.superseded ? `, ${r.superseded} left alone because they changed since the count` : ''}.`,
+          : `Review saved: ${r.missing} marked missing${r.superseded ? `, ${r.superseded} left alone because they changed since the count` : ''}${r.heldToFind ? `; ${r.heldToFind} on orders held to be looked for` : ''}.`,
       )
       void queryClient.invalidateQueries({ queryKey: ['wh'] })
     },
   })
   if (!can('warehouse.stocktake')) return null
+  if (stocktake.mine && me?.role !== 'MANAGER') {
+    return (
+      <section className="card" aria-labelledby="st-review">
+        <h2 id="st-review">
+          Review boxes not found <span className="muted">({lines.length})</span>
+        </h2>
+        <p className="notice notice-info">You did this count, so someone else reviews it: another supervisor or a manager. Nothing is marked missing until then.</p>
+      </section>
+    )
+  }
 
   const undecided = lines.filter((l) => !choice[l.boxId]).length
   const canMiss = (l: StocktakeLine) => l.kind === 'not_found'
@@ -218,7 +238,7 @@ function ReviewForm({ stocktake, lines }: { stocktake: Stocktake; lines: Stockta
                     Keep as recorded
                   </label>
                 </div>
-                {!canMiss(l) && <p className="hint">Picked, packed or returned: it can only be kept here. Take it off its order or write it off instead.</p>}
+                {!canMiss(l) && <p className="hint">Picked, packed or returned: it can only be kept here, and is then held until someone finds it. Take it off its order or write it off instead.</p>}
               </fieldset>
             </li>
           ))}

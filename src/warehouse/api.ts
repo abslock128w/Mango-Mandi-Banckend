@@ -2,6 +2,7 @@
 // signed-in request() as the rest of the panel; see src/api.ts.
 
 import { apiBlobUrl, apiRequest } from '../api'
+import type { ReviewBody } from './stocktakeReview'
 import type {
   Box,
   BoxEvent,
@@ -125,7 +126,7 @@ export const wh = {
   // Stocktake
   stocktakes: () => apiRequest<StocktakeRow[]>('GET', `${W}/stocktakes`),
   stocktake: (opId: string) => apiRequest<Stocktake>('GET', `${W}/stocktakes/${id(opId)}`),
-  reviewStocktake: (opId: string, b: { missing: string[]; keep: string[]; note?: string }) =>
+  reviewStocktake: (opId: string, b: ReviewBody) =>
     apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/review`, b),
   approveStocktake: (opId: string) => apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/approve`),
   rejectStocktake: (opId: string) => apiRequest<StocktakeDecision>('POST', `${W}/stocktakes/${id(opId)}/reject`),

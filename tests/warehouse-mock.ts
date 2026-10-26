@@ -717,12 +717,15 @@ function finishRepack(s: WhState, op: WhOp, body: Json) {
   const outs = body.outputs as { weightG: number }[]
   const kind = sources.length > 1 && outs.length === 1 ? 'merge' : sources.length === 1 && outs.length > 1 ? 'split' : 'repack'
   const outputs = outs.map((o, i) => ({ id: `rb_${i + 1}`, code: `RPK1-000${i + 1}-A`, quality: 'pending', weightG: o.weightG }))
+  // Like the API: weight taken out left out is what went in less what came out.
+  const inG = sources.map((c, i) => repackSource(c, i).weightG).reduce((g, w) => g + w, 0)
+  const weightLostG = (body.weightLostG as number | undefined) ?? Math.max(0, inG - outs.reduce((g, o) => g + o.weightG, 0))
   op.status = 'completed'
   op.finishedAt = NOW
-  op.result = { kind, locationName: op.context.locationName, sources, outputs, fruitRemoved: body.fruitRemoved, weightLostG: body.weightLostG, needsQc: true, carriedHolds: [] }
+  op.result = { kind, locationName: op.context.locationName, sources, outputs, fruitRemoved: body.fruitRemoved, weightLostG, needsQc: true, carriedHolds: [] }
   s.repacks[op.id] = {
     id: op.id, status: 'completed', mine: true, kind, locationName: op.context.locationName, reasonCode: op.context.reasonCode, reason: op.context.reason, startedAt: op.startedAt, finishedAt: NOW,
-    fruitRemoved: body.fruitRemoved, weightLostG: body.weightLostG,
+    fruitRemoved: body.fruitRemoved, weightLostG,
     sources: sources.map((c, i) => ({ ...repackSource(c, i), lifecycle: 'repacked', locationName: null })),
     outputs: outputs.map((o) => ({ id: o.id, code: o.code, lifecycle: 'in_stock', quality: 'pending', bestBefore: '2026-10-29', weightG: o.weightG, locationName: op.context.locationName, holds: ['qc_hold'] })),
     lots: [{ id: 'lot_seed', code: 'L2610-ALP3-7K', batchId: 'bat_1' }],
