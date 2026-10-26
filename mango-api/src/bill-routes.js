@@ -8,7 +8,7 @@ import { billPdf } from './bill-pdf.js'
 import { query } from './db.js'
 import { asyncHandler, HttpError, notFound } from './errors.js'
 import { auditNow } from './staff-audit.js'
-import { trust } from './trust-config.js'
+import { isOn } from './feature-switches.js'
 
 const noBill = () => new HttpError(404, 'BILL_NOT_ISSUED', 'This order has no bill: bills are made once an order is paid (a free replacement has none).')
 
@@ -26,7 +26,7 @@ export const customerBills = express.Router()
 customerBills.get(
   '/orders/:id/bill',
   asyncHandler(async (req, res) => {
-    if (!trust.bills) throw notFound('Not found')
+    if (!isOn('BILLS_ENABLED')) throw notFound('Not found')
     // Someone else's order answers 404, the same as one that doesn't exist.
     const { rows } = await query('SELECT id FROM orders WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
     if (!rows.length) throw notFound('Order not found')
@@ -42,7 +42,7 @@ export const staffBills = express.Router()
 staffBills.get(
   '/orders/:id/bill',
   asyncHandler(async (req, res) => {
-    if (!trust.bills) throw notFound('Not found')
+    if (!isOn('BILLS_ENABLED')) throw notFound('Not found')
     const { rows } = await query('SELECT id FROM orders WHERE id = $1', [req.params.id])
     if (!rows.length) throw notFound('Order not found')
     const bill = await billFor({ query }, rows[0].id)

@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api } from '../api'
-import { ADJUST_REASON_LABEL, BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize } from '../format'
-import { can, canSee } from '../permissions'
+import { ADJUST_REASON_LABEL, BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize, istDate, rupees } from '../format'
+import { can, canSee, opsAllowed } from '../permissions'
 import { useSession } from '../session'
-import { BATCH_FLOW, type AdjustReason, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Ripeness } from '../types'
+import { BATCH_FLOW, type AdjustReason, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Purchase, type PurchaseInput, type Ripeness } from '../types'
 import {
   BackLink,
   BatchBadge,
@@ -61,6 +61,7 @@ function BatchView({ batch }: { batch: Batch }) {
   const [counting, setCounting] = useState(false)
   const [params] = useSearchParams()
   const [tab, setTab] = useState<'qc' | 'ledger'>('qc')
+  const { me } = useSession()
 
   return (
     <>
@@ -136,6 +137,8 @@ function BatchView({ batch }: { batch: Batch }) {
         </div>
         {batch.status === 'CONDEMNED' && <DisabledReason>A condemned batch's stock can't be adjusted.</DisabledReason>}
       </section>
+
+      {opsAllowed(me, 'purchaseRecords') && <PurchasesPanel batchId={batch.id} />}
 
       <section className="card">
         <Tabs
@@ -752,6 +755,221 @@ function CountDialog({ batch, onClose }: { batch: Batch; onClose: () => void }) 
           </p>
         )}
         <FormError error={post.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------- purchases (PURCHASE_RECORDS, docs/ops.md)
+
+/** What the batch cost and where it came from. Costs come from the API to managers only. */
+function PurchasesPanel({ batchId }: { batchId: string }) {
+  const { me } = useSession()
+  const manager = me?.role === 'MANAGER'
+  const q = useQuery({ queryKey: ['batch-purchases', batchId], queryFn: () => api.batchPurchases(batchId) })
+  const [editing, setEditing] = useState<Purchase | 'new' | null>(null)
+  return (
+    <section className="card" aria-labelledby="purchases-title">
+      <div className="topbar section-head">
+        <h2 id="purchases-title">Purchase</h2>
+        <span className="spacer" />
+        <GatedButton allowed={manager} onClick={() => setEditing('new')}>
+          Add purchase
+        </GatedButton>
+      </div>
+      {!manager && <ManagerOnlyNote what="Recording what a batch cost" />}
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <p className="muted small">
+            Received {q.data.receivedBoxes} boxes; purchases account for {q.data.purchasedBoxes}.
+            {q.data.costsShown && q.data.totalCost != null ? ` Total cost ${rupees(q.data.totalCost)}.` : ''}
+          </p>
+          {!q.data.items.length ? (
+            <EmptyState>No purchase recorded for this batch.</EmptyState>
+          ) : (
+            <div {...scrollRegion('Purchases')}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Farm</th>
+                    <th>Bought</th>
+                    <th className="num">Crates</th>
+                    <th className="num">Boxes</th>
+                    {q.data.costsShown && (
+                      <>
+                        <th className="num">Per crate</th>
+                        <th className="num">Transport</th>
+                        <th className="num">Other</th>
+                        <th className="num">Total</th>
+                        <th className="num">Per box</th>
+                      </>
+                    )}
+                    <th>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {q.data.items.map((p) => (
+                    <tr key={p.id}>
+                      <td>
+                        {p.farmName ?? '—'}
+                        {p.note && <div className="muted small">{p.note}</div>}
+                      </td>
+                      <td>{date(p.purchasedOn)}</td>
+                      <td className="num">{p.crates}</td>
+                      <td className="num">{p.boxes}</td>
+                      {q.data.costsShown && (
+                        <>
+                          <td className="num">{rupees(p.costPerCrate)}</td>
+                          <td className="num">{rupees(p.transportCost)}</td>
+                          <td className="num">{rupees(p.otherCost)}</td>
+                          <td className="num">{rupees(p.totalCost)}</td>
+                          <td className="num">{rupees(p.costPerBox)}</td>
+                        </>
+                      )}
+                      <td>
+                        {manager && (
+                          <button type="button" className="btn btn-small" onClick={() => setEditing(p)}>
+                            Edit<span className="sr-only"> purchase from {p.farmName}</span>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      {editing && <PurchaseDialog batchId={batchId} purchase={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+    </section>
+  )
+}
+
+const toRupees = (paise: number | undefined) => (paise == null ? '' : String(paise / 100))
+/** "1,250.50" → 125050 paise; null when it isn't an amount. */
+function toPaise(v: string): number | null {
+  const t = v.replace(/,/g, '').trim()
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null
+  return Math.round(Number(t) * 100)
+}
+
+function PurchaseDialog({ batchId, purchase, onClose }: { batchId: string; purchase: Purchase | null; onClose: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const farms = useQuery({ queryKey: ['farms'], queryFn: api.farms })
+  const [f, setF] = useState({
+    farmId: purchase?.farmId ?? '',
+    purchasedOn: purchase?.purchasedOn ?? istDate(0),
+    crates: purchase ? String(purchase.crates) : '',
+    boxes: purchase ? String(purchase.boxes) : '',
+    costPerCrate: toRupees(purchase?.costPerCrate),
+    transportCost: purchase ? toRupees(purchase.transportCost) : '0',
+    otherCost: purchase ? toRupees(purchase.otherCost) : '0',
+    note: purchase?.note ?? '',
+  })
+  const [formError, setFormError] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: (input: PurchaseInput) => (purchase ? api.updatePurchase(batchId, purchase.id, input) : api.addPurchase(batchId, input)),
+    onSuccess: () => {
+      toast.success(purchase ? 'Purchase saved' : 'Purchase recorded')
+      void queryClient.invalidateQueries({ queryKey: ['batch-purchases', batchId] })
+      void queryClient.invalidateQueries({ queryKey: ['farms'] })
+      onClose()
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    if (!f.farmId) return setFormError('Choose the farm.')
+    const crates = Number(f.crates)
+    const boxes = Number(f.boxes)
+    if (!Number.isInteger(crates) || crates < 1) return setFormError('Crates must be a whole number above 0.')
+    if (!Number.isInteger(boxes) || boxes < 1) return setFormError('Boxes must be a whole number above 0.')
+    const costPerCrate = toPaise(f.costPerCrate)
+    const transportCost = toPaise(f.transportCost || '0')
+    const otherCost = toPaise(f.otherCost || '0')
+    if (!costPerCrate) return setFormError('Enter what one crate cost, in rupees, above 0.')
+    if (transportCost == null || otherCost == null) return setFormError('Transport and other costs are amounts in rupees (0 if none).')
+    save.mutate({ farmId: f.farmId, purchasedOn: f.purchasedOn, crates, boxes, costPerCrate, transportCost, otherCost, note: f.note.trim() || null })
+  }
+
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
+  const choices = (farms.data ?? []).filter((x) => x.active || x.id === f.farmId)
+  return (
+    <Dialog
+      title={purchase ? 'Edit purchase' : 'Add purchase'}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="purchase-form" className="btn btn-primary" disabled={save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <form id="purchase-form" onSubmit={onSubmit} noValidate>
+        <div className="field">
+          <label htmlFor="purchase-farm">Farm</label>
+          <select id="purchase-farm" data-autofocus value={f.farmId} onChange={set('farmId')}>
+            <option value="">Choose a farm</option>
+            {choices.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+                {x.place ? `, ${x.place}` : ''}
+              </option>
+            ))}
+          </select>
+          {farms.isSuccess && !choices.length && (
+            <p className="hint">
+              No farms yet: add one on the <Link to="/farms">Farms page</Link> first.
+            </p>
+          )}
+          {farms.isError && <FormError error={farms.error} />}
+        </div>
+        <div className="field">
+          <label htmlFor="purchase-date">Bought on</label>
+          <input id="purchase-date" type="date" max={istDate(0)} value={f.purchasedOn} onChange={set('purchasedOn')} />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="purchase-crates">Crates</label>
+            <input id="purchase-crates" inputMode="numeric" value={f.crates} onChange={set('crates')} />
+          </div>
+          <div className="field">
+            <label htmlFor="purchase-boxes">Boxes they made</label>
+            <input id="purchase-boxes" inputMode="numeric" value={f.boxes} onChange={set('boxes')} />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="purchase-crate-cost">Cost per crate, in rupees</label>
+          <input id="purchase-crate-cost" inputMode="decimal" value={f.costPerCrate} onChange={set('costPerCrate')} />
+        </div>
+        <div className="field-row">
+          <div className="field">
+            <label htmlFor="purchase-transport">Transport, in rupees</label>
+            <input id="purchase-transport" inputMode="decimal" value={f.transportCost} onChange={set('transportCost')} />
+          </div>
+          <div className="field">
+            <label htmlFor="purchase-other">Other costs, in rupees</label>
+            <input id="purchase-other" inputMode="decimal" value={f.otherCost} onChange={set('otherCost')} />
+          </div>
+        </div>
+        <div className="field">
+          <label htmlFor="purchase-note">Note (optional)</label>
+          <input id="purchase-note" maxLength={500} value={f.note} onChange={set('note')} />
+        </div>
+        <FormError error={formError ?? save.error} />
       </form>
     </Dialog>
   )

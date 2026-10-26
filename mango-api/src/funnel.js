@@ -11,7 +11,7 @@
 // daily rollup (funnel_daily) keeps the counts after that.
 import { addDays, diffDays, now, todayIST } from './clock.js'
 import { query } from './db.js'
-import { env } from './env.js'
+import { isOn } from './feature-switches.js'
 
 export const CLIENT_STEPS = ['visit', 'product_view', 'add_to_cart', 'checkout_start']
 export const STEPS = [...CLIENT_STEPS, 'paid']
@@ -20,7 +20,7 @@ export const BROWSER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
 
 /** Records one step from the shop. Nothing is stored while the switch is off. */
 export async function recordStep(browserId, step, at = now()) {
-  if (!env.FUNNEL_ANALYTICS) return false
+  if (!isOn('FUNNEL_ANALYTICS')) return false
   const r = await query(
     'INSERT INTO funnel_events (day, browser_id, step, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
     [todayIST(at), browserId, step, at],
@@ -30,7 +30,7 @@ export async function recordStep(browserId, step, at = now()) {
 
 /** At checkout confirm, in its transaction: this browser started the checkout of this order. */
 export async function rememberCheckout(c, orderId, browserId) {
-  if (!env.FUNNEL_ANALYTICS || !browserId || !BROWSER_ID.test(browserId)) return
+  if (!isOn('FUNNEL_ANALYTICS') || !browserId || !BROWSER_ID.test(browserId)) return
   await c.query('INSERT INTO funnel_checkouts (order_id, browser_id, created_at) VALUES ($1, $2, $3) ON CONFLICT (order_id) DO NOTHING', [
     orderId, browserId, now(),
   ])
@@ -43,7 +43,7 @@ export async function rememberCheckout(c, orderId, browserId) {
  */
 export async function recordPaid(c, orderId, at = now()) {
   const { rows } = await c.query('DELETE FROM funnel_checkouts WHERE order_id = $1 RETURNING browser_id', [orderId])
-  if (!rows.length || !env.FUNNEL_ANALYTICS) return
+  if (!rows.length || !isOn('FUNNEL_ANALYTICS')) return
   await c.query(`INSERT INTO funnel_events (day, browser_id, step, created_at) VALUES ($1, $2, 'paid', $3) ON CONFLICT DO NOTHING`, [
     todayIST(at), rows[0].browser_id, at,
   ])

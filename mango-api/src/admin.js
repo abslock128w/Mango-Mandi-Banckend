@@ -26,6 +26,7 @@ import { router as bulk } from './admin/bulk.js'
 import { router as warehouse, warehouseGate } from './admin/warehouse.js'
 import { router as customers } from './admin/customers.js'
 import { router as exportsRouter } from './admin/exports.js'
+import { router as ops } from './admin/ops.js'
 import { staffBills } from './bill-routes.js'
 import { router as growth } from './admin/growth.js'
 
@@ -62,3 +63,4 @@ router.use(staffBills) // GET /orders/:id/bill (BILLS_ENABLED)
 router.use(customers) // customer profile, phone search and reveal (CUSTOMER_PROFILES_ENABLED)
 router.use(exportsRouter) // CSV exports, manager only (STAFF_EXPORTS_ENABLED)
 router.use(growth) // /referrals, /analytics/funnel, /me/daily-summary, /daily-summary/preview, manager only (docs/growth.md)
+router.use(ops) // stock forecast, farms and purchases, feature switches (docs/ops.md)

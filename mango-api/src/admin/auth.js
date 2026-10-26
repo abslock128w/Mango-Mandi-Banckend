@@ -16,6 +16,7 @@ import { asyncHandler, badRequest, conflict, HttpError, parse, unauthorized } fr
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
 import { trust } from '../trust-config.js'
+import { isOn } from '../feature-switches.js'
 import { clearPasswordFailures, clearTwoStep, passwordFailed, passwordLocked, PW_LOCKED, SETUP_CODE_TRIES_PER_HOUR } from './shared.js'
 import { stepUp } from './step-up.js'
 
@@ -223,9 +224,14 @@ me.get(
       // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
       // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
       features: {
-        bills: trust.bills, customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: env.LIVE_TRACKING,
+        bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'),
         // Growth (docs/growth.md): managers' Referrals view, the funnel on Analytics, and the evening summary.
-        referrals: env.REFERRALS, funnelAnalytics: env.FUNNEL_ANALYTICS, managerDailySummary: env.MANAGER_DAILY_SUMMARY,
+        referrals: isOn('REFERRALS'), funnelAnalytics: isOn('FUNNEL_ANALYTICS'), managerDailySummary: isOn('MANAGER_DAILY_SUMMARY'),
+        // Staff operations (docs/ops.md), named only while on (a missing field means off to the panel).
+        // The role still decides who may use them.
+        ...(isOn('STOCK_FORECAST') ? { stockForecast: true } : {}),
+        ...(isOn('PURCHASE_RECORDS') ? { purchaseRecords: true } : {}),
+        ...(env.PANEL_FEATURE_SWITCHES ? { panelSwitches: true } : {}),
       },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),

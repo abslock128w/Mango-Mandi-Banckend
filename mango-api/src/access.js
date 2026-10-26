@@ -62,6 +62,9 @@ export const OPERATOR_ROUTES = [
   route('PATCH', '/batches/:id/lines/:lineId'),
   route('POST', '/batches/:id/lines/:lineId/short-arrival'),
   route('GET', '/batches/:id/ledger'),
+  // Farms and a batch's purchases without any costs (PURCHASE_RECORDS; costs are for managers, admin/ops.js).
+  route('GET', '/farms'),
+  route('GET', '/batches/:id/purchases'),
   route('GET', '/orders'),
   route('GET', '/orders/:id'),
   route('PATCH', '/orders/:id/status'),
@@ -137,6 +140,9 @@ const LIMITED = {
     route('POST', '/batches/:id/qc'),
     route('PATCH', '/batches/:id/lines/:lineId'),
     route('POST', '/batches/:id/lines/:lineId/short-arrival'),
+    // Farms and a batch's purchases without any costs (PURCHASE_RECORDS).
+    route('GET', '/farms'),
+    route('GET', '/batches/:id/purchases'),
     // Ripeness accuracy from reviews, per batch and variety (read only).
     route('GET', '/reviews/insights'),
     ...warehouseFor('QC'),

@@ -73,10 +73,11 @@ export function sellableAs(row, deliveryDate, cfg = getConfig(), { existing = fa
   return stage ? { stage, factor } : null
 }
 
-const sellableQty = (r, factor) =>
+export const sellableQty = (r, factor) =>
   Math.max(0, Math.floor(r.on_hand * factor) - r.held + (r.expired_held ?? 0) - r.committed - r.reserve_buffer)
 
-const sellableRows = async (c, { sku = null, excludeBatchIds = [] } = {}) =>
+/** Every line of a sellable batch, with its latest QC reading (FEFO order). Exported for the forecast (forecast.js). */
+export const sellableRows = async (c, { sku = null, excludeBatchIds = [] } = {}) =>
   (
     await c.query(
       `${lineSelect('$4::timestamptz')}

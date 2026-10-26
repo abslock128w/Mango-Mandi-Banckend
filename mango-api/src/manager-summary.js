@@ -15,6 +15,7 @@ import { logger } from './logger.js'
 import { releaseLease, takeLease } from './maintenance.js'
 import { attentionCount, attentionReport } from './admin/reports.js'
 import { dateWords, rupees } from './notify.js'
+import { isOn } from './feature-switches.js'
 
 const IST = (col) => `(${col} AT TIME ZONE 'Asia/Kolkata')::date`
 const LEASE_MS = 60_000
@@ -104,7 +105,7 @@ const waiting = (c, day) =>
  * opted-in manager who hasn't had it. Returns how many were queued.
  */
 export async function sendManagerSummaries(at = now()) {
-  if (!env.MANAGER_DAILY_SUMMARY || !summaryDue(at)) return 0
+  if (!isOn('MANAGER_DAILY_SUMMARY') || !summaryDue(at)) return 0
   const day = todayIST(at)
   // Cheap check first: on most runs after 20:00 everyone has had theirs.
   if (!(await waiting({ query }, day)).rows.length) return 0

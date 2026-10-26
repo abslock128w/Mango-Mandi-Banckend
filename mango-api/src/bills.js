@@ -25,6 +25,7 @@ import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { reportError } from './sentry.js'
 import { trust } from './trust-config.js'
+import { isOn } from './feature-switches.js'
 
 export const BILL_TITLES = Object.freeze({
   RECEIPT: 'Receipt',
@@ -235,7 +236,7 @@ export async function issueBill(c, orderId, at = now()) {
  * as a failing maintenance step on Needs attention.
  */
 export async function issueBillWithPayment(c, orderId) {
-  if (!trust.bills) return null
+  if (!isOn('BILLS_ENABLED')) return null
   await c.query('SAVEPOINT issue_bill')
   try {
     const bill = await issueBill(c, orderId)
@@ -272,7 +273,7 @@ async function billsStartedAt(at) {
  * cancels do). Throws after the batch if any failed.
  */
 export async function issueMissingBills(at = now(), limit = 200) {
-  if (!trust.bills) return 0
+  if (!isOn('BILLS_ENABLED')) return 0
   const since = new Date((await billsStartedAt(at)).getTime() - BILL_CATCH_UP_DAYS * 86_400_000)
   const { rows } = await query(
     `SELECT o.id FROM orders o
@@ -322,7 +323,7 @@ export async function markBillCancelled(c, orderId, by, at = now()) {
  * their account. Idempotent; part of the maintenance step `bills`.
  */
 export async function reconcileBills(at = now()) {
-  if (!trust.bills) return { cancelled: 0, buyersRemoved: 0 }
+  if (!isOn('BILLS_ENABLED')) return { cancelled: 0, buyersRemoved: 0 }
   const cancelled = await query(
     `UPDATE bills b
         SET cancelled_at = COALESCE((SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'CANCELLED'), $1),

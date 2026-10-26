@@ -13,6 +13,7 @@ import { asyncHandler, notFound, parse } from './errors.js'
 import { BROWSER_ID, CLIENT_STEPS, recordStep } from './funnel.js'
 import { limitsOnInTests } from './ratelimit.js'
 import { applyReferral, referralView } from './referrals.js'
+import { isOn } from './feature-switches.js'
 
 const whenOn = (on) => (_req, _res, next) => next(on() ? undefined : notFound())
 
@@ -38,7 +39,7 @@ const eventBody = z.object({ browserId: z.string().regex(BROWSER_ID, 'browserId 
 growthPublic.post(
   '/events',
   // Switched off: dropped before anything else, with the same answer.
-  (req, res, next) => (env.FUNNEL_ANALYTICS ? next() : res.status(204).end()),
+  (req, res, next) => (isOn('FUNNEL_ANALYTICS') ? next() : res.status(204).end()),
   eventLimiter,
   asyncHandler(async (req, res) => {
     const b = parse(eventBody, req.body ?? {})
@@ -51,7 +52,7 @@ growthPublic.post(
 
 export const growthMe = express.Router()
 
-growthMe.use('/me/referral', whenOn(() => env.REFERRALS))
+growthMe.use('/me/referral', whenOn(() => isOn('REFERRALS')))
 
 /** My code and share link, the code I entered (if any) and my thank-you codes. */
 growthMe.get(

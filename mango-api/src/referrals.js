@@ -26,6 +26,7 @@ import { badRequest, conflict, HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { enqueueCustomerPush } from './push.js'
+import { isOn } from './feature-switches.js'
 
 /** Letters and digits that can't be misread for each other (no 0/O, 1/I/L). */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
@@ -177,7 +178,7 @@ export async function referralView(c, customerId) {
  * failure. Returns { rewarded, voided }.
  */
 export async function settleReferrals(at = now()) {
-  if (!env.REFERRALS) return { rewarded: 0, voided: 0 }
+  if (!isOn('REFERRALS')) return { rewarded: 0, voided: 0 }
   const { rows } = await query(
     `SELECT r.id FROM referrals r
       WHERE r.status = 'PENDING' AND (

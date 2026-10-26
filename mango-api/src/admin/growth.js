@@ -12,6 +12,7 @@ import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
 import { FUNNEL_RETENTION_DAYS, funnelReport } from '../funnel.js'
 import { summaryNumbers, summaryParams, summaryText } from '../manager-summary.js'
 import { listReferrals } from '../referrals.js'
+import { isOn } from '../feature-switches.js'
 
 export const router = express.Router()
 
@@ -24,7 +25,7 @@ const present = (q) => Object.fromEntries(Object.entries(q).filter(([, v]) => v 
 router.get(
   '/referrals',
   requireManager,
-  whenOn(() => env.REFERRALS),
+  whenOn(() => isOn('REFERRALS')),
   asyncHandler(async (req, res) => {
     const f = parse(z.object({ status: z.enum(['PENDING', 'REWARDED', 'VOID']).optional() }), present(req.query))
     res.json(await listReferrals({ status: f.status ?? null }))
@@ -37,7 +38,7 @@ router.get(
 router.get(
   '/analytics/funnel',
   requireManager,
-  whenOn(() => env.FUNNEL_ANALYTICS),
+  whenOn(() => isOn('FUNNEL_ANALYTICS')),
   asyncHandler(async (req, res) => {
     const f = parse(z.object({ from: date.optional(), to: date.optional() }), present(req.query))
     const to = f.to ?? todayIST()
@@ -64,7 +65,7 @@ const settingsView = (u) => ({ optedIn: Boolean(u.daily_summary_opt_in), phone: 
 router.get(
   '/me/daily-summary',
   requireManager,
-  whenOn(() => env.MANAGER_DAILY_SUMMARY),
+  whenOn(() => isOn('MANAGER_DAILY_SUMMARY')),
   asyncHandler(async (req, res) => {
     const { rows } = await query('SELECT daily_summary_opt_in, daily_summary_phone FROM admin_users WHERE id = $1', [req.admin.id])
     if (!rows.length) throw notFound('No staff member with that id')
@@ -76,7 +77,7 @@ router.get(
 router.put(
   '/me/daily-summary',
   requireManager,
-  whenOn(() => env.MANAGER_DAILY_SUMMARY),
+  whenOn(() => isOn('MANAGER_DAILY_SUMMARY')),
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ optedIn: z.boolean(), phone: phoneSchema.optional() }).strict(), req.body ?? {})
     const { rows: cur } = await query('SELECT daily_summary_phone FROM admin_users WHERE id = $1', [req.admin.id])
@@ -94,7 +95,7 @@ router.put(
 router.get(
   '/daily-summary/preview',
   requireManager,
-  whenOn(() => env.MANAGER_DAILY_SUMMARY),
+  whenOn(() => isOn('MANAGER_DAILY_SUMMARY')),
   asyncHandler(async (_req, res) => {
     const day = todayIST()
     const numbers = await summaryNumbers(day)

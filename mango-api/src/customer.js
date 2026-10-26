@@ -36,7 +36,7 @@ import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, public
 import { billFor, billView } from './bills.js'
 import { customerBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
-import { trust } from './trust-config.js'
+import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
 import { growthMe, growthPublic } from './growth-routes.js'
@@ -359,17 +359,18 @@ router.get('/policy', (_req, res) => {
   res.json({
     holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
     // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
-    bills: trust.bills,
+    bills: isOn('BILLS_ENABLED'),
     // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
     features: {
-      installApp: env.SHOP_INSTALL,
+      // Effective values: a manager may have changed these on the panel (PANEL_FEATURE_SWITCHES, docs/ops.md).
+      installApp: isOn('SHOP_INSTALL'),
       push: Boolean(pushPublicKey()),
-      tracking: env.LIVE_TRACKING,
-      favourites: env.FAVOURITES,
-      sortFilter: env.SHOP_SORT_FILTER,
+      tracking: isOn('LIVE_TRACKING'),
+      favourites: isOn('FAVOURITES'),
+      sortFilter: isOn('SHOP_SORT_FILTER'),
       // Growth (docs/growth.md): refer a friend on the Account page and at checkout, and the anonymous funnel steps.
-      referrals: env.REFERRALS,
-      funnel: env.FUNNEL_ANALYTICS,
+      referrals: isOn('REFERRALS'),
+      funnel: isOn('FUNNEL_ANALYTICS'),
     },
   })
 })
@@ -800,7 +801,7 @@ router.post(
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
       // UX-3: how long the boxes are held once Pay is tapped, from the live rule (the review step says so).
       // bills: the shop offers business details (name and GSTIN) for the bill only while bills are on.
-      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes, bills: trust.bills }
+      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes, bills: isOn('BILLS_ENABLED') }
     })
     res.json(quote)
   }),
@@ -889,7 +890,7 @@ router.post(
       }),
       req.body,
     )
-    if (b.business && !trust.bills) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
+    if (b.business && !isOn('BILLS_ENABLED')) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
     const key = `${req.customer.id}:${rawKey}`
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
@@ -1026,9 +1027,9 @@ router.get(
       o.status === 'DELIVERED'
         ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
         : { rows: [] },
-      trust.bills ? billFor({ query }, o.id) : null,
+      isOn('BILLS_ENABLED') ? billFor({ query }, o.id) : null,
       // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
-      env.LIVE_TRACKING ? trackingFor({ query }, o) : null,
+      isOn('LIVE_TRACKING') ? trackingFor({ query }, o) : null,
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
