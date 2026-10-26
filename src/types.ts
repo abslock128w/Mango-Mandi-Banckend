@@ -422,6 +422,8 @@ export interface Rules {
   outForDeliveryAlertHours?: number
   /** A preorder moved forward more times than this waits for a manager. */
   maxPreorderMoves?: number
+  /** Live tracking: rough minutes a rider spends per stop, for "N stops away" (docs/app-feel.md). */
+  minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
   seasonEndsOn?: string | null
   stageProfiles: Record<string, StageWindow[]>
