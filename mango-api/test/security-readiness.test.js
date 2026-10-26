@@ -23,10 +23,12 @@ import { forgetCustomer } from '../src/auth.js'
 import { addDays, now, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { newId } from '../src/ids.js'
+import { env } from '../src/env.js'
 import { DEV_CHECKOUT_SECRET } from '../src/payments.js'
 import { usePhotoStore } from '../src/photos.js'
 import { enforceLimitsInTests } from '../src/ratelimit.js'
 import { anonymiseOldOrders } from '../src/retention.js'
+import { weekdayOf } from '../src/subscriptions.js'
 
 const run = promisify(execFile)
 let srv
@@ -101,6 +103,10 @@ const ISOLATION_CASES = [
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
+  // Customer care (docs/care.md), each behind its switch: switched on for the cases below.
+  'GET /v1/me/help/requests/:id', 'POST /v1/me/help/requests/:id/messages', 'POST /v1/me/help/requests',
+  'GET /v1/me/subscriptions/:id', 'POST /v1/me/subscriptions/:id/pause', 'POST /v1/me/subscriptions/:id/resume', 'POST /v1/me/subscriptions/:id/cancel',
+  'POST /v1/me/subscriptions/:id/skip', 'POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', 'POST /v1/me/subscriptions',
 ]
 const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
@@ -186,9 +192,12 @@ async function deliveredWithPhoto(cust, body = {}) {
 }
 
 describe('customer to customer', () => {
-  test("for each of A's objects, B gets what a made-up id gets, reading or writing, and nothing of A's changes", async () => {
+  test("for each of A's objects, B gets what a made-up id gets, reading or writing, and nothing of A's changes", async (t) => {
     usePhotoStore(memoryStore)
     blobs.clear()
+    const careFlags = { HELP_CENTRE: env.HELP_CENTRE, SUBSCRIPTIONS: env.SUBSCRIPTIONS, SUBSCRIPTION_SEASON_END: env.SUBSCRIPTION_SEASON_END }
+    Object.assign(env, { HELP_CENTRE: true, SUBSCRIPTIONS: true, SUBSCRIPTION_SEASON_END: addDays(todayIST(), 60) })
+    t.after(() => Object.assign(env, careFlags))
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 40 } })
     const week = await mondayWithCapacity()
     const a = await customerToken(api, '9876500101')
@@ -215,6 +224,13 @@ describe('customer to customer', () => {
     const rid = review.body.review.id
     const address = (await api.get('/v1/me/addresses', A)).body[0].id
     const alert = (await api.post('/v1/stock-alerts', { sku: 'ALP-3', stage: 'RAW', pincode: '560034' }, A)).body.id
+    // A help request about the delivered order, and a subscription whose first box is set up (two days ahead).
+    const help = await api.post('/v1/me/help/requests', { topic: 'DELIVERY', orderId: done.orderId, message: 'when is the next one?' }, A)
+    assert.equal(help.status, 201, JSON.stringify(help.body))
+    const subBody = { sku: 'ALP-3', stage: 'RIPE', qty: 1, frequency: 'WEEKLY', weekday: weekdayOf(addDays(todayIST(), 2)), addressId: address, endDate: addDays(todayIST(), 30) }
+    const sub = await api.post('/v1/me/subscriptions', subBody, A)
+    assert.equal(sub.status, 201, JSON.stringify(sub.body))
+    const cycle = sub.body.cycles[0].id
     // The owner reaches each of them: what follows is about ownership, not the objects.
     assert.equal((await api.get(`/v1/orders/${done.orderId}/delivery-photo`, A)).status, 200)
     assert.equal((await api.get(`/v1/reviews/${rid}/photos/${reviewPhoto}`, A)).status, 200)
@@ -235,6 +251,9 @@ describe('customer to customer', () => {
       reviewPhotos: (await query('SELECT id, review_id, removed_at FROM review_photos ORDER BY id')).rows,
       addresses: (await query('SELECT id FROM customer_addresses WHERE customer_id = $1', [a.customer.id])).rows,
       alert: (await query('SELECT cancelled_at FROM stock_alerts WHERE id = $1', [alert])).rows,
+      help: (await query('SELECT t.status, (SELECT COUNT(*)::int FROM help_messages m WHERE m.ticket_id = t.id) AS messages FROM help_tickets t ORDER BY t.id')).rows,
+      subscriptions: (await query('SELECT id, status, paused_at, cancelled_at, customer_id FROM subscriptions ORDER BY id')).rows,
+      cycles: (await query('SELECT id, status, order_id FROM subscription_cycles ORDER BY id')).rows,
     })
     const before = await snapshot()
 
@@ -263,6 +282,14 @@ describe('customer to customer', () => {
       ['POST /v1/reviews', () => reviewAs(item), () => reviewAs('itm_none')],
       ['POST /v1/reviews', () => reviewAs(bItem, [looseReviewPhoto]), () => reviewAs(bItem, ['rph_none'])],
       ['POST /v1/reviews/photos', () => api.post('/v1/reviews/photos', { pathname: `review-uploads/${a.customer.id}/up_1` }, B), () => api.post('/v1/reviews/photos', { pathname: `review-uploads/${b.customer.id}/up_none` }, B)],
+      ['GET /v1/me/help/requests/:id', () => api.get(`/v1/me/help/requests/${help.body.id}`, B), () => api.get('/v1/me/help/requests/hlp_none', B)],
+      ['POST /v1/me/help/requests/:id/messages', () => api.post(`/v1/me/help/requests/${help.body.id}/messages`, { message: 'mine now' }, B), () => api.post('/v1/me/help/requests/hlp_none/messages', { message: 'mine now' }, B)],
+      ['POST /v1/me/help/requests', () => api.post('/v1/me/help/requests', { topic: 'DELIVERY', orderId: done.orderId, message: 'about your order' }, B), () => api.post('/v1/me/help/requests', { topic: 'DELIVERY', orderId: 'ord_none', message: 'about your order' }, B)],
+      ['GET /v1/me/subscriptions/:id', () => api.get(`/v1/me/subscriptions/${sub.body.id}`, B), () => api.get('/v1/me/subscriptions/sub_none', B)],
+      ...['pause', 'resume', 'cancel'].map((verb) => [`POST /v1/me/subscriptions/:id/${verb}`, () => api.post(`/v1/me/subscriptions/${sub.body.id}/${verb}`, {}, B), () => api.post(`/v1/me/subscriptions/sub_none/${verb}`, {}, B)]),
+      ['POST /v1/me/subscriptions/:id/skip', () => api.post(`/v1/me/subscriptions/${sub.body.id}/skip`, { scheduledFor: sub.body.cycles[0].scheduledFor }, B), () => api.post('/v1/me/subscriptions/sub_none/skip', { scheduledFor: sub.body.cycles[0].scheduledFor }, B)],
+      ['POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', () => api.post(`/v1/me/subscriptions/${sub.body.id}/cycles/${cycle}/pay`, {}, { ...B, headers: { 'Idempotency-Key': newId('k') } }), () => api.post('/v1/me/subscriptions/sub_none/cycles/cyc_none/pay', {}, { ...B, headers: { 'Idempotency-Key': newId('k') } })],
+      ['POST /v1/me/subscriptions', () => api.post('/v1/me/subscriptions', subBody, B), () => api.post('/v1/me/subscriptions', { ...subBody, addressId: 'adr_none' }, B)],
     ]
     assert.deepEqual([...new Set(cases.map(([r]) => r))].sort(), [...ISOLATION_CASES].sort(), 'a case for every isolation route')
     for (const [route, theirs, none] of cases) {
@@ -274,8 +301,8 @@ describe('customer to customer', () => {
     assert.deepEqual(await snapshot(), before, "nothing of A's changed")
 
     // B's lists and export carry nothing of A's: no id, no phone, no address, no stored photo path.
-    const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101']
-    for (const path of ['/v1/orders', '/v1/preorders', '/v1/claims', '/v1/me/addresses', '/v1/stock-alerts', '/v1/me/reviews', '/v1/me/export', '/v1/me']) {
+    const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101', help.body.id, sub.body.id, cycle]
+    for (const path of ['/v1/orders', '/v1/preorders', '/v1/claims', '/v1/me/addresses', '/v1/stock-alerts', '/v1/me/reviews', '/v1/me/export', '/v1/me', '/v1/me/help/requests', '/v1/me/subscriptions']) {
       const r = await api.get(path, B)
       assert.equal(r.status, 200, path)
       const text = JSON.stringify(r.body)
