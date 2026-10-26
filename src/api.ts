@@ -24,6 +24,9 @@ import type {
   BatchListItem,
   BatchStatus,
   Claim,
+  CustomerMatch,
+  CustomerProfile,
+  ExportKind,
   ClaimResolution,
   ClaimStatus,
   Condition,
@@ -330,6 +333,17 @@ export const api = {
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
+  /** The order's bill as a PDF (managers and operators; each download is in the activity log). */
+  billUrl: (orderId: string) => apiBlobUrl(`/orders/${id(orderId)}/bill`),
+
+  // Customer profiles (managers and operators). Every search, view and reveal is in the activity log.
+  /** Finds a customer by mobile number; the POST keeps the number out of URLs and logs. */
+  findCustomers: (phone: string) => request<{ items: CustomerMatch[] }>('POST', '/customers/search', { phone }),
+  customer: (customerId: string) => request<CustomerProfile>('GET', `/customers/${id(customerId)}`),
+  /** The full phone number and email, recorded as a reveal. */
+  revealCustomer: (customerId: string) => request<{ phone: string | null; email: string | null }>('POST', `/customers/${id(customerId)}/reveal`, {}),
+  /** A CSV export (managers): from/to are IST dates, at most 92 days; orders-type exports can go by delivery date. */
+  exportUrl: (kind: ExportKind, p: { from: string; to: string; by?: 'placed' | 'delivery' }) => apiBlobUrl(`/exports/${kind}${qs(p)}`),
   /**
    * A status move. DELIVERED without the customer's code or a photo, sending out
    * at-risk stock, or a retry after the last attempt need a manager's override with a reason.

@@ -229,6 +229,8 @@ export function redactForPacker(order) {
     ...(order.gift ? { gift: { ...order.gift, recipientPhone: null } } : {}),
     ...('payment' in order ? { payment: null } : {}),
     ...('notifications' in order ? { notifications: [] } : {}),
+    // Bills and the customer profile are for managers and operators (docs/trust.md).
+    ...('customerId' in order ? { customerId: null, business: null, bill: null } : {}),
     ...('deliveryAttempts' in order ? { deliveryAttempts: order.deliveryAttempts.map((a) => ({ ...a, lat: null, lng: null })) } : {}),
   }
 }

@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { shrinkPhoto } from '../photo'
 import { RIPENESS_LABEL, dateTime, rupees, type Tone } from '../format'
+import { ExportPanel } from '../ExportPanel'
 import type { BulkEvent, BulkListing, BulkListingInput, BulkStatus, Product, Ripeness } from '../types'
 import {
   AuthedPhoto,
@@ -151,6 +152,7 @@ export default function BulkDeals() {
           Orders already placed keep the price they were sold at.
         </p>
       </section>
+      <ExportPanel kinds={['bulk-orders']} title="Export Bulk Deals orders" />
     </>
   )
 }

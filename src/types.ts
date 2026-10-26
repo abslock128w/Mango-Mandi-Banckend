@@ -14,6 +14,8 @@ export interface Me {
   twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
   /** The box-tracked warehouse: off unless the API has it switched on; the permissions this role holds there. */
   warehouse?: { enabled: boolean; permissions: string[] }
+  /** Bills, customer profiles and CSV exports (docs/trust.md): which are switched on. The role still decides who may use them. */
+  features?: { bills: boolean; customerProfiles: boolean; exports: boolean }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -289,7 +291,99 @@ export interface OrderDetail {
   rating?: { stars: number; comment: string | null; at: string } | null
   /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
   returnedBoxes?: number
+  /** The customer's account, for their profile (null on old guest orders). */
+  customerId?: string | null
+  /** A business name and GSTIN the buyer gave at checkout, printed on the bill. */
+  business?: { name: string; gstin: string } | null
+  /** The order's bill, once it is paid (while bills are switched on). */
+  bill?: BillSummary | null
 }
+
+export type BillKind = 'RECEIPT' | 'BILL_OF_SUPPLY' | 'TAX_INVOICE' | 'INVOICE_CUM_BILL_OF_SUPPLY'
+
+/** A numbered bill: its number never changes; a cancelled order's bill stays, marked cancelled. */
+export interface BillSummary {
+  id: string
+  number: string
+  kind: BillKind
+  title: string
+  issuedAt: string
+  billDate: string
+  total: number
+  cancelled: boolean
+  cancelledAt: string | null
+}
+
+/** One customer found by phone (the number is masked to its last 4 digits). */
+export interface CustomerMatch {
+  id: string
+  name: string | null
+  phoneMasked: string | null
+  createdAt: string
+  orders: number
+  lastOrderAt: string | null
+}
+
+/** The staff view of one customer (GET /customers/:id; every view is audited). */
+export interface CustomerProfile {
+  id: string
+  name: string | null
+  phoneMasked: string | null
+  emailMasked: string | null
+  hasPhone: boolean
+  hasEmail: boolean
+  signIn: { phone: boolean; google: boolean }
+  createdAt: string
+  deletedAt: string | null
+  consent: { privacyAcceptedAt: string | null; remindersOptIn: boolean; openStockAlerts: number }
+  stats: {
+    paidOrders: number
+    allOrders: number
+    replacements: number
+    lifetimeSpend: number
+    refunds: number
+    firstOrderAt: string | null
+    lastOrderAt: string | null
+    claims: number
+    reviews: number
+    averageRating: number | null
+    openPreorders: number
+  }
+  orders: {
+    id: string
+    number: string
+    status: OrderStatus
+    placedAt: string
+    deliveryDate: string
+    total: number
+    discount: number
+    boxes: number
+    paymentStatus: PaymentStatus | null
+    channel: 'app' | 'whatsapp'
+    replacement: boolean
+    refund: 'REFUNDED' | 'PENDING' | null
+    business: { name: string; gstin: string } | null
+    bill: { number: string; cancelled: boolean } | null
+  }[]
+  ordersShown: number
+  claims: {
+    id: string
+    orderId: string
+    orderNumber: string
+    issueType: string
+    status: ClaimStatus
+    resolution: ClaimResolution | null
+    createdAt: string
+    resolvedAt: string | null
+    replacementOrder: { id: string; number: string } | null
+  }[]
+  reviews: { id: string; orderId: string; orderNumber: string; sku: string; productName: string; rating: number; status: ReviewStatus; comment: string | null; createdAt: string }[]
+  ratings: { orderId: string; orderNumber: string; stars: number; comment: string | null; at: string }[]
+  addresses: { id: string; name: string | null; address: string; pincode: string; lastUsedAt: string }[]
+}
+
+/** The CSV exports a manager can download (GET /exports/:kind). */
+export type ExportKind = 'orders' | 'order-lines' | 'claims' | 'reviews' | 'bulk-orders' | 'payments' | 'refunds'
 
 export type FailReason = 'NOT_HOME' | 'WRONG_ADDRESS' | 'REFUSED' | 'UNREACHABLE' | 'OTHER'
 
@@ -369,6 +463,8 @@ export interface Claim {
   orderNumber: string
   orderTotal: number
   customerPhone: string | null
+  /** The customer's account, for their profile. */
+  customerId?: string | null
   issueType: IssueType | string
   description: string
   affectedItems: string[]
@@ -699,6 +795,8 @@ export interface Review {
   displayName: string
   anonymous: boolean
   customerName: string | null
+  /** The customer's account, for their profile. */
+  customerId?: string | null
   orderId: string
   orderNumber: string | null
   sku: string

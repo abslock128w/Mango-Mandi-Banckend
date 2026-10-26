@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, dateTime, rupees } from '../format'
 import { ALL_ORDER_STATUSES, type OrderStatus } from '../types'
+import { ExportPanel } from '../ExportPanel'
 import { EmptyState, LinkRow, OrderBadge, QueryError, RowLink, Spinner, StatusFilter, scrollRegion, usePageTitle } from '../ui'
 
 export default function Orders() {
@@ -154,6 +155,7 @@ export default function Orders() {
           </div>
         </>
       )}
+      <ExportPanel kinds={['orders', 'order-lines']} title="Export orders" />
     </>
   )
 }

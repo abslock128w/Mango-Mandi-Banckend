@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { date, rupees } from '../format'
 import type { AnalyticsWeek } from '../types'
+import { ExportPanel } from '../ExportPanel'
 import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
 
 const pct = (r: number | null) => (r == null ? '—' : `${Math.round(r * 1000) / 10}%`)
@@ -175,6 +176,7 @@ export default function Analytics() {
           </section>
         </>
       )}
+      <ExportPanel kinds={['payments', 'refunds']} title="Export payments and refunds" />
     </>
   )
 }

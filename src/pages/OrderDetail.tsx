@@ -17,7 +17,8 @@ import {
   rupees,
 } from '../format'
 import type { DeliveryAttempt, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
-import { PACKER_STATUSES, can, canSee } from '../permissions'
+import { PACKER_STATUSES, can, canSee, trustAllowed } from '../permissions'
+import { CustomerProfileLink } from '../CustomerLink'
 import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
 import {
@@ -27,6 +28,7 @@ import {
   ConfirmDialog,
   Dialog,
   DisabledReason,
+  DownloadButton,
   FormError,
   GatedButton,
   ManagerOnlyNote,
@@ -373,7 +375,17 @@ function OrderView({ order }: { order: Order }) {
             <h2>Customer and delivery</h2>
             <dl className="kv">
               <dt>Name</dt>
-              <dd>{order.customerName ?? '—'}</dd>
+              <dd>
+                {order.customerName ?? '—'} <CustomerProfileLink customerId={order.customerId} />
+              </dd>
+              {order.business && (
+                <>
+                  <dt>Business</dt>
+                  <dd>
+                    {order.business.name} <span className="mono small">GSTIN {order.business.gstin}</span>
+                  </dd>
+                </>
+              )}
               <dt>Phone</dt>
               <dd>
                 <PhoneLink phone={order.phone} who="the customer" />
@@ -438,6 +450,7 @@ function OrderView({ order }: { order: Order }) {
               <p className="muted">No payment recorded.</p>
             )}
           </section>
+          {trustAllowed(me, 'bills') && <BillCard order={order} />}
           {order.rating && (
             <section className="card">
               <h2>Customer rating</h2>
@@ -753,5 +766,39 @@ function BulkItemNote({ bulk }: { bulk: NonNullable<Order['items'][number]['bulk
       <Badge tone="info">Bulk deal</Badge> {canSee(me?.role, 'bulkDeals') ? <Link to={`/bulk-deals/${bulk.listingId}`}>{bulk.title}</Link> : bulk.title},{' '}
       {rupees(bulk.tier.unitPrice)} a box (the {range} box tier{bulk.listingVersion != null ? `, deal version ${bulk.listingVersion}` : ''})
     </div>
+  )
+}
+
+/** The order's numbered bill (managers and operators). Each download is recorded in the activity log. */
+function BillCard({ order }: { order: Order }) {
+  const b = order.bill
+  return (
+    <section className="card" aria-labelledby="bill-h">
+      <h2 id="bill-h">Bill</h2>
+      {b ? (
+        <>
+          <div className="bill-line">
+            <strong>{b.title}</strong> <span className="mono">{b.number}</span>
+            {b.cancelled ? <Badge tone="warn">Cancelled</Badge> : <Badge tone="good">Issued</Badge>}
+          </div>
+          <p className="muted small">
+            Dated {date(b.billDate)} for {rupees(b.total)}.
+            {b.cancelled && b.cancelledAt ? ` The order was cancelled ${dateTime(b.cancelledAt)}; the bill keeps its number and is marked cancelled.` : ''}
+          </p>
+          <div className="btn-row">
+            <DownloadButton getUrl={() => api.billUrl(order.id)} filename={`MandiMangoes-bill-${b.number.replace(/\//g, '-')}.pdf`}>
+              Download bill (PDF)
+            </DownloadButton>
+          </div>
+          <p className="muted small">Downloads are recorded in the activity log.</p>
+        </>
+      ) : (
+        <p className="muted">
+          {order.replacementFor
+            ? "A free replacement has no bill of its own; the original order's bill stands."
+            : 'No bill yet: an order gets its numbered bill once it is paid.'}
+        </p>
+      )}
+    </section>
   )
 }

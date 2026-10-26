@@ -6,6 +6,8 @@ import { RIPENESS_LABEL, date, dateTime } from '../format'
 import { canModerate, canSee } from '../permissions'
 import { useSession } from '../session'
 import type { ReviewFilters, ReviewFlag, ReviewStatus } from '../types'
+import { CustomerProfileLink } from '../CustomerLink'
+import { ExportPanel } from '../ExportPanel'
 import { AuthedPhoto, Badge, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STATUSES: { value: ReviewStatus; label: string }[] = [
@@ -47,6 +49,7 @@ export default function Reviews() {
       </div>
       {moderator && <Queue />}
       <Insights />
+      <ExportPanel kinds={['reviews']} title="Export reviews" />
     </>
   )
 }
@@ -420,7 +423,7 @@ function ReviewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <dt>Customer</dt>
               <dd>
                 {r.scrubbed ? 'Account deleted' : (r.customerName ?? '—')}
-                <span className="muted"> (shown as {r.displayName})</span>
+                <span className="muted"> (shown as {r.displayName})</span> {!r.scrubbed && <CustomerProfileLink customerId={r.customerId} />}
               </dd>
               <dt>Delivered</dt>
               <dd>{dateTime(r.deliveredAt)}</dd>

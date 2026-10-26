@@ -1,52 +1,13 @@
 // Small pieces the warehouse pages share.
 
-import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { date } from '../format'
 import type { OrderStatus } from '../types'
-import { OrderBadge, scrollRegion, useToast } from '../ui'
+import { OrderBadge, scrollRegion } from '../ui'
 import type { TraceOrder } from './types'
 
-/**
- * Fetches a signed-in file (a label PDF or a CSV) and saves it. A download
- * rather than a new tab, so no pop-up blocker gets in the way after the wait.
- */
-export function DownloadButton({
-  getUrl,
-  filename,
-  children,
-  className = 'btn',
-}: {
-  getUrl: () => Promise<string>
-  filename: string
-  children: ReactNode
-  className?: string
-}) {
-  const toast = useToast()
-  const [busy, setBusy] = useState(false)
-  async function go() {
-    setBusy(true)
-    try {
-      const url = await getUrl()
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    } catch (err) {
-      toast.error(err)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <button type="button" className={className} onClick={() => void go()} disabled={busy} aria-busy={busy || undefined}>
-      {busy ? 'Preparing…' : children}
-    </button>
-  )
-}
+// DownloadButton lives in ../ui (the bill and CSV exports use it too).
+export { DownloadButton } from '../ui'
 
 /** A row of count tiles; a tile with a link opens the matching list. */
 export function Counts({ items, label }: { items: { label: string; count: number; tone?: 'warn' | 'bad'; to?: string }[]; label: string }) {

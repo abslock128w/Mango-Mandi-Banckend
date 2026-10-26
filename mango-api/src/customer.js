@@ -345,7 +345,8 @@ router.get(
  */
 router.get('/policy', (_req, res) => {
   const cfg = getConfig()
-  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours })
+  // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
+  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours, bills: trust.bills })
 })
 
 /**
