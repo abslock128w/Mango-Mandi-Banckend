@@ -6,7 +6,7 @@
 process.env.PREFLIGHT = '1'
 
 const { deployEnv, env, isProd } = await import('./env.js')
-const { checkProduction, checkRoleTimeouts } = await import('./preflight.js')
+const { checkLockTimeout, checkProduction, checkRoleTimeouts } = await import('./preflight.js')
 const { isPooledUrl, query, closePool } = await import('./db.js')
 const { checkDatabaseEnvironment } = await import('./migrate.js')
 
@@ -60,6 +60,14 @@ if (online) {
     errors.push(...t.errors)
   } catch (err) {
     errors.push(`Database time limits: ${err.message}`)
+  }
+  // PLT-13: the lock wait limit LOAD-3's 503 BUSY relies on.
+  try {
+    const l = await checkLockTimeout(query)
+    ok.push(...l.ok)
+    warnings.push(...l.warnings)
+  } catch (err) {
+    warnings.push(`Database lock_timeout: ${err.message}`)
   }
   if (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET) {
     const auth = Buffer.from(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`).toString('base64')

@@ -6,9 +6,20 @@ import { checkProduction, DEV_JWT } from './preflight.js'
 /** Running as a Vercel Function (Vercel sets VERCEL=1). */
 export const onVercel = Boolean(process.env.VERCEL)
 
+/** An on/off setting written true or false, off unless set. */
+const flag = () =>
+  z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true')
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  // The address a long-running server listens on (index.js). Unset: every interface, as Docker
+  // needs. SEC-01 (24 Oct audit): a local run sets 127.0.0.1, so /v1/dev is not reachable from the
+  // Wi-Fi; phones reach the API only through the shop's dev-server proxy, which refuses /v1/dev.
+  HOST: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('postgres://mango:mango@localhost:5432/mango'),
   // Neon: DATABASE_URL is the pooled (-pooler) URL; migrations need the direct one.
@@ -119,6 +130,26 @@ const schema = z.object({
   WAREHOUSE_MAX_LOT: z.coerce.number().int().min(1).max(20000).default(5000),
   // Minutes an open scan session may sit idle before it expires.
   WAREHOUSE_OP_IDLE_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
+  // Fixes from the 24 Oct 2026 audit, security, integrations and platform part
+  // (docs/audit-2026-10-24-status-B.md). Each is off unless set to true, so
+  // turning one off is the rollback.
+  // SEC-02, SEC-09: framework errors caused by the request answer 4xx (not 500 and a
+  // Sentry event), a wrong method 405 with Allow, 503 bodies carry retryAfterSeconds, and
+  // the shop and panel may read Retry-After and X-Request-Id across origins.
+  API_HARDENING: flag(),
+  // INT-04, INT-09, INT-10, INT-11, INT-12, INT-13, INT-14, INT-18: provider calls and messages
+  // (stale messages skipped, Meta error codes, login codes, Blob timeouts and sweeps, chat retries).
+  PROVIDER_CHECKS: flag(),
+  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire.
+  OPS_ALERTS: flag(),
+  // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
+  DELIVERY_CHECKS: flag(),
+  // SEC-07: adding staff, changing a role or password, two-step resets and removals ask
+  // the manager for their own two-step code (or password) again.
+  STAFF_STEP_UP: flag(),
+  // SEC-08: staff changes are audited in their own transaction, opening customer details
+  // is audited, and refused attempts are logged.
+  STAFF_AUDIT_TRAIL: flag(),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).

@@ -1,7 +1,7 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
 import express from 'express'
 import { z } from 'zod'
-import { isPacker, redactForPacker } from '../access.js'
+import { auditInTx, isPacker, redactForPacker } from '../access.js'
 import { requireManager } from '../auth.js'
 import { addDays, isDate, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
@@ -10,7 +10,8 @@ import { orderableDates } from '../delivery.js'
 import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
-import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { env } from '../env.js'
 import { enqueue } from '../notify.js'
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
@@ -111,6 +112,8 @@ export async function orderDetail(c, orderId) {
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
+    // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
+    retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
     // Only a manager may cancel it: a paid order (refunded in full) and, with ORDER_RULE_CHECKS, a free replacement (INV-07).
     cancelNeedsManager: o.payment_status === 'SUCCEEDED' || (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT'),
@@ -180,7 +183,11 @@ router.post(
       z.object({ reason: z.string().trim().min(1, 'reason is required').max(500), refund: z.boolean().default(false) }),
       req.body ?? {},
     )
-    const refundDue = await tx((c) => cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund }))
+    const refundDue = await tx(async (c) => {
+      const due = await cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund })
+      await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and any refund) is never left without its record
+      return due
+    })
     if (refundDue) {
       await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
     }
@@ -225,8 +232,15 @@ router.post(
       req.body,
     )
     await tx(async (c) => {
+      const why = `Rescheduled by ${req.admin.email}`
+      // PLT-08, PLT-09 (DELIVERY_CHECKS): a missed delivery's retry is given its day here too.
+      const { rows } = await c.query('SELECT status FROM orders WHERE id = $1', [req.params.id])
+      if (env.DELIVERY_CHECKS && rows[0]?.status === 'DELIVERY_FAILED') {
+        await moveRetryToDate(c, req.params.id, { deliveryDate, slotId, actor: req.actor, why })
+        return
+      }
       const from = await moveOrderToDate(c, req.params.id, {
-        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why: `Rescheduled by ${req.admin.email}`,
+        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why,
       })
       if (deliveryDate !== from) await enqueue(c, req.params.id, newId('mov'), 'DATE_MOVED')
     })

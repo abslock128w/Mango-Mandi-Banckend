@@ -625,6 +625,92 @@ async function firstDayWithRoom(c, from, boxes, orderId) {
   return firstOpenDay(c, from)
 }
 
+/** last_error prefix on a failed delivery's message held because the retry has no real day (PLT-08, PLT-09). */
+export const RETRY_NEEDS_DAY = 'retry needs a day'
+
+/**
+ * DELIVERY_CHECKS: the retry day as firstDayWithRoom finds it, but says so
+ * when no day in two weeks has room ({ date, full }) or no day is open at all
+ * ({ problem }) instead of hiding the first or failing the whole report.
+ */
+async function retryDay(c, boxes, orderId) {
+  let from
+  try {
+    from = await nextDeliveryDay(c)
+  } catch (err) {
+    if (err?.code !== 'NO_DELIVERY_DAY') throw err
+    return { problem: 'no delivery day is open in the next 60 days: open a day, then move the retry to it on the order page, or a manager cancels with a refund' }
+  }
+  let d = await firstOpenDay(c, from)
+  for (let i = 0; i < 14; i++) {
+    try {
+      await checkCapacity(c, d, boxes, orderId)
+      return { date: d }
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err
+    }
+    try {
+      d = await firstOpenDay(c, addDays(d, 1))
+    } catch (err) {
+      if (err?.code !== 'NO_DELIVERY_DAY') throw err
+      break
+    }
+  }
+  const date = await firstOpenDay(c, from)
+  return { date, full: `no day in the next two weeks has room, so it is on ${date} over capacity: move it to a day with room` }
+}
+
+/** last_error prefixes of a missed delivery's message held for staff to pick the retry's day. */
+const HELD_RETRY = [`${RETRY_NEEDS_DAY}:%`, 'retry needs a manager:%']
+
+/**
+ * PLT-08, PLT-09 (24 Oct audit, DELIVERY_CHECKS): staff give a missed
+ * delivery's retry a day: a day with room when every day was full, a day just
+ * opened when none was, or a day the boxes are still young enough for (INV-E).
+ * The packed boxes stay with the order; boxes too old for the new day are
+ * swapped for younger stock, or nothing changes. The customer's held "we'll
+ * try again on <date>" message goes out with the new date; if they already
+ * had one, they get a "date moved" message instead. Returns the old date.
+ */
+export async function moveRetryToDate(c, orderId, { deliveryDate, slotId = null, actor, why }) {
+  const o = await lockOrder(c, orderId)
+  if (o.status !== 'DELIVERY_FAILED') throw badRequest(`A ${o.status} order cannot be moved to another day`, 'INVALID_TRANSITION')
+  const notOpen = () => badRequest(`${deliveryDate} is not an open delivery date`, 'INVALID_DATE')
+  if (deliveryDate <= todayIST() || deliveryDate > addDays(todayIST(), 60)) throw notOpen()
+  const open = await firstOpenDay(c, deliveryDate).catch((err) => {
+    if (err?.code === 'NO_DELIVERY_DAY') return null
+    throw err
+  })
+  if (open !== deliveryDate) throw notOpen()
+  const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
+  await checkCapacity(c, deliveryDate, boxes, o.id)
+  const slot = await chooseSlot(c, deliveryDate, boxes, slotId ?? o.slot_id ?? null, { strict: Boolean(slotId), excludeOrderId: o.id })
+  const from = o.delivery_date
+  await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, deliveryDate, slot])
+  const repack = await repackForRetry(c, o, deliveryDate, actor)
+  if (repack.result === 'stuck') {
+    throw conflict(
+      `The boxes would be past the ${getConfig().maxSellableAge}-day limit on ${deliveryDate} and no younger stock is free. Pick an earlier day, or a manager sends a replacement or cancels with a refund.`,
+      'STOCK_TOO_OLD',
+    )
+  }
+  let reason = `${why}; retry moved from ${from} to ${deliveryDate}`
+  if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${deliveryDate} and were swapped for younger stock: pack the new boxes before it goes out`
+  await addEvent(c, o.id, o.status, o.status, actor, reason)
+  const { rows: held } = await c.query(
+    `SELECT id FROM notifications WHERE order_id = $1 AND kind = 'DELIVERY_FAILED' AND status = 'SKIPPED' AND last_error LIKE ANY($2)
+      AND created_at = (SELECT MAX(created_at) FROM notifications WHERE order_id = $1 AND kind = 'DELIVERY_FAILED')`,
+    [o.id, HELD_RETRY],
+  )
+  if (held.length) {
+    await c.query(`UPDATE notifications SET status = 'PENDING', attempts = 0, last_error = NULL, next_attempt_at = $2, created_at = $2 WHERE id = $1`, [held[0].id, now()])
+  } else if (deliveryDate !== from) {
+    await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
+  }
+  await rebalanceOrder(c, o.id, actor)
+  return from
+}
+
 /**
  * Before boxes leave: packed stock from a condemned batch, or past the age
  * cap, must not go out (ORD-2), and an order whose delivery attempts are used
@@ -683,6 +769,12 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   if (to === 'SHIPPED' || to === 'OUT_FOR_DELIVERY') {
     await checkDispatchable(c, o, { ...opts, actor })
   }
+  // PLT-07, SEC-06 (24 Oct audit, DELIVERY_CHECKS): an order goes out on its own day, so
+  // "out for delivery" and its code never reach a customer early and a rider's run
+  // can't take tomorrow's stops. A manager can send one early, saying why.
+  if (to === 'OUT_FOR_DELIVERY' && env.DELIVERY_CHECKS && !opts.override && o.delivery_date > todayIST()) {
+    throw conflict(`Order ${o.number} is for ${o.delivery_date}. It goes out on that day; a manager can send it early from the order page, saying why.`, 'NOT_DUE_YET')
+  }
   if (opts.override && to !== 'DELIVERED' && opts.reason?.trim()) reason = `Manager override: ${opts.reason.trim()}`
   // Labelled boxes are packed and dispatched by scan: those finalize steps set the boxes first (warehouse/ops.js).
   await assertBoxesReadyFor(c, o.id, to)
@@ -694,6 +786,8 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   }
   let attemptsUsedUp = false
   let retryStuck = false
+  /** PLT-08, PLT-09 (DELIVERY_CHECKS): why the retry has no real date; its message is held for staff. */
+  let noRetryDay = null
   if (to === 'DELIVERY_FAILED') {
     const failures = o.delivery_failures + 1
     await c.query('UPDATE orders SET delivery_failures = $2 WHERE id = $1', [o.id, failures])
@@ -704,16 +798,28 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     } else {
       // Retry on the next delivery day with room (user decision): reschedule, don't refund.
       const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
-      const date = await firstDayWithRoom(c, await nextDeliveryDay(c), boxes, o.id)
-      const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
-      await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
-      reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
-      // INV-E: ripe boxes may be too old by the retry day. Swap them for younger stock, or stop and ask a manager.
-      const repack = await repackForRetry(c, o, date, actor)
-      if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${date} and were swapped for younger stock: pack the new boxes before it goes out`
-      if (repack.result === 'stuck') {
-        retryStuck = true
-        reason = `${opts.reason ?? 'Delivery failed'}; the boxes would be past the ${getConfig().maxSellableAge}-day limit on ${date} and no younger stock is free. A manager decides: send a replacement, move the date or cancel with a refund`
+      const retry = env.DELIVERY_CHECKS ? await retryDay(c, boxes, o.id) : { date: await firstDayWithRoom(c, await nextDeliveryDay(c), boxes, o.id) }
+      if (retry.problem) {
+        // No open day at all (PLT-09): the miss is recorded and the date stays; staff pick a day.
+        noRetryDay = retry.problem
+        reason = `${opts.reason ?? 'Delivery failed'}; ${retry.problem}`
+      } else {
+        const date = retry.date
+        const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
+        await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
+        reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+        if (retry.full) {
+          // Every day for two weeks is full (PLT-08): it stays on the first open day, over capacity, and staff are told.
+          noRetryDay = retry.full
+          reason += `; ${retry.full}`
+        }
+        // INV-E: ripe boxes may be too old by the retry day. Swap them for younger stock, or stop and ask a manager.
+        const repack = await repackForRetry(c, o, date, actor)
+        if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${date} and were swapped for younger stock: pack the new boxes before it goes out`
+        if (repack.result === 'stuck') {
+          retryStuck = true
+          reason = `${opts.reason ?? 'Delivery failed'}; the boxes would be past the ${getConfig().maxSellableAge}-day limit on ${date} and no younger stock is free. A manager decides: send a replacement, move the date or cancel with a refund`
+        }
       }
     }
   }
@@ -733,6 +839,9 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   if (retryStuck) {
     // The usual message promises a retry date the boxes can't make; a manager decides first (INV-E).
     await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'retry needs a manager: stock too old for the retry date' WHERE event_id = $1`, [eventId])
+  } else if (noRetryDay) {
+    // Not "retrying on <date>" for a date the run can't hold; Needs attention lists it (PLT-08, PLT-09).
+    await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1`, [eventId, `${RETRY_NEEDS_DAY}: ${noRetryDay}`])
   }
   // The browser notification must not promise a retry either: it says we'll be in touch.
   if (attemptsUsedUp || retryStuck) await noRetryPush(c, eventId)
@@ -1007,6 +1116,14 @@ export async function createReplacement(c, claim, original, actor) {
     const full = { ...order, status: 'CONFIRMED' }
     const date = await placeOnFirstDateWithStock(c, full, dates.slice(1), actor, 'No stock on the first date')
     if (date) await setRisk(c, full, [], actor)
+    // PLT-06 (24 Oct audit, DELIVERY_CHECKS): no stock on any date. The confirmation would promise
+    // a date the shop can't keep, so it is held as for a late payment, and sent once stock is found.
+    else if (env.DELIVERY_CHECKS) {
+      await c.query(
+        `UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE order_id = $1 AND status = 'PENDING' AND kind IN ('REPLACEMENT_CONFIRMED', 'RIPENESS_GUIDE')`,
+        [order.id, CONFIRMATION_HELD],
+      )
+    }
   }
   return order
 }

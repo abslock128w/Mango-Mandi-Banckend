@@ -1,6 +1,7 @@
 // Claims: review, and resolve as a replacement or a rejection.
 import express from 'express'
 import { z } from 'zod'
+import { auditInTx } from '../access.js'
 import { now } from '../clock.js'
 import { isOwnPhotoUrl, sendPhoto } from '../photos.js'
 import { query, tx } from '../db.js'
@@ -140,6 +141,7 @@ router.post(
       )
       // A replacement already sends mandi_replacement_confirmed; a rejection sends its reason.
       if (resolution === 'REJECTED' && env.WHATSAPP_CLAIM_UPDATES) await enqueue(c, claim.order_id, claim.id, 'CLAIM_REJECTED')
+      await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL
     })
     res.status(204).end()
   }),

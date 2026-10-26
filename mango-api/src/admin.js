@@ -7,7 +7,7 @@
 // mounted in doesn't change which route answers; it follows the old single file.
 // Manager-only routes carry requireManager on the route itself.
 import express from 'express'
-import { auditStaffChanges, limitByRole, riderScope } from './access.js'
+import { auditStaffChanges, limitByRole, riderScope, watchRefusals } from './access.js'
 import { requireAdmin } from './auth.js'
 import { staffReviews } from './review-routes.js'
 import { me, needsSetupFirst, signIn } from './admin/auth.js'
@@ -39,7 +39,7 @@ router.use(signIn)
 // Warehouse paths answer 404 to everyone while WAREHOUSE_V2 is off.
 router.use(warehouseGate)
 
-router.use(requireAdmin, needsSetupFirst, limitByRole, riderScope, auditStaffChanges)
+router.use(requireAdmin, needsSetupFirst, watchRefusals, limitByRole, riderScope, auditStaffChanges)
 // Review moderation and insights (review-routes.js), behind the same sign-in, roles and audit.
 router.use(staffReviews)
 

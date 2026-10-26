@@ -11,6 +11,7 @@ import { loadConfig } from './config.js'
 import { isDbUnavailable, isPoolTimeout, query } from './db.js'
 import { devRoutesOn, env, onVercel } from './env.js'
 import { HttpError } from './errors.js'
+import { clientErrorOf, EXPOSED_HEADERS, routeMethods } from './http-contract.js'
 import { logger } from './logger.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
 import { recordWebhookFailure } from './payments.js'
@@ -25,6 +26,8 @@ import { flushErrors, reportError } from './sentry.js'
 import { background } from './background.js'
 
 const RELOAD_MS = 60_000
+/** SEC-09: a 503's wait, in the body too (API_HARDENING), for a client that cannot read Retry-After. */
+const retryAfter = (seconds) => (env.API_HARDENING ? { retryAfterSeconds: seconds } : {})
 
 // Rules and products are cached in memory. A serverless instance can start at
 // any request, so they load on first use and refresh every minute (another
@@ -69,13 +72,13 @@ export function createApp() {
   if (env.TRUST_PROXY) app.set('trust proxy', env.TRUST_PROXY)
 
   app.use(helmet())
-  app.use(
-    cors({
-      origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
-      credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session'],
-    }),
-  )
+  const corsOptions = {
+    origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session'],
+  }
+  // SEC-09: with API_HARDENING the shop and panel can read Retry-After and X-Request-Id.
+  app.use(cors((_req, cb) => cb(null, env.API_HARDENING ? { ...corsOptions, exposedHeaders: EXPOSED_HEADERS } : corsOptions)))
   app.use(cookieParser())
   app.use((req, res, next) => {
     req.id = `req_${randomUUID().slice(0, 10)}`
@@ -174,7 +177,7 @@ export function createApp() {
       // LOAD-1: no free connection is a busy minute, not a failed payment: Razorpay retries the 503.
       if (isPoolTimeout(err) || err?.code === '53300') {
         logger.warn({ reqId: req.id, path: req.path }, 'database busy')
-        return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id } })
+        return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id, ...retryAfter(2) } })
       }
       logger.error({ err, reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')) }, 'webhook processing failed')
       metrics.webhookErrors.inc({ source: 'razorpay' })
@@ -235,7 +238,15 @@ export function createApp() {
   app.use('/v1', apiLimiter, customerRouter)
   app.use('/admin/v1', apiLimiter, adminRouter)
 
-  app.use((req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found', requestId: req.id } }))
+  // SEC-09: a known path asked with another method answers 405 and says which methods it takes.
+  const methodsFor = routeMethods(app)
+  app.use((req, res) => {
+    const allow = env.API_HARDENING ? methodsFor(req.path) : []
+    if (allow.length) {
+      return res.status(405).set('Allow', allow.join(', ')).json({ error: { code: 'METHOD_NOT_ALLOWED', message: `Use ${allow.join(' or ')} here`, requestId: req.id } })
+    }
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found', requestId: req.id } })
+  })
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, _next) => {
@@ -260,12 +271,12 @@ export function createApp() {
     if (err?.code === '55P03' || err?.code === '57014') {
       logger.error({ err, reqId: req.id, path: req.path }, 'database timeout')
       reportError(err, { requestId: req.id, method: req.method, path: req.path })
-      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
+      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id, ...retryAfter(2) } })
     }
     // No free database connection in time, or Neon refusing more: a short, retryable 503.
     if (isPoolTimeout(err) || err?.code === '53300') {
       logger.warn({ reqId: req.id, path: req.path }, 'database busy')
-      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id } })
+      return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id, ...retryAfter(2) } })
     }
     // Database unreachable (OPS-08): a retryable 503, reported at most once a minute.
     if (isDbUnavailable(err)) {
@@ -279,7 +290,15 @@ export function createApp() {
       return res
         .status(503)
         .set('Retry-After', '5')
-        .json({ error: { code: 'UNAVAILABLE', message: 'We are having trouble right now. Please try again in a minute.', requestId: req.id } })
+        .json({ error: { code: 'UNAVAILABLE', message: 'We are having trouble right now. Please try again in a minute.', requestId: req.id, ...retryAfter(5) } })
+    }
+    // SEC-02: a request the framework could not read (a bad %-sequence in the path, an
+    // unsupported charset, a body cut off) is the client's error: 4xx, logged at warn, and
+    // not a Sentry event, so junk requests can't use up the error budget.
+    const client = env.API_HARDENING ? clientErrorOf(err) : null
+    if (client) {
+      logger.warn({ reqId: req.id, method: req.method, path: req.path, status: client.status, type: err.type ?? err.name }, 'request could not be read')
+      return res.status(client.status).json({ error: { code: client.code, message: client.message, requestId: req.id } })
     }
     logger.error({ err, reqId: req.id }, 'unhandled error')
     reportError(err, { requestId: req.id, method: req.method, path: req.path })

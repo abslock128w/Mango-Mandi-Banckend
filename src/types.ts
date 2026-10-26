@@ -283,6 +283,8 @@ export interface OrderDetail {
   } | null
   atRisk?: boolean
   atRiskReason?: string | null
+  /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
+  retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
   /** Only a manager may cancel it: a paid order, and (when the API checks it) a free replacement. */
   cancelNeedsManager?: boolean
@@ -692,6 +694,8 @@ export interface Attention {
   failedMessages: {
     id: string
     kind: string
+    /** SKIPPED: dropped unsent (waited over a day, or no WhatsApp provider set); absent from older servers. */
+    status?: 'FAILED' | 'SKIPPED'
     phone: string | null
     error: string | null
     attempts: number
@@ -743,7 +747,7 @@ export interface Attention {
   /** Paid orders past their date or out for delivery too long. */
   overdueOrders?: OverdueOrder[]
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */
-  retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null; /** day: no open day or no room for the retry (PLT-08, PLT-09); stock: the packed boxes can't go. */ kind?: 'stock' | 'day' }[]
   /** Paid preorders moved forward too often or booked past the season end. */
   preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
   /** Cancelled or returned orders whose boxes are still to be put back or written off. */

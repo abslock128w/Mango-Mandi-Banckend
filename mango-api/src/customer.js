@@ -134,12 +134,17 @@ async function issueCode(phone, channel, ip) {
   await checkOtpBudget(phone, ip)
   const code = String(randomInt(100_000, 1_000_000))
   const at = now()
-  await query(
-    `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
-     ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
-    [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
-  )
+  const store = () =>
+    query(
+      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
+      [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
+    )
+  // INT-13 (24 Oct audit, PROVIDER_CHECKS): the new code replaces the old one only once a
+  // channel accepted it, so a failed send leaves the customer's earlier code working.
+  if (!env.PROVIDER_CHECKS) await store()
   const via = await sendOtp(phone, code, channel)
+  if (env.PROVIDER_CHECKS) await store()
   // SEC-01: never in production, and not when the shop is on a public link (start-local --phone).
   return isProd || !env.OTP_CODE_IN_RESPONSE ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
@@ -606,7 +611,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     // Signed in already, so a Turnstile outage doesn't lock them out of adding a number.
-    await requireHuman(captchaToken, req.ip, { known: true })
+    // INT-18 (PROVIDER_CHECKS): only a number that already has an account counts as known, as at
+    // sign-in, so a free Google account can't send codes to any number while Cloudflare is down.
+    const known = env.PROVIDER_CHECKS ? (await query('SELECT 1 FROM customers WHERE phone = $1 AND deleted_at IS NULL', [phone])).rowCount > 0 : true
+    await requireHuman(captchaToken, req.ip, { known })
     res.json(await issueCode(phone, channel, req.ip))
   }),
 )

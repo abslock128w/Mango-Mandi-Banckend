@@ -27,23 +27,45 @@ export function checkPhoto(bytes, max = MAX_PHOTO_BYTES) {
   return { mime: hit[0], ext: hit[1] }
 }
 
+/** INT-14 (24 Oct audit, PROVIDER_CHECKS): the longest one Blob call may take, as Meta, Jio and Razorpay calls have theirs. */
+export const BLOB_TIMEOUT_MS = 15_000
+/** The token, and with PROVIDER_CHECKS a deadline: a hung call can't hold a request or a maintenance run past its lease. */
+export const blobCallOptions = () => ({ token: env.BLOB_READ_WRITE_TOKEN, ...(env.PROVIDER_CHECKS ? { abortSignal: AbortSignal.timeout(BLOB_TIMEOUT_MS) } : {}) })
+
+/**
+ * Paths uploaded before `before`, at most `limit`, read page by page from
+ * `listPage(cursor)` (Blob's list answers 1000 at a time). INT-11: without
+ * PROVIDER_CHECKS only the first page was read, so uploads past the first 1000
+ * paths were never swept.
+ */
+export async function oldPaths(listPage, before, limit, maxPages) {
+  const out = []
+  let cursor
+  for (let page = 0; page < maxPages && out.length < limit; page++) {
+    const r = await listPage(cursor)
+    for (const b of r.blobs) if (out.length < limit && new Date(b.uploadedAt) < before) out.push(b.pathname)
+    if (!r.hasMore || !r.cursor) break
+    cursor = r.cursor
+  }
+  return out
+}
+
 const blobStore = {
   async put(path, bytes, mime) {
-    const r = await put(path, bytes, { access: 'private', contentType: mime, addRandomSuffix: false, token: env.BLOB_READ_WRITE_TOKEN })
+    const r = await put(path, bytes, { access: 'private', contentType: mime, addRandomSuffix: false, ...blobCallOptions() })
     return r.pathname
   },
   async get(path) {
-    const r = await get(path, { access: 'private', token: env.BLOB_READ_WRITE_TOKEN })
+    const r = await get(path, { access: 'private', ...blobCallOptions() })
     if (!r || r.statusCode !== 200) return null
     return Buffer.from(await new Response(r.stream).arrayBuffer())
   },
   async del(path) {
-    await del(path, { token: env.BLOB_READ_WRITE_TOKEN })
+    await del(path, blobCallOptions())
   },
   /** Paths under `prefix` uploaded before `before`, at most `limit`. */
   async listOld(prefix, before, limit) {
-    const r = await list({ prefix, limit: 1000, token: env.BLOB_READ_WRITE_TOKEN })
-    return r.blobs.filter((b) => new Date(b.uploadedAt) < before).slice(0, limit).map((b) => b.pathname)
+    return await oldPaths((cursor) => list({ prefix, limit: 1000, ...(cursor ? { cursor } : {}), ...blobCallOptions() }), before, limit, env.PROVIDER_CHECKS ? 10 : 1)
   },
 }
 

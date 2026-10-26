@@ -11,7 +11,7 @@ import { env } from '../env.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
 import { auditLedger, SELLABLE_STATUSES } from '../inventory.js'
 import { backupStatus } from '../maintenance.js'
-import { MAX_DELIVERY_ATTEMPTS } from '../orders.js'
+import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
 import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
@@ -107,10 +107,12 @@ router.get(
     const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
-        `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
+        `SELECT n.id, n.kind, n.status, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
            FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
-          WHERE n.status = 'FAILED' AND n.created_at >= $1 ORDER BY n.created_at DESC LIMIT 50`,
-        [week],
+          WHERE (n.status = 'FAILED' OR ($2 AND n.status = 'SKIPPED' AND n.last_error IN ('older than a day', 'no WhatsApp provider configured')))
+            AND n.created_at >= $1 ORDER BY n.created_at DESC LIMIT 50`,
+        // INT-06 (OPS_ALERTS): messages dropped unsent are listed too, so staff can send the ones that matter.
+        [week, env.OPS_ALERTS],
       ),
       query(
         `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id,
@@ -175,10 +177,13 @@ router.get(
       preordersNeedingDecision({ query }),
       returnedStockPending({ query }),
       // INV-E: a missed delivery whose retry can't go out as packed (too old, no younger stock).
+      // PLT-08, PLT-09 (DELIVERY_CHECKS): and a missed delivery whose retry has no day with room, or no open day.
       query(
-        `SELECT id, number, delivery_date, at_risk_reason FROM orders
-          WHERE status = 'DELIVERY_FAILED' AND at_risk AND delivery_failures < $1 ORDER BY delivery_date, number LIMIT 50`,
-        [MAX_DELIVERY_ATTEMPTS],
+        `SELECT o.id, o.number, o.delivery_date, o.at_risk, COALESCE(o.at_risk_reason, n.last_error) AS at_risk_reason FROM orders o
+           LEFT JOIN LATERAL (SELECT last_error FROM notifications WHERE order_id = o.id AND kind = 'DELIVERY_FAILED' ORDER BY created_at DESC LIMIT 1) n ON $2
+          WHERE o.status = 'DELIVERY_FAILED' AND o.delivery_failures < $1 AND (o.at_risk OR ($2 AND n.last_error LIKE $3))
+          ORDER BY o.delivery_date, o.number LIMIT 50`,
+        [MAX_DELIVERY_ATTEMPTS, env.DELIVERY_CHECKS, `${RETRY_NEEDS_DAY}:%`],
       ),
       // PAY-B12: chargebacks still open at Razorpay (answered in the Razorpay dashboard).
       query(
@@ -201,7 +206,7 @@ router.get(
       },
       backup,
       failedMessages: failed.rows.map((n) => ({
-        id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
+        id: n.id, kind: n.kind, status: n.status, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
       // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent;
@@ -231,7 +236,9 @@ router.get(
       overdueOrders: overdue.slice(0, 50),
       preorderDecisions: preorderCalls.slice(0, 50),
       returnedStock: returned.slice(0, 50),
-      retryDecisions: stuckRetries.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      retryDecisions: stuckRetries.rows.map((o) => ({
+        id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason, kind: o.at_risk ? 'stock' : 'day',
+      })),
       lowRatings: lowRatings.rows.map((r) => ({
         id: r.id, rating: r.rating, comment: r.comment, sku: r.sku, productName: productName(r.sku), createdAt: r.created_at, order: { id: r.order_id, number: r.number },
       })),
@@ -265,10 +272,12 @@ router.get(
         from: z.string().refine(isDate).optional(),
         to: z.string().refine(isDate).optional(),
         page: z.coerce.number().int().min(1).max(10_000).default(1),
+        // SEC-08: views of customer details (STAFF_AUDIT_TRAIL) are listed only when asked for.
+        reads: z.enum(['true', 'false']).default('false'),
       }),
       req.query,
     )
-    const where = []
+    const where = f.reads === 'true' ? [] : ["action NOT LIKE 'GET %'"]
     const params = []
     const add = (sql, v) => {
       params.push(v)

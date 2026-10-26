@@ -17,6 +17,7 @@ import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
 import { trust } from '../trust-config.js'
 import { clearPasswordFailures, clearTwoStep, passwordFailed, passwordLocked, PW_LOCKED, SETUP_CODE_TRIES_PER_HOUR } from './shared.js'
+import { stepUp } from './step-up.js'
 
 const COOKIE = 'mango_admin_rt'
 const cookieOptions = () => ({
@@ -238,6 +239,14 @@ me.post(
   '/me/two-step/setup',
   asyncHandler(async (req, res) => {
     const { setupCode } = parse(z.object({ setupCode: z.string().trim().max(20).optional() }), req.body ?? {})
+    if (!req.admin.setup) {
+      // SEC-07 (STAFF_STEP_UP): from an ordinary session, turning two-step on asks for the password first.
+      // Otherwise a stolen access token could enroll the thief's authenticator and then answer every step-up.
+      // A setup session has just signed in with the password (and a setup code where one is needed).
+      const { rows } = await query('SELECT totp_enabled_at FROM admin_users WHERE id = $1', [req.admin.id])
+      if (rows[0]?.totp_enabled_at) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
+      await stepUp(req)
+    }
     if (await setupCodeNeeded(req.admin.id, req.admin.setup)) {
       if (!setupCode) throw new HttpError(403, 'SETUP_CODE_REQUIRED', 'Enter the setup code a manager gave you. Ask a manager if you don’t have one.')
       const tries = await hit(`staff-setup-code:${req.admin.id}`, 3_600_000)

@@ -95,9 +95,20 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
     logger.error({ err, step: name }, 'maintenance step failed')
     failedSteps?.add(name)
     // To Sentry too (on Vercel there is no Prometheus), at most hourly per step.
-    const prev = await query('SELECT last_err_at FROM maintenance_runs WHERE step = $1', [name]).catch(() => ({ rows: [] }))
-    const lastErr = prev.rows[0]?.last_err_at
-    if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
+    if (env.OPS_ALERTS) {
+      // INT-03 (24 Oct audit): compared with when it was last reported, not last failed,
+      // so a step failing every minute is reported every hour, not once.
+      const seen = await query('SELECT last_ok_at FROM maintenance_runs WHERE step = $1', [`alert-step-${name}`]).catch(() => ({ rows: [] }))
+      const lastReported = seen.rows[0]?.last_ok_at
+      if (!lastReported || now().getTime() - lastReported.getTime() >= HOURLY_MS) {
+        reportError(err, { maintenanceStep: name })
+        await markRun(`alert-step-${name}`).catch(() => {})
+      }
+    } else {
+      const prev = await query('SELECT last_err_at FROM maintenance_runs WHERE step = $1', [name]).catch(() => ({ rows: [] }))
+      const lastErr = prev.rows[0]?.last_err_at
+      if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
+    }
     await query(
       `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
        ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
@@ -245,7 +256,34 @@ export async function runPreorderJobs() {
  * One maintenance run. Returns { skipped: true } when another run holds the
  * lease. `budgetMs` is the time the run may take (tests shorten it).
  */
-export async function runMaintenance({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
+/** Runs in progress in this process, so a clean shutdown can wait for them (PLT-14). */
+const inFlight = new Set()
+
+export function runMaintenance(opts) {
+  const run = runOnce(opts)
+  inFlight.add(run)
+  const done = () => inFlight.delete(run)
+  run.then(done, done)
+  return run
+}
+
+/**
+ * PLT-14 (24 Oct 2026 audit): waits up to `ms` for this process's runs in
+ * progress. Resolves true when none is left, false on the deadline (its lease
+ * then expires on its own).
+ */
+export async function settleMaintenance(ms) {
+  if (!inFlight.size) return true
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+  })
+  const settled = await Promise.race([Promise.allSettled([...inFlight]).then(() => true), deadline])
+  clearTimeout(timer)
+  return settled
+}
+
+async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
   return await withBudget(budgetMs, async () => {
     await step('config', loadConfig) // every instance keeps its rules fresh
     const holder = await takeLease('maintenance')
@@ -356,7 +394,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.refunds > 0) problems.push(['refunds', 'Refunds are overdue: check the Razorpay keys and the refunds step', { overdue: h.refunds }])
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
-  if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  if ((env.OPS_ALERTS && h.failed >= 3) || (h.done >= 20 && h.failed / h.done > 0.05)) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
   // INV-G: a paid order past its date (or out for delivery too long) is a customer waiting with nobody told.
   const late = await overdueOrders({ query }, at)
   if (late.length) {
@@ -366,6 +404,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
+  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)))
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`
@@ -375,6 +414,27 @@ export async function checkHealth(out = {}, at = now()) {
     await markRun(name)
   }
   return problems.map(([key]) => key)
+}
+
+/**
+ * INT-06, INT-07, INT-08 (24 Oct audit, OPS_ALERTS): messages given up on
+ * without a send (older than a day after an outage, or no provider set; their
+ * next_attempt_at is when that happened), and WhatsApp webhook failures,
+ * which checkHealth's own query counts for Razorpay only.
+ */
+async function opsProblems(at) {
+  const { rows } = await query(
+    `SELECT (SELECT COUNT(*)::int FROM notifications WHERE status = 'SKIPPED' AND last_error = 'older than a day' AND next_attempt_at > $1) AS aged,
+            (SELECT COUNT(*)::int FROM notifications WHERE status = 'SKIPPED' AND last_error = 'no WhatsApp provider configured' AND next_attempt_at > $1) AS unsent,
+            (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'whatsapp' AND created_at > $1 AND resolved_at IS NULL) AS whatsapp`,
+    [new Date(at.getTime() - HOURLY_MS)],
+  )
+  const h = rows[0]
+  const out = []
+  if (h.aged > 0) out.push(['messages-aged', 'WhatsApp messages were dropped unsent after waiting a day: see Needs attention and send the ones that still matter', { dropped: h.aged }])
+  if (h.unsent > 0) out.push(['no-provider', 'WhatsApp messages are not being sent: no WhatsApp provider is configured (WHATSAPP_PROVIDER)', { skipped: h.unsent }])
+  if (h.whatsapp >= 3) out.push(['whatsapp-webhooks', 'WhatsApp webhooks are failing or name unknown orders: see Needs attention', { lastHour: h.whatsapp }])
+  return out
 }
 
 /** A nightly backup older than this is missed (a day plus slack for a slow run). */

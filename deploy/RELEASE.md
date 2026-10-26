@@ -36,8 +36,13 @@ on the *new* schema. That is why:
 
 ## 0. Before you start
 
-- [ ] The pull request's CI is green, all five jobs. Branch protection (below)
-      makes this impossible to skip.
+- [ ] The pull request's CI is green, all five jobs. Once branch protection (§6) is
+      set, a merge with red CI is refused; until then nothing stops it, so check it
+      yourself.
+- [ ] If the shop or panel starts using a new API route or field: that API change is
+      **already live in production** (released before, on its own). The three Vercel
+      projects build and go live independently, so a shop shipped with its API in the
+      same release can be live for minutes against the old API.
 - [ ] If the pull request has a migration: read it. Only adds? Any `ALTER TABLE` on
       a big table has a `-- locks:` note saying what it locks and for how long?
 - [ ] Nobody is in the middle of packing or dispatch, if the change touches orders,
@@ -123,7 +128,7 @@ The smoke test is read-only (`mango-api/scripts/smoke.mjs`). It checks:
 
 | Check | Passes when |
 |-------|-------------|
-| `/health`, `/ready` | 200; `/ready` says the database answers and maintenance ran in the last 300 s |
+| `/health`, `/ready` | 200; `/ready` says the database answers and maintenance ran in the last 240 s (`MAINTENANCE_STALE_S`, readiness.js) |
 | http → https | each site redirects plain http to https |
 | security headers | API: nosniff, frame options, CSP, referrer policy, HSTS, no `X-Powered-By`; shop and panel: CSP header with `frame-ancestors 'none'` and `object-src 'none'`, nosniff, frame options, HSTS; panel `X-Robots-Tag: noindex` |
 | CORS | the shop's and panel's origins are allowed with credentials; another origin and `null` get no `Access-Control-Allow-Origin` |

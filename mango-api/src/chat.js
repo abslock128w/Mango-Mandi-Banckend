@@ -22,6 +22,7 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreor
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
+import { reportProblem } from './sentry.js'
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
 const STATUS_WORDS = {
@@ -665,12 +666,33 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
   return replies
 }
 
+/** INT-12: the pause before the one retry of a chat reply that failed for a passing reason. */
+export const CHAT_RETRY_MS = 1_500
+
+/** A failure worth one more try: Meta busy or rate limited, or no answer in time. */
+const retryable = (err) => Boolean(err?.retryable) || err?.name === 'TimeoutError' || err?.name === 'AbortError'
+
 async function deliver(send, phone, replies) {
   for (const r of replies) {
     try {
       await send(phone, r)
     } catch (err) {
-      logger.error({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
+      let last = err
+      // INT-12 (24 Oct audit, PROVIDER_CHECKS): Meta's redelivery of the customer's message is
+      // deduplicated, so a reply lost here (a payment link, say) was lost for good. One retry.
+      if (env.PROVIDER_CHECKS && retryable(err)) {
+        logger.warn({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed; trying once more')
+        await new Promise((res) => {
+          setTimeout(res, CHAT_RETRY_MS)
+        })
+        try {
+          await send(phone, r)
+          continue
+        } catch (again) {
+          last = again
+        }
+      }
+      logger.error({ err: last, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
     }
   }
 }
@@ -717,6 +739,8 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
               `WhatsApp payment ${st.payment.transaction?.id ?? '(no id)'} captured for reference ${String(st.payment.reference_id).slice(0, 60)}, which matches no order`,
               st.id ?? st.payment.transaction?.id ?? null,
             )
+            // INT-08 (OPS_ALERTS): money taken for no order reaches a person at once, not only the panel.
+            if (env.OPS_ALERTS) reportProblem('A WhatsApp payment was captured for no order: see Needs attention', { paymentId: st.payment.transaction?.id ?? null })
           }
         }
       }

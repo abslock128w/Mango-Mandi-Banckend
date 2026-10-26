@@ -119,6 +119,8 @@ export function seed() {
       payment: { status: 'SUCCEEDED', method: 'upi', amount: 249900 },
       slot: { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00' },
       channel: 'whatsapp',
+      // PLT-08, PLT-09: true only for a DELIVERY_FAILED order with DELIVERY_CHECKS on.
+      retryDateMovable: false as boolean,
       notifications: [
         { kind: 'ORDER_CONFIRMED', channel: 'whatsapp', status: 'SENT', attempts: 1, createdAt: '2026-10-14T06:01:00Z', sentAt: '2026-10-14T06:01:05Z', error: null },
       ],
