@@ -7,7 +7,7 @@ import { adminToken, checkout, client, closeAll, customerToken, makeBatch, reset
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { exportPaging, EXPORT_KINDS } from '../src/admin/exports.js'
-import { addDays, now, setNow } from '../src/clock.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { setTrustConfig } from '../src/trust-config.js'
@@ -273,6 +273,28 @@ describe('CSV exports', () => {
     const placedAt = r.rows.slice(1).map((row) => row[1])
     assert.deepEqual(placedAt, [...placedAt].sort())
     assert.equal((await audits('EXPORT orders'))[0].detail.rows, 7)
+  })
+
+  test('a payment that lands days after the order was placed is in the export for the day it was paid', async () => {
+    const cust = await customerToken(api)
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    assert.equal(c.status, 201, JSON.stringify(c.body))
+    const placedDay = todayIST()
+    // A late capture (or a replay after a restore), well over a week after the order was placed.
+    setNow(new Date(now().getTime() + 9 * 86_400_000).toISOString())
+    const paid = await pay(c.body.orderId)
+    assert.equal(paid.status, 200, JSON.stringify(paid.body))
+    const payDay = todayIST()
+    const number = (await query('SELECT number FROM orders WHERE id = $1', [c.body.orderId])).rows[0].number
+    const r = await exportCsv('payments', `from=${payDay}&to=${payDay}`)
+    assert.equal(r.status, 200, r.text)
+    const head = r.rows[0]
+    const row = r.rows.find((x) => x[head.indexOf('reference')] === number)
+    assert.ok(row, `the payment is listed on ${payDay}:\n${r.text}`)
+    assert.match(row[head.indexOf('paid_at')], new RegExp(`^${payDay}T`))
+    assert.match(row[head.indexOf('bill_number')], /^MM\/26-27\//)
+    // Not on the day it was placed, when nothing was paid.
+    assert.ok(!(await exportCsv('payments', `from=${placedDay}&to=${placedDay}`)).text.includes(number))
   })
 
   test('orders by delivery date', async () => {

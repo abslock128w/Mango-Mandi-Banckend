@@ -118,8 +118,12 @@ const EXPORTS = {
                          COALESCE(o.payment_amount, o.total) AS amount, o.payment_method AS method, o.payment_id, o.payment_status AS status, b.number AS bill_number
                     FROM orders o LEFT JOIN bills b ON b.order_id = o.id
                    WHERE o.payment_status IN ('SUCCEEDED', 'REFUNDED') AND o.payment_id IS NOT NULL AND o.preorder_id IS NULL
-                     AND o.placed_at >= ($1::date::timestamp AT TIME ZONE 'Asia/Kolkata') - interval '7 days'
                      AND o.placed_at < (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Kolkata')
+                     -- A cheap pre-filter, a superset of ORDER_PAID_AT in range (exact below): the payment may land
+                     -- any time after the order was placed (a late capture, a replay after a restore).
+                     AND (${PLACED} OR ${inRange('o.refund_requested_at')}
+                          OR o.id IN (SELECT e.order_id FROM order_events e WHERE e.status = 'CONFIRMED' AND e.from_status IN ('PAYMENT_PENDING', 'CANCELLED')
+                                         AND ${inRange('e.created_at')}))
                   UNION ALL
                   SELECT COALESCE(p.booked_at, p.refund_requested_at, p.created_at), p.id, 'preorder', p.number, p.customer_id, COALESCE(p.paid_amount, p.total),
                          p.payment_method, p.payment_id, p.payment_status, NULL
