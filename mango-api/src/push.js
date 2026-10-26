@@ -107,6 +107,21 @@ export async function saveSubscription(c, customerId, sub) {
   return rows[0].id
 }
 
+/**
+ * Account join (POST /me/phone/verify): the Google account's browsers, and any
+ * pushes still queued for it, go to the phone account it joins before the
+ * Google account is deleted. The joined account keeps its newest ten browsers.
+ */
+export async function movePushSubscriptions(c, fromId, toId) {
+  await c.query('UPDATE push_subscriptions SET customer_id = $2 WHERE customer_id = $1', [fromId, toId])
+  await c.query('UPDATE push_messages SET customer_id = $2 WHERE customer_id = $1', [fromId, toId])
+  await c.query(
+    `DELETE FROM push_subscriptions WHERE customer_id = $1 AND id NOT IN (
+       SELECT id FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at DESC, id LIMIT ${MAX_SUBSCRIPTIONS})`,
+    [toId],
+  )
+}
+
 /** Turns notifications off for one browser of this customer. Another customer's browser is left alone. */
 export async function removeSubscription(c, customerId, endpoint) {
   const r = await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1 AND endpoint = $2', [customerId, endpoint])

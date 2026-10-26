@@ -6,6 +6,13 @@
 -- locks: new tables only, so nothing that already exists is locked, scanned or
 -- rewritten. Expand-only: the previous release never reads these tables and
 -- keeps working while both versions serve.
+--
+-- customer_id is ON DELETE CASCADE on all three: the only hard delete of a
+-- customer is the account join in POST /v1/me/phone/verify (the empty Google
+-- account goes once it joins the phone account). This release moves these rows
+-- to the joined account first; the previous release does not know them, and
+-- without the cascade its join would fail on a foreign key (033 does the same
+-- for bulk_cart_lines).
 
 -- One row per browser that said yes to notifications on the Account page. The
 -- endpoint is the push service's URL for that browser (a capability URL: never
@@ -13,7 +20,7 @@
 -- message (RFC 8291). A browser belongs to whoever signed in on it last.
 CREATE TABLE push_subscriptions (
   id           TEXT PRIMARY KEY,
-  customer_id  TEXT NOT NULL REFERENCES customers (id),
+  customer_id  TEXT NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
   endpoint     TEXT NOT NULL UNIQUE,
   p256dh       TEXT NOT NULL,
   auth         TEXT NOT NULL,
@@ -30,7 +37,7 @@ CREATE INDEX push_subscriptions_customer_idx ON push_subscriptions (customer_id)
 -- customer has. The text is fixed per kind and holds nothing personal.
 CREATE TABLE push_messages (
   id              TEXT PRIMARY KEY,
-  customer_id     TEXT NOT NULL REFERENCES customers (id),
+  customer_id     TEXT NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
   order_id        TEXT REFERENCES orders (id),
   event_id        TEXT NOT NULL,
   kind            TEXT NOT NULL,
@@ -52,7 +59,7 @@ CREATE INDEX push_messages_done_idx ON push_messages (created_at) WHERE status <
 -- Boxes a signed-in customer hearted. A box taken off sale stays (the list says
 -- so); a product deleted outright takes its hearts with it.
 CREATE TABLE customer_favourites (
-  customer_id TEXT NOT NULL REFERENCES customers (id),
+  customer_id TEXT NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
   sku         TEXT NOT NULL REFERENCES products (sku) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (customer_id, sku)

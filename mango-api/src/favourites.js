@@ -71,3 +71,22 @@ export async function mergeFavourites(c, customerId, skus) {
   }
   return { ignored }
 }
+
+/**
+ * Account join (POST /me/phone/verify): the Google account's hearts go to the
+ * phone account it joins, before the Google account is deleted. The phone
+ * account keeps all of its own; the joining ones are added newest first, with
+ * the date they were hearted, while there is room under the cap.
+ */
+export async function moveFavourites(c, fromId, toId) {
+  await c.query(
+    `INSERT INTO customer_favourites (customer_id, sku, created_at)
+       SELECT $2, f.sku, f.created_at FROM customer_favourites f
+        WHERE f.customer_id = $1 AND NOT EXISTS (SELECT 1 FROM customer_favourites t WHERE t.customer_id = $2 AND t.sku = f.sku)
+        ORDER BY f.created_at DESC, f.sku
+        LIMIT GREATEST(0, $3::int - (SELECT COUNT(*)::int FROM customer_favourites WHERE customer_id = $2))
+     ON CONFLICT DO NOTHING`,
+    [fromId, toId, MAX_FAVOURITES],
+  )
+  await c.query('DELETE FROM customer_favourites WHERE customer_id = $1', [fromId])
+}

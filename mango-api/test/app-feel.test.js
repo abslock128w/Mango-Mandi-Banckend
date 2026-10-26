@@ -6,11 +6,12 @@ import assert from 'node:assert/strict'
 import { createPublicKey, randomBytes, verify } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { setNow } from '../src/clock.js'
-import { query } from '../src/db.js'
+import { query, tx } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 import { cleanupExpired, runMaintenance } from '../src/maintenance.js'
 import { checkProduction } from '../src/preflight.js'
+import { moveFavourites } from '../src/favourites.js'
 import { loadProducts } from '../src/products.js'
 import { endpointHint, MAX_SUBSCRIPTIONS, payloadFor, sendDuePush, usePushSender } from '../src/push.js'
 import { pushProblems } from '../src/push-checks.js'
@@ -629,5 +630,31 @@ describe('favourites', () => {
     const full = await api.put(`/v1/me/favourites/${skus[0]}`, undefined, { token })
     assert.equal(full.status, 409)
     assert.equal(full.body.error.code, 'FAVOURITES_FULL')
+
+    // An account join moves hearts across, keeping the joined account's own and the cap.
+    const other = await customerToken(api)
+    await query('INSERT INTO customer_favourites (customer_id, sku, created_at) VALUES ($1, $2, now()), ($1, $3, now())', [other.customer.id, skus[0], 'FAV-0'])
+    await tx((c) => moveFavourites(c, other.customer.id, cust.customer.id))
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM customer_favourites WHERE customer_id = $1', [cust.customer.id])).rows[0].n, 50)
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM customer_favourites WHERE customer_id = $1', [other.customer.id])).rows[0].n, 0)
+    await query('DELETE FROM customer_favourites WHERE customer_id = $1 AND sku = $2', [cust.customer.id, 'FAV-49'])
+    await query('INSERT INTO customer_favourites (customer_id, sku, created_at) VALUES ($1, $2, now())', [other.customer.id, skus[0]])
+    await tx((c) => moveFavourites(c, other.customer.id, cust.customer.id))
+    assert.ok((await query('SELECT 1 FROM customer_favourites WHERE customer_id = $1 AND sku = $2', [cust.customer.id, skus[0]])).rows.length)
+  })
+
+  test('the previous release\'s account join still works on this schema: its delete takes these rows with it', async () => {
+    pushOnForTest()
+    env.FAVOURITES = true
+    const cust = await customerToken(api)
+    const token = cust.accessToken
+    await api.put('/v1/me/favourites/ALP-3', undefined, { token })
+    assert.equal((await api.put('/v1/me/push/subscription', browser().json, { token })).status, 201)
+    await query(`INSERT INTO push_messages (id, customer_id, event_id, kind, next_attempt_at, created_at) VALUES ('psh_t', $1, 'ev_t', 'ORDER_CONFIRMED', now(), now())`, [cust.customer.id])
+    // The previous release's join deletes the joining customer without knowing these tables.
+    await query('DELETE FROM customers WHERE id = $1', [cust.customer.id])
+    for (const t of ['customer_favourites', 'push_subscriptions', 'push_messages']) {
+      assert.equal((await query(`SELECT COUNT(*)::int AS n FROM ${t} WHERE customer_id = $1`, [cust.customer.id])).rows[0].n, 0, t)
+    }
   })
 })
