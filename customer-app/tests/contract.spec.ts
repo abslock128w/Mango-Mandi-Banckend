@@ -133,6 +133,8 @@ const POLICY = object<ShopPolicy>({
   bills: optional('boolean'),
   // App feel switches (docs/app-feel.md).
   features: optional(object<ShopFeatures>({ installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean' })),
+  // Customer care switches (docs/care.md), present only while one is on.
+  care: optional(object<NonNullable<ShopPolicy['care']>>({ helpCentre: 'boolean', subscriptions: 'boolean', subscriptionsOpen: 'boolean' })),
 })
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })

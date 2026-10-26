@@ -7,6 +7,7 @@ import { useStore } from '../store'
 import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 import { MyReviews } from './Review'
 import { FavouritesCard, NotificationsCard } from './AppFeelCards'
+import { YourSubscriptions } from './Subscriptions'
 
 export default function Account() {
   const { profile } = useStore()
@@ -53,6 +54,8 @@ export default function Account() {
         </div>
         <ErrorNote error={everywhere.error} />
       </section>
+
+      <YourSubscriptions />
 
       <FavouritesCard />
 
