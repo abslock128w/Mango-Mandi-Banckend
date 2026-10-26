@@ -20,6 +20,7 @@ import { connect } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { copyDatabase, databaseEncoding } from './local-db-utf8.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const local = path.join(root, '.local')
@@ -95,9 +96,9 @@ async function portFree(port) {
 }
 
 /** Runs a command to completion (npm needs a shell on Windows). */
-function run(cmd, cwd) {
+function run(cmd, cwd, env = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, { cwd, shell: true, stdio: 'inherit' })
+    const p = spawn(cmd, { cwd, shell: true, stdio: 'inherit', env: { ...process.env, ...env } })
     p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`"${cmd}" failed (exit ${code})`))))
   })
 }
@@ -133,6 +134,46 @@ function openBrowser(url) {
 
 let stopping = false
 let db = null
+
+const dbUrl = (name) => `postgres://mango:mango@localhost:${DB_PORT}/${name}`
+
+async function withClient(name, fn) {
+  const client = db.getPgClient(name, 'localhost')
+  await client.connect()
+  try {
+    return await fn(client)
+  } finally {
+    await client.end()
+  }
+}
+
+/** template0 lets the database be UTF-8 even when the cluster's own default is not. */
+const createUtf8Database = (name) =>
+  withClient('postgres', (c) => c.query(`CREATE DATABASE ${c.escapeIdentifier(name)} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'`))
+
+/**
+ * A database made by an older launcher on Windows stores text as WIN1252, so writes with ₹ or →
+ * fail. Copies it, once, into a new UTF-8 database with the same data, and keeps the old one
+ * (renamed mango_before_utf8) untouched. Nothing changes if any step fails.
+ */
+async function convertToUtf8() {
+  const enc = await withClient('postgres', (c) => databaseEncoding(c, 'mango'))
+  if (enc === 'UTF8') return
+  say(`Updating the database to store all text (it was ${enc}; one time only, your data is kept)`)
+  await withClient('postgres', async (c) => {
+    await c.query('DROP DATABASE IF EXISTS mango_utf8')
+    await c.query("CREATE DATABASE mango_utf8 TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'")
+  })
+  await run('node src/migrate.js', path.join(root, 'mango-api'), { ...PLAN.api, DATABASE_URL: dbUrl('mango_utf8') })
+  const copied = await withClient('mango', (from) => withClient('mango_utf8', (to) => copyDatabase(from, to)))
+  const backup = await withClient('postgres', async (c) => {
+    const name = (await databaseEncoding(c, 'mango_before_utf8')) ? `mango_before_utf8_${Date.now()}` : 'mango_before_utf8'
+    await c.query(`ALTER DATABASE mango RENAME TO ${c.escapeIdentifier(name)}`)
+    await c.query('ALTER DATABASE mango_utf8 RENAME TO mango')
+    return name
+  })
+  console.log(`   Copied ${copied.rows} rows from ${copied.tables} tables. The old copy is kept as ${backup}.`)
+}
 async function stop(code = 0) {
   if (stopping) return
   stopping = true
@@ -197,13 +238,18 @@ async function main() {
   const { default: EmbeddedPostgres } = await import(pathToFileURL(req.resolve('embedded-postgres')).href)
   const dataDir = path.join(local, 'pgdata')
   const fresh = !existsSync(dataDir)
-  db = new EmbeddedPostgres({ databaseDir: dataDir, user: 'mango', password: 'mango', port: DB_PORT, persistent: true, onLog: () => {} })
+  // UTF-8 whatever the computer's language settings: Windows would otherwise pick WIN1252 (see local-db-utf8.mjs).
+  db = new EmbeddedPostgres({
+    databaseDir: dataDir, user: 'mango', password: 'mango', port: DB_PORT, persistent: true, onLog: () => {},
+    initdbFlags: ['--encoding=UTF8', '--locale=C'],
+  })
   if (fresh) await db.initialise()
   await db.start()
-  if (fresh) await db.createDatabase('mango')
+  if (fresh) await createUtf8Database('mango')
+  await convertToUtf8()
 
   say('Starting the API (it adds demo stock and staff logins)')
-  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: `postgres://mango:mango@localhost:${DB_PORT}/mango`, ...PLAN.api })
+  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: dbUrl('mango'), ...PLAN.api })
   await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')
