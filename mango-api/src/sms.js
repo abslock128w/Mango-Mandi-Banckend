@@ -9,7 +9,7 @@ import { HttpError } from './errors.js'
 import { logger, maskPhone as mask } from './logger.js'
 import { metrics } from './metrics.js'
 import { hit } from './ratelimit.js'
-import { reportProblem } from './sentry.js'
+import { reportProblem, scrubText } from './sentry.js'
 import { metaOtpSender, templateName } from './whatsapp.js'
 
 
@@ -56,7 +56,8 @@ export function jioSender(opts, fetchImpl = fetch) {
 }
 
 const notSent = () => new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
-const clean = (text, code) => String(text).slice(0, 500).replaceAll(code, '******')
+// INT-16: the reply may also echo the number, so it gets the log scrub (phones, keys) too.
+export const clean = (text, code) => scrubText(String(text).slice(0, 500).replaceAll(code, '******'))
 const safeBody = async (res, code) => clean(await res.text().catch(() => ''), code)
 /** The value at a dot path ("data.state") in a parsed JSON reply. */
 const at = (obj, path) => path.split('.').reduce((v, k) => (v === null || v === undefined ? undefined : v[k]), obj)

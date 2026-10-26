@@ -61,8 +61,15 @@ export const sentryOptions = () => ({
 const on = Boolean(env.SENTRY_DSN)
 if (on) Sentry.init(sentryOptions())
 
+let errorHook = null
+/** Tests see every reportError call (Sentry itself is off in tests). */
+export function onErrorForTests(fn) {
+  errorHook = fn
+}
+
 /** Reports an unexpected error with what we know about the request. */
 export function reportError(err, context = {}) {
+  errorHook?.(err, context)
   if (!on) return
   Sentry.captureException(err, { extra: context })
 }
