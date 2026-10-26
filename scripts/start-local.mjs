@@ -48,6 +48,8 @@ export function localPlan(argv, wifiIps = []) {
     // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopEnv).
     ENABLE_DEV_ROUTES: 'true',
     LOG_LEVEL: 'warn',
+    // Box-tracked warehouse on for the local demo (it stays off unless set, as in production).
+    WAREHOUSE_V2: 'true',
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.
