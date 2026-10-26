@@ -31,11 +31,11 @@ What the law then requires (CGST Act, CBIC consolidated text `CGST-Act-Updated-3
   - the supplier's name, address and GSTIN;
   - a serial number of at most 16 characters, unique for the financial year;
   - the date;
-  - the recipient's details (only when the recipient is registered);
+  - the recipient's name and address, and their GSTIN (or UIN) if registered;
   - HSN, description, value;
-  - a signature, which is not needed for an electronic bill.
+  - a signature or digital signature, which a proviso says is not needed for an electronic bill of supply (so the PDF says it needs none).
 
-  Rule 49 was read from a secondary copy (cggst.com) and agrees with the GST Council flyer.
+  Rule 49 was read on CBIC's own tax information portal: `taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter6/rule49_v1.00.html` (the consolidated rules are also at `cbic-gst.gov.in/pdf/24092021-CGST-Rules-2017-Part-A-Rules.pdf`). Its provisos apply rule 46's provisos to bills of supply "with necessary modifications".
 - **Delivery charge.** Fruit delivered with a delivery charge is a *composite supply* (s.2(30)). The fruit is the principal supply, and s.8(a) taxes the whole as the principal supply. So the delivery charge is exempt with the fruit. The bill says so.
 - **Tax charged.** Only when tax is charged on every line is the bill a **Tax Invoice** (rule 46). With some lines taxed and some not, it is an **Invoice-cum-Bill of Supply** (rule 46A).
   - The code supports both through each product's existing `hsn_code` and `gst_rate`. Prices are GST-inclusive, so the tax is worked out of them per line.
@@ -75,7 +75,8 @@ How the code picks the document (`composeBill` in `mango-api/src/bills.js`):
   - `bills` has `UNIQUE(order_id)`, `UNIQUE(number)` and `UNIQUE(fy, seq)`.
 - **When.** A number is assigned when the order becomes paid and confirmed:
   - In the payment path (`processPayment`, both the webhook and the verify call), under a SAVEPOINT. A bill problem never undoes a payment: it is logged, and the maintenance step `bills` (`issueMissingBills`) issues the bill a minute later.
-  - The same step issues bills for preorders converted to orders. It looks back 7 days (`BILL_CATCH_UP_DAYS`).
+  - The same step issues bills for preorders converted to orders (the conversion runs earlier in the same maintenance run).
+  - **Which orders the step looks at.** Every paid order placed, or paid, since bills were first switched on, less 7 days (`BILL_CATCH_UP_DAYS`). The moment bills were first switched on is written once, by the first maintenance run with bills on, to the one-row table `bills_started`, and never moves. So an order whose bill keeps failing never ages out: the step keeps failing until it is billed. Orders paid more than 7 days *before* bills were first switched on are not billed (no back-filling of old orders into the new number series).
   - If that step keeps failing, it shows on **Needs attention** as "Issuing bills for paid orders".
 - **No bill** for an unpaid order, a ₹0 order, or a free replacement. A replacement keeps the original order's bill. Replacements are the only remedy apart from the two refund cases.
 - **Bulk Deals orders** are billed like any other order. A line says `(Bulk Deal: <title>)` and shows the tier price.
@@ -95,10 +96,14 @@ When the number is assigned, everything printed is copied into `bills.snapshot` 
 
 The buyer's name and delivery address are copied into `bill.buyer_name` and `bill.buyer_address`. The PDF is drawn from the snapshot every time, so later edits to the order, product, promo or seller settings never change an issued bill. The test checks that the PDF is byte-identical after such edits.
 
-The database trigger `bills_keep_issued` refuses any UPDATE or DELETE of an issued bill, except:
+The database trigger `bills_keep_issued` refuses any UPDATE or DELETE of an issued bill. A statement trigger, `bills_no_truncate`, refuses `TRUNCATE` of `bills` and of `bill_counters` (row triggers do not fire on TRUNCATE, and `TRUNCATE orders CASCADE` would otherwise wipe every bill). The allowed changes are:
 
-- **Marking it cancelled, once** (`cancelled_at`, `cancelled_reason`). A cancelled order (a customer's own cancel before packing, or a manager cancelling an undeliverable order) keeps its bill and number. The PDF then reads *"CANCELLED on <date>: the order was cancelled (<reason>). This bill stays on record with its number."*
+- **Marking it cancelled, once** (`cancelled_at`, `cancel_reason`). A cancelled order (a customer's own cancel before packing, or a manager cancelling an undeliverable order) keeps its bill and number. The PDF then reads *"CANCELLED on <date>: the order was cancelled by the buyer."* or *"… cancelled by the shop."*, then *"This bill stays on record with its number."* Only those two fixed wordings are ever stored or printed (`BILL_CANCELLED_BY`). The reason a manager types stays on the order's history in the panel and never reaches a bill, because the customer downloads it.
 - **Removing the consumer's name and address** (`buyer_removed_at`). This happens on account deletion (`privacy.js`) and after `PII_RETENTION_MONTHS` (`retention.js`). The number, date, lines, amounts and any business name and GSTIN stay for the books.
+
+The snapshot holds no delivery day and the PDF prints none: the day can still move after payment (a reschedule before packing), and the bill never changes.
+
+**Catching up (`reconcileBills`, part of the maintenance step `bills`).** A release without bills code (for example a rollback running on this schema) can cancel an order, delete an account or run retention without touching the bills. Each maintenance run therefore marks cancelled every bill whose order is `CANCELLED` (by the buyer when `customer_cancelled_at` is set, otherwise by the shop, dated by the order's last cancel event), and removes the buyer's name and address from every bill whose order has `pii_removed_at` set or whose customer is deleted. It is idempotent and logs a warning with the counts when it changes anything.
 
 ### Business details at checkout
 
@@ -147,6 +152,7 @@ An invalid GSTIN is answered `400 VALIDATION_ERROR` with a message saying what i
   - orders, up to 200, each with its bill number and any business.
 - **Phone and email** are masked: `******3210` and `a*****@example.com`. "Show full number and email" calls `POST /admin/v1/customers/:id/reveal`, audited as `REVEAL customer phone and email`.
 - **Audit before data.** Every audit row is written *before* the answer is sent (`auditNow`). If the audit write fails, the request fails (500) and no customer data leaves.
+- **Never from a cache.** The panel fetches the profile on every opening (no React Query cache for it), so coming back to a profile from an order is a new view, audited again.
 - **Ways in:**
   - the "Customer profile" link on order detail;
   - the claims list;
@@ -165,7 +171,7 @@ An invalid GSTIN is answered `400 VALIDATION_ERROR` with a message saying what i
 | `bulk-orders` | lines sold as Bulk Deals | placed or delivery date |
 | `claims` | one per claim and its resolution | claim date |
 | `reviews` | one per review: ratings, status | review date |
-| `payments` | captured payments | payment date |
+| `payments` | captured payments | payment date (the order's confirmation, however long after it was placed) |
 | `refunds` | refunds requested or paid (the two allowed cases) | refund date |
 
 - **Ranges.** Both ends are counted, IST days, **at most 92 days** (`EXPORT_MAX_DAYS`). A longer range is `400 RANGE_TOO_LONG`. The panel disables the button and says why first.
@@ -185,8 +191,8 @@ An invalid GSTIN is answered `400 VALIDATION_ERROR` with a message saying what i
 The only migration is `mango-api/migrations/035_trust.sql`. It is additive, and the previous release never reads it. It adds:
 
 - `orders.buyer_business_name` and `orders.buyer_gstin`, nullable;
-- the tables `bill_counters` and `bills`;
-- the trigger `bills_keep_issued`.
+- the tables `bill_counters`, `bills` and `bills_started` (one row: when bills were first switched on);
+- the triggers `bills_keep_issued` (rows) and `bills_no_truncate` (on `bills` and `bill_counters`).
 
 The profile and exports read existing tables. They need no schema.
 
@@ -210,8 +216,8 @@ The profile and exports read existing tables. They need no schema.
 
 | What | Where |
 | --- | --- |
-| API | `mango-api/test/bills.test.js` (18), `mango-api/test/trust-staff.test.js` (9), the security-readiness isolation case for the bill route |
+| API | `mango-api/test/bills.test.js` (22), `mango-api/test/trust-staff.test.js` (10), the security-readiness isolation case for the bill route |
 | Fixtures | role policy and route inventory: additions only |
 | Unit | `tests/unit/export-range.unit.ts`, `customer-app/tests/unit/gstin.unit.ts` |
 | Panel, mock API | `tests/trust.spec.ts`: roles, flags, masked phone and reveal, export range, phone width, axe |
-| Shop and panel, real API | `customer-app/tests/trust.spec.ts`: GSTIN at checkout (a typo, then a valid one), test payment, shop bill download read with `pdftotext`, someone else's bill gives 404, panel bill download, profile, reveal, orders CSV, audit rows, axe, no sideways scroll |
+| Shop and panel, real API | `customer-app/tests/trust.spec.ts` (the phone project at 375px): GSTIN at checkout (a typo, then a valid one), test payment, shop bill download read with `pdftotext`, someone else's bill gives 404, panel bill download, profile, reveal, orders CSV, audit rows, axe, no sideways scroll |

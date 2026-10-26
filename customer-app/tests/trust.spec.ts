@@ -42,6 +42,9 @@ async function pdfText(download: Download) {
 test('a business pays, downloads its bill; a manager downloads it, opens the profile, reveals the number and exports orders', async ({ page, request, context }, info) => {
   // A whole journey in two apps: checkout, payment, three downloads.
   test.setTimeout(120_000)
+  // The narrowest phone the shop supports (375px), for the business fields and the bill card.
+  const narrow = info.project.name === 'phone'
+  if (narrow) await page.setViewportSize({ width: 375, height: 812 })
   const phone = `7${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`
   const business = `Lakshmi Fruit Stores ${info.project.name}`
 
@@ -120,6 +123,7 @@ test('a business pays, downloads its bill; a manager downloads it, opens the pro
 
   // The manager: the same bill on the order, the profile, the reveal, an export.
   const panel = await context.newPage()
+  if (narrow) await panel.setViewportSize({ width: 375, height: 812 })
   await panel.goto(`${PANEL}/login`)
   await panel.getByLabel('Work email').fill('manager@mandimangoes.test')
   await panel.getByLabel('Password').fill('manager123')
