@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // The shop side of the 23 Oct UX audit, against the real API: a help contact on every page and
@@ -208,8 +209,7 @@ test('checkout warns about an unpaid order before Pay, and Pay says who takes th
   if (await address.isVisible()) await address.fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   const review = page.locator('.checkout-review')
   await expect(review.getByRole('status').filter({ hasText: /is waiting for payment/ })).toBeVisible()
   await expect(review.locator('.sum-row', { hasText: 'Delivery' })).toContainText('Free')

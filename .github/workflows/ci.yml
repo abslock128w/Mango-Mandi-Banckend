@@ -199,6 +199,14 @@ jobs:
           # Customer care (docs/care.md), on so customer-app/tests/care.spec.ts runs.
           HELP_CENTRE: 'true'
           SUBSCRIPTIONS: 'true'
+          # Growth (docs/growth.md) and gifting to many (docs/gifting.md), on so growth.spec.ts and gifting.spec.ts run.
+          REFERRALS: 'true'
+          FUNNEL_ANALYTICS: 'true'
+          MULTI_GIFT: 'true'
+          # One runner plays every customer of every spec from one address, so the per-address limits are raised
+          # for this job only (the defaults are checked in mango-api/test/ops-platform.test.js).
+          API_RATE_LIMIT: '20000'
+          OTP_IP_LIMIT: '2000'
       - run: npx playwright install --with-deps chromium
       - name: PDF text tool for the bill checks
         run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils

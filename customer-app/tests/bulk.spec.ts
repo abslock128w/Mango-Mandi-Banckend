@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // Bulk Deals against the real API: a manager publishes a deal (through the admin
@@ -102,8 +103,7 @@ test('buy a bulk deal: tiers, add to cart, check out and pay', async ({ page, re
   await page.getByLabel('Delivery address').fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await expect(page.getByText(`4 × ${title}`)).toBeVisible()
   await page.getByRole('button', { name: `Pay ${rupee((box.price - 10000) * 4)}` }).click()
 

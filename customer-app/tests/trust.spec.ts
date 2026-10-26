@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import AxeBuilder from '@axe-core/playwright'
 import type { Download, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // Bills, the customer profile and CSV exports end to end against the real API
@@ -83,8 +84,7 @@ test('a business pays, downloads its bill; a manager downloads it, opens the pro
   await noA11yViolations(page)
   await noSideScroll(page)
   await page.getByLabel('GSTIN', { exact: true }).fill(GSTIN.toLowerCase())
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible({ timeout: 15_000 })
+  await reviewOrder(page, 15_000)
   await expect(page.getByText(`GSTIN ${GSTIN}`)).toBeVisible()
   await expect(page.getByText(business)).toBeVisible()
   await page.getByRole('button', { name: /^Pay ₹/ }).click()

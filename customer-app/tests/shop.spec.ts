@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // A customer's whole journey against the real API: pincode, pick boxes, sign in
@@ -130,9 +131,7 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
   await noA11yViolations(page)
-  await page.getByRole('button', { name: 'Review order' }).click()
-
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   // The review is a step of its own: at the top, with focus on its heading, and in the URL.
   await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeFocused()
   expect(await page.evaluate(() => window.scrollY)).toBe(0)
@@ -142,8 +141,7 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeFocused()
   await expect(page.getByLabel('Your name')).toHaveValue('Asha Rao')
   await expect(page.getByLabel('Delivery address')).toHaveValue('Flat 4B, Lake View Apartments, 5th Main, near the park')
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await expect(page.getByText(`2 × ${first.split(', ')[0]}`)).toBeVisible()
   await noA11yViolations(page)
   await page.getByRole('button', { name: /^Pay ₹/ }).click()
@@ -472,9 +470,7 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   await expect(page.getByLabel('Promo code (optional)')).toBeFocused()
   await page.getByLabel('Promo code (optional)').fill(code)
   await noA11yViolations(page)
-  await page.getByRole('button', { name: 'Review order' }).click()
-
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await expect(page.getByText(`Promo ${code}`)).toBeVisible()
   await expect(page.getByText('Kavya Rao (a gift)')).toBeVisible()
   await expect(page.getByText('Happy Diwali!')).toBeVisible()

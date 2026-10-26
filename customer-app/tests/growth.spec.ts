@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page, Request } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // Growth (docs/growth.md) against the real API with REFERRALS and FUNNEL_ANALYTICS on: a customer's
@@ -124,8 +125,7 @@ test('a friend arrives by the invite link, adds the code at checkout and pays; t
   await page.getByLabel('Delivery address').fill('House 12, 2nd Cross, Indiranagar, near the temple')
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await page.getByRole('button', { name: /^Pay ₹/ }).click()
   await expect(page.getByRole('heading', { name: /^Order ORD-/ })).toBeVisible()
   await page.getByRole('button', { name: 'Payment succeeds' }).click()
