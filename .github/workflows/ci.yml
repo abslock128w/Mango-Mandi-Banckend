@@ -195,6 +195,8 @@ jobs:
           SHOP_INSTALL: 'true'
           SHOP_SORT_FILTER: 'true'
       - run: npx playwright install --with-deps chromium
+      - name: PDF text tool for the bill checks
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Day in the life, and the panel mock's contract, against the real API
         run: npx playwright test tests/contract.spec.ts tests/day-in-the-life.spec.ts
         env:
