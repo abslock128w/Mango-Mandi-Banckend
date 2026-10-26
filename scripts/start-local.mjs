@@ -63,6 +63,10 @@ export function localPlan(argv, wifiIps = []) {
     LIVE_TRACKING: 'true',
     FAVOURITES: 'true',
     SHOP_SORT_FILTER: 'true',
+    // Staff operations (docs/ops.md): the stock forecast, farms and purchases, and the panel's Settings switches.
+    STOCK_FORECAST: 'true',
+    PURCHASE_RECORDS: 'true',
+    PANEL_FEATURE_SWITCHES: 'true',
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.

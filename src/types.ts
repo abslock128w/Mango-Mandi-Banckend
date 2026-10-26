@@ -16,7 +16,16 @@ export interface Me {
   warehouse?: { enabled: boolean; permissions: string[] }
   /** Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view
    *  (docs/app-feel.md). An older API leaves a field out, which means off. The role still decides who may use them. */
-  features?: { bills?: boolean; customerProfiles?: boolean; exports?: boolean; riderRoute?: boolean }
+  features?: {
+    bills?: boolean
+    customerProfiles?: boolean
+    exports?: boolean
+    riderRoute?: boolean
+    /** Staff operations (docs/ops.md): the stock forecast, farms and purchases, and the Settings page's switches. */
+    stockForecast?: boolean
+    purchaseRecords?: boolean
+    panelSwitches?: boolean
+  }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -995,4 +1004,175 @@ export interface BulkEvent {
   changes: Record<string, unknown>
   by: string | null
   at: string
+}
+
+// ---------- Staff operations (docs/ops.md) ----------
+
+/** One past day the forecast looked at: what sold, and whether it counted (days with no stock or closed don't). */
+export interface ForecastSample {
+  date: string
+  sold: number
+  counted: boolean
+  reason: 'closed' | 'no stock' | null
+}
+
+export interface ForecastDay {
+  date: string
+  history: { samples: ForecastSample[]; average: number | null }
+  booked: number
+  bookAhead: number
+  /** max(average, booked); null without enough history. */
+  expected: number | null
+  toSell: number
+  fromStock: number
+  short: number
+}
+
+export interface ForecastProduct {
+  sku: string
+  name: string
+  boxSize: string
+  enoughHistory: boolean
+  note: string | null
+  suggestedBoxes: number | null
+  shortForBookings: number
+  shortBoxes: number
+  buyBy: string | null
+  waste: { days: number; damagedBoxes: number; claimBoxes: number; soldBoxes: number; rate: number; capped: boolean }
+  shortDays: { date: string; stage: Ripeness; boxes: number; pluckBy: string | null; fromHistory: boolean }[]
+  batches: {
+    batchId: string
+    pluckedOn: string
+    ageToday: number
+    status: BatchStatus
+    onHand: number
+    waitingQc: boolean
+    freeBoxes: number
+    sellableUntil: string
+    usedByForecast: number
+    unsoldPastCap: number
+    stages: { date: string; stage: Ripeness | null }[]
+  }[]
+  stages: { stage: Ripeness; enoughHistory: boolean; short: number; days: ForecastDay[] }[]
+}
+
+export interface StockForecast {
+  today: string
+  dates: string[]
+  rules: {
+    horizonDays: number
+    historyWeeks: number
+    minHistoryDays: number
+    wasteWindowDays: number
+    maxWasteRate: number
+    maxSellableAge: number
+    transitDays: number
+    forecastConfidence: number
+  }
+  varieties: {
+    variety: string
+    enoughHistory: boolean
+    suggestedBoxes: number | null
+    note: string | null
+    shortForBookings: number
+    buyBy: string | null
+    products: ForecastProduct[]
+  }[]
+  hidden: string[]
+}
+
+export interface Farm {
+  id: string
+  name: string
+  place: string | null
+  contactName: string | null
+  phoneMasked: string | null
+  hasPhone: boolean
+  active: boolean
+  createdAt: string
+  updatedAt: string
+  purchases: number
+  lastPurchaseOn: string | null
+}
+
+export interface FarmInput {
+  name: string
+  place?: string | null
+  contactName?: string | null
+  /** Left out keeps the number; null removes it. */
+  phone?: string | null
+  active?: boolean
+}
+
+/** A batch's purchase. The money fields come only to managers. */
+export interface Purchase {
+  id: string
+  batchId: string
+  farmId: string
+  farmName: string | null
+  purchasedOn: string
+  crates: number
+  boxes: number
+  note: string | null
+  createdAt: string
+  updatedAt: string | null
+  costPerCrate?: number
+  transportCost?: number
+  otherCost?: number
+  totalCost?: number
+  costPerBox?: number
+}
+
+export interface PurchaseInput {
+  farmId: string
+  purchasedOn: string
+  crates: number
+  boxes: number
+  costPerCrate: number
+  transportCost: number
+  otherCost: number
+  note?: string | null
+}
+
+export interface BatchPurchases {
+  batchId: string
+  receivedBoxes: number
+  purchasedBoxes: number
+  costsShown: boolean
+  items: Purchase[]
+  totalCost?: number
+}
+
+export interface MarginRow {
+  boughtBoxes: number
+  totalCost: number
+  soldBoxes: number
+  revenue: number
+  costOfSold: number
+  margin: number
+  marginPerBox: number | null
+  unsoldBoxes: number
+  costOfUnsold: number
+}
+
+export interface Margins {
+  from: string
+  to: string
+  varieties: (MarginRow & { variety: string; batches: number; costPerBox: number | null })[]
+  batches: (MarginRow & { batchId: string; variety: string; pluckedOn: string; status: BatchStatus; costPerBox: number })[]
+}
+
+export interface FeatureSwitch {
+  key: string
+  label: string
+  description: string
+  /** The environment's own value. */
+  envValue: boolean
+  /** The environment says false: off, whatever is chosen here. */
+  killedByEnv: boolean
+  /** A manager's choice, or null for "as the environment says". */
+  override: boolean | null
+  updatedBy: string | null
+  updatedAt: string | null
+  effective: boolean
 }

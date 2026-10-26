@@ -2092,3 +2092,54 @@ tr.row-flagged td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Staff operations (docs/ops.md): the forecast, farms and purchases, Settings. */
+.ops-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin-bottom: var(--space-3);
+}
+.ops-range .field {
+  margin-bottom: 0;
+}
+.ops-working {
+  margin-top: var(--space-2);
+}
+.ops-working summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.ops-suggest {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.switch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.switch-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.switch-item:first-child {
+  border-top: 0;
+}
+.switch-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.switch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

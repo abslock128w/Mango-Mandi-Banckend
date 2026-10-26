@@ -25,6 +25,8 @@ const Preorders = lazy(() => import('./pages/Preorders'))
 const Staff = lazy(() => import('./pages/Staff'))
 const Products = lazy(() => import('./pages/Products'))
 const Promos = lazy(() => import('./pages/Promos'))
+const Farms = lazy(() => import('./pages/Farms'))
+const Settings = lazy(() => import('./pages/Settings'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealEditor })))
 const Reviews = lazy(() => import('./pages/Reviews'))
@@ -52,7 +54,7 @@ const WhRepack = lazy(() => import('./warehouse/pages/Repack'))
 const WhRepackDetail = lazy(() => import('./warehouse/pages/RepackDetail'))
 const TwoStepPage = lazy(() => import('./pages/TwoStep'))
 const TwoStepGate = lazy(() => import('./pages/TwoStep').then((m) => ({ default: m.TwoStepGate })))
-import { canSee, homeFor, type Screen } from './permissions'
+import { canSee, homeFor, opsAllowed, type Screen } from './permissions'
 import { useSession } from './session'
 import { whLinkAllowed } from './warehouse/access'
 import type { WhPermission } from './warehouse/types'
@@ -74,6 +76,12 @@ function Only({ screen, children }: { screen: Screen; children: ReactNode }) {
 function WhOnly({ perm, children }: { perm: WhPermission | 'scan'; children: ReactNode }) {
   const { me } = useSession()
   return whLinkAllowed(me, perm) ? <>{children}</> : <NotFound notAllowed />
+}
+
+/** A staff-operations screen (docs/ops.md): only while the API has its switch on. */
+function SwitchedOn({ feature, children }: { feature: 'purchaseRecords' | 'panelSwitches'; children: ReactNode }) {
+  const { me } = useSession()
+  return opsAllowed(me, feature) ? <>{children}</> : <NotFound notAllowed />
 }
 
 function Home() {
@@ -160,6 +168,8 @@ export default function App() {
               <Route path="/bulk-deals" element={<Only screen="bulkDeals"><BulkDeals /></Only>} />
               <Route path="/bulk-deals/:id" element={<Only screen="bulkDeals"><BulkDealEditor /></Only>} />
               <Route path="/promos" element={<Only screen="promos"><Promos /></Only>} />
+              <Route path="/farms" element={<Only screen="farms"><SwitchedOn feature="purchaseRecords"><Farms /></SwitchedOn></Only>} />
+              <Route path="/settings" element={<Only screen="settings"><SwitchedOn feature="panelSwitches"><Settings /></SwitchedOn></Only>} />
               <Route path="/warehouse" element={<WhOnly perm="warehouse.view"><WhOverview /></WhOnly>} />
               <Route path="/warehouse/receive" element={<WhOnly perm="warehouse.receive"><WhReceive /></WhOnly>} />
               <Route path="/warehouse/lots" element={<WhOnly perm="warehouse.view"><WhLots /></WhOnly>} />

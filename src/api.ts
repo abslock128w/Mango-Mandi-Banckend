@@ -62,6 +62,14 @@ import type {
   Role,
   StaffMember,
   Summary,
+  BatchPurchases,
+  Farm,
+  FarmInput,
+  FeatureSwitch,
+  Margins,
+  Purchase,
+  PurchaseInput,
+  StockForecast,
 } from './types'
 
 export const API_URL: string = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
@@ -472,6 +480,20 @@ export const api = {
   deletePincode: (pincode: string) => request<void>('DELETE', `/pincodes/${id(pincode)}`),
 
   coverage: () => request<CoverageDay[]>('GET', '/coverage'),
+  // Staff operations (docs/ops.md).
+  stockForecast: () => request<StockForecast>('GET', '/planning/forecast'),
+  farms: () => request<Farm[]>('GET', '/farms'),
+  addFarm: (input: FarmInput) => request<Farm>('POST', '/farms', input),
+  updateFarm: (farmId: string, patch: Partial<FarmInput>) => request<Farm>('PATCH', `/farms/${id(farmId)}`, patch),
+  batchPurchases: (batchId: string) => request<BatchPurchases>('GET', `/batches/${id(batchId)}/purchases`),
+  addPurchase: (batchId: string, input: PurchaseInput) => request<Purchase>('POST', `/batches/${id(batchId)}/purchases`, input),
+  updatePurchase: (batchId: string, purchaseId: string, patch: Partial<PurchaseInput>) =>
+    request<Purchase>('PATCH', `/batches/${id(batchId)}/purchases/${id(purchaseId)}`, patch),
+  margins: (p: { from: string; to: string }) => request<Margins>('GET', `/analytics/margins${qs(p)}`),
+  featureSwitches: () => request<{ cacheSeconds: number; items: FeatureSwitch[] }>('GET', '/settings/switches'),
+  /** A change always asks the manager to confirm it is them (confirmCode). enabled null: back to the server's setting. */
+  setFeatureSwitch: (key: string, enabled: boolean | null, confirmCode?: string) =>
+    request<FeatureSwitch>('PUT', `/settings/switches/${id(key)}`, { enabled, ...confirmBody(confirmCode) }),
   calendar: () => request<CalendarDay[]>('GET', '/calendar'),
   setCalendarDay: (day: CalendarDay) =>
     request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
