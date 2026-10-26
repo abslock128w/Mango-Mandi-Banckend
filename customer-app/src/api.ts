@@ -62,6 +62,57 @@ export interface ShopPolicy {
   cutoffTime: string
   maxDaysAhead: number
   claimWindowHours: number
+  /** The shop's switchable parts (docs/app-feel.md); an older API leaves it out, which means all off. */
+  features?: ShopFeatures
+}
+/** Which app-feel parts the API has switched on. */
+export interface ShopFeatures {
+  /** The service worker (static app shell only) and the "Install app" offer. */
+  installApp: boolean
+  /** Browser notifications for order updates can be turned on (WEB_PUSH with a key). */
+  push: boolean
+  /** "Your rider is N stops away" on the order page. */
+  tracking: boolean
+  /** Hearts on boxes and the Favourites list. */
+  favourites: boolean
+  /** Sort and filter controls on the home page. */
+  sortFilter: boolean
+}
+/** A hearted box (GET /v1/me/favourites). */
+export interface Favourite {
+  sku: string
+  name: string
+  variety: string | null
+  boxSize: string | null
+  price: number | null
+  photoUrl: string | null
+  /** False once the box is taken off sale: the list says so and offers nothing to buy. */
+  onSale: boolean
+  addedAt: string
+}
+export interface FavouriteList {
+  items: Favourite[]
+  max: number
+}
+/** While the order is out for delivery with a rider: stops before this one and a rough time. */
+export interface Tracking {
+  stopsAway: number
+  minutesPerStop: number
+  etaMinutes: number
+}
+/** What the Account page needs to offer browser notifications. */
+export interface PushInfo {
+  available: boolean
+  /** The application server key (RFC 8292), base64url; null while push is off. */
+  publicKey: string | null
+  /** How many of the customer's browsers have notifications on. */
+  browsers: number
+}
+/** What PushSubscription.toJSON() gives. */
+export interface PushSubscriptionInput {
+  endpoint: string
+  expirationTime?: number | null
+  keys: { p256dh: string; auth: string }
 }
 /** A box on sale with its price, known before a pincode (GET /v1/products): no stock or ripeness. */
 export interface ProductListing {
@@ -186,6 +237,8 @@ export interface Order {
   retryScheduled: boolean | null
   /** Paid, but no stock for its date yet: the day may change and we message once it's settled. */
   findingStock?: boolean
+  /** Live tracking (when switched on): set only while out for delivery with a rider. */
+  tracking?: Tracking | null
 }
 export interface SavedAddress {
   id: string
@@ -477,6 +530,15 @@ function signedOut(forget = false) {
   if (was || forget) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { forget } }))
 }
 
+/**
+ * Run before a chosen sign-out while the session still works (push.ts sets it: this browser's
+ * notifications are turned off, so the next person on a shared device doesn't get them).
+ */
+let beforeSignOut: (() => Promise<unknown>) | null = null
+export const onBeforeSignOut = (fn: (() => Promise<unknown>) | null) => {
+  beforeSignOut = fn
+}
+
 /** Goes up on every sign-out, so a refresh that was already on its way cannot sign the customer back in. */
 let epoch = 0
 let refreshing: Promise<boolean> | null = null
@@ -572,6 +634,8 @@ export const api = {
     signedOut(true)
   },
   async signOut() {
+    // A shared phone: this browser stops getting the account's order updates first, while still signed in.
+    await beforeSignOut?.().catch(() => undefined)
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
     signedOut(true)
   },
@@ -580,6 +644,16 @@ export const api = {
     await request<void>('POST', '/me/sign-out-everywhere')
     signedOut(true)
   },
+  /** Browser notifications (WEB_PUSH): whether they can be turned on, and on how many browsers they are. */
+  pushInfo: () => request<PushInfo>('GET', '/me/push'),
+  savePushSubscription: (sub: PushSubscriptionInput) => request<{ subscribed: boolean }>('PUT', '/me/push/subscription', sub),
+  removePushSubscription: (endpoint: string) => request<void>('DELETE', '/me/push/subscription', { endpoint }),
+  /** Hearted boxes (FAVOURITES). */
+  favourites: () => request<FavouriteList>('GET', '/me/favourites'),
+  addFavourite: (sku: string) => request<FavouriteList>('PUT', `/me/favourites/${id(sku)}`),
+  removeFavourite: (sku: string) => request<void>('DELETE', `/me/favourites/${id(sku)}`),
+  /** The hearts a guest made on this device, sent once after signing in. */
+  mergeFavourites: (skus: string[]) => request<FavouriteList & { ignored: string[] }>('POST', '/me/favourites/merge', { skus }),
   /** A copy of everything the shop holds about the customer, as JSON. */
   exportData: () => request<Record<string, unknown>>('GET', '/me/export'),
 

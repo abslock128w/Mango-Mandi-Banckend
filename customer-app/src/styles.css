@@ -2134,3 +2134,170 @@ main:focus {
   align-items: flex-end;
   gap: var(--space-1);
 }
+
+/* App feel (docs/app-feel.md) */
+
+/* Favourites: the heart, on a tile's photo corner and beside the product name. */
+.heart {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--motion-fast), transform var(--motion-fast);
+}
+.heart[aria-pressed='true'] {
+  color: var(--danger);
+  border-color: currentColor;
+}
+.heart:active {
+  transform: scale(0.92);
+}
+/* Over the tile's stretched link, at the photo's top right. */
+.tile-heart {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  box-shadow: var(--shadow);
+}
+.product-name {
+  position: relative;
+}
+.product-name:has(.product-heart) {
+  padding-right: calc(var(--tap-min) + var(--space-2));
+}
+.product-heart {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+
+/* Sort and filter on the home page. */
+.view-controls {
+  margin: var(--space-3) 0;
+}
+.view-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  align-items: end;
+}
+@media (min-width: 640px) {
+  .view-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.view-field label {
+  font-size: var(--text-sm);
+}
+.view-field select {
+  width: 100%;
+  min-height: var(--tap-min);
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+.view-field select:focus {
+  border-color: var(--mango);
+}
+.view-stock {
+  min-height: var(--tap-min);
+}
+.view-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.view-status p {
+  margin: var(--space-2) 0;
+}
+.view-status .link-btn,
+.fav-row .link-btn {
+  min-height: var(--tap-min);
+}
+
+/* "Install app", on the home page. */
+.install-card {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+.install-card img {
+  flex: none;
+  border-radius: var(--radius-sm);
+}
+.install-title {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-1);
+}
+
+/* Favourites on the Account page. */
+.fav-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.fav-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.fav-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.fav-img {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--mango-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.fav-img .product-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.fav-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.fav-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.fav-sold-out {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+
+/* "Your rider is N stops away" on the order page. */
+.tracking-card .sub-title {
+  margin-top: 0;
+}

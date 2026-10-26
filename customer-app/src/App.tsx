@@ -8,6 +8,7 @@ import Shop from './pages/Shop'
 import { BuySkeleton } from './pages/BuySkeleton'
 import { catalogueQuery, productReviewsQuery } from './queries'
 import { Spinner, pageTitle } from './ui'
+import { useShellWorker } from './pwa'
 
 // Home is in the first download; every other page's code loads when it is first opened.
 const Cart = lazy(() => import('./pages/Cart'))
@@ -95,9 +96,11 @@ export default function App() {
   const help = helpLink()
   // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
   const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
+  // The app shell worker follows the API's switches (SHOP_INSTALL, WEB_PUSH).
+  useShellWorker()
 
   useEffect(() => {
-    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating'].includes(String(q.queryKey[0])) })
+    const onOut = () => queryClient.removeQueries({ predicate: (q) => ['orders', 'order', 'claims', 'preorders', 'preorder', 'my-reviews', 'order-reviews', 'addresses', 'settings', 'stock-alerts', 'rating', 'favourites', 'push-info'].includes(String(q.queryKey[0])) })
     window.addEventListener(SIGNOUT_EVENT, onOut)
     return () => window.removeEventListener(SIGNOUT_EVENT, onOut)
   }, [queryClient])

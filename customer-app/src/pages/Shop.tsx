@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Stars } from '../stars'
 import { ApiError, api, errorMessage, type CatalogueItem, type RatingSummary } from '../api'
 import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees } from '../format'
@@ -11,6 +11,10 @@ import { BookAheadCard } from './BookAheadCard'
 import { MangoArt, ProductImage } from '../mango'
 import type { Stage } from '../api'
 import { UnpaidOrderBanner } from '../unpaid'
+import { useFeatures } from '../features'
+import { HeartButton, HeartProblem } from '../favourites'
+import { InstallCard } from '../pwa'
+import { DEFAULT_VIEW, SORTS, applyView, isFiltered, readView, varietiesOf, writeView, type ShopView, type SortKey, type Viewable } from '../shop-view'
 
 export default function Shop() {
   const { pincode, date, setWhere, cart } = useStore()
@@ -49,6 +53,7 @@ export default function Shop() {
       ) : (
         <Catalogue pincode={pincode} date={date} onDate={pickDate} search={search} />
       )}
+      {!search && <InstallCard />}
       {!search && <BookAheadCard />}
       {!search && <Promises />}
       {boxes > 0 && (
@@ -166,18 +171,25 @@ export function PincodeCheck({
  */
 function PriceList({ search }: { search: string }) {
   const q = useQuery(productsQuery())
+  const words = search.toLowerCase()
+  const matching = useMemo(() => {
+    const items = q.data?.items ?? []
+    return words ? items.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : items
+  }, [q.data, words])
+  // Before a pincode there is no stock to filter on: sort, and the variety filter, only.
+  const shop = useShopView(matching, null)
   if (q.isPending) return null
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
-  const words = search.toLowerCase()
-  const products = words ? q.data.items.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : q.data.items
   if (!q.data.items.length) return null
+  const products = shop.shown
   return (
     <section aria-labelledby="price-list" className="price-list">
       <h2 id="price-list" className="section-title">
         {search ? `Mangoes matching “${search}”` : 'Our mangoes and prices'}
       </h2>
       <p className="muted small">Price per box, free delivery. Enter your pincode to see the ripeness and days we have for you.</p>
-      {products.length === 0 && <p className="card empty">No mangoes match “{search}”. Try another name, such as Alphonso.</p>}
+      {shop.controls}
+      {matching.length === 0 && <p className="card empty">No mangoes match “{search}”. Try another name, such as Alphonso.</p>}
       <ul className="tiles">
         {products.map((p, i) => (
           <li key={p.sku} className="card tile">
@@ -190,10 +202,13 @@ function PriceList({ search }: { search: string }) {
                   {p.name}
                 </Link>
               </h3>
+              {/* After the name, so a screen reader hears which box it is; drawn on the photo's corner. */}
+              <HeartButton sku={p.sku} name={p.name} className="tile-heart" />
               <ProductRating sku={p.sku} variety={p.variety} />
               <p className="tile-foot">
                 <strong className="price">{rupees(p.price)}</strong>
                 {boxContents(p) && <span className="small muted">{boxContents(p)}</span>}
+                <HeartProblem sku={p.sku} />
               </p>
             </div>
           </li>
@@ -249,6 +264,9 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   const { cart } = useStore()
   // Grouped once per answer, so each tile gets the same product object until the stock changes.
   const all = useMemo(() => (q.data ? groupBySku(q.data.items) : []), [q.data])
+  const words = search.toLowerCase()
+  const matching = useMemo(() => (words ? all.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : all), [all, words])
+  const shop = useShopView(matching, stagesOf)
   // A saved day that has passed or closed: fall back to the earliest open one.
   const stale = q.error instanceof ApiError && q.error.code === 'INVALID_DATE'
   useEffect(() => {
@@ -259,8 +277,7 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
   if (q.isPending) return <TilesSkeleton search={search} />
   if (q.isError) return <>{quietTitle}<ErrorNote error={q.error} onRetry={() => q.refetch()} /></>
   if (!q.data.serviceable) return <>{quietTitle}<ErrorNote error={`We don't deliver to ${pincode} yet.`} /></>
-  const words = search.toLowerCase()
-  const products = words ? all.filter((p) => `${p.name} ${p.variety}`.toLowerCase().includes(words)) : all
+  const products = shop.shown
   const chosen = q.data.deliveryDate!
 
   return (
@@ -271,7 +288,8 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
           {search ? `Mangoes matching “${search}”` : 'Pick your mangoes'}
         </h1>
         <p className="muted small">Showing what we have for {day(chosen)}. You choose the delivery day at checkout.</p>
-        {products.length === 0 && (
+        {shop.controls}
+        {matching.length === 0 && (
           <p className="card empty">
             No mangoes match “{search}”. Try another name, such as Alphonso.
           </p>
@@ -295,6 +313,114 @@ function Catalogue({ pincode, date, onDate, search }: { pincode: string; date: s
 
 /** Tiles whose photos load at once rather than when scrolled to. */
 const FIRST_SCREEN_TILES = 4
+
+const stagesOf = (p: ProductGroup) => p.stages
+
+/**
+ * Sort and filter (SHOP_SORT_FILTER) over the boxes already matching the search: the choice is
+ * read from and written to the address. `stages` gives stock per ripeness, or null before a
+ * pincode (then only sorting and the variety filter are offered). While the switch is off the
+ * boxes show as they come, with no controls.
+ */
+function useShopView<T extends Viewable>(items: T[], stages: ((item: T) => { stage: Stage; qty: number }[]) | null) {
+  const { sortFilter } = useFeatures()
+  const [params, setParams] = useSearchParams()
+  const view = sortFilter ? readView(params) : DEFAULT_VIEW
+  // Stars per variety, from the same answers the tiles' rating lines use; only asked for when sorting by rating.
+  const varietyKeys = [...new Set(items.map((i) => i.variety || i.sku))]
+  const ratings = useQueries({
+    queries: varietyKeys.map((key) => {
+      const sku = items.find((i) => (i.variety || i.sku) === key)!.sku
+      return { queryKey: ['rating', key], queryFn: () => api.productReviews(sku, { limit: 1 }), staleTime: 5 * 60_000, enabled: view.sort === 'rating' }
+    }),
+  })
+  const stars = new Map(varietyKeys.map((key, i) => [key, ratings[i]?.data?.summary.count ? (ratings[i].data!.summary.average ?? null) : null]))
+  const shown = applyView(items, view, { stages: stages ?? undefined, rating: (i) => stars.get(i.variety || i.sku) ?? null })
+  const setView = (next: ShopView) => setParams(writeView(params, next), { replace: true })
+  const controls = sortFilter ? (
+    <ViewControls view={view} varieties={varietiesOf(items)} stockKnown={Boolean(stages)} shown={shown.length} total={items.length} onChange={setView} />
+  ) : null
+  return { shown, controls }
+}
+
+function ViewControls({
+  view,
+  varieties,
+  stockKnown,
+  shown,
+  total,
+  onChange,
+}: {
+  view: ShopView
+  varieties: string[]
+  stockKnown: boolean
+  shown: number
+  total: number
+  onChange: (view: ShopView) => void
+}) {
+  const id = useId()
+  const filtered = isFiltered(view)
+  if (!total) return null
+  return (
+    <div className="view-controls" role="group" aria-label="Sort and filter">
+      <div className="view-fields">
+        <div className="view-field">
+          <label htmlFor={`${id}-sort`}>Sort by</label>
+          <select id={`${id}-sort`} value={view.sort} onChange={(e) => onChange({ ...view, sort: e.target.value as SortKey })}>
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        {varieties.length > 1 && (
+          <div className="view-field">
+            <label htmlFor={`${id}-variety`}>Variety</label>
+            <select id={`${id}-variety`} value={view.variety ?? ''} onChange={(e) => onChange({ ...view, variety: e.target.value || null })}>
+              <option value="">All varieties</option>
+              {varieties.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {stockKnown && (
+          <div className="view-field">
+            <label htmlFor={`${id}-ripe`}>Ripeness in stock</label>
+            <select id={`${id}-ripe`} value={view.ripeness ?? ''} onChange={(e) => onChange({ ...view, ripeness: (e.target.value || null) as Stage | null })}>
+              <option value="">Any ripeness</option>
+              {STAGES.map((st) => (
+                <option key={st} value={st}>
+                  {STAGE_LABEL[st]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {stockKnown && (
+          <label className="option view-stock">
+            <input type="checkbox" checked={view.inStock} onChange={(e) => onChange({ ...view, inStock: e.target.checked })} />
+            <span>In stock only</span>
+          </label>
+        )}
+      </div>
+      <div className="view-status">
+        <p className="small muted" role="status">
+          {filtered ? `Showing ${shown} of ${total} ${total === 1 ? 'box' : 'boxes'}` : `${total} ${total === 1 ? 'box' : 'boxes'}`}
+        </p>
+        {filtered && (
+          <button type="button" className="link-btn" onClick={() => onChange({ ...DEFAULT_VIEW, sort: view.sort })}>
+            Clear filters
+          </button>
+        )}
+      </div>
+      {filtered && shown === 0 && <p className="card empty">No boxes match these filters. Clear them to see every box.</p>}
+    </div>
+  )
+}
 
 /**
  * Placeholder tiles the same size as the real ones (title, date line, square photo, name, rating
@@ -348,10 +474,13 @@ const ProductTile = memo(function ProductTile({ product: p, inCart, eager }: { p
             {p.name}
           </Link>
         </h3>
+        {/* After the name, so a screen reader hears which box it is; drawn on the photo's corner. */}
+        <HeartButton sku={p.sku} name={p.name} className="tile-heart" />
         <ProductRating sku={p.sku} variety={p.variety} />
         <p className="tile-foot">
           <strong className="price">{rupees(p.price)}</strong>
           {soldOut && <span className="small sold-out">Sold out{soonest ? `, back ${day(soonest)}` : ''}</span>}
+          <HeartProblem sku={p.sku} />
         </p>
       </div>
     </li>

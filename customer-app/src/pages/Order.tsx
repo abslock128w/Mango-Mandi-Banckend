@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ApiError, api, signedInPhone, type Order, type OrderStatus, type Stage } from '../api'
+import { ApiError, api, signedInPhone, type Order, type OrderStatus, type Stage, type Tracking } from '../api'
 import { CANCELLABLE, STAGE_LABEL, STATUS_LABEL, day, helpLink, rupees, slotText, when } from '../format'
 import { DayChips, SlotPicker } from '../forms'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
@@ -241,6 +241,8 @@ function OrderView({ order }: { order: Order }) {
         </section>
       )}
 
+      {order.status === 'OUT_FOR_DELIVERY' && order.tracking && <RiderNearby tracking={order.tracking} />}
+
       {order.status === 'DELIVERED' && order.delivery && (
         <section className="card">
           <h2>Delivered</h2>
@@ -471,6 +473,38 @@ function OrderView({ order }: { order: Order }) {
 }
 
 /** On a delivered order: until when a problem can be reported for a free replacement, and the way to do it. */
+/** "About 25 minutes", "about 1 hour 10 minutes": rounded to 5 minutes, since it is a rough guess. */
+function roughTime(minutes: number) {
+  const m = Math.max(5, Math.round(minutes / 5) * 5)
+  const h = Math.floor(m / 60)
+  const rest = m % 60
+  const mins = (n: number) => `${n} ${n === 1 ? 'minute' : 'minutes'}`
+  return h ? `about ${h} ${h === 1 ? 'hour' : 'hours'}${rest ? ` ${mins(rest)}` : ''}` : `about ${mins(m)}`
+}
+
+/**
+ * Live tracking without GPS (LIVE_TRACKING): how many stops the rider has before this one, from
+ * the rider's route order and the stops already done, and a rough time. Only a count: nothing
+ * about the other stops. The page asks again every 30 seconds while the order is out.
+ */
+function RiderNearby({ tracking }: { tracking: Tracking }) {
+  const n = tracking.stopsAway
+  return (
+    <section className="card note-card tracking-card" aria-labelledby="tracking-title">
+      <h2 id="tracking-title" className="sub-title">
+        Where's my rider?
+      </h2>
+      <p role="status">
+        <strong>{n === 0 ? "You're the rider's next stop." : `Your rider is ${n} ${n === 1 ? 'stop' : 'stops'} away.`}</strong> Expect them in{' '}
+        {roughTime(tracking.etaMinutes)}.
+      </p>
+      <p className="muted small">
+        A rough guess of {tracking.minutesPerStop} minutes a stop, counted along the rider's route. There's no live map, and traffic can change it.
+      </p>
+    </section>
+  )
+}
+
 function ClaimPrompt({ order, loading }: { order: Order; loading: boolean }) {
   // The window comes from the API, from the latest delivery and the live rule.
   const deadline = order.claimUntil ? new Date(order.claimUntil) : null
