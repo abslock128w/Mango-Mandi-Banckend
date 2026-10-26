@@ -74,6 +74,12 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
     [me.id, now()],
   )
   await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '' WHERE customer_id = $1`, [me.id])
+  // INT-05 (24 Oct audit): booking messages too, or they go to the deleted number and keep it for 180 days.
+  await c.query(
+    `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END
+      WHERE preorder_id IN (SELECT id FROM preorders WHERE customer_id = $1)`,
+    [me.id],
+  )
   await c.query(`UPDATE claims SET description = '(removed when the account was deleted)', photo_url = NULL WHERE customer_id = $1`, [me.id])
   await c.query(
     `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END

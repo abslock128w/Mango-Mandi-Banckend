@@ -8,6 +8,17 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { env } from './env.js'
 import { logger, maskPhone } from './logger.js'
 
+/**
+ * INT-09 (24 Oct audit): Cloud API error codes that mean "try again later",
+ * whatever the HTTP status: 1, 2 (temporary API errors), 4 and 80007 (app and
+ * account rate limits), 130429 (throughput), 131000 (something went wrong),
+ * 131016 (service unavailable), 131048 (spam rate limit), 131056 (pair rate
+ * limit, one recipient), 131057 (account in maintenance), 133004 (server
+ * temporarily unavailable). From Meta's published error-code list; to be
+ * checked against the current list before launch (docs/audit-2026-10-24-status-B.md).
+ */
+export const META_TEMPORARY_CODES = new Set([1, 2, 4, 80007, 130429, 131000, 131016, 131048, 131056, 131057, 133004])
+
 /** A sender for the Cloud API. Resolves to the provider's message id. */
 export function metaSender(opts, fetchImpl = fetch) {
   const url = `https://graph.facebook.com/${opts.apiVersion}/${encodeURIComponent(opts.phoneNumberId)}/messages`
@@ -34,8 +45,11 @@ export function metaSender(opts, fetchImpl = fetch) {
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
       const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+      err.metaCode = body?.error?.code ?? null
       // 4xx other than rate limits and auth (which ops can fix) won't succeed on a retry.
       err.permanent = res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
+      // INT-09: Meta sends several temporary errors (throughput, pair and spam rate limits) as HTTP 400.
+      if (env.PROVIDER_CHECKS && META_TEMPORARY_CODES.has(Number(err.metaCode))) err.permanent = false
       throw err
     }
     const id = body?.messages?.[0]?.id
@@ -75,7 +89,10 @@ export function metaOtpSender(opts, fetchImpl = fetch) {
     if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
     // As for every other message (metaSender above), and as OPS-03 for Jio: a 200
     // without a message id was not accepted, so the code goes by SMS instead.
-    if (!body?.messages?.[0]?.id) throw new Error('WhatsApp answered without a message id')
+    const id = body?.messages?.[0]?.id
+    if (!id) throw new Error('WhatsApp answered without a message id')
+    // INT-10: kept with the code, so a later "failed" delivery status is recognised as a login code's.
+    return id
   }
 }
 
@@ -150,7 +167,12 @@ export function metaMessenger(opts, fetchImpl = fetch) {
       signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+    if (!res.ok) {
+      const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+      // INT-12: worth one more try (chat.js deliver): Meta busy or rate limited.
+      err.retryable = res.status >= 500 || res.status === 429 || META_TEMPORARY_CODES.has(Number(body?.error?.code))
+      throw err
+    }
     return body?.messages?.[0]?.id ?? null
   }
 }

@@ -51,7 +51,20 @@ export async function cleanupReviewPhotos(at = now()) {
     [before, BATCH],
   )
   for (const row of rows) await dropPhoto(row)
-  const stale = await staleUploads(before, 100)
+  // INT-11 (24 Oct audit, PROVIDER_CHECKS): listing the Blob store is a billed operation, and
+  // every-minute runs made ~43,000 a month with nothing to find. Hourly is plenty for uploads
+  // that only count as abandoned after a day.
+  const stale = !env.PROVIDER_CHECKS || (await blobSweepDue(at)) ? await staleUploads(before, 100) : []
   for (const path of stale) await deleteUpload(path)
   return rows.length + stale.length
+}
+
+/** Claims this hour's Blob sweep (one instance, one run an hour). */
+async function blobSweepDue(at) {
+  const { rowCount } = await query(
+    `INSERT INTO maintenance_runs (step, last_ok_at) VALUES ('blob-sweep', $1)
+     ON CONFLICT (step) DO UPDATE SET last_ok_at = $1 WHERE maintenance_runs.last_ok_at IS NULL OR maintenance_runs.last_ok_at <= $2`,
+    [at, new Date(at.getTime() - HOUR_MS)],
+  )
+  return rowCount > 0
 }

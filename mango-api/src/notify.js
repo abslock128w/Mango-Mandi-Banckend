@@ -11,6 +11,7 @@ import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
+import { otpMessageFailed } from './sms.js'
 import { templateName, whatsappSender } from './whatsapp.js'
 
 const RETRY_MINUTES = [1, 5, 15, 60, 180]
@@ -206,10 +207,10 @@ async function sendBatch(sender, limit, at) {
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.gift_recipient_name, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
-            s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url,
+            s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status,
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
-            a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date,
+            a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
             COALESCE(o.customer_name, p.customer_name, ac.name) AS customer_name,
             (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
@@ -239,11 +240,33 @@ async function sendBatch(sender, limit, at) {
  * for delivery. Those are skipped, not sent late.
  */
 function staleReason(n) {
+  if (env.PROVIDER_CHECKS) {
+    const why = staleSince(n)
+    if (why) return why
+  }
   const s = n.order_status
   if (!s) return null
   if ((n.kind === 'ORDER_CONFIRMED' || n.kind === 'REPLACEMENT_CONFIRMED' || n.kind === 'DATE_MOVED') && s === 'CANCELLED') return 'order cancelled since'
   if (n.kind === 'OUT_FOR_DELIVERY' && s !== 'OUT_FOR_DELIVERY') return `order is ${s} now`
   if (n.kind === 'DELIVERY_FAILED' && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
+  return null
+}
+
+/**
+ * INT-04 (24 Oct audit, PROVIDER_CHECKS): the messages staleReason did not
+ * re-check. A ripeness guide or review request for an order cancelled since;
+ * a booking's "booked" or "moved" after it was cancelled; a "spot open" link
+ * once the spot is paid, lapsed or cancelled; back-in-stock for an alert the
+ * customer cancelled.
+ */
+function staleSince(n) {
+  const s = n.order_status
+  if ((n.kind === 'RIPENESS_GUIDE' || n.kind === 'REVIEW_REQUEST') && s === 'CANCELLED') return 'order cancelled since'
+  if (n.kind === 'REVIEW_REQUEST' && s && s !== 'DELIVERED') return `order is ${s} now`
+  const p = n.preorder_status
+  if ((n.kind === 'PREORDER_BOOKED' || n.kind === 'PREORDER_MOVED') && p === 'CANCELLED') return 'booking cancelled since'
+  if (n.kind === 'PREORDER_SPOT_OPEN' && p && p !== 'PAYMENT_PENDING') return `booking is ${p} now`
+  if (n.kind === 'BACK_IN_STOCK' && n.alert_cancelled_at) return 'alert cancelled since'
   return null
 }
 
@@ -306,6 +329,8 @@ export async function recordDeliveryStatus(st) {
       [st.id, `Not delivered: ${why}`.slice(0, 500)],
     )
     if (r.rowCount) metrics.notificationsFailed.inc({ kind: 'delivery' })
+    // INT-10: not an order update: perhaps a login code (sms.js).
+    else if (env.PROVIDER_CHECKS && (await otpMessageFailed(st.id))) return 1
     return r.rowCount
   }
   const r = await query(`UPDATE notifications SET delivery_status = $2 WHERE provider_id = $1 AND (delivery_status IS DISTINCT FROM 'read')`, [st.id, st.status])
