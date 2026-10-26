@@ -20,15 +20,16 @@ async function noA11yViolations(page: import('@playwright/test').Page) {
 }
 
 /**
- * From the home page, opens the in-stock boxes in turn (skipping the first `skip` with stock),
- * adds `boxes` of the ripeness picked on the product page and returns "Name, Ripeness".
+ * From the home page, opens the in-stock boxes in turn (skipping the product at index `avoid`),
+ * adds `boxes` of the ripeness picked on the product page and returns "Name, Ripeness" and the index used.
  */
-async function addFromProductPage(page: import('@playwright/test').Page, boxes: number, skip: number) {
+async function addFromProductPage(page: import('@playwright/test').Page, boxes: number, avoid = -1): Promise<{ name: string; index: number }> {
   await page.goto('/')
   const links = page.getByRole('region', { name: 'Pick your mangoes' }).getByRole('heading', { level: 3 }).getByRole('link')
   await expect(links.first()).toBeVisible()
   const total = await links.count()
   for (let i = 0; i < total; i++) {
+    if (i === avoid) continue
     await page.goto('/')
     await links.nth(i).click()
     await expect(page.getByRole('group', { name: 'Choose ripeness' })).toBeVisible()
@@ -43,11 +44,10 @@ async function addFromProductPage(page: import('@playwright/test').Page, boxes: 
     // A ripeness with only one box left can't take a second, so look further.
     const more = page.getByRole('button', { name: 'One box more' })
     if (boxes > 1 && (await more.isDisabled())) continue
-    if (skip-- > 0) continue
     for (let n = 1; n < boxes; n++) await more.click()
     await add.click()
     const done = await page.getByRole('status').filter({ hasText: /^Added / }).textContent()
-    return done!.match(/of (.+)\. View cart/)![1]
+    return { name: done!.match(/of (.+)\. View cart/)![1], index: i }
   }
   throw new Error('no box in stock')
 }
@@ -71,9 +71,11 @@ test('order mangoes, pay and cancel for a refund', async ({ page }, info) => {
 
   // Tapping a box opens its page, where the ripeness and count are picked. Stock differs by day, so take
   // whatever is in stock: two of one box, one of another.
-  const first = await addFromProductPage(page, 2, 0)
+  const firstPick = await addFromProductPage(page, 2)
+  const first = firstPick.name
   await noA11yViolations(page)
-  const second = await addFromProductPage(page, 1, 1)
+  // Another product, so the cart has two lines.
+  const second = (await addFromProductPage(page, 1, firstPick.index)).name
   await page.goto('/')
   await page.getByRole('link', { name: /View cart · 3 boxes/ }).click()
 
