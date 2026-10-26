@@ -200,8 +200,8 @@ export default function NeedsAttention() {
           {o.kind === 'day' ? (
             <>
               <strong>Retry has no delivery day</strong> for <Link to={`/orders/${o.id}`}>{o.number}</Link>
-              {o.reason ? <span className="muted">: {o.reason}</span> : null}. Move it to a day with room, or a manager
-              cancels it with a refund. The customer has not been sent a new date.
+              {o.reason ? <span className="muted">: {o.reason}</span> : null}. Move it to a day with room (Move retry date on the
+              order), or a manager cancels it with a refund. The customer has not been sent a new date.
             </>
           ) : (
             <>

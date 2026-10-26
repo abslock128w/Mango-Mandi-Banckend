@@ -280,6 +280,8 @@ export interface OrderDetail {
   } | null
   atRisk?: boolean
   atRiskReason?: string | null
+  /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
+  retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
   channel?: 'app' | 'whatsapp'

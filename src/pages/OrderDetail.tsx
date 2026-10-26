@@ -87,8 +87,8 @@ const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'
 /** A paid order a manager can cancel with a full refund: anything not yet delivered (mirrors MANAGER_REFUNDABLE in the API). */
 const REFUNDABLE: OrderStatus[] = [...CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 const ALLOCATABLE: OrderStatus[] = ['CONFIRMED', 'PROCESSING']
-/** 409s a manager can override with a reason: at-risk stock going out, or a retry after the last attempt. */
-const OVERRIDABLE = ['AT_RISK', 'ATTEMPTS_USED_UP']
+/** 409s a manager can override with a reason: at-risk stock going out, a retry after the last attempt, or an order sent before its day (DELIVERY_CHECKS). */
+const OVERRIDABLE = ['AT_RISK', 'ATTEMPTS_USED_UP', 'NOT_DUE_YET']
 
 /** A status move that needs a manager's reason: DELIVERED without proof, or an override of a refusal. */
 type Override = { to: OrderStatus; why: string | null }
@@ -142,6 +142,8 @@ function OrderView({ order }: { order: Order }) {
   const manager = me?.role === 'MANAGER'
   // Unpaid: any staff who can change orders cancels it. Paid: only a manager, with a full refund.
   const canCancel = changeOrder && (paid ? REFUNDABLE : CANCELLABLE).includes(order.status)
+  // A missed delivery's retry can be given another day where the API allows it (PLT-08, PLT-09, DELIVERY_CHECKS).
+  const canMove = changeOrder && (ALLOCATABLE.includes(order.status) || Boolean(order.retryDateMovable))
 
   function onActionError(err: unknown) {
     if (isStale(err)) toast.error(CONFLICT_MESSAGE)
@@ -260,9 +262,9 @@ function OrderView({ order }: { order: Order }) {
         {order.status === 'OUT_FOR_DELIVERY' && !manager && (
           <span className="muted">Record the delivery on the Deliveries page, with the customer's code or a photo.</span>
         )}
-        {changeOrder && ALLOCATABLE.includes(order.status) && (
+        {canMove && (
           <button type="button" className="btn" disabled={busy} onClick={() => setDialog('reschedule')}>
-            Move delivery date
+            {order.status === 'DELIVERY_FAILED' ? 'Move retry date' : 'Move delivery date'}
           </button>
         )}
         {canCancel &&
@@ -276,7 +278,7 @@ function OrderView({ order }: { order: Order }) {
             </button>
           ))}
         {canCancel && paid && !manager && <ManagerOnlyNote what="Cancelling a paid order" />}
-        {moves.length === 0 && !canCancel && (
+        {moves.length === 0 && !canCancel && !canMove && (
           <span className="muted">No actions available.</span>
         )}
       </div>
@@ -662,6 +664,7 @@ function OverrideDialog({ order, override, onClose, onDone }: { order: Order; ov
 
 function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
+  const retry = order.status === 'DELIVERY_FAILED'
   const [when, setWhen] = useState(order.deliveryDate > istDate(1) ? order.deliveryDate : istDate(1))
   const [slotId, setSlotId] = useState(order.slot?.id ?? '')
   const slots = useQuery({ queryKey: ['slots'], queryFn: api.slots })
@@ -683,7 +686,7 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
 
   return (
     <Dialog
-      title={`Move order ${order.number}`}
+      title={retry ? `Move the retry for ${order.number}` : `Move order ${order.number}`}
       onClose={onClose}
       footer={
         <>
@@ -698,10 +701,12 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
     >
       <form id="reschedule-form" onSubmit={onSubmit}>
         <div className="field">
-          <label htmlFor="reschedule-date">New delivery date</label>
+          <label htmlFor="reschedule-date">{retry ? 'Retry on' : 'New delivery date'}</label>
           <input id="reschedule-date" type="date" min={istDate(1)} value={when} onChange={(e) => setWhen(e.target.value)} data-autofocus />
           <p className="hint">
-            The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes.
+            {retry
+              ? 'The packed boxes stay with the order. Boxes too old for the new day are swapped for younger stock; if there is none, or the day is full, nothing changes. The customer is sent the new date.'
+              : "The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes."}
           </p>
         </div>
         {activeSlots.length > 0 && (
