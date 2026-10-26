@@ -2092,3 +2092,9 @@ tr.row-flagged td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- Gift orders to many recipients (MULTI_GIFT, docs/gifting.md) ---------- */
+
+.gift-head h2 {
+  margin: 0;
+}

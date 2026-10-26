@@ -224,6 +224,14 @@ function OrderView({ order }: { order: Order }) {
         </div>
       )}
 
+      {order.giftOrder && (
+        <div className="notice notice-info" role="status">
+          Recipient {order.giftOrder.position} of {order.giftOrder.recipients} in gift order{' '}
+          <Link to={`/orders?view=gifts&q=${encodeURIComponent(order.giftOrder.number)}`}>{order.giftOrder.number}</Link>: one payment and one bill for the
+          whole gift order.
+        </div>
+      )}
+
       {order.status === 'PAYMENT_PENDING' && (
         <div className="notice notice-warn" role="status">
           Waiting for payment… Only a verified payment confirms an order, so there is nothing to do here yet.
@@ -803,7 +811,9 @@ function BillCard({ order }: { order: Order }) {
         <p className="muted">
           {order.replacementFor
             ? "A free replacement has no bill of its own; the original order's bill stands."
-            : 'No bill yet: an order gets its numbered bill once it is paid.'}
+            : order.giftOrder
+              ? `Gift order ${order.giftOrder.number} has one bill for every recipient, on its first delivery, once it is paid.`
+              : 'No bill yet: an order gets its numbered bill once it is paid.'}
         </p>
       )}
     </section>

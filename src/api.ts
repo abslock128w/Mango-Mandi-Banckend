@@ -38,6 +38,7 @@ import type {
   NewPromo,
   OrderDetail,
   OrderListItem,
+  GiftOrderListItem,
   OrderStatus,
   PackListOrder,
   Paged,
@@ -345,6 +346,8 @@ export const api = {
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
+  /** Gift orders to many recipients with their deliveries (MULTI_GIFT; managers and operators). */
+  giftOrders: (f: { q?: string | null; page?: number }) => request<Paged<GiftOrderListItem>>('GET', `/gift-orders${qs(f)}`),
   /** The order's bill as a PDF (managers and operators; each download is in the activity log). */
   billUrl: (orderId: string) => apiBlobUrl(`/orders/${id(orderId)}/bill`),
 
