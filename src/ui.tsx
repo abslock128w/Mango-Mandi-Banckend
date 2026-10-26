@@ -625,7 +625,11 @@ export function useToast() {
   const push = useContext(ToastContext)
   return {
     success: (text: string) => push('success', text),
-    error: (err: unknown) => push('error', typeof err === 'string' ? err : errorMessage(err).message),
+    error: (err: unknown) => {
+      if (typeof err === 'string') return push('error', err)
+      const { message, cause } = errorMessage(err)
+      push('error', cause ? `${message}: ${cause}` : message)
+    },
     info: (text: string) => push('info', text),
   }
 }

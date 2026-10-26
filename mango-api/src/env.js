@@ -208,6 +208,12 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // A 500 also carries the error's text (scrubbed, short), so a local run shows the cause on screen.
+  // Never in production: there it stays in the logs and Sentry only.
+  SHOW_ERROR_DETAILS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   JIO_SMS_URL: z.string().url().optional(),
   JIO_SMS_API_KEY: z.string().optional(),
   JIO_SMS_SENDER_ID: z.string().optional(),
@@ -290,6 +296,7 @@ if (!parsed.success) {
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
 /** /v1/dev pays orders for free: never in production, never with Razorpay keys set, and only when asked for. */
+export const errorDetailsOn = () => !isProd && env.SHOW_ERROR_DETAILS
 export const devRoutesOn = () => !isProd && env.ENABLE_DEV_ROUTES && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET
 /** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
 export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV

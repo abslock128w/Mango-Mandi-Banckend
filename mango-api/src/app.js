@@ -9,7 +9,7 @@ import { router as adminRouter } from './admin.js'
 import { devRouter, router as customerRouter } from './customer.js'
 import { loadConfig } from './config.js'
 import { isDbUnavailable, isPoolTimeout, query } from './db.js'
-import { devRoutesOn, env, onVercel } from './env.js'
+import { devRoutesOn, env, errorDetailsOn, onVercel } from './env.js'
 import { HttpError } from './errors.js'
 import { clientErrorOf, EXPOSED_HEADERS, routeMethods } from './http-contract.js'
 import { logger } from './logger.js'
@@ -22,7 +22,7 @@ import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
 import { checkDatabaseEnvironment } from './migrate.js'
 import { maintenanceReady } from './readiness.js'
-import { flushErrors, reportError } from './sentry.js'
+import { flushErrors, reportError, scrubText } from './sentry.js'
 import { background } from './background.js'
 
 const RELOAD_MS = 60_000
@@ -304,7 +304,8 @@ export function createApp() {
     reportError(err, { requestId: req.id, method: req.method, path: req.path })
     // waitUntil keeps a Vercel instance alive until the event is sent (OPS-28).
     if (onVercel) background(flushErrors())
-    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
+    const detail = errorDetailsOn() ? { detail: String(scrubText(String(err?.message ?? err))).slice(0, 300) } : {}
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id, ...detail } })
   })
 
   return app

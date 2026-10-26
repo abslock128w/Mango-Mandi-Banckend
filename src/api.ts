@@ -495,14 +495,20 @@ export const api = {
 export interface ErrorInfo {
   message: string
   detail?: string
+  /** What went wrong inside the server: only from a local run (SHOW_ERROR_DETAILS). */
+  cause?: string
 }
 
 /** Turns any thrown value into display text, with the requestId for support. */
 export function errorMessage(err: unknown): ErrorInfo {
   if (err instanceof ApiError) {
+    // A local run (SHOW_ERROR_DETAILS) adds the cause of an unexpected error.
+    const cause = typeof err.extra.detail === 'string' ? err.extra.detail : null
+    const ref = err.requestId ? `Reference: ${err.requestId}` : null
     return {
       message: err.message,
-      detail: err.requestId ? `Reference: ${err.requestId}` : undefined,
+      detail: [cause, ref].filter(Boolean).join(' · ') || undefined,
+      ...(cause ? { cause } : {}),
     }
   }
   if (err instanceof TypeError) {

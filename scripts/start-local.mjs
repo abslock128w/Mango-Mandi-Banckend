@@ -48,6 +48,8 @@ export function localPlan(argv, wifiIps = []) {
     COOKIE_SECURE: 'false',
     // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopEnv).
     ENABLE_DEV_ROUTES: 'true',
+    // An unexpected error shows its cause in the panel and shop, not only in this window.
+    SHOW_ERROR_DETAILS: 'true',
     LOG_LEVEL: 'warn',
     // Box-tracked warehouse on for the local demo (it stays off unless set, as in production).
     WAREHOUSE_V2: 'true',
