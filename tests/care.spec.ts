@@ -37,12 +37,12 @@ function helpState() {
       {
         ...base, id: 'hlp_1', number: 'HLP-1', topic: 'DELIVERY', topicLabel: TOPICS.DELIVERY, status: 'OPEN', updatedAt: '2026-10-15T05:00:00Z',
         order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2026-10-16' },
-        messages: [{ id: 'hms_1', from: 'CUSTOMER', staffEmail: null, body: 'Can the box come after 6 pm?', at: '2026-10-15T05:00:00Z' }],
+        messages: [{ id: 'hms_1', from: 'CUSTOMER', staffEmail: null as string | null, body: 'Can the box come after 6 pm?', at: '2026-10-15T05:00:00Z' }],
       },
       {
         ...base, id: 'hlp_2', number: 'HLP-2', topic: 'PAYMENT', topicLabel: TOPICS.PAYMENT, status: 'RESOLVED', updatedAt: '2026-10-14T05:00:00Z', order: null,
         resolvedAt: '2026-10-14T06:00:00Z', resolvedBy: 'ops@mandimangoes.test',
-        messages: [{ id: 'hms_2', from: 'CUSTOMER', staffEmail: null, body: 'Paid twice?', at: '2026-10-14T05:00:00Z' }],
+        messages: [{ id: 'hms_2', from: 'CUSTOMER', staffEmail: null as string | null, body: 'Paid twice?', at: '2026-10-14T05:00:00Z' }],
       },
     ],
   }
@@ -91,7 +91,12 @@ async function helpMock(page: Page) {
 }
 
 function subscriptionState() {
-  const cycle = (over: Record<string, unknown>) => ({
+  type Cycle = {
+    id: string; scheduledFor: string; deliveryDate: string; slotId: string | null; status: string; note: string | null
+    order: { id: string; number: string; status: string; paymentStatus: string; holdExpiresAt: string | null } | null
+    canPay: boolean; paid: boolean; awaitingPayment: boolean
+  }
+  const cycle = (over: Partial<Cycle>): Cycle => ({
     id: 'cyc_1', scheduledFor: '2026-10-17', deliveryDate: '2026-10-17', slotId: null, status: 'DUE', note: null, order: null, canPay: true, paid: false, awaitingPayment: false, ...over,
   })
   return {
