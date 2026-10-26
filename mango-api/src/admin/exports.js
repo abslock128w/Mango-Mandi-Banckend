@@ -201,6 +201,11 @@ router.get(
     res.set('Cache-Control', 'no-store')
     let sent = 0
     let complete = false
+    let recorded = false
+    const record = () =>
+      query(`UPDATE staff_audit SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object('rows', $2::int, 'complete', $3::bool) WHERE id = $1`, [
+        auditId, sent, complete,
+      ]).catch((err) => logger.error({ err, auditId }, 'could not record the export row count'))
     try {
       if (!(await write(res, `${spec.header.map(csvCell).join(',')}\r\n`))) return
       for (;;) {
@@ -214,6 +219,9 @@ router.get(
         rows = (await query(page, [q.from, q.to, last.sort_at, last.sort_id])).rows
       }
       complete = true
+      // Recorded before the file ends, so the audit row is complete once the download is.
+      recorded = true
+      await record()
       res.end()
     } catch (err) {
       // Halfway through a file there is no way to send a JSON error: cut the download off, so it
@@ -221,9 +229,7 @@ router.get(
       logger.error({ err, kind, sent }, 'CSV export failed part way')
       res.destroy(err)
     } finally {
-      await query(`UPDATE staff_audit SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object('rows', $2::int, 'complete', $3::bool) WHERE id = $1`, [
-        auditId, sent, complete,
-      ]).catch((err) => logger.error({ err, auditId }, 'could not record the export row count'))
+      if (!recorded) await record()
     }
   }),
 )
