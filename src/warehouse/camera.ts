@@ -30,23 +30,21 @@ export const CAMERA_PROBLEM: Record<CameraProblem, string> = {
 }
 
 /**
- * Lets a code through unless it is the one last seen and was seen less than
- * `windowMs` ago. Each sighting renews the window, so a label held in front
- * of the camera is sent once, not every two seconds.
+ * Lets a code through unless that same code was seen less than `windowMs`
+ * ago. Each code keeps its own last sighting, so two labels in view at once
+ * (a box and its shelf) are each sent once, not every frame. Each sighting
+ * renews the window, so a label held in front of the camera is sent once,
+ * not every two seconds. Codes unseen for longer than the window are forgotten.
  */
 export function codeGate(windowMs = SAME_CODE_MS) {
-  let last: string | null = null
-  let seenAt = Number.NEGATIVE_INFINITY
+  const seen = new Map<string, number>()
   return (raw: string, now: number): string | null => {
     const code = raw.trim()
     if (!code) return null
-    if (code === last && now - seenAt < windowMs) {
-      seenAt = now
-      return null
-    }
-    last = code
-    seenAt = now
-    return code
+    for (const [c, at] of seen) if (now - at >= windowMs) seen.delete(c)
+    const recent = seen.has(code)
+    seen.set(code, now)
+    return recent ? null : code
   }
 }
 

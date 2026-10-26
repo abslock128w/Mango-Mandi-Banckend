@@ -30,6 +30,8 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
   const timerRef = useRef<number | undefined>(undefined)
   /** Bumped by every start and stop, so a camera that opens after a stop is closed at once. */
   const runRef = useRef(0)
+  /** True from Use camera until the camera is let go, including while the browser is still opening it. */
+  const liveRef = useRef(false)
   const onCodeRef = useRef(onCode)
   onCodeRef.current = onCode
 
@@ -42,6 +44,7 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
 
   const release = useCallback(() => {
     runRef.current++
+    liveRef.current = false
     window.clearTimeout(timerRef.current)
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
@@ -62,7 +65,8 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
   useEffect(() => release, [release])
   useEffect(() => {
     function onHide() {
-      if (document.visibilityState === 'hidden' && streamRef.current) stop('hidden')
+      // Also while the camera is still starting: the stream that arrives later is given straight back.
+      if (document.visibilityState === 'hidden' && liveRef.current) stop('hidden')
     }
     document.addEventListener('visibilitychange', onHide)
     window.addEventListener('pagehide', onHide)
@@ -77,10 +81,12 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
     setProblem(null)
     setTorchError(null)
     const env = window as unknown as CameraEnv & { BarcodeDetector?: DetectorCtor }
-    const why = await cameraSupport(env)
-    if (why) return stop(why)
     const run = runRef.current
+    liveRef.current = true
     setState('starting')
+    const why = await cameraSupport(env)
+    if (run !== runRef.current) return
+    if (why) return stop(why)
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -88,6 +94,7 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
         video: wanted ? { deviceId: { exact: wanted } } : { facingMode: { ideal: 'environment' } },
       })
     } catch (err) {
+      if (run !== runRef.current) return
       return stop(problemFrom(err))
     }
     if (run !== runRef.current) {
@@ -102,14 +109,18 @@ export function CameraScanner({ onCode }: { onCode: (code: string) => void }) {
     try {
       await video.play()
     } catch (err) {
+      if (run !== runRef.current) return
       return stop(problemFrom(err))
     }
+    // Stopped or hidden while the video started: release() has already let the camera go.
+    if (run !== runRef.current) return
     const track = stream.getVideoTracks()[0]
     const caps = (typeof track.getCapabilities === 'function' ? track.getCapabilities() : {}) as TorchCapabilities
     setTorch({ supported: caps.torch === true, on: false })
     setDeviceId(track.getSettings().deviceId ?? '')
     // Labels are readable once permission is given; the list offers a choice only when there is one.
     const devices = await navigator.mediaDevices.enumerateDevices()
+    if (run !== runRef.current) return
     setCameras(devices.filter((d) => d.kind === 'videoinput').map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` })))
     setState('on')
 
