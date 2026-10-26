@@ -9,7 +9,8 @@ import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
-import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { env } from '../env.js'
 import { enqueue } from '../notify.js'
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
@@ -102,6 +103,8 @@ export async function orderDetail(c, orderId) {
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
+    // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
+    retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
@@ -218,8 +221,15 @@ router.post(
       req.body,
     )
     await tx(async (c) => {
+      const why = `Rescheduled by ${req.admin.email}`
+      // PLT-08, PLT-09 (DELIVERY_CHECKS): a missed delivery's retry is given its day here too.
+      const { rows } = await c.query('SELECT status FROM orders WHERE id = $1', [req.params.id])
+      if (env.DELIVERY_CHECKS && rows[0]?.status === 'DELIVERY_FAILED') {
+        await moveRetryToDate(c, req.params.id, { deliveryDate, slotId, actor: req.actor, why })
+        return
+      }
       const from = await moveOrderToDate(c, req.params.id, {
-        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why: `Rescheduled by ${req.admin.email}`,
+        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why,
       })
       if (deliveryDate !== from) await enqueue(c, req.params.id, newId('mov'), 'DATE_MOVED')
     })

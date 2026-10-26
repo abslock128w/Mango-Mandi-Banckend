@@ -39,6 +39,7 @@ const onDeliveryMorning = () => setNow('2026-10-16T01:30:00Z') // 07:00 IST on 1
 const order = async (id) => (await api.get(`/admin/v1/orders/${id}`, { token: manager })).body
 const move = (id, status, extra = {}) => api.patch(`/admin/v1/orders/${id}/status`, { status, ...extra }, { token: manager })
 const rows = async (sql, params) => (await query(sql, params)).rows
+const reschedule = (id, deliveryDate) => api.post(`/admin/v1/orders/${id}/reschedule`, { deliveryDate }, { token: manager })
 
 /** A paid order, packed, with no rider yet. */
 async function packedOrder(cust, qty = 1) {
@@ -129,6 +130,29 @@ describe('PLT-08: a retry with no room in two weeks is not promised a full day s
     assert.match(listed.reason, /over capacity/)
   })
 
+  test('with DELIVERY_CHECKS: staff move the retry to a day with room; the held message goes out with that date', async () => {
+    env.DELIVERY_CHECKS = true
+    const { id } = await missedDelivery(fullFortnight)
+    assert.equal((await order(id)).retryDateMovable, true)
+    const full = await reschedule(id, addDays(TOMORROW, 3))
+    assert.equal(full.status, 409, JSON.stringify(full.body))
+    assert.equal(full.body.error.code, 'DATE_FULL')
+    const tooLate = await reschedule(id, addDays(TOMORROW, 17))
+    assert.equal(tooLate.body.error.code, 'STOCK_TOO_OLD', 'the packed boxes would be too old, and no younger stock is free')
+    assert.equal((await order(id)).deliveryDate, addDays(TOMORROW, 1), 'a refused move changes nothing')
+    // The manager finds room on the 18th.
+    const day = addDays(TOMORROW, 2)
+    await query('UPDATE delivery_calendar SET max_boxes = 10 WHERE date = $1', [day])
+    const moved = await reschedule(id, day)
+    assert.equal(moved.status, 204, JSON.stringify(moved.body))
+    const o = await order(id)
+    assert.deepEqual([o.status, o.deliveryDate], ['DELIVERY_FAILED', day])
+    assert.equal(o.stock.filter((x) => x.state === 'packed').length > 0, true, 'the packed boxes stay with the order')
+    assert.deepEqual(await failedMessage(id), { status: 'PENDING', last_error: null })
+    assert.equal((await rows(`SELECT 1 FROM notifications WHERE order_id = $1 AND kind = 'DATE_MOVED'`, [id])).length, 0, 'one message, with the real date')
+    assert.equal((await retryDecisions()).some((x) => x.id === id), false, 'no longer needs attention')
+  })
+
   test('flag off: the message promising the full day stays PENDING, and nothing lists it', async () => {
     const { id, r } = await missedDelivery(fullFortnight)
     assert.equal(r.status, 200)
@@ -152,6 +176,34 @@ describe('PLT-09: with no open day in 60 days the rider can still record the mis
     assert.equal((await rows(`SELECT 1 FROM delivery_attempts WHERE order_id = $1 AND outcome = 'FAILED'`, [id])).length, 1)
     assert.match((await failedMessage(id)).last_error, /^retry needs a day: no delivery day is open/)
     assert.equal((await retryDecisions()).find((x) => x.id === id)?.kind, 'day')
+  })
+
+  test('with DELIVERY_CHECKS: once a day is opened, staff move the retry to it and the rider takes it on that day', async () => {
+    env.DELIVERY_CHECKS = true
+    const { id } = await missedDelivery(closeTheSeason)
+    const day = addDays(TOMORROW, 2)
+    assert.equal((await reschedule(id, day)).body.error.code, 'INVALID_DATE', 'still closed')
+    await query('UPDATE delivery_calendar SET is_open = TRUE WHERE date = $1', [day])
+    const moved = await reschedule(id, day)
+    assert.equal(moved.status, 204, JSON.stringify(moved.body))
+    assert.equal((await order(id)).deliveryDate, day)
+    assert.equal((await failedMessage(id)).status, 'PENDING')
+    assert.equal((await retryDecisions()).some((x) => x.id === id), false)
+    setNow(`${day}T01:30:00Z`)
+    const run = await api.post('/admin/v1/manifest/dispatch', { date: day }, { token: rider })
+    assert.deepEqual(run.body.skipped, [])
+    assert.equal(run.body.dispatched.length, 1, JSON.stringify(run.body))
+    assert.equal((await order(id)).status, 'OUT_FOR_DELIVERY')
+  })
+
+  test('flag off: a missed order cannot be moved to another day (the old behaviour)', async () => {
+    const { id } = await missedDelivery(async () => {})
+    const o = await order(id)
+    assert.equal(o.status, 'DELIVERY_FAILED')
+    assert.equal(o.retryDateMovable, false)
+    const r = await reschedule(id, addDays(o.deliveryDate, 1))
+    assert.equal(r.status, 400)
+    assert.equal(r.body.error.code, 'INVALID_TRANSITION')
   })
 
   test('flag off: 409 NO_DELIVERY_DAY and the miss is lost (the old behaviour)', async () => {
