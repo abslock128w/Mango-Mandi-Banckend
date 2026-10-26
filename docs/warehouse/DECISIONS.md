@@ -207,3 +207,18 @@ and Dispatch from PACKED refuses with DISPATCH_BY_SCAN until a dispatch
 finalize. Returned boxes are booked with a Return scan (USE_WAREHOUSE_RETURNS
 on the old Returned stock button). A missed delivery whose boxes would be too
 old for the retry stops for a manager (as when no younger stock is free).
+
+## Warehouse next: stocktake, repack, camera (N)
+
+| # | Decision | Confirm |
+|---|---|---|
+| N1 | Supervisors (OPERATOR) may repack, split, merge and record partial damage (`warehouse.repack`), as they may count and write off. | yes |
+| N2 | The person who counted may also review the count below the D8 limit (both need `warehouse.stocktake`); above it a second person with `adjust.approve`, who neither counted nor reviewed, decides. | yes |
+| N3 | A count marks nothing missing by itself: not-found boxes wait for a review. A box picked, packed or returned but not found can only be kept (take it off its order, or write it off). | yes |
+| N4 | A review applies to a box only if nothing changed since the count (version, lifecycle and place); otherwise that box is `superseded` and left alone. Boxes changed by someone else during the count are ignored. | no |
+| N5 | A box scanned in a count that is recorded dispatched, written off, voided, repacked or never received gets an investigation hold; nothing else changes. | yes |
+| N6 | New boxes from a repack need QC again when the product requires QC or any source had not passed; recall and investigation holds follow the fruit; damage and QC holds are what the repack deals with. | yes |
+| N7 | Repacks happen at receiving, QC hold, packing or returns places, never on a storage shelf, so new boxes are not sellable until put away. | yes |
+| N8 | New boxes live on the lot and stock line of their oldest source (earliest best-before, so FEFO holds), numbered above 1,000,000 and excluded from intake counts, and link every lot they contain in `box_origins`. | no |
+| N9 | Camera scanning uses the browser's BarcodeDetector only; no JavaScript QR decoder is bundled. Warehouse phones are Android Chrome (which has it) and hand scanners stay the main tool; a decoder would add bundle weight and a dependency for a fallback. Revisit if iPhones are used on the floor. | yes |
+| N10 | Each part has its own flag, default off: `WAREHOUSE_STOCKTAKE`, `WAREHOUSE_REPACK`, `WAREHOUSE_CAMERA_SCAN` (on top of `WAREHOUSE_V2`). | no |

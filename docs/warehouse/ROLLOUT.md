@@ -41,6 +41,19 @@ panel hides the area. Checkout and the order flow are unchanged.
 
 Set `WAREHOUSE_V2=true` and redeploy. Turn tracking on product by product.
 
+## Stocktake, repack and camera scanning (migration 037)
+
+Migration 037 only adds two session types (NOT VALID check), four tables and
+one index; the previous release never uses them. Then, each on its own:
+
+- `WAREHOUSE_STOCKTAKE=true`: Warehouse → Stocktake, count sessions, review.
+- `WAREHOUSE_REPACK=true`: Warehouse → Repack, repack sessions, partial damage.
+- `WAREHOUSE_CAMERA_SCAN=true`: Use camera on the scan screens (needs https).
+
+All three default to off. Rollback of 037: `docs/warehouse/ROLLBACK_037.sql`
+(flags off first; keeps boxes and events, drops the review, repack and
+lineage records).
+
 ## Turning it off
 
 - One product: switch its tracking off. Its counters stay where they are and
