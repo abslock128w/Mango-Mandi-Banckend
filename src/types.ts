@@ -16,7 +16,16 @@ export interface Me {
   warehouse?: { enabled: boolean; permissions: string[] }
   /** Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view
    *  (docs/app-feel.md). An older API leaves a field out, which means off. The role still decides who may use them. */
-  features?: { bills?: boolean; customerProfiles?: boolean; exports?: boolean; riderRoute?: boolean }
+  features?: {
+    bills?: boolean
+    customerProfiles?: boolean
+    exports?: boolean
+    riderRoute?: boolean
+    /** Growth (docs/growth.md), managers only: the Referrals view, the funnel on Analytics, the evening summary. */
+    referrals?: boolean
+    funnelAnalytics?: boolean
+    managerDailySummary?: boolean
+  }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -880,6 +889,8 @@ export interface StaffMember {
   role: Role
   createdAt: string
   twoStep?: boolean
+  /** A manager who gets the evening WhatsApp summary (MANAGER_DAILY_SUMMARY). */
+  dailySummary?: boolean
   /** Only when the person is added: the one-time code they need to set up two-step sign-in. */
   setupCode?: string
 }
@@ -995,4 +1006,79 @@ export interface BulkEvent {
   changes: Record<string, unknown>
   by: string | null
   at: string
+}
+
+// ---------------------------------------------------------------- growth (docs/growth.md)
+
+export type ReferralStatus = 'PENDING' | 'REWARDED' | 'VOID'
+/** One person in a referral: name and a masked phone. */
+export interface ReferralPerson {
+  id: string
+  name: string | null
+  phone: string | null
+}
+export interface Referral {
+  id: string
+  code: string
+  status: ReferralStatus
+  /** Why it ended without a reward, in words. */
+  reason: string | null
+  /** The friend got their thank-you, the referrer did not: over the monthly cap. */
+  referrerCapped: boolean
+  createdAt: string
+  settledAt: string | null
+  referrer: ReferralPerson
+  friend: ReferralPerson
+  /** The friend's first paid order, once there is one. */
+  order: { id: string; number: string } | null
+  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; amount: number; used: boolean }[]
+}
+export interface ReferralList {
+  counts: Record<ReferralStatus, number>
+  rules: { rewardRupees: number; minOrderRupees: number; maxPerMonth: number }
+  items: Referral[]
+}
+
+export type FunnelStep = 'visit' | 'product_view' | 'add_to_cart' | 'checkout_start' | 'paid'
+export interface FunnelRow {
+  day: string | null
+  counts: Record<FunnelStep, number>
+  /** From a visit to each step, in percent (one decimal); null with no visits. */
+  conversion: Record<FunnelStep, number | null>
+  /** From the step before. */
+  stepConversion: Partial<Record<FunnelStep, number | null>>
+}
+export interface Funnel {
+  from: string
+  to: string
+  steps: FunnelStep[]
+  days: FunnelRow[]
+  totals: FunnelRow
+}
+
+export interface DailySummarySetting {
+  optedIn: boolean
+  /** Masked. */
+  phone: string | null
+  /** IST, HH:MM. */
+  time: string
+}
+export interface DailySummaryPreview {
+  day: string
+  numbers: {
+    orders: number
+    revenue: number
+    boxesDelivered: number
+    boxesFailed: number
+    newClaims: number
+    unhappyRatings: number
+    needsAttention: number
+  }
+  /** The message as it would read now. */
+  text: string
+  sendsAt: string
+  /** Managers who opted in with a number. */
+  recipients: number
+  /** Summaries already queued today. */
+  sentToday: number
 }

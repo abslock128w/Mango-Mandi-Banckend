@@ -111,6 +111,28 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Growth (docs/growth.md). Each is off unless set, so each can be rolled back on its own.
+  // REFERRALS: each customer's referral code and share link on the Account page; a new customer
+  // enters a friend's code once, and both get a one-time promo code once the friend's first order
+  // is delivered. Needs the Meta template mandi_referral_reward before it is turned on.
+  REFERRALS: flag(),
+  // The thank-you each side gets (a flat amount off a later order of regular boxes), and the
+  // smallest first order (regular boxes, before any discount) that earns it. Rupees.
+  REFERRAL_REWARD_RUPEES: z.coerce.number().int().min(1).max(5000).default(100),
+  REFERRAL_MIN_ORDER_RUPEES: z.coerce.number().int().min(1).max(100_000).default(499),
+  // Thank-yous one referrer may get in a calendar month (IST); friends past it still get theirs.
+  REFERRAL_MAX_PER_MONTH: z.coerce.number().int().min(1).max(1000).default(10),
+  // FUNNEL_ANALYTICS: the shop sends anonymous steps (visit, product view, add to cart, checkout
+  // start) with a random per-browser id; "paid" is recorded by the API when a payment is captured.
+  // Off: the events endpoint answers 204 and stores nothing.
+  FUNNEL_ANALYTICS: flag(),
+  // MANAGER_DAILY_SUMMARY: each evening every opted-in manager gets the day's numbers on WhatsApp
+  // (template MANAGER_SUMMARY_TEMPLATE, which Meta must approve first).
+  MANAGER_DAILY_SUMMARY: flag(),
+  // When the summary goes, IST, HH:MM.
+  MANAGER_SUMMARY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM, 24-hour, IST').default('20:00'),
+  // The approved Meta template's full name (no prefix is added).
+  MANAGER_SUMMARY_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/).default('mandimangoes_daily_summary'),
   // Stocktake (cycle count) sessions and their review (docs/warehouse/STOCKTAKE.md). Needs WAREHOUSE_V2.
   WAREHOUSE_STOCKTAKE: z
     .enum(['true', 'false'])

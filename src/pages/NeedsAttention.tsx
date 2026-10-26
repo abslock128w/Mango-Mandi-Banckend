@@ -31,6 +31,9 @@ const STEP_LABEL: Record<string, string> = {
   'stock-alerts': 'Sending back-in-stock alerts',
   reminders: 'Sending reorder reminders',
   retention: 'Removing old personal data',
+  'funnel-retention': 'Shop funnel daily totals and clean-up',
+  referrals: 'Issuing referral thank-you codes',
+  'manager-summary': "Queueing the managers' evening summary",
   rebalance: 'Re-checking an order',
   health: 'Health check',
 }

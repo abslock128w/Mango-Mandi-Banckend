@@ -38,6 +38,8 @@ import { customerBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
 import { trust } from './trust-config.js'
 import { appFeel } from './app-feel-routes.js'
+import { BROWSER_ID, rememberCheckout } from './funnel.js'
+import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
 import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
@@ -365,6 +367,9 @@ router.get('/policy', (_req, res) => {
       tracking: env.LIVE_TRACKING,
       favourites: env.FAVOURITES,
       sortFilter: env.SHOP_SORT_FILTER,
+      // Growth (docs/growth.md): refer a friend on the Account page and at checkout, and the anonymous funnel steps.
+      referrals: env.REFERRALS,
+      funnel: env.FUNNEL_ANALYTICS,
     },
   })
 })
@@ -420,6 +425,8 @@ router.get(
 
 // Bulk Deals: the catalogue and its photos are public.
 router.use(publicBulk)
+// POST /events: the shop's anonymous funnel steps (FUNNEL_ANALYTICS), before the sign-in gate.
+router.use(growthPublic)
 
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
@@ -430,6 +437,8 @@ router.use(customerReviews)
 router.use(customerBills)
 // Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
 router.use(appFeel)
+// /me/referral...: refer a friend (REFERRALS, docs/growth.md).
+router.use(growthMe)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -875,6 +884,8 @@ router.post(
           .nullable(),
         // Optional: a business buying, printed on the bill (BILLS_ENABLED). The GSTIN's check character is verified.
         business: businessSchema.optional().nullable(),
+        // FUNNEL_ANALYTICS: the shop's random per-browser id, so "paid" can be counted for it when the payment is captured.
+        funnelId: z.string().regex(BROWSER_ID).optional().nullable(),
       }),
       req.body,
     )
@@ -927,6 +938,7 @@ router.post(
         req.actor,
       )
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
+      if (b.funnelId) await rememberCheckout(c, created.id, b.funnelId)
       if (b.business) {
         await c.query('UPDATE orders SET buyer_business_name = $2, buyer_gstin = $3 WHERE id = $1', [created.id, b.business.name, b.business.gstin])
       }

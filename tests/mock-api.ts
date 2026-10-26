@@ -18,6 +18,8 @@ export interface MockOptions {
    * or required and set-up needs a manager's setup code (k7qd-2mxp).
    */
   twoStep?: 'on' | 'required' | 'required-with-code'
+  /** Switches /auth/me reports on (docs/growth.md and others). Left out, /auth/me sends no features. */
+  features?: Record<string, boolean>
 }
 
 const json = (route: Route, status: number, body?: unknown) =>
@@ -280,6 +282,45 @@ export type MockState = ReturnType<typeof seed> & {
   role: Role
   twoStep: { enabled: boolean; required: boolean; setupCodeNeeded: boolean }
   calls: { method: string; path: string; body: unknown }[]
+  features: Record<string, boolean> | null
+  growth: ReturnType<typeof growthSeed>
+}
+
+/** Growth (docs/growth.md): referrals, the shop funnel and the evening summary. Phones arrive masked. */
+function growthSeed() {
+  return {
+    referrals: [
+      {
+        id: 'ref1', code: 'K7QD2MXP', status: 'REWARDED' as const, reason: null, referrerCapped: false, createdAt: '2026-10-10T06:00:00Z', settledAt: '2026-10-14T12:00:00Z',
+        referrer: { id: 'cus1', name: 'Meera Iyer', phone: '+919876••••10' }, friend: { id: 'cus7', name: 'Kavya Rao', phone: '+919000••••01' },
+        order: { id: 'o1', number: 'ORD-1044' },
+        rewards: [
+          { role: 'FRIEND' as const, code: 'TYAB12CD34', amount: 10000, used: false },
+          { role: 'REFERRER' as const, code: 'TYEF56GH78', amount: 10000, used: true },
+        ],
+      },
+      {
+        id: 'ref2', code: 'K7QD2MXP', status: 'VOID' as const, reason: 'The first order was cancelled', referrerCapped: false, createdAt: '2026-10-12T06:00:00Z', settledAt: '2026-10-13T06:00:00Z',
+        referrer: { id: 'cus1', name: 'Meera Iyer', phone: '+919876••••10' }, friend: { id: 'cus8', name: 'Arjun Shah', phone: '+919811••••22' },
+        order: null, rewards: [],
+      },
+      {
+        id: 'ref3', code: 'P4RT9WXY', status: 'PENDING' as const, reason: null, referrerCapped: false, createdAt: '2026-10-16T06:00:00Z', settledAt: null,
+        referrer: { id: 'cus2', name: 'Ravi Kumar', phone: '+919822••••33' }, friend: { id: 'cus9', name: null, phone: '+919833••••44' },
+        order: null, rewards: [],
+      },
+    ],
+    funnel: {
+      from: '2026-10-15', to: '2026-10-16',
+      steps: ['visit', 'product_view', 'add_to_cart', 'checkout_start', 'paid'],
+      days: [
+        { day: '2026-10-15', counts: { visit: 100, product_view: 60, add_to_cart: 20, checkout_start: 10, paid: 5 }, conversion: { visit: 100, product_view: 60, add_to_cart: 20, checkout_start: 10, paid: 5 }, stepConversion: { product_view: 60, add_to_cart: 33.3, checkout_start: 50, paid: 50 } },
+        { day: '2026-10-16', counts: { visit: 50, product_view: 25, add_to_cart: 10, checkout_start: 4, paid: 2 }, conversion: { visit: 100, product_view: 50, add_to_cart: 20, checkout_start: 8, paid: 4 }, stepConversion: { product_view: 50, add_to_cart: 40, checkout_start: 40, paid: 50 } },
+      ],
+      totals: { day: null, counts: { visit: 150, product_view: 85, add_to_cart: 30, checkout_start: 14, paid: 7 }, conversion: { visit: 100, product_view: 56.7, add_to_cart: 20, checkout_start: 9.3, paid: 4.7 }, stepConversion: { product_view: 56.7, add_to_cart: 35.3, checkout_start: 46.7, paid: 50 } },
+    },
+    summary: { optedIn: false, phone: null as string | null, time: '20:00' },
+  }
 }
 
 /** Routes every /admin/v1 call to the mock. Returns the mutable state and call log. */
@@ -294,6 +335,8 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       setupCodeNeeded: opts.twoStep === 'required-with-code',
     },
     calls: [],
+    features: opts.features ?? null,
+    growth: growthSeed(),
   }
 
   // Product photos are served by the customer API (public).
@@ -336,7 +379,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return route.fulfill({ status: 204 })
     }
     if (!state.signedIn) return json(route, 401, { error: { code: 'UNAUTHORIZED', message: 'Unauthorized', requestId: 'req_z' } })
-    if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role, twoStep: state.twoStep })
+    if (path === '/auth/me') return json(route, 200, { email: EMAIL[state.role], role: state.role, twoStep: state.twoStep, ...(state.features ? { features: state.features } : {}) })
     if (path === '/me/two-step/setup' && state.twoStep.setupCodeNeeded && (body as { setupCode?: string })?.setupCode !== 'k7qd-2mxp') {
       return json(route, 422, { error: { code: 'WRONG_SETUP_CODE', message: 'That setup code is not right, or it has expired. Ask a manager for a new one.', requestId: 'req_c' } })
     }
@@ -566,6 +609,55 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, 200, { outcome: b.outcome })
     }
     if (path === '/analytics') return json(route, 200, state.analytics)
+    // Growth (src/admin/growth.js): managers only, 404 while the switch is off.
+    const growthGate = (flag: string) =>
+      !state.features?.[flag]
+        ? json(route, 404, { error: { code: 'NOT_FOUND', message: 'Not found', requestId: 'req_g' } })
+        : state.role !== 'MANAGER'
+          ? json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+          : null
+    if (path === '/referrals') {
+      const gate = growthGate('referrals')
+      if (gate) return gate
+      const status = url.searchParams.get('status')
+      const all = state.growth.referrals
+      const counts = { PENDING: 0, REWARDED: 0, VOID: 0 }
+      for (const r of all) counts[r.status]++
+      return json(route, 200, { counts, rules: { rewardRupees: 100, minOrderRupees: 499, maxPerMonth: 10 }, items: status ? all.filter((r) => r.status === status) : all })
+    }
+    if (path === '/analytics/funnel') {
+      const gate = growthGate('funnelAnalytics')
+      if (gate) return gate
+      const from = url.searchParams.get('from') ?? state.growth.funnel.from
+      const to = url.searchParams.get('to') ?? state.growth.funnel.to
+      return json(route, 200, { ...state.growth.funnel, from, to, days: state.growth.funnel.days.filter((d) => d.day >= from && d.day <= to) })
+    }
+    if (path === '/me/daily-summary') {
+      const gate = growthGate('managerDailySummary')
+      if (gate) return gate
+      if (method === 'PUT') {
+        const b = body as { optedIn: boolean; phone?: string }
+        const digits = b.phone?.replace(/\D/g, '').slice(-10)
+        if (b.phone !== undefined && !/^[6-9]\d{9}$/.test(digits ?? '')) return json(route, 400, { error: { code: 'VALIDATION', message: 'Enter a 10-digit Indian mobile number', requestId: 'req_v' } })
+        const phone = digits ? `+91${digits.slice(0, 4)}••••${digits.slice(-2)}` : state.growth.summary.phone
+        if (b.optedIn && !phone) return json(route, 400, { error: { code: 'PHONE_REQUIRED', message: 'Enter the WhatsApp number to send the summary to', requestId: 'req_v' } })
+        state.growth.summary = { ...state.growth.summary, optedIn: b.optedIn, phone }
+        state.staff = state.staff.map((x) => (x.email === EMAIL[state.role] ? { ...x, dailySummary: b.optedIn } : x))
+      }
+      return json(route, 200, state.growth.summary)
+    }
+    if (path === '/daily-summary/preview') {
+      const gate = growthGate('managerDailySummary')
+      if (gate) return gate
+      return json(route, 200, {
+        day: '2026-10-16',
+        numbers: { orders: 12, revenue: 1080000, boxesDelivered: 9, boxesFailed: 1, newClaims: 2, unhappyRatings: 1, needsAttention: 3 },
+        text: 'MandiMangoes, 16 October 2026\nOrders: 12 (₹10,800)\nBoxes delivered: 9, failed: 1\nNew claims: 2\nUnhappy ratings: 1\nNeeds attention: 3',
+        sendsAt: '20:00',
+        recipients: state.growth.summary.optedIn ? 1 : 0,
+        sentToday: 0,
+      })
+    }
     if (path === '/claims') return json(route, 200, state.claims)
     if (/^\/claims\/[^/]+\/photos\/[^/]+$/.test(path)) return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     if (/^\/claims\/[^/]+\/(review|resolve)$/.test(path)) return route.fulfill({ status: 204 })

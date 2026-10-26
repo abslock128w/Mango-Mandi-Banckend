@@ -63,6 +63,11 @@ export function localPlan(argv, wifiIps = []) {
     LIVE_TRACKING: 'true',
     FAVOURITES: 'true',
     SHOP_SORT_FILTER: 'true',
+    // Growth (docs/growth.md): refer a friend, the shop funnel and the managers' evening summary. Messages
+    // go to the log provider here (no WhatsApp keys locally).
+    REFERRALS: 'true',
+    FUNNEL_ANALYTICS: 'true',
+    MANAGER_DAILY_SUMMARY: 'true',
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.

@@ -79,6 +79,23 @@ export interface ShopFeatures {
   favourites: boolean
   /** Sort and filter controls on the home page. */
   sortFilter: boolean
+  /** Refer a friend on the Account page and at checkout (docs/growth.md). */
+  referrals?: boolean
+  /** Anonymous funnel steps: visit, box viewed, added to cart, checkout started (docs/growth.md). */
+  funnel?: boolean
+}
+/** My refer-a-friend state (GET /v1/me/referral). Amounts in paise except the two rupee rules. */
+export interface ReferralView {
+  /** Null until the account has a phone number. */
+  code: string | null
+  shareUrl: string | null
+  rewardRupees: number
+  minOrderRupees: number
+  /** A new customer who has not entered a code yet. */
+  canEnterCode: boolean
+  entered: { status: 'PENDING' | 'REWARDED' | 'VOID'; reason: string | null; at: string } | null
+  friends: { pending: number; rewarded: number }
+  rewards: { code: string; amount: number; minSubtotal: number; endsOn: string | null; for: string; state: 'READY' | 'USED' | 'EXPIRED' }[]
 }
 /** A hearted box (GET /v1/me/favourites). */
 export interface Favourite {
@@ -680,6 +697,8 @@ export const api = {
   /** The hearts a guest made on this device, sent once after signing in. */
   mergeFavourites: (skus: string[]) => request<FavouriteList & { ignored: string[] }>('POST', '/me/favourites/merge', { skus }),
   /** A copy of everything the shop holds about the customer, as JSON. */
+  referral: () => request<ReferralView>('GET', '/me/referral'),
+  applyReferral: (code: string) => request<ReferralView>('POST', '/me/referral/apply', { code }),
   exportData: () => request<Record<string, unknown>>('GET', '/me/export'),
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
@@ -698,7 +717,10 @@ export const api = {
   bulkPrice: (dealId: string, qty: number) => raw<BulkPrice>('GET', `/bulk-deals/${id(dealId)}/price${qs({ qty: String(qty) })}`),
   setCartLine: (sku: string, stage: Stage, qty: number) => request<void>('POST', '/cart/items', { sku, stage, qty }),
   quote: (input: { pincode: string; deliveryDate: string; slotId: string | null; promoCode?: string | null }) => request<Quote>('POST', '/checkout/quote', input),
-  confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null; business?: BusinessDetails | null }, idempotencyKey: string) =>
+  confirm: (
+    input: { quoteId: string; address: string; name?: string; gift?: Gift | null; business?: BusinessDetails | null; funnelId?: string },
+    idempotencyKey: string,
+  ) =>
     request<Confirmed>('POST', '/checkout/confirm', input, { 'Idempotency-Key': idempotencyKey }),
 
   orders: () => request<OrderSummary[]>('GET', '/orders'),

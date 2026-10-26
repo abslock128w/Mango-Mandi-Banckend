@@ -132,7 +132,13 @@ const POLICY = object<ShopPolicy>({
   holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int',
   bills: optional('boolean'),
   // App feel switches (docs/app-feel.md).
-  features: optional(object<ShopFeatures>({ installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean' })),
+  features: optional(
+    object<ShopFeatures>({
+      installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean',
+      // Growth switches (docs/growth.md).
+      referrals: optional('boolean'), funnel: optional('boolean'),
+    }),
+  ),
 })
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })

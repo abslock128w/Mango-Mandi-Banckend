@@ -40,6 +40,8 @@ const TEXT = {
   DELIVERY_FAILED_NO_RETRY: 'We missed you: MandiMangoes will be in touch about your order',
   DATE_MOVED: 'Your MandiMangoes order has a new delivery day',
   CANCELLED: 'Your MandiMangoes order was cancelled',
+  // REFERRALS (docs/growth.md): not about an order. The code itself is on the Account page, not on the lock screen.
+  REFERRAL_REWARD: 'You have a MandiMangoes thank-you code: see your Account page',
 }
 
 /** Push is on: the flag, and keys when it really sends. */
@@ -52,6 +54,7 @@ export const pushPublicKey = () => (pushOn() ? env.VAPID_PUBLIC_KEY || null : nu
 export function payloadFor(kind, orderId) {
   const text = TEXT[kind]
   if (!text) return null
+  if (kind === 'REFERRAL_REWARD') return { title: 'MandiMangoes', body: text, url: '/account', tag: 'referral' }
   return { title: 'MandiMangoes', body: text, url: `/orders/${encodeURIComponent(orderId)}`, tag: `order-${orderId}` }
 }
 
@@ -144,6 +147,21 @@ export async function enqueueOrderPush(c, orderId, eventId, kind) {
       WHERE o.id = $2 AND o.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.customer_id = o.customer_id)
      ON CONFLICT (event_id, kind) DO NOTHING`,
     [newId('psh'), orderId, eventId, kind, at],
+  )
+}
+
+/**
+ * A push about the customer's account rather than an order (a referral thank-you, REFERRALS), in
+ * the caller's transaction. Queued only when push is on and the customer has a browser with it on.
+ */
+export async function enqueueCustomerPush(c, customerId, eventId, kind) {
+  if (!pushOn() || kind !== 'REFERRAL_REWARD') return
+  const at = now()
+  await c.query(
+    `INSERT INTO push_messages (id, customer_id, event_id, kind, next_attempt_at, created_at)
+     SELECT $1, $2, $3, $4, $5, $5 WHERE EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.customer_id = $2)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('psh'), customerId, eventId, kind, at],
   )
 }
 

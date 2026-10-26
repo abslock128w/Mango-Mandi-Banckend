@@ -3,7 +3,9 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { rupees } from '../format'
+import { useSession } from '../session'
 import type { NewPromo, Promo } from '../types'
+import { ReferralsSection } from './Referrals'
 import { Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 export function promoText(p: Pick<Promo, 'kind' | 'value' | 'maxDiscount'>): string {
@@ -27,6 +29,8 @@ export default function Promos() {
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['promos'], queryFn: api.promos })
   const [adding, setAdding] = useState(false)
+  const { me } = useSession()
+  const showReferrals = me?.role === 'MANAGER' && Boolean(me.features?.referrals)
   const toggle = useMutation({
     mutationFn: (p: Promo) => api.updatePromo(p.code, { active: !p.active }),
     onSuccess: (p) => {
@@ -97,6 +101,7 @@ export default function Promos() {
         )}
         <p className="small muted">"Used" counts orders that are not cancelled. "Given" is the discount on paid orders.</p>
       </section>
+      {showReferrals && <ReferralsSection />}
       {adding && <AddPromo onClose={() => setAdding(false)} onDone={() => void queryClient.invalidateQueries({ queryKey: ['promos'] })} />}
     </>
   )

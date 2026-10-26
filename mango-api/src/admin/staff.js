@@ -17,7 +17,11 @@ export const router = express.Router()
 
 // ---------------------------------------------------------------- staff
 
-const staffDto = (u) => ({ id: u.id, email: u.email, role: u.role, createdAt: u.created_at, twoStep: Boolean(u.totp_enabled_at) })
+const staffDto = (u) => ({
+  id: u.id, email: u.email, role: u.role, createdAt: u.created_at, twoStep: Boolean(u.totp_enabled_at),
+  // MANAGER_DAILY_SUMMARY (docs/growth.md): whether this manager gets the evening summary. The number stays with them.
+  dailySummary: Boolean(u.daily_summary_opt_in),
+})
 // SEC-09: 12 characters at least, and not a common password (src/passwords.js).
 const password = staffPassword
 
@@ -47,7 +51,7 @@ async function keepATwoStepManager(c, targetId, { lock = false } = {}) {
 router.get(
   '/staff',
   requireManager,
-  asyncHandler(async (_req, res) => res.json((await query('SELECT id, email, role, created_at, totp_enabled_at FROM admin_users ORDER BY email')).rows.map(staffDto))),
+  asyncHandler(async (_req, res) => res.json((await query('SELECT id, email, role, created_at, totp_enabled_at, daily_summary_opt_in FROM admin_users ORDER BY email')).rows.map(staffDto))),
 )
 
 router.post(
