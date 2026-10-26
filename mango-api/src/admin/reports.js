@@ -7,6 +7,7 @@ import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
 import { photoReviews } from '../delivery-proof.js'
 import { query } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
 import { auditLedger, SELLABLE_STATUSES } from '../inventory.js'
 import { backupStatus } from '../maintenance.js'
@@ -100,10 +101,12 @@ router.get(
     const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes] = await Promise.all([
       query('SELECT * FROM maintenance_runs ORDER BY step'),
       query(
-        `SELECT n.id, n.kind, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
+        `SELECT n.id, n.kind, n.status, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
            FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
-          WHERE n.status = 'FAILED' AND n.created_at >= $1 ORDER BY n.created_at DESC LIMIT 50`,
-        [week],
+          WHERE (n.status = 'FAILED' OR ($2 AND n.status = 'SKIPPED' AND n.last_error IN ('older than a day', 'no WhatsApp provider configured')))
+            AND n.created_at >= $1 ORDER BY n.created_at DESC LIMIT 50`,
+        // INT-06 (OPS_ALERTS): messages dropped unsent are listed too, so staff can send the ones that matter.
+        [week, env.OPS_ALERTS],
       ),
       query(
         `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id, 'unsent' AS state FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
@@ -184,7 +187,7 @@ router.get(
       },
       backup,
       failedMessages: failed.rows.map((n) => ({
-        id: n.id, kind: n.kind, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
+        id: n.id, kind: n.kind, status: n.status, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
         order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
       })),
       // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent.

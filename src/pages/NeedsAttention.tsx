@@ -32,6 +32,13 @@ const STEP_LABEL: Record<string, string> = {
   health: 'Health check',
 }
 
+/** Why a message was dropped unsent, in staff words (INT-06). */
+function skippedWhy(error: string): string {
+  if (error === 'older than a day') return 'it waited over a day, so the background run was not sending. Send it again if it still matters'
+  if (error === 'no WhatsApp provider configured') return 'no WhatsApp provider is set up on the server'
+  return error
+}
+
 /** Shared with Today, which starts this query together with the summary. */
 export const attentionQuery = { queryKey: ['attention'], queryFn: api.attention, refetchInterval: 60_000 } as const
 
@@ -272,9 +279,10 @@ export default function NeedsAttention() {
     { key: 'photos', title: 'Photo deliveries to check', items: photos.map(photoItem) },
     { key: 'messages', title: 'WhatsApp messages not delivered', items: a.failedMessages.map((m) => (
       <li key={m.id}>
-        <strong>WhatsApp message not delivered</strong> ({(NOTIFICATION_LABEL[m.kind as NotificationKind] ?? humanize(m.kind)).toLowerCase()}) for{' '}
-        {m.order ? <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link> : (m.preorderNumber ?? m.phone)} after {m.attempts} tries
-        {m.error ? <span className="muted">: {m.error}</span> : null}{' '}
+        <strong>{m.status === 'SKIPPED' ? 'WhatsApp message never sent' : 'WhatsApp message not delivered'}</strong> ({(NOTIFICATION_LABEL[m.kind as NotificationKind] ?? humanize(m.kind)).toLowerCase()}) for{' '}
+        {m.order ? <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link> : (m.preorderNumber ?? m.phone)}
+        {m.status === 'SKIPPED' ? null : ` after ${m.attempts} tries`}
+        {m.error ? <span className="muted">: {m.status === 'SKIPPED' ? skippedWhy(m.error) : m.error}</span> : null}{' '}
         <button type="button" className="btn btn-small" disabled={retry.isPending} onClick={() => retry.mutate(m.id)}>
           Send again<span className="sr-only"> for {m.order?.number ?? m.preorderNumber ?? 'this customer'}</span>
         </button>

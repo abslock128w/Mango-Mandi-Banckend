@@ -21,6 +21,7 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreor
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
+import { reportProblem } from './sentry.js'
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
 const STATUS_WORDS = {
@@ -720,6 +721,8 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
               `WhatsApp payment ${st.payment.transaction?.id ?? '(no id)'} captured for reference ${String(st.payment.reference_id).slice(0, 60)}, which matches no order`,
               st.id ?? st.payment.transaction?.id ?? null,
             )
+            // INT-08 (OPS_ALERTS): money taken for no order reaches a person at once, not only the panel.
+            if (env.OPS_ALERTS) reportProblem('A WhatsApp payment was captured for no order: see Needs attention', { paymentId: st.payment.transaction?.id ?? null })
           }
         }
       }

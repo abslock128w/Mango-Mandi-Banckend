@@ -273,7 +273,8 @@ function staleSince(n) {
 /** Sends one claimed message and records the outcome. Returns true when sent. */
 async function sendOne(n, sender, at) {
   if (at - n.created_at > MAX_AGE_MS) {
-    await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day' })
+    // OPS_ALERTS: next_attempt_at records when it was given up, for checkHealth (INT-06).
+    await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
     return false
   }
   const stale = staleReason(n)
@@ -284,7 +285,7 @@ async function sendOne(n, sender, at) {
   if (!sender) {
     if (isProd) {
       logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
-      await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured' })
+      await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
       return false
     }
     logger.info({ phone: maskPhone(n.phone), kind: n.kind, params: paramsFor(n), orderLink: orderLinkFor(n) }, `WhatsApp ${templateFor(n.kind)}`)

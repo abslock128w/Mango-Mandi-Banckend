@@ -591,6 +591,8 @@ export interface Attention {
   failedMessages: {
     id: string
     kind: string
+    /** SKIPPED: dropped unsent (waited over a day, or no WhatsApp provider set); absent from older servers. */
+    status?: 'FAILED' | 'SKIPPED'
     phone: string | null
     error: string | null
     attempts: number
