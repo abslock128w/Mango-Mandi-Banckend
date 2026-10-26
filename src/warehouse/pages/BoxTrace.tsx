@@ -60,6 +60,32 @@ export default function BoxTrace() {
               </div>
             )}
           </dl>
+          {t.origins && t.origins.length > 1 && (
+            <>
+              <h3>Every delivery batch in this box</h3>
+              <ul className="plain-list small" aria-label="Delivery batches in this box">
+                {t.origins.map((o) => (
+                  <li key={o.lotId}>
+                    <Link to={`/warehouse/lots/${o.lotId}/trace`}>{o.lotCode}</Link>
+                    {[o.supplier, o.variety && o.pluckedOn ? `${o.variety}, plucked ${date(o.pluckedOn)}` : o.variety, o.farm].filter(Boolean).map((x) => ` · ${x}`)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {t.descendants && t.descendants.length > 0 && (
+            <>
+              <h3>Repacked into</h3>
+              <ul className="plain-list small" aria-label="Boxes this was repacked into">
+                {t.descendants.map((d) => (
+                  <li key={d.id}>
+                    <Link to={`/warehouse/boxes/${d.id}/trace`}>{d.code}</Link> · {LIFECYCLE_LABEL[d.lifecycle] ?? d.lifecycle}
+                    {d.depth > 1 ? ` · ${d.depth} repacks on` : ''}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {t.parents.length > 0 && (
             <>
               <h3>Repacked from</h3>

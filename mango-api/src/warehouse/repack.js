@@ -278,7 +278,7 @@ export async function getRepack(c, opId, who) {
     [r.output_box_ids],
   )).rows : []
   return {
-    id: op.id, status: op.status, kind: r?.kind ?? null, locationName: op.context.locationName, reasonCode: op.context.reasonCode, reason: r?.reason ?? op.context.reason,
+    id: op.id, status: op.status, mine: op.owner_id === who.actor.id, kind: r?.kind ?? null, locationName: op.context.locationName, reasonCode: op.context.reasonCode, reason: r?.reason ?? op.context.reason,
     startedAt: op.started_at, finishedAt: op.finished_at, fruitRemoved: r?.fruit_removed ?? null, weightLostG: r?.weight_lost_g ?? null,
     sources: r ? pick(r.source_box_ids) : boxes.map(brief), outputs: r ? pick(r.output_box_ids) : [],
     lots: origins.map((o) => ({ id: o.id, code: o.code, batchId: o.batch_id })),

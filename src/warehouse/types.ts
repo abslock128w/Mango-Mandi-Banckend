@@ -47,7 +47,7 @@ export type LocationType =
   | 'dispatch_bay'
   | 'returns'
   | 'disposal'
-export type OpType = 'receive' | 'move' | 'qc' | 'pick' | 'unpick' | 'pack' | 'dispatch' | 'return'
+export type OpType = 'receive' | 'move' | 'qc' | 'pick' | 'unpick' | 'pack' | 'dispatch' | 'return' | 'stocktake' | 'repack'
 export type OpStatus = 'open' | 'completed' | 'cancelled' | 'expired' | 'failed'
 export type ScanResult = 'accepted' | 'warning' | 'rejected' | 'duplicate' | 'undone'
 
@@ -109,6 +109,10 @@ export interface BoxTrace {
   lot: { id: string; code: string; supplier: string | null; harvestedOn: string; receivedOn: string; bestBefore: string; isLegacy: boolean } | null
   batch: { id: string; variety: string; pluckedOn: string; farm: string | null; status: string } | null
   parents: { id: string; code: string; lotId: string; depth: number }[]
+  /** Every delivery batch in the box (more than one after a merge). */
+  origins?: { lotId: string; lotCode: string; supplier: string | null; receivedOn: string; batchId: string | null; variety: string | null; pluckedOn: string | null; farm: string | null }[]
+  /** Boxes this one was repacked into, at any depth. */
+  descendants?: { id: string; code: string; lifecycle: Lifecycle; orderId: string | null; depth: number }[]
   orders: TraceOrder[]
   events: {
     type: string
@@ -324,6 +328,9 @@ export interface WhExceptions {
   pendingWriteOffs: { id: string; boxes: number; reason: string; requestedAt: string }[]
   boxesToPutAway: { boxId: string; code: string; skuName: string; since: string }[]
   investigations: { boxId: string; code: string; reason: string | null; since: string }[]
+  /** Finished counts with boxes to review, or a big review waiting for a second person. */
+  stocktakeReviews?: { operationId: string; locationName: string; finishedAt: string; toReview: number; toApprove: number }[]
+  missingBoxes?: { boxId: string; code: string; skuName: string; since: string }[]
 }
 
 export interface Reconciliation {
@@ -362,4 +369,176 @@ export interface WriteOff {
   decidedBy: string | null
   decidedAt: string | null
   mine: boolean
+}
+
+/** GET /warehouse/settings: what this warehouse has switched on, and the lists the forms offer. */
+export interface WhSettings {
+  enabled: boolean
+  permissions: WhPermission[]
+  operationTypes: OpType[]
+  features: { stocktake: boolean; repack: boolean; cameraScan: boolean }
+  repackReasons: RepackReason[]
+  repackPlaces: LocationType[]
+  damageReasons: DamageReason[]
+  writeOffLimit: { boxes: number; grams: number }
+}
+
+// ---------------------------------------------------------------- stocktake
+
+export type StocktakeLineKind = 'not_found' | 'not_found_allocated' | 'found_elsewhere' | 'found_missing' | 'found_gone' | 'moved_after_snapshot'
+export type StocktakeLineStatus = 'proposed' | 'pending_approval' | 'missing' | 'kept' | 'rejected' | 'superseded' | 'applied' | 'ignored'
+export type StocktakeReviewStatus = 'pending_approval' | 'applied' | 'rejected'
+
+/** The summary stored on a finished count. */
+export interface StocktakeResult {
+  locationName: string
+  snapshotAt: string
+  counted: number
+  matched: number
+  foundElsewhere: number
+  foundMissing: number
+  foundGone: number
+  notFound: number
+  notFoundAllocated: number
+  movedAfterSnapshot: number
+  toReview: number
+}
+
+export interface StocktakeRow {
+  id: string
+  status: OpStatus
+  locationId: string
+  locationName: string
+  snapshotAt: string
+  owner: string | null
+  mine: boolean
+  startedAt: string
+  finishedAt: string | null
+  result: StocktakeResult | null
+  reviewStatus: StocktakeReviewStatus | null
+  toReview: number
+  toApprove: number
+}
+
+export interface StocktakeLine {
+  boxId: string
+  code: string
+  skuName: string
+  kind: StocktakeLineKind
+  status: StocktakeLineStatus
+  recordedLifecycle: Lifecycle
+  recordedLocation: string | null
+  lifecycle: Lifecycle
+  location: string | null
+  holds: HoldKind[]
+  orderNumber: string | null
+  decidedAt: string | null
+}
+
+export interface Stocktake extends Omit<StocktakeRow, 'reviewStatus' | 'toReview' | 'toApprove'> {
+  review: {
+    id: string
+    status: StocktakeReviewStatus
+    missing: number
+    grams: number
+    kept: number
+    note: string | null
+    reviewedBy: string | null
+    reviewedAt: string
+    decidedBy: string | null
+    decidedAt: string | null
+    mine: boolean
+  } | null
+  lines: StocktakeLine[]
+}
+
+export interface StocktakeDecision {
+  reviewId: string
+  status: StocktakeReviewStatus
+  missing: number
+  kept?: number
+  superseded?: number
+  grams?: number
+}
+
+// ---------------------------------------------------------------- repack
+
+export type RepackKind = 'repack' | 'split' | 'merge'
+export type RepackReason = 'spoiled_fruit' | 'damaged_box' | 'merge_partials' | 'split' | 'other'
+export type DamageReason = 'spoiled_fruit' | 'damaged_box' | 'other'
+
+export interface RepackOutputInput {
+  weightG: number
+  fruitCount?: number
+}
+
+/** What a repack's finish sends: the new boxes and what was taken out. */
+export interface RepackFinish {
+  outputs: RepackOutputInput[]
+  fruitRemoved: number
+  weightLostG: number
+  note?: string
+}
+
+/** The summary stored on a finished repack. */
+export interface RepackResult {
+  kind: RepackKind
+  locationName: string
+  sources: string[]
+  outputs: { id: string; code: string; quality: Quality; weightG: number }[]
+  fruitRemoved: number
+  weightLostG: number
+  needsQc: boolean
+  carriedHolds: HoldKind[]
+}
+
+export interface RepackRow {
+  id: string
+  status: OpStatus
+  kind: RepackKind | null
+  locationName: string
+  reasonCode: RepackReason
+  reason: string
+  owner: string | null
+  mine: boolean
+  startedAt: string
+  finishedAt: string | null
+  sources: number
+  outputs: number
+  fruitRemoved: number | null
+  weightLostG: number | null
+}
+
+export interface RepackBox {
+  id: string
+  code: string
+  lifecycle: Lifecycle
+  quality: Quality
+  bestBefore: string | null
+  weightG: number | null
+  locationName: string | null
+  holds: HoldKind[]
+}
+
+export interface Repack {
+  id: string
+  status: OpStatus
+  mine: boolean
+  kind: RepackKind | null
+  locationName: string
+  reasonCode: RepackReason
+  reason: string
+  startedAt: string
+  finishedAt: string | null
+  fruitRemoved: number | null
+  weightLostG: number | null
+  sources: RepackBox[]
+  outputs: RepackBox[]
+  lots: { id: string; code: string; batchId: string | null }[]
+}
+
+export interface DamageResult {
+  box: Box
+  belowTolerance: boolean
+  needsReview: boolean
 }

@@ -7,8 +7,8 @@ import { date, dateTime } from '../../format'
 import { BackLink, Badge, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, usePageTitle } from '../../ui'
 import { useWh } from '../access'
 import { wh } from '../api'
-import { HOLD_LABEL, LIFECYCLE_LABEL, MANUAL_HOLDS, QUALITY_LABEL, eventLabel, qualityTone } from '../labels'
-import type { Box, HoldKind, Lifecycle, WhPermission } from '../types'
+import { DAMAGE_REASON_LABEL, HOLD_LABEL, LIFECYCLE_LABEL, MANUAL_HOLDS, QUALITY_LABEL, eventLabel, qualityTone } from '../labels'
+import type { Box, DamageReason, HoldKind, Lifecycle, WhPermission } from '../types'
 import { WriteOffDialog } from '../WriteOffDialog'
 import { DownloadButton, kg } from '../ui'
 
@@ -32,6 +32,7 @@ type Ask =
   | { kind: 'measure' }
   | { kind: 'restock' }
   | { kind: 'writeoff' }
+  | { kind: 'damage' }
   | null
 
 export default function BoxDetail() {
@@ -61,6 +62,8 @@ export default function BoxDetail() {
   if (q.isPending) return <Spinner />
   if (q.isError) return <QueryError error={q.error} onRetry={() => q.refetch()} />
   const b = q.data
+  /** Fruit can come out of a box in stock that is not on an order (the API checks again). */
+  const canDamage = can('warehouse.repack') && b.lifecycle === 'in_stock' && !b.orderId
 
   return (
     <>
@@ -76,11 +79,16 @@ export default function BoxDetail() {
         </Link>
       </div>
 
-      {(can('warehouse.qc') || (can('warehouse.returns') && b.lifecycle === 'returned') || (can('warehouse.adjust') && WRITE_OFFABLE.includes(b.lifecycle))) && (
+      {(can('warehouse.qc') || canDamage || (can('warehouse.returns') && b.lifecycle === 'returned') || (can('warehouse.adjust') && WRITE_OFFABLE.includes(b.lifecycle))) && (
         <div className="btn-row mb-4">
           {can('warehouse.qc') && (
             <button type="button" className="btn" onClick={() => setAsk({ kind: 'measure' })}>
               Weigh
+            </button>
+          )}
+          {canDamage && (
+            <button type="button" className="btn" onClick={() => setAsk({ kind: 'damage' })}>
+              Take fruit out
             </button>
           )}
           {can('warehouse.returns') && b.lifecycle === 'returned' && (
@@ -267,6 +275,7 @@ export default function BoxDetail() {
           <p>It comes back as needs review in the returns area: pass QC and put it away before it sells.</p>
         </ReasonDialog>
       )}
+      {ask?.kind === 'damage' && <DamageDialog box={b} onClose={() => setAsk(null)} onDone={done} />}
       {ask?.kind === 'measure' && <MeasureDialog box={b} onClose={() => setAsk(null)} onDone={done} />}
       {ask?.kind === 'writeoff' && <WriteOffDialog boxIds={[b.id]} what={`box ${b.code}`} onClose={() => setAsk(null)} />}
       {ask?.kind === 'hold' && <HoldDialog box={b} onClose={() => setAsk(null)} onDone={() => done('Box put on hold.')} />}
@@ -362,6 +371,85 @@ function HoldDialog({ box, onClose, onDone }: { box: Box; onClose: () => void; o
         <div className="field">
           <label htmlFor="hold-reason">Reason</label>
           <input id="hold-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+        </div>
+        <FormError error={formError ?? m.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+const DAMAGE_REASONS = Object.keys(DAMAGE_REASON_LABEL) as DamageReason[]
+
+/** Partial damage: fruit taken out of a box without repacking it. Below the weight tolerance the box goes to review. */
+function DamageDialog({ box, onClose, onDone }: { box: Box; onClose: () => void; onDone: (msg: string) => void }) {
+  const [reasonCode, setReasonCode] = useState<DamageReason>('spoiled_fruit')
+  const [fruit, setFruit] = useState('')
+  const [grams, setGrams] = useState('')
+  const [reason, setReason] = useState('')
+  const [formError, setFormError] = useState<unknown>(null)
+  const m = useMutation({
+    mutationFn: () =>
+      wh.damage(box.id, {
+        reasonCode,
+        reason: reason.trim(),
+        ...(fruit.trim() ? { fruitRemoved: Number(fruit) } : {}),
+        ...(grams.trim() ? { weightLostG: Number(grams) } : {}),
+      }),
+    onSuccess: (r) =>
+      onDone(r.needsReview ? 'Recorded. The box is now under its weight range and needs review before it sells.' : `Recorded. The box now weighs ${kg(r.box.measuredWeightG ?? r.box.nominalWeightG)}.`),
+  })
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    const f = fruit.trim() ? Number(fruit) : 0
+    const g = grams.trim() ? Number(grams) : 0
+    if (!Number.isInteger(f) || f < 0 || f > 200) return setFormError('Fruit taken out is a whole number, up to 200.')
+    if (!Number.isInteger(g) || g < 0 || g > 100_000) return setFormError('Weight taken out is in whole grams.')
+    if (!f && !g) return setFormError('Say how much fruit or weight came out.')
+    if (reason.trim().length < 3) return setFormError('Say what happened (at least 3 characters).')
+    setFormError(null)
+    m.mutate()
+  }
+  return (
+    <Dialog
+      title={`Take fruit out of ${box.code}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="damage-form" className="btn btn-primary" disabled={m.isPending}>
+            {m.isPending ? 'Saving…' : 'Record'}
+          </button>
+        </>
+      }
+    >
+      <form id="damage-form" onSubmit={submit} noValidate>
+        <p>
+          The box keeps its label. It weighs {kg(box.measuredWeightG ?? box.nominalWeightG)} now; below its weight range it goes to review. To open it and pack again,
+          use Repack.
+        </p>
+        <div className="field">
+          <label htmlFor="dm-code">Why</label>
+          <select id="dm-code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value as DamageReason)} data-autofocus>
+            {DAMAGE_REASONS.map((r) => (
+              <option key={r} value={r}>
+                {DAMAGE_REASON_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="dm-fruit">Fruit taken out</label>
+          <input id="dm-fruit" type="number" inputMode="numeric" min={0} max={200} step={1} value={fruit} onChange={(e) => setFruit(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="dm-grams">Weight taken out (g)</label>
+          <input id="dm-grams" type="number" inputMode="numeric" min={0} step={1} value={grams} onChange={(e) => setGrams(e.target.value)} />
+        </div>
+        <div className="field">
+          <label htmlFor="dm-reason">What happened</label>
+          <input id="dm-reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
         </div>
         <FormError error={formError ?? m.error} />
       </form>

@@ -1892,6 +1892,39 @@ tr.row-flagged td {
 .wh-scan-undone .wh-scan-msg {
   text-decoration: line-through;
 }
+/* Camera scanning (9.7): the view fits a phone and never pushes the page sideways. */
+.wh-camera {
+  margin-top: var(--space-3);
+}
+.wh-camera-view {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  max-height: 50vh;
+  margin-top: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--text);
+  object-fit: cover;
+}
+.wh-camera-view[hidden] {
+  display: none;
+}
+.wh-camera-pick select {
+  width: auto;
+  max-width: 100%;
+}
+/* Repack finish: weight and fruit side by side when there is room. */
+.wh-new-boxes {
+  margin-bottom: var(--space-2);
+}
+.wh-new-box {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0 var(--space-3);
+}
+.wh-review > li + li {
+  margin-top: var(--space-2);
+}
 .wh-codes {
   list-style: none;
   margin: 0;

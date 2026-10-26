@@ -16,6 +16,8 @@ export const OP_PERMISSION: Record<OpType, WhPermission> = {
   pack: 'warehouse.pack',
   dispatch: 'warehouse.dispatch',
   return: 'warehouse.returns',
+  stocktake: 'warehouse.stocktake',
+  repack: 'warehouse.repack',
 }
 
 export function whCan(me: Me | null | undefined, perm: WhPermission): boolean {
@@ -33,6 +35,8 @@ export const WH_LINKS: [to: string, label: string, perm: WhPermission | 'scan'][
   ['/warehouse/receive', 'Receive', 'warehouse.receive'],
   ['/warehouse/scan', 'Scan', 'scan'],
   ['/warehouse/picking', 'Picking', 'warehouse.pick'],
+  ['/warehouse/stocktake', 'Stocktake', 'warehouse.stocktake'],
+  ['/warehouse/repack', 'Repack', 'warehouse.repack'],
   ['/warehouse/lots', 'Box batches', 'warehouse.view'],
   ['/warehouse/boxes', 'Boxes', 'warehouse.view'],
   ['/warehouse/locations', 'Locations', 'warehouse.view'],

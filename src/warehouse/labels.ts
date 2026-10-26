@@ -1,7 +1,22 @@
 // Words for the warehouse's enums (design/COMPONENTS.md: never show a raw enum).
 
 import type { Tone } from '../format'
-import type { HoldKind, Lifecycle, LocationType, LotStatus, OpType, Quality, ScanResult } from './types'
+import type {
+  DamageReason,
+  HoldKind,
+  Lifecycle,
+  LocationType,
+  LotStatus,
+  OpStatus,
+  OpType,
+  Quality,
+  RepackKind,
+  RepackReason,
+  ScanResult,
+  StocktakeLineKind,
+  StocktakeLineStatus,
+  StocktakeReviewStatus,
+} from './types'
 
 export const LOT_STATUS_LABEL: Record<LotStatus, string> = {
   generating: 'Making labels',
@@ -66,6 +81,8 @@ export const OP_LABEL: Record<OpType, string> = {
   pack: 'Pack',
   dispatch: 'Dispatch',
   return: 'Return',
+  stocktake: 'Stocktake',
+  repack: 'Repack',
 }
 
 export const SCAN_RESULT_LABEL: Record<ScanResult, string> = {
@@ -96,3 +113,41 @@ export const eventLabel = (type: string) => {
 }
 
 export const RECALL_LABEL: Record<'running' | 'done' | 'released', string> = { running: 'Holding boxes', done: 'All held', released: 'Released' }
+
+/** What a count found for one box. */
+export const STOCKTAKE_KIND_LABEL: Record<StocktakeLineKind, string> = {
+  not_found: 'Not found',
+  not_found_allocated: 'Not found (picked, packed or returned)',
+  found_elsewhere: 'Found here, recorded elsewhere',
+  found_missing: 'Found (was missing)',
+  found_gone: 'Found, but recorded as gone',
+  moved_after_snapshot: 'Moved during the count',
+}
+export const STOCKTAKE_LINE_LABEL: Record<StocktakeLineStatus, string> = {
+  proposed: 'To review',
+  pending_approval: 'Waiting for approval',
+  missing: 'Marked missing',
+  kept: 'Kept as recorded',
+  rejected: 'Kept (not approved)',
+  superseded: 'Changed since; left alone',
+  applied: 'Corrected',
+  ignored: 'Ignored',
+}
+export const STOCKTAKE_REVIEW_LABEL: Record<StocktakeReviewStatus, string> = {
+  pending_approval: 'Waiting for a second person',
+  applied: 'Applied',
+  rejected: 'Not approved',
+}
+
+export const REPACK_REASON_LABEL: Record<RepackReason, string> = {
+  spoiled_fruit: 'Spoiled fruit taken out',
+  damaged_box: 'Damaged box',
+  merge_partials: 'Merge part-full boxes',
+  split: 'Split a box',
+  other: 'Other',
+}
+export const REPACK_KIND_LABEL: Record<RepackKind, string> = { repack: 'Repack', split: 'Split', merge: 'Merge' }
+export const DAMAGE_REASON_LABEL: Record<DamageReason, string> = { spoiled_fruit: 'Spoiled fruit', damaged_box: 'Damaged box', other: 'Other' }
+
+export const OP_STATUS_LABEL: Record<OpStatus, string> = { open: 'In progress', completed: 'Done', cancelled: 'Cancelled', expired: 'Expired', failed: 'Failed' }
+export const opStatusTone = (s: OpStatus): Tone => (s === 'open' ? 'info' : s === 'completed' ? 'good' : s === 'failed' ? 'bad' : 'neutral')
