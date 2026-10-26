@@ -63,6 +63,8 @@ export function localPlan(argv, wifiIps = []) {
     LIVE_TRACKING: 'true',
     FAVOURITES: 'true',
     SHOP_SORT_FILTER: 'true',
+    // Gift orders to many recipients (docs/gifting.md): Send to many in the shop, Gift orders in the panel.
+    MULTI_GIFT: 'true',
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.

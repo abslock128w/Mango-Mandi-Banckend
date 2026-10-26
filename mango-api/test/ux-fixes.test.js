@@ -97,8 +97,8 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
       holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24,
       // bills: whether checkout takes business details for the bill (on outside production: trust-config.js).
       bills: true,
-      // App feel switches (docs/app-feel.md): all off unless set.
-      features: { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false },
+      // App feel switches (docs/app-feel.md) and gift orders to many (docs/gifting.md): all off unless set.
+      features: { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false, multiGift: false },
     })
   })
 
