@@ -225,8 +225,11 @@ me.get(
       // Deliveries (LIVE_TRACKING, docs/app-feel.md). The role still decides who may use them.
       features: {
         bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'),
-        // Staff operations (docs/ops.md): the role still decides who may use them.
-        stockForecast: isOn('STOCK_FORECAST'), purchaseRecords: isOn('PURCHASE_RECORDS'), panelSwitches: env.PANEL_FEATURE_SWITCHES,
+        // Staff operations (docs/ops.md), named only while on (a missing field means off to the panel).
+        // The role still decides who may use them.
+        ...(isOn('STOCK_FORECAST') ? { stockForecast: true } : {}),
+        ...(isOn('PURCHASE_RECORDS') ? { purchaseRecords: true } : {}),
+        ...(env.PANEL_FEATURE_SWITCHES ? { panelSwitches: true } : {}),
       },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
