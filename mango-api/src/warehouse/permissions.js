@@ -14,7 +14,7 @@ export const PERMISSIONS = [
 
 const SUPERVISOR = [
   'warehouse.view', 'warehouse.receive', 'labels.print', 'labels.reissue', 'warehouse.move', 'warehouse.qc', 'warehouse.pick',
-  'warehouse.pack', 'warehouse.dispatch', 'warehouse.returns', 'warehouse.stocktake', 'warehouse.adjust', 'reports.export',
+  'warehouse.pack', 'warehouse.dispatch', 'warehouse.returns', 'warehouse.stocktake', 'warehouse.repack', 'warehouse.adjust', 'reports.export',
 ]
 
 export const ROLE_PERMISSIONS = Object.freeze({
@@ -26,6 +26,19 @@ export const ROLE_PERMISSIONS = Object.freeze({
 })
 
 export const can = (role, perm) => (ROLE_PERMISSIONS[role] ?? []).includes(perm)
+
+/**
+ * Permissions whose feature has its own flag (on top of WAREHOUSE_V2). While
+ * the flag is off the feature's routes answer 404 and /auth/me leaves the
+ * permission out, so the panel hides it.
+ */
+export const FEATURE_FLAG = Object.freeze({ 'warehouse.stocktake': 'WAREHOUSE_STOCKTAKE', 'warehouse.repack': 'WAREHOUSE_REPACK' })
+
+/** True unless `perm` belongs to a feature switched off in `flags` (the env). */
+export const featureOn = (perm, flags) => !FEATURE_FLAG[perm] || Boolean(flags[FEATURE_FLAG[perm]])
+
+/** What a role may do here today: its bundle less the features switched off. */
+export const effectivePermissions = (role, flags) => (ROLE_PERMISSIONS[role] ?? []).filter((p) => featureOn(p, flags))
 
 /** Permissions no role but MANAGER holds: their routes carry requireManager. */
 export const managerOnly = (perm) => Object.entries(ROLE_PERMISSIONS).every(([role, perms]) => role === 'MANAGER' || !perms.includes(perm))
@@ -64,6 +77,7 @@ export const WAREHOUSE_ROUTES = [
   ['POST', '/warehouse/boxes/:id/holds/:kind/release', 'warehouse.qc'],
   ['POST', '/warehouse/boxes/:id/measure', 'warehouse.qc'],
   ['POST', '/warehouse/boxes/:id/restock', 'warehouse.returns'],
+  ['POST', '/warehouse/boxes/:id/damage', 'warehouse.repack'],
   ['POST', '/warehouse/write-offs', 'warehouse.adjust'],
   ['GET', '/warehouse/write-offs', 'warehouse.view'],
   ['POST', '/warehouse/write-offs/:id/approve', 'adjust.approve'],
@@ -91,7 +105,22 @@ export const WAREHOUSE_ROUTES = [
   ['POST', '/warehouse/recalls/:id/release', 'recall.manage'],
   ['GET', '/warehouse/recalls/:id', 'warehouse.view'],
   ['GET', '/warehouse/export/:report', 'reports.export'],
+  ['GET', '/warehouse/stocktakes', 'warehouse.stocktake'],
+  ['GET', '/warehouse/stocktakes/:id', 'warehouse.stocktake'],
+  ['POST', '/warehouse/stocktakes/:id/review', 'warehouse.stocktake'],
+  ['POST', '/warehouse/stocktakes/:id/approve', 'adjust.approve'],
+  ['POST', '/warehouse/stocktakes/:id/reject', 'adjust.approve'],
+  ['GET', '/warehouse/repacks', 'warehouse.repack'],
+  ['GET', '/warehouse/repacks/:id', 'warehouse.repack'],
+  ['GET', '/warehouse/repacks/:id/labels.pdf', 'labels.print'],
 ]
+
+/** The feature permission a route belongs to (its flag gates it), by path prefix. */
+export function routeFeature(path) {
+  if (path === '/warehouse/stocktakes' || path.startsWith('/warehouse/stocktakes/')) return 'warehouse.stocktake'
+  if (path === '/warehouse/repacks' || path.startsWith('/warehouse/repacks/') || /^\/warehouse\/boxes\/[^/]+\/damage$/.test(path)) return 'warehouse.repack'
+  return null
+}
 
 /** The permission each operation type needs, for start, scans, undo and finalize. */
 export const OP_PERMISSION = Object.freeze({
@@ -103,4 +132,6 @@ export const OP_PERMISSION = Object.freeze({
   pack: 'warehouse.pack',
   dispatch: 'warehouse.dispatch',
   return: 'warehouse.returns',
+  stocktake: 'warehouse.stocktake',
+  repack: 'warehouse.repack',
 })
