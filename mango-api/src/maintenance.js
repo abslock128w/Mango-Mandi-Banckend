@@ -37,6 +37,7 @@ import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
 import { issueMissingBills, reconcileBills } from './bills.js'
 import { trust } from './trust-config.js'
+import { runSubscriptionJobs } from './subscriptions.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -335,6 +336,8 @@ async function steps(forceAll) {
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
+  // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
+  if (env.SUBSCRIPTIONS) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Browser notifications for the same order steps (WEB_PUSH, push.js).
   if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })

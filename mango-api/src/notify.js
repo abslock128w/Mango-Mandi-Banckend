@@ -10,7 +10,7 @@ import { newId } from './ids.js'
 import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
-import { enqueueOrderPush } from './push.js'
+import { enqueueLinkPush, enqueueOrderPush } from './push.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
 import { templateName, whatsappSender } from './whatsapp.js'
@@ -59,6 +59,45 @@ export async function enqueuePreorder(c, preorderId, kind) {
   await c.query(
     `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)`,
     [newId('ntf'), preorderId, newId('pev'), kind, rows[0].phone, at],
+  )
+}
+
+/**
+ * Customer care (docs/care.md): "we replied to your help request". The browser notification
+ * goes whenever the customer has them on; WhatsApp only once Meta has approved
+ * mandi_help_reply (WHATSAPP_CARE_UPDATES). `messageId` (the staff reply) makes a repeat a no-op.
+ */
+export async function enqueueHelpReply(c, ticketId, messageId) {
+  const { rows } = await c.query('SELECT t.customer_id, cu.phone FROM help_tickets t JOIN customers cu ON cu.id = t.customer_id WHERE t.id = $1', [ticketId])
+  const t = rows[0]
+  if (!t) return
+  if (env.WHATSAPP_CARE_UPDATES && t.phone) await addCareMessage(c, { helpTicketId: ticketId, eventId: messageId, kind: 'HELP_REPLY', phone: t.phone })
+  await enqueueLinkPush(c, t.customer_id, messageId, 'HELP_REPLY', `/help/requests/${encodeURIComponent(ticketId)}`)
+}
+
+/**
+ * Customer care: "your box for <date> is ready: pay for it here" when a subscription's cycle
+ * is set up. Push as above; WhatsApp once Meta approves mandi_subscription_due. One per cycle
+ * (the cycle id is the event), however often the scheduler runs.
+ */
+export async function enqueueCycleDue(c, cycleId) {
+  const { rows } = await c.query(
+    `SELECT s.id AS subscription_id, s.customer_id, cu.phone FROM subscription_cycles y JOIN subscriptions s ON s.id = y.subscription_id
+       JOIN customers cu ON cu.id = s.customer_id WHERE y.id = $1`,
+    [cycleId],
+  )
+  const y = rows[0]
+  if (!y) return
+  if (env.WHATSAPP_CARE_UPDATES && y.phone) await addCareMessage(c, { cycleId, eventId: cycleId, kind: 'SUBSCRIPTION_DUE', phone: y.phone })
+  await enqueueLinkPush(c, y.customer_id, cycleId, 'SUBSCRIPTION_DUE', `/account/subscriptions/${encodeURIComponent(y.subscription_id)}`)
+}
+
+async function addCareMessage(c, { helpTicketId = null, cycleId = null, eventId, kind, phone }) {
+  const at = now()
+  await c.query(
+    `INSERT INTO notifications (id, help_ticket_id, subscription_cycle_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('ntf'), helpTicketId, cycleId, eventId, kind, phone, at],
   )
 }
 
@@ -142,6 +181,10 @@ export function paramsFor(n) {
       return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
     case 'CLAIM_RECEIVED':
       return [name, n.number]
+    case 'HELP_REPLY':
+      return [name, n.help_number ?? '', `${shopUrl()}/help/requests/${n.help_ticket_id}`]
+    case 'SUBSCRIPTION_DUE':
+      return [name, `${n.sub_qty} × ${productName(n.sub_sku)}`, n.cycle_date ? dateWords(n.cycle_date) : 'your next delivery day', `${shopUrl()}/account/subscriptions/${n.sub_id}`]
     case 'CLAIM_REJECTED':
       // One line: template variables may not hold line breaks.
       return [name, n.number, clip(n.claim_reason?.replace(/\s+/g, ' ').trim() || 'no reason given', 500)]
@@ -214,11 +257,16 @@ async function sendBatch(sender, limit, at) {
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
-            COALESCE(o.customer_name, p.customer_name, ac.name) AS customer_name,
-            (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason
+            COALESCE(o.customer_name, p.customer_name, ac.name, cc.name) AS customer_name,
+            (SELECT cl.resolution_note FROM claims cl WHERE cl.id = n.event_id AND n.kind = 'CLAIM_REJECTED') AS claim_reason,
+            ht.number AS help_number, sb.id AS sub_id, sb.sku AS sub_sku, sb.qty AS sub_qty, sy.delivery_date AS cycle_date, sy.status AS cycle_status,
+            sb.status AS subscription_status
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
        LEFT JOIN stock_alerts a ON a.id = n.stock_alert_id LEFT JOIN customers ac ON ac.id = a.customer_id
+       LEFT JOIN help_tickets ht ON ht.id = n.help_ticket_id
+       LEFT JOIN subscription_cycles sy ON sy.id = n.subscription_cycle_id LEFT JOIN subscriptions sb ON sb.id = sy.subscription_id
+       LEFT JOIN customers cc ON cc.id = COALESCE(ht.customer_id, sb.customer_id)
       WHERE n.id = ANY($1) ORDER BY n.created_at`,
     [claimed.rows.map((r) => r.id)],
   )
@@ -247,6 +295,8 @@ function staleReason(n) {
     const why = staleSince(n)
     if (why) return why
   }
+  // A "pay for this box" reminder once the box is paid for, skipped or the subscription stopped is no longer true.
+  if (n.kind === 'SUBSCRIPTION_DUE' && (n.cycle_status !== 'DUE' || n.subscription_status !== 'ACTIVE')) return `cycle is ${n.cycle_status ?? 'gone'} now`
   const s = n.order_status
   if (!s) return null
   if ((n.kind === 'ORDER_CONFIRMED' || n.kind === 'REPLACEMENT_CONFIRMED' || n.kind === 'DATE_MOVED') && s === 'CANCELLED') return 'order cancelled since'

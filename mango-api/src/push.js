@@ -40,6 +40,9 @@ const TEXT = {
   DELIVERY_FAILED_NO_RETRY: 'We missed you: MandiMangoes will be in touch about your order',
   DATE_MOVED: 'Your MandiMangoes order has a new delivery day',
   CANCELLED: 'Your MandiMangoes order was cancelled',
+  // Customer care (docs/care.md): not about an order, so they carry their own link.
+  HELP_REPLY: 'MandiMangoes replied to your help request',
+  SUBSCRIPTION_DUE: 'Your MandiMangoes box is ready to pay for',
 }
 
 /** Push is on: the flag, and keys when it really sends. */
@@ -48,10 +51,14 @@ export const pushOn = () => env.WEB_PUSH && (env.WEB_PUSH_PROVIDER === 'log' || 
 /** The public key the browser subscribes with (RFC 8292 applicationServerKey); null while push is off. */
 export const pushPublicKey = () => (pushOn() ? env.VAPID_PUBLIC_KEY || null : null)
 
-/** The message for one order update: the words, a link to the order and a tag that replaces older ones. */
-export function payloadFor(kind, orderId) {
+/**
+ * The message for one order update: the words, a link to the order and a tag that replaces older ones.
+ * A care message (help reply, subscription reminder) has its own link instead, which is also its tag.
+ */
+export function payloadFor(kind, orderId, link = null) {
   const text = TEXT[kind]
   if (!text) return null
+  if (link) return { title: 'MandiMangoes', body: text, url: link, tag: link }
   return { title: 'MandiMangoes', body: text, url: `/orders/${encodeURIComponent(orderId)}`, tag: `order-${orderId}` }
 }
 
@@ -147,6 +154,25 @@ export async function enqueueOrderPush(c, orderId, eventId, kind) {
   )
 }
 
+/** Care messages that are pushed, each with the shop page it opens. */
+export const LINK_PUSH_KINDS = new Set(['HELP_REPLY', 'SUBSCRIPTION_DUE'])
+
+/**
+ * A browser notification that is not about an order (docs/care.md): queued in the caller's
+ * transaction, only when push is on and the customer has turned notifications on somewhere.
+ * `link` is the shop path it opens; `eventId` makes a repeat a no-op.
+ */
+export async function enqueueLinkPush(c, customerId, eventId, kind, link) {
+  if (!pushOn() || !LINK_PUSH_KINDS.has(kind)) return
+  const at = now()
+  await c.query(
+    `INSERT INTO push_messages (id, customer_id, event_id, kind, link, next_attempt_at, created_at)
+     SELECT $1, $2, $3, $4, $5, $6, $6 WHERE EXISTS (SELECT 1 FROM push_subscriptions s WHERE s.customer_id = $2)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('psh'), customerId, eventId, kind, link, at],
+  )
+}
+
 /** A missed delivery that will not be tried again on its own: its push says we'll be in touch, not that it will be retried. */
 export async function noRetryPush(c, eventId) {
   await c.query(`UPDATE push_messages SET kind = 'DELIVERY_FAILED_NO_RETRY' WHERE event_id = $1 AND kind = 'DELIVERY_FAILED' AND status = 'PENDING'`, [eventId])
@@ -233,7 +259,7 @@ async function sendOne(m, at) {
     await mark(m.id, { status: 'SKIPPED', last_error: stale })
     return false
   }
-  const payload = payloadFor(m.kind, m.order_id)
+  const payload = payloadFor(m.kind, m.order_id, m.link)
   const { rows: subs } = await query('SELECT * FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at', [m.customer_id])
   if (!payload || !subs.length) {
     await mark(m.id, { status: 'SKIPPED', last_error: payload ? 'no browser has notifications on' : 'not a pushed kind' })

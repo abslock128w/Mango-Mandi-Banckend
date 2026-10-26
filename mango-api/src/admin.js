@@ -27,6 +27,7 @@ import { router as warehouse, warehouseGate } from './admin/warehouse.js'
 import { router as customers } from './admin/customers.js'
 import { router as exportsRouter } from './admin/exports.js'
 import { staffBills } from './bill-routes.js'
+import { router as care } from './admin/care.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -60,3 +61,4 @@ router.use(recovery) // manager ways out of Needs attention items (ledger repair
 router.use(staffBills) // GET /orders/:id/bill (BILLS_ENABLED)
 router.use(customers) // customer profile, phone search and reveal (CUSTOMER_PROFILES_ENABLED)
 router.use(exportsRouter) // CSV exports, manager only (STAFF_EXPORTS_ENABLED)
+router.use(care) // Help desk (HELP_CENTRE) and Subscriptions (SUBSCRIPTIONS): managers and operators
