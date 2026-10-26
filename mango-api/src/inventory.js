@@ -6,13 +6,21 @@
 // CONDEMN and RETIRE rows, so their sum must equal on_hand. held and committed
 // must equal the order_stock rows in those states. The nightly audit checks both.
 import { getConfig } from './config.js'
-import { addDays, now } from './clock.js'
+import { addDays, now, todayIST } from './clock.js'
+import { env } from './env.js'
 import { newId } from './ids.js'
 import { stageFor } from './stage.js'
 
 export const SELLABLE_STATUSES = ['IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING']
 const PHYSICAL_STATUSES = ['ARRIVED', 'RIPENING', 'SELLING']
 const ON_HAND_EVENTS = ['INTAKE', 'ADJUST', 'PACK', 'RESTOCK', 'CONDEMN', 'RETIRE']
+
+/**
+ * PAY-B5: an unpaid order with a Razorpay order or link may have been paid
+ * inside its hold while the webhook is late, so the lazy sweep leaves it alone
+ * for this long after its hold (or until a reconcile has asked Razorpay).
+ */
+export const LAZY_SWEEP_GATEWAY_GRACE_MS = 2 * 60_000
 
 const lineSelect = (atParam) => `
   SELECT l.id, l.batch_id, l.sku, l.on_hand, l.held, l.committed, l.reserve_buffer,
@@ -28,9 +36,13 @@ const lineSelect = (atParam) => `
     LEFT JOIN LATERAL (
       -- Boxes still held by unpaid orders whose hold has run out. They are
       -- free to sell even before the sweep cancels those orders (INV-01);
-      -- the order that takes them cancels the stale orders first.
+      -- the order that takes them cancels the stale orders first, under the
+      -- same gateway grace (orders.js sweepExpiredHoldsFor), so boxes shown
+      -- here as free can really be bought (INV-04).
       SELECT sum(s.quantity) AS expired_held FROM order_stock s JOIN orders o ON o.id = s.order_id
        WHERE s.line_id = l.id AND s.state = 'held' AND o.status = 'PAYMENT_PENDING' AND o.hold_expires_at < ${atParam}
+         AND ((o.razorpay_order_id IS NULL AND o.payment_link_id IS NULL) OR o.reconcile_checked_at >= o.hold_expires_at
+              OR o.hold_expires_at < ${atParam} - make_interval(secs => ${LAZY_SWEEP_GATEWAY_GRACE_MS / 1000}))
     ) x ON TRUE`
 
 /**
@@ -50,6 +62,10 @@ export function sellableAs(row, deliveryDate, cfg = getConfig(), { existing = fa
   } else {
     const eta = row.eta_date ?? addDays(row.plucked_on, cfg.transitDays)
     if (deliveryDate <= eta) return null // not physically here in time
+    // INV-08: a truck still in transit after its arrival date may not come at all.
+    // Its stock stops selling to new orders until staff mark it arrived; what is
+    // already promised stays (rebalance and Needs attention show the late batch).
+    if (!existing && env.STOCK_INTAKE_CHECKS && eta < todayIST()) return null
     factor = cfg.forecastConfidence
   }
   const qc = row.ripeness_rating ? { ripenessRating: row.ripeness_rating, loggedAt: row.logged_at } : null
@@ -180,6 +196,26 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
     }
   }
   return qty - left
+}
+
+/**
+ * DB-01: the one order every transaction locks batch_lines rows in. It is the
+ * order allocate() takes them (SKUs by code point, then FEFO within a SKU), so
+ * a checkout, a payment, a cancel and a batch operation that touch the same
+ * lines queue behind each other instead of deadlocking.
+ */
+export const LINE_LOCK_ORDER = 'l.sku COLLATE "C", b.plucked_on, b.id, l.id'
+
+/** Code-point order of SKUs, the order allocate() is called in (matches COLLATE "C"). */
+export const bySku = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+
+/** Locks these lines in LINE_LOCK_ORDER. */
+export async function lockLines(c, lineIds) {
+  if (!lineIds.length) return
+  await c.query(
+    `SELECT l.id FROM batch_lines l JOIN batches b ON b.id = l.batch_id WHERE l.id = ANY($1) ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
+    [[...new Set(lineIds)]],
+  )
 }
 
 /** Returns a held or committed order_stock row to the pool (all of it, or `qty`). */

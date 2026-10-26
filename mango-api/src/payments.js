@@ -101,6 +101,23 @@ export async function createPaymentLink({ amount, number, orderId, preorderId, n
   return { id, url: `https://rzp.io/i/${id}` }
 }
 
+/**
+ * PAY-03: closes a payment link nobody was sent (Razorpay "Cancel a Payment
+ * Link", POST /payment_links/:id/cancel; to be checked in the sandbox, R15).
+ * Best effort: a link left open still expires (linkExpiresAt), and a payment
+ * on it is still matched by the link's notes. Never throws.
+ */
+export async function cancelPaymentLink(linkId) {
+  if (!hasKeys() || !linkId) return false
+  try {
+    await razorpay('POST', `/payment_links/${encodeURIComponent(linkId)}/cancel`)
+    return true
+  } catch (err) {
+    logger.warn({ err, paymentLinkId: linkId }, 'could not cancel an unused payment link; it expires on its own')
+    return false
+  }
+}
+
 export async function fetchLinkPayments(linkId) {
   if (hasKeys()) {
     const link = await razorpay('GET', `/payment_links/${encodeURIComponent(linkId)}`)
@@ -608,10 +625,39 @@ export async function claimRefund(table, id, at = now()) {
     `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1
       WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
         AND (refund_attempted_at IS NULL OR refund_attempted_at < $3)
+        AND NOT ($4 AND ${disputeHolds(`${table}.payment_id`)})
       RETURNING *`,
-    [id, at, new Date(at.getTime() - REFUND_LEASE_MS)],
+    [id, at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
   return rows[0] ?? null
+}
+
+/**
+ * PAY-06 (with REFUND_SAFETY_CHECKS): SQL that is true while a chargeback on
+ * the payment in `col` holds its refund back. A refund on top of a chargeback
+ * pays the customer twice, so it waits while the dispute is open; once the
+ * bank decides for us (won) it goes out as usual. A dispute lost or closed
+ * means the bank already gave the money back: the refund stays held and a
+ * manager settles it from Needs attention (paid back another way, with the
+ * dispute id as the reference).
+ */
+export const disputeHolds = (col) => `EXISTS (SELECT 1 FROM payment_disputes pd WHERE pd.payment_id = ${col} AND pd.status <> 'won')`
+
+/** Dispute states in which the bank has decided; any other state is still open. */
+export const DISPUTE_DECIDED = ['won', 'lost', 'closed']
+
+/**
+ * The dispute that holds a payment's refund (PAY-06): the latest one not won,
+ * as { id, status }, or null. While its status is not in DISPUTE_DECIDED the
+ * bank has not decided yet.
+ */
+export async function holdingDispute(paymentId, c = { query }) {
+  if (!paymentId) return null
+  const { rows } = await c.query(
+    `SELECT dispute_id, status FROM payment_disputes WHERE payment_id = $1 AND status <> 'won' ORDER BY updated_at DESC, dispute_id LIMIT 1`,
+    [paymentId],
+  )
+  return rows[0] ? { id: rows[0].dispute_id, status: rows[0].status } : null
 }
 
 /**
@@ -682,13 +728,24 @@ export async function refundOrder(orderId) {
   }
 }
 
-/** Retries refunds that were requested but not yet sent. */
+/**
+ * Retries refunds that were requested but not yet sent. Refunds a chargeback
+ * holds (PAY-06) are left out of the pick, so held ones never fill the batch
+ * and keep the rest waiting; claimRefund checks again.
+ */
 export async function processDueRefunds() {
+  const safety = env.REFUND_SAFETY_CHECKS
   const { rows } = await query(
-    'SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50',
+    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('orders.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
   )
   let n = 0
-  const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
+  const pre = await query(
+    `SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('preorders.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
+  )
   for (const p of pre.rows) {
     if (!canStartCall(GATEWAY_CALL_MS)) return n
     try {
@@ -720,9 +777,10 @@ export async function refundDuplicatePayments(at = now()) {
     `UPDATE duplicate_payments SET attempted_at = $1, refund_attempts = refund_attempts + 1
       WHERE payment_id IN (SELECT payment_id FROM duplicate_payments
                             WHERE refunded_at IS NULL AND (attempted_at IS NULL OR attempted_at < $2)
+                              AND NOT ($3 AND ${disputeHolds('duplicate_payments.payment_id')})
                             ORDER BY found_at LIMIT 20 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
-    [at, new Date(at.getTime() - REFUND_LEASE_MS)],
+    [at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
   let n = 0
   for (const d of rows) {
@@ -759,7 +817,19 @@ async function listGatewayPayments(from, to) {
     }
   }
   if (isProd) return []
-  return [...devGateway.entries()].map(([ref, p]) => ({ ...p, order_id: ref.startsWith('order_') ? ref : undefined }))
+  // The dev gateway keys payments by our Razorpay order or link id; a link's payment carries the link's notes, as at Razorpay.
+  const out = []
+  for (const [ref, p] of devGateway.entries()) {
+    if (ref.startsWith('order_')) out.push({ ...p, order_id: ref })
+    else if (ref.startsWith('plink_')) {
+      const { rows } = await query(
+        `SELECT 'orderId' AS k, id FROM orders WHERE payment_link_id = $1 UNION ALL SELECT 'preorderId', id FROM preorders WHERE payment_link_id = $1`,
+        [ref],
+      )
+      out.push({ ...p, notes: rows.length ? { [rows[0].k]: rows[0].id } : {} })
+    } else out.push(p)
+  }
+  return out
 }
 
 /**
@@ -807,6 +877,110 @@ async function flagGatewayRefunds(from, to) {
     )
   }
   return flagged
+}
+
+/** How far back the daily payment check looks (PAY-08). */
+export const RECON_DAYS = 3
+
+/**
+ * PAY-08 (PAYMENT_DAILY_RECON, once a day): the polling loops only look at
+ * orders for a day after they are placed and at bookings for 3 days after their
+ * payment window opened, so a payment captured later, or on a link nobody
+ * polls, with its webhook lost, would be seen by nobody. This asks Razorpay for
+ * every payment captured in the last RECON_DAYS days ("Fetch all payments",
+ * paged like the restore replay) and, for each one we hold no record of:
+ * - it is applied as the webhook would (paid, late payment, duplicate, or a
+ *   refund after a cancel) when it names one of our Razorpay orders or a
+ *   payment link we made (an order's link through its notes, a booking's link
+ *   only once the link itself lists the payment, PAY-B11);
+ * - otherwise it is listed once in Needs attention (refundable by a manager).
+ * Safe to run again: applying a payment twice is a no-op, and each unmatched
+ * payment is listed once. Returns counts; { partial: true } when it ran out
+ * of time.
+ *
+ * Razorpay's list is handled page by page, and after each page where it got
+ * to (the window and the offset) is saved in maintenance_runs.cursor. A run
+ * that runs out of time leaves that cursor, so the next run (a minute later:
+ * a partial step is not marked done) carries on with the same window from the
+ * next page instead of starting again. The window is fixed when the check
+ * starts, so payments made since then never shift the pages. A cursor older
+ * than a day is dropped (the new 3-day window covers it).
+ */
+export async function reconcileRecentPayments({ at = now(), days = RECON_DAYS } = {}) {
+  const out = { captured: 0, applied: 0, flagged: 0 }
+  if (!hasKeys() && isProd) return out
+  if (!hasKeys()) {
+    for (const p of await listGatewayPayments(new Date(at.getTime() - days * 86_400_000), at)) await reconcileOne(p, out)
+    return out
+  }
+  const saved = await readReconCursor()
+  const cur = saved && at.getTime() - saved.to < 86_400_000 ? saved : { from: at.getTime() - days * 86_400_000, to: at.getTime(), skip: 0 }
+  for (;;) {
+    if (!canStartCall(GATEWAY_CALL_MS)) return { ...out, partial: true }
+    const page = await razorpay('GET', `/payments?from=${Math.floor(cur.from / 1000)}&to=${Math.floor(cur.to / 1000)}&count=100&skip=${cur.skip}`)
+    const items = gatewayItems(page, 'pay_', 'payment list')
+    for (const p of items) await reconcileOne(p, out)
+    if (items.length < 100) break
+    cur.skip += 100
+    await saveReconCursor(cur)
+  }
+  if (saved || cur.skip) await saveReconCursor(null)
+  return out
+}
+
+const RECON_STEP = 'payment-recon'
+
+async function readReconCursor() {
+  const raw = (await query('SELECT cursor FROM maintenance_runs WHERE step = $1', [RECON_STEP])).rows[0]?.cursor
+  if (!raw) return null
+  try {
+    const c = JSON.parse(raw)
+    return [c.from, c.to, c.skip].every(Number.isSafeInteger) ? c : null
+  } catch {
+    logger.warn('daily payment check: saved place unreadable; starting again')
+    return null
+  }
+}
+
+const saveReconCursor = (cur) =>
+  query(`INSERT INTO maintenance_runs (step, cursor) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET cursor = $2`, [
+    RECON_STEP, cur ? JSON.stringify(cur) : null,
+  ])
+
+/** One payment from Razorpay's list: applied, already ours, or listed once in Needs attention. */
+async function reconcileOne(p, out) {
+  if (p.status !== 'captured') return
+  out.captured++
+  if (await knownPayment(p.id)) return
+  const orderId = await findOrderId({ query }, p)
+  const preorderId = orderId ? null : await linkListsPayment(p)
+  if (orderId || preorderId) {
+    const r = await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r, orderId, preorderId }))
+    return
+  }
+  const key = `recon:${p.id}`
+  if ((await query('SELECT 1 FROM webhook_failures WHERE event_key = $1', [key])).rowCount) return
+  out.flagged++
+  logger.error({ paymentId: p.id }, 'daily payment check: a captured payment matches no order or booking')
+  await recordWebhookFailure(
+    'razorpay', `Daily check: captured payment ${p.id} (${p.amount} paise) matches no order or booking we hold`, key, { query }, p.id,
+  )
+}
+
+/**
+ * The booking a payment was made for, but only when that booking's own
+ * payment link lists the payment (a payment's notes alone are never trusted
+ * for bookings, PAY-B11).
+ */
+async function linkListsPayment(p) {
+  const noted = typeof p.notes?.preorderId === 'string' ? p.notes.preorderId : null
+  if (!noted) return null
+  const { rows } = await query('SELECT id, payment_link_id FROM preorders WHERE id = $1 AND payment_link_id IS NOT NULL', [noted])
+  if (!rows.length) return null
+  const listed = await fetchLinkPayments(rows[0].payment_link_id)
+  return listed.some((x) => x.id === p.id && x.status === 'captured') ? rows[0].id : null
 }
 
 export async function knownPayment(id, c = { query }) {

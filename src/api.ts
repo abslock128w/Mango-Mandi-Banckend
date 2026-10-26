@@ -264,6 +264,9 @@ export const api = {
   refundUnmatchedPayment: (failureId: string, reason: string) =>
     request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason }),
   keepPreorder: (preorderId: string, reason: string) => request<unknown>('POST', `/preorders/${id(preorderId)}/keep`, { reason }),
+  /** INV-06: sets a week's taken preorder capacity from its bookings; reserved and booked are the numbers shown. */
+  recountPreorderCapacity: (weekStart: string, sku: string, seen: { reserved: number; booked: number }, reason: string) =>
+    request<{ recounted: boolean; reserved: number; booked: number }>('POST', `/preorder-capacity/${id(weekStart)}/${id(sku)}/recount`, { ...seen, reason }),
   refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string) =>
     request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason }),
   signOutAllStaff: (reason: string, keepMe = true) => request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe }),
@@ -300,12 +303,16 @@ export const api = {
     request<BatchListItem[]>('GET', `/batches${qs({ status })}`),
   batch: (batchId: string) => request<BatchDetail>('GET', `/batches/${id(batchId)}`),
   ledger: (batchId: string) => request<LedgerEntry[]>('GET', `/batches/${id(batchId)}/ledger`),
-  createBatch: (input: {
-    variety: string
-    pluckedOn: string
-    farm?: string
-    lines: { sku: string; onHand: number }[]
-  }) => request<BatchDetail>('POST', '/batches', input),
+  /** key: one per filled-in intake form, so a double submit or a retry records one batch (INV-02). */
+  createBatch: (
+    input: {
+      variety: string
+      pluckedOn: string
+      farm?: string
+      lines: { sku: string; onHand: number }[]
+    },
+    key: string,
+  ) => apiRequest<BatchDetail>('POST', '/batches', input, { 'Idempotency-Key': key }),
   /**
    * 204 for normal moves. CONDEMNED returns the orders moved to other batches
    * and the ones left at-risk; no order is cancelled.

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
@@ -140,13 +140,21 @@ function ReceiveDialog({ onClose }: { onClose: () => void }) {
   const [farm, setFarm] = useState('')
   const [qty, setQty] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<unknown>(null)
+  // One key per intake as filled in: sending the same intake again (a double tap, a retry after a lost answer)
+  // records one batch (INV-02); changing any field makes a new key.
+  const lastSent = useRef<{ body: string; key: string } | null>(null)
+  const keyFor = (input: Parameters<typeof api.createBatch>[0]) => {
+    const body = JSON.stringify(input)
+    if (lastSent.current?.body !== body) lastSent.current = { body, key: crypto.randomUUID() }
+    return lastSent.current.key
+  }
 
   const activeVariety = variety || varieties[0] || ''
   const skus = onSale.filter((p) => p.variety === activeVariety)
   const today = istDate()
 
   const create = useMutation({
-    mutationFn: api.createBatch,
+    mutationFn: (input: Parameters<typeof api.createBatch>[0]) => api.createBatch(input, keyFor(input)),
     onSuccess: (batch) => {
       queryClient.invalidateQueries({ queryKey: ['batches'] })
       queryClient.invalidateQueries({ queryKey: ['summary'] })

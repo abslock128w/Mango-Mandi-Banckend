@@ -4,7 +4,7 @@
 // their events and the stock counters at request time.
 import { addDays, now, todayIST } from '../clock.js'
 import { newId } from '../ids.js'
-import { auditLedger } from '../inventory.js'
+import { auditLedger, LINE_LOCK_ORDER } from '../inventory.js'
 import { loadProducts } from '../products.js'
 import { formatBoxCode } from './codes.js'
 import { addHold, applyLineDeltas, lockBoxes, newDeltas, releaseHold, whError } from './core.js'
@@ -443,7 +443,9 @@ export async function updateProductSettings(c, sku, patch, who) {
   if (!p) throw whError('NOT_FOUND', 'Product not found', 404)
   if (patch.boxTrackingEnabled === true && !p.box_tracking_enabled) {
     const lines = (await c.query(
-      `SELECT l.id, l.on_hand, l.batch_id FROM batch_lines l JOIN batches b ON b.id = l.batch_id WHERE l.sku = $1 AND b.status NOT IN ('EXHAUSTED', 'CONDEMNED') ORDER BY l.id FOR UPDATE OF l`,
+      // In the one line order (DB-01): FEFO within the SKU, as allocations and payments lock them.
+      `SELECT l.id, l.on_hand, l.batch_id FROM batch_lines l JOIN batches b ON b.id = l.batch_id
+        WHERE l.sku = $1 AND b.status NOT IN ('EXHAUSTED', 'CONDEMNED') ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
       [sku],
     )).rows
     const off = []

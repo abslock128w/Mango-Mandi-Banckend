@@ -169,6 +169,7 @@
   "POST /admin/v1/orders/:id/returned-stock": "staff",
   "POST /admin/v1/orders/bulk-reschedule": "staff",
   "POST /admin/v1/pincodes": "staff",
+  "POST /admin/v1/preorder-capacity/:weekStart/:sku/recount": "staff",
   "POST /admin/v1/preorders/:id/cancel": "staff",
   "POST /admin/v1/preorders/:id/keep": "staff",
   "POST /admin/v1/products": "staff",

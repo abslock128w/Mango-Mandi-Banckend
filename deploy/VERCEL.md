@@ -51,10 +51,23 @@ The API runs in Singapore (`sin1`), next to the database.
    -- A transaction left open (a function stopped mid-request) gives its connection back.
    ALTER ROLE mango_app SET idle_in_transaction_session_timeout = '30s';
    ALTER ROLE neondb_owner SET statement_timeout = '60s';
+   -- The app's queries are short; compiling them (JIT) only adds time (audit DB-06).
+   ALTER ROLE mango_app SET jit = off;
    ```
 
    Run the first deploy (step 3) before the two `GRANT ... ON ALL` lines matter;
    if you made the role before the tables existed, run those two lines again after.
+   Then, after the first deploy and after any re-run of those lines, take back
+   the right to change the stock ledger, which only ever gets new rows (a trigger
+   refuses changes too; this keeps it that way even if the trigger is bypassed,
+   audit DB-09):
+
+   ```sql
+   REVOKE UPDATE, DELETE, TRUNCATE ON batch_ledger FROM mango_app;
+   ```
+
+   Check both with `SELECT has_table_privilege('mango_app', 'batch_ledger', 'UPDATE');`
+   (should be `f`) and, logged in as `mango_app`, `SHOW jit;` (should be `off`).
 4. Copy two connection strings from **Connect**:
    - **Pooled** (host has `-pooler`), logged in as `mango_app`: this is `DATABASE_URL`.
    - **Direct** (no `-pooler`), logged in as the owner: this is
@@ -305,6 +318,8 @@ the pass marks.
 - [ ] The Sentry cron monitor and the uptime monitor on `/ready` are set up and alert someone.
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
       Set on: _date_.
+- [ ] `mango_app` has `jit = off` and no UPDATE, DELETE or TRUNCATE on `batch_ledger`
+      (step 1.3; the two checks there).
 - [ ] One restore drill done on a Neon branch, with the time it took written down.
 - [ ] The nightly backup workflow ran once and its artifact decrypts; its heartbeat is
       recorded and `BACKUP_HEARTBEAT_EXPECTED=true` is set (Backups, step 4).

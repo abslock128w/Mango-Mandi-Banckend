@@ -117,6 +117,7 @@
   "POST /orders/:id/returned-stock": ["MANAGER","OPERATOR"],
   "POST /orders/bulk-reschedule": ["MANAGER"],
   "POST /pincodes": ["MANAGER","OPERATOR"],
+  "POST /preorder-capacity/:weekStart/:sku/recount": ["MANAGER"],
   "POST /preorders/:id/cancel": ["MANAGER"],
   "POST /preorders/:id/keep": ["MANAGER"],
   "POST /products": ["MANAGER"],

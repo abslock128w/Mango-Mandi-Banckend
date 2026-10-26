@@ -114,11 +114,23 @@ export async function slotsForDate(c, date) {
  * exist and have room. Otherwise (late payments, retries, replacements) the
  * order keeps its slot if it has room, else takes the first with room, else
  * the least booked one: a system move never fails because of a slot.
+ * `mustFit` (a reschedule without a slot, with ORDER_RULE_CHECKS): as the
+ * system move, but 409 SLOT_FULL instead of overfilling.
  */
 /** Advisory lock namespace for "booking slot capacity on one date". */
 const SLOT_DAY_LOCK = 427714300
 
-export async function chooseSlot(c, date, boxes, wanted, { strict = false, excludeOrderId = null } = {}) {
+/**
+ * DB-01: takes a day's booking locks (calendar row, then the slot lock) in the
+ * order a checkout takes them, for a caller that will touch batch lines
+ * before it checks the day's room (a late payment).
+ */
+export async function lockDay(c, date) {
+  await c.query('SELECT 1 FROM delivery_calendar WHERE date = $1 FOR UPDATE', [date])
+  await c.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SLOT_DAY_LOCK, date])
+}
+
+export async function chooseSlot(c, date, boxes, wanted, { strict = false, mustFit = false, excludeOrderId = null } = {}) {
   // Serialises bookings on this date only (until the transaction ends), so
   // two checkouts can't both take the last place in a slot, while checkouts
   // for other dates don't wait. Locking the slot rows would queue every
@@ -141,5 +153,7 @@ export async function chooseSlot(c, date, boxes, wanted, { strict = false, exclu
   if (want && fits(want)) return want.id
   const free = slots.find(fits)
   if (free) return free.id
+  // INV-01: a move someone asked for (customer or staff) never overfills a slot.
+  if (mustFit) throw conflict(`Every delivery slot on ${date} is fully booked`, 'SLOT_FULL')
   return [...slots].sort((a, b) => (used.get(a.id) ?? 0) - (used.get(b.id) ?? 0))[0].id
 }

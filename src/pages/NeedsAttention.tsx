@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useId, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
 import { useSession } from '../session'
 import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
@@ -27,6 +27,7 @@ const STEP_LABEL: Record<string, string> = {
   backup: 'Nightly backup',
   'refund-checks': 'Checking refunds with Razorpay',
   bills: 'Issuing bills for paid orders',
+  'payment-recon': "Daily check of Razorpay's payments",
   'stock-alerts': 'Sending back-in-stock alerts',
   reminders: 'Sending reorder reminders',
   retention: 'Removing old personal data',
@@ -70,6 +71,7 @@ export default function NeedsAttention() {
       if (a.kind === 'resolve') return api.resolveWebhookFailure(a.hook.id, reason)
       if (a.kind === 'refund-payment') return api.refundUnmatchedPayment(a.hook.id, reason)
       if (a.kind === 'keep') return api.keepPreorder(a.preorder.id, reason)
+      if (a.kind === 'recount') return api.recountPreorderCapacity(a.week.weekStart, a.week.sku, { reserved: a.week.reserved, booked: a.week.booked }, reason)
       const r = a.refund
       return r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason)
     },
@@ -81,9 +83,15 @@ export default function NeedsAttention() {
             ? `Refund of ${a.hook.paymentId} queued`
             : a.kind === 'keep'
               ? `Preorder ${a.preorder.number} kept`
-              : `Refund for ${a.refund.number} recorded as paid back`,
+              : a.kind === 'recount'
+                ? `Preorder capacity for ${a.week.sku} recounted`
+                : `Refund for ${a.refund.number} recorded as paid back`,
       ),
-    onError: (err) => toast.error(err),
+    onError: (err) => {
+      toast.error(err)
+      // A recount refused because the bookings moved: show the new numbers.
+      if (err instanceof ApiError && err.code === 'PREVIEW_CHANGED') queryClient.invalidateQueries({ queryKey: ['attention'] })
+    },
   })
   const check = useMutation({
     mutationFn: ({ d, ok, note }: { d: PhotoDelivery; ok: boolean; note?: string }) => api.reviewDelivery(d.id, ok, note),
@@ -124,6 +132,8 @@ export default function NeedsAttention() {
   const retries = a.retryDecisions ?? []
   const preorders = a.preorderDecisions ?? []
   const returned = a.returnedStock ?? []
+  const preorderDrift = a.preorderCapacityDrift ?? []
+  const lateTrucks = a.lateArrivals ?? []
 
   const photoItem = (d: PhotoDelivery) => (
     <li key={`photo-${d.id}`}>
@@ -218,9 +228,27 @@ export default function NeedsAttention() {
     },
     { key: 'refunds', title: 'Refunds not sent', items: a.stuckRefunds.map((r) => (
       <li key={`${r.type}-${r.id}-${r.number}`}>
-        <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
-        for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
-        {manager && (r.state ?? 'unsent') === 'unsent' ? (
+        {r.state === 'held' && disputeOpen(r) ? (
+          <>
+            <strong>Refund held</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked for
+            at {dateTime(r.requestedAt)}: the customer opened chargeback {r.dispute?.id ?? 'a chargeback'} on the payment (see Payment
+            disputes). Answer it in the Razorpay dashboard. If we win, the refund goes out on its own; if we lose, the bank has given
+            the money back and you record it here.
+          </>
+        ) : r.state === 'held' ? (
+          <>
+            <strong>Refund held</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked for
+            at {dateTime(r.requestedAt)}: chargeback {r.dispute?.id} was {humanize(r.dispute?.status ?? 'lost').toLowerCase()}, so the
+            bank has already given the customer the money back. Record it as paid back another way, with the dispute id as the
+            reference, so it is not refunded twice.
+          </>
+        ) : (
+          <>
+            <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
+            for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+          </>
+        )}
+        {manager && (r.state ?? 'unsent') !== 'unconfirmed' && !disputeOpen(r) ? (
           <>
             {' '}
             <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'settle', refund: r })}>
@@ -230,7 +258,34 @@ export default function NeedsAttention() {
         ) : null}
       </li>
     )) },
-    { key: 'drift', title: 'Stock counts to check', items: drift.map((l) => (
+    { key: 'drift', title: 'Stock counts to check', items: [
+      ...lateTrucks.map((b) => (
+        <li key={`late-${b.id}`}>
+          <strong>Batch still in transit</strong>: <Link to={`/batches/${b.id}`}>{b.variety}{b.farm ? ` from ${b.farm}` : ''}</Link> was due{' '}
+          {date(b.etaDate)}
+          {b.promised ? <span className="muted"> ({b.promised} boxes already promised to orders)</span> : null}. Mark it arrived when it comes, or
+          record a short arrival.{b.sellingPaused ? ' Until then it does not sell to new orders.' : ''}
+        </li>
+      )),
+      ...preorderDrift.map((w) => (
+        <li key={`pre-drift-${w.sku}-${w.weekStart}`}>
+          <strong>Preorder capacity disagrees with the bookings</strong> for {w.sku} in the week of {date(w.weekStart)}
+          <span className="muted">
+            {' '}
+            (taken {w.reserved}, booked {w.booked})
+          </span>
+          . Check that week on the <Link to="/preorders">Preorders</Link> page; if the bookings are right, recount the week from them.
+          {manager ? (
+            <>
+              {' '}
+              <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'recount', week: w })}>
+                Recount from the bookings<span className="sr-only"> for {w.sku}, week of {date(w.weekStart)}</span>
+              </button>
+            </>
+          ) : null}
+        </li>
+      )),
+      ...drift.map((l) => (
       <li key={`drift-${l.lineId}`}>
         <strong>Stock counts disagree with the ledger</strong> for {l.sku} in <Link to={`/batches/${l.batchId}`}>its batch</Link>
         <span className="muted">
@@ -247,7 +302,8 @@ export default function NeedsAttention() {
           </>
         ) : null}
       </li>
-    )) },
+    )),
+    ] },
     { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
       <li key={`returned-${r.id}`}>
         <strong>
@@ -390,7 +446,10 @@ function DoubtDialog({ d, pending, error, onClose, onSave }: { d: PhotoDelivery;
 
 type Hook = Attention['webhookFailures'][number]
 type StuckRefund = Attention['stuckRefunds'][number]
+/** A held refund whose chargeback the bank has not decided yet: nothing to settle until it does (the API refuses it too). */
+const disputeOpen = (r: StuckRefund) => r.state === 'held' && !['won', 'lost', 'closed'].includes(r.dispute?.status ?? 'open')
 type PreorderDecision = NonNullable<Attention['preorderDecisions']>[number]
+type PreorderDrift = NonNullable<Attention['preorderCapacityDrift']>[number]
 /** A manager's way out of one item (each is recorded in the staff activity with its reason). */
 type Act =
   | { kind: 'repair'; drift: LedgerDrift }
@@ -398,6 +457,7 @@ type Act =
   | { kind: 'refund-payment'; hook: Hook }
   | { kind: 'keep'; preorder: PreorderDecision }
   | { kind: 'settle'; refund: StuckRefund }
+  | { kind: 'recount'; week: PreorderDrift }
 
 function RecoveryDialog({
   act,
@@ -413,7 +473,9 @@ function RecoveryDialog({
   onSave: (reason: string, reference?: string) => void
 }) {
   const refId = useId()
-  const [reference, setReference] = useState('')
+  // A refund held by a lost chargeback is settled with the dispute id as the reference.
+  const chargedBack = act.kind === 'settle' && act.refund.state === 'held' ? act.refund.dispute : null
+  const [reference, setReference] = useState(chargedBack?.id ?? '')
   const common = { busy: pending, error, onClose, maxLength: 500 }
   if (act.kind === 'resolve') {
     return (
@@ -456,6 +518,44 @@ function RecoveryDialog({
         onSubmit={(r) => onSave(r)}
       >
         <p className="muted">{act.preorder.reason}</p>
+      </ReasonDialog>
+    )
+  }
+  if (act.kind === 'recount') {
+    const w = act.week
+    return (
+      <ReasonDialog
+        {...common}
+        tone="primary"
+        title={`Recount preorder capacity for ${w.sku}?`}
+        label="What you checked"
+        confirmLabel="Recount"
+        hint="Taken capacity is set to what the live bookings hold. Spots it frees go to the waitlist."
+        onSubmit={(r) => onSave(r)}
+      >
+        <p className="muted">
+          Week of {date(w.weekStart)}: taken {w.reserved}, the bookings hold {w.booked}. After the recount, taken is {w.booked}.
+        </p>
+      </ReasonDialog>
+    )
+  }
+  if (chargedBack) {
+    return (
+      <ReasonDialog
+        {...common}
+        title={`Paid back by the bank: ${act.refund.number}`}
+        label="What you checked"
+        confirmLabel="Record as paid back"
+        hint="Check in the Razorpay dashboard that the bank decided the chargeback against us. Retries stop; it still counts as a refund in reports."
+        onSubmit={(r) => onSave(r, reference.trim())}
+      >
+        <div className="field">
+          <label htmlFor={refId}>Dispute id</label>
+          <input id={refId} value={reference} maxLength={100} onChange={(e) => setReference(e.target.value)} aria-describedby={`${refId}-hint`} />
+          <p id={`${refId}-hint`} className="hint">
+            The chargeback that gave the customer the money back ({humanize(chargedBack.status).toLowerCase()}).
+          </p>
+        </div>
       </ReasonDialog>
     )
   }

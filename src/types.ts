@@ -284,6 +284,8 @@ export interface OrderDetail {
   atRisk?: boolean
   atRiskReason?: string | null
   replacementFor?: { id: string; number: string } | null
+  /** Only a manager may cancel it: a paid order, and (when the API checks it) a free replacement. */
+  cancelNeedsManager?: boolean
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
@@ -699,9 +701,19 @@ export interface Attention {
   }[]
   /**
    * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
-   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way).
+   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way);
+   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06).
    */
-  stuckRefunds: { type: 'order' | 'preorder' | 'payment'; id: string; number: string; requestedAt: string; paymentId?: string | null; state?: 'unsent' | 'unconfirmed' }[]
+  stuckRefunds: {
+    type: 'order' | 'preorder' | 'payment'
+    id: string
+    number: string
+    requestedAt: string
+    paymentId?: string | null
+    state?: 'unsent' | 'unconfirmed' | 'held'
+    /** On a held refund: the chargeback holding it. Open until the bank decides; once lost or closed it is settled as paid back. */
+    dispute?: { id: string; status: string } | null
+  }[]
   /** Not yet marked resolved. refundable: a captured payment that still matches nothing (a manager may refund it). */
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string; paymentId?: string | null; refundable?: boolean }[]
   /** Chargebacks still open at Razorpay; answered in the Razorpay dashboard. */
@@ -724,6 +736,10 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
+  preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
+  /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */
+  lateArrivals?: { id: string; variety: string; farm: string | null; etaDate: string; promised: number; sellingPaused: boolean }[]
   /** Paid orders past their date or out for delivery too long. */
   overdueOrders?: OverdueOrder[]
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */

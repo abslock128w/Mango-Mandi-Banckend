@@ -7,10 +7,14 @@
 import { randomInt } from 'node:crypto'
 import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
-import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, nextDeliveryDay, orderableDates } from './delivery.js'
+import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, lockDay, nextDeliveryDay, orderableDates } from './delivery.js'
+import { afterCommit, query, tx } from './db.js'
 import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from './errors.js'
+import { env } from './env.js'
 import { newId } from './ids.js'
-import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
+import {
+  allocate, bySku, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, lockLines, pack, release, restock, sellableAs,
+} from './inventory.js'
 import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
@@ -93,8 +97,17 @@ export async function lockOrder(c, orderId) {
   return rows[0]
 }
 
+/** DB-01: locks the batch lines an order's stock sits on, in the canonical line order, before changing any. */
+async function lockOrderLines(c, orderId, states) {
+  const { rows } = await c.query('SELECT line_id FROM order_stock WHERE order_id = $1 AND state = ANY($2)', [orderId, states])
+  await lockLines(c, rows.map((r) => r.line_id))
+}
+
 const stockRows = async (c, orderId, states) =>
   (await c.query('SELECT * FROM order_stock WHERE order_id = $1 AND state = ANY($2) ORDER BY id', [orderId, states])).rows
+
+const boxCount = async (c, orderId) =>
+  (await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [orderId])).rows[0].n
 
 const orderItems = async (c, orderId) =>
   (await c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId])).rows
@@ -138,7 +151,7 @@ export async function createOrder(c, o, actor) {
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
   await sweepExpiredHoldsFor(c, [...new Set(o.lines.map((l) => l.sku))])
   const short = []
-  for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku))) {
+  for (const l of [...o.lines].sort((a, b) => bySku(a.sku, b.sku))) {
     const got = await allocate(c, { orderId: id, orderNumber: number, deliveryDate: o.deliveryDate, sku: l.sku, stage: l.stage, qty: l.qty, state, actor })
     if (got < l.qty) {
       if (o.allOrNothing) {
@@ -243,6 +256,7 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
   const problems = []
   let changed = false
+  await lockOrderLines(c, o.id, ['held', 'committed'])
 
   // 1. Swap stock that is no longer valid for the delivery date.
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) {
@@ -290,7 +304,7 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   }
 
   await setRisk(c, o, problems, actor)
-  if (changed) metrics.rebalanceSwaps.inc()
+  if (changed) afterCommit(c, () => metrics.rebalanceSwaps.inc())
   return { id: o.id, number: o.number, changed, atRisk: problems.length > 0 }
 }
 
@@ -304,9 +318,10 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
  * go back on the shelf and the order is allocated afresh, so it is packed
  * again for the new date: one box consumed per box ordered (INV-1).
  */
-export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
+export async function placeOnFirstDateWithStock(c, o, dates, actor, why, { slotMustFit = false } = {}) {
   const items = await orderItems(c, o.id)
   const boxes = items.reduce((s, i) => s + i.quantity, 0)
+  await lockOrderLines(c, o.id, ['held', 'committed', 'packed'])
   for (const date of dates) {
     await c.query('SAVEPOINT place')
     let unpacked = false
@@ -319,7 +334,7 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
         unpacked = true
       }
       await checkCapacity(c, date, boxes, o.id)
-      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id })
+      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id, mustFit: slotMustFit })
       let full = true
       for (const i of items) {
         const have = packed.filter((r) => r.sku === i.sku && r.stage === i.stage).reduce((n, r) => n + r.quantity, 0)
@@ -372,8 +387,12 @@ export async function moveOrderToDate(c, orderId, { deliveryDate, slotId = null,
     await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
   }
   const from = o.delivery_date
-  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why)
-  if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  // INV-01: without a slot named, the order keeps its slot or takes one with room, never one that is full.
+  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
+  if (!date) {
+    if (env.ORDER_RULE_CHECKS) await chooseSlot(c, deliveryDate, await boxCount(c, o.id), o.slot_id ?? null, { excludeOrderId: o.id, mustFit: true })
+    throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  }
   await rebalanceOrder(c, o.id, actor)
   return from
 }
@@ -443,6 +462,10 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   const chosenDate = o.delivery_date
   if (o.status !== 'PAYMENT_PENDING' && !lateFrom) return { order: o, result: 'ignored' }
   assertTransition(o.status, 'CONFIRMED')
+  // DB-01: a late payment checks the day's room below; take the day before the
+  // lines, the order a checkout takes them in. Then the lines, in line order.
+  if (lateFrom || holdLapsed) await lockDay(c, o.delivery_date)
+  await lockOrderLines(c, o.id, ['held'])
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
             payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL
@@ -451,7 +474,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   )
   const confirmEvent = await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
   o.status = 'CONFIRMED'
-  metrics.ordersConfirmed.inc()
+  afterCommit(c, () => metrics.ordersConfirmed.inc())
 
   // Checkpoint 3: payment confirmation. Commit the holds that are still valid.
   for (const row of await stockRows(c, o.id, ['held'])) {
@@ -509,6 +532,7 @@ async function hasRoom(c, o) {
 
 /** `billBy`: who the order's bill (if one was issued) says cancelled it, 'SHOP' or 'BUYER' (never the typed reason). */
 async function cancelInTx(c, o, actor, reason, paymentStatus = null, billBy = 'SHOP') {
+  await lockOrderLines(c, o.id, ['held', 'committed', 'packed'])
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Cancel ${o.number}`)
   if (RESTOCKABLE.includes(o.status)) {
     // Labelled boxes are taken off the order and wait at pick staging (warehouse/stock.js).
@@ -537,6 +561,10 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
   const o = await lockOrder(c, orderId)
   if (o.status === 'CANCELLED') throw conflict('This order is already cancelled')
   const paid = o.payment_status === 'SUCCEEDED'
+  // INV-07: a free replacement settles a claim; cancelling it undoes that decision, which is a manager's.
+  if (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT' && !manager) {
+    throw forbidden('Only a manager can cancel a replacement, because it settles a claim')
+  }
   if (paid) {
     if (!manager) throw forbidden('Only a manager can cancel a paid order, because it is refunded in full')
     if (!MANAGER_REFUNDABLE.includes(o.status)) throw badRequest(`A ${o.status} order cannot be cancelled`, 'INVALID_TRANSITION')
@@ -792,7 +820,7 @@ export async function lockBatchOrders(c, batchIds) {
 
 export async function takeBatchOutOfService(c, batchId, status, actor, why = null) {
   await lockBatchOrders(c, [batchId])
-  const { rows: lines } = await c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [batchId])
+  const { rows: lines } = await c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY sku COLLATE "C", id FOR UPDATE', [batchId])
   const { rows: affected } = await c.query(
     `SELECT DISTINCT o.id, o.placed_at FROM order_stock s JOIN orders o ON o.id = s.order_id
       WHERE s.batch_id = $1 AND s.state IN ('held', 'committed', 'packed') AND o.status = ANY($2)
@@ -983,34 +1011,61 @@ export async function createReplacement(c, claim, original, actor) {
   return order
 }
 
+const EXPIRED_HOLDS = `SELECT id FROM orders WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1 ORDER BY at_risk, hold_expires_at LIMIT 200`
+
+/** Cancels one expired hold. Throws if it can't (the caller flags it). Returns 1 if cancelled. */
+async function sweepOne(c, id, at) {
+  const o = await lockOrder(c, id)
+  if (o.status !== 'PAYMENT_PENDING' || !(o.hold_expires_at < at)) return 0
+  await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
+  return 1
+}
+
+async function flagUnsweepable(c, id, err) {
+  logger.error({ err, orderId: id }, 'could not cancel an order whose hold expired; skipping it')
+  metrics.maintenanceErrors.inc({ step: 'sweep-order' })
+  const reason = `Hold expired but the order could not be cancelled: ${String(err?.message ?? err).slice(0, 200)}`
+  await c.query('UPDATE orders SET at_risk = TRUE, at_risk_reason = $2 WHERE id = $1 AND at_risk_reason IS DISTINCT FROM $2', [id, reason])
+}
+
 /**
- * Cancels PAYMENT_PENDING orders whose 10-minute hold has run out. Each order
- * gets its own savepoint: one that fails to cancel (a drifted counter, a bad
- * notification) is logged, flagged at-risk for ops and skipped, instead of
- * rolling back the whole batch and blocking every hold behind it (INV-2).
- * Orders flagged that way go to the back of the queue.
+ * Cancels PAYMENT_PENDING orders whose 10-minute hold has run out, inside the
+ * caller's transaction. Each order gets its own savepoint: one that fails to
+ * cancel (a drifted counter, a bad notification) is logged, flagged at-risk
+ * for ops and skipped, instead of rolling back the whole batch and blocking
+ * every hold behind it (INV-2). Orders flagged that way go to the back of the
+ * queue. The scheduled sweep uses sweepExpiredHoldsEach instead.
  */
 export async function sweepExpiredHolds(c, at = now()) {
-  const { rows } = await c.query(
-    `SELECT id FROM orders WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1 ORDER BY at_risk, hold_expires_at LIMIT 200`,
-    [at],
-  )
+  const { rows } = await c.query(EXPIRED_HOLDS, [at])
   let n = 0
   for (const { id } of rows) {
     await c.query('SAVEPOINT sweep_one')
     try {
-      const o = await lockOrder(c, id)
-      if (o.status === 'PAYMENT_PENDING' && o.hold_expires_at < at) {
-        await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
-        n++
-      }
+      n += await sweepOne(c, id, at)
       await c.query('RELEASE SAVEPOINT sweep_one')
     } catch (err) {
       await c.query('ROLLBACK TO SAVEPOINT sweep_one')
-      logger.error({ err, orderId: id }, 'could not cancel an order whose hold expired; skipping it')
-      metrics.maintenanceErrors.inc({ step: 'sweep-order' })
-      const reason = `Hold expired but the order could not be cancelled: ${String(err?.message ?? err).slice(0, 200)}`
-      await c.query('UPDATE orders SET at_risk = TRUE, at_risk_reason = $2 WHERE id = $1 AND at_risk_reason IS DISTINCT FROM $2', [id, reason])
+      await flagUnsweepable(c, id, err)
+    }
+  }
+  return n
+}
+
+/**
+ * The scheduled sweep (DB-02): the same work as sweepExpiredHolds, but each
+ * order is cancelled in its own short transaction, so a large sweep after a
+ * broadcast never holds stock and order locks for thousands of statements
+ * while buyers and payments wait on them.
+ */
+export async function sweepExpiredHoldsEach(at = now()) {
+  const { rows } = await query(EXPIRED_HOLDS, [at])
+  let n = 0
+  for (const { id } of rows) {
+    try {
+      n += await tx((c) => sweepOne(c, id, at))
+    } catch (err) {
+      await tx((c) => flagUnsweepable(c, id, err))
     }
   }
   return n
@@ -1033,7 +1088,7 @@ export async function sweepExpiredHolds(c, at = now()) {
  * scheduler is down; a payment that lands even later is still honoured as a
  * late payment.
  */
-export const LAZY_SWEEP_GATEWAY_GRACE_MS = 2 * 60_000
+export { LAZY_SWEEP_GATEWAY_GRACE_MS }
 export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
   if (!skus.length) return 0
   const { rows } = await c.query(
@@ -1061,7 +1116,7 @@ export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
       logger.error({ err, orderId: id }, 'lazy hold expiry could not cancel an order; leaving it for the sweep')
     }
   }
-  if (n) metrics.lazyExpiries.inc(n)
+  if (n) afterCommit(c, () => metrics.lazyExpiries.inc(n))
   return n
 }
 

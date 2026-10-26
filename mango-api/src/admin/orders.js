@@ -7,6 +7,7 @@ import { addDays, isDate, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
 import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
@@ -111,6 +112,8 @@ export async function orderDetail(c, orderId) {
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
+    // Only a manager may cancel it: a paid order (refunded in full) and, with ORDER_RULE_CHECKS, a free replacement (INV-07).
+    cancelNeedsManager: o.payment_status === 'SUCCEEDED' || (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT'),
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
       kind: n.kind, channel: n.channel, status: n.status, attempts: n.attempts, createdAt: n.created_at, sentAt: n.sent_at, error: n.last_error,
@@ -294,7 +297,8 @@ router.post(
           // Changed since we listed it (packed, cancelled or moved): leave it.
           if (!o || o.delivery_date !== b.fromDate || !['CONFIRMED', 'PROCESSING'].includes(o.status)) return 'changed'
           if (b.slotId) o.slot_id = b.slotId
-          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why)
+          // INV-01: with ORDER_RULE_CHECKS a full slot moves the order on to the next date with room, like missing stock.
+          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
           if (!d) return null
           await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
           await rebalanceOrder(c, o.id, req.actor)
@@ -302,7 +306,7 @@ router.post(
         })
         if (date === 'changed') notMoved.push({ ...brief(p), reason: 'Changed while moving; check it by hand' })
         else if (date) moved.push({ ...brief(p), deliveryDate: date })
-        else notMoved.push({ ...brief(p), reason: `No stock on ${b.toDate} or any later open date` })
+        else notMoved.push({ ...brief(p), reason: `No stock${env.ORDER_RULE_CHECKS ? ' or slot room' : ''} on ${b.toDate} or any later open date` })
       } catch (err) {
         notMoved.push({ ...brief(p), reason: err.message })
       }

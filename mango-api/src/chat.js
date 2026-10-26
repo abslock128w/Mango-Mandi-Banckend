@@ -5,6 +5,7 @@
 // customer-cancel refund. Booking ahead (a preorder for a later week) uses
 // the same preorder engine as the app. WhatsApp verifies the phone number,
 // so the chat needs no OTP.
+import { background } from './background.js'
 import { getConfig } from './config.js'
 import { now } from './clock.js'
 import { tx, query } from './db.js'
@@ -16,7 +17,7 @@ import { availability } from './inventory.js'
 import { logger, maskPhone } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { applyCapture, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
+import { applyCapture, cancelPaymentLink, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
@@ -224,6 +225,13 @@ async function placeOrder(c, s, cust) {
   if (s.data.cart.some((l) => !sellable(l.sku))) {
     s.data.cart = []
     return { replies: [text('Sorry, one of those boxes is no longer sold. Please pick again.'), ...(await catalogue(c, s))] }
+  }
+  // INV-10: the pincode was checked when it was typed; deliveries there may have stopped since.
+  if (env.ORDER_RULE_CHECKS && !(await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [s.data.pincode])).rowCount) {
+    const pin = s.data.pincode
+    s.state = 'IDLE'
+    s.data = {}
+    return { replies: [text(`Sorry, we no longer deliver to ${pin}. Nothing was booked. Start again with another pincode.`), MENU] }
   }
   const r = await attempt(c, async () => {
     await checkUnpaidLimit(c, s.customerId, s.data.cart.reduce((t, l) => t + l.qty, 0))
@@ -571,8 +579,18 @@ async function paymentReplies(orderId) {
   let url = o.payment_link_url
   if (!url) {
     const link = await createPaymentLink({ amount: o.total, number: o.number, orderId: o.id, name: o.customer_name, phone: o.phone })
-    await query('UPDATE orders SET payment_link_id = $2, payment_link_url = $3 WHERE id = $1', [o.id, link.id, link.url])
-    url = link.url
+    // PAY-03: two quick "Pay" taps can both get here. Only the first link is
+    // stored (the reconcile polls only the stored one) and every reply sends
+    // that one; the extra link is never sent, and is cancelled at Razorpay.
+    const { rows: saved } = await query(
+      'UPDATE orders SET payment_link_id = $2, payment_link_url = $3 WHERE id = $1 AND payment_link_url IS NULL RETURNING payment_link_url',
+      [o.id, link.id, link.url],
+    )
+    if (saved.length) url = link.url
+    else {
+      url = (await query('SELECT payment_link_url FROM orders WHERE id = $1', [o.id])).rows[0].payment_link_url
+      background(cancelPaymentLink(link.id))
+    }
   }
   return [{ type: 'link', text: `Order ${o.number} is booked: ${rupees(o.total)}. ${hold}\n${url}`, button: `Pay ${rupees(o.total)}`, url }]
 }

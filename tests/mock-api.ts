@@ -417,6 +417,14 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.attention = { ...state.attention, preorderDecisions: (state.attention.preorderDecisions ?? []).filter((p) => p.id !== path.split('/')[2]) }
       return json(route, 200, { id: path.split('/')[2], kept: true })
     }
+    const recount = /^\/preorder-capacity\/([^/]+)\/([^/]+)\/recount$/.exec(path)
+    if (recount) {
+      if (state.role !== 'MANAGER') return managerOnly()
+      const [, week, sku] = recount
+      const w = (state.attention.preorderCapacityDrift ?? []).find((x) => x.weekStart === week && x.sku === sku)
+      state.attention = { ...state.attention, preorderCapacityDrift: (state.attention.preorderCapacityDrift ?? []).filter((x) => x !== w) }
+      return json(route, 200, { sku, weekStart: week, recounted: Boolean(w), reserved: w?.booked ?? 0, booked: w?.booked ?? 0 })
+    }
     if (/^\/refunds\/[^/]+\/paid-another-way$/.test(path)) {
       if (state.role !== 'MANAGER') return managerOnly()
       const refundId = path.split('/')[2]

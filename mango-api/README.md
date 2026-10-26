@@ -73,7 +73,7 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
 | `mandi_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
 | `mandi_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
-| `mandi_refunded` | Razorpay confirms a customer-cancel refund (order or preorder) | name, order number, amount ("Rs 1,899") |
+| `mandi_refunded` | Razorpay accepts a refund we started (a customer cancel before packing, or a manager cancel of a paid order we can't deliver; order or preorder). It goes out when the refund is created, before the bank has paid it, so the approved wording must say the refund **has been started** and takes a few working days, never that the money has arrived (audit PAY-09) | name, order number, amount ("Rs 1,899") |
 | `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |

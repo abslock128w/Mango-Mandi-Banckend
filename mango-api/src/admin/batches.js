@@ -1,4 +1,5 @@
 // Batches: intake, status, QC, stock adjustments, the ledger.
+import { createHash } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
 import { requireManager } from '../auth.js'
@@ -6,6 +7,7 @@ import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig } from '../config.js'
 import { env } from '../env.js'
 import { query, tx } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { ADJUST_REASONS, ledger } from '../inventory.js'
@@ -20,6 +22,14 @@ export const router = express.Router()
 const available = (l) => Math.max(0, l.on_hand - l.held - l.committed - l.reserve_buffer)
 
 // ---------------------------------------------------------------- batches
+
+/** The intake form's Idempotency-Key, scoped to the staff member (optional: older panels send none). */
+function idempotencyKey(req) {
+  const raw = req.get('Idempotency-Key')
+  if (!raw) return null
+  if (raw.length > 100) throw badRequest('The Idempotency-Key header is too long', 'IDEMPOTENCY_KEY_INVALID')
+  return `batch:${req.admin.id}:${raw}`
+}
 
 const BATCH_FLOW = ['ARRIVING', 'IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING', 'EXHAUSTED']
 const BATCH_STATUSES = [...BATCH_FLOW, 'CONDEMNED']
@@ -105,8 +115,33 @@ router.post(
       if (seen.has(l.sku)) throw badRequest(`${l.sku} is listed twice`)
       seen.add(l.sku)
     }
+    // INV-02 (STOCK_INTAKE_CHECKS): boxes that appear from nowhere get sold, so a big intake needs a manager, as a big adjustment does (INV-C).
+    const boxes = body.lines.reduce((n, l) => n + l.onHand, 0)
+    if (env.STOCK_INTAKE_CHECKS && boxes > env.BATCH_INTAKE_MANAGER_BOXES && req.admin.role !== 'MANAGER') {
+      throw new HttpError(
+        403,
+        'MANAGER_APPROVAL_NEEDED',
+        `Bringing in more than ${env.BATCH_INTAKE_MANAGER_BOXES} boxes in one batch needs a manager. Ask a manager to record this batch.`,
+        { limit: env.BATCH_INTAKE_MANAGER_BOXES },
+      )
+    }
+    // INV-02: the panel sends one Idempotency-Key per intake form, so a double submit or a retry makes one batch.
+    const key = env.STOCK_INTAKE_CHECKS ? idempotencyKey(req) : null
     const detail = await tx(async (c) => {
+      if (key) {
+        const hash = createHash('sha256').update(JSON.stringify(body)).digest('hex')
+        const claimed = await c.query(
+          `INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, 'pending', $2, $3) ON CONFLICT (key) DO NOTHING RETURNING key`,
+          [key, now(), hash],
+        )
+        if (!claimed.rowCount) {
+          const { rows } = await c.query('SELECT order_id, request_hash FROM idempotency_keys WHERE key = $1', [key])
+          if (rows[0]?.request_hash !== hash) throw new HttpError(422, 'IDEMPOTENCY_KEY_REUSED', 'This intake was already sent with different details')
+          return { ...(await batchDetail(c, rows[0].order_id)), replayed: true }
+        }
+      }
       const batchId = newId('bat')
+      if (key) await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, batchId])
       await c.query('INSERT INTO batches (id, variety, plucked_on, farm, eta_date, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
         batchId, body.variety, body.pluckedOn, body.farm || null, addDays(body.pluckedOn, currentConfig().rules.transitDays), now(),
       ])
@@ -116,6 +151,10 @@ router.post(
       }
       return batchDetail(c, batchId)
     })
+    if (detail.replayed) {
+      const { replayed: _, ...first } = detail
+      return res.status(200).json(first)
+    }
     res.status(201).json(detail)
   }),
 )
@@ -189,7 +228,7 @@ router.post(
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
       // Lock the lines before the reading lands: an allocation in flight either
       // finishes first (and is rebalanced below) or re-checks the stage after us (INV-6).
-      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [req.params.id])
+      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY sku COLLATE "C", id FOR UPDATE', [req.params.id])
       const today = todayIST()
       const dup = await c.query(
         `SELECT 1 FROM batch_qc WHERE batch_id = $1 AND logged_by = $2 AND (logged_at AT TIME ZONE 'Asia/Kolkata')::date = $3 LIMIT 1`,
