@@ -51,6 +51,15 @@ export function localPlan(argv, wifiIps = []) {
     LOG_LEVEL: 'warn',
     // Box-tracked warehouse on for the local demo (it stays off unless set, as in production).
     WAREHOUSE_V2: 'true',
+    // Stocktake, repack and the camera scanner in the warehouse (docs/warehouse), on for the demo too.
+    WAREHOUSE_STOCKTAKE: 'true',
+    WAREHOUSE_REPACK: 'true',
+    WAREHOUSE_CAMERA_SCAN: 'true',
+    // App feel (docs/app-feel.md): rider stops and route, favourites, sort and filter. The install offer
+    // and browser notifications stay off: they need a service worker and push keys.
+    LIVE_TRACKING: 'true',
+    FAVOURITES: 'true',
+    SHOP_SORT_FILTER: 'true',
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.
