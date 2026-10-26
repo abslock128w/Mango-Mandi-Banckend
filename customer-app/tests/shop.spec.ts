@@ -40,8 +40,11 @@ async function addFromProductPage(page: import('@playwright/test').Page, boxes: 
       await inStock.first().check()
     }
     if (!(await add.count()) || (await add.isDisabled())) continue
+    // A ripeness with only one box left can't take a second, so look further.
+    const more = page.getByRole('button', { name: 'One box more' })
+    if (boxes > 1 && (await more.isDisabled())) continue
     if (skip-- > 0) continue
-    for (let n = 1; n < boxes; n++) await page.getByRole('button', { name: 'One box more' }).click()
+    for (let n = 1; n < boxes; n++) await more.click()
     await add.click()
     const done = await page.getByRole('status').filter({ hasText: /^Added / }).textContent()
     return done!.match(/of (.+)\. View cart/)![1]
