@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { ISSUE_LABEL, RESOLUTION_LABEL, dateTime, rupees } from '../format'
 import type { Claim, ClaimStatus } from '../types'
+import { CustomerProfileLink } from '../CustomerLink'
+import { ExportPanel } from '../ExportPanel'
 import { AuthedPhoto, Badge, ClaimBadge, Dialog, EmptyState, FormError, PhoneLink, QueryError, Spinner, useToast, usePageTitle } from '../ui'
 
 const FILTERS: { value: ClaimStatus | null; label: string }[] = [
@@ -58,6 +60,7 @@ export default function Claims() {
       )}
 
       {resolving && <ResolveDialog claim={resolving} onClose={() => setResolving(null)} />}
+      <ExportPanel kinds={['claims']} />
     </>
   )
 }
@@ -103,7 +106,7 @@ function ClaimCard({ claim, onResolve }: { claim: Claim; onResolve: () => void }
       <dl className="kv">
         <dt>Phone</dt>
         <dd>
-          <PhoneLink phone={claim.customerPhone} who="the customer" />
+          <PhoneLink phone={claim.customerPhone} who="the customer" /> <CustomerProfileLink customerId={claim.customerId} />
         </dd>
         {claim.history && (
           <>

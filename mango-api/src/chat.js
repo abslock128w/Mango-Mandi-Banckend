@@ -5,6 +5,7 @@
 // customer-cancel refund. Booking ahead (a preorder for a later week) uses
 // the same preorder engine as the app. WhatsApp verifies the phone number,
 // so the chat needs no OTP.
+import { background } from './background.js'
 import { getConfig } from './config.js'
 import { now } from './clock.js'
 import { tx, query } from './db.js'
@@ -16,11 +17,12 @@ import { availability } from './inventory.js'
 import { logger, maskPhone } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
-import { applyCapture, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
+import { applyCapture, cancelPaymentLink, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
+import { reportProblem } from './sentry.js'
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
 const STATUS_WORDS = {
@@ -224,6 +226,13 @@ async function placeOrder(c, s, cust) {
   if (s.data.cart.some((l) => !sellable(l.sku))) {
     s.data.cart = []
     return { replies: [text('Sorry, one of those boxes is no longer sold. Please pick again.'), ...(await catalogue(c, s))] }
+  }
+  // INV-10: the pincode was checked when it was typed; deliveries there may have stopped since.
+  if (env.ORDER_RULE_CHECKS && !(await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [s.data.pincode])).rowCount) {
+    const pin = s.data.pincode
+    s.state = 'IDLE'
+    s.data = {}
+    return { replies: [text(`Sorry, we no longer deliver to ${pin}. Nothing was booked. Start again with another pincode.`), MENU] }
   }
   const r = await attempt(c, async () => {
     await checkUnpaidLimit(c, s.customerId, s.data.cart.reduce((t, l) => t + l.qty, 0))
@@ -571,8 +580,18 @@ async function paymentReplies(orderId) {
   let url = o.payment_link_url
   if (!url) {
     const link = await createPaymentLink({ amount: o.total, number: o.number, orderId: o.id, name: o.customer_name, phone: o.phone })
-    await query('UPDATE orders SET payment_link_id = $2, payment_link_url = $3 WHERE id = $1', [o.id, link.id, link.url])
-    url = link.url
+    // PAY-03: two quick "Pay" taps can both get here. Only the first link is
+    // stored (the reconcile polls only the stored one) and every reply sends
+    // that one; the extra link is never sent, and is cancelled at Razorpay.
+    const { rows: saved } = await query(
+      'UPDATE orders SET payment_link_id = $2, payment_link_url = $3 WHERE id = $1 AND payment_link_url IS NULL RETURNING payment_link_url',
+      [o.id, link.id, link.url],
+    )
+    if (saved.length) url = link.url
+    else {
+      url = (await query('SELECT payment_link_url FROM orders WHERE id = $1', [o.id])).rows[0].payment_link_url
+      background(cancelPaymentLink(link.id))
+    }
   }
   return [{ type: 'link', text: `Order ${o.number} is booked: ${rupees(o.total)}. ${hold}\n${url}`, button: `Pay ${rupees(o.total)}`, url }]
 }
@@ -647,12 +666,33 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
   return replies
 }
 
+/** INT-12: the pause before the one retry of a chat reply that failed for a passing reason. */
+export const CHAT_RETRY_MS = 1_500
+
+/** A failure worth one more try: Meta busy or rate limited, or no answer in time. */
+const retryable = (err) => Boolean(err?.retryable) || err?.name === 'TimeoutError' || err?.name === 'AbortError'
+
 async function deliver(send, phone, replies) {
   for (const r of replies) {
     try {
       await send(phone, r)
     } catch (err) {
-      logger.error({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
+      let last = err
+      // INT-12 (24 Oct audit, PROVIDER_CHECKS): Meta's redelivery of the customer's message is
+      // deduplicated, so a reply lost here (a payment link, say) was lost for good. One retry.
+      if (env.PROVIDER_CHECKS && retryable(err)) {
+        logger.warn({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed; trying once more')
+        await new Promise((res) => {
+          setTimeout(res, CHAT_RETRY_MS)
+        })
+        try {
+          await send(phone, r)
+          continue
+        } catch (again) {
+          last = again
+        }
+      }
+      logger.error({ err: last, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
     }
   }
 }
@@ -699,6 +739,8 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
               `WhatsApp payment ${st.payment.transaction?.id ?? '(no id)'} captured for reference ${String(st.payment.reference_id).slice(0, 60)}, which matches no order`,
               st.id ?? st.payment.transaction?.id ?? null,
             )
+            // INT-08 (OPS_ALERTS): money taken for no order reaches a person at once, not only the panel.
+            if (env.OPS_ALERTS) reportProblem('A WhatsApp payment was captured for no order: see Needs attention', { paymentId: st.payment.transaction?.id ?? null })
           }
         }
       }

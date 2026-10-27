@@ -6,9 +6,20 @@ import { checkProduction, DEV_JWT } from './preflight.js'
 /** Running as a Vercel Function (Vercel sets VERCEL=1). */
 export const onVercel = Boolean(process.env.VERCEL)
 
+/** An on/off setting written true or false, off unless set. */
+const flag = () =>
+  z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true')
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  // The address a long-running server listens on (index.js). Unset: every interface, as Docker
+  // needs. SEC-01 (24 Oct audit): a local run sets 127.0.0.1, so /v1/dev is not reachable from the
+  // Wi-Fi; phones reach the API only through the shop's dev-server proxy, which refuses /v1/dev.
+  HOST: z.string().default(''),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   DATABASE_URL: z.string().default('postgres://mango:mango@localhost:5432/mango'),
   // Neon: DATABASE_URL is the pooled (-pooler) URL; migrations need the direct one.
@@ -53,6 +64,140 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // The Warehouse area (boxes, labels, scanning: docs/warehouse/). Off: its routes answer 404 and the panel hides it.
+  WAREHOUSE_V2: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // App feel (docs/app-feel.md). Each is off unless set, so each can be rolled back on its own.
+  // WEB_PUSH: customers may turn on browser notifications on the Account page, and order updates
+  // are pushed to them beside WhatsApp. Needs VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT.
+  WEB_PUSH: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // vapid: send to the browser's push service (production). log: write a line instead (the default,
+  // so development and tests never reach a real push service).
+  WEB_PUSH_PROVIDER: z.enum(['log', 'vapid']).default('log'),
+  // The application server keys (RFC 8292), base64url: the public key is the 65-byte P-256 point,
+  // the private key the 32-byte scalar. `node scripts/vapid-keys.mjs` makes a pair.
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  // Who the push services can contact about our messages: mailto: or https: (RFC 8292).
+  VAPID_SUBJECT: z.string().default(''),
+  // Push service hosts a subscription's endpoint may point at (the API posts to it, so it is an
+  // allowlist, not a guess). "*.x" matches any subdomain of x.
+  WEB_PUSH_HOSTS: z
+    .string()
+    .default('fcm.googleapis.com,updates.push.services.mozilla.com,web.push.apple.com,*.push.apple.com,*.notify.windows.com'),
+  // LIVE_TRACKING: "your rider is N stops away" on the shop's order page, and the riders' Route view
+  // on the panel's Deliveries page. Minutes per stop are a selling rule (minutesPerStop).
+  LIVE_TRACKING: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // FAVOURITES: hearts on the shop's boxes and a Favourites list on the Account page.
+  FAVOURITES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // SHOP_INSTALL: the shop registers its service worker (static app shell only) and offers "Install app".
+  SHOP_INSTALL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // MULTI_GIFT: one gift order sent to many recipients, paid once (docs/gifting.md).
+  MULTI_GIFT: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // With MULTI_GIFT: the most recipients one gift order may have.
+  MULTI_GIFT_MAX_RECIPIENTS: z.coerce.number().int().min(1).max(100).default(25),
+  // SHOP_SORT_FILTER: sort and filter controls on the shop's home page.
+  SHOP_SORT_FILTER: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Growth (docs/growth.md). Each is off unless set, so each can be rolled back on its own.
+  // REFERRALS: each customer's referral code and share link on the Account page; a new customer
+  // enters a friend's code once, and both get a one-time promo code once the friend's first order
+  // is delivered. Needs the Meta template mandi_referral_reward before it is turned on.
+  REFERRALS: flag(),
+  // The thank-you each side gets (a flat amount off a later order of regular boxes), and the
+  // smallest first order (regular boxes, before any discount) that earns it. Rupees.
+  REFERRAL_REWARD_RUPEES: z.coerce.number().int().min(1).max(5000).default(100),
+  REFERRAL_MIN_ORDER_RUPEES: z.coerce.number().int().min(1).max(100_000).default(499),
+  // Thank-yous one referrer may get in a calendar month (IST); friends past it still get theirs.
+  REFERRAL_MAX_PER_MONTH: z.coerce.number().int().min(1).max(1000).default(10),
+  // FUNNEL_ANALYTICS: the shop sends anonymous steps (visit, product view, add to cart, checkout
+  // start) with a random per-browser id; "paid" is recorded by the API when a payment is captured.
+  // Off: the events endpoint answers 204 and stores nothing.
+  FUNNEL_ANALYTICS: flag(),
+  // MANAGER_DAILY_SUMMARY: each evening every opted-in manager gets the day's numbers on WhatsApp
+  // (template MANAGER_SUMMARY_TEMPLATE, which Meta must approve first).
+  MANAGER_DAILY_SUMMARY: flag(),
+  // When the summary goes, IST, HH:MM.
+  MANAGER_SUMMARY_TIME: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM, 24-hour, IST').default('20:00'),
+  // The approved Meta template's full name (no prefix is added).
+  MANAGER_SUMMARY_TEMPLATE: z.string().regex(/^[a-z0-9_]+$/).default('mandimangoes_daily_summary'),
+  // Customer care (docs/care.md). Each is off unless set, so each can be rolled back on its own.
+  // HELP_CENTRE: signed-in customers open help requests (about an order, or general) and follow
+  // a message thread with the shop; staff answer them on the panel's Help desk.
+  HELP_CENTRE: flag(),
+  // New help requests one customer may open in 24 hours.
+  HELP_DAILY_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
+  // SUBSCRIPTIONS: a box every week or fortnight until the season ends. No auto-debit: before
+  // each delivery the customer is reminded and pays for that box as an ordinary order.
+  SUBSCRIPTIONS: flag(),
+  // The last day a subscription may run to (YYYY-MM-DD). Unset: subscriptions can't be started.
+  SUBSCRIPTION_SEASON_END: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'SUBSCRIPTION_SEASON_END must be YYYY-MM-DD').optional(),
+  // How many days before a delivery its cycle is set up and the "pay for this box" reminder goes out.
+  SUBSCRIPTION_LEAD_DAYS: z.coerce.number().int().min(1).max(5).default(2),
+  // WhatsApp for both: mandi_help_reply and mandi_subscription_due. Turn on once Meta approves them;
+  // until then customers see replies and reminders in the shop (and as browser notifications with WEB_PUSH).
+  WHATSAPP_CARE_UPDATES: flag(),
+  // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English, chosen by each customer
+  // (saved to their account once signed in). Off: the shop is English only (docs/languages.md).
+  SHOP_LANGUAGES: flag(),
+  // Stocktake (cycle count) sessions and their review (docs/warehouse/STOCKTAKE.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_STOCKTAKE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Repack, split, merge and partial damage (docs/warehouse/REPACK.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_REPACK: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // Offer the device camera as a scanner in the panel's scan screens (docs/warehouse/SCANNING.md). Needs WAREHOUSE_V2.
+  WAREHOUSE_CAMERA_SCAN: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // The most boxes one intake may label (brief 8.1).
+  WAREHOUSE_MAX_LOT: z.coerce.number().int().min(1).max(20000).default(5000),
+  // Minutes an open scan session may sit idle before it expires.
+  WAREHOUSE_OP_IDLE_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
+  // Fixes from the 24 Oct 2026 audit, security, integrations and platform part
+  // (docs/audit-2026-10-24-status-B.md). Each is off unless set to true, so
+  // turning one off is the rollback.
+  // SEC-02, SEC-09: framework errors caused by the request answer 4xx (not 500 and a
+  // Sentry event), a wrong method 405 with Allow, 503 bodies carry retryAfterSeconds, and
+  // the shop and panel may read Retry-After and X-Request-Id across origins.
+  API_HARDENING: flag(),
+  // INT-04, INT-09, INT-10, INT-11, INT-12, INT-13, INT-14, INT-18: provider calls and messages
+  // (stale messages skipped, Meta error codes, login codes, Blob timeouts and sweeps, chat retries).
+  PROVIDER_CHECKS: flag(),
+  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire.
+  OPS_ALERTS: flag(),
+  // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
+  DELIVERY_CHECKS: flag(),
+  // SEC-07: adding staff, changing a role or password, two-step resets and removals ask
+  // the manager for their own two-step code (or password) again.
+  STAFF_STEP_UP: flag(),
+  // SEC-08: staff changes are audited in their own transaction, opening customer details
+  // is audited, and refused attempts are logged.
+  STAFF_AUDIT_TRAIL: flag(),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).
@@ -111,6 +256,12 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // A 500 also carries the error's text (scrubbed, short), so a local run shows the cause on screen.
+  // Never in production: there it stays in the logs and Sentry only.
+  SHOW_ERROR_DETAILS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   JIO_SMS_URL: z.string().url().optional(),
   JIO_SMS_API_KEY: z.string().optional(),
   JIO_SMS_SENDER_ID: z.string().optional(),
@@ -151,6 +302,44 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Fixes from the 24 Oct 2026 audit that change what staff, customers or the
+  // background run may do (docs/audit-2026-10-24-status-A.md). Each is off
+  // unless set to true, so turning one off is the rollback.
+  // PAY-05, PAY-06: "paid back another way" is refused while Razorpay can't be
+  // checked, and no refund goes out automatically while a chargeback is open.
+  REFUND_SAFETY_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // PAY-08: once a day, every payment Razorpay captured in the last 3 days is
+  // matched to an order or booking, or listed in Needs attention.
+  PAYMENT_DAILY_RECON: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // INV-01, INV-07, INV-10: a reschedule never overfills a delivery slot, only a
+  // manager cancels a free replacement, and a chat order re-checks its pincode.
+  ORDER_RULE_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // INV-02, INV-08: a batch intake sent twice (same Idempotency-Key) makes one
+  // batch, a big intake needs a manager, and stock still in transit after its
+  // arrival date stops selling to new orders.
+  STOCK_INTAKE_CHECKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // With STOCK_INTAKE_CHECKS: the most boxes a non-manager may bring in with one batch.
+  BATCH_INTAKE_MANAGER_BOXES: z.coerce.number().int().min(1).max(100_000).default(1000),
+  // Staff operations (docs/ops.md). Each is off unless set to true.
+  // STOCK_FORECAST: a read-only "boxes to buy" suggestion for the next 14 days on the Planning page (managers).
+  STOCK_FORECAST: flag(),
+  // PURCHASE_RECORDS: farms, what each batch cost, and margins per box and variety (costs: managers only).
+  PURCHASE_RECORDS: flag(),
+  // PANEL_FEATURE_SWITCHES: managers may turn the safe customer-facing switches on or off on the
+  // panel's Settings page (src/feature-switches.js). An environment value of false always wins.
+  PANEL_FEATURE_SWITCHES: flag(),
 })
 
 // Empty values (KEY= in .env) mean "use the default".
@@ -163,6 +352,7 @@ if (!parsed.success) {
 export const env = parsed.data
 export const isProd = env.NODE_ENV === 'production'
 /** /v1/dev pays orders for free: never in production, never with Razorpay keys set, and only when asked for. */
+export const errorDetailsOn = () => !isProd && env.SHOW_ERROR_DETAILS
 export const devRoutesOn = () => !isProd && env.ENABLE_DEV_ROUTES && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET
 /** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
 export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV
@@ -178,6 +368,11 @@ env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')
+  process.exit(1)
+}
+
+if (env.WEB_PUSH_PROVIDER === 'vapid' && !(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT)) {
+  console.error('WEB_PUSH_PROVIDER=vapid needs VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT')
   process.exit(1)
 }
 

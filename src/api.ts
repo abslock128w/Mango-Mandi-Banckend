@@ -24,6 +24,9 @@ import type {
   BatchListItem,
   BatchStatus,
   Claim,
+  CustomerMatch,
+  CustomerProfile,
+  ExportKind,
   ClaimResolution,
   ClaimStatus,
   Condition,
@@ -33,8 +36,14 @@ import type {
   SignInResult,
   Promo,
   NewPromo,
+  HelpInbox,
+  HelpRequestDetail,
+  HelpStatus,
+  HelpTopic,
+  SubscriptionList,
   OrderDetail,
   OrderListItem,
+  GiftOrderListItem,
   OrderStatus,
   PackListOrder,
   Paged,
@@ -59,6 +68,19 @@ import type {
   Role,
   StaffMember,
   Summary,
+  DailySummaryPreview,
+  DailySummarySetting,
+  Funnel,
+  ReferralList,
+  ReferralStatus,
+  BatchPurchases,
+  Farm,
+  FarmInput,
+  FeatureSwitch,
+  Margins,
+  Purchase,
+  PurchaseInput,
+  StockForecast,
 } from './types'
 
 export const API_URL: string = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
@@ -109,8 +131,8 @@ function signOutLocally() {
 }
 
 /** A Blob body is sent as-is (photos); anything else as JSON. */
-async function send(method: string, path: string, body?: unknown, retried = false): Promise<Response> {
-  const headers: Record<string, string> = {}
+async function send(method: string, path: string, body?: unknown, retried = false, extra?: Record<string, string>): Promise<Response> {
+  const headers: Record<string, string> = { ...extra }
   const blob = body instanceof Blob
   if (body !== undefined) headers['Content-Type'] = blob ? body.type : 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
@@ -124,7 +146,7 @@ async function send(method: string, path: string, body?: unknown, retried = fals
 
   if (res.status === 401 && !retried) {
     const refreshed = await refreshOnce()
-    if (refreshed === 'ok') return send(method, path, body, true)
+    if (refreshed === 'ok') return send(method, path, body, true, extra)
     if (refreshed === 'unavailable') throw new ApiError(503, 'UNAVAILABLE', 'The server is busy or unreachable. Please try again in a minute.')
     signOutLocally()
     throw new ApiError(401, 'SESSION_ENDED', 'Your session has ended. Please sign in again.')
@@ -138,6 +160,22 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (res.status === 204) return undefined as T
   return parseAnswer<T>(res.status, await res.text())
 }
+
+/** For the warehouse module (src/warehouse/api.ts): a request with extra headers, e.g. Idempotency-Key. */
+export async function apiRequest<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+  const res = await send(method, path, body, false, headers)
+  if (res.status === 204) return undefined as T
+  return parseAnswer<T>(res.status, await res.text())
+}
+
+/** A signed-in download (a PDF or CSV) as an object URL; the caller revokes it. */
+export async function apiBlobUrl(path: string): Promise<string> {
+  const res = await send('GET', path)
+  return URL.createObjectURL(await res.blob())
+}
+
+/** The body of a staff change confirmed with the manager's code or password; none when not asked. */
+const confirmBody = (confirmCode?: string) => (confirmCode ? { confirmCode } : undefined)
 
 function qs(params: Record<string, string | number | undefined | null>): string {
   const p = new URLSearchParams()
@@ -202,8 +240,8 @@ export const api = {
   },
 
   /** Starts setting up two-step sign-in: the secret for the authenticator app. */
-  twoStepSetup: (setupCode?: string) =>
-    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', setupCode ? { setupCode } : {}),
+  twoStepSetup: (setupCode?: string, confirmCode?: string) =>
+    request<{ secret: string; otpauthUrl: string }>('POST', '/me/two-step/setup', { ...(setupCode ? { setupCode } : {}), ...confirmBody(confirmCode) }),
   /** Confirms a code from the app. Returns the recovery codes, shown this once. */
   async twoStepEnable(code: string): Promise<string[]> {
     const r = await request<{ recoveryCodes: string[]; accessToken: string }>('POST', '/me/two-step/enable', { code })
@@ -218,9 +256,11 @@ export const api = {
   },
   me: () => request<Me>('GET', '/auth/me'),
   /** Clears someone's two-step sign-in. Returns the setup code they need to set it up again (shown once). */
-  resetTwoStep: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`),
+  resetTwoStep: (staffId: string, confirmCode?: string) =>
+    request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/reset`, confirmBody(confirmCode)),
   /** A new setup code for someone who hasn't set up two-step sign-in yet (shown once). */
-  newSetupCode: (staffId: string) => request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`),
+  newSetupCode: (staffId: string, confirmCode?: string) =>
+    request<{ setupCode: string }>('POST', `/staff/${id(staffId)}/two-step/setup-code`, confirmBody(confirmCode)),
 
   /** Best-effort: a network failure still clears the local token. */
   async logout(): Promise<void> {
@@ -248,6 +288,9 @@ export const api = {
   refundUnmatchedPayment: (failureId: string, reason: string) =>
     request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason }),
   keepPreorder: (preorderId: string, reason: string) => request<unknown>('POST', `/preorders/${id(preorderId)}/keep`, { reason }),
+  /** INV-06: sets a week's taken preorder capacity from its bookings; reserved and booked are the numbers shown. */
+  recountPreorderCapacity: (weekStart: string, sku: string, seen: { reserved: number; booked: number }, reason: string) =>
+    request<{ recounted: boolean; reserved: number; booked: number }>('POST', `/preorder-capacity/${id(weekStart)}/${id(sku)}/recount`, { ...seen, reason }),
   refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string) =>
     request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason }),
   signOutAllStaff: (reason: string, keepMe = true) => request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe }),
@@ -284,12 +327,16 @@ export const api = {
     request<BatchListItem[]>('GET', `/batches${qs({ status })}`),
   batch: (batchId: string) => request<BatchDetail>('GET', `/batches/${id(batchId)}`),
   ledger: (batchId: string) => request<LedgerEntry[]>('GET', `/batches/${id(batchId)}/ledger`),
-  createBatch: (input: {
-    variety: string
-    pluckedOn: string
-    farm?: string
-    lines: { sku: string; onHand: number }[]
-  }) => request<BatchDetail>('POST', '/batches', input),
+  /** key: one per filled-in intake form, so a double submit or a retry records one batch (INV-02). */
+  createBatch: (
+    input: {
+      variety: string
+      pluckedOn: string
+      farm?: string
+      lines: { sku: string; onHand: number }[]
+    },
+    key: string,
+  ) => apiRequest<BatchDetail>('POST', '/batches', input, { 'Idempotency-Key': key }),
   /**
    * 204 for normal moves. CONDEMNED returns the orders moved to other batches
    * and the ones left at-risk; no order is cancelled.
@@ -317,6 +364,19 @@ export const api = {
   orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
+  /** Gift orders to many recipients with their deliveries (MULTI_GIFT; managers and operators). */
+  giftOrders: (f: { q?: string | null; page?: number }) => request<Paged<GiftOrderListItem>>('GET', `/gift-orders${qs(f)}`),
+  /** The order's bill as a PDF (managers and operators; each download is in the activity log). */
+  billUrl: (orderId: string) => apiBlobUrl(`/orders/${id(orderId)}/bill`),
+
+  // Customer profiles (managers and operators). Every search, view and reveal is in the activity log.
+  /** Finds a customer by mobile number; the POST keeps the number out of URLs and logs. */
+  findCustomers: (phone: string) => request<{ items: CustomerMatch[] }>('POST', '/customers/search', { phone }),
+  customer: (customerId: string) => request<CustomerProfile>('GET', `/customers/${id(customerId)}`),
+  /** The full phone number and email, recorded as a reveal. */
+  revealCustomer: (customerId: string) => request<{ phone: string | null; email: string | null }>('POST', `/customers/${id(customerId)}/reveal`, {}),
+  /** A CSV export (managers): from/to are IST dates, at most 92 days; orders-type exports can go by delivery date. */
+  exportUrl: (kind: ExportKind, p: { from: string; to: string; by?: 'placed' | 'delivery' }) => apiBlobUrl(`/exports/${kind}${qs(p)}`),
   /**
    * A status move. DELIVERED without the customer's code or a photo, sending out
    * at-risk stock, or a retry after the last attempt need a manager's override with a reason.
@@ -410,17 +470,38 @@ export const api = {
   resolveClaim: (claimId: string, resolution: Exclude<ClaimResolution, 'REFUND_APPROVED'>, reason?: string) =>
     request<void>('POST', `/claims/${id(claimId)}/resolve`, reason ? { resolution, reason } : { resolution }),
 
+  // Growth (docs/growth.md), managers only; each answers 404 while its switch is off.
+  referrals: (status?: ReferralStatus | null) => request<ReferralList>('GET', `/referrals${qs({ status })}`),
+  funnel: (f: { from?: string | null; to?: string | null } = {}) => request<Funnel>('GET', `/analytics/funnel${qs(f)}`),
+  dailySummarySetting: () => request<DailySummarySetting>('GET', '/me/daily-summary'),
+  saveDailySummarySetting: (body: { optedIn: boolean; phone?: string }) => request<DailySummarySetting>('PUT', '/me/daily-summary', body),
+  dailySummaryPreview: () => request<DailySummaryPreview>('GET', '/daily-summary/preview'),
+  // Customer care (docs/care.md): the Help desk and the Subscriptions list, managers and operators.
+  helpRequests: (f: { status?: HelpStatus | null; topic?: HelpTopic | null; q?: string | null } = {}) =>
+    request<HelpInbox>('GET', `/help/requests${qs({ status: f.status ?? undefined, topic: f.topic ?? undefined, q: f.q || undefined })}`),
+  helpRequest: (requestId: string) => request<HelpRequestDetail>('GET', `/help/requests/${id(requestId)}`),
+  replyHelpRequest: (requestId: string, message: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reply`, { message }),
+  resolveHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/resolve`),
+  reopenHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reopen`),
+  subscriptions: (status: 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null = null) => request<SubscriptionList>('GET', `/subscriptions${qs({ status: status ?? undefined })}`),
+  /** Pause or cancel needs a reason (5+ characters); it is kept in the activity log. */
+  pauseSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/pause`, { reason }),
+  cancelSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/cancel`, { reason }),
+
   promos: () => request<Promo[]>('GET', '/promos'),
   addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),
   updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
     request<Promo>('PATCH', `/promos/${id(code)}`, patch),
   staff: () => request<StaffMember[]>('GET', '/staff'),
-  addStaff: (input: { email: string; role: Role; password: string }) => request<StaffMember>('POST', '/staff', input),
-  updateStaff: (staffId: string, patch: { role?: Role; password?: string }) =>
-    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, patch),
-  removeStaff: (staffId: string) => request<void>('DELETE', `/staff/${id(staffId)}`),
-  audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number } = {}) =>
-    request<AuditPage>('GET', `/audit${qs(f)}`),
+  // Staff changes carry `confirmCode` when the server asks the manager to confirm it is them (SEC-07, STAFF_STEP_UP).
+  addStaff: (input: { email: string; role: Role; password: string }, confirmCode?: string) =>
+    request<StaffMember>('POST', '/staff', { ...input, ...confirmBody(confirmCode) }),
+  updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
+    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),
+  removeStaff: (staffId: string, confirmCode?: string) => request<void>('DELETE', `/staff/${id(staffId)}`, confirmBody(confirmCode)),
+  /** `reads`: also list views of customer details (recorded with STAFF_AUDIT_TRAIL on the server). */
+  audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number; reads?: boolean } = {}) =>
+    request<AuditPage>('GET', `/audit${qs({ ...f, reads: f.reads ? 'true' : undefined })}`),
 
   pincodes: () => request<Pincode[]>('GET', '/pincodes'),
   addPincode: (input: { pincode: string; city: string; zone?: string }) =>
@@ -430,6 +511,20 @@ export const api = {
   deletePincode: (pincode: string) => request<void>('DELETE', `/pincodes/${id(pincode)}`),
 
   coverage: () => request<CoverageDay[]>('GET', '/coverage'),
+  // Staff operations (docs/ops.md).
+  stockForecast: () => request<StockForecast>('GET', '/planning/forecast'),
+  farms: () => request<Farm[]>('GET', '/farms'),
+  addFarm: (input: FarmInput) => request<Farm>('POST', '/farms', input),
+  updateFarm: (farmId: string, patch: Partial<FarmInput>) => request<Farm>('PATCH', `/farms/${id(farmId)}`, patch),
+  batchPurchases: (batchId: string) => request<BatchPurchases>('GET', `/batches/${id(batchId)}/purchases`),
+  addPurchase: (batchId: string, input: PurchaseInput) => request<Purchase>('POST', `/batches/${id(batchId)}/purchases`, input),
+  updatePurchase: (batchId: string, purchaseId: string, patch: Partial<PurchaseInput>) =>
+    request<Purchase>('PATCH', `/batches/${id(batchId)}/purchases/${id(purchaseId)}`, patch),
+  margins: (p: { from: string; to: string }) => request<Margins>('GET', `/analytics/margins${qs(p)}`),
+  featureSwitches: () => request<{ cacheSeconds: number; items: FeatureSwitch[] }>('GET', '/settings/switches'),
+  /** A change always asks the manager to confirm it is them (confirmCode). enabled null: back to the server's setting. */
+  setFeatureSwitch: (key: string, enabled: boolean | null, confirmCode?: string) =>
+    request<FeatureSwitch>('PUT', `/settings/switches/${id(key)}`, { enabled, ...confirmBody(confirmCode) }),
   calendar: () => request<CalendarDay[]>('GET', '/calendar'),
   setCalendarDay: (day: CalendarDay) =>
     request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
@@ -453,14 +548,20 @@ export const api = {
 export interface ErrorInfo {
   message: string
   detail?: string
+  /** What went wrong inside the server: only from a local run (SHOW_ERROR_DETAILS). */
+  cause?: string
 }
 
 /** Turns any thrown value into display text, with the requestId for support. */
 export function errorMessage(err: unknown): ErrorInfo {
   if (err instanceof ApiError) {
+    // A local run (SHOW_ERROR_DETAILS) adds the cause of an unexpected error.
+    const cause = typeof err.extra.detail === 'string' ? err.extra.detail : null
+    const ref = err.requestId ? `Reference: ${err.requestId}` : null
     return {
       message: err.message,
-      detail: err.requestId ? `Reference: ${err.requestId}` : undefined,
+      detail: [cause, ref].filter(Boolean).join(' · ') || undefined,
+      ...(cause ? { cause } : {}),
     }
   }
   if (err instanceof TypeError) {

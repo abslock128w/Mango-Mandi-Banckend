@@ -17,7 +17,8 @@ import {
   rupees,
 } from '../format'
 import type { DeliveryAttempt, OrderDetail as Order, OrderNotification, OrderStatus } from '../types'
-import { PACKER_STATUSES, can, canSee } from '../permissions'
+import { PACKER_STATUSES, can, canSee, trustAllowed } from '../permissions'
+import { CustomerProfileLink } from '../CustomerLink'
 import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
 import {
@@ -27,6 +28,7 @@ import {
   ConfirmDialog,
   Dialog,
   DisabledReason,
+  DownloadButton,
   FormError,
   GatedButton,
   ManagerOnlyNote,
@@ -87,8 +89,8 @@ const CANCELLABLE: OrderStatus[] = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'
 /** A paid order a manager can cancel with a full refund: anything not yet delivered (mirrors MANAGER_REFUNDABLE in the API). */
 const REFUNDABLE: OrderStatus[] = [...CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 const ALLOCATABLE: OrderStatus[] = ['CONFIRMED', 'PROCESSING']
-/** 409s a manager can override with a reason: at-risk stock going out, or a retry after the last attempt. */
-const OVERRIDABLE = ['AT_RISK', 'ATTEMPTS_USED_UP']
+/** 409s a manager can override with a reason: at-risk stock going out, a retry after the last attempt, or an order sent before its day (DELIVERY_CHECKS). */
+const OVERRIDABLE = ['AT_RISK', 'ATTEMPTS_USED_UP', 'NOT_DUE_YET']
 
 /** A status move that needs a manager's reason: DELIVERED without proof, or an override of a refusal. */
 type Override = { to: OrderStatus; why: string | null }
@@ -142,6 +144,10 @@ function OrderView({ order }: { order: Order }) {
   const manager = me?.role === 'MANAGER'
   // Unpaid: any staff who can change orders cancels it. Paid: only a manager, with a full refund.
   const canCancel = changeOrder && (paid ? REFUNDABLE : CANCELLABLE).includes(order.status)
+  // A free replacement settles a claim: the API may keep its cancel for a manager too (INV-07).
+  const managerCancels = paid || order.cancelNeedsManager === true
+  // A missed delivery's retry can be given another day where the API allows it (PLT-08, PLT-09, DELIVERY_CHECKS).
+  const canMove = changeOrder && (ALLOCATABLE.includes(order.status) || Boolean(order.retryDateMovable))
 
   function onActionError(err: unknown) {
     if (isStale(err)) toast.error(CONFLICT_MESSAGE)
@@ -218,6 +224,14 @@ function OrderView({ order }: { order: Order }) {
         </div>
       )}
 
+      {order.giftOrder && (
+        <div className="notice notice-info" role="status">
+          Recipient {order.giftOrder.position} of {order.giftOrder.recipients} in gift order{' '}
+          <Link to={`/orders?view=gifts&q=${encodeURIComponent(order.giftOrder.number)}`}>{order.giftOrder.number}</Link>: one payment and one bill for the
+          whole gift order.
+        </div>
+      )}
+
       {order.status === 'PAYMENT_PENDING' && (
         <div className="notice notice-warn" role="status">
           Waiting for payment… Only a verified payment confirms an order, so there is nothing to do here yet.
@@ -260,23 +274,23 @@ function OrderView({ order }: { order: Order }) {
         {order.status === 'OUT_FOR_DELIVERY' && !manager && (
           <span className="muted">Record the delivery on the Deliveries page, with the customer's code or a photo.</span>
         )}
-        {changeOrder && ALLOCATABLE.includes(order.status) && (
+        {canMove && (
           <button type="button" className="btn" disabled={busy} onClick={() => setDialog('reschedule')}>
-            Move delivery date
+            {order.status === 'DELIVERY_FAILED' ? 'Move retry date' : 'Move delivery date'}
           </button>
         )}
         {canCancel &&
-          (paid ? (
+          (managerCancels ? (
             <GatedButton allowed={manager} className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
-              Cancel and refund
+              {paid ? 'Cancel and refund' : 'Cancel order'}
             </GatedButton>
           ) : (
             <button type="button" className="btn btn-danger" disabled={busy} onClick={() => setDialog('cancel')}>
               Cancel order
             </button>
           ))}
-        {canCancel && paid && !manager && <ManagerOnlyNote what="Cancelling a paid order" />}
-        {moves.length === 0 && !canCancel && (
+        {canCancel && managerCancels && !manager && <ManagerOnlyNote what={paid ? 'Cancelling a paid order' : 'Cancelling a replacement'} />}
+        {moves.length === 0 && !canCancel && !canMove && (
           <span className="muted">No actions available.</span>
         )}
       </div>
@@ -373,7 +387,17 @@ function OrderView({ order }: { order: Order }) {
             <h2>Customer and delivery</h2>
             <dl className="kv">
               <dt>Name</dt>
-              <dd>{order.customerName ?? '—'}</dd>
+              <dd>
+                {order.customerName ?? '—'} <CustomerProfileLink customerId={order.customerId} />
+              </dd>
+              {order.business && (
+                <>
+                  <dt>Business</dt>
+                  <dd>
+                    {order.business.name} <span className="mono small">GSTIN {order.business.gstin}</span>
+                  </dd>
+                </>
+              )}
               <dt>Phone</dt>
               <dd>
                 <PhoneLink phone={order.phone} who="the customer" />
@@ -438,6 +462,7 @@ function OrderView({ order }: { order: Order }) {
               <p className="muted">No payment recorded.</p>
             )}
           </section>
+          {trustAllowed(me, 'bills') && <BillCard order={order} />}
           {order.rating && (
             <section className="card">
               <h2>Customer rating</h2>
@@ -662,6 +687,7 @@ function OverrideDialog({ order, override, onClose, onDone }: { order: Order; ov
 
 function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
+  const retry = order.status === 'DELIVERY_FAILED'
   const [when, setWhen] = useState(order.deliveryDate > istDate(1) ? order.deliveryDate : istDate(1))
   const [slotId, setSlotId] = useState(order.slot?.id ?? '')
   const slots = useQuery({ queryKey: ['slots'], queryFn: api.slots })
@@ -683,7 +709,7 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
 
   return (
     <Dialog
-      title={`Move order ${order.number}`}
+      title={retry ? `Move the retry for ${order.number}` : `Move order ${order.number}`}
       onClose={onClose}
       footer={
         <>
@@ -698,10 +724,12 @@ function RescheduleDialog({ order, onClose, onDone }: { order: Order; onClose: (
     >
       <form id="reschedule-form" onSubmit={onSubmit}>
         <div className="field">
-          <label htmlFor="reschedule-date">New delivery date</label>
+          <label htmlFor="reschedule-date">{retry ? 'Retry on' : 'New delivery date'}</label>
           <input id="reschedule-date" type="date" min={istDate(1)} value={when} onChange={(e) => setWhen(e.target.value)} data-autofocus />
           <p className="hint">
-            The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes.
+            {retry
+              ? 'The packed boxes stay with the order. Boxes too old for the new day are swapped for younger stock; if there is none, or the day is full, nothing changes. The customer is sent the new date.'
+              : "The order keeps its ripeness. Stock is re-picked for the new date; if there isn't enough, nothing changes."}
           </p>
         </div>
         {activeSlots.length > 0 && (
@@ -753,5 +781,41 @@ function BulkItemNote({ bulk }: { bulk: NonNullable<Order['items'][number]['bulk
       <Badge tone="info">Bulk deal</Badge> {canSee(me?.role, 'bulkDeals') ? <Link to={`/bulk-deals/${bulk.listingId}`}>{bulk.title}</Link> : bulk.title},{' '}
       {rupees(bulk.tier.unitPrice)} a box (the {range} box tier{bulk.listingVersion != null ? `, deal version ${bulk.listingVersion}` : ''})
     </div>
+  )
+}
+
+/** The order's numbered bill (managers and operators). Each download is recorded in the activity log. */
+function BillCard({ order }: { order: Order }) {
+  const b = order.bill
+  return (
+    <section className="card" aria-labelledby="bill-h">
+      <h2 id="bill-h">Bill</h2>
+      {b ? (
+        <>
+          <div className="bill-line">
+            <strong>{b.title}</strong> <span className="mono">{b.number}</span>
+            {b.cancelled ? <Badge tone="warn">Cancelled</Badge> : <Badge tone="good">Issued</Badge>}
+          </div>
+          <p className="muted small">
+            Dated {date(b.billDate)} for {rupees(b.total)}.
+            {b.cancelled && b.cancelledAt ? ` The order was cancelled ${dateTime(b.cancelledAt)}; the bill keeps its number and is marked cancelled.` : ''}
+          </p>
+          <div className="btn-row">
+            <DownloadButton getUrl={() => api.billUrl(order.id)} filename={`MandiMangoes-bill-${b.number.replace(/\//g, '-')}.pdf`}>
+              Download bill (PDF)
+            </DownloadButton>
+          </div>
+          <p className="muted small">Downloads are recorded in the activity log.</p>
+        </>
+      ) : (
+        <p className="muted">
+          {order.replacementFor
+            ? "A free replacement has no bill of its own; the original order's bill stands."
+            : order.giftOrder
+              ? `Gift order ${order.giftOrder.number} has one bill for every recipient, on its first delivery, once it is paid.`
+              : 'No bill yet: an order gets its numbered bill once it is paid.'}
+        </p>
+      )}
+    </section>
   )
 }

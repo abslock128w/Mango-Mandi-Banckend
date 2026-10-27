@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# PLT-16: the jobs only read the code; a step that tried to push or comment is refused.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -73,6 +77,9 @@ jobs:
           cache: npm
           cache-dependency-path: mango-api/package-lock.json
       - run: npm ci
+      # The warehouse label tests render each PDF (pdftoppm) and decode every QR on it.
+      - name: Install the PDF renderer for label tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Dependency audit (API packages)
         run: npm audit --omit=dev --audit-level=high
       - name: API tests (engine, flows, concurrency)
@@ -169,15 +176,51 @@ jobs:
       - name: Start mango-api with demo data
         working-directory: mango-api
         run: |
+          # A throwaway VAPID key pair for this run only (browser notifications use the log provider).
+          eval "$(node scripts/vapid-keys.mjs | sed 's/^/export /')"
+          # Customer care (docs/care.md): a season that ends 90 days from today, so the subscription specs run.
+          export SUBSCRIPTION_SEASON_END="$(date -u -d '+90 days' +%F)"
           nohup node src/index.js > ../api.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf http://localhost:3000/ready && exit 0; sleep 1; done
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/ready; then
+              # Every spec books from the same few days, so the demo's 40 boxes per delivery time run out partway
+              # through the suite; give this throwaway database room. A full time (SLOT_FULL) is covered by the
+              # API tests, and customer-app/tests/checkout.ts still handles one if it happens.
+              psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE delivery_slots SET max_boxes = 1000 WHERE max_boxes IS NOT NULL'
+              exit 0
+            fi
+            sleep 1
+          done
           cat ../api.log; exit 1
         env:
           NODE_ENV: development
           COOKIE_SECURE: 'false'
           ENABLE_DEV_ROUTES: 'true'
           LOG_LEVEL: warn
+          # App feel (docs/app-feel.md), on so customer-app/tests/app-feel.spec.ts runs; every other spec runs with them on too.
+          WEB_PUSH: 'true'
+          WEB_PUSH_PROVIDER: log
+          VAPID_SUBJECT: mailto:ops@mandimangoes.test
+          LIVE_TRACKING: 'true'
+          FAVOURITES: 'true'
+          SHOP_INSTALL: 'true'
+          SHOP_SORT_FILTER: 'true'
+          # Customer care (docs/care.md), on so customer-app/tests/care.spec.ts runs.
+          HELP_CENTRE: 'true'
+          SUBSCRIPTIONS: 'true'
+          # Growth (docs/growth.md) and gifting to many (docs/gifting.md), on so growth.spec.ts and gifting.spec.ts run.
+          REFERRALS: 'true'
+          FUNNEL_ANALYTICS: 'true'
+          MULTI_GIFT: 'true'
+          # One runner plays every customer of every spec from one address, so the per-address limits are raised
+          # for this job only (the defaults are checked in mango-api/test/ops-platform.test.js).
+          API_RATE_LIMIT: '20000'
+          OTP_IP_LIMIT: '2000'
+          # The shop in Hindi and Kannada (docs/languages.md), on so customer-app/tests/languages.spec.ts runs.
+          SHOP_LANGUAGES: 'true'
       - run: npx playwright install --with-deps chromium
+      - name: PDF text tool for the bill checks
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Day in the life, and the panel mock's contract, against the real API
         run: npx playwright test tests/contract.spec.ts tests/day-in-the-life.spec.ts
         env:

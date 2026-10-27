@@ -3,20 +3,22 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate } from '../format'
-import { can } from '../permissions'
+import { can, opsAllowed } from '../permissions'
 import { useSession } from '../session'
-import type { BulkMoveResult, CalendarDay, DeliverySlot, Ripeness, Rules, StageWindow } from '../types'
+import type { BulkMoveResult, CalendarDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
 export default function Planning() {
   usePageTitle('Planning')
+  const { me } = useSession()
   return (
     <>
       <div className="topbar">
         <h1>Planning</h1>
       </div>
+      {opsAllowed(me, 'stockForecast') && <Forecast />}
       <Coverage />
       <Calendar />
       <Slots />
@@ -667,10 +669,11 @@ const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'lowStockThreshold', label: 'Low stock alert (boxes)', hint: 'Shown on Today at or below this.' },
   { key: 'outForDeliveryAlertHours', label: 'Out for delivery alert (hours)', hint: 'An order out for delivery longer than this shows as overdue.' },
   { key: 'maxPreorderMoves', label: 'Preorder moves before review', hint: 'A preorder moved forward more weeks than this waits for a manager.' },
+  { key: 'minutesPerStop', label: 'Minutes per delivery stop', hint: 'For the shop\'s "your rider is N stops away, about M minutes" (1 to 120).' },
 ]
 
 /** What the API uses for rules an older rules version doesn't have yet. */
-const RULE_DEFAULTS: Partial<Record<keyof Rules, number>> = { outForDeliveryAlertHours: 8, maxPreorderMoves: 3 }
+const RULE_DEFAULTS: Partial<Record<keyof Rules, number>> = { outForDeliveryAlertHours: 8, maxPreorderMoves: 3, minutesPerStop: 10 }
 
 function RulesCard() {
   const { me } = useSession()
@@ -846,5 +849,162 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
         <FormError error={formError ?? save.error} />
       </form>
     </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------- stock forecast (STOCK_FORECAST, managers)
+
+const pct = (rate: number) => `${Math.round(rate * 1000) / 10}%`
+
+/**
+ * Boxes to buy for the next 14 days, per variety, with every number it used. A suggestion only:
+ * nothing here changes stock.
+ */
+function Forecast() {
+  const q = useQuery({ queryKey: ['stock-forecast'], queryFn: api.stockForecast })
+  return (
+    <section className="card" aria-labelledby="forecast-title">
+      <h2 id="forecast-title">Boxes to buy</h2>
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <ForecastBody f={q.data} />
+      )}
+    </section>
+  )
+}
+
+function ForecastBody({ f }: { f: StockForecast }) {
+  const r = f.rules
+  return (
+    <>
+      <p className="muted">
+        A suggestion for {date(f.dates[0])} to {date(f.dates.at(-1))}; it changes no stock. Expected sales are the average sold on the same weekday
+        over the last {r.historyWeeks} weeks, leaving out days with no stock at that ripeness and closed days (at least {r.minHistoryDays} days are
+        needed). Paid orders and Book ahead bookings are added, current batches are used oldest first at the ripeness they will have on each day
+        (sold up to {r.maxSellableAge} days after picking), and expected waste comes from damage and replaced claims in the last {r.wasteWindowDays} days.
+      </p>
+      {f.varieties.length === 0 ? (
+        <EmptyState>No products on sale.</EmptyState>
+      ) : (
+        f.varieties.map((v) => (
+          <div key={v.variety} className="mt-4">
+            <h3>{v.variety}</h3>
+            <p className="ops-suggest mt-0">
+              {v.suggestedBoxes == null ? 'Not enough history' : v.suggestedBoxes === 0 ? 'Nothing to buy' : `Buy about ${v.suggestedBoxes} boxes`}
+              {v.buyBy && v.suggestedBoxes ? <span className="muted small"> · picked by {date(v.buyBy)}</span> : null}
+            </p>
+            {v.note && v.suggestedBoxes != null && <p className="muted small mt-0">Some boxes have not enough history; their sales are left out.</p>}
+            {v.shortForBookings > 0 && (
+              <p className="text-warn small mt-0">{v.shortForBookings} boxes short for orders and bookings already paid.</p>
+            )}
+            {v.products.map((p) => (
+              <ForecastProductView key={p.sku} p={p} dates={f.dates} />
+            ))}
+          </div>
+        ))
+      )}
+    </>
+  )
+}
+
+function ForecastProductView({ p, dates }: { p: ForecastProduct; dates: string[] }) {
+  return (
+    <div className="mt-4">
+      <h4 className="mt-0">
+        {p.name} <span className="muted small">{p.sku}</span>
+      </h4>
+      <p className="mt-0">
+        {p.suggestedBoxes == null ? <strong>Not enough history</strong> : <strong>{p.suggestedBoxes} boxes</strong>}
+        <span className="muted small">
+          {' '}
+          · short {p.shortBoxes} · expected waste {pct(p.waste.rate)}
+          {p.buyBy ? ` · picked by ${date(p.buyBy)}` : ''}
+        </span>
+      </p>
+      <details className="ops-working">
+        <summary>How this was worked out<span className="sr-only"> for {p.name}</span></summary>
+        <p className="small">
+          Waste: {p.waste.damagedBoxes} boxes damaged or condemned and {p.waste.claimBoxes} replaced after a damage claim, against {p.waste.soldBoxes} sold
+          in the last {p.waste.days} days: {pct(p.waste.rate)}
+          {p.waste.capped ? ' (capped)' : ''}. Suggested = short ÷ (1 − waste), rounded up.
+        </p>
+        {p.batches.length > 0 ? (
+          <div {...scrollRegion(`Current batches of ${p.name}`)}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Batch picked</th>
+                  <th className="num">Age</th>
+                  <th className="num">Free boxes</th>
+                  <th>Sold until</th>
+                  <th className="num">Used here</th>
+                  <th className="num">Left past the limit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.batches.map((b) => (
+                  <tr key={b.batchId}>
+                    <td>
+                      <Link to={`/batches/${encodeURIComponent(b.batchId)}`}>{date(b.pluckedOn)}</Link>
+                      {b.waitingQc && <span className="muted small"> · waiting for QC</span>}
+                    </td>
+                    <td className="num">{b.ageToday} days</td>
+                    <td className="num">{b.freeBoxes}</td>
+                    <td>{date(b.sellableUntil)}</td>
+                    <td className="num">{b.usedByForecast}</td>
+                    <td className="num">{b.unsoldPastCap}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="small muted">No current batches of this box.</p>
+        )}
+        {p.stages.map((s) => (
+          <div key={s.stage} className="mt-4">
+            <h5 className="mt-0">
+              {RIPENESS_LABEL[s.stage]} <span className="muted small">· short {s.short}{s.enoughHistory ? '' : ' · not enough history'}</span>
+            </h5>
+            <div {...scrollRegion(`${p.name}, ${RIPENESS_LABEL[s.stage]}, day by day`)}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th>Same weekday, last {s.days[0]?.history.samples.length ?? 4} weeks</th>
+                    <th className="num">Average</th>
+                    <th className="num">Paid orders</th>
+                    <th className="num">Book ahead</th>
+                    <th className="num">Still to sell</th>
+                    <th className="num">From stock</th>
+                    <th className="num">Short</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.days.map((d) => (
+                    <tr key={d.date}>
+                      <td>{date(d.date)}</td>
+                      <td className="small">
+                        {d.history.samples.map((x) => `${date(x.date)}: ${x.counted ? x.sold : x.reason}`).join(' · ')}
+                      </td>
+                      <td className="num">{d.history.average == null ? 'not enough history' : d.history.average}</td>
+                      <td className="num">{d.booked}</td>
+                      <td className="num">{d.bookAhead}</td>
+                      <td className="num">{d.toSell}</td>
+                      <td className="num">{d.fromStock}</td>
+                      <td className={`num${d.short ? ' text-warn' : ''}`}>{d.short}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+        <p className="small muted">Days covered: {dates.length}.</p>
+      </details>
+    </div>
   )
 }

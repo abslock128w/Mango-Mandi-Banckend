@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // Accessibility across the whole shop, against the real API, at phone and desktop size (the two
@@ -212,8 +213,7 @@ test('axe finds nothing on any shop page or dialog', async ({ page, request }, i
   if (await address.isVisible()) await address.fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
   const slots = page.getByRole('group', { name: 'Delivery time' })
   if (await slots.count()) await slots.getByRole('radio', { disabled: false }).first().check()
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await axe(page, 'checkout review')
 })
 

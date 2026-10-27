@@ -21,18 +21,26 @@ import { outOfTime, withBudget, withSlice } from './budget.js'
 import { query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
+import { expireIdleOperations } from './warehouse/ops.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
-import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHolds, takeBatchOutOfService } from './orders.js'
+import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
+import { prunePushMessages, sendDuePush } from './push.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
-import { processDueRefunds, reconcilePendingPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
+import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { anonymiseOldOrders, pruneNotifications } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
-import { overdueOrders } from './stock-watch.js'
+import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
+import { issueMissingBills, reconcileBills } from './bills.js'
+import { settleReferrals } from './referrals.js'
+import { sendManagerSummaries } from './manager-summary.js'
+import { rollupAndPruneFunnel } from './funnel.js'
+import { isOn, refreshSwitches } from './feature-switches.js'
+import { runSubscriptionJobs } from './subscriptions.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -61,7 +69,7 @@ async function lastRuns() {
 }
 
 /** The most of the run each outside-calling step may use, in ms. */
-export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, alerts: 3_000, notifications: 10_000, preorders: 8_000 }
+export const SLICE = { reconcile: 8_000, refunds: 8_000, duplicates: 4_000, alerts: 3_000, notifications: 10_000, push: 5_000, preorders: 8_000 }
 
 /** Steps that need this much time left are put off to the next run. */
 const STEP_MIN_MS = 3_000
@@ -91,9 +99,20 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
     logger.error({ err, step: name }, 'maintenance step failed')
     failedSteps?.add(name)
     // To Sentry too (on Vercel there is no Prometheus), at most hourly per step.
-    const prev = await query('SELECT last_err_at FROM maintenance_runs WHERE step = $1', [name]).catch(() => ({ rows: [] }))
-    const lastErr = prev.rows[0]?.last_err_at
-    if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
+    if (env.OPS_ALERTS) {
+      // INT-03 (24 Oct audit): compared with when it was last reported, not last failed,
+      // so a step failing every minute is reported every hour, not once.
+      const seen = await query('SELECT last_ok_at FROM maintenance_runs WHERE step = $1', [`alert-step-${name}`]).catch(() => ({ rows: [] }))
+      const lastReported = seen.rows[0]?.last_ok_at
+      if (!lastReported || now().getTime() - lastReported.getTime() >= HOURLY_MS) {
+        reportError(err, { maintenanceStep: name })
+        await markRun(`alert-step-${name}`).catch(() => {})
+      }
+    } else {
+      const prev = await query('SELECT last_err_at FROM maintenance_runs WHERE step = $1', [name]).catch(() => ({ rows: [] }))
+      const lastErr = prev.rows[0]?.last_err_at
+      if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
+    }
     await query(
       `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
        ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
@@ -140,6 +159,8 @@ export async function cleanupExpired(at = now()) {
   await cleanupReviewPhotos(at)
   // Finished messages older than 180 days (bounded per run; never PENDING ones).
   await pruneNotifications(at)
+  // Browser notifications sent or given up on over 30 days ago (bounded per run).
+  await prunePushMessages(at)
 }
 
 /** Batches at the retirement age leave the storefront (status EXHAUSTED). */
@@ -210,6 +231,16 @@ export async function runAudit(at = now()) {
       await markRun('alert-ledger-drift')
     }
   }
+  // INV-06: preorder capacity counters against the bookings that hold them.
+  const weeks = await preorderCapacityDrift({ query })
+  if (weeks.length) {
+    logger.error({ weeks: weeks.slice(0, 20) }, 'preorder audit: reserved capacity disagrees with the bookings')
+    const last = (await lastRuns())['alert-preorder-capacity'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Preorder capacity counters disagree with the bookings: check the weeks before opening more', { weeks: weeks.length, sample: weeks.slice(0, 5) })
+      await markRun('alert-preorder-capacity')
+    }
+  }
   return drift
 }
 
@@ -229,7 +260,34 @@ export async function runPreorderJobs() {
  * One maintenance run. Returns { skipped: true } when another run holds the
  * lease. `budgetMs` is the time the run may take (tests shorten it).
  */
-export async function runMaintenance({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
+/** Runs in progress in this process, so a clean shutdown can wait for them (PLT-14). */
+const inFlight = new Set()
+
+export function runMaintenance(opts) {
+  const run = runOnce(opts)
+  inFlight.add(run)
+  const done = () => inFlight.delete(run)
+  run.then(done, done)
+  return run
+}
+
+/**
+ * PLT-14 (24 Oct 2026 audit): waits up to `ms` for this process's runs in
+ * progress. Resolves true when none is left, false on the deadline (its lease
+ * then expires on its own).
+ */
+export async function settleMaintenance(ms) {
+  if (!inFlight.size) return true
+  let timer
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+  })
+  const settled = await Promise.race([Promise.allSettled([...inFlight]).then(() => true), deadline])
+  clearTimeout(timer)
+  return settled
+}
+
+async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
   return await withBudget(budgetMs, async () => {
     await step('config', loadConfig) // every instance keeps its rules fresh
     const holder = await takeLease('maintenance')
@@ -258,9 +316,11 @@ async function steps(forceAll) {
   // a slow outside service can't starve the rest. The cheap database steps
   // (sweep, retire, audit) run early, so they always get their turn.
   out.reconciled = await step('reconcile', () => reconcilePendingPayments(), { sliceMs: SLICE.reconcile })
-  out.expired = await step('sweep', () => tx((c) => sweepExpiredHolds(c)))
+  out.expired = await step('sweep', () => sweepExpiredHoldsEach())
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.retired = await step('retire', retireBatches)
+  // Scan sessions left open past the idle limit expire (their staged scans are dropped).
+  if (env.WAREHOUSE_V2) out.scanSessionsExpired = await step('warehouse-sessions', () => tx((c) => expireIdleOperations(c)))
   const t = now().getTime()
   const last = await lastRuns()
   if (forceAll || t - (last.audit ?? 0) > HOURLY_MS) {
@@ -272,14 +332,40 @@ async function steps(forceAll) {
   out.refunded = await step('refunds', processDueRefunds, { sliceMs: SLICE.refunds })
   out.duplicates = await step('duplicate-payments', refundDuplicatePayments, { sliceMs: SLICE.duplicates })
   out.refundChecks = await step('refund-checks', () => reconcileRefunds(), { sliceMs: SLICE.duplicates })
+  // PAY-08: once a day, every payment Razorpay captured in the last 3 days is matched or listed.
+  if (env.PAYMENT_DAILY_RECON && (forceAll || t - (last['payment-recon'] ?? 0) > DAILY_MS)) {
+    out.paymentRecon = await step('payment-recon', () => reconcileRecentPayments(), { sliceMs: SLICE.reconcile })
+  }
   out.alerts = await step('stock-alerts', () => sendStockAlerts(), { sliceMs: SLICE.alerts })
   out.reminders = await step('reminders', () => sendReorderReminders(), { sliceMs: SLICE.alerts })
   out.reviewRequests = await step('review-requests', () => enqueueReviewRequests())
+  // Growth (docs/growth.md): referral thank-yous once a friend's first order is delivered, and the
+  // managers' evening summary. Both queue WhatsApp messages, so they run before the send step.
+  if (isOn('REFERRALS')) out.referrals = await step('referrals', () => settleReferrals())
+  if (isOn('MANAGER_DAILY_SUMMARY')) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
+  // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
+  if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
+  // Browser notifications for the same order steps (WEB_PUSH, push.js).
+  if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
+  // Bills for preorders that just became orders, and for any payment whose bill failed (BILLS_ENABLED);
+  // first, bills caught up with cancels and privacy removals another release made without them.
+  // A manager may have switched bills on or off on the panel (PANEL_FEATURE_SWITCHES): read the latest first.
+  await refreshSwitches().catch((err) => logger.warn({ err }, 'feature switches not re-read; using the last values read'))
+  if (isOn('BILLS_ENABLED')) {
+    out.bills = await step('bills', async () => {
+      await reconcileBills()
+      return issueMissingBills()
+    })
+  }
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
-  if (forceAll || t - (last.retention ?? 0) > DAILY_MS) out.anonymised = await step('retention', () => anonymiseOldOrders())
+  if (forceAll || t - (last.retention ?? 0) > DAILY_MS) {
+    out.anonymised = await step('retention', () => anonymiseOldOrders())
+    // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
+    out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
+  }
   const lastFull = last['rebalance-all'] ?? 0
   if (forceAll || (last['rebalance-requested'] ?? 0) > lastFull || t - lastFull > DAILY_MS) {
     out.rebalanced = await step('rebalance-all', () => rebalanceAllOpen())
@@ -306,13 +392,17 @@ async function steps(forceAll) {
 export async function checkHealth(out = {}, at = now()) {
   const { rows } = await query(
     `SELECT (SELECT COUNT(*)::int FROM notifications WHERE status = 'PENDING' AND next_attempt_at < $1) AS messages,
-            (SELECT COUNT(*)::int FROM orders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
-          + (SELECT COUNT(*)::int FROM preorders WHERE refund_requested_at < $2 AND refunded_at IS NULL)
-          + (SELECT COUNT(*)::int FROM duplicate_payments WHERE found_at < $2 AND refunded_at IS NULL) AS refunds,
+            (SELECT COUNT(*)::int FROM orders WHERE refund_requested_at < $2 AND refunded_at IS NULL AND NOT ($5 AND ${disputeHolds('orders.payment_id')}))
+          + (SELECT COUNT(*)::int FROM preorders WHERE refund_requested_at < $2 AND refunded_at IS NULL AND NOT ($5 AND ${disputeHolds('preorders.payment_id')}))
+          + (SELECT COUNT(*)::int FROM duplicate_payments WHERE found_at < $2 AND refunded_at IS NULL
+                AND NOT ($5 AND ${disputeHolds('duplicate_payments.payment_id')})) AS refunds,
             (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'razorpay' AND created_at > $3 AND resolved_at IS NULL) AS webhooks,
             (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > $4) AS failed,
             (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done`,
-    [new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS)],
+    [
+      new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS),
+      env.REFUND_SAFETY_CHECKS,
+    ],
   )
   const h = rows[0]
   const problems = []
@@ -320,7 +410,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.refunds > 0) problems.push(['refunds', 'Refunds are overdue: check the Razorpay keys and the refunds step', { overdue: h.refunds }])
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
-  if (h.done >= 20 && h.failed / h.done > 0.05) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  if ((env.OPS_ALERTS && h.failed >= 3) || (h.done >= 20 && h.failed / h.done > 0.05)) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
   // INV-G: a paid order past its date (or out for delivery too long) is a customer waiting with nobody told.
   const late = await overdueOrders({ query }, at)
   if (late.length) {
@@ -330,6 +420,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
+  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)))
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`
@@ -339,6 +430,27 @@ export async function checkHealth(out = {}, at = now()) {
     await markRun(name)
   }
   return problems.map(([key]) => key)
+}
+
+/**
+ * INT-06, INT-07, INT-08 (24 Oct audit, OPS_ALERTS): messages given up on
+ * without a send (older than a day after an outage, or no provider set; their
+ * next_attempt_at is when that happened), and WhatsApp webhook failures,
+ * which checkHealth's own query counts for Razorpay only.
+ */
+async function opsProblems(at) {
+  const { rows } = await query(
+    `SELECT (SELECT COUNT(*)::int FROM notifications WHERE status = 'SKIPPED' AND last_error = 'older than a day' AND next_attempt_at > $1) AS aged,
+            (SELECT COUNT(*)::int FROM notifications WHERE status = 'SKIPPED' AND last_error = 'no WhatsApp provider configured' AND next_attempt_at > $1) AS unsent,
+            (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'whatsapp' AND created_at > $1 AND resolved_at IS NULL) AS whatsapp`,
+    [new Date(at.getTime() - HOURLY_MS)],
+  )
+  const h = rows[0]
+  const out = []
+  if (h.aged > 0) out.push(['messages-aged', 'WhatsApp messages were dropped unsent after waiting a day: see Needs attention and send the ones that still matter', { dropped: h.aged }])
+  if (h.unsent > 0) out.push(['no-provider', 'WhatsApp messages are not being sent: no WhatsApp provider is configured (WHATSAPP_PROVIDER)', { skipped: h.unsent }])
+  if (h.whatsapp >= 3) out.push(['whatsapp-webhooks', 'WhatsApp webhooks are failing or name unknown orders: see Needs attention', { lastHour: h.whatsapp }])
+  return out
 }
 
 /** A nightly backup older than this is missed (a day plus slack for a slow run). */

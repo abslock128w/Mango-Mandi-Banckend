@@ -2,6 +2,7 @@
 import { googleOn, verifyGoogleCredential } from '../google.js'
 import bcrypt from 'bcryptjs'
 import express from 'express'
+import { effectivePermissions } from '../warehouse/permissions.js'
 import jwt from 'jsonwebtoken'
 import { hit, sharedLimiter } from '../ratelimit.js'
 import { z } from 'zod'
@@ -14,7 +15,10 @@ import { env } from '../env.js'
 import { asyncHandler, badRequest, conflict, HttpError, parse, unauthorized } from '../errors.js'
 import { newId } from '../ids.js'
 import { staffPassword } from '../passwords.js'
+import { trust } from '../trust-config.js'
+import { isOn } from '../feature-switches.js'
 import { clearPasswordFailures, clearTwoStep, passwordFailed, passwordLocked, PW_LOCKED, SETUP_CODE_TRIES_PER_HOUR } from './shared.js'
+import { stepUp } from './step-up.js'
 
 const COOKIE = 'mango_admin_rt'
 const cookieOptions = () => ({
@@ -215,6 +219,24 @@ me.get(
     if (!rows.length) throw unauthorized('Session expired. Please sign in again.', 'INVALID_TOKEN')
     res.json({
       email: req.admin.email, role: req.admin.role,
+      // The panel shows the Warehouse area only when it is on, with what this role may do there.
+      warehouse: env.WAREHOUSE_V2 ? { enabled: true, permissions: effectivePermissions(req.admin.role, env) } : { enabled: false, permissions: [] },
+      // Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view on
+      // Deliveries (LIVE_TRACKING, docs/app-feel.md), and Gift orders on Orders (MULTI_GIFT, docs/gifting.md). The role
+      // still decides who may use them.
+      features: {
+        bills: isOn('BILLS_ENABLED'), customerProfiles: trust.customerProfiles, exports: trust.exports, riderRoute: isOn('LIVE_TRACKING'), multiGift: isOn('MULTI_GIFT'),
+        // Growth (docs/growth.md): managers' Referrals view, the funnel on Analytics, and the evening summary.
+        referrals: isOn('REFERRALS'), funnelAnalytics: isOn('FUNNEL_ANALYTICS'), managerDailySummary: isOn('MANAGER_DAILY_SUMMARY'),
+        // Staff operations (docs/ops.md), named only while on (a missing field means off to the panel).
+        // The role still decides who may use them.
+        ...(isOn('STOCK_FORECAST') ? { stockForecast: true } : {}),
+        ...(isOn('PURCHASE_RECORDS') ? { purchaseRecords: true } : {}),
+        ...(env.PANEL_FEATURE_SWITCHES ? { panelSwitches: true } : {}),
+        // Customer care (docs/care.md): named only while on, so the panel shows the Help desk and Subscriptions pages.
+        ...(isOn('HELP_CENTRE') ? { helpDesk: true } : {}),
+        ...(isOn('SUBSCRIPTIONS') ? { subscriptions: true } : {}),
+      },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),
         required: twoStepRequired(req.admin.role),
@@ -231,6 +253,14 @@ me.post(
   '/me/two-step/setup',
   asyncHandler(async (req, res) => {
     const { setupCode } = parse(z.object({ setupCode: z.string().trim().max(20).optional() }), req.body ?? {})
+    if (!req.admin.setup) {
+      // SEC-07 (STAFF_STEP_UP): from an ordinary session, turning two-step on asks for the password first.
+      // Otherwise a stolen access token could enroll the thief's authenticator and then answer every step-up.
+      // A setup session has just signed in with the password (and a setup code where one is needed).
+      const { rows } = await query('SELECT totp_enabled_at FROM admin_users WHERE id = $1', [req.admin.id])
+      if (rows[0]?.totp_enabled_at) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
+      await stepUp(req)
+    }
     if (await setupCodeNeeded(req.admin.id, req.admin.setup)) {
       if (!setupCode) throw new HttpError(403, 'SETUP_CODE_REQUIRED', 'Enter the setup code a manager gave you. Ask a manager if you don’t have one.')
       const tries = await hit(`staff-setup-code:${req.admin.id}`, 3_600_000)

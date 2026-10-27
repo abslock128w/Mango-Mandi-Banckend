@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { APIRequestContext, Page, Route } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
+import { reviewOrder } from './checkout'
 import { managerToken } from './staff'
 
 // Paying and the session, against the real API, with the outside world stood
@@ -148,9 +149,7 @@ async function toReview(page: Page, request: APIRequestContext, phone: string) {
   // A customer with a saved address gets it picked for them instead of the empty field.
   const field = page.getByLabel('Delivery address')
   if (await field.isVisible()) await field.fill('Flat 4B, Lake View Apartments, 5th Main, near the park')
-  await page.getByRole('button', { name: 'Review order' }).click()
-  // Syncing the cart and quoting is a few calls in a row: allow for a busy test API.
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible({ timeout: 15_000 })
+  await reviewOrder(page, 15_000)
 }
 
 test('FE-2: after a gateway error, Pay again is a fresh attempt, not the cancelled order', async ({ page, request, consoleErrors }, info) => {
@@ -274,8 +273,7 @@ test('FE-7 and FE-8: changed prices are shown, a box no longer sold is named and
   await page.getByRole('button', { name: 'Review order' }).click()
   await expect(page.getByRole('alert')).toContainText('Old Favourite Box is no longer sold, so we took it out of your cart.')
 
-  await page.getByRole('button', { name: 'Review order' }).click()
-  await expect(page.getByRole('heading', { name: 'Review and pay' })).toBeVisible()
+  await reviewOrder(page)
   await expect(page.getByRole('status').filter({ hasText: 'A price has changed since you added it' })).toBeVisible()
   await expect(page.getByText(/^Now ₹[\d,.]+ each \(was ₹[\d,.]+\)$/)).toBeVisible()
   await noA11yViolations(page)

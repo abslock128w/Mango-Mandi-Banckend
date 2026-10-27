@@ -14,6 +14,31 @@ export const PHONE_LINK_HOSTS = ['.trycloudflare.com']
  */
 export const PROXY_PATH = '^/v1/(?!dev(?:/|$))'
 
+/**
+ * SEC-01 (24 Oct audit): the API routes case-insensitively and decodes paths,
+ * so /v1/Dev/pay or /v1/%64ev/pay reach the same free "pay" route that
+ * PROXY_PATH keeps out by its lowercase spelling. This second check, run on
+ * every request the proxy would pass on, refuses any spelling of /v1/dev:
+ * percent-decoded, lower-cased, with repeated and dot segments folded away.
+ * A path that does not decode is refused too.
+ */
+export function isDevPath(url: string): boolean {
+  let path = url.split(/[?#]/)[0]
+  try {
+    // Twice, so a double-encoded spelling (%2564ev) is caught as well.
+    path = decodeURIComponent(decodeURIComponent(path))
+  } catch {
+    return true
+  }
+  const segments: string[] = []
+  for (const s of path.toLowerCase().replace(/\\/g, '/').split('/')) {
+    if (s === '' || s === '.') continue
+    if (s === '..') segments.pop()
+    else segments.push(s.trim())
+  }
+  return segments[0] === 'v1' && segments[1] === 'dev'
+}
+
 export interface ShopServerEnv {
   /** The API to pass /v1 on to (start-local --phone), so phones need only this server. */
   SHOP_API_PROXY?: string
@@ -37,6 +62,8 @@ export function shopServer(dir: string, env: ShopServerEnv) {
           proxy: {
             [PROXY_PATH]: {
               target: env.SHOP_API_PROXY,
+              // false: Vite answers 404 itself and nothing reaches the API.
+              bypass: (req: { url?: string }) => (isDevPath(req.url ?? '') ? false : undefined),
               configure: (proxy: { on: (event: 'proxyReq', fn: (req: { getHeader: (h: string) => unknown; setHeader: (h: string, v: string) => void }) => void) => void }) =>
                 proxy.on('proxyReq', (req) => {
                   if (req.getHeader('origin')) req.setHeader('origin', 'http://localhost:5174')

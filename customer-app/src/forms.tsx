@@ -1,8 +1,9 @@
 // Shared form pieces for the shop: one labelled field, day chips, delivery times, saved
 // addresses, photo uploads and the − count + stepper. Each page builds its forms from these.
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
+import { cloneElement, isValidElement, useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactElement, type ReactNode } from 'react'
 import { errorMessage, type SavedAddress, type SlotOnDate } from './api'
 import { slotText } from './format'
+import { useT } from './i18n'
 import { shrinkPhoto } from './photo'
 
 /** What a Field hands to its control: the id its label points at, and the hint and error to read out. */
@@ -133,18 +134,19 @@ export function SlotPicker({
   onChange: (slotId: string) => void
   error?: string | null
 }) {
+  const t = useT()
   if (!slots.length) return null
   const errorId = error ? `${name}-error` : undefined
   return (
     <fieldset className="field" aria-describedby={errorId}>
-      <legend>Delivery time</legend>
+      <legend>{t('forms.deliveryTime')}</legend>
       <div className="options">
         {slots.map((s) => (
           <label key={s.id} className={`option${s.available ? '' : ' option-off'}`}>
             <input type="radio" name={name} value={s.id} checked={value === s.id} disabled={!s.available} onChange={() => onChange(s.id)} />
             <span>
               {slotText(s)}
-              {!s.available && <span className="muted small"> · Full</span>}
+              {!s.available && <span className="muted small"> · {t('forms.full')}</span>}
             </span>
           </label>
         ))}
@@ -168,10 +170,11 @@ export function AddressPicker({
   value: string | null
   onChange: (id: string | null) => void
 }) {
+  const t = useT()
   if (!addresses.length) return null
   return (
     <fieldset className="field">
-      <legend>Deliver to</legend>
+      <legend>{t('where.deliverTo')}</legend>
       <div className="options">
         {addresses.map((a) => (
           <label key={a.id} className="option">
@@ -184,7 +187,7 @@ export function AddressPicker({
         ))}
         <label className="option">
           <input type="radio" name="saved-address" checked={value === null} onChange={() => onChange(null)} />
-          <span>A new address</span>
+          <span>{t('forms.newAddress')}</span>
         </label>
       </div>
     </fieldset>
@@ -262,18 +265,19 @@ export function PhotoPicker({
 }) {
   const labelId = `${id}-label`
   const errorId = `${id}-error`
+  const t = useT()
   return (
     <div className="field">
       <span className="label" id={labelId}>
-        Photos (optional, up to {max})
+        {t('forms.photosLabel', { max })}
       </span>
       {photos.length > 0 && (
         <ul className="claim-photos" aria-labelledby={labelId}>
           {photos.map((p, i) => (
             <li key={p.id}>
-              {p.preview ? <img src={p.preview} alt={alt(i)} /> : <span className="photo-wait">Photo {i + 1}</span>}
+              {p.preview ? <img src={p.preview} alt={alt(i)} /> : <span className="photo-wait">{t('forms.photoN', { n: i + 1 })}</span>}
               <button type="button" className="link-btn" onClick={() => onRemove(p.id)}>
-                Remove<span className="sr-only"> photo {i + 1}</span>
+                {t('common.remove')}<span className="sr-only"> {t('forms.photoNLower', { n: i + 1 })}</span>
               </button>
             </li>
           ))}
@@ -281,7 +285,7 @@ export function PhotoPicker({
       )}
       {photos.length < max && (
         <label className="btn btn-quiet photo-pick">
-          {uploading ? 'Uploading…' : photos.length ? 'Add another photo' : 'Add a photo'}
+          {uploading ? t('forms.uploading') : photos.length ? t('forms.addAnotherPhoto') : t('forms.addPhoto')}
           <input
             type="file"
             accept={accept}
@@ -330,7 +334,8 @@ export function Stepper({
   lessLabel: string
   moreLabel: string
 }) {
-  const labelId = `${label.replace(/\W+/g, '-').toLowerCase()}-label`
+  // useId, not the label: a Hindi or Kannada label has no Latin letters to make a unique id from.
+  const labelId = `stepper-${useId().replace(/:/g, '')}-label`
   const group = (
     <div className="stepper" role="group" {...(showLabel ? { 'aria-labelledby': labelId } : { 'aria-label': label })}>
       <button type="button" onClick={() => onChange(Math.max(min, value - step))} disabled={value - step < min} aria-label={lessLabel}>

@@ -20,7 +20,8 @@ production data. The result is evidence for the launch checklist.
 1. Razorpay dashboard → switch to **Test Mode** → Settings → API Keys → generate a test key.
 2. Settings → Webhooks → add `https://<staging API>/webhooks/razorpay` with a new secret,
    events: `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`,
-   `refund.processed`, `refund.failed`.
+   `refund.processed`, `refund.failed`, `payment.dispute.created`, `payment.dispute.won`,
+   `payment.dispute.lost`, `payment.dispute.closed` (the same list as `deploy/README.md`).
 3. Set on staging: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`. Redeploy.
 4. Payment capture: automatic (the code also captures authorized payments that match an order).
 
@@ -37,10 +38,19 @@ production data. The result is evidence for the launch checklist.
 | R7 | WhatsApp chat order, pay the link in test mode | Order CONFIRMED via `payment_link.paid` |
 | R8 | Delayed payment: order, open Checkout, wait until the order page says the hold ran out (11 minutes), then finish paying if Razorpay still lets you | The late payment is matched: order CONFIRMED (on its date, or moved to the next day with stock, or flagged at risk), never refunded and never charged twice |
 | R9 | Only if test mode can make a refund fail: repeat R4 with that refund | `refund.failed` arrives (our result `refund_failed`); the order's history says a new refund will be sent; the next maintenance run sends it and `check` shows the second refund |
+| R10 | WhatsApp chat order: let the payment link pass its expiry (`expire_by`, the hold), then try to pay it | Razorpay refuses the payment; the order is CANCELLED by the hold sweep and nothing is charged |
+| R11 | UPI test handle that fails first and succeeds later for the same payment (if test mode offers one) | `payment.failed` then `payment.captured`: the order is confirmed once (late payment rules: same date, next date with stock, or at risk); never refunded |
+| R12 | Pay an order, cancel it as the customer, and raise a dispute on the payment in test mode before the refund goes (with `REFUND_SAFETY_CHECKS=true`) | `payment.dispute.created` arrives; Needs attention shows the refund as **held** while the dispute is open; no refund goes out; after `payment.dispute.won` the next maintenance run sends it once. Also note whether Razorpay itself allows a refund on a disputed payment |
+| R13 | Rotate the webhook secret as `deploy/README.md` says (new secret in `RAZORPAY_WEBHOOK_SECRET`, old one in `RAZORPAY_WEBHOOK_SECRET_PREVIOUS`), then re-send an older event from the dashboard | Both old and new events are accepted and applied once; after `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` is removed, an event signed with the old secret is refused. Note how long Razorpay keeps signing retries with the old secret |
+| R14 | Only if `WHATSAPP_PAYMENT_CONFIG` is set: pay a chat order with WhatsApp Pay | Write down Meta's `transaction.id` and Razorpay's `pay_` id: they must be the same, and Needs attention must show no "refundable" row for it (audit PAY-07). If they differ, keep WhatsApp Pay off |
+| R15 | WhatsApp chat order: tap "Pay" twice quickly | Both replies carry the same link; the extra link Razorpay created is shown as cancelled in the dashboard (audit PAY-03) |
+| R16 | With `PAYMENT_DAILY_RECON=true`: pause the webhook, pay an order, wait until the next day's maintenance run (or run it by hand) | The daily check of Razorpay's payments confirms the order (or books the preorder); a payment that matches nothing is listed once in Needs attention |
 
 Scenario map for the launch gate: success = R1 and R7, failure = R2, delayed
 payment = R5 (webhook late) and R8 (payment late), duplicate webhook = R6,
-refund = R4 (and R9 where possible). R3 checks the hold.
+refund = R4 (and R9 where possible). R3 checks the hold. R10-R16 cover link
+expiry, late UPI, disputes, secret rotation, WhatsApp Pay, double "Pay" taps and
+the daily payment check (24 Oct 2026 audit, PAY-10).
 
 After each scenario, collect the ids from both sides:
 
@@ -97,6 +107,13 @@ One row per scenario. "Our request ids" and "Event ids" come from the
 | R7 | | | | | | | | |
 | R8 | | | | | | | | |
 | R9 | | | | | | | | |
+| R10 | | | | | | | | |
+| R11 | | | | | | | | |
+| R12 | | | | | | | | |
+| R13 | | | | | | | | |
+| R14 | | | | | | | | |
+| R15 | | | | | | | | |
+| R16 | | | | | | | | |
 
 ## What runs without test keys (checked on every `npm test`)
 

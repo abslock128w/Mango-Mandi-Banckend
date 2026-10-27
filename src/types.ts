@@ -12,6 +12,29 @@ export interface Me {
    * whether setting it up needs the one-time setup code a manager hands over.
    */
   twoStep?: { enabled: boolean; required: boolean; setupCodeNeeded?: boolean }
+  /** The box-tracked warehouse: off unless the API has it switched on; the permissions this role holds there. */
+  warehouse?: { enabled: boolean; permissions: string[] }
+  /** Switchable panel parts: bills, customer profiles and CSV exports (docs/trust.md) and the riders' Route view
+   *  (docs/app-feel.md). An older API leaves a field out, which means off. The role still decides who may use them. */
+  features?: {
+    bills?: boolean
+    customerProfiles?: boolean
+    exports?: boolean
+    riderRoute?: boolean
+    /** Growth (docs/growth.md), managers only: the Referrals view, the funnel on Analytics, the evening summary. */
+    referrals?: boolean
+    funnelAnalytics?: boolean
+    managerDailySummary?: boolean
+    /** Staff operations (docs/ops.md): the stock forecast, farms and purchases, and the Settings page's switches. */
+    stockForecast?: boolean
+    purchaseRecords?: boolean
+    panelSwitches?: boolean
+    /** Gift orders on Orders (MULTI_GIFT, docs/gifting.md). */
+    multiGift?: boolean
+    /** Customer care (docs/care.md): the Help desk and Subscriptions pages. */
+    helpDesk?: boolean
+    subscriptions?: boolean
+  }
 }
 
 /** A sign-in either lands, or asks for the code from the authenticator app first. */
@@ -208,6 +231,40 @@ export interface OrderListItem {
   atRisk?: boolean
   /** Where the customer placed it: the app or the WhatsApp chat. */
   channel?: 'app' | 'whatsapp'
+  /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
+  giftOrderId?: string
+}
+
+/** A gift order to many recipients (MULTI_GIFT, docs/gifting.md): one payment, one bill, a delivery order per recipient. */
+export interface GiftOrderListItem {
+  id: string
+  number: string
+  status: 'PAYMENT_PENDING' | 'PAID' | 'CANCELLED'
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'CANCELLED' | 'FAILED'
+  customerName: string | null
+  deliveryDate: string
+  placedAt: string
+  paidAt: string | null
+  recipientCount: number
+  boxes: number
+  subtotal: number
+  discount: number
+  promoCode: string | null
+  total: number
+  business: { name: string; gstin: string } | null
+  children: {
+    id: string
+    number: string
+    position: number
+    status: OrderStatus
+    deliveryDate: string
+    pincode: string | null
+    recipientName: string | null
+    total: number
+    atRisk?: boolean
+    box: { sku: string; name: string; stage: string; qty: number } | null
+    refund: { requestedAt: string; refundedAt: string | null } | null
+  }[]
 }
 
 export interface Paged<T> {
@@ -278,7 +335,13 @@ export interface OrderDetail {
   } | null
   atRisk?: boolean
   atRiskReason?: string | null
+  /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
+  retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
+  /** One recipient's delivery of a gift order to many (MULTI_GIFT): the gift order, this delivery's place in it, how many recipients. */
+  giftOrder?: { id: string; number: string; position: number; recipients: number } | null
+  /** Only a manager may cancel it: a paid order, and (when the API checks it) a free replacement. */
+  cancelNeedsManager?: boolean
   slot?: { id: string; label: string; startsAt: string; endsAt: string } | null
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
@@ -287,7 +350,99 @@ export interface OrderDetail {
   rating?: { stars: number; comment: string | null; at: string } | null
   /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
   returnedBoxes?: number
+  /** The customer's account, for their profile (null on old guest orders). */
+  customerId?: string | null
+  /** A business name and GSTIN the buyer gave at checkout, printed on the bill. */
+  business?: { name: string; gstin: string } | null
+  /** The order's bill, once it is paid (while bills are switched on). */
+  bill?: BillSummary | null
 }
+
+export type BillKind = 'RECEIPT' | 'BILL_OF_SUPPLY' | 'TAX_INVOICE' | 'INVOICE_CUM_BILL_OF_SUPPLY'
+
+/** A numbered bill: its number never changes; a cancelled order's bill stays, marked cancelled. */
+export interface BillSummary {
+  id: string
+  number: string
+  kind: BillKind
+  title: string
+  issuedAt: string
+  billDate: string
+  total: number
+  cancelled: boolean
+  cancelledAt: string | null
+}
+
+/** One customer found by phone (the number is masked to its last 4 digits). */
+export interface CustomerMatch {
+  id: string
+  name: string | null
+  phoneMasked: string | null
+  createdAt: string
+  orders: number
+  lastOrderAt: string | null
+}
+
+/** The staff view of one customer (GET /customers/:id; every view is audited). */
+export interface CustomerProfile {
+  id: string
+  name: string | null
+  phoneMasked: string | null
+  emailMasked: string | null
+  hasPhone: boolean
+  hasEmail: boolean
+  signIn: { phone: boolean; google: boolean }
+  createdAt: string
+  deletedAt: string | null
+  consent: { privacyAcceptedAt: string | null; remindersOptIn: boolean; openStockAlerts: number }
+  stats: {
+    paidOrders: number
+    allOrders: number
+    replacements: number
+    lifetimeSpend: number
+    refunds: number
+    firstOrderAt: string | null
+    lastOrderAt: string | null
+    claims: number
+    reviews: number
+    averageRating: number | null
+    openPreorders: number
+  }
+  orders: {
+    id: string
+    number: string
+    status: OrderStatus
+    placedAt: string
+    deliveryDate: string
+    total: number
+    discount: number
+    boxes: number
+    paymentStatus: PaymentStatus | null
+    channel: 'app' | 'whatsapp'
+    replacement: boolean
+    refund: 'REFUNDED' | 'PENDING' | null
+    business: { name: string; gstin: string } | null
+    bill: { number: string; cancelled: boolean } | null
+  }[]
+  ordersShown: number
+  claims: {
+    id: string
+    orderId: string
+    orderNumber: string
+    issueType: string
+    status: ClaimStatus
+    resolution: ClaimResolution | null
+    createdAt: string
+    resolvedAt: string | null
+    replacementOrder: { id: string; number: string } | null
+  }[]
+  reviews: { id: string; orderId: string; orderNumber: string; sku: string; productName: string; rating: number; status: ReviewStatus; comment: string | null; createdAt: string }[]
+  ratings: { orderId: string; orderNumber: string; stars: number; comment: string | null; at: string }[]
+  addresses: { id: string; name: string | null; address: string; pincode: string; lastUsedAt: string }[]
+}
+
+/** The CSV exports a manager can download (GET /exports/:kind). */
+export type ExportKind = 'orders' | 'order-lines' | 'claims' | 'reviews' | 'bulk-orders' | 'payments' | 'refunds'
 
 export type FailReason = 'NOT_HOME' | 'WRONG_ADDRESS' | 'REFUSED' | 'UNREACHABLE' | 'OTHER'
 
@@ -367,6 +522,8 @@ export interface Claim {
   orderNumber: string
   orderTotal: number
   customerPhone: string | null
+  /** The customer's account, for their profile. */
+  customerId?: string | null
   issueType: IssueType | string
   description: string
   affectedItems: string[]
@@ -418,6 +575,8 @@ export interface Rules {
   outForDeliveryAlertHours?: number
   /** A preorder moved forward more times than this waits for a manager. */
   maxPreorderMoves?: number
+  /** Live tracking: rough minutes a rider spends per stop, for "N stops away" (docs/app-feel.md). */
+  minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
   seasonEndsOn?: string | null
   stageProfiles: Record<string, StageWindow[]>
@@ -444,7 +603,7 @@ export interface CoverageDay {
 }
 
 export interface ApiErrorBody {
-  error?: { code?: string; message?: string; requestId?: string }
+  error?: { code?: string; message?: string; requestId?: string; [extra: string]: unknown }
 }
 
 export type PreorderStatus = 'PAYMENT_PENDING' | 'BOOKED' | 'WAITLISTED' | 'CONVERTED' | 'CANCELLED'
@@ -589,6 +748,8 @@ export interface Attention {
   failedMessages: {
     id: string
     kind: string
+    /** SKIPPED: dropped unsent (waited over a day, or no WhatsApp provider set); absent from older servers. */
+    status?: 'FAILED' | 'SKIPPED'
     phone: string | null
     error: string | null
     attempts: number
@@ -598,9 +759,19 @@ export interface Attention {
   }[]
   /**
    * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
-   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way).
+   * second payment too. state 'unsent': still retrying (a manager may record it paid back another way);
+   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06).
    */
-  stuckRefunds: { type: 'order' | 'preorder' | 'payment'; id: string; number: string; requestedAt: string; paymentId?: string | null; state?: 'unsent' | 'unconfirmed' }[]
+  stuckRefunds: {
+    type: 'order' | 'preorder' | 'payment'
+    id: string
+    number: string
+    requestedAt: string
+    paymentId?: string | null
+    state?: 'unsent' | 'unconfirmed' | 'held'
+    /** On a held refund: the chargeback holding it. Open until the bank decides; once lost or closed it is settled as paid back. */
+    dispute?: { id: string; status: string } | null
+  }[]
   /** Not yet marked resolved. refundable: a captured payment that still matches nothing (a manager may refund it). */
   webhookFailures: { id: string; source: 'razorpay' | 'whatsapp'; reason: string; eventKey: string | null; createdAt: string; paymentId?: string | null; refundable?: boolean }[]
   /** Chargebacks still open at Razorpay; answered in the Razorpay dashboard. */
@@ -623,10 +794,14 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
+  preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
+  /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */
+  lateArrivals?: { id: string; variety: string; farm: string | null; etaDate: string; promised: number; sellingPaused: boolean }[]
   /** Paid orders past their date or out for delivery too long. */
   overdueOrders?: OverdueOrder[]
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */
-  retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null; /** day: no open day or no room for the retry (PLT-08, PLT-09); stock: the packed boxes can't go. */ kind?: 'stock' | 'day' }[]
   /** Paid preorders moved forward too often or booked past the season end. */
   preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
   /** Cancelled or returned orders whose boxes are still to be put back or written off. */
@@ -697,6 +872,8 @@ export interface Review {
   displayName: string
   anonymous: boolean
   customerName: string | null
+  /** The customer's account, for their profile. */
+  customerId?: string | null
   orderId: string
   orderNumber: string | null
   sku: string
@@ -757,6 +934,8 @@ export interface StaffMember {
   role: Role
   createdAt: string
   twoStep?: boolean
+  /** A manager who gets the evening WhatsApp summary (MANAGER_DAILY_SUMMARY). */
+  dailySummary?: boolean
   /** Only when the person is added: the one-time code they need to set up two-step sign-in. */
   setupCode?: string
 }
@@ -872,4 +1051,336 @@ export interface BulkEvent {
   changes: Record<string, unknown>
   by: string | null
   at: string
+}
+
+// ---------------------------------------------------------------- growth (docs/growth.md)
+
+export type ReferralStatus = 'PENDING' | 'REWARDED' | 'VOID'
+/** One person in a referral: name and a masked phone. */
+export interface ReferralPerson {
+  id: string
+  name: string | null
+  phone: string | null
+}
+export interface Referral {
+  id: string
+  code: string
+  status: ReferralStatus
+  /** Why it ended without a reward, in words. */
+  reason: string | null
+  /** The friend got their thank-you, the referrer did not: over the monthly cap. */
+  referrerCapped: boolean
+  createdAt: string
+  settledAt: string | null
+  referrer: ReferralPerson
+  friend: ReferralPerson
+  /** The friend's first paid order, once there is one. */
+  order: { id: string; number: string } | null
+  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; amount: number; used: boolean }[]
+}
+export interface ReferralList {
+  counts: Record<ReferralStatus, number>
+  rules: { rewardRupees: number; minOrderRupees: number; maxPerMonth: number }
+  items: Referral[]
+}
+
+export type FunnelStep = 'visit' | 'product_view' | 'add_to_cart' | 'checkout_start' | 'paid'
+export interface FunnelRow {
+  day: string | null
+  counts: Record<FunnelStep, number>
+  /** From a visit to each step, in percent (one decimal); null with no visits. */
+  conversion: Record<FunnelStep, number | null>
+  /** From the step before. */
+  stepConversion: Partial<Record<FunnelStep, number | null>>
+}
+export interface Funnel {
+  from: string
+  to: string
+  steps: FunnelStep[]
+  days: FunnelRow[]
+  totals: FunnelRow
+}
+
+export interface DailySummarySetting {
+  optedIn: boolean
+  /** Masked. */
+  phone: string | null
+  /** IST, HH:MM. */
+  time: string
+}
+export interface DailySummaryPreview {
+  day: string
+  numbers: {
+    orders: number
+    revenue: number
+    boxesDelivered: number
+    boxesFailed: number
+    newClaims: number
+    unhappyRatings: number
+    needsAttention: number
+  }
+  /** The message as it would read now. */
+  text: string
+  sendsAt: string
+  /** Managers who opted in with a number. */
+  recipients: number
+  /** Summaries already queued today. */
+  sentToday: number
+}
+
+// ---------- Staff operations (docs/ops.md) ----------
+
+/** One past day the forecast looked at: what sold, and whether it counted (days with no stock or closed don't). */
+export interface ForecastSample {
+  date: string
+  sold: number
+  counted: boolean
+  reason: 'closed' | 'no stock' | null
+}
+
+export interface ForecastDay {
+  date: string
+  history: { samples: ForecastSample[]; average: number | null }
+  booked: number
+  bookAhead: number
+  /** max(average, booked); null without enough history. */
+  expected: number | null
+  toSell: number
+  fromStock: number
+  short: number
+}
+
+export interface ForecastProduct {
+  sku: string
+  name: string
+  boxSize: string
+  enoughHistory: boolean
+  note: string | null
+  suggestedBoxes: number | null
+  shortForBookings: number
+  shortBoxes: number
+  buyBy: string | null
+  waste: { days: number; damagedBoxes: number; claimBoxes: number; soldBoxes: number; rate: number; capped: boolean }
+  shortDays: { date: string; stage: Ripeness; boxes: number; pluckBy: string | null; fromHistory: boolean }[]
+  batches: {
+    batchId: string
+    pluckedOn: string
+    ageToday: number
+    status: BatchStatus
+    onHand: number
+    waitingQc: boolean
+    freeBoxes: number
+    sellableUntil: string
+    usedByForecast: number
+    unsoldPastCap: number
+    stages: { date: string; stage: Ripeness | null }[]
+  }[]
+  stages: { stage: Ripeness; enoughHistory: boolean; short: number; days: ForecastDay[] }[]
+}
+
+export interface StockForecast {
+  today: string
+  dates: string[]
+  rules: {
+    horizonDays: number
+    historyWeeks: number
+    minHistoryDays: number
+    wasteWindowDays: number
+    maxWasteRate: number
+    maxSellableAge: number
+    transitDays: number
+    forecastConfidence: number
+  }
+  varieties: {
+    variety: string
+    enoughHistory: boolean
+    suggestedBoxes: number | null
+    note: string | null
+    shortForBookings: number
+    buyBy: string | null
+    products: ForecastProduct[]
+  }[]
+  hidden: string[]
+}
+
+export interface Farm {
+  id: string
+  name: string
+  place: string | null
+  contactName: string | null
+  phoneMasked: string | null
+  hasPhone: boolean
+  active: boolean
+  createdAt: string
+  updatedAt: string
+  purchases: number
+  lastPurchaseOn: string | null
+}
+
+export interface FarmInput {
+  name: string
+  place?: string | null
+  contactName?: string | null
+  /** Left out keeps the number; null removes it. */
+  phone?: string | null
+  active?: boolean
+}
+
+/** A batch's purchase. The money fields come only to managers. */
+export interface Purchase {
+  id: string
+  batchId: string
+  farmId: string
+  farmName: string | null
+  purchasedOn: string
+  crates: number
+  boxes: number
+  note: string | null
+  createdAt: string
+  updatedAt: string | null
+  costPerCrate?: number
+  transportCost?: number
+  otherCost?: number
+  totalCost?: number
+  costPerBox?: number
+}
+
+export interface PurchaseInput {
+  farmId: string
+  purchasedOn: string
+  crates: number
+  boxes: number
+  costPerCrate: number
+  transportCost: number
+  otherCost: number
+  note?: string | null
+}
+
+export interface BatchPurchases {
+  batchId: string
+  receivedBoxes: number
+  purchasedBoxes: number
+  costsShown: boolean
+  items: Purchase[]
+  totalCost?: number
+}
+
+export interface MarginRow {
+  boughtBoxes: number
+  totalCost: number
+  soldBoxes: number
+  revenue: number
+  costOfSold: number
+  margin: number
+  marginPerBox: number | null
+  unsoldBoxes: number
+  costOfUnsold: number
+}
+
+export interface Margins {
+  from: string
+  to: string
+  varieties: (MarginRow & { variety: string; batches: number; costPerBox: number | null })[]
+  batches: (MarginRow & { batchId: string; variety: string; pluckedOn: string; status: BatchStatus; costPerBox: number })[]
+}
+
+export interface FeatureSwitch {
+  key: string
+  label: string
+  description: string
+  /** The environment's own value. */
+  envValue: boolean
+  /** The environment says false: off, whatever is chosen here. */
+  killedByEnv: boolean
+  /** A manager's choice, or null for "as the environment says". */
+  override: boolean | null
+  updatedBy: string | null
+  updatedAt: string | null
+  effective: boolean
+}
+
+// ---------- Customer care (docs/care.md) ----------
+
+export type HelpStatus = 'OPEN' | 'WAITING_CUSTOMER' | 'RESOLVED'
+export type HelpTopic = 'DELIVERY' | 'PAYMENT' | 'CHANGE_ORDER' | 'SUBSCRIPTION' | 'ACCOUNT' | 'OTHER'
+
+/** A help request as the Help desk sees it. The phone is masked to its last 4 digits. */
+export interface HelpRequest {
+  id: string
+  number: string
+  topic: HelpTopic
+  topicLabel: string
+  status: HelpStatus
+  customer: { id: string; name: string | null; phoneMasked: string | null }
+  order: { id: string; number: string | null; status: OrderStatus | null; deliveryDate: string | null } | null
+  createdAt: string
+  updatedAt: string
+  lastCustomerAt: string | null
+  lastStaffAt: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
+  messageCount?: number
+}
+
+export interface HelpMessage {
+  id: string
+  from: 'CUSTOMER' | 'STAFF'
+  staffEmail: string | null
+  body: string
+  at: string
+}
+
+export interface HelpRequestDetail extends HelpRequest {
+  messages: HelpMessage[]
+}
+
+export interface HelpInbox {
+  items: HelpRequest[]
+  counts: Record<HelpStatus, number>
+  topics: Record<HelpTopic, string>
+}
+
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'ENDED'
+export type CycleStatus = 'DUE' | 'ORDERED' | 'SKIPPED' | 'MISSED' | 'CANCELLED'
+
+export interface SubscriptionCycle {
+  id: string
+  scheduledFor: string
+  deliveryDate: string | null
+  slotId: string | null
+  status: CycleStatus
+  note: string | null
+  order: { id: string; number: string; status: OrderStatus; paymentStatus: string; holdExpiresAt: string | null } | null
+  canPay: boolean
+  paid: boolean
+  awaitingPayment: boolean
+}
+
+/** A subscription on the staff list: no address, the phone masked. */
+export interface StaffSubscription {
+  id: string
+  number: string
+  status: SubscriptionStatus
+  sku: string
+  productName: string
+  unitPrice: number | null
+  stage: Ripeness
+  qty: number
+  frequency: 'WEEKLY' | 'FORTNIGHTLY'
+  weekday: number
+  firstDate: string
+  endDate: string
+  slotId: string | null
+  pincode: string
+  createdAt: string
+  pausedAt: string | null
+  cancelledAt: string | null
+  cycles: SubscriptionCycle[]
+  upcoming: string[]
+  customer: { id: string; name: string | null; phoneMasked: string | null }
+}
+
+export interface SubscriptionList {
+  items: StaffSubscription[]
+  counts: Record<'ACTIVE' | 'PAUSED' | 'CANCELLED', number>
 }

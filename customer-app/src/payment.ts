@@ -3,6 +3,7 @@
 // (verify-payment), which checks its signature and asks Razorpay; the webhook
 // and the order page's polling cover a reply that never gets there.
 import { api, type CheckoutReply } from './api'
+import { t } from './i18n-core.ts'
 
 declare global {
   interface Window {
@@ -27,7 +28,7 @@ function loadScript() {
     s.onload = () => resolve()
     s.onerror = () => {
       loading = null
-      reject(new Error('Could not load the payment page. Check your connection and try again.'))
+      reject(new Error(t('pay.loadFailed')))
     }
     document.head.appendChild(s)
   })
@@ -43,10 +44,12 @@ function loadScript() {
 export async function openRazorpay(
   p: { orderId: string; key: string; rzp: string; total: number; number: string; holdExpiresAt?: string | null },
   phone: string | null,
+  // A gift order to many recipients hands the reply to its own route (MULTI_GIFT).
+  verify: (orderId: string, reply: CheckoutReply) => Promise<unknown> = api.verifyPayment,
 ) {
   const secondsLeft = p.holdExpiresAt ? Math.floor((new Date(p.holdExpiresAt).getTime() - Date.now()) / 1000) : null
   await loadScript()
-  if (!window.Razorpay) throw new Error('Could not load the payment page.')
+  if (!window.Razorpay) throw new Error(t('pay.loadFailedShort'))
   await new Promise<void>((resolve) => {
     const rz = new window.Razorpay!({
       key: p.key,
@@ -54,13 +57,13 @@ export async function openRazorpay(
       amount: p.total,
       currency: 'INR',
       name: 'MandiMangoes',
-      description: `Order ${p.number}`,
+      description: t('pay.description', { number: p.number }),
       prefill: phone ? { contact: phone } : undefined,
       theme: { color: '#d97706' },
       // The window closes with the hold, never later (a payment that still lands late is honoured on the server).
       ...(secondsLeft != null ? { timeout: Math.max(1, secondsLeft) } : {}),
       handler: (reply: CheckoutReply) => {
-        api.verifyPayment(p.orderId, reply).then(
+        verify(p.orderId, reply).then(
           () => resolve(),
           () => resolve(),
         )

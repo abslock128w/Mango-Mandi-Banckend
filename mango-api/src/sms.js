@@ -4,12 +4,14 @@
 // development and tests only log them (the API also returns them as devCode).
 // Indian SMS needs DLT registration, so the sender ID, template ID and entity
 // ID must match what is registered, and the text must match the template.
+import { now } from './clock.js'
+import { query } from './db.js'
 import { deployEnv, env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { logger, maskPhone as mask } from './logger.js'
 import { metrics } from './metrics.js'
 import { hit } from './ratelimit.js'
-import { reportProblem } from './sentry.js'
+import { reportProblem, scrubText } from './sentry.js'
 import { metaOtpSender, templateName } from './whatsapp.js'
 
 
@@ -56,7 +58,8 @@ export function jioSender(opts, fetchImpl = fetch) {
 }
 
 const notSent = () => new HttpError(502, 'OTP_NOT_SENT', 'We could not send the code. Please try again.')
-const clean = (text, code) => String(text).slice(0, 500).replaceAll(code, '******')
+// INT-16: the reply may also echo the number, so it gets the log scrub (phones, keys) too.
+export const clean = (text, code) => scrubText(String(text).slice(0, 500).replaceAll(code, '******'))
 const safeBody = async (res, code) => clean(await res.text().catch(() => ''), code)
 /** The value at a dot path ("data.state") in a parsed JSON reply. */
 const at = (obj, path) => path.split('.').reduce((v, k) => (v === null || v === undefined ? undefined : v[k]), obj)
@@ -80,7 +83,8 @@ export function otpDelivery({ sms, whatsapp }) {
     const order = (preferred === 'whatsapp' ? ['whatsapp', 'sms'] : ['sms', 'whatsapp']).filter((ch) => (ch === 'sms' ? sms : whatsapp))
     for (const [i, ch] of order.entries()) {
       try {
-        await (ch === 'sms' ? sms : whatsapp)(phone, code)
+        const messageId = await (ch === 'sms' ? sms : whatsapp)(phone, code)
+        if (ch === 'whatsapp' && env.PROVIDER_CHECKS && typeof messageId === 'string') await rememberOtpMessage(messageId)
         if (i > 0) {
           metrics.otpFallbacks.inc({ channel: ch })
           await noteOtpTrouble('fallback', { failingChannel: order[0], workingChannel: ch })
@@ -104,6 +108,39 @@ export function otpDelivery({ sms, whatsapp }) {
 export const OTP_ALERTS = {
   failed: { windowMs: 10 * 60_000, threshold: 3, message: 'Login codes are not being sent: phone sign-in is failing. Check Jio SMS and the WhatsApp token (RUNBOOKS: login codes not arriving)' },
   fallback: { windowMs: 60 * 60_000, threshold: 5, message: 'Login codes are going out on the backup channel: the first channel is failing (RUNBOOKS: login codes not arriving)' },
+  // INT-10: WhatsApp accepted the code, then said it could not deliver it (a number not on WhatsApp, say).
+  'whatsapp-undelivered': {
+    windowMs: 60 * 60_000,
+    threshold: 3,
+    message: 'Login codes sent by WhatsApp are not being delivered: customers without WhatsApp cannot sign in by phone. Check Jio SMS (RUNBOOKS: login codes not arriving)',
+  },
+}
+
+/**
+ * INT-10 (24 Oct audit, PROVIDER_CHECKS): WhatsApp's answer only says the code
+ * was accepted; whether it arrived comes later, as a delivery status. The
+ * message id is kept for an hour (a rate_limits row, which maintenance clears),
+ * so recordDeliveryStatus can tell a login code's "failed" from an order
+ * update's. Nothing about the customer is kept with it.
+ */
+const OTP_MESSAGE_MS = 60 * 60_000
+const otpMessageKey = (id) => `otp-wa-msg:${id}`
+async function rememberOtpMessage(id) {
+  try {
+    await hit(otpMessageKey(id), OTP_MESSAGE_MS)
+  } catch (err) {
+    logger.warn({ err }, 'could not keep the login code message id')
+  }
+}
+
+/** A "failed" delivery status for a login code we sent by WhatsApp: counted, and an alert past the threshold. True if it was one. */
+export async function otpMessageFailed(id) {
+  const { rowCount } = await query('DELETE FROM rate_limits WHERE key = $1 AND reset_at > $2', [otpMessageKey(id), now()])
+  if (!rowCount) return false
+  logger.warn({ channel: 'whatsapp' }, 'a login code sent by WhatsApp was not delivered')
+  metrics.otpNotAccepted.inc()
+  await noteOtpTrouble('whatsapp-undelivered', { channel: 'whatsapp' })
+  return true
 }
 
 async function noteOtpTrouble(kind, extra) {
@@ -134,7 +171,7 @@ const smsSender =
       ? null
       : logOnly
 
-export const sendOtp = otpDelivery({
+const defaultSendOtp = otpDelivery({
   sms: smsSender,
   whatsapp:
     env.WHATSAPP_PROVIDER === 'meta'
@@ -144,3 +181,14 @@ export const sendOtp = otpDelivery({
         })
       : null,
 })
+
+let activeSendOtp = defaultSendOtp
+/** Sends a login code by the configured channels (see otpDelivery). */
+export const sendOtp = (phone, code, preferred) => activeSendOtp(phone, code, preferred)
+
+/** Tests only: replaces the sender behind sendOtp (null restores it) and returns the previous one. */
+export function sendOtpForTests(fn) {
+  const prev = activeSendOtp
+  activeSendOtp = fn ?? defaultSendOtp
+  return prev
+}

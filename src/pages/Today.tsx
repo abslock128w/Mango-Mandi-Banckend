@@ -4,6 +4,8 @@ import { api } from '../api'
 import { ORDER_STATUS_LABEL, date, istTime } from '../format'
 import type { OrderStatus } from '../types'
 import NeedsAttention, { attentionQuery } from './NeedsAttention'
+import { SummaryPreviewButton } from './DailySummary'
+import { useSession } from '../session'
 import { EmptyState, LinkRow, QueryError, RowLink, scrollRegion, usePageTitle } from '../ui'
 
 const TILE_STATUSES: OrderStatus[] = [
@@ -227,11 +229,15 @@ export default function Today() {
 
 /** The heading row; "Last updated" keeps its line while loading. */
 function TodayTop({ updated }: { updated?: string }) {
+  const { me } = useSession()
+  // The managers' evening WhatsApp summary (MANAGER_DAILY_SUMMARY): what it would say right now.
+  const preview = Boolean(updated) && me?.role === 'MANAGER' && Boolean(me.features?.managerDailySummary)
   return (
     <div className="topbar">
       <h1>Today</h1>
       <span className="spacer" />
       <span className="muted small">{updated ? `Last updated ${updated}` : '\u00a0'}</span>
+      {preview && <SummaryPreviewButton />}
     </div>
   )
 }

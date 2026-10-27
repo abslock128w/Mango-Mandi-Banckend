@@ -65,6 +65,8 @@ let limitsInTests = false
 export function enforceLimitsInTests(on) {
   limitsInTests = on
 }
+/** For limiters defined elsewhere (growth-routes.js): whether a test turned limits on. */
+export const limitsOnInTests = () => limitsInTests
 
 /**
  * A per-address limiter for sign-in routes, shared by every instance. If the

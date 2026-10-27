@@ -7,13 +7,22 @@
 import { randomInt } from 'node:crypto'
 import { configVersion, getConfig } from './config.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
-import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, nextDeliveryDay, orderableDates } from './delivery.js'
+import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, lockDay, nextDeliveryDay, orderableDates } from './delivery.js'
+import { afterCommit, query, tx } from './db.js'
 import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from './errors.js'
+import { env } from './env.js'
 import { newId } from './ids.js'
-import { allocate, commitHeld, ledger, lineInfo, pack, release, restock, sellableAs } from './inventory.js'
+import {
+  allocate, bySku, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, lockLines, pack, release, restock, sellableAs,
+} from './inventory.js'
+import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
+import { recordPaid } from './funnel.js'
+import { enqueueOrderPush, noRetryPush } from './push.js'
+import { trackedLine } from './warehouse/core.js'
+import { assertBoxesReadyFor, assertNoTrackedCommitted, restockPacked } from './warehouse/stock.js'
 
 /** Orders that still own stock and can be rebalanced. */
 export const OPEN_STATUSES = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -83,14 +92,23 @@ export async function addEvent(c, orderId, from, to, actor, reason = null) {
   return id
 }
 
-async function lockOrder(c, orderId) {
+export async function lockOrder(c, orderId) {
   const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
   if (!rows.length) throw notFound('Order not found')
   return rows[0]
 }
 
+/** DB-01: locks the batch lines an order's stock sits on, in the canonical line order, before changing any. */
+async function lockOrderLines(c, orderId, states) {
+  const { rows } = await c.query('SELECT line_id FROM order_stock WHERE order_id = $1 AND state = ANY($2)', [orderId, states])
+  await lockLines(c, rows.map((r) => r.line_id))
+}
+
 const stockRows = async (c, orderId, states) =>
   (await c.query('SELECT * FROM order_stock WHERE order_id = $1 AND state = ANY($2) ORDER BY id', [orderId, states])).rows
+
+const boxCount = async (c, orderId) =>
+  (await c.query('SELECT COALESCE(SUM(quantity), 0)::int AS n FROM order_items WHERE order_id = $1', [orderId])).rows[0].n
 
 const orderItems = async (c, orderId) =>
   (await c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId])).rows
@@ -134,7 +152,7 @@ export async function createOrder(c, o, actor) {
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
   await sweepExpiredHoldsFor(c, [...new Set(o.lines.map((l) => l.sku))])
   const short = []
-  for (const l of [...o.lines].sort((a, b) => a.sku.localeCompare(b.sku))) {
+  for (const l of [...o.lines].sort((a, b) => bySku(a.sku, b.sku))) {
     const got = await allocate(c, { orderId: id, orderNumber: number, deliveryDate: o.deliveryDate, sku: l.sku, stage: l.stage, qty: l.qty, state, actor })
     if (got < l.qty) {
       if (o.allOrNothing) {
@@ -159,7 +177,7 @@ export async function checkUnpaidLimit(c, customerId, boxes, at = now()) {
   if (!customerId) return
   await c.query('SELECT id FROM customers WHERE id = $1 FOR UPDATE', [customerId])
   const { rows } = await c.query(
-    `SELECT o.id, o.number, o.hold_expires_at,
+    `SELECT o.id, o.number, o.hold_expires_at, o.gift_order_id,
             COALESCE((SELECT sum(s.quantity) FROM order_stock s WHERE s.order_id = o.id AND s.state = 'held'), 0)::int AS boxes
        FROM orders o
       WHERE o.customer_id = $1 AND o.status = 'PAYMENT_PENDING' AND (o.hold_expires_at IS NULL OR o.hold_expires_at >= $2)
@@ -167,11 +185,14 @@ export async function checkUnpaidLimit(c, customerId, boxes, at = now()) {
     [customerId, at],
   )
   const cfg = getConfig()
-  if (rows.length >= cfg.maxUnpaidOrders) {
+  // A gift order (MULTI_GIFT) is one unpaid order however many deliveries it has: one payment pays them all.
+  const unpaid = new Set(rows.map((r) => r.gift_order_id ?? r.id))
+  if (unpaid.size >= cfg.maxUnpaidOrders) {
     throw new HttpError(409, 'UNPAID_ORDER_EXISTS', `You have an unpaid order (${rows[0].number}). Pay for it or cancel it first.`, {
       orderId: rows[0].id,
       number: rows[0].number,
       holdExpiresAt: rows[0].hold_expires_at,
+      ...(rows[0].gift_order_id ? { giftOrderId: rows[0].gift_order_id } : {}),
     })
   }
   const held = rows.reduce((t, r) => t + r.boxes, 0)
@@ -203,6 +224,8 @@ const CONFIRMATION_RELEASED = 'held, then sent again once stock was found'
  */
 async function holdConfirmation(c, orderId, eventId) {
   await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1 AND status = 'PENDING'`, [eventId, CONFIRMATION_HELD])
+  // The browser notification (WEB_PUSH) says "confirmed" too: held the same way.
+  await c.query(`UPDATE push_messages SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1 AND status = 'PENDING'`, [eventId, CONFIRMATION_HELD])
 }
 
 /** Once the order has its stock, the held confirmation goes out with the date it will really come (a fresh row, same kinds). */
@@ -211,11 +234,16 @@ async function releaseHeldConfirmation(c, orderId) {
     `UPDATE notifications SET last_error = $3 WHERE order_id = $1 AND status = 'SKIPPED' AND last_error = $2 RETURNING kind`,
     [orderId, CONFIRMATION_HELD, CONFIRMATION_RELEASED],
   )
-  if (!rows.length) return
+  const { rows: pushed } = await c.query(
+    `UPDATE push_messages SET last_error = $3 WHERE order_id = $1 AND status = 'SKIPPED' AND last_error = $2 RETURNING kind`,
+    [orderId, CONFIRMATION_HELD, CONFIRMATION_RELEASED],
+  )
+  if (!rows.length && !pushed.length) return
   const eventId = newId('cnf')
-  for (const kind of new Set(rows.map((r) => r.kind))) {
-    await enqueue(c, orderId, eventId, kind, kind === 'RIPENESS_GUIDE' ? { delayMs: 60_000 } : {})
-  }
+  const kinds = new Set(rows.map((r) => r.kind))
+  // enqueue() queues the WhatsApp message and its push together.
+  for (const kind of kinds) await enqueue(c, orderId, eventId, kind, kind === 'RIPENESS_GUIDE' ? { delayMs: 60_000 } : {})
+  for (const kind of new Set(pushed.map((r) => r.kind))) if (!kinds.has(kind)) await enqueueOrderPush(c, orderId, eventId, kind)
 }
 
 /**
@@ -232,6 +260,7 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   const state = o.status === 'PAYMENT_PENDING' ? 'held' : 'committed'
   const problems = []
   let changed = false
+  await lockOrderLines(c, o.id, ['held', 'committed'])
 
   // 1. Swap stock that is no longer valid for the delivery date.
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) {
@@ -279,7 +308,7 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   }
 
   await setRisk(c, o, problems, actor)
-  if (changed) metrics.rebalanceSwaps.inc()
+  if (changed) afterCommit(c, () => metrics.rebalanceSwaps.inc())
   return { id: o.id, number: o.number, changed, atRisk: problems.length > 0 }
 }
 
@@ -293,9 +322,10 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
  * go back on the shelf and the order is allocated afresh, so it is packed
  * again for the new date: one box consumed per box ordered (INV-1).
  */
-export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
+export async function placeOnFirstDateWithStock(c, o, dates, actor, why, { slotMustFit = false } = {}) {
   const items = await orderItems(c, o.id)
   const boxes = items.reduce((s, i) => s + i.quantity, 0)
+  await lockOrderLines(c, o.id, ['held', 'committed', 'packed'])
   for (const date of dates) {
     await c.query('SAVEPOINT place')
     let unpacked = false
@@ -303,12 +333,12 @@ export async function placeOnFirstDateWithStock(c, o, dates, actor, why) {
       for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Move ${o.number}`)
       let packed = await stockRows(c, o.id, ['packed'])
       if (packed.length && date !== o.delivery_date) {
-        for (const row of packed) await restock(c, row, actor, `Move ${o.number}: unpacked for ${date}`)
+        for (const row of packed) await restockPacked(c, o, row, actor, `Move ${o.number}: unpacked for ${date}`)
         packed = []
         unpacked = true
       }
       await checkCapacity(c, date, boxes, o.id)
-      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id })
+      const slot = await chooseSlot(c, date, boxes, o.slot_id ?? null, { excludeOrderId: o.id, mustFit: slotMustFit })
       let full = true
       for (const i of items) {
         const have = packed.filter((r) => r.sku === i.sku && r.stage === i.stage).reduce((n, r) => n + r.quantity, 0)
@@ -361,8 +391,12 @@ export async function moveOrderToDate(c, orderId, { deliveryDate, slotId = null,
     await c.query('UPDATE orders SET slot_id = $2 WHERE id = $1', [o.id, o.slot_id])
   }
   const from = o.delivery_date
-  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why)
-  if (!date) throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  // INV-01: without a slot named, the order keeps its slot or takes one with room, never one that is full.
+  const date = await placeOnFirstDateWithStock(c, o, [deliveryDate], actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
+  if (!date) {
+    if (env.ORDER_RULE_CHECKS) await chooseSlot(c, deliveryDate, await boxCount(c, o.id), o.slot_id ?? null, { excludeOrderId: o.id, mustFit: true })
+    throw conflict(`Not enough stock for this order on ${deliveryDate}`, 'STOCK_INSUFFICIENT')
+  }
   await rebalanceOrder(c, o.id, actor)
   return from
 }
@@ -432,6 +466,10 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   const chosenDate = o.delivery_date
   if (o.status !== 'PAYMENT_PENDING' && !lateFrom) return { order: o, result: 'ignored' }
   assertTransition(o.status, 'CONFIRMED')
+  // DB-01: a late payment checks the day's room below; take the day before the
+  // lines, the order a checkout takes them in. Then the lines, in line order.
+  if (lateFrom || holdLapsed) await lockDay(c, o.delivery_date)
+  await lockOrderLines(c, o.id, ['held'])
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
             payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL
@@ -440,7 +478,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   )
   const confirmEvent = await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
   o.status = 'CONFIRMED'
-  metrics.ordersConfirmed.inc()
+  afterCommit(c, () => metrics.ordersConfirmed.inc())
 
   // Checkpoint 3: payment confirmation. Commit the holds that are still valid.
   for (const row of await stockRows(c, o.id, ['held'])) {
@@ -479,6 +517,10 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   if (amount != null && amount !== o.total) {
     logger.warn({ orderId: o.id, amount, total: o.total }, 'captured amount differs from order total')
   }
+  // FUNNEL_ANALYTICS (docs/growth.md): "paid" for the browser that started this checkout, recorded here and never by the shop.
+  await recordPaid(c, o.id)
+  // The bill's number is taken last, so the counter row stays locked only until this commits.
+  await issueBillWithPayment(c, o.id)
   return { order: o, result: lateFrom ? 'confirmed_late' : 'confirmed' }
 }
 
@@ -494,10 +536,13 @@ async function hasRoom(c, o) {
   }
 }
 
-async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
+/** `billBy`: who the order's bill (if one was issued) says cancelled it, 'SHOP' or 'BUYER' (never the typed reason). */
+async function cancelInTx(c, o, actor, reason, paymentStatus = null, billBy = 'SHOP') {
+  await lockOrderLines(c, o.id, ['held', 'committed', 'packed'])
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) await release(c, row, actor, `Cancel ${o.number}`)
   if (RESTOCKABLE.includes(o.status)) {
-    for (const row of await stockRows(c, o.id, ['packed'])) await restock(c, row, actor, `Cancel ${o.number}`)
+    // Labelled boxes are taken off the order and wait at pick staging (warehouse/stock.js).
+    for (const row of await stockRows(c, o.id, ['packed'])) await restockPacked(c, o, row, actor, `Cancel ${o.number}`)
   }
   assertTransition(o.status, 'CANCELLED')
   const pay = paymentStatus ?? (o.payment_status === 'INITIATED' ? 'CANCELLED' : o.payment_status)
@@ -506,6 +551,8 @@ async function cancelInTx(c, o, actor, reason, paymentStatus = null) {
     [o.id, pay],
   )
   await addEvent(c, o.id, o.status, 'CANCELLED', actor, reason)
+  // A bill already issued stays, with its number, marked cancelled.
+  await markBillCancelled(c, o.id, billBy)
 }
 
 /**
@@ -520,6 +567,10 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
   const o = await lockOrder(c, orderId)
   if (o.status === 'CANCELLED') throw conflict('This order is already cancelled')
   const paid = o.payment_status === 'SUCCEEDED'
+  // INV-07: a free replacement settles a claim; cancelling it undoes that decision, which is a manager's.
+  if (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT' && !manager) {
+    throw forbidden('Only a manager can cancel a replacement, because it settles a claim')
+  }
   if (paid) {
     if (!manager) throw forbidden('Only a manager can cancel a paid order, because it is refunded in full')
     if (!MANAGER_REFUNDABLE.includes(o.status)) throw badRequest(`A ${o.status} order cannot be cancelled`, 'INVALID_TRANSITION')
@@ -541,9 +592,14 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
  * here and sent to the gateway after commit (payments.js refundOrder).
  * Returns true when a refund is due.
  */
-export async function customerCancel(c, orderId, customerId, actor) {
+export async function customerCancel(c, orderId, customerId, actor, { wholeGift = false } = {}) {
   const o = await lockOrder(c, orderId)
   if (o.customer_id !== customerId) throw notFound('Order not found')
+  // One delivery of an unpaid gift order (MULTI_GIFT): its one payment is for every recipient, so
+  // the buyer cancels the whole order until it is paid (gifts.js), then any recipient on their own.
+  if (o.gift_order_id && !wholeGift && o.status === 'PAYMENT_PENDING') {
+    throw conflict('This gift order is not paid yet. Cancel the whole gift order, or pay for it and then cancel one recipient.', 'GIFT_NOT_PAID')
+  }
   if (!CUSTOMER_CANCELLABLE.includes(o.status)) {
     const why =
       o.status === 'CANCELLED' ? 'This order is already cancelled.'
@@ -552,7 +608,7 @@ export async function customerCancel(c, orderId, customerId, actor) {
     throw conflict(why, 'NOT_CANCELLABLE')
   }
   const paid = o.payment_status === 'SUCCEEDED'
-  await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer')
+  await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer', null, 'BUYER')
   await c.query(
     `UPDATE orders SET customer_cancelled_at = $2, refund_requested_at = CASE WHEN $3 THEN $2 ELSE refund_requested_at END WHERE id = $1`,
     [o.id, now(), paid],
@@ -578,6 +634,92 @@ async function firstDayWithRoom(c, from, boxes, orderId) {
     d = await firstOpenDay(c, addDays(d, 1))
   }
   return firstOpenDay(c, from)
+}
+
+/** last_error prefix on a failed delivery's message held because the retry has no real day (PLT-08, PLT-09). */
+export const RETRY_NEEDS_DAY = 'retry needs a day'
+
+/**
+ * DELIVERY_CHECKS: the retry day as firstDayWithRoom finds it, but says so
+ * when no day in two weeks has room ({ date, full }) or no day is open at all
+ * ({ problem }) instead of hiding the first or failing the whole report.
+ */
+async function retryDay(c, boxes, orderId) {
+  let from
+  try {
+    from = await nextDeliveryDay(c)
+  } catch (err) {
+    if (err?.code !== 'NO_DELIVERY_DAY') throw err
+    return { problem: 'no delivery day is open in the next 60 days: open a day, then move the retry to it on the order page, or a manager cancels with a refund' }
+  }
+  let d = await firstOpenDay(c, from)
+  for (let i = 0; i < 14; i++) {
+    try {
+      await checkCapacity(c, d, boxes, orderId)
+      return { date: d }
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err
+    }
+    try {
+      d = await firstOpenDay(c, addDays(d, 1))
+    } catch (err) {
+      if (err?.code !== 'NO_DELIVERY_DAY') throw err
+      break
+    }
+  }
+  const date = await firstOpenDay(c, from)
+  return { date, full: `no day in the next two weeks has room, so it is on ${date} over capacity: move it to a day with room` }
+}
+
+/** last_error prefixes of a missed delivery's message held for staff to pick the retry's day. */
+const HELD_RETRY = [`${RETRY_NEEDS_DAY}:%`, 'retry needs a manager:%']
+
+/**
+ * PLT-08, PLT-09 (24 Oct audit, DELIVERY_CHECKS): staff give a missed
+ * delivery's retry a day: a day with room when every day was full, a day just
+ * opened when none was, or a day the boxes are still young enough for (INV-E).
+ * The packed boxes stay with the order; boxes too old for the new day are
+ * swapped for younger stock, or nothing changes. The customer's held "we'll
+ * try again on <date>" message goes out with the new date; if they already
+ * had one, they get a "date moved" message instead. Returns the old date.
+ */
+export async function moveRetryToDate(c, orderId, { deliveryDate, slotId = null, actor, why }) {
+  const o = await lockOrder(c, orderId)
+  if (o.status !== 'DELIVERY_FAILED') throw badRequest(`A ${o.status} order cannot be moved to another day`, 'INVALID_TRANSITION')
+  const notOpen = () => badRequest(`${deliveryDate} is not an open delivery date`, 'INVALID_DATE')
+  if (deliveryDate <= todayIST() || deliveryDate > addDays(todayIST(), 60)) throw notOpen()
+  const open = await firstOpenDay(c, deliveryDate).catch((err) => {
+    if (err?.code === 'NO_DELIVERY_DAY') return null
+    throw err
+  })
+  if (open !== deliveryDate) throw notOpen()
+  const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
+  await checkCapacity(c, deliveryDate, boxes, o.id)
+  const slot = await chooseSlot(c, deliveryDate, boxes, slotId ?? o.slot_id ?? null, { strict: Boolean(slotId), excludeOrderId: o.id })
+  const from = o.delivery_date
+  await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, deliveryDate, slot])
+  const repack = await repackForRetry(c, o, deliveryDate, actor)
+  if (repack.result === 'stuck') {
+    throw conflict(
+      `The boxes would be past the ${getConfig().maxSellableAge}-day limit on ${deliveryDate} and no younger stock is free. Pick an earlier day, or a manager sends a replacement or cancels with a refund.`,
+      'STOCK_TOO_OLD',
+    )
+  }
+  let reason = `${why}; retry moved from ${from} to ${deliveryDate}`
+  if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${deliveryDate} and were swapped for younger stock: pack the new boxes before it goes out`
+  await addEvent(c, o.id, o.status, o.status, actor, reason)
+  const { rows: held } = await c.query(
+    `SELECT id FROM notifications WHERE order_id = $1 AND kind = 'DELIVERY_FAILED' AND status = 'SKIPPED' AND last_error LIKE ANY($2)
+      AND created_at = (SELECT MAX(created_at) FROM notifications WHERE order_id = $1 AND kind = 'DELIVERY_FAILED')`,
+    [o.id, HELD_RETRY],
+  )
+  if (held.length) {
+    await c.query(`UPDATE notifications SET status = 'PENDING', attempts = 0, last_error = NULL, next_attempt_at = $2, created_at = $2 WHERE id = $1`, [held[0].id, now()])
+  } else if (deliveryDate !== from) {
+    await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
+  }
+  await rebalanceOrder(c, o.id, actor)
+  return from
 }
 
 /**
@@ -638,7 +780,15 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   if (to === 'SHIPPED' || to === 'OUT_FOR_DELIVERY') {
     await checkDispatchable(c, o, { ...opts, actor })
   }
+  // PLT-07, SEC-06 (24 Oct audit, DELIVERY_CHECKS): an order goes out on its own day, so
+  // "out for delivery" and its code never reach a customer early and a rider's run
+  // can't take tomorrow's stops. A manager can send one early, saying why.
+  if (to === 'OUT_FOR_DELIVERY' && env.DELIVERY_CHECKS && !opts.override && o.delivery_date > todayIST()) {
+    throw conflict(`Order ${o.number} is for ${o.delivery_date}. It goes out on that day; a manager can send it early from the order page, saying why.`, 'NOT_DUE_YET')
+  }
   if (opts.override && to !== 'DELIVERED' && opts.reason?.trim()) reason = `Manager override: ${opts.reason.trim()}`
+  // Labelled boxes are packed and dispatched by scan: those finalize steps set the boxes first (warehouse/ops.js).
+  await assertBoxesReadyFor(c, o.id, to)
   if (to === 'PACKED') {
     if ((await stockRows(c, o.id, ['held', 'committed'])).length) {
       throw badRequest('Allocate the stock before marking the order packed', 'NOT_ALLOCATED')
@@ -647,6 +797,8 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   }
   let attemptsUsedUp = false
   let retryStuck = false
+  /** PLT-08, PLT-09 (DELIVERY_CHECKS): why the retry has no real date; its message is held for staff. */
+  let noRetryDay = null
   if (to === 'DELIVERY_FAILED') {
     const failures = o.delivery_failures + 1
     await c.query('UPDATE orders SET delivery_failures = $2 WHERE id = $1', [o.id, failures])
@@ -657,16 +809,28 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
     } else {
       // Retry on the next delivery day with room (user decision): reschedule, don't refund.
       const boxes = (await orderItems(c, o.id)).reduce((s, i) => s + i.quantity, 0)
-      const date = await firstDayWithRoom(c, await nextDeliveryDay(c), boxes, o.id)
-      const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
-      await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
-      reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
-      // INV-E: ripe boxes may be too old by the retry day. Swap them for younger stock, or stop and ask a manager.
-      const repack = await repackForRetry(c, o, date, actor)
-      if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${date} and were swapped for younger stock: pack the new boxes before it goes out`
-      if (repack.result === 'stuck') {
-        retryStuck = true
-        reason = `${opts.reason ?? 'Delivery failed'}; the boxes would be past the ${getConfig().maxSellableAge}-day limit on ${date} and no younger stock is free. A manager decides: send a replacement, move the date or cancel with a refund`
+      const retry = env.DELIVERY_CHECKS ? await retryDay(c, boxes, o.id) : { date: await firstDayWithRoom(c, await nextDeliveryDay(c), boxes, o.id) }
+      if (retry.problem) {
+        // No open day at all (PLT-09): the miss is recorded and the date stays; staff pick a day.
+        noRetryDay = retry.problem
+        reason = `${opts.reason ?? 'Delivery failed'}; ${retry.problem}`
+      } else {
+        const date = retry.date
+        const slot = await chooseSlot(c, date, boxes, o.slot_id, { excludeOrderId: o.id })
+        await c.query('UPDATE orders SET delivery_date = $2, slot_id = $3 WHERE id = $1', [o.id, date, slot])
+        reason = `${opts.reason ?? 'Delivery failed'}; retrying on ${date}`
+        if (retry.full) {
+          // Every day for two weeks is full (PLT-08): it stays on the first open day, over capacity, and staff are told.
+          noRetryDay = retry.full
+          reason += `; ${retry.full}`
+        }
+        // INV-E: ripe boxes may be too old by the retry day. Swap them for younger stock, or stop and ask a manager.
+        const repack = await repackForRetry(c, o, date, actor)
+        if (repack.result === 'repacked') reason += `; ${repack.boxes} boxes were too old for ${date} and were swapped for younger stock: pack the new boxes before it goes out`
+        if (repack.result === 'stuck') {
+          retryStuck = true
+          reason = `${opts.reason ?? 'Delivery failed'}; the boxes would be past the ${getConfig().maxSellableAge}-day limit on ${date} and no younger stock is free. A manager decides: send a replacement, move the date or cancel with a refund`
+        }
       }
     }
   }
@@ -686,7 +850,12 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   if (retryStuck) {
     // The usual message promises a retry date the boxes can't make; a manager decides first (INV-E).
     await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = 'retry needs a manager: stock too old for the retry date' WHERE event_id = $1`, [eventId])
+  } else if (noRetryDay) {
+    // Not "retrying on <date>" for a date the run can't hold; Needs attention lists it (PLT-08, PLT-09).
+    await c.query(`UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE event_id = $1`, [eventId, `${RETRY_NEEDS_DAY}: ${noRetryDay}`])
   }
+  // The browser notification must not promise a retry either: it says we'll be in touch.
+  if (attemptsUsedUp || retryStuck) await noRetryPush(c, eventId)
   if (to === 'DELIVERY_FAILED') await rebalanceOrder(c, o.id, actor)
   if (['DELIVERED', 'RTO'].includes(to)) await c.query('UPDATE orders SET at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id])
 }
@@ -708,6 +877,8 @@ async function repackForRetry(c, o, date, actor) {
     if (diffDays(date, info.plucked_on) > cfg.maxSellableAge) old.push(row)
   }
   if (!old.length) return { result: 'ok' }
+  // Labelled boxes are swapped by scan, not here: a manager decides (as when no younger stock is free).
+  for (const row of old) if (await trackedLine(c, row.line_id)) return { result: 'stuck' }
   await c.query('SAVEPOINT repack')
   for (const row of old) {
     const got = await allocate(c, {
@@ -738,6 +909,7 @@ export async function allocateOrder(c, orderId, actor) {
   }
   const rows = await stockRows(c, o.id, ['committed'])
   if (!rows.length) throw conflict('Nothing left to allocate')
+  await assertNoTrackedCommitted(c, o.id)
   for (const row of rows) await pack(c, row, actor, o.number)
 }
 
@@ -768,7 +940,7 @@ export async function lockBatchOrders(c, batchIds) {
 
 export async function takeBatchOutOfService(c, batchId, status, actor, why = null) {
   await lockBatchOrders(c, [batchId])
-  const { rows: lines } = await c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY id FOR UPDATE', [batchId])
+  const { rows: lines } = await c.query('SELECT * FROM batch_lines WHERE batch_id = $1 ORDER BY sku COLLATE "C", id FOR UPDATE', [batchId])
   const { rows: affected } = await c.query(
     `SELECT DISTINCT o.id, o.placed_at FROM order_stock s JOIN orders o ON o.id = s.order_id
       WHERE s.batch_id = $1 AND s.state IN ('held', 'committed', 'packed') AND o.status = ANY($2)
@@ -814,7 +986,7 @@ export async function takeBatchOutOfService(c, batchId, status, actor, why = nul
  * stock, the way a late payment is (the customer gets a DATE_MOVED message).
  * An order that fits nowhere stays at-risk for ops. Returns what happened.
  */
-export async function recordShortArrival(c, { batchId, lineId, onHand, reason, reasonCode = null, check = null }, actor) {
+export async function recordShortArrival(c, { batchId, lineId, onHand: wanted = null, delta = null, reason, reasonCode = null, check = null }, actor) {
   const affectedIds = async () =>
     (
       await c.query(
@@ -833,13 +1005,16 @@ export async function recordShortArrival(c, { batchId, lineId, onHand, reason, r
   if (!rows.length) throw notFound('Batch line not found')
   const l = rows[0]
   if (['EXHAUSTED', 'CONDEMNED'].includes(l.status)) throw badRequest(`This batch is ${l.status}`, 'INVALID_TRANSITION')
+  // Box tracking passes the change (delta) instead: it is applied to the count read under the lock.
+  const onHand = delta === null ? wanted : Math.max(0, l.on_hand + delta)
   if (onHand >= l.on_hand) throw badRequest('A short arrival lowers the count; use an adjustment to raise it', 'NOT_SHORT')
   // INV-C: the caller may refuse a drop this big without a manager; a manager's note goes in the reason.
   const note = check ? await check(c, l, onHand - l.on_hand) : null
   // Anything allocated between the first read and the line lock.
   for (const id of await affectedIds()) if (!locked.has(id)) locked.set(id, await lockOrder(c, id))
 
-  const why = `${reasonCode === 'COUNT' ? 'Count' : 'Short arrival'}: ${reason}${note ? ` (${note})` : ''}`
+  const label = reasonCode === 'COUNT' ? 'Count' : reasonCode?.startsWith('BOX_') ? 'Boxes no longer sellable' : 'Short arrival'
+  const why = `${label}: ${reason}${note ? ` (${note})` : ''}`
   const buffer = Math.min(l.reserve_buffer, Math.max(0, onHand - l.held - l.committed))
   let over = l.held + l.committed - onHand
   const released = new Set()
@@ -952,38 +1127,73 @@ export async function createReplacement(c, claim, original, actor) {
     const full = { ...order, status: 'CONFIRMED' }
     const date = await placeOnFirstDateWithStock(c, full, dates.slice(1), actor, 'No stock on the first date')
     if (date) await setRisk(c, full, [], actor)
+    // PLT-06 (24 Oct audit, DELIVERY_CHECKS): no stock on any date. The confirmation would promise
+    // a date the shop can't keep, so it is held as for a late payment, and sent once stock is found.
+    else if (env.DELIVERY_CHECKS) {
+      await c.query(
+        `UPDATE notifications SET status = 'SKIPPED', last_error = $2 WHERE order_id = $1 AND status = 'PENDING' AND kind IN ('REPLACEMENT_CONFIRMED', 'RIPENESS_GUIDE')`,
+        [order.id, CONFIRMATION_HELD],
+      )
+    }
   }
   return order
 }
 
+const EXPIRED_HOLDS = `SELECT id FROM orders WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1 ORDER BY at_risk, hold_expires_at LIMIT 200`
+
+/** Cancels one expired hold. Throws if it can't (the caller flags it). Returns 1 if cancelled. */
+async function sweepOne(c, id, at) {
+  const o = await lockOrder(c, id)
+  if (o.status !== 'PAYMENT_PENDING' || !(o.hold_expires_at < at)) return 0
+  await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
+  return 1
+}
+
+async function flagUnsweepable(c, id, err) {
+  logger.error({ err, orderId: id }, 'could not cancel an order whose hold expired; skipping it')
+  metrics.maintenanceErrors.inc({ step: 'sweep-order' })
+  const reason = `Hold expired but the order could not be cancelled: ${String(err?.message ?? err).slice(0, 200)}`
+  await c.query('UPDATE orders SET at_risk = TRUE, at_risk_reason = $2 WHERE id = $1 AND at_risk_reason IS DISTINCT FROM $2', [id, reason])
+}
+
 /**
- * Cancels PAYMENT_PENDING orders whose 10-minute hold has run out. Each order
- * gets its own savepoint: one that fails to cancel (a drifted counter, a bad
- * notification) is logged, flagged at-risk for ops and skipped, instead of
- * rolling back the whole batch and blocking every hold behind it (INV-2).
- * Orders flagged that way go to the back of the queue.
+ * Cancels PAYMENT_PENDING orders whose 10-minute hold has run out, inside the
+ * caller's transaction. Each order gets its own savepoint: one that fails to
+ * cancel (a drifted counter, a bad notification) is logged, flagged at-risk
+ * for ops and skipped, instead of rolling back the whole batch and blocking
+ * every hold behind it (INV-2). Orders flagged that way go to the back of the
+ * queue. The scheduled sweep uses sweepExpiredHoldsEach instead.
  */
 export async function sweepExpiredHolds(c, at = now()) {
-  const { rows } = await c.query(
-    `SELECT id FROM orders WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1 ORDER BY at_risk, hold_expires_at LIMIT 200`,
-    [at],
-  )
+  const { rows } = await c.query(EXPIRED_HOLDS, [at])
   let n = 0
   for (const { id } of rows) {
     await c.query('SAVEPOINT sweep_one')
     try {
-      const o = await lockOrder(c, id)
-      if (o.status === 'PAYMENT_PENDING' && o.hold_expires_at < at) {
-        await cancelInTx(c, o, SYSTEM, HOLD_EXPIRED_REASON)
-        n++
-      }
+      n += await sweepOne(c, id, at)
       await c.query('RELEASE SAVEPOINT sweep_one')
     } catch (err) {
       await c.query('ROLLBACK TO SAVEPOINT sweep_one')
-      logger.error({ err, orderId: id }, 'could not cancel an order whose hold expired; skipping it')
-      metrics.maintenanceErrors.inc({ step: 'sweep-order' })
-      const reason = `Hold expired but the order could not be cancelled: ${String(err?.message ?? err).slice(0, 200)}`
-      await c.query('UPDATE orders SET at_risk = TRUE, at_risk_reason = $2 WHERE id = $1 AND at_risk_reason IS DISTINCT FROM $2', [id, reason])
+      await flagUnsweepable(c, id, err)
+    }
+  }
+  return n
+}
+
+/**
+ * The scheduled sweep (DB-02): the same work as sweepExpiredHolds, but each
+ * order is cancelled in its own short transaction, so a large sweep after a
+ * broadcast never holds stock and order locks for thousands of statements
+ * while buyers and payments wait on them.
+ */
+export async function sweepExpiredHoldsEach(at = now()) {
+  const { rows } = await query(EXPIRED_HOLDS, [at])
+  let n = 0
+  for (const { id } of rows) {
+    try {
+      n += await tx((c) => sweepOne(c, id, at))
+    } catch (err) {
+      await tx((c) => flagUnsweepable(c, id, err))
     }
   }
   return n
@@ -1004,16 +1214,17 @@ export async function sweepExpiredHolds(c, at = now()) {
  * the hold, whichever comes first. The 2 minutes cover a slow webhook and the
  * next every-minute maintenance run, and keep stock from staying held when the
  * scheduler is down; a payment that lands even later is still honoured as a
- * late payment.
+ * late payment. A gift order's delivery (MULTI_GIFT) is paid through its
+ * parent's Razorpay order, so it gets the 2 minutes too.
  */
-export const LAZY_SWEEP_GATEWAY_GRACE_MS = 2 * 60_000
+export { LAZY_SWEEP_GATEWAY_GRACE_MS }
 export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
   if (!skus.length) return 0
   const { rows } = await c.query(
     `SELECT id FROM orders
       WHERE status = 'PAYMENT_PENDING' AND hold_expires_at < $1
         AND id IN (SELECT order_id FROM order_stock WHERE state = 'held' AND sku = ANY($2))
-        AND ((razorpay_order_id IS NULL AND payment_link_id IS NULL) OR reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
+        AND ((razorpay_order_id IS NULL AND payment_link_id IS NULL AND gift_order_id IS NULL) OR reconcile_checked_at >= hold_expires_at OR hold_expires_at < $4)
       ORDER BY hold_expires_at LIMIT $3
       FOR UPDATE SKIP LOCKED`,
     [at, skus, limit, new Date(at.getTime() - LAZY_SWEEP_GATEWAY_GRACE_MS)],
@@ -1034,7 +1245,7 @@ export async function sweepExpiredHoldsFor(c, skus, at = now(), limit = 20) {
       logger.error({ err, orderId: id }, 'lazy hold expiry could not cancel an order; leaving it for the sweep')
     }
   }
-  if (n) metrics.lazyExpiries.inc(n)
+  if (n) afterCommit(c, () => metrics.lazyExpiries.inc(n))
   return n
 }
 

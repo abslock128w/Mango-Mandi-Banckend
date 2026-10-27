@@ -10,6 +10,7 @@ import { useStore } from '../store'
 import { AddressPicker, DayChips, Field, Stepper } from '../forms'
 import { ConfirmDialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
 import { AddPhoneCard } from '../auth-ui'
+import { useT } from '../i18n'
 
 const STAGES: Stage[] = ['RAW', 'SEMI_RIPE', 'RIPE']
 
@@ -54,16 +55,17 @@ const isDevLink = (url: string | null) => Boolean(url?.includes('plink_dev_'))
 export default function BookAhead() {
   const { profile } = useStore()
   const q = useQuery({ queryKey: ['preorder-weeks'], queryFn: api.preorderWeeks })
+  const t = useT()
   if (profile && !profile.phone) return <AddPhoneCard />
-  if (q.isPending) return <Spinner label="Loading open weeks" />
+  if (q.isPending) return <Spinner label={t('pre.loadingWeeks')} />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   if (!q.data.weeks.length) {
     return (
       <section className="card empty">
-        <h1>No weeks open for booking</h1>
-        <p>Booking ahead opens when we know how much fruit is coming. Order for the next few days in the shop.</p>
+        <h1>{t('pre.noWeeks')}</h1>
+        <p>{t('pre.noWeeksBody')}</p>
         <Link to="/" className="btn btn-primary">
-          Shop mangoes
+          {t('quality.shop')}
         </Link>
       </section>
     )
@@ -75,6 +77,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { pincode: shopPincode, profile } = useStore()
+  const t = useT()
   const saved = useRef(loadAddress())
   const starts = useMemo(() => [...new Set(weeks.map((w) => w.weekStart))], [weeks])
   // Back from signing in: the visitor's choices, if their week is still open.
@@ -106,7 +109,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
   const addresses = book.data ?? []
   const [picked, setPicked] = useState<string | null>(null)
   const typedOwn = useRef(Boolean(d))
-  const squash = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim()
+  const squash = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
   if (!typedOwn.current && picked === null && addresses.length) {
     // Start from the address used last time (or the most recent saved one).
     const here = addresses.filter((a) => !/^\d{6}$/.test(pincode) || a.pincode === pincode)
@@ -177,11 +180,11 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
     e.preventDefault()
     setFormError(null)
     if (address.trim().length < 10) {
-      setFormError({ at: 'address', message: 'Enter the full delivery address, with house number and landmark.' })
+      setFormError({ at: 'address', message: t('checkout.address') })
       return requestAnimationFrame(() => document.getElementById('pre-address')?.focus())
     }
     if (!/^\d{6}$/.test(pincode)) {
-      setFormError({ at: 'pincode', message: 'Enter your 6-digit pincode.' })
+      setFormError({ at: 'pincode', message: t('shop.enterPincode') })
       return requestAnimationFrame(() => document.getElementById('pre-pincode')?.focus())
     }
     if (!profile) {
@@ -194,16 +197,16 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
 
   return (
     <section className="card">
-      <h1>Book ahead</h1>
-      <p className="muted">Pay today's price now. We pick your delivery day in that week once the fruit is in, and message you.</p>
+      <h1>{t('nav.bookAhead')}</h1>
+      <p className="muted">{t('pre.intro')}</p>
       <form onSubmit={submit} noValidate>
         <fieldset className="field">
-          <legend>Delivery week</legend>
-          <DayChips label="Delivery week" days={starts} value={weekStart} format={week} onChange={(w) => choose({ weekStart: w })} />
+<legend>{t('pre.week')}</legend>
+          <DayChips label={t('pre.week')} days={starts} value={weekStart} format={week} onChange={(w) => choose({ weekStart: w })} />
         </fieldset>
 
         <fieldset className="field">
-          <legend>Mango</legend>
+          <legend>{t('pre.mango')}</legend>
           <div className="options">
             {inWeek.map((w) => (
               <label key={w.sku} className="option">
@@ -215,7 +218,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
                   <span className="muted small">
                     {w.boxSize}
                     {' · '}
-                    {w.remaining === 0 ? <span className="sold-out">Fully booked, join the waitlist</span> : w.remaining <= 10 ? <span className="low">{w.remaining} left</span> : 'Open'}
+                    {w.remaining === 0 ? <span className="sold-out">{t('pre.fullyBooked')}</span> : w.remaining <= 10 ? <span className="low">{t('pre.left', { count: w.remaining })}</span> : t('pre.open')}
                   </span>
                 </span>
               </label>
@@ -224,7 +227,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         </fieldset>
 
         <fieldset className="field">
-          <legend>Ripeness on arrival</legend>
+          <legend>{t('pre.ripeness')}</legend>
           <div className="options">
             {STAGES.map((s) => (
               <label key={s} className="option">
@@ -239,17 +242,17 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         </fieldset>
 
         <div className="field">
-          <Stepper label="Boxes" showLabel value={boxes} min={1} max={max} onChange={setQty} lessLabel="One box less" moreLabel="One box more" />
+          <Stepper label={t('checkout.boxes')} showLabel value={boxes} min={1} max={max} onChange={setQty} lessLabel={t('pre.oneLess')} moreLabel={t('product.oneMore')} />
         </div>
 
-        <Field id="pre-name" label="Your name">
+        <Field id="pre-name" label={t('checkout.yourName')}>
           <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <AddressPicker addresses={shownAddresses} value={picked} onChange={chooseAddress} />
         <Field
           id="pre-address"
-          label="Delivery address"
-          hint="House or flat number, street, area and a landmark."
+          label={t('checkout.deliveryAddress')}
+          hint={t('pre.addressHint')}
           error={formError?.at === 'address' ? formError.message : null}
           hidden={picked !== null}
         >
@@ -264,7 +267,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
             }}
           />
         </Field>
-        <Field id="pre-pincode" label="Pincode" error={formError?.at === 'pincode' ? formError.message : null} hidden={picked !== null}>
+        <Field id="pre-pincode" label={t('pre.pincode')} error={formError?.at === 'pincode' ? formError.message : null} hidden={picked !== null}>
           <input inputMode="numeric" autoComplete="postal-code" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))} />
         </Field>
 
@@ -275,7 +278,7 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
           <strong>{rupees(pick.price * boxes)}</strong>
         </div>
         {waitlist ? (
-          <p className="muted small">This week is fully booked. Join the waitlist and we'll send you a payment link if a box frees up. Nothing is charged now.</p>
+          <p className="muted small">{t('pre.waitlistNote')}</p>
         ) : (
           <p className="muted small">{cancelPolicy}</p>
         )}
@@ -286,21 +289,21 @@ function BookForm({ weeks, cancelPolicy, onStale }: { weeks: PreorderWeek[]; can
         )}
         {bookIt.error instanceof ApiError && bookIt.error.code === 'UNPAID_PREORDER_EXISTS' && typeof bookIt.error.detail.preorderId === 'string' && (
           <Link to={`/preorders/${bookIt.error.detail.preorderId}`} className="btn btn-block">
-            Open your unpaid booking
+            {t('pre.openUnpaid')}
           </Link>
         )}
         <button type="submit" className="btn btn-primary btn-block" disabled={bookIt.isPending}>
           {!profile
             ? waitlist
-              ? 'Sign in to join the waitlist'
-              : 'Sign in to book'
+              ? t('pre.signInWaitlist')
+              : t('pre.signInBook')
             : bookIt.isPending
-              ? 'Booking…'
+              ? t('pre.booking')
               : waitlist
-                ? 'Join the waitlist'
-                : `Book and pay ${rupees(pick.price * boxes)}`}
+                ? t('pre.joinWaitlist')
+                : t('pre.bookAndPay', { total: rupees(pick.price * boxes) })}
         </button>
-        {!profile && <p className="muted small center">You sign in with your mobile number, then come back here to book and pay.</p>}
+        {!profile && <p className="muted small center">{t('pre.signInNote')}</p>}
       </form>
     </section>
   )
@@ -319,14 +322,15 @@ export function PreorderPage() {
     // Waiting on the payment webhook: check often.
     refetchInterval: (query) => (query.state.data?.status === 'PAYMENT_PENDING' ? 3000 : false),
   })
-  if (q.isPending) return <Spinner label="Loading your booking" />
+  const t = useT()
+  if (q.isPending) return <Spinner label={t('pre.loading')} />
   if (q.isError) {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card">
-          <DocTitle title="Booking not found" />
-          <h1>Booking not found</h1>
-          <Link to="/orders">See my orders</Link>
+          <DocTitle title={t('pre.notFound')} />
+          <h1>{t('pre.notFound')}</h1>
+          <Link to="/orders">{t('order.seeMine')}</Link>
         </section>
       )
     }
@@ -338,6 +342,7 @@ export function PreorderPage() {
 function PreorderView({ pre }: { pre: Preorder }) {
   const queryClient = useQueryClient()
   const [cancelling, setCancelling] = useState(false)
+  const t = useT()
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['preorder', pre.id] })
     void queryClient.invalidateQueries({ queryKey: ['preorders'] })
@@ -356,31 +361,31 @@ function PreorderView({ pre }: { pre: Preorder }) {
 
   return (
     <>
-      <DocTitle title={`Booking ${pre.number}`} />
-      <PageHeader title={`Booking ${pre.number}`}>
+      <DocTitle title={t('orders.booking', { number: pre.number })} />
+      <PageHeader title={t('orders.booking', { number: pre.number })}>
         <PreorderPill status={pre.status} />
       </PageHeader>
 
       {pre.status === 'PAYMENT_PENDING' && (
         <section className="card note-card" aria-live="polite">
           <p>
-            <strong>Pay to confirm your booking.</strong>
-            {pre.holdExpiresAt && holdOpen && <> Your boxes are held until {when(pre.holdExpiresAt)}.</>} This page updates on its own once you've paid.
+            <strong>{t('pre.payToConfirm')}</strong>
+            {pre.holdExpiresAt && holdOpen && <> {t('order.heldUntil', { when: when(pre.holdExpiresAt) })}</>} {t('pre.updatesOncePaid')}
           </p>
           {pre.paymentUrl && !isDevLink(pre.paymentUrl) && (
             <a className="btn btn-primary" href={pre.paymentUrl}>
-              Pay {rupees(pre.total)}
+              {t('checkout.pay', { total: rupees(pre.total) })}
             </a>
           )}
           {import.meta.env.DEV && isDevLink(pre.paymentUrl) && (
             <div className="dev-pay">
-              <p className="small muted">Test mode: Razorpay isn't set up, so choose how the payment ends.</p>
+              <p className="small muted">{t('order.devPay')}</p>
               <div className="row">
                 <button type="button" className="btn btn-primary" disabled={devPay.isPending} onClick={() => devPay.mutate('captured')}>
-                  Payment succeeds
+                  {t('order.devSucceeds')}
                 </button>
                 <button type="button" className="btn" disabled={devPay.isPending} onClick={() => devPay.mutate('failed')}>
-                  Payment fails
+                  {t('order.devFails')}
                 </button>
               </div>
             </div>
@@ -392,7 +397,7 @@ function PreorderView({ pre }: { pre: Preorder }) {
       {pre.status === 'BOOKED' && (
         <section className="card note-card">
           <p>
-            <strong>You're booked for the week of {week(pre.weekStart)}.</strong> Once the fruit is in we'll pick your delivery day and message you.
+            <strong>{t('pre.booked', { week: week(pre.weekStart) })}</strong> {t('pre.bookedBody')}
           </p>
         </section>
       )}
@@ -400,8 +405,7 @@ function PreorderView({ pre }: { pre: Preorder }) {
       {pre.status === 'WAITLISTED' && (
         <section className="card note-card">
           <p>
-            <strong>You're on the waitlist.</strong> If a box frees up for the week of {week(pre.weekStart)}, we'll message you a payment link. Nothing has
-            been charged.
+            <strong>{t('pre.waitlisted')}</strong> {t('pre.waitlistedBody', { week: week(pre.weekStart) })}
           </p>
         </section>
       )}
@@ -409,10 +413,10 @@ function PreorderView({ pre }: { pre: Preorder }) {
       {pre.status === 'CONVERTED' && pre.orderId && (
         <section className="card note-card">
           <p>
-            <strong>Your delivery day is set.</strong> Your booking is now a regular order.
+            <strong>{t('pre.converted')}</strong> {t('pre.convertedBody')}
           </p>
           <Link to={`/orders/${pre.orderId}`} className="btn btn-primary">
-            See the order
+            {t('pre.seeOrder')}
           </Link>
         </section>
       )}
@@ -420,12 +424,12 @@ function PreorderView({ pre }: { pre: Preorder }) {
       {pre.status === 'CANCELLED' && (
         <section className="card note-card">
           <p>
-            <strong>This booking was cancelled.</strong>{' '}
+            <strong>{t('pre.cancelled')}</strong>{' '}
             {pre.refund?.refundedAt
-              ? `Your refund of ${rupees(pre.total)} has been sent. Banks take up to 5 to 7 days to show it.`
+              ? t('order.refundSent', { total: rupees(pre.total) })
               : pre.refund
-                ? `Your full refund of ${rupees(pre.total)} is on its way.`
-                : 'We have no payment for this booking. If money has left your account, a late payment is still matched to this booking, or refunded in full if you cancelled it.'}
+                ? t('order.refundPending', { total: rupees(pre.total) })
+                : t('pre.noPayment')}
           </p>
         </section>
       )}
@@ -433,11 +437,11 @@ function PreorderView({ pre }: { pre: Preorder }) {
       <section className="card">
         <dl className="facts">
           <div>
-            <dt>Week</dt>
+            <dt>{t('pre.weekLabel')}</dt>
             <dd>{week(pre.weekStart)}</dd>
           </div>
           <div>
-            <dt>To</dt>
+            <dt>{t('checkout.to')}</dt>
             <dd>
               {pre.address ?? '—'}, {pre.pincode}
             </dd>
@@ -449,33 +453,33 @@ function PreorderView({ pre }: { pre: Preorder }) {
               <strong>
                 {pre.qty} × {pre.productName}
               </strong>
-              <span className="muted small">{STAGE_LABEL[pre.stage]} on arrival</span>
+              <span className="muted small">{t('pre.onArrival', { stage: STAGE_LABEL[pre.stage] })}</span>
             </div>
             <strong className="line-price">{rupees(pre.total)}</strong>
           </li>
         </ul>
         <div className="total-row">
-          <span>{paid ? 'Paid' : 'Total'}</span>
+          <span>{paid ? t('gift.status.paid') : t('common.total')}</span>
           <strong>{rupees(pre.total)}</strong>
         </div>
       </section>
 
       {['PAYMENT_PENDING', 'BOOKED', 'WAITLISTED'].includes(pre.status) && (
         <button type="button" className="btn btn-block btn-danger-quiet" onClick={() => setCancelling(true)}>
-          Cancel booking
+          {t('pre.cancel')}
         </button>
       )}
 
       <Link to="/orders" className="btn btn-block btn-quiet">
-        All my orders
+        {t('order.allMine')}
       </Link>
 
       {cancelling && (
         <ConfirmDialog
-          title={`Cancel booking ${pre.number}?`}
-          keepLabel="Keep booking"
-          confirmLabel="Cancel booking"
-          busyLabel="Cancelling…"
+          title={t('pre.cancelConfirm', { number: pre.number })}
+          keepLabel={t('pre.keep')}
+          confirmLabel={t('pre.cancel')}
+          busyLabel={t('order.cancelling')}
           busy={cancel.isPending}
           error={cancel.error}
           onConfirm={() => cancel.mutate()}
@@ -483,10 +487,10 @@ function PreorderView({ pre }: { pre: Preorder }) {
         >
           <p>
             {paid
-              ? `You'll get a full refund of ${rupees(pre.total)} to the way you paid.`
+              ? t('order.cancelRefund', { total: rupees(pre.total) })
               : pre.status === 'WAITLISTED'
-                ? 'Nothing is charged while you are on the waitlist.'
-                : 'No payment has reached us for this booking. If you have just paid, cancelling refunds it in full.'}
+                ? t('pre.waitlistNothing')
+                : t('pre.cancelNoPayment')}
           </p>
         </ConfirmDialog>
       )}

@@ -58,10 +58,24 @@ export async function checkDatabaseEnvironment(c, target = deployEnv, { claim = 
   return owner
 }
 
+/**
+ * The app writes ₹, → and names in any script, so the database must store UTF-8. A database in
+ * another encoding (Windows makes WIN1252 by default) would fail those writes one by one with
+ * "Internal server error", so it is refused here, before anything runs on it.
+ */
+export async function checkUtf8(client) {
+  const { rows } = await client.query('SHOW server_encoding')
+  const enc = rows[0].server_encoding
+  if (enc !== 'UTF8') {
+    throw new Error(`This database stores text as ${enc}, not UTF8, so it can't save ₹ or →. Create it with ENCODING 'UTF8' (TEMPLATE template0). scripts/start-local.mjs converts its own database by itself.`)
+  }
+}
+
 export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TIMEOUT, attempts = LOCK_ATTEMPTS, retryMs = LOCK_RETRY_MS } = {}) {
   const client = await pool.connect()
   try {
     await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK])
+    await checkUtf8(client)
     await checkDatabaseEnvironment(client, deployEnv, { claim: true })
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)

@@ -1,6 +1,7 @@
 import { closeAll, T0, adminToken, checkout, client, customerToken, line, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
+import { ROLE_PERMISSIONS } from '../src/warehouse/permissions.js'
 import { setNow } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
 import { auditLedger } from '../src/inventory.js'
@@ -75,7 +76,13 @@ describe('staff auth', () => {
     assert.equal((await api.get('/admin/v1/summary')).status, 401)
 
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
-    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, { email: 'ops@mandimangoes.test', role: 'OPERATOR', twoStep: { enabled: false, required: false, setupCodeNeeded: false } })
+    assert.deepEqual((await api.get('/admin/v1/auth/me', { token: ops })).body, {
+      email: 'ops@mandimangoes.test', role: 'OPERATOR', twoStep: { enabled: false, required: false, setupCodeNeeded: false },
+      // The Warehouse area is on in tests (setup-env.js); /auth/me says so with the role's warehouse permissions.
+      warehouse: { enabled: true, permissions: ROLE_PERMISSIONS.OPERATOR },
+      // Bills, customer profiles and exports are on outside production (trust-config.js); app feel switches are off unless set.
+      features: { bills: true, customerProfiles: true, exports: true, riderRoute: false, multiGift: false, referrals: false, funnelAnalytics: false, managerDailySummary: false },
+    })
     const b = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'CONDEMNED' }, { token: ops })).status, 403)
     assert.equal((await api.del('/admin/v1/pincodes/560034', { token: ops })).status, 403)

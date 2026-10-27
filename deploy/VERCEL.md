@@ -50,11 +50,26 @@ The API runs in Singapore (`sin1`), next to the database.
    ALTER ROLE mango_app SET statement_timeout = '10s';
    -- A transaction left open (a function stopped mid-request) gives its connection back.
    ALTER ROLE mango_app SET idle_in_transaction_session_timeout = '30s';
+   -- A request behind a locked row gives up after 5 s and answers 503 BUSY (LOAD-3).
+   ALTER ROLE mango_app SET lock_timeout = '5s';
    ALTER ROLE neondb_owner SET statement_timeout = '60s';
+   -- The app's queries are short; compiling them (JIT) only adds time (audit DB-06).
+   ALTER ROLE mango_app SET jit = off;
    ```
 
    Run the first deploy (step 3) before the two `GRANT ... ON ALL` lines matter;
    if you made the role before the tables existed, run those two lines again after.
+   Then, after the first deploy and after any re-run of those lines, take back
+   the right to change the stock ledger, which only ever gets new rows (a trigger
+   refuses changes too; this keeps it that way even if the trigger is bypassed,
+   audit DB-09):
+
+   ```sql
+   REVOKE UPDATE, DELETE, TRUNCATE ON batch_ledger FROM mango_app;
+   ```
+
+   Check both with `SELECT has_table_privilege('mango_app', 'batch_ledger', 'UPDATE');`
+   (should be `f`) and, logged in as `mango_app`, `SHOW jit;` (should be `off`).
 4. Copy two connection strings from **Connect**:
    - **Pooled** (host has `-pooler`), logged in as `mango_app`: this is `DATABASE_URL`.
    - **Direct** (no `-pooler`), logged in as the owner: this is
@@ -258,8 +273,18 @@ Production refuses to start without `SENTRY_DSN`.
 - **Nightly encrypted copy off Neon.** The GitHub Actions workflow
   [`backup.yml`](../.github/workflows/backup.yml) runs `ops/backup.sh` at 03:00 IST,
   encrypts the dump with your GPG public key and keeps it 30 days. Set it up once:
-  1. Make a read-only Neon role (`GRANT SELECT ON ALL TABLES ...` like `mango_app`, without
-     insert/update/delete) and copy its **direct** connection string.
+  1. Make a read-only Neon role and copy its **direct** connection string. Tables
+     that later migrations add must be readable too, or the first new table stops
+     every backup with "permission denied":
+
+     ```sql
+     CREATE ROLE mango_backup LOGIN PASSWORD '<a long random password>';
+     GRANT USAGE ON SCHEMA public TO mango_backup;
+     GRANT SELECT ON ALL TABLES IN SCHEMA public TO mango_backup;
+     GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO mango_backup;
+     ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public GRANT SELECT ON TABLES TO mango_backup;
+     ALTER DEFAULT PRIVILEGES FOR ROLE neondb_owner IN SCHEMA public GRANT SELECT ON SEQUENCES TO mango_backup;
+     ```
   2. `gpg --quick-generate-key "MandiMangoes backups"` on your own computer, then
      `gpg --armor --export "MandiMangoes backups"`. Keep the private key offline (a
      password manager or a USB stick in a safe), never in GitHub.
@@ -278,7 +303,9 @@ Production refuses to start without `SENTRY_DSN`.
 
      Add its connection string (pooled is fine) as the secret
      `BACKUP_HEARTBEAT_DATABASE_URL`, run the workflow once by hand, then set
-     `BACKUP_HEARTBEAT_EXPECTED=true` on `mandi-api` (Production). From then on the
+     `BACKUP_HEARTBEAT_EXPECTED=true` on `mandi-api` (Production) and **redeploy**
+     the current production deployment (Deployments → ⋯ → Redeploy): a changed
+     variable reaches only deployments made after the change. From then on the
      panel's Needs attention card and Sentry warn when no backup has succeeded for 26
      hours: a failing run, missing secrets, or GitHub pausing the schedule (it stops
      scheduled workflows in a repository with no activity for 60 days, as can happen
@@ -305,6 +332,8 @@ the pass marks.
 - [ ] The Sentry cron monitor and the uptime monitor on `/ready` are set up and alert someone.
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
       Set on: _date_.
+- [ ] `mango_app` has `jit = off` and no UPDATE, DELETE or TRUNCATE on `batch_ledger`
+      (step 1.3; the two checks there).
 - [ ] One restore drill done on a Neon branch, with the time it took written down.
 - [ ] The nightly backup workflow ran once and its artifact decrypts; its heartbeat is
       recorded and `BACKUP_HEARTBEAT_EXPECTED=true` is set (Backups, step 4).
@@ -353,6 +382,11 @@ maintenance job; one stuck for 30 minutes shows in Needs attention.
   when the data can't be repaired, and then always do all of this:
   1. Neon → **Branches → main → Restore** to a time before the problem. Neon keeps the
      state just before the restore as a backup branch; don't delete it yet.
+     Straight away, before the shop takes an order, move the order and booking numbers
+     past every number handed out before the restore, so none is used twice (customer
+     messages, Razorpay receipts):
+     `node --env-file=.env ops/bump-sequences.js --old-url <backup branch URL>`
+     (no backup branch, as after restoring an off-Neon copy: `--margin 1000`).
   2. Bring back the payments taken since the restore point (applied as the webhook
      would; lost orders are listed in Needs attention):
      `node --env-file=.env ops/replay-payments.js --from <restore point>`.

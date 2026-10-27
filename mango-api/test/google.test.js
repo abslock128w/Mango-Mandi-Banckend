@@ -1,10 +1,13 @@
 // Sign in with Google, for customers (then adding a phone) and for staff.
 import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { randomBytes } from 'node:crypto'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { query } from '../src/db.js'
+import { env } from '../src/env.js'
 import { useGoogleKeys } from '../src/google.js'
+import { b64url, generateKeyPair as pushKeyPair } from '../src/webpush.js'
 
 let srv
 let api
@@ -22,6 +25,9 @@ after(async () => {
   await closeAll()
 })
 beforeEach(resetDb)
+const SWITCHES = ['FAVOURITES', 'WEB_PUSH', 'WEB_PUSH_PROVIDER', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT']
+const savedSwitches = Object.fromEntries(SWITCHES.map((k) => [k, env[k]]))
+afterEach(() => Object.assign(env, savedSwitches))
 
 const credential = (claims = {}, aud = 'test-client.apps.googleusercontent.com') =>
   new SignJWT({ email: 'asha@example.com', email_verified: true, name: 'Asha Rao', ...claims })
@@ -96,6 +102,35 @@ describe('sign in with Google', () => {
     const h = await api.post('/v1/auth/google', { credential: await credential({ sub: 'google-789', email: 'b@example.com' }) })
     const code2 = await codeFor('/v1/me/phone/request', '9876500002', h.body.accessToken)
     assert.equal((await api.post('/v1/me/phone/verify', { phone: '9876500002', code: code2 }, { token: h.body.accessToken })).body.error.code, 'PHONE_TAKEN')
+  })
+
+  test('the join brings the Google account\'s favourites and notification browsers along (app feel)', async () => {
+    const server = pushKeyPair()
+    Object.assign(env, {
+      FAVOURITES: true, WEB_PUSH: true, WEB_PUSH_PROVIDER: 'log',
+      VAPID_PUBLIC_KEY: b64url(server.publicKey), VAPID_PRIVATE_KEY: b64url(server.privateKey), VAPID_SUBJECT: 'mailto:ops@mandimangoes.test',
+    })
+    const old = await customerToken(api, '9876500003')
+    const oldId = (await api.get('/v1/me', { token: old.accessToken })).body.id
+    assert.equal((await api.put('/v1/me/favourites/ALP-5', {}, { token: old.accessToken })).status, 200)
+
+    const g = await api.post('/v1/auth/google', { credential: await credential({ sub: 'google-321' }) })
+    const token = g.body.accessToken
+    assert.equal((await api.put('/v1/me/favourites/ALP-3', {}, { token })).status, 200)
+    assert.equal((await api.put('/v1/me/favourites/ALP-5', {}, { token })).status, 200)
+    const keys = pushKeyPair()
+    const sub = { endpoint: `https://fcm.googleapis.com/fcm/send/join-${randomBytes(6).toString('hex')}`, expirationTime: null, keys: { p256dh: b64url(keys.publicKey), auth: b64url(randomBytes(16)) } }
+    assert.equal((await api.put('/v1/me/push/subscription', sub, { token })).status, 201)
+
+    const code = await codeFor('/v1/me/phone/request', '9876500003', token)
+    const v = await api.post('/v1/me/phone/verify', { phone: '9876500003', code }, { token })
+    assert.equal(v.status, 200, JSON.stringify(v.body))
+    assert.equal(v.body.customer.id, oldId)
+    const favs = await api.get('/v1/me/favourites', { token: v.body.accessToken })
+    assert.deepEqual(favs.body.items.map((i) => i.sku).sort(), ['ALP-3', 'ALP-5'])
+    const subs = (await query('SELECT customer_id, endpoint FROM push_subscriptions')).rows
+    assert.deepEqual(subs, [{ customer_id: oldId, endpoint: sub.endpoint }])
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM customers')).rows[0].n, 1)
   })
 
   test('the web shop keeps the refresh token in an httpOnly cookie', async () => {

@@ -3,13 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ApiError, api, type BulkDeal, type Stage } from '../api'
 import { availableOn, maxFor, nextTier, tierAt, tierRange } from '../bulk'
-import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees } from '../format'
+import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees, when } from '../format'
 import { DayChips, Stepper } from '../forms'
 import { ProductImage, photoAt } from '../mango'
 import { useStore } from '../store'
 import { DocTitle, ErrorNote, Skeleton } from '../ui'
-
-const endFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })
+import { useT } from '../i18n'
 
 export const bulkDealsQuery = (pincode: string | null) => ({ queryKey: ['bulk-deals', pincode], queryFn: () => api.bulkDeals(pincode) })
 
@@ -17,22 +16,23 @@ export const bulkDealsQuery = (pincode: string | null) => ({ queryKey: ['bulk-de
 export default function BulkDealsPage() {
   const { pincode } = useStore()
   const q = useQuery(bulkDealsQuery(pincode))
+  const t = useT()
   return (
     <>
       <header className="bulk-intro">
-        <h1>Bulk Deals</h1>
-        <p className="muted">For offices, events and big families. Order more boxes and pay less per box. The price for your quantity is shown before you add it.</p>
+        <h1>{t('nav.bulk')}</h1>
+        <p className="muted">{t('bulk.intro')}</p>
       </header>
       {q.isPending ? (
-        <Skeleton label="Loading bulk deals" cards={3} tall />
+        <Skeleton label={t('bulk.loading')} cards={3} tall />
       ) : q.isError ? (
         <ErrorNote error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data.items.length ? (
         <section className="card empty">
-          <h2>No bulk deals right now</h2>
-          <p className="muted">New deals appear here when the season's big batches come in. You can still order regular boxes.</p>
+          <h2>{t('bulk.none')}</h2>
+          <p className="muted">{t('bulk.noneBody')}</p>
           <Link to="/" className="btn btn-primary">
-            Shop regular boxes
+            {t('bulk.shopRegular')}
           </Link>
         </section>
       ) : (
@@ -50,11 +50,12 @@ function BulkTile({ deal: d, eager }: { deal: BulkDeal; eager: boolean }) {
   const { bulk } = useStore()
   const inCart = bulk.filter((l) => l.listingId === d.id).reduce((n, l) => n + l.qty, 0)
   const noStock = d.availability ? !d.availability.some((x) => x.enough) : false
+  const t = useT()
   return (
     <li className={noStock ? 'card tile tile-sold-out' : 'card tile'}>
       <div className="tile-img">
         <ProductImage photoUrl={d.photos[0]?.url ?? null} name={d.title} size={88} eager={eager} />
-        {inCart > 0 && <span className="tile-badge">{inCart} in cart</span>}
+        {inCart > 0 && <span className="tile-badge">{t('shop.inCart', { count: inCart })}</span>}
       </div>
       <div className="tile-body">
         <h2 className="tile-name">
@@ -64,16 +65,12 @@ function BulkTile({ deal: d, eager }: { deal: BulkDeal; eager: boolean }) {
         </h2>
         <span className="muted small">
           {d.product.name}
-          {d.product.boxSize ? ` · ${d.product.boxSize} box` : ''}
+          {d.product.boxSize ? ` · ${t('bulk.boxSize', { size: d.product.boxSize })}` : ''}
         </span>
         <p className="tile-foot">
-          <span>
-            <span className="small">From </span>
-            <strong className="price">{rupees(d.fromPrice)}</strong>
-            <span className="small"> a box</span>
-          </span>
-          <span className="small muted">Minimum {d.minQty} boxes</span>
-          {noStock && <span className="small sold-out">Not enough stock on open days</span>}
+          <span>{t.rich('bulk.fromPrice', { price: <strong className="price">{rupees(d.fromPrice)}</strong> })}</span>
+          <span className="small muted">{t('bulk.minimum', { count: d.minQty })}</span>
+          {noStock && <span className="small sold-out">{t('bulk.noStock')}</span>}
         </p>
       </div>
     </li>
@@ -89,6 +86,7 @@ export function BulkDealPage() {
   const [stage, setStage] = useState<Stage | null>(null)
   const [qty, setQtyState] = useState<number | null>(null)
   const [added, setAdded] = useState<string | null>(null)
+  const t = useT()
 
   const d = q.data
   // The day: the shop's chosen day when this deal can deliver on it, else its first day with enough stock.
@@ -104,16 +102,16 @@ export function BulkDealPage() {
     if (d) document.title = `${d.title} · MandiMangoes`
   }, [d])
 
-  if (q.isPending) return <Skeleton label="Loading the deal" cards={2} tall />
+  if (q.isPending) return <Skeleton label={t('bulk.loadingDeal')} cards={2} tall />
   if (q.isError) {
     if (q.error instanceof ApiError && q.error.status === 404) {
       return (
         <section className="card empty">
-          <DocTitle title="Deal not available" />
-          <h1>This bulk deal is not available</h1>
-          <p className="muted">It may have ended or been taken down. Other deals are still on.</p>
+          <DocTitle title={t('bulk.unavailableTitle')} />
+          <h1>{t('bulk.unavailable')}</h1>
+          <p className="muted">{t('bulk.unavailableBody')}</p>
           <Link to="/bulk" className="btn btn-primary">
-            See bulk deals
+            {t('bulk.see')}
           </Link>
         </section>
       )
@@ -133,7 +131,7 @@ export function BulkDealPage() {
   function add() {
     if (!pickedStage || !tier || !canAdd) return
     setBulk({ listingId: deal.id, title: deal.title, sku: deal.product.sku, name: deal.product.name, stage: pickedStage, unitPrice: tier.unitPrice }, n)
-    setAdded(`${n} boxes of ${deal.title} (${STAGE_LABEL[pickedStage]}) are in your cart.`)
+    setAdded(t('bulk.added', { count: n, title: deal.title, stage: STAGE_LABEL[pickedStage] }))
   }
 
   return (
@@ -148,13 +146,13 @@ export function BulkDealPage() {
               sizes="(min-width: 1024px) 520px, 100vw"
               width={1200}
               height={900}
-              alt={`Photo ${photo + 1} of ${deal.photos.length}, ${deal.title}`}
+              alt={t('bulk.photoAlt', { n: photo + 1, total: deal.photos.length, title: deal.title })}
               className="product-hero"
             />
             {deal.photos.length > 1 && (
-              <div className="bulk-thumbs" role="group" aria-label="Photos">
+              <div className="bulk-thumbs" role="group" aria-label={t('bulk.photos')}>
                 {deal.photos.map((p, i) => (
-                  <button key={p.id} type="button" className="bulk-thumb" aria-pressed={i === photo} aria-label={`Show photo ${i + 1}`} onClick={() => setPhoto(i)}>
+                  <button key={p.id} type="button" className="bulk-thumb" aria-pressed={i === photo} aria-label={t('bulk.showPhoto', { n: i + 1 })} onClick={() => setPhoto(i)}>
                     <img src={photoAt(p.url, 160)} width={64} height={64} alt="" loading="lazy" />
                   </button>
                 ))}
@@ -170,11 +168,11 @@ export function BulkDealPage() {
       <div className="buy-body">
         <header className="product-head">
           <div className="product-name">
-            <p className="eyebrow">Bulk deal</p>
+            <p className="eyebrow">{t('title.bulkDeal')}</p>
             <h1 id="deal-title">{deal.title}</h1>
             <p className="muted small">
               {deal.product.name} · {deal.product.variety}
-              {deal.product.boxSize ? ` · ${deal.product.boxSize} box` : ''}
+              {deal.product.boxSize ? ` · ${t('bulk.boxSize', { size: deal.product.boxSize })}` : ''}
             </p>
           </div>
         </header>
@@ -182,52 +180,50 @@ export function BulkDealPage() {
         <dl className="bulk-facts">
           {deal.origin && (
             <>
-              <dt>From</dt>
+              <dt>{t('bulk.from')}</dt>
               <dd>{deal.origin}</dd>
             </>
           )}
           {contents && (
             <>
-              <dt>In each box</dt>
+              <dt>{t('bulk.inEachBox')}</dt>
               <dd>{contents}</dd>
             </>
           )}
-          <dt>Order</dt>
-          <dd>
-            {deal.minQty} boxes or more{deal.qtyStep > 1 ? `, in steps of ${deal.qtyStep}` : ''}, up to {deal.maxQty} per order
-          </dd>
+          <dt>{t('bulk.order')}</dt>
+          <dd>{t(deal.qtyStep > 1 ? 'bulk.orderRuleSteps' : 'bulk.orderRule', { min: deal.minQty, step: deal.qtyStep, max: deal.maxQty })}</dd>
           {deal.endsAt && (
             <>
-              <dt>Offer ends</dt>
-              <dd>{endFmt.format(new Date(deal.endsAt))}</dd>
+              <dt>{t('bulk.ends')}</dt>
+              <dd>{when(deal.endsAt)}</dd>
             </>
           )}
         </dl>
 
         <table className="bulk-tiers">
-          <caption>Price per box</caption>
+          <caption>{t('bulk.pricePerBox')}</caption>
           <thead>
             <tr>
-              <th scope="col">Boxes</th>
-              <th scope="col">Per box</th>
+              <th scope="col">{t('checkout.boxes')}</th>
+              <th scope="col">{t('bulk.perBox')}</th>
             </tr>
           </thead>
           <tbody>
-            {deal.tiers.map((t) => (
-              <tr key={t.minQty} className={tier?.minQty === t.minQty ? 'is-current' : undefined} aria-current={tier?.minQty === t.minQty ? 'true' : undefined}>
-                <td>{tierRange(t)}</td>
+            {deal.tiers.map((r) => (
+              <tr key={r.minQty} className={tier?.minQty === r.minQty ? 'is-current' : undefined} aria-current={tier?.minQty === r.minQty ? 'true' : undefined}>
+                <td>{tierRange(r)}</td>
                 <td>
-                  <strong>{rupees(t.unitPrice)}</strong>
-                  {t.savingPerBox != null && <span className="small saving"> {rupees(t.savingPerBox)} less than a single box</span>}
+                  <strong>{rupees(r.unitPrice)}</strong>
+                  {r.savingPerBox != null && <span className="small saving"> {t('bulk.saving', { amount: rupees(r.savingPerBox) })}</span>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <p className="muted small">A single box is {rupees(deal.retailPrice)} in the regular shop. One price whatever the ripeness.</p>
+        <p className="muted small">{t('bulk.single', { price: rupees(deal.retailPrice) })}</p>
 
         <fieldset className="field">
-          <legend>Choose ripeness</legend>
+          <legend>{t('product.chooseRipeness')}</legend>
           <ul className="ripe-options">
             {deal.stages.map((s) => {
               const st = onDay?.stages.find((x) => x.stage === s)
@@ -250,7 +246,14 @@ export function BulkDealPage() {
                       <strong>{STAGE_LABEL[s]}</strong>
                       <span className="muted small">
                         {STAGE_HINT[s]}
-                        {st && (short ? (st.available ? ` Only ${st.available} boxes for ${day(onDay!.date)}, below the minimum.` : ` None left for ${day(onDay!.date)}.`) : ` ${st.available} boxes for ${day(onDay!.date)}. Eat by ${day(st.eatBy)}.`)}
+                        {st &&
+                          ` ${
+                            short
+                              ? st.available
+                                ? t('bulk.onlyBelowMin', { count: st.available, day: day(onDay!.date) })
+                                : t('bulk.noneLeft', { day: day(onDay!.date) })
+                              : t('bulk.boxesFor', { count: st.available, day: day(onDay!.date), eatBy: day(st.eatBy) })
+                          }`}
                       </span>
                     </span>
                   </label>
@@ -262,33 +265,33 @@ export function BulkDealPage() {
 
         {!pincode ? (
           <p className="note">
-            <Link to="/?where=1">Set your delivery pincode</Link> to see the days we can deliver this deal and the stock for each.
+            {t.rich('bulk.setPincode', { link: <Link to="/?where=1">{t('fav.setPincodeLink')}</Link> })}
           </p>
         ) : deal.serviceable === false ? (
-          <p className="note note-warn">We don't deliver to {pincode} yet.</p>
+          <p className="note note-warn">{t('shop.notServed', { pincode })}</p>
         ) : !days.length ? (
-          <p className="note note-warn">No delivery days are open right now. Please check back soon.</p>
+          <p className="note note-warn">{t('shop.noDays')}</p>
         ) : (
           <div className="field">
-            <span className="label">Delivery day</span>
+            <span className="label">{t('bulk.deliveryDay')}</span>
             <DayChips
-              label="Delivery day"
+              label={t('bulk.deliveryDay')}
               days={days.map((x) => x.date)}
               value={day0}
               onChange={(x) => {
                 setWhere(pincode, x)
                 setAdded(null)
               }}
-              format={(x) => `${day(x)}${days.find((y) => y.date === x)?.enough ? '' : ' (low stock)'}`}
+              format={(x) => (days.find((y) => y.date === x)?.enough ? day(x) : t('bulk.lowStockDay', { day: day(x) }))}
             />
-            <p className="muted small">You confirm the day and time at checkout.</p>
+            <p className="muted small">{t('bulk.confirmAtCheckout')}</p>
           </div>
         )}
 
         {max >= deal.minQty ? (
           <div className="field">
             <Stepper
-              label="How many boxes"
+              label={t('product.howMany')}
               showLabel
               value={n}
               min={deal.minQty}
@@ -298,47 +301,51 @@ export function BulkDealPage() {
                 setQtyState(x)
                 setAdded(null)
               }}
-              lessLabel={`${deal.qtyStep} ${deal.qtyStep === 1 ? 'box' : 'boxes'} fewer`}
-              moreLabel={`${deal.qtyStep} ${deal.qtyStep === 1 ? 'box' : 'boxes'} more`}
+              lessLabel={t('bulk.stepFewer', { count: deal.qtyStep })}
+              moreLabel={t('bulk.stepMore', { count: deal.qtyStep })}
             />
             {next && (
               <p className="muted small">
-                Order {next.minQty} or more and pay {rupees(next.unitPrice)} a box.
+                {t('bulk.next', { min: next.minQty, price: rupees(next.unitPrice) })}
               </p>
             )}
-            {inCart > 0 && <p className="muted small">{inCart} boxes of this ripeness are in your cart now. Adding again replaces that number.</p>}
+            {inCart > 0 && <p className="muted small">{t('bulk.inCartNow', { count: inCart })}</p>}
           </div>
         ) : (
-          <p className="sold-out">{available != null ? `Not enough ${pickedStage ? STAGE_LABEL[pickedStage].toLowerCase() : ''} stock for the minimum of ${deal.minQty} boxes on ${day(day0!)}. Try another day or ripeness.` : `This deal can't be ordered right now.`}</p>
+          <p className="sold-out">
+            {available != null
+              ? t('bulk.notEnough', { stage: pickedStage ? STAGE_LABEL[pickedStage].toLowerCase() : '', min: deal.minQty, day: day(day0!) })
+              : t('bulk.cantOrder')}
+          </p>
         )}
 
         {regular && (
           <p className="note note-warn">
-            You also have {regular.qty} regular {regular.qty === 1 ? 'box' : 'boxes'} of {regular.name} ({STAGE_LABEL[regular.stage]}) in your cart. One order can take them as regular boxes or as this deal, not both.{' '}
+            {t('bulk.alsoRegular', { count: regular.qty, name: regular.name, stage: STAGE_LABEL[regular.stage] })}{' '}
             <button type="button" className="link-btn" onClick={() => setQty(regular, 0)}>
-              Remove the regular boxes
+              {t('bulk.removeRegular')}
             </button>
           </p>
         )}
         {otherDeal && (
           <p className="note note-warn">
-            {otherDeal.title} is in your cart for the same box and ripeness. One order can take one of them.
+            {t('bulk.otherDeal', { title: otherDeal.title })}
           </p>
         )}
 
         <div className="buy-bar">
           <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={!canAdd}>
-            {tier ? `Add ${n} boxes · ${rupees(tier.unitPrice * n)}` : 'Add to cart'}
+            {tier ? t('bulk.addN', { count: n, total: rupees(tier.unitPrice * n) }) : t('product.addToCart')}
           </button>
         </div>
         {tier && (
           <p className="muted small" aria-live="polite">
-            {n} × {rupees(tier.unitPrice)} = <strong>{rupees(tier.unitPrice * n)}</strong>. Free delivery. Checkout confirms the price before you pay.
+            {n} × {rupees(tier.unitPrice)} = <strong>{rupees(tier.unitPrice * n)}</strong>. {t('bulk.freeConfirm')}
           </p>
         )}
         {added && (
           <p className="note" role="status">
-            {added} <Link to="/cart">View cart</Link>
+            {added} <Link to="/cart">{t('shop.viewCart')}</Link>
           </p>
         )}
       </div>

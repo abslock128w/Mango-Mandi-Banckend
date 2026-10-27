@@ -13,12 +13,14 @@
 // stand-ins are switched off (SEC-01): sign-in codes are printed in this window instead of on
 // screen, and the test-mode pay route (/v1/dev) is not reachable through the shop.
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { connect } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { copyDatabase, databaseEncoding } from './local-db-utf8.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const local = path.join(root, '.local')
@@ -47,7 +49,37 @@ export function localPlan(argv, wifiIps = []) {
     COOKIE_SECURE: 'false',
     // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopEnv).
     ENABLE_DEV_ROUTES: 'true',
+    // An unexpected error shows its cause in the panel and shop, not only in this window.
+    SHOW_ERROR_DETAILS: 'true',
     LOG_LEVEL: 'warn',
+    // Box-tracked warehouse on for the local demo (it stays off unless set, as in production).
+    WAREHOUSE_V2: 'true',
+    // Stocktake, repack and the camera scanner in the warehouse (docs/warehouse), on for the demo too.
+    WAREHOUSE_STOCKTAKE: 'true',
+    WAREHOUSE_REPACK: 'true',
+    WAREHOUSE_CAMERA_SCAN: 'true',
+    // App feel (docs/app-feel.md): rider stops and route, favourites, sort and filter. The install offer
+    // and browser notifications stay off: they need a service worker and push keys.
+    LIVE_TRACKING: 'true',
+    FAVOURITES: 'true',
+    SHOP_SORT_FILTER: 'true',
+    // Growth (docs/growth.md): refer a friend, the shop funnel and the managers' evening summary. Messages
+    // go to the log provider here (no WhatsApp keys locally).
+    REFERRALS: 'true',
+    FUNNEL_ANALYTICS: 'true',
+    MANAGER_DAILY_SUMMARY: 'true',
+    // Staff operations (docs/ops.md): the stock forecast, farms and purchases, and the panel's Settings switches.
+    STOCK_FORECAST: 'true',
+    PURCHASE_RECORDS: 'true',
+    PANEL_FEATURE_SWITCHES: 'true',
+    // Gift orders to many recipients (docs/gifting.md): Send to many in the shop, Gift orders in the panel.
+    MULTI_GIFT: 'true',
+    // Customer care (docs/care.md): the help centre and season subscriptions, with a season that ends in 90 days.
+    HELP_CENTRE: 'true',
+    SUBSCRIPTIONS: 'true',
+    // Shop languages (docs/languages.md): Hindi and Kannada beside English.
+    SHOP_LANGUAGES: 'true',
+    SUBSCRIPTION_SEASON_END: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
     // Shared: login codes stay out of the API's answers and are printed here instead.
@@ -81,9 +113,9 @@ async function portFree(port) {
 }
 
 /** Runs a command to completion (npm needs a shell on Windows). */
-function run(cmd, cwd) {
+function run(cmd, cwd, env = {}) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, { cwd, shell: true, stdio: 'inherit' })
+    const p = spawn(cmd, { cwd, shell: true, stdio: 'inherit', env: { ...process.env, ...env } })
     p.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`"${cmd}" failed (exit ${code})`))))
   })
 }
@@ -119,6 +151,46 @@ function openBrowser(url) {
 
 let stopping = false
 let db = null
+
+const dbUrl = (name) => `postgres://mango:mango@localhost:${DB_PORT}/${name}`
+
+async function withClient(name, fn) {
+  const client = db.getPgClient(name, 'localhost')
+  await client.connect()
+  try {
+    return await fn(client)
+  } finally {
+    await client.end()
+  }
+}
+
+/** template0 lets the database be UTF-8 even when the cluster's own default is not. */
+const createUtf8Database = (name) =>
+  withClient('postgres', (c) => c.query(`CREATE DATABASE ${c.escapeIdentifier(name)} TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'`))
+
+/**
+ * A database made by an older launcher on Windows stores text as WIN1252, so writes with ₹ or →
+ * fail. Copies it, once, into a new UTF-8 database with the same data, and keeps the old one
+ * (renamed mango_before_utf8) untouched. Nothing changes if any step fails.
+ */
+async function convertToUtf8() {
+  const enc = await withClient('postgres', (c) => databaseEncoding(c, 'mango'))
+  if (enc === 'UTF8') return
+  say(`Updating the database to store all text (it was ${enc}; one time only, your data is kept)`)
+  await withClient('postgres', async (c) => {
+    await c.query('DROP DATABASE IF EXISTS mango_utf8')
+    await c.query("CREATE DATABASE mango_utf8 TEMPLATE template0 ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C'")
+  })
+  await run('node src/migrate.js', path.join(root, 'mango-api'), { ...PLAN.api, DATABASE_URL: dbUrl('mango_utf8') })
+  const copied = await withClient('mango', (from) => withClient('mango_utf8', (to) => copyDatabase(from, to)))
+  const backup = await withClient('postgres', async (c) => {
+    const name = (await databaseEncoding(c, 'mango_before_utf8')) ? `mango_before_utf8_${Date.now()}` : 'mango_before_utf8'
+    await c.query(`ALTER DATABASE mango RENAME TO ${c.escapeIdentifier(name)}`)
+    await c.query('ALTER DATABASE mango_utf8 RENAME TO mango')
+    return name
+  })
+  console.log(`   Copied ${copied.rows} rows from ${copied.tables} tables. The old copy is kept as ${backup}.`)
+}
 async function stop(code = 0) {
   if (stopping) return
   stopping = true
@@ -131,6 +203,21 @@ async function stop(code = 0) {
   await db?.stop().catch(() => {})
   process.exit(code)
 }
+/**
+ * Packages are installed again whenever package-lock.json changed since the last install, so a
+ * newer download never runs on older packages (unit-tested in tests/unit/start-local.unit.ts).
+ */
+const INSTALL_MARK = '.mandimangoes-lock'
+const lockHash = (dir) => createHash('sha256').update(readFileSync(path.join(dir, 'package-lock.json'))).digest('hex')
+export function installNeeded(dir) {
+  const mark = path.join(dir, 'node_modules', INSTALL_MARK)
+  if (!existsSync(mark)) return true
+  return readFileSync(mark, 'utf8').trim() !== lockHash(dir)
+}
+export function markInstalled(dir) {
+  writeFileSync(path.join(dir, 'node_modules', INSTALL_MARK), `${lockHash(dir)}\n`)
+}
+
 async function main() {
   const major = Number(process.versions.node.split('.')[0])
   if (major < 22) throw new Error(`Node 22 or newer is needed (this is ${process.versions.node})`)
@@ -142,13 +229,15 @@ async function main() {
     }
   }
 
-  if (!existsSync(path.join(root, 'node_modules'))) {
-    say('Installing the shop and staff panel (first run only, a few minutes)')
+  if (installNeeded(root)) {
+    say('Installing the shop and staff panel (first run or after an update, a few minutes)')
     await run('npm ci --no-audit --no-fund --loglevel=error', root)
+    markInstalled(root)
   }
-  if (!existsSync(path.join(root, 'mango-api', 'node_modules'))) {
-    say('Installing the API (first run only)')
+  if (installNeeded(path.join(root, 'mango-api'))) {
+    say('Installing the API (first run or after an update)')
     await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'mango-api'))
+    markInstalled(path.join(root, 'mango-api'))
   }
   mkdirSync(local, { recursive: true })
   if (!existsSync(path.join(local, 'node_modules', 'embedded-postgres'))) {
@@ -166,13 +255,18 @@ async function main() {
   const { default: EmbeddedPostgres } = await import(pathToFileURL(req.resolve('embedded-postgres')).href)
   const dataDir = path.join(local, 'pgdata')
   const fresh = !existsSync(dataDir)
-  db = new EmbeddedPostgres({ databaseDir: dataDir, user: 'mango', password: 'mango', port: DB_PORT, persistent: true, onLog: () => {} })
+  // UTF-8 whatever the computer's language settings: Windows would otherwise pick WIN1252 (see local-db-utf8.mjs).
+  db = new EmbeddedPostgres({
+    databaseDir: dataDir, user: 'mango', password: 'mango', port: DB_PORT, persistent: true, onLog: () => {},
+    initdbFlags: ['--encoding=UTF8', '--locale=C'],
+  })
   if (fresh) await db.initialise()
   await db.start()
-  if (fresh) await db.createDatabase('mango')
+  if (fresh) await createUtf8Database('mango')
+  await convertToUtf8()
 
   say('Starting the API (it adds demo stock and staff logins)')
-  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: `postgres://mango:mango@localhost:${DB_PORT}/mango`, ...PLAN.api })
+  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: dbUrl('mango'), ...PLAN.api })
   await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')

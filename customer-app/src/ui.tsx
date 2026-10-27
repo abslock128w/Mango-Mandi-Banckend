@@ -1,12 +1,14 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { errorMessage } from './api'
+import { useT } from './i18n'
 
-export function Spinner({ label = 'Loading' }: { label?: string }) {
+export function Spinner({ label }: { label?: string }) {
+  const t = useT()
   return (
     <div className="spinner" role="status">
       <span className="spinner-dot" aria-hidden="true" />
-      <span>{label}…</span>
+      <span>{label ?? t('common.loading')}…</span>
     </div>
   )
 }
@@ -31,13 +33,14 @@ export function Skeleton({ label, cards = 3, tall = false }: { label: string; ca
 }
 
 export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const t = useT()
   if (!error) return null
   return (
     <div className="note note-error" role="alert">
       <span>{typeof error === 'string' ? error : errorMessage(error)}</span>
       {onRetry && (
         <button type="button" className="link-btn" onClick={onRetry}>
-          Try again
+          {t('common.tryAgain')}
         </button>
       )}
     </div>

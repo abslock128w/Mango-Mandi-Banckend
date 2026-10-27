@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { date, rupees } from '../format'
 import type { AnalyticsWeek } from '../types'
+import { ExportPanel } from '../ExportPanel'
 import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
+import { useSession } from '../session'
+import { FunnelSection } from './Funnel'
 
 const pct = (r: number | null) => (r == null ? '—' : `${Math.round(r * 1000) / 10}%`)
 /** Whole rupees, for tiles where paise only add noise. */
@@ -18,6 +21,9 @@ export default function Analytics() {
   const from = params.get('from') || null
   const to = params.get('to') || null
   const q = useQuery({ queryKey: ['analytics', from, to], queryFn: () => api.analytics({ from, to }) })
+  // The shop funnel (FUNNEL_ANALYTICS): managers only, while the switch is on.
+  const { me } = useSession()
+  const showFunnel = me?.role === 'MANAGER' && Boolean(me.features?.funnelAnalytics)
 
   function set(key: string, value: string) {
     const p = new URLSearchParams(params)
@@ -175,6 +181,8 @@ export default function Analytics() {
           </section>
         </>
       )}
+      {showFunnel && <FunnelSection />}
+      <ExportPanel kinds={['payments', 'refunds']} />
     </>
   )
 }
@@ -207,9 +215,12 @@ function WeekBars({
   const [active, setActive] = useState<number | null>(null)
   const box = useRef<HTMLDivElement>(null)
   const [W, setW] = useState(640)
-  useEffect(() => {
+  // Measure before the first paint, so the chart never draws at the 640 default on a narrow screen.
+  useLayoutEffect(() => {
     const el = box.current
-    if (!el || typeof ResizeObserver === 'undefined') return
+    if (!el) return
+    setW(Math.max(240, Math.round(el.getBoundingClientRect().width)))
+    if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(([e]) => setW(Math.max(240, Math.round(e.contentRect.width))))
     ro.observe(el)
     return () => ro.disconnect()

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '../../tests/fixtures'
 import { managerToken } from './staff'
-import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopPolicy, Slot, SlotOnDate, Stage, api } from '../src/api'
+import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopFeatures, ShopPolicy, Slot, SlotOnDate, Stage, Tracking, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
 // API sends. Every endpoint the order journey uses is called here, and each
@@ -128,7 +128,25 @@ const PRODUCTS = object<{ items: ProductListing[] }>({
     }),
   ),
 })
-const POLICY = object<ShopPolicy>({ holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int' })
+const POLICY = object<ShopPolicy>({
+  holdMinutes: 'int', cutoffTime: 'string', maxDaysAhead: 'int', claimWindowHours: 'int',
+  bills: optional('boolean'),
+  // App feel switches (docs/app-feel.md).
+  features: optional(
+    object<ShopFeatures>({
+      installApp: 'boolean', push: 'boolean', tracking: 'boolean', favourites: 'boolean', sortFilter: 'boolean',
+      // Growth switches (docs/growth.md).
+      referrals: optional('boolean'), funnel: optional('boolean'),
+      multiGift: optional('boolean'),
+      // Shop languages (docs/languages.md).
+      languages: optional('boolean'),
+    }),
+  ),
+  // Gift orders to many recipients (MULTI_GIFT): sent only while it is on.
+  multiGiftMaxRecipients: optional('int'),
+  // Customer care switches (docs/care.md), present only while one is on.
+  care: optional(object<NonNullable<ShopPolicy['care']>>({ helpCentre: 'boolean', subscriptions: 'boolean', subscriptionsOpen: 'boolean' })),
+})
 type SlotsAnswer = Awaited<ReturnType<typeof api.slots>>
 const SLOTS = object<SlotsAnswer>({ deliveryDate: 'day', slots: list(SLOT_ON_DATE) })
 type CartLine = Awaited<ReturnType<typeof api.serverCart>>['lines'][number]
@@ -146,7 +164,7 @@ const QUOTE = object<Quote>({
     sku: 'string', name: 'string', stage: oneOf(STAGES), qty: 'int', unitPrice: 'int', linePrice: 'int', eatBy: 'day', listingId: optional('string'), title: optional('string'),
   })),
   subtotal: 'int', promo: nullable(object<NonNullable<Quote['promo']>>({ code: 'string', description: nullable('string') })), discount: 'int', total: 'int', expiresAt: 'time',
-  holdMinutes: optional('int'),
+  holdMinutes: optional('int'), bills: optional('boolean'),
 })
 const CONFIRMED = object<Confirmed>({
   orderId: 'string', number: 'string', status: oneOf(STATUSES), total: 'int', deliveryDate: 'day',
@@ -154,6 +172,8 @@ const CONFIRMED = object<Confirmed>({
 })
 const ORDER_SUMMARY = object<OrderSummary>({
   id: 'string', number: 'string', status: oneOf(STATUSES), deliveryDate: 'day', total: 'int', itemCount: 'int', placedAt: 'time', holdExpiresAt: optional(nullable('time')),
+  // Only on a delivery of a gift order to many recipients (MULTI_GIFT).
+  giftOrderId: optional('string'), giftRecipient: optional(nullable('string')),
 })
 type Item = Order['items'][number]
 const BULK_TIER_SOLD = object<NonNullable<Item['bulk']>['tier']>({ minQty: 'int', maxQty: nullable('int'), unitPrice: 'int' })
@@ -187,6 +207,15 @@ const ORDER = object<Order>({
   delivery: optional(nullable(object<Delivery>({ at: 'time', method: nullable(oneOf(DELIVERY_METHOD)), receivedBy: nullable('string'), hasPhoto: 'boolean' }))),
   rating: optional(nullable(object<NonNullable<Order['rating']>>({ stars: 'int', comment: nullable('string'), at: 'time' }))),
   claimWindowHours: 'number', claimUntil: nullable('time'), deliveryFailures: 'int', retryScheduled: nullable('boolean'), findingStock: optional('boolean'),
+  // Set once paid (bills on); the paid, cancelled and delivered orders below carry one.
+  bill: optional(nullable(object<NonNullable<Order['bill']>>({
+    id: 'string', number: 'string', kind: oneOf(['RECEIPT', 'BILL_OF_SUPPLY', 'TAX_INVOICE', 'INVOICE_CUM_BILL_OF_SUPPLY']), title: 'string', issuedAt: 'time', billDate: 'day',
+    total: 'int', cancelled: 'boolean', cancelledAt: nullable('time'),
+  }))),
+  business: optional(nullable(object<NonNullable<Order['business']>>({ name: 'string', gstin: 'string' }))),
+  giftOrderId: optional(nullable('string')),
+  // LIVE_TRACKING: set only while out for delivery with a rider (app-feel.spec.ts checks it with a value).
+  tracking: optional(nullable(object<Tracking>({ stopsAway: 'int', minutesPerStop: 'int', etaMinutes: 'int' }))),
 })
 // The shop does not call it today; checked so a payment poll written later starts from the truth.
 const PAYMENT_STATUS: Spec = { object: { status: nullable(oneOf(PAYMENT)), orderStatus: oneOf(STATUSES) } }

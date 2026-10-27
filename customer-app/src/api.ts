@@ -4,6 +4,7 @@
 // refresh the API refuses (401) signs the customer out.
 
 import { ApiError, readAnswer } from './answer'
+import { currentLang, t, type Key } from './i18n-core.ts'
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -62,6 +63,91 @@ export interface ShopPolicy {
   cutoffTime: string
   maxDaysAhead: number
   claimWindowHours: number
+  /** Whether checkout takes a business name and GSTIN for the bill (bills switched on). Older APIs leave it out. */
+  bills?: boolean
+  /** The shop's switchable parts (docs/app-feel.md); an older API leaves it out, which means all off. */
+  features?: ShopFeatures
+  /** With "Send to many" on: the most recipients one gift order may have. */
+  multiGiftMaxRecipients?: number
+  /** Customer care (docs/care.md): present only while the help centre or subscriptions are on. */
+  care?: { helpCentre: boolean; subscriptions: boolean; subscriptionsOpen: boolean }
+}
+/** Which app-feel parts the API has switched on. */
+export interface ShopFeatures {
+  /** The service worker (static app shell only) and the "Install app" offer. */
+  installApp: boolean
+  /** Browser notifications for order updates can be turned on (WEB_PUSH with a key). */
+  push: boolean
+  /** "Your rider is N stops away" on the order page. */
+  tracking: boolean
+  /** Hearts on boxes and the Favourites list. */
+  favourites: boolean
+  /** Sort and filter controls on the home page. */
+  sortFilter: boolean
+  /** Refer a friend on the Account page and at checkout (docs/growth.md). */
+  referrals?: boolean
+  /** Anonymous funnel steps: visit, box viewed, added to cart, checkout started (docs/growth.md). */
+  funnel?: boolean
+  /** "Send to many": one gift order to many recipients (MULTI_GIFT). */
+  multiGift?: boolean
+  /** The shop in Hindi and Kannada as well as English (SHOP_LANGUAGES, docs/languages.md). */
+  languages?: boolean
+}
+/** The shop's languages (the API's GET/PUT /v1/me/language). */
+export type ShopLanguage = 'en' | 'hi' | 'kn'
+export interface LanguageView {
+  /** Null until the customer chooses. */
+  language: ShopLanguage | null
+  languages: ShopLanguage[]
+}
+/** My refer-a-friend state (GET /v1/me/referral). Amounts in paise except the two rupee rules. */
+export interface ReferralView {
+  /** Null until the account has a phone number. */
+  code: string | null
+  shareUrl: string | null
+  rewardRupees: number
+  minOrderRupees: number
+  /** A new customer who has not entered a code yet. */
+  canEnterCode: boolean
+  entered: { status: 'PENDING' | 'REWARDED' | 'VOID'; reason: string | null; at: string } | null
+  friends: { pending: number; rewarded: number }
+  rewards: { code: string; amount: number; minSubtotal: number; endsOn: string | null; for: string; state: 'READY' | 'USED' | 'EXPIRED' }[]
+}
+/** A hearted box (GET /v1/me/favourites). */
+export interface Favourite {
+  sku: string
+  name: string
+  variety: string | null
+  boxSize: string | null
+  price: number | null
+  photoUrl: string | null
+  /** False once the box is taken off sale: the list says so and offers nothing to buy. */
+  onSale: boolean
+  addedAt: string
+}
+export interface FavouriteList {
+  items: Favourite[]
+  max: number
+}
+/** While the order is out for delivery with a rider: stops before this one and a rough time. */
+export interface Tracking {
+  stopsAway: number
+  minutesPerStop: number
+  etaMinutes: number
+}
+/** What the Account page needs to offer browser notifications. */
+export interface PushInfo {
+  available: boolean
+  /** The application server key (RFC 8292), base64url; null while push is off. */
+  publicKey: string | null
+  /** How many of the customer's browsers have notifications on. */
+  browsers: number
+}
+/** What PushSubscription.toJSON() gives. */
+export interface PushSubscriptionInput {
+  endpoint: string
+  expirationTime?: number | null
+  keys: { p256dh: string; auth: string }
 }
 /** A box on sale with its price, known before a pincode (GET /v1/products): no stock or ripeness. */
 export interface ProductListing {
@@ -107,11 +193,125 @@ export interface Quote {
   expiresAt: string
   /** How long the boxes are held once Pay is tapped (the live rule); older APIs leave it out. */
   holdMinutes?: number
+  /** Whether business details for the bill are taken (bills switched on). Older APIs leave it out. */
+  bills?: boolean
+}
+/** A business buying: printed on the bill. The GSTIN's check character is verified by the API too. */
+export interface BusinessDetails {
+  name: string
+  gstin: string
+}
+/** The order's numbered bill, once it is paid. A cancelled order keeps its bill, marked cancelled. */
+export interface OrderBill {
+  id: string
+  number: string
+  kind: 'RECEIPT' | 'BILL_OF_SUPPLY' | 'TAX_INVOICE' | 'INVOICE_CUM_BILL_OF_SUPPLY'
+  title: string
+  issuedAt: string
+  billDate: string
+  total: number
+  cancelled: boolean
+  cancelledAt: string | null
 }
 export interface Gift {
   recipientName: string
   recipientPhone: string
   message?: string | null
+}
+/** One recipient of a gift order to many (MULTI_GIFT), as the shop sends it. */
+export interface GiftRecipientInput {
+  name: string
+  phone: string
+  address: string
+  pincode: string
+  sku: string
+  stage: Stage
+  qty: number
+  note?: string | null
+}
+/** A recipient as the review prices it. */
+export interface GiftQuoteRecipient extends GiftRecipientInput {
+  boxName: string
+  unitPrice: number
+  linePrice: number
+  eatBy: string
+}
+export interface GiftQuote {
+  quoteId: string
+  deliveryDate: string
+  slot: Slot | null
+  recipients: GiftQuoteRecipient[]
+  boxes: number
+  subtotal: number
+  promo: { code: string; description: string | null } | null
+  discount: number
+  total: number
+  expiresAt: string
+  holdMinutes: number
+  bills?: boolean
+}
+/** A problem with one recipient, by row (1 = the first), from RECIPIENTS_INVALID. */
+export interface RecipientProblem {
+  row: number
+  field: string
+  message: string
+}
+export interface GiftConfirmed {
+  giftOrderId: string
+  number: string
+  status: GiftOrderStatus
+  total: number
+  deliveryDate: string
+  recipientCount: number
+  razorpayOrderId: string | null
+  razorpayKeyId: string | null
+  holdExpiresAt: string | null
+}
+export type GiftOrderStatus = 'PAYMENT_PENDING' | 'PAID' | 'CANCELLED'
+export interface GiftOrderSummary {
+  id: string
+  number: string
+  status: GiftOrderStatus
+  deliveryDate: string
+  recipientCount: number
+  total: number
+  placedAt: string
+}
+export interface GiftOrder extends GiftOrderSummary {
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'CANCELLED' | 'FAILED'
+  paidAt: string | null
+  slot: Slot | null
+  boxes: number
+  subtotal: number
+  discount: number
+  promoCode: string | null
+  business: BusinessDetails | null
+  razorpayOrderId: string | null
+  razorpayKeyId: string | null
+  holdExpiresAt: string | null
+  cancelReason: 'HOLD_EXPIRED' | 'OTHER' | null
+  cancellable: boolean
+  bill: OrderBill | null
+  recipients: {
+    orderId: string
+    number: string
+    position: number
+    status: OrderStatus
+    name: string
+    phone: string
+    note: string | null
+    address: string
+    pincode: string
+    sku: string | null
+    boxName: string | null
+    stage: Stage | null
+    qty: number
+    linePrice: number
+    discount: number
+    total: number
+    cancellable: boolean
+    refundStatus: 'PENDING' | 'REFUNDED' | null
+  }[]
 }
 export interface Confirmed {
   orderId: string
@@ -133,6 +333,9 @@ export interface OrderSummary {
   placedAt: string
   /** Set while the order waits for payment with its boxes held. */
   holdExpiresAt?: string | null
+  /** A delivery of a gift order to many recipients: its gift order, and who it goes to. */
+  giftOrderId?: string
+  giftRecipient?: string | null
 }
 export interface Order {
   id: string
@@ -147,6 +350,8 @@ export interface Order {
   promoCode: string | null
   total: number
   gift: Gift | null
+  /** One delivery of a gift order to many recipients: its payment, bill and whole-order cancel are on the gift order. */
+  giftOrderId?: string | null
   paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED' | 'REFUNDED' | null
   refundStatus: 'PENDING' | 'REFUNDED' | null
   razorpayOrderId: string | null
@@ -186,7 +391,101 @@ export interface Order {
   retryScheduled: boolean | null
   /** Paid, but no stock for its date yet: the day may change and we message once it's settled. */
   findingStock?: boolean
+  /** The bill, once paid (while bills are on); download it with api.billUrl. */
+  bill?: OrderBill | null
+  /** Business details given at checkout for the bill. */
+  business?: BusinessDetails | null
+  /** Live tracking (when switched on): set only while out for delivery with a rider. */
+  tracking?: Tracking | null
 }
+// ---------- Customer care (docs/care.md) ----------
+
+export type HelpStatus = 'OPEN' | 'WAITING_CUSTOMER' | 'RESOLVED'
+export interface HelpTopic {
+  id: string
+  label: string
+}
+/** GET /v1/me/help: the topics to choose from and the limits the form shows. */
+export interface HelpSetup {
+  topics: HelpTopic[]
+  messageMax: number
+  firstMessageMin: number
+  dailyLimit: number
+}
+export interface HelpRequestSummary {
+  id: string
+  number: string
+  topic: string
+  topicLabel: string
+  status: HelpStatus
+  order: { id: string; number: string | null } | null
+  createdAt: string
+  updatedAt: string
+  resolvedAt: string | null
+  lastMessage?: { from: 'MandiMangoes' | 'You'; preview: string; at: string }
+}
+export interface HelpRequest extends HelpRequestSummary {
+  messages: { id: string; from: 'MANDIMANGOES' | 'YOU'; body: string; at: string }[]
+}
+
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'CANCELLED' | 'ENDED'
+export type Frequency = 'WEEKLY' | 'FORTNIGHTLY'
+export interface SubscriptionCycle {
+  id: string
+  scheduledFor: string
+  deliveryDate: string | null
+  slotId: string | null
+  status: 'DUE' | 'ORDERED' | 'SKIPPED' | 'MISSED' | 'CANCELLED'
+  note: string | null
+  order: { id: string; number: string; status: OrderStatus; paymentStatus: string; holdExpiresAt: string | null } | null
+  /** Pay is offered: set up, not paid, the subscription running and a day still left. */
+  canPay: boolean
+  paid: boolean
+  awaitingPayment: boolean
+}
+export interface Subscription {
+  id: string
+  number: string
+  status: SubscriptionStatus
+  sku: string
+  productName: string
+  unitPrice: number | null
+  stage: Stage
+  qty: number
+  frequency: Frequency
+  /** ISO weekday, 1 = Monday … 7 = Sunday. */
+  weekday: number
+  firstDate: string
+  endDate: string
+  slotId: string | null
+  address: { name: string | null; address: string; pincode: string } | null
+  pincode: string
+  createdAt: string
+  pausedAt: string | null
+  cancelledAt: string | null
+  cycles: SubscriptionCycle[]
+  /** The next dates not set up yet: what can be skipped ahead of time. */
+  upcoming: string[]
+  history?: { action: string; reason: string | null; at: string }[]
+}
+export interface SubscriptionList {
+  items: Subscription[]
+  /** Whether a new subscription can start (the season has not ended). */
+  open: boolean
+  seasonEnd: string | null
+  leadDays: number
+}
+export interface NewSubscription {
+  sku: string
+  stage: Stage
+  qty: number
+  frequency: Frequency
+  weekday: number
+  slotId: string | null
+  addressId: string
+  endDate: string
+}
+
 export interface SavedAddress {
   id: string
   name: string | null
@@ -477,6 +776,15 @@ function signedOut(forget = false) {
   if (was || forget) window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { forget } }))
 }
 
+/**
+ * Run before a chosen sign-out while the session still works (push.ts sets it: this browser's
+ * notifications are turned off, so the next person on a shared device doesn't get them).
+ */
+let beforeSignOut: (() => Promise<unknown>) | null = null
+export const onBeforeSignOut = (fn: (() => Promise<unknown>) | null) => {
+  beforeSignOut = fn
+}
+
 /** Goes up on every sign-out, so a refresh that was already on its way cannot sign the customer back in. */
 let epoch = 0
 let refreshing: Promise<boolean> | null = null
@@ -550,6 +858,16 @@ export interface PaymentState {
   orderStatus: OrderStatus
 }
 
+/** A signed-in download (a gift order's bill, the recipients template), as an object URL. */
+async function fileUrl(path: string, code: string, message: string): Promise<string> {
+  if (!accessToken && profile) await refreshOnce()
+  const get = () => fetch(`${API_URL}/v1${path}`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+  let res = await get()
+  if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+  if (!res.ok) throw new ApiError(res.status, code, message)
+  return URL.createObjectURL(await res.blob())
+}
+
 export const api = {
   requestCode: (phone: string, channel?: 'sms' | 'whatsapp', captchaToken?: string) =>
     raw<{ sent: boolean; channel: 'sms' | 'whatsapp'; devCode?: string }>('POST', '/auth/otp/request', { phone, ...(channel ? { channel } : {}), ...(captchaToken ? { captchaToken } : {}) }),
@@ -572,6 +890,8 @@ export const api = {
     signedOut(true)
   },
   async signOut() {
+    // A shared phone: this browser stops getting the account's order updates first, while still signed in.
+    await beforeSignOut?.().catch(() => undefined)
     await raw('POST', '/auth/logout', {}).catch(() => undefined)
     signedOut(true)
   },
@@ -580,7 +900,19 @@ export const api = {
     await request<void>('POST', '/me/sign-out-everywhere')
     signedOut(true)
   },
+  /** Browser notifications (WEB_PUSH): whether they can be turned on, and on how many browsers they are. */
+  pushInfo: () => request<PushInfo>('GET', '/me/push'),
+  savePushSubscription: (sub: PushSubscriptionInput) => request<{ subscribed: boolean }>('PUT', '/me/push/subscription', sub),
+  removePushSubscription: (endpoint: string) => request<void>('DELETE', '/me/push/subscription', { endpoint }),
+  /** Hearted boxes (FAVOURITES). */
+  favourites: () => request<FavouriteList>('GET', '/me/favourites'),
+  addFavourite: (sku: string) => request<FavouriteList>('PUT', `/me/favourites/${id(sku)}`),
+  removeFavourite: (sku: string) => request<void>('DELETE', `/me/favourites/${id(sku)}`),
+  /** The hearts a guest made on this device, sent once after signing in. */
+  mergeFavourites: (skus: string[]) => request<FavouriteList & { ignored: string[] }>('POST', '/me/favourites/merge', { skus }),
   /** A copy of everything the shop holds about the customer, as JSON. */
+  referral: () => request<ReferralView>('GET', '/me/referral'),
+  applyReferral: (code: string) => request<ReferralView>('POST', '/me/referral/apply', { code }),
   exportData: () => request<Record<string, unknown>>('GET', '/me/export'),
 
   checkPincode: (pincode: string) => request<DeliveryCheck>('GET', `/delivery/check${qs({ pincode })}`),
@@ -599,7 +931,10 @@ export const api = {
   bulkPrice: (dealId: string, qty: number) => raw<BulkPrice>('GET', `/bulk-deals/${id(dealId)}/price${qs({ qty: String(qty) })}`),
   setCartLine: (sku: string, stage: Stage, qty: number) => request<void>('POST', '/cart/items', { sku, stage, qty }),
   quote: (input: { pincode: string; deliveryDate: string; slotId: string | null; promoCode?: string | null }) => request<Quote>('POST', '/checkout/quote', input),
-  confirm: (input: { quoteId: string; address: string; name?: string; gift?: Gift | null }, idempotencyKey: string) =>
+  confirm: (
+    input: { quoteId: string; address: string; name?: string; gift?: Gift | null; business?: BusinessDetails | null; funnelId?: string },
+    idempotencyKey: string,
+  ) =>
     request<Confirmed>('POST', '/checkout/confirm', input, { 'Idempotency-Key': idempotencyKey }),
 
   orders: () => request<OrderSummary[]>('GET', '/orders'),
@@ -614,10 +949,29 @@ export const api = {
   rate: (orderId: string, stars: number, comment: string | null) => request<void>('PUT', `/orders/${id(orderId)}/rating`, { stars, comment }),
   settings: () => request<Settings>('GET', '/me'),
   saveSettings: (settings: Settings) => request<Settings>('PATCH', '/me', settings),
+  /** SHOP_LANGUAGES: the language saved to the account (404 while the switch is off). */
+  language: () => request<LanguageView>('GET', '/me/language'),
+  saveLanguage: (language: ShopLanguage) => request<LanguageView>('PUT', '/me/language', { language }),
   stockAlerts: () => request<StockAlert[]>('GET', '/stock-alerts'),
   addStockAlert: (input: { sku: string; stage: Stage; pincode: string }) => request<StockAlert>('POST', '/stock-alerts', input),
   removeStockAlert: (alertId: string) => request<void>('DELETE', `/stock-alerts/${id(alertId)}`),
   addresses: () => request<SavedAddress[]>('GET', '/me/addresses'),
+  // Customer care (docs/care.md): help requests and season subscriptions, the caller's own only.
+  helpSetup: () => request<HelpSetup>('GET', '/me/help'),
+  helpRequests: () => request<{ items: HelpRequestSummary[] }>('GET', '/me/help/requests'),
+  helpRequest: (requestId: string) => request<HelpRequest>('GET', `/me/help/requests/${id(requestId)}`),
+  openHelpRequest: (input: { topic: string; orderId: string | null; message: string }) => request<HelpRequest>('POST', '/me/help/requests', input),
+  replyHelpRequest: (requestId: string, message: string) => request<HelpRequest>('POST', `/me/help/requests/${id(requestId)}/messages`, { message }),
+  subscriptions: () => request<SubscriptionList>('GET', '/me/subscriptions'),
+  subscription: (subId: string) => request<Subscription>('GET', `/me/subscriptions/${id(subId)}`),
+  subscribe: (input: NewSubscription) => request<Subscription>('POST', '/me/subscriptions', input),
+  pauseSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/pause`),
+  resumeSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/resume`),
+  cancelSubscription: (subId: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/cancel`),
+  skipDelivery: (subId: string, scheduledFor: string) => request<Subscription>('POST', `/me/subscriptions/${id(subId)}/skip`, { scheduledFor }),
+  /** Makes (or hands back) the ordinary unpaid order for one delivery; it is paid for on its order page. */
+  payDelivery: (subId: string, cycleId: string, idempotencyKey: string) =>
+    request<Confirmed>('POST', `/me/subscriptions/${id(subId)}/cycles/${id(cycleId)}/pay`, {}, { 'Idempotency-Key': idempotencyKey }),
   forgetAddress: (addressId: string) => request<void>('DELETE', `/me/addresses/${id(addressId)}`),
   claims: () => request<Claim[]>('GET', '/claims'),
   raiseClaim: (input: { orderId: string; issueType: IssueType; description: string; itemSkus: string[]; photoIds: string[] }) =>
@@ -639,6 +993,16 @@ export const api = {
     let res = await get()
     if (res.status === 401 && profile && (await refreshOnce())) res = await get()
     if (!res.ok) throw new ApiError(res.status, 'PHOTO_UNAVAILABLE', 'The photo could not be loaded.')
+    return URL.createObjectURL(await res.blob())
+  },
+
+  /** The bill PDF of my own paid order, as an object URL (it needs the sign-in, so it is fetched). */
+  async billUrl(orderId: string): Promise<string> {
+    if (!accessToken && profile) await refreshOnce()
+    const get = () => fetch(`${API_URL}/v1/orders/${id(orderId)}/bill`, { headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {} })
+    let res = await get()
+    if (res.status === 401 && profile && (await refreshOnce())) res = await get()
+    if (!res.ok) throw new ApiError(res.status, 'BILL_UNAVAILABLE', 'The bill could not be downloaded. Try again in a minute.')
     return URL.createObjectURL(await res.blob())
   },
 
@@ -684,15 +1048,58 @@ export const api = {
     return URL.createObjectURL(await res.blob())
   },
 
+  // Gift orders to many recipients (MULTI_GIFT).
+  giftQuote: (input: { recipients: GiftRecipientInput[]; deliveryDate: string | null; slotId: string | null; promoCode?: string | null }) =>
+    request<GiftQuote>('POST', '/gifts/quote', input),
+  giftConfirm: (input: { quoteId: string; name?: string; business?: BusinessDetails | null }, idempotencyKey: string) =>
+    request<GiftConfirmed>('POST', '/gifts/confirm', input, { 'Idempotency-Key': idempotencyKey }),
+  giftOrders: () => request<GiftOrderSummary[]>('GET', '/gifts'),
+  giftOrder: (giftOrderId: string) => request<GiftOrder>('GET', `/gifts/${id(giftOrderId)}`),
+  verifyGiftPayment: (giftOrderId: string, reply: CheckoutReply) => request<PaymentState>('POST', `/gifts/${id(giftOrderId)}/verify-payment`, reply),
+  cancelGiftOrder: (giftOrderId: string) => request<void>('POST', `/gifts/${id(giftOrderId)}/cancel`),
+  cancelGiftRecipient: (giftOrderId: string, orderId: string) => request<void>('POST', `/gifts/${id(giftOrderId)}/recipients/${id(orderId)}/cancel`),
+  giftBillUrl: (giftOrderId: string) => fileUrl(`/gifts/${id(giftOrderId)}/bill`, 'BILL_UNAVAILABLE', 'The bill could not be downloaded. Try again in a minute.'),
+  giftTemplateUrl: () => fileUrl('/gifts/template.csv', 'TEMPLATE_UNAVAILABLE', 'The template could not be downloaded. Try again in a minute.'),
+
   /** Development only: the API's stand-in for Razorpay. */
   devPay: (orderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay', { orderId, outcome }),
   devPayPreorder: (preorderId: string, outcome: 'captured' | 'failed') =>
     raw<{ result: string }>('POST', '/dev/pay-preorder', { preorderId, outcome }),
+  devPayGift: (giftOrderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay-gift', { giftOrderId, outcome }),
+}
+
+/**
+ * Answers the shop shows in the customer's language (docs/languages.md): the shop's own
+ * (a page the API could not answer, a file that would not download) and the API's commonest
+ * fixed ones. Any other API message is shown as the API wrote it, in English.
+ */
+const TRANSLATED_ERRORS: Record<string, Key> = {
+  BAD_RESPONSE: 'error.badResponse',
+  UNAVAILABLE: 'error.unavailable',
+  PHOTO_UNAVAILABLE: 'error.photoUnavailable',
+  BILL_UNAVAILABLE: 'error.billUnavailable',
+  TEMPLATE_UNAVAILABLE: 'error.templateUnavailable',
+  NOT_SERVICEABLE: 'error.notServiceable',
+  CART_EMPTY: 'error.cartEmpty',
+  PHONE_REQUIRED: 'error.phoneRequired',
+  PHONE_TAKEN: 'error.phoneTaken',
+  PHONE_ALREADY_SET: 'error.phoneAlreadySet',
+  SLOT_REQUIRED: 'error.slotRequired',
+  SLOT_INVALID: 'error.slotInvalid',
+  QUOTE_EXPIRED: 'error.quoteExpired',
+  PROMO_NOT_FOR_BULK: 'error.promoNotForBulk',
+  OTP_INVALID: 'error.otpInvalid',
+  OTP_LIMIT: 'error.otpLimit',
+  OTP_PAUSED: 'error.otpPaused',
+  RATE_LIMITED: 'error.rateLimited',
 }
 
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message
-  if (err instanceof TypeError) return 'Could not reach MandiMangoes. Check your connection and try again.'
+  if (err instanceof ApiError) {
+    const key = currentLang() === 'en' ? undefined : TRANSLATED_ERRORS[err.code]
+    return key ? t(key) : err.message
+  }
+  if (err instanceof TypeError) return t('error.network')
   if (err instanceof Error) return err.message
-  return 'Something went wrong.'
+  return t('error.generic')
 }

@@ -2,6 +2,9 @@
 // are things that work but leave a feature off or a risk open.
 // env.js runs this on every production start; `npm run preflight` prints the
 // whole list (and checks the database) without starting the server.
+import { checkTrustProduction, readTrustConfig } from './trust-config.js'
+
+import { pushProblems } from './push-checks.js'
 
 export const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
 
@@ -104,6 +107,13 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
   else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
+  // Bills, customer profiles and exports (trust-config.js): the seller printed on bills must be set.
+  const trustCheck = checkTrustProduction(readTrustConfig({ ...process.env, ...env, NODE_ENV: 'production' }))
+  errors.push(...trustCheck.errors)
+  warnings.push(...trustCheck.warnings)
+  const push = pushProblems(env)
+  errors.push(...push.errors)
+  warnings.push(...push.warnings)
 
   return { errors, warnings }
 }
@@ -129,4 +139,17 @@ export async function checkRoleTimeouts(query, { pooled }) {
     else warnings.push(`${name} is not set for the app's database role (0 = no limit)`)
   }
   return { errors, warnings, ok }
+}
+
+/**
+ * PLT-13 (24 Oct 2026 audit): LOAD-3 answers 503 BUSY when a row lock is not
+ * free in time, which relies on the role's lock_timeout (deploy/RELEASE.md §7).
+ * Without it a request behind a locked stock row waits for the whole statement
+ * timeout. A warning, not a launch stop: the app still works, only slower to
+ * give up.
+ */
+export async function checkLockTimeout(query) {
+  const value = (await query('SHOW lock_timeout')).rows[0]?.lock_timeout
+  if (!noLimit(value)) return { ok: [`lock_timeout is ${value}`], warnings: [] }
+  return { ok: [], warnings: ["lock_timeout is not set for the app's database role: ALTER ROLE <app role> SET lock_timeout = '5s' (deploy/VERCEL.md, step 1)"] }
 }

@@ -26,3 +26,6 @@ export const productReviewsQuery = (sku: string, stars: number | null = null, wi
     getNextPageParam: (last) => last.nextCursor,
     staleTime: PREFETCH_FRESH_MS,
   })
+
+/** The shop's live rules and which app-feel parts are switched on (GET /v1/policy). */
+export const policyQuery = () => queryOptions({ queryKey: ['policy'], queryFn: api.policy, staleTime: 10 * 60_000 })

@@ -1,6 +1,7 @@
 // Preorders and weekly preorder capacity.
 import express from 'express'
 import { z } from 'zod'
+import { auditInTx } from '../access.js'
 import { requireManager } from '../auth.js'
 import { addDays, isDate, todayIST } from '../clock.js'
 import { query, tx } from '../db.js'
@@ -40,7 +41,11 @@ router.post(
   requireManager,
   asyncHandler(async (req, res) => {
     const { reason } = parse(z.object({ reason: z.string().trim().min(1, 'reason is required').max(500) }), req.body ?? {})
-    const r = await tx((c) => staffCancelPreorder(c, req.params.id, req.actor, reason))
+    const r = await tx(async (c) => {
+      const done = await staffCancelPreorder(c, req.params.id, req.actor, reason)
+      await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and its refund) is never left without its record
+      return done
+    })
     const send = r.refund === 'order' ? refundOrder : r.refund === 'preorder' ? refundPreorder : null
     if (send) await send(r.id).catch((err) => logger.error({ err, id: r.id }, 'refund failed; maintenance will retry'))
     res.json({ refunded: Boolean(r.refund) })

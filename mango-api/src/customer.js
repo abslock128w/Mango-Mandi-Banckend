@@ -33,6 +33,20 @@ import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
+import { billFor, billView } from './bills.js'
+import { customerBills } from './bill-routes.js'
+import { gstinProblem, normaliseGstin } from './gstin.js'
+import { isOn } from './feature-switches.js'
+import { appFeel } from './app-feel-routes.js'
+import { languages } from './language-routes.js'
+import { BROWSER_ID, rememberCheckout } from './funnel.js'
+import { growthMe, growthPublic } from './growth-routes.js'
+import { moveFavourites } from './favourites.js'
+import { movePushSubscriptions, pushPublicKey } from './push.js'
+import { trackingFor } from './route.js'
+import { customerGifts, devGifts } from './gift-routes.js'
+import { care } from './care-routes.js'
+import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
 
@@ -98,7 +112,7 @@ async function checkOtpBudget(phone, ip) {
 }
 
 /** Indian mobile numbers, normalised to +91XXXXXXXXXX. */
-const phoneSchema = z
+export const phoneSchema = z
   .string()
   .transform((s) => s.replace(/[\s-]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''))
   .refine((s) => /^[6-9]\d{9}$/.test(s), 'Enter a 10-digit Indian mobile number')
@@ -126,12 +140,17 @@ async function issueCode(phone, channel, ip) {
   await checkOtpBudget(phone, ip)
   const code = String(randomInt(100_000, 1_000_000))
   const at = now()
-  await query(
-    `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
-     ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
-    [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
-  )
+  const store = () =>
+    query(
+      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
+      [phone, hashOtp(phone, code).toString('hex'), new Date(at.getTime() + OTP_TTL_MS), at],
+    )
+  // INT-13 (24 Oct audit, PROVIDER_CHECKS): the new code replaces the old one only once a
+  // channel accepted it, so a failed send leaves the customer's earlier code working.
+  if (!env.PROVIDER_CHECKS) await store()
   const via = await sendOtp(phone, code, channel)
+  if (env.PROVIDER_CHECKS) await store()
   // SEC-01: never in production, and not when the shop is on a public link (start-local --phone).
   return isProd || !env.OTP_CODE_IN_RESPONSE ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
 }
@@ -265,12 +284,12 @@ router.post(
 
 const PIN = z.string().regex(/^\d{6}$/, 'pincode must be 6 digits')
 
-async function serviceable(c, pincode) {
+export async function serviceable(c, pincode) {
   const { rows } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [pincode])
   return rows.length > 0
 }
 
-const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
+export const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
 
 router.get(
   '/delivery/check',
@@ -298,7 +317,7 @@ router.get(
 )
 
 /** Resolves and validates the delivery date for a pincode (pincode gate first). */
-async function deliveryDateFor(c, pincode, wanted) {
+export async function deliveryDateFor(c, pincode, wanted) {
   if (!(await serviceable(c, pincode))) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
   const dates = await orderableDates(c)
   if (!dates.length) throw conflict('No delivery dates are open right now', 'NO_DELIVERY_DAY')
@@ -341,7 +360,33 @@ router.get(
  */
 router.get('/policy', (_req, res) => {
   const cfg = getConfig()
-  res.json({ holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours })
+  res.json({
+    holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
+    // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
+    bills: isOn('BILLS_ENABLED'),
+    // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
+    features: {
+      // Effective values: a manager may have changed these on the panel (PANEL_FEATURE_SWITCHES, docs/ops.md).
+      installApp: isOn('SHOP_INSTALL'),
+      push: Boolean(pushPublicKey()),
+      tracking: isOn('LIVE_TRACKING'),
+      favourites: isOn('FAVOURITES'),
+      sortFilter: isOn('SHOP_SORT_FILTER'),
+      // Growth (docs/growth.md): refer a friend on the Account page and at checkout, and the anonymous funnel steps.
+      referrals: isOn('REFERRALS'),
+      funnel: isOn('FUNNEL_ANALYTICS'),
+      // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
+      multiGift: isOn('MULTI_GIFT'),
+      // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
+      languages: isOn('SHOP_LANGUAGES'),
+    },
+    ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
+    // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
+    // Named only while one is on, so an API with both off answers as before.
+    ...(isOn('HELP_CENTRE') || isOn('SUBSCRIPTIONS')
+      ? { care: { helpCentre: isOn('HELP_CENTRE'), subscriptions: isOn('SUBSCRIPTIONS'), subscriptionsOpen: subscriptionsOpen() } }
+      : {}),
+  })
 })
 
 /**
@@ -395,12 +440,26 @@ router.get(
 
 // Bulk Deals: the catalogue and its photos are public.
 router.use(publicBulk)
+// POST /events: the shop's anonymous funnel steps (FUNNEL_ANALYTICS), before the sign-in gate.
+router.use(growthPublic)
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
 router.use(customerReviews)
+// The bill PDF of the customer's own paid order (BILLS_ENABLED).
+router.use(customerBills)
+// Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
+router.use(appFeel)
+// /me/referral...: refer a friend (REFERRALS, docs/growth.md).
+router.use(growthMe)
+// Bulk and corporate gifting (MULTI_GIFT): /gifts..., the caller's own gift orders only.
+router.use(customerGifts)
+// Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
+router.use(care)
+// The shop language the customer chose: /me/language (language-routes.js, docs/languages.md).
+router.use(languages)
 
 const meView = (cu) => ({ ...profile(cu), remindersOptIn: Boolean(cu.reminders_opt_in) })
 
@@ -515,6 +574,8 @@ router.post(
     await tx(async (c) => {
       await c.query('UPDATE customers SET session_version = session_version + 1 WHERE id = $1', [req.customer.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [req.customer.id, now()])
+      // A phone left signed in would still show order updates: browser notifications end too.
+      await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [req.customer.id])
     })
     forgetCustomer(req.customer.id)
     logger.info({ customerId: req.customer.id }, 'customer signed out everywhere')
@@ -530,15 +591,15 @@ const exportRows = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r
 /**
  * A copy of everything the shop holds about the customer (DPDP Act; ASVS
  * 8.3.2), as JSON: the account, saved addresses, orders with their items,
- * bookings, claims, ratings, reviews and back-in-stock alerts. Photos are
- * listed, not included.
+ * bookings, claims, ratings, reviews, back-in-stock alerts, favourites and the
+ * browsers with notifications on. Photos are listed, not included.
  */
 router.get(
   '/me/export',
   asyncHandler(async (req, res) => {
     const id = req.customer.id
     const all = (sql) => query(sql, [id]).then((r) => exportRows(r.rows))
-    const [account] = await all('SELECT id, phone, name, email, reminders_opt_in, created_at FROM customers WHERE id = $1 AND deleted_at IS NULL')
+    const [account] = await all('SELECT id, phone, name, email, reminders_opt_in, language, created_at FROM customers WHERE id = $1 AND deleted_at IS NULL')
     if (!account) throw notFound('Customer not found')
     const orders = await all('SELECT * FROM orders WHERE customer_id = $1 ORDER BY placed_at')
     const items = await query('SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY order_id', [orders.map((o) => o.id)]).then((r) => exportRows(r.rows))
@@ -553,12 +614,34 @@ router.get(
       ratings: await all('SELECT * FROM order_ratings WHERE customer_id = $1'),
       reviews: await all('SELECT * FROM reviews WHERE customer_id = $1 ORDER BY created_at'),
       stockAlerts: await all('SELECT * FROM stock_alerts WHERE customer_id = $1 ORDER BY created_at'),
+      bills: await all(
+        `SELECT b.number, b.kind, b.bill_date, b.total, b.buyer_name, b.buyer_address, b.snapshot -> 'buyer' AS business, b.cancelled_at
+           FROM bills b JOIN orders o ON o.id = b.order_id WHERE o.customer_id = $1 ORDER BY b.issued_at`,
+      ),
+      favourites: await all('SELECT sku, created_at FROM customer_favourites WHERE customer_id = $1 ORDER BY created_at'),
+      // Help requests with every message in them, and subscriptions with their deliveries (docs/care.md).
+      helpRequests: await all(
+        `SELECT t.number, t.topic, t.status, t.order_id, t.created_at, t.resolved_at,
+                (SELECT json_agg(json_build_object('from', CASE m.author WHEN 'STAFF' THEN 'MandiMangoes' ELSE 'you' END, 'message', m.body, 'at', m.created_at) ORDER BY m.created_at)
+                   FROM help_messages m WHERE m.ticket_id = t.id) AS messages
+           FROM help_tickets t WHERE t.customer_id = $1 ORDER BY t.created_at`,
+      ),
+      subscriptions: await all(
+        `SELECT s.number, s.sku, s.stage, s.qty, s.frequency, s.first_date, s.end_date, s.status, s.customer_name, s.delivery_address, s.pincode, s.created_at,
+                (SELECT json_agg(json_build_object('scheduledFor', y.scheduled_for, 'deliveryDate', y.delivery_date, 'status', y.status, 'orderId', y.order_id) ORDER BY y.scheduled_for)
+                   FROM subscription_cycles y WHERE y.subscription_id = s.id) AS deliveries
+           FROM subscriptions s WHERE s.customer_id = $1 ORDER BY s.created_at`,
+      ),
+      // Which push service each browser uses and when; the endpoint and keys are capabilities, not data about the customer.
+      notificationBrowsers: (await query('SELECT endpoint, created_at, last_sent_at FROM push_subscriptions WHERE customer_id = $1 ORDER BY created_at', [id])).rows.map(
+        (r) => ({ pushService: new URL(r.endpoint).host, createdAt: r.created_at, lastSentAt: r.last_sent_at }),
+      ),
     })
   }),
 )
 
 /** Orders need a mobile number: the rider calls it and WhatsApp updates go to it. */
-async function requirePhone(c, customerId) {
+export async function requirePhone(c, customerId) {
   const { rows } = await c.query('SELECT name, phone FROM customers WHERE id = $1', [customerId])
   if (!rows[0]?.phone) throw conflict('Add your mobile number first, so the rider can reach you.', 'PHONE_REQUIRED')
   return rows[0]
@@ -571,7 +654,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const { phone, channel, captchaToken } = parse(otpRequest, req.body)
     // Signed in already, so a Turnstile outage doesn't lock them out of adding a number.
-    await requireHuman(captchaToken, req.ip, { known: true })
+    // INT-18 (PROVIDER_CHECKS): only a number that already has an account counts as known, as at
+    // sign-in, so a free Google account can't send codes to any number while Cloudflare is down.
+    const known = env.PROVIDER_CHECKS ? (await query('SELECT 1 FROM customers WHERE phone = $1 AND deleted_at IS NULL', [phone])).rowCount > 0 : true
+    await requireHuman(captchaToken, req.ip, { known })
     res.json(await issueCode(phone, channel, req.ip))
   }),
 )
@@ -624,10 +710,17 @@ router.post(
       await c.query('UPDATE claim_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query('UPDATE review_photos SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query('UPDATE reviews SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      // Hearts and notification browsers come along too (docs/app-feel.md); without this the delete below would fail on them.
+      await moveFavourites(c, me.id, target.id)
+      await movePushSubscriptions(c, me.id, target.id)
+      // Help requests and subscriptions (docs/care.md) come along too.
+      await c.query('UPDATE help_tickets SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
+      await c.query('UPDATE subscriptions SET customer_id = $2 WHERE customer_id = $1', [me.id, target.id])
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
       await c.query('DELETE FROM customers WHERE id = $1', [me.id])
-      const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4) WHERE id = $1 RETURNING *', [
-        target.id, me.google_sub, me.email, me.name,
+      // The shop language (docs/languages.md): the phone account's own choice wins; otherwise the joining account's.
+      const up = await c.query('UPDATE customers SET google_sub = $2, email = $3, name = COALESCE(name, $4), language = COALESCE(language, $5) WHERE id = $1 RETURNING *', [
+        target.id, me.google_sub, me.email, me.name, me.language ?? null,
       ])
       return { customer: up.rows[0], joined: true }
     })
@@ -744,14 +837,15 @@ router.post(
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
       // UX-3: how long the boxes are held once Pay is tapped, from the live rule (the review step says so).
-      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes }
+      // bills: the shop offers business details (name and GSTIN) for the bill only while bills are on.
+      return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes, bills: isOn('BILLS_ENABLED') }
     })
     res.json(quote)
   }),
 )
 
 /** Checks the customer's slot choice at quote time; confirm re-checks it under lock. */
-async function quoteSlot(c, date, wanted, boxes) {
+export async function quoteSlot(c, date, wanted, boxes) {
   const slots = await slotsForDate(c, date)
   if (!slots.length) return null
   if (!wanted) throw badRequest('Choose a delivery slot', 'SLOT_REQUIRED')
@@ -761,15 +855,30 @@ async function quoteSlot(c, date, wanted, boxes) {
   return { id: s.id, label: s.label, startsAt: s.startsAt, endsAt: s.endsAt }
 }
 
+/** A business buyer's details for the bill: the name as on the GST certificate, and a valid GSTIN. */
+export const businessSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Enter the business name as on its GST certificate').max(100),
+    gstin: z
+      .string()
+      .max(20)
+      .transform(normaliseGstin)
+      .superRefine((g, ctx) => {
+        const problem = gstinProblem(g)
+        if (problem) ctx.addIssue({ code: 'custom', message: problem })
+      }),
+  })
+  .strict()
+
 /** The same request, whatever the key order: a retry must send what the first try sent. */
 const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
-const requestHash = (body) => createHash('sha256').update(JSON.stringify(stable(body))).digest('hex')
+export const requestHash = (body) => createHash('sha256').update(JSON.stringify(stable(body))).digest('hex')
 
 /**
  * What an earlier request with this key made, or null. The same key with a
  * different body is a client bug (or a reused key): refused, not replayed.
  */
-async function replayFor(key, hash, table) {
+export async function replayFor(key, hash, table) {
   const { rows } = await query(`SELECT k.request_hash AS idem_hash, t.* FROM idempotency_keys k JOIN ${table} t ON t.id = k.order_id WHERE k.key = $1`, [key])
   const r = rows[0]
   if (r?.idem_hash && r.idem_hash !== hash) {
@@ -783,10 +892,10 @@ async function replayFor(key, hash, table) {
  * Razorpay order or link yet): 409, so the shop retries shortly instead of
  * opening a checkout with nothing to pay.
  */
-function startingPayment() {
+export function startingPayment() {
   return new HttpError(409, 'PAYMENT_STARTING', 'Your payment is still being set up. Please try again in a moment.', { retryAfterSeconds: 2 })
 }
-const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
+export const stillStarting = (row, ref) => !row || (row.status === 'PAYMENT_PENDING' && !row[ref])
 
 const confirmResponse = (o) => ({
   orderId: o.id, number: o.number, status: o.status, total: o.total, deliveryDate: o.delivery_date, slotId: o.slot_id ?? null,
@@ -811,9 +920,14 @@ router.post(
           })
           .optional()
           .nullable(),
+        // Optional: a business buying, printed on the bill (BILLS_ENABLED). The GSTIN's check character is verified.
+        business: businessSchema.optional().nullable(),
+        // FUNNEL_ANALYTICS: the shop's random per-browser id, so "paid" can be counted for it when the payment is captured.
+        funnelId: z.string().regex(BROWSER_ID).optional().nullable(),
       }),
       req.body,
     )
+    if (b.business && !isOn('BILLS_ENABLED')) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
     const key = `${req.customer.id}:${rawKey}`
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'orders')
@@ -833,7 +947,8 @@ router.post(
       if (!ins.rowCount) return null
       const { rows } = await c.query('SELECT * FROM quotes WHERE id = $1 AND customer_id = $2 FOR UPDATE', [b.quoteId, req.customer.id])
       const q = rows[0]
-      if (!q || q.expires_at <= now()) throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
+      // A gift order's quote (MULTI_GIFT) is confirmed at /gifts/confirm, never here.
+      if (!q || q.expires_at <= now() || q.data.kind === 'multi-gift') throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
       const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
       const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
@@ -862,6 +977,10 @@ router.post(
         req.actor,
       )
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
+      if (b.funnelId) await rememberCheckout(c, created.id, b.funnelId)
+      if (b.business) {
+        await c.query('UPDATE orders SET buyer_business_name = $2, buyer_gstin = $3 WHERE id = $1', [created.id, b.business.name, b.business.gstin])
+      }
       // A gift goes to someone else's address, which isn't ours to keep offering.
       if (!b.gift) await rememberAddress(c, req.customer.id, { name: b.name ?? cust.name, address: b.address, pincode: q.data.pincode })
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, created.id])
@@ -906,6 +1025,46 @@ async function startPayment(order, key) {
   }
 }
 
+/**
+ * Pays for one delivery of a subscription (SUBSCRIPTIONS, docs/care.md): makes
+ * the ordinary unpaid order for it (subscriptions.js orderCycle: the checkout's
+ * unpaid-order limits, capacity, slot and stock rules) and starts its payment
+ * exactly as checkout does. Needs an Idempotency-Key: a retry replays the order
+ * instead of making a second one. The answer is checkout's.
+ */
+router.post(
+  '/me/subscriptions/:id/cycles/:cycleId/pay',
+  asyncHandler(async (req, res) => {
+    if (!isOn('SUBSCRIPTIONS')) throw notFound()
+    const rawKey = req.get('Idempotency-Key')
+    if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    const key = `${req.customer.id}:sub:${rawKey}`
+    const hash = requestHash({ subscriptionId: req.params.id, cycleId: req.params.cycleId })
+    const existing = () => replayFor(key, hash, 'orders')
+    const replay = await existing()
+    if (replay && stillStarting(replay, 'razorpay_order_id')) {
+      if (!startedLongAgo(replay)) throw startingPayment()
+      return res.status(200).json(confirmResponse(await startPayment(replay, key)))
+    }
+    if (replay) return res.status(200).json(confirmResponse(replay))
+    const out = await tx(async (c) => {
+      const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
+      if (!ins.rowCount) return null
+      const r = await orderCycle(c, { customerId: req.customer.id, subscriptionId: req.params.id, cycleId: req.params.cycleId }, req.actor)
+      await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, r.order.id])
+      return r
+    })
+    if (!out) {
+      const first = await existing()
+      if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
+      return res.status(200).json(confirmResponse(first))
+    }
+    // A payment already started for this delivery and still held: carry on with it.
+    if (out.existing) return res.status(200).json(confirmResponse(out.order.razorpay_order_id ? out.order : await startPayment(out.order, key)))
+    res.status(201).json(confirmResponse(await startPayment(out.order, key)))
+  }),
+)
+
 // ---------------------------------------------------------------- orders
 
 async function ownOrder(c, req) {
@@ -926,6 +1085,8 @@ router.get(
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at,
       // Lets the shop point to an unpaid order that is still held (FE-5).
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
+      // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
+      ...(o.gift_order_id ? { giftOrderId: o.gift_order_id, giftRecipient: o.gift_recipient_name } : {}),
     })))
   }),
 )
@@ -934,7 +1095,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking] = await Promise.all([
       query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -946,6 +1107,9 @@ router.get(
       o.status === 'DELIVERED'
         ? query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])
         : { rows: [] },
+      isOn('BILLS_ENABLED') ? billFor({ query }, o.id) : null,
+      // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
+      isOn('LIVE_TRACKING') ? trackingFor({ query }, o) : null,
     ])
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
@@ -974,6 +1138,11 @@ router.get(
       retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
       // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
       findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
+      // The bill, once the order is paid (BILLS_ENABLED): download it from /orders/:id/bill.
+      bill: billView(bill),
+      business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
+      // MULTI_GIFT: one delivery of a gift order; its payment, bill and cancel of the whole order are on the gift order.
+      giftOrderId: o.gift_order_id ?? null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
@@ -981,6 +1150,7 @@ router.get(
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
+      tracking,
       ...proof,
     })
   }),
@@ -1303,5 +1473,7 @@ devRouter.post(
     res.json({ ok: true })
   }),
 )
+
+devRouter.use(devGifts)
 
 devRouter.post('/reconcile', asyncHandler(async (_req, res) => res.json({ reconciled: await reconcilePendingPayments({ minAgeSeconds: 0 }) })))

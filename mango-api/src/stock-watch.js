@@ -4,12 +4,55 @@
 //     for delivery for longer than a delivery takes;
 //   - preorders that keep rolling forward (INV-H);
 //   - boxes on orders cancelled or returned after they left the store (INV-F),
-//     which staff put back on the shelf or write off.
+//     which staff put back on the shelf or write off;
+//   - preorder capacity counters that disagree with their bookings (INV-06)
+//     and trucks still in transit after their arrival date (INV-08).
 import { diffDays, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { badRequest, conflict, notFound } from './errors.js'
-import { ledger, restock } from './inventory.js'
+import { ledger, lockLines, restock } from './inventory.js'
 import { addEvent, MAX_DELIVERY_ATTEMPTS } from './orders.js'
+import { trackedLine } from './warehouse/core.js'
+
+/** Booking states that take preorder capacity (a converted booking keeps it). */
+export const CAPACITY_STATUSES = ['PAYMENT_PENDING', 'BOOKED', 'CONVERTED']
+
+/**
+ * INV-06: weeks whose reserved preorder capacity disagrees with the bookings
+ * that hold it (PAYMENT_PENDING, BOOKED and CONVERTED take capacity; a
+ * converted booking keeps it). release() clamps at zero, so drift would
+ * otherwise go unseen. An empty array means the counters balance.
+ */
+export async function preorderCapacityDrift(c, limit = 100) {
+  const { rows } = await c.query(
+    `SELECT COALESCE(k.sku, b.sku) AS sku, COALESCE(k.week_start, b.week_start) AS week_start,
+            COALESCE(k.reserved, 0)::int AS reserved, COALESCE(b.n, 0)::int AS booked
+       FROM preorder_capacity k
+       FULL JOIN (SELECT sku, week_start, SUM(qty) AS n FROM preorders
+                   WHERE status = ANY('{${CAPACITY_STATUSES}}') GROUP BY sku, week_start) b
+         ON b.sku = k.sku AND b.week_start = k.week_start
+      WHERE COALESCE(k.reserved, 0) <> COALESCE(b.n, 0)
+      ORDER BY 2, 1 LIMIT $1`,
+    [limit],
+  )
+  return rows.map((r) => ({ sku: r.sku, weekStart: r.week_start, reserved: r.reserved, booked: r.booked }))
+}
+
+/**
+ * INV-08: batches still in transit after their arrival date. Their stock is
+ * sold ahead of arrival at the forecast confidence; with STOCK_INTAKE_CHECKS
+ * it stops selling to new orders until staff mark the batch arrived.
+ */
+export async function lateArrivals(c, at = now(), limit = 50) {
+  const { rows } = await c.query(
+    `SELECT b.id, b.variety, b.farm, b.eta_date, COALESCE(SUM(l.held + l.committed), 0)::int AS promised
+       FROM batches b LEFT JOIN batch_lines l ON l.batch_id = b.id
+      WHERE b.status = 'IN_TRANSIT' AND b.eta_date < $1
+      GROUP BY b.id ORDER BY b.eta_date, b.id LIMIT $2`,
+    [todayIST(at), limit],
+  )
+  return rows.map((b) => ({ id: b.id, variety: b.variety, farm: b.farm, etaDate: b.eta_date, promised: b.promised }))
+}
 
 /** Paid orders that still have to reach the customer. */
 const UNDELIVERED = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
@@ -105,8 +148,13 @@ export async function bookReturnedStock(c, orderId, { action, reasonCode = null,
     [o.id],
   )
   if (!packed.length) throw conflict('This order has no boxes waiting to be booked', 'NOTHING_TO_BOOK')
-  // Lines in id order, after the order: the lock order every stock change uses.
-  await c.query('SELECT id FROM batch_lines WHERE id = ANY($1) ORDER BY id FOR UPDATE', [[...new Set(packed.map((r) => r.line_id))]])
+  for (const row of packed) {
+    if (await trackedLine(c, row.line_id)) {
+      throw conflict('These boxes are labelled: book them in with a Return scan in the warehouse (Warehouse → Scan → Return).', 'USE_WAREHOUSE_RETURNS')
+    }
+  }
+  // Lines after the order, in the line order every stock change uses (DB-01).
+  await lockLines(c, packed.map((r) => r.line_id))
   const boxes = packed.reduce((n, r) => n + r.quantity, 0)
   const why = reason.trim()
   if (action === 'RESTOCK') {

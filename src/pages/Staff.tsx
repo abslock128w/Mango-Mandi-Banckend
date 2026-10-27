@@ -5,6 +5,8 @@ import { api } from '../api'
 import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, dateTime, rupees } from '../format'
 import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
+import { useStepUp } from '../StepUp'
+import { DailySummaryCard } from './DailySummary'
 import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
 import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
@@ -23,6 +25,10 @@ export default function Staff() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['staff'], queryFn: api.staff })
+  // The evening WhatsApp summary (MANAGER_DAILY_SUMMARY): who gets it, and my own setting.
+  const summaryOn = me?.role === 'MANAGER' && Boolean(me.features?.managerDailySummary)
+  // Staff changes may ask the manager to confirm it is them (SEC-07).
+  const stepUp = useStepUp()
   const [adding, setAdding] = useState(false)
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
@@ -38,7 +44,7 @@ export default function Staff() {
   }
 
   const setRole = useMutation({
-    mutationFn: (p: { id: string; role: Role }) => api.updateStaff(p.id, { role: p.role }),
+    mutationFn: (p: { id: string; role: Role }) => stepUp.run((code) => api.updateStaff(p.id, { role: p.role }, code)),
     onSuccess: (s) => {
       toast.success(`${s.email} is now ${ROLE_LABEL[s.role]}. They will need to sign in again.`)
       setChanging(null)
@@ -46,7 +52,7 @@ export default function Staff() {
     },
   })
   const remove = useMutation({
-    mutationFn: (id: string) => api.removeStaff(id),
+    mutationFn: (id: string) => stepUp.run((code) => api.removeStaff(id, code)),
     onSuccess: () => {
       toast.success(`${removing?.email} removed`)
       setRemoving(null)
@@ -69,7 +75,7 @@ export default function Staff() {
   })
 
   const resetTwoStep = useMutation({
-    mutationFn: (id: string) => api.resetTwoStep(id),
+    mutationFn: (id: string) => stepUp.run((code) => api.resetTwoStep(id, code)),
     onSuccess: (r) => {
       if (unlocking) setShownCode({ email: unlocking.email, code: r.setupCode })
       setUnlocking(null)
@@ -77,7 +83,7 @@ export default function Staff() {
     },
   })
   const newSetupCode = useMutation({
-    mutationFn: (s: StaffMember) => api.newSetupCode(s.id).then((r) => ({ email: s.email, code: r.setupCode })),
+    mutationFn: (s: StaffMember) => stepUp.run((code) => api.newSetupCode(s.id, code)).then((r) => ({ email: s.email, code: r.setupCode })),
     onSuccess: (c) => setShownCode(c),
     onError: (err) => toast.error(err),
   })
@@ -109,6 +115,7 @@ export default function Staff() {
                   <th>Email</th>
                   <th>Role</th>
                   <th>Two-step</th>
+                  {summaryOn && <th>Evening summary</th>}
                   <th>Added</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -146,6 +153,7 @@ export default function Staff() {
                         </select>
                       </td>
                       <td>{s.twoStep ? 'On' : 'Off'}</td>
+                      {summaryOn && <td>{s.role === 'MANAGER' ? (s.dailySummary ? 'On' : 'Off') : '—'}</td>}
                       <td>{dateTime(s.createdAt)}</td>
                       <td>
                         <div className="btn-row">
@@ -185,6 +193,8 @@ export default function Staff() {
         </ul>
       </section>
 
+      {summaryOn && <DailySummaryCard />}
+
       <Activity />
 
       {changing && (
@@ -205,6 +215,7 @@ export default function Staff() {
 
       {adding && (
         <AddDialog
+          confirm={stepUp.run}
           onClose={() => setAdding(false)}
           onDone={(s) => {
             refresh()
@@ -228,7 +239,7 @@ export default function Staff() {
           </p>
         </Dialog>
       )}
-      {resetting && <PasswordDialog member={resetting} onClose={() => setResetting(null)} />}
+      {resetting && <PasswordDialog member={resetting} confirm={stepUp.run} onClose={() => setResetting(null)} />}
       {unlocking && (
         <ConfirmDialog
           title={`Reset two-step sign-in for ${unlocking.email}?`}
@@ -276,18 +287,22 @@ export default function Staff() {
           </div>
         </ReasonDialog>
       )}
+      {stepUp.dialog}
     </>
   )
 }
 
-function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: StaffMember) => void }) {
+/** Sends a staff change, asking the manager to confirm it is them when the server wants that (useStepUp). */
+type Confirm = ReturnType<typeof useStepUp>['run']
+
+function AddDialog({ confirm, onClose, onDone }: { confirm: Confirm; onClose: () => void; onDone: (s: StaffMember) => void }) {
   const toast = useToast()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('PACKER')
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const add = useMutation({
-    mutationFn: () => api.addStaff({ email: email.trim(), role, password }),
+    mutationFn: () => confirm((code) => api.addStaff({ email: email.trim(), role, password }, code)),
     onSuccess: (s) => {
       toast.success(`${s.email} added as ${ROLE_LABEL[s.role]}`)
       onClose()
@@ -347,12 +362,12 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (s: Staff
   )
 }
 
-function PasswordDialog({ member, onClose }: { member: StaffMember; onClose: () => void }) {
+function PasswordDialog({ member, confirm, onClose }: { member: StaffMember; confirm: Confirm; onClose: () => void }) {
   const toast = useToast()
   const [password, setPassword] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const save = useMutation({
-    mutationFn: () => api.updateStaff(member.id, { password }),
+    mutationFn: () => confirm((code) => api.updateStaff(member.id, { password }, code)),
     onSuccess: () => {
       toast.success(`Password changed for ${member.email}`)
       onClose()
@@ -439,6 +454,13 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /staff/:id/two-step/setup-code': 'Gave out a two-step setup code',
   'POST /me/two-step/enable': 'Turned on two-step sign-in',
   'POST /me/two-step/disable': 'Turned off two-step sign-in',
+  // SEC-08: views of customer details (shown with "Include views of customer details").
+  'GET /orders/:id': 'Opened an order',
+  'GET /orders': 'Searched orders',
+  'GET /manifest': 'Opened the delivery list',
+  'GET /claims': 'Opened the claims list',
+  'GET /orders/:id/delivery-photos/:photoId': 'Viewed a delivery photo',
+  'GET /claims/:id/photos/:photoId': 'Viewed a claim photo',
 }
 
 function describe(a: AuditEntry) {
@@ -468,9 +490,10 @@ function Activity() {
   const from = params.get('from') || null
   const to = params.get('to') || null
   const page = Number(params.get('page') || 1)
+  const reads = params.get('reads') === '1'
   const q = useQuery({
-    queryKey: ['audit', staff, from, to, page],
-    queryFn: () => api.audit({ staff, from, to, page }),
+    queryKey: ['audit', staff, from, to, page, reads],
+    queryFn: () => api.audit({ staff, from, to, page, reads }),
     placeholderData: keepPreviousData,
   })
 
@@ -514,6 +537,9 @@ function Activity() {
           </label>
           <input id="act-to" type="date" value={to ?? ''} onChange={(e) => set('to', e.target.value)} />
         </div>
+        <label className="check-row">
+          <input type="checkbox" checked={reads} onChange={(e) => set('reads', e.target.checked ? '1' : null)} /> Include views of customer details
+        </label>
       </div>
       {q.isPending ? (
         <Spinner />

@@ -13,6 +13,7 @@ import { logger } from './logger.js'
 import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
 import { findPreorderId, processPreorderPayment, refundPreorder } from './preorders.js'
+import { processGiftPayment } from './gifts.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
@@ -101,6 +102,23 @@ export async function createPaymentLink({ amount, number, orderId, preorderId, n
   return { id, url: `https://rzp.io/i/${id}` }
 }
 
+/**
+ * PAY-03: closes a payment link nobody was sent (Razorpay "Cancel a Payment
+ * Link", POST /payment_links/:id/cancel; to be checked in the sandbox, R15).
+ * Best effort: a link left open still expires (linkExpiresAt), and a payment
+ * on it is still matched by the link's notes. Never throws.
+ */
+export async function cancelPaymentLink(linkId) {
+  if (!hasKeys() || !linkId) return false
+  try {
+    await razorpay('POST', `/payment_links/${encodeURIComponent(linkId)}/cancel`)
+    return true
+  } catch (err) {
+    logger.warn({ err, paymentLinkId: linkId }, 'could not cancel an unused payment link; it expires on its own')
+    return false
+  }
+}
+
 export async function fetchLinkPayments(linkId) {
   if (hasKeys()) {
     const link = await razorpay('GET', `/payment_links/${encodeURIComponent(linkId)}`)
@@ -175,11 +193,26 @@ async function findOrderId(c, entity, link = null) {
 }
 
 /**
+ * MULTI_GIFT: the gift order a payment is for. Only our own Razorpay order id
+ * is trusted (a gift order is paid in Checkout, never by a link).
+ */
+export async function findGiftOrderId(c, entity) {
+  if (!entity?.order_id) return null
+  const { rows } = await c.query('SELECT id FROM gift_orders WHERE razorpay_order_id = $1', [entity.order_id])
+  return rows[0]?.id ?? null
+}
+
+/**
  * Applies one captured payment found by polling Razorpay (reconcile, replay)
  * after the same checks a webhook gets. Returns the result, or 'rejected'.
+ * A gift order's deliveries due a refund (paid after the buyer cancelled) are
+ * sent by the maintenance loop (processDueRefunds).
  */
 export async function applyCapture(c, table, id, p) {
   if (await checkCapture(c, { table, id, paymentId: p.id, amount: p.amount, currency: p.currency })) return 'rejected'
+  if (table === 'gift_orders') {
+    return (await processGiftPayment(c, { giftOrderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+  }
   if (table === 'preorders') {
     return processPreorderPayment(c, { preorderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
   }
@@ -194,7 +227,8 @@ export async function applyCapture(c, table, id, p) {
  * (it bought nothing). Returns null when the payment is fine, else a reason.
  */
 export async function checkCapture(c, { table, id, paymentId, amount, currency }) {
-  const { rows } = await c.query(`SELECT total, payment_id FROM ${table === 'preorders' ? 'preorders' : 'orders'} WHERE id = $1`, [id])
+  const from = table === 'preorders' ? 'preorders' : table === 'gift_orders' ? 'gift_orders' : 'orders'
+  const { rows } = await c.query(`SELECT total, payment_id FROM ${from} WHERE id = $1`, [id])
   const total = rows[0]?.total
   let reason = null
   if (!paymentId) reason = 'captured payment has no payment id'
@@ -207,9 +241,14 @@ export async function checkCapture(c, { table, id, paymentId, amount, currency }
   logger.error({ table, id, paymentId, amount, currency, total }, `payment rejected: ${reason}`)
   await recordWebhookFailure('razorpay', `Payment ${paymentId ?? '(no id)'} for ${id} not accepted: ${reason}`, paymentId, c)
   if (paymentId && paymentId !== rows[0]?.payment_id) {
+    // A gift order's refundable payment is recorded against its first delivery (duplicate_payments points at orders).
+    const orderId =
+      table === 'preorders' ? null
+        : table === 'gift_orders' ? ((await c.query('SELECT id FROM orders WHERE gift_order_id = $1 ORDER BY gift_position, id LIMIT 1', [id])).rows[0]?.id ?? null)
+          : id
     await c.query(
       `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [paymentId, table === 'preorders' ? null : id, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
+      [paymentId, orderId, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
     )
   }
   return reason
@@ -265,6 +304,19 @@ export async function handleWebhook(event, eventId) {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
+    // MULTI_GIFT: one Razorpay order pays for a whole gift order.
+    const giftOrderId = orderId || link ? null : await findGiftOrderId(c, entity)
+    if (giftOrderId) {
+      if (kind !== 'payment.failed') {
+        const bad = await checkCapture(c, { table: 'gift_orders', id: giftOrderId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+        if (bad) return { result: 'rejected', giftOrderId, reason: bad }
+      }
+      const r = await processGiftPayment(c, {
+        giftOrderId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
+        amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
+      })
+      return { result: r.result, giftOrderId, refundOrderIds: r.refundOrderIds }
+    }
     if (!orderId) {
       const preorderId = await findPreorderId(c, entity, link)
       if (preorderId) {
@@ -311,12 +363,14 @@ export async function handleWebhook(event, eventId) {
   })
 }
 
-/** Which refunds a payment result made due: { orderId, preorderId, duplicates }. */
+/** Which refunds a payment result made due: { orderId, preorderId, orderIds, duplicates }. */
 export function refundsFor(out) {
   const due = out?.result === 'refund_due'
   return {
     orderId: due ? (out.orderId ?? null) : null,
     preorderId: due ? (out.preorderId ?? null) : null,
+    // A gift order (MULTI_GIFT): the deliveries the buyer cancelled before its payment landed.
+    orderIds: out?.refundOrderIds ?? [],
     duplicates: out?.result === 'duplicate_payment' || out?.result === 'rejected',
   }
 }
@@ -328,9 +382,10 @@ export function refundsFor(out) {
  * and the maintenance loop can't pay twice, and anything that fails here is
  * retried by maintenance (processDueRefunds, refundDuplicatePayments). Never throws.
  */
-export async function sendDueRefunds({ orderId = null, preorderId = null, duplicates = false } = {}) {
+export async function sendDueRefunds({ orderId = null, preorderId = null, orderIds = [], duplicates = false } = {}) {
   const log = (what) => (err) => logger.error({ err, orderId, preorderId }, `${what} refund failed; maintenance will retry`)
   if (orderId) await refundOrder(orderId).catch(log('order'))
+  for (const id of orderIds) await refundOrder(id).catch(log('gift delivery'))
   if (preorderId) await refundPreorder(preorderId).catch(log('preorder'))
   if (duplicates) await refundDuplicatePayments().catch(log('duplicate payment'))
 }
@@ -391,7 +446,10 @@ async function handleDisputeEvent(event, eventId) {
  */
 async function captureAuthorized(entity) {
   if (!entity.id || !entity.order_id) return { ignored: true }
-  const { rows } = await query('SELECT id, total FROM orders WHERE razorpay_order_id = $1', [entity.order_id])
+  const { rows } = await query(
+    'SELECT id, total FROM orders WHERE razorpay_order_id = $1 UNION ALL SELECT id, total FROM gift_orders WHERE razorpay_order_id = $1',
+    [entity.order_id],
+  )
   const o = rows[0]
   if (!o || entity.amount !== o.total || (entity.currency ?? 'INR') !== 'INR') return { ignored: true }
   if (!hasKeys()) return { ignored: true }
@@ -540,7 +598,56 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
       logger.error({ err, orderId: o.id }, 'payment reconciliation failed for order')
     }
   }
+  // MULTI_GIFT: gift orders still unpaid, for a day after they were placed (a payment can land after the hold).
+  const gifts = await query(
+    `SELECT id, razorpay_order_id FROM gift_orders
+      WHERE razorpay_order_id IS NOT NULL AND payment_status IN ('INITIATED', 'CANCELLED') AND placed_at < $1 AND placed_at > $2
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $3)
+      ORDER BY (status = 'PAYMENT_PENDING') DESC, reconcile_checked_at NULLS FIRST, placed_at DESC LIMIT 50`,
+    [new Date(at.getTime() - minAgeSeconds * 1000), new Date(at.getTime() - 86_400_000), new Date(at.getTime() - 50_000)],
+  )
+  for (const g of gifts.rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) break
+    try {
+      await query('UPDATE gift_orders SET reconcile_checked_at = $2 WHERE id = $1', [g.id, now()])
+      const r = await reconcileGift(g)
+      if (r && r !== 'rejected') n++
+    } catch (err) {
+      logger.error({ err, giftOrderId: g.id }, 'payment reconciliation failed for gift order')
+    }
+  }
   return n
+}
+
+/** MULTI_GIFT: reconcileOrder for a gift order's Razorpay order. */
+async function reconcileGift(g) {
+  const payments = await fetchPayments(g.razorpay_order_id)
+  const captured = payments.find((p) => p.status === 'captured')
+  if (captured) return tx((c) => applyCapture(c, 'gift_orders', g.id, captured))
+  const authorized = payments.find((p) => p.status === 'authorized')
+  if (authorized) await captureAuthorized({ id: authorized.id, order_id: g.razorpay_order_id, amount: authorized.amount, currency: authorized.currency })
+  return null
+}
+
+/**
+ * MULTI_GIFT: reconcileOrderNow for a gift order (the buyer back from Checkout,
+ * or its page asking): at most one gateway check every `throttleMs`.
+ */
+export async function reconcileGiftNow(giftOrderId, { minAgeMs = 0, throttleMs = 10_000 } = {}) {
+  if (!hasKeys() && isProd) return null
+  const at = now()
+  const { rows } = await query(
+    `UPDATE gift_orders SET reconcile_checked_at = $2
+      WHERE id = $1 AND razorpay_order_id IS NOT NULL AND placed_at <= $3 AND payment_status IN ('INITIATED', 'CANCELLED')
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $4)
+      RETURNING id, razorpay_order_id`,
+    [giftOrderId, at, new Date(at.getTime() - minAgeMs), new Date(at.getTime() - throttleMs)],
+  )
+  if (!rows.length) return 'skipped'
+  const r = await reconcileGift(rows[0])
+  // Deliveries the buyer cancelled before paying are refunded by the maintenance loop, as for a late payment on any cancelled order.
+  if (r === 'duplicate_payment' || r === 'rejected') background(sendDueRefunds({ duplicates: true }))
+  return r
 }
 
 /**
@@ -608,10 +715,42 @@ export async function claimRefund(table, id, at = now()) {
     `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1
       WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
         AND (refund_attempted_at IS NULL OR refund_attempted_at < $3)
+        AND NOT ($4 AND ${disputeHolds(table === 'orders' ? ORDER_PAYMENT_ID : `${table}.payment_id`)})
       RETURNING *`,
-    [id, at, new Date(at.getTime() - REFUND_LEASE_MS)],
+    [id, at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
   return rows[0] ?? null
+}
+
+/**
+ * PAY-06 (with REFUND_SAFETY_CHECKS): SQL that is true while a chargeback on
+ * the payment in `col` holds its refund back. A refund on top of a chargeback
+ * pays the customer twice, so it waits while the dispute is open; once the
+ * bank decides for us (won) it goes out as usual. A dispute lost or closed
+ * means the bank already gave the money back: the refund stays held and a
+ * manager settles it from Needs attention (paid back another way, with the
+ * dispute id as the reference).
+ */
+export const disputeHolds = (col) => `EXISTS (SELECT 1 FROM payment_disputes pd WHERE pd.payment_id = ${col} AND pd.status <> 'won')`
+
+/** The payment an order was paid with: its own, or for a gift order's delivery (MULTI_GIFT) its parent's. */
+const ORDER_PAYMENT_ID = `COALESCE(orders.payment_id, (SELECT g.payment_id FROM gift_orders g WHERE g.id = orders.gift_order_id))`
+
+/** Dispute states in which the bank has decided; any other state is still open. */
+export const DISPUTE_DECIDED = ['won', 'lost', 'closed']
+
+/**
+ * The dispute that holds a payment's refund (PAY-06): the latest one not won,
+ * as { id, status }, or null. While its status is not in DISPUTE_DECIDED the
+ * bank has not decided yet.
+ */
+export async function holdingDispute(paymentId, c = { query }) {
+  if (!paymentId) return null
+  const { rows } = await c.query(
+    `SELECT dispute_id, status FROM payment_disputes WHERE payment_id = $1 AND status <> 'won' ORDER BY updated_at DESC, dispute_id LIMIT 1`,
+    [paymentId],
+  )
+  return rows[0] ? { id: rows[0].dispute_id, status: rows[0].status } : null
 }
 
 /**
@@ -635,13 +774,17 @@ export async function liveGatewayRefunds(paymentId) {
   return gatewayItems(await razorpay('GET', `/payments/${encodeURIComponent(paymentId)}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
 }
 
-export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
+export async function gatewayRefund({ paymentId, amount, receipt, notes, shared = false }) {
   if (hasKeys()) {
     if (!paymentId) throw new Error(`${receipt} has no payment id to refund`)
     const pid = encodeURIComponent(paymentId)
     // Refunds already made for this payment (by an earlier attempt, or by hand
-    // in the Razorpay dashboard) count; only what is still owed is sent.
-    const live = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
+    // in the Razorpay dashboard) count; only what is still owed is sent. A
+    // payment `shared` by a gift order's deliveries (MULTI_GIFT) is refunded in
+    // parts, one per delivery: only the refunds made for this delivery (by its
+    // orderId note) count toward it.
+    const all = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
+    const live = shared ? all.filter((r) => r.notes?.orderId === notes?.orderId) : all
     const done = live.reduce((sum, r) => sum + (r.amount ?? 0), 0)
     const owed = amount == null ? null : amount - done
     if (live.length && (owed == null || owed <= 0)) return live[0].id
@@ -660,8 +803,11 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes }) {
 export async function refundOrder(orderId) {
   const o = await claimRefund('orders', orderId)
   if (!o) return null
+  // A gift order's delivery (MULTI_GIFT) was paid by its parent's payment: it gets back its own amount only.
+  const giftPayment = o.gift_order_id ? ((await query('SELECT payment_id FROM gift_orders WHERE id = $1', [o.gift_order_id])).rows[0]?.payment_id ?? null) : null
   const refundId = await gatewayRefund({
-    paymentId: o.payment_id, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
+    paymentId: o.payment_id ?? giftPayment, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
+    shared: Boolean(o.gift_order_id),
   })
   if (!refundId) return null
   try {
@@ -682,13 +828,24 @@ export async function refundOrder(orderId) {
   }
 }
 
-/** Retries refunds that were requested but not yet sent. */
+/**
+ * Retries refunds that were requested but not yet sent. Refunds a chargeback
+ * holds (PAY-06) are left out of the pick, so held ones never fill the batch
+ * and keep the rest waiting; claimRefund checks again.
+ */
 export async function processDueRefunds() {
+  const safety = env.REFUND_SAFETY_CHECKS
   const { rows } = await query(
-    'SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50',
+    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds(ORDER_PAYMENT_ID)})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
   )
   let n = 0
-  const pre = await query('SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL ORDER BY refund_requested_at LIMIT 50')
+  const pre = await query(
+    `SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('preorders.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety],
+  )
   for (const p of pre.rows) {
     if (!canStartCall(GATEWAY_CALL_MS)) return n
     try {
@@ -720,9 +877,10 @@ export async function refundDuplicatePayments(at = now()) {
     `UPDATE duplicate_payments SET attempted_at = $1, refund_attempts = refund_attempts + 1
       WHERE payment_id IN (SELECT payment_id FROM duplicate_payments
                             WHERE refunded_at IS NULL AND (attempted_at IS NULL OR attempted_at < $2)
+                              AND NOT ($3 AND ${disputeHolds('duplicate_payments.payment_id')})
                             ORDER BY found_at LIMIT 20 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
-    [at, new Date(at.getTime() - REFUND_LEASE_MS)],
+    [at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
   let n = 0
   for (const d of rows) {
@@ -759,7 +917,19 @@ async function listGatewayPayments(from, to) {
     }
   }
   if (isProd) return []
-  return [...devGateway.entries()].map(([ref, p]) => ({ ...p, order_id: ref.startsWith('order_') ? ref : undefined }))
+  // The dev gateway keys payments by our Razorpay order or link id; a link's payment carries the link's notes, as at Razorpay.
+  const out = []
+  for (const [ref, p] of devGateway.entries()) {
+    if (ref.startsWith('order_')) out.push({ ...p, order_id: ref })
+    else if (ref.startsWith('plink_')) {
+      const { rows } = await query(
+        `SELECT 'orderId' AS k, id FROM orders WHERE payment_link_id = $1 UNION ALL SELECT 'preorderId', id FROM preorders WHERE payment_link_id = $1`,
+        [ref],
+      )
+      out.push({ ...p, notes: rows.length ? { [rows[0].k]: rows[0].id } : {} })
+    } else out.push(p)
+  }
+  return out
 }
 
 /**
@@ -809,10 +979,122 @@ async function flagGatewayRefunds(from, to) {
   return flagged
 }
 
+/** How far back the daily payment check looks (PAY-08). */
+export const RECON_DAYS = 3
+
+/**
+ * PAY-08 (PAYMENT_DAILY_RECON, once a day): the polling loops only look at
+ * orders for a day after they are placed and at bookings for 3 days after their
+ * payment window opened, so a payment captured later, or on a link nobody
+ * polls, with its webhook lost, would be seen by nobody. This asks Razorpay for
+ * every payment captured in the last RECON_DAYS days ("Fetch all payments",
+ * paged like the restore replay) and, for each one we hold no record of:
+ * - it is applied as the webhook would (paid, late payment, duplicate, or a
+ *   refund after a cancel) when it names one of our Razorpay orders or a
+ *   payment link we made (an order's link through its notes, a booking's link
+ *   only once the link itself lists the payment, PAY-B11);
+ * - otherwise it is listed once in Needs attention (refundable by a manager).
+ * Safe to run again: applying a payment twice is a no-op, and each unmatched
+ * payment is listed once. Returns counts; { partial: true } when it ran out
+ * of time.
+ *
+ * Razorpay's list is handled page by page, and after each page where it got
+ * to (the window and the offset) is saved in maintenance_runs.cursor. A run
+ * that runs out of time leaves that cursor, so the next run (a minute later:
+ * a partial step is not marked done) carries on with the same window from the
+ * next page instead of starting again. The window is fixed when the check
+ * starts, so payments made since then never shift the pages. A cursor older
+ * than a day is dropped (the new 3-day window covers it).
+ */
+export async function reconcileRecentPayments({ at = now(), days = RECON_DAYS } = {}) {
+  const out = { captured: 0, applied: 0, flagged: 0 }
+  if (!hasKeys() && isProd) return out
+  if (!hasKeys()) {
+    for (const p of await listGatewayPayments(new Date(at.getTime() - days * 86_400_000), at)) await reconcileOne(p, out)
+    return out
+  }
+  const saved = await readReconCursor()
+  const cur = saved && at.getTime() - saved.to < 86_400_000 ? saved : { from: at.getTime() - days * 86_400_000, to: at.getTime(), skip: 0 }
+  for (;;) {
+    if (!canStartCall(GATEWAY_CALL_MS)) return { ...out, partial: true }
+    const page = await razorpay('GET', `/payments?from=${Math.floor(cur.from / 1000)}&to=${Math.floor(cur.to / 1000)}&count=100&skip=${cur.skip}`)
+    const items = gatewayItems(page, 'pay_', 'payment list')
+    for (const p of items) await reconcileOne(p, out)
+    if (items.length < 100) break
+    cur.skip += 100
+    await saveReconCursor(cur)
+  }
+  if (saved || cur.skip) await saveReconCursor(null)
+  return out
+}
+
+const RECON_STEP = 'payment-recon'
+
+async function readReconCursor() {
+  const raw = (await query('SELECT cursor FROM maintenance_runs WHERE step = $1', [RECON_STEP])).rows[0]?.cursor
+  if (!raw) return null
+  try {
+    const c = JSON.parse(raw)
+    return [c.from, c.to, c.skip].every(Number.isSafeInteger) ? c : null
+  } catch {
+    logger.warn('daily payment check: saved place unreadable; starting again')
+    return null
+  }
+}
+
+const saveReconCursor = (cur) =>
+  query(`INSERT INTO maintenance_runs (step, cursor) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET cursor = $2`, [
+    RECON_STEP, cur ? JSON.stringify(cur) : null,
+  ])
+
+/** One payment from Razorpay's list: applied, already ours, or listed once in Needs attention. */
+async function reconcileOne(p, out) {
+  if (p.status !== 'captured') return
+  out.captured++
+  if (await knownPayment(p.id)) return
+  const orderId = await findOrderId({ query }, p)
+  const giftOrderId = orderId ? null : await findGiftOrderId({ query }, p)
+  if (giftOrderId) {
+    const r = await tx((c) => applyCapture(c, 'gift_orders', giftOrderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r }))
+    return
+  }
+  const preorderId = orderId ? null : await linkListsPayment(p)
+  if (orderId || preorderId) {
+    const r = await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r, orderId, preorderId }))
+    return
+  }
+  const key = `recon:${p.id}`
+  if ((await query('SELECT 1 FROM webhook_failures WHERE event_key = $1', [key])).rowCount) return
+  out.flagged++
+  logger.error({ paymentId: p.id }, 'daily payment check: a captured payment matches no order or booking')
+  await recordWebhookFailure(
+    'razorpay', `Daily check: captured payment ${p.id} (${p.amount} paise) matches no order or booking we hold`, key, { query }, p.id,
+  )
+}
+
+/**
+ * The booking a payment was made for, but only when that booking's own
+ * payment link lists the payment (a payment's notes alone are never trusted
+ * for bookings, PAY-B11).
+ */
+async function linkListsPayment(p) {
+  const noted = typeof p.notes?.preorderId === 'string' ? p.notes.preorderId : null
+  if (!noted) return null
+  const { rows } = await query('SELECT id, payment_link_id FROM preorders WHERE id = $1 AND payment_link_id IS NOT NULL', [noted])
+  if (!rows.length) return null
+  const listed = await fetchLinkPayments(rows[0].payment_link_id)
+  return listed.some((x) => x.id === p.id && x.status === 'captured') ? rows[0].id : null
+}
+
 export async function knownPayment(id, c = { query }) {
   const { rows } = await c.query(
     `SELECT 1 FROM orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM preorders WHERE payment_id = $1
+      UNION ALL SELECT 1 FROM gift_orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM duplicate_payments WHERE payment_id = $1 LIMIT 1`,
     [id],
   )
@@ -864,6 +1146,11 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
   for (const p of await listGatewayPayments(from, to)) {
     if (p.status !== 'captured' || (await knownPayment(p.id))) continue
     const orderId = await findOrderId({ query }, p)
+    const giftOrderId = orderId ? null : await findGiftOrderId({ query }, p)
+    if (giftOrderId) {
+      if ((await tx((c) => applyCapture(c, 'gift_orders', giftOrderId, p))) !== 'rejected') out.applied++
+      continue
+    }
     const preorderId = orderId ? null : await findPreorderId({ query }, p, null)
     if (orderId || preorderId) {
       if ((await tx((c) => applyCapture(c, orderId ? 'orders' : 'preorders', orderId ?? preorderId, p))) !== 'rejected') out.applied++

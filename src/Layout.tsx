@@ -4,6 +4,8 @@ import { api } from './api'
 import { ROLE_LABEL, canSee, homeFor, type Screen } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
+import type { Me } from './types'
+import { WH_LINKS, whLinkAllowed } from './warehouse/access'
 
 type NavItem = [to: string, label: string, screen: Screen]
 
@@ -29,12 +31,16 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
       ['/batches', 'Batches', 'batches'],
       ['/planning', 'Planning', 'planning'],
       ['/preorders', 'Preorders', 'preorders'],
+      ['/farms', 'Farms', 'farms'],
     ],
   },
   {
     id: 'customers',
     label: 'Customers',
     links: [
+      ['/customers', 'Find a customer', 'customers'],
+      ['/help-desk', 'Help desk', 'helpDesk'],
+      ['/subscriptions', 'Subscriptions', 'subscriptions'],
       ['/claims', 'Claims', 'claims'],
       ['/reviews', 'Reviews', 'reviews'],
       ['/pincodes', 'Pincodes', 'pincodes'],
@@ -49,9 +55,20 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
       ['/bulk-deals', 'Bulk Deals', 'bulkDeals'],
       ['/promos', 'Promos', 'promos'],
       ['/staff', 'Staff', 'staff'],
+      ['/settings', 'Settings', 'settings'],
     ],
   },
 ]
+
+/** Screens that exist only while the API has their switch on (/auth/me features). */
+function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
+  if (screen === 'customers') return !!me?.features?.customerProfiles
+  if (screen === 'farms') return !!me?.features?.purchaseRecords
+  if (screen === 'settings') return !!me?.features?.panelSwitches
+  if (screen === 'helpDesk') return !!me?.features?.helpDesk
+  if (screen === 'subscriptions') return !!me?.features?.subscriptions
+  return true
+}
 
 /** Which disclosure is open: the phone Menu, the account menu, or one desktop group. */
 type Open = null | 'menu' | 'account' | `group-${string}`
@@ -72,9 +89,19 @@ export default function Layout() {
   // Set when a disclosure opens from its button, so the effect below moves focus into it.
   const focusInto = useRef(false)
 
-  const groups = GROUPS.map((g) => ({ ...g, links: g.links.filter(([, , screen]) => canSee(me?.role, screen)) })).filter(
-    (g) => g.links.length > 0,
-  )
+  const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
+    ...g,
+    // Customer profiles only exist while the API has them switched on (/auth/me features).
+    // Farms and Settings only while their switches are on (docs/ops.md), and so do the Help desk and
+    // Subscriptions (docs/care.md).
+    links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && switchedOn(me, screen)).map(([to, label]): [string, string] => [to, label]),
+  }))
+  // The box-tracked warehouse: its group only exists while /auth/me says it is on.
+  if (me?.warehouse?.enabled) {
+    const links = WH_LINKS.filter(([, , perm]) => whLinkAllowed(me, perm)).map(([to, label]): [string, string] => [to, label])
+    shown.splice(3, 0, { id: 'warehouse', label: 'Warehouse', links })
+  }
+  const groups = shown.filter((g) => g.links.length > 0)
   const twoStepOff = !!me?.twoStep && !me.twoStep.enabled
 
   // A new page closes whatever was open.

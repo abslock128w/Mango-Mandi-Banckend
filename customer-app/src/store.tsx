@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { trackStep } from './growth'
 import { PROFILE_EVENT, SIGNOUT_EVENT, signedInProfile, type Profile, type Stage } from './api'
 
 export interface CartLine {
@@ -83,22 +84,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Stable setters and a value that only changes when its parts do, so a change to one part
   // (say the cart) does not hand every reader of the store a new object for nothing.
   const setWhere = useCallback((pincode: string | null, date: string | null) => setWhereState({ pincode, date }), [])
-  const setQty = useCallback(
-    (line: Omit<CartLine, 'qty'>, qty: number) =>
-      setCart((c) => {
-        const rest = c.filter((l) => !(l.sku === line.sku && l.stage === line.stage))
-        return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.name.localeCompare(b.name) || a.stage.localeCompare(b.stage)) : rest
-      }),
-    [],
-  )
-  const setBulk = useCallback(
-    (line: Omit<BulkCartLine, 'qty'>, qty: number) =>
-      setBulkState((c) => {
-        const rest = c.filter((l) => !(l.listingId === line.listingId && l.stage === line.stage))
-        return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.title.localeCompare(b.title) || a.stage.localeCompare(b.stage)) : rest
-      }),
-    [],
-  )
+  // Funnel (docs/growth.md): a box went into the cart (or one more of it). The refs hold the
+  // last rendered cart, so the setters below stay stable.
+  const cartRef = useRef(cart)
+  const bulkRef = useRef(bulk)
+  useEffect(() => {
+    cartRef.current = cart
+    bulkRef.current = bulk
+  }, [cart, bulk])
+  const setQty = useCallback((line: Omit<CartLine, 'qty'>, qty: number) => {
+    const had = cartRef.current.find((l) => l.sku === line.sku && l.stage === line.stage)?.qty ?? 0
+    if (qty > had) trackStep('add_to_cart')
+    setCart((c) => {
+      const rest = c.filter((l) => !(l.sku === line.sku && l.stage === line.stage))
+      return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.name.localeCompare(b.name) || a.stage.localeCompare(b.stage)) : rest
+    })
+  }, [])
+  const setBulk = useCallback((line: Omit<BulkCartLine, 'qty'>, qty: number) => {
+    const had = bulkRef.current.find((l) => l.listingId === line.listingId && l.stage === line.stage)?.qty ?? 0
+    if (qty > had) trackStep('add_to_cart')
+    setBulkState((c) => {
+      const rest = c.filter((l) => !(l.listingId === line.listingId && l.stage === line.stage))
+      return qty > 0 ? [...rest, { ...line, qty }].sort((a, b) => a.title.localeCompare(b.title) || a.stage.localeCompare(b.stage)) : rest
+    })
+  }, [])
   const clearCart = useCallback(() => {
     setCart([])
     setBulkState([])

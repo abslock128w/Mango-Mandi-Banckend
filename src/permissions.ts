@@ -10,7 +10,7 @@
 // QC: receiving batches, QC and stock counts.
 // RIDER: the day's deliveries, marked with the customer's code or a photo.
 
-import type { OrderStatus, Role } from './types'
+import type { Me, OrderStatus, Role } from './types'
 
 export type Action = 'condemnBatch' | 'deletePincode' | 'editRules' | 'moveDay' | 'manageStaff' | 'changeOrder'
 
@@ -57,10 +57,16 @@ export type Screen =
   | 'products'
   | 'reviews'
   | 'bulkDeals'
+  | 'customers'
+  | 'farms'
+  | 'settings'
+  | 'helpDesk'
+  | 'subscriptions'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',
-  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews']),
+  // Operators see farms without costs (docs/ops.md); Settings is for managers.
+  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers', 'farms', 'helpDesk', 'subscriptions']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
   // QC sees the Reviews page's ripeness accuracy only (no moderation).
   QC: new Set<Screen>(['batches', 'reviews']),
@@ -82,4 +88,25 @@ export function homeFor(role: Role | null | undefined): string {
   if (role === 'QC') return '/batches'
   if (role === 'RIDER') return '/deliveries'
   return '/today'
+}
+
+/**
+ * Bills, customer profiles and CSV exports (docs/trust.md): each needs its switch on (/auth/me
+ * features) and the right role. Bills and profiles: managers and operators. Exports: managers.
+ */
+export function trustAllowed(me: Me | null | undefined, feature: 'bills' | 'customerProfiles' | 'exports'): boolean {
+  if (!me?.features?.[feature]) return false
+  if (feature === 'exports') return me.role === 'MANAGER'
+  return me.role === 'MANAGER' || me.role === 'OPERATOR'
+}
+
+/**
+ * Staff operations (docs/ops.md): each needs its switch on (/auth/me features) and the right role.
+ * The stock forecast and the Settings switches: managers. Farms and purchases: managers and operators
+ * see them, QC sees a batch's purchases; only managers see or enter costs.
+ */
+export function opsAllowed(me: Me | null | undefined, feature: 'stockForecast' | 'purchaseRecords' | 'panelSwitches'): boolean {
+  if (!me?.features?.[feature]) return false
+  if (feature === 'purchaseRecords') return me.role === 'MANAGER' || me.role === 'OPERATOR' || me.role === 'QC'
+  return me.role === 'MANAGER'
 }

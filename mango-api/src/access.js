@@ -9,7 +9,10 @@ import { addDays, now, todayIST } from './clock.js'
 import { query } from './db.js'
 import { forbidden, notFound } from './errors.js'
 import { newId } from './ids.js'
+import { env } from './env.js'
 import { logger } from './logger.js'
+import { hit } from './ratelimit.js'
+import { ROLE_PERMISSIONS, WAREHOUSE_ROUTES } from './warehouse/permissions.js'
 
 export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
 
@@ -44,6 +47,9 @@ const DELIVERY = [
   route('POST', '/orders/:id/delivery'),
 ]
 
+/** The warehouse routes a role's permissions cover (warehouse/permissions.js); managers have all of them. */
+const warehouseFor = (role) => WAREHOUSE_ROUTES.filter(([, , perm]) => ROLE_PERMISSIONS[role].includes(perm)).map(([m, p]) => route(m, p))
+
 /** The day-to-day running of the shop: everything except the manager-only routes (requireManager in admin.js). */
 export const OPERATOR_ROUTES = [
   ...COMMON,
@@ -56,6 +62,9 @@ export const OPERATOR_ROUTES = [
   route('PATCH', '/batches/:id/lines/:lineId'),
   route('POST', '/batches/:id/lines/:lineId/short-arrival'),
   route('GET', '/batches/:id/ledger'),
+  // Farms and a batch's purchases without any costs (PURCHASE_RECORDS; costs are for managers, admin/ops.js).
+  route('GET', '/farms'),
+  route('GET', '/batches/:id/purchases'),
   route('GET', '/orders'),
   route('GET', '/orders/:id'),
   route('PATCH', '/orders/:id/status'),
@@ -64,6 +73,10 @@ export const OPERATOR_ROUTES = [
   route('POST', '/orders/:id/rebalance'),
   route('POST', '/orders/:id/reschedule'),
   route('POST', '/orders/:id/returned-stock'), // boxes back from a cancelled or returned order (INV-F)
+  route('GET', '/orders/:id/bill'), // written to the audit (bill-routes.js)
+  // Gift orders to many recipients with their deliveries (MULTI_GIFT), read only: as the order list.
+  route('GET', '/gift-orders'),
+  route('GET', '/gift-orders/:id'),
   route('GET', '/pack-list'),
   // Giving stops to riders (SEC-02): riders see only their own.
   route('GET', '/riders'),
@@ -77,6 +90,10 @@ export const OPERATOR_ROUTES = [
   route('GET', '/claims/:id/photos/:photoId'),
   route('POST', '/claims/:id/review'),
   route('POST', '/claims/:id/resolve'), // some replacements need a manager (claim limits)
+  // The customer profile: every look, search and reveal is written to the audit (admin/customers.js).
+  route('POST', '/customers/search'),
+  route('GET', '/customers/:id'),
+  route('POST', '/customers/:id/reveal'),
   route('GET', '/pincodes'),
   route('POST', '/pincodes'),
   route('PATCH', '/pincodes/:pincode'),
@@ -99,6 +116,17 @@ export const OPERATOR_ROUTES = [
   route('POST', '/reviews/bulk'),
   route('PUT', '/reviews/:id/reply'),
   route('DELETE', '/reviews/:id/reply'),
+  // Customer care (docs/care.md): the Help desk and the Subscriptions list. Replies, resolves,
+  // pauses and cancels are written to the audit in their own transaction (admin/care.js).
+  route('GET', '/help/requests'),
+  route('GET', '/help/requests/:id'),
+  route('POST', '/help/requests/:id/reply'),
+  route('POST', '/help/requests/:id/resolve'),
+  route('POST', '/help/requests/:id/reopen'),
+  route('GET', '/subscriptions'),
+  route('POST', '/subscriptions/:id/pause'),
+  route('POST', '/subscriptions/:id/cancel'),
+  ...warehouseFor('OPERATOR'),
 ]
 
 const LIMITED = {
@@ -113,6 +141,7 @@ const LIMITED = {
     route('GET', '/slots'),
     route('POST', '/orders/:id/allocate'),
     route('PATCH', '/orders/:id/status'),
+    ...warehouseFor('PACKER'),
   ],
   QC: [
     ...COMMON,
@@ -124,8 +153,12 @@ const LIMITED = {
     route('POST', '/batches/:id/qc'),
     route('PATCH', '/batches/:id/lines/:lineId'),
     route('POST', '/batches/:id/lines/:lineId/short-arrival'),
+    // Farms and a batch's purchases without any costs (PURCHASE_RECORDS).
+    route('GET', '/farms'),
+    route('GET', '/batches/:id/purchases'),
     // Ripeness accuracy from reviews, per batch and variety (read only).
     route('GET', '/reviews/insights'),
+    ...warehouseFor('QC'),
   ],
 }
 
@@ -217,12 +250,14 @@ export function redactForPacker(order) {
     ...(order.gift ? { gift: { ...order.gift, recipientPhone: null } } : {}),
     ...('payment' in order ? { payment: null } : {}),
     ...('notifications' in order ? { notifications: [] } : {}),
+    // Bills and the customer profile are for managers and operators (docs/trust.md).
+    ...('customerId' in order ? { customerId: null, business: null, bill: null } : {}),
     ...('deliveryAttempts' in order ? { deliveryAttempts: order.deliveryAttempts.map((a) => ({ ...a, lat: null, lng: null })) } : {}),
   }
 }
 
 // The customer's delivery code is a secret too.
-const SECRET_KEYS = /password|token|secret|^code$|setupcode/i
+const SECRET_KEYS = /password|token|secret|^code$|setupcode|confirmcode/i
 // SEC-R3: where the rider stood and who took the box are the customer's data. They are
 // kept in delivery_attempts (erased with the account, anonymised after PII_RETENTION_MONTHS),
 // not copied into the audit trail. A delivery note stays (staff read it there) and is
@@ -252,18 +287,71 @@ export async function audit(admin, action, { target = null, detail = null, reque
   }
 }
 
+const targetOf = (req) => {
+  const p = req.params ?? {}
+  return p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? p.code ?? p.sku ?? null)
+}
+
+/**
+ * SEC-08 (24 Oct 2026 audit, STAFF_AUDIT_TRAIL): the route's audit row written
+ * inside its own transaction, so the change and its record commit or fail
+ * together; the after-response row is then skipped. A no-op with the flag off.
+ */
+export async function auditInTx(c, req, extra = {}) {
+  if (!env.STAFF_AUDIT_TRAIL) return
+  await c.query(
+    `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, request_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [newId('aud'), req.admin.id ?? null, req.admin.email, req.admin.role, `${req.method} ${req.route.path}`, extra.target ?? targetOf(req), clean({ ...req.body, ...extra.detail }), req.id ?? null, now()],
+  )
+  req.audited = true
+}
+
+/**
+ * SEC-08 (STAFF_AUDIT_TRAIL): GETs that show customers' personal details leave a
+ * compact "viewed" row (who, which route, on what; never the search words).
+ * At most one per person, route and target in READ_AUDIT_MS.
+ */
+const READ_AUDITED = new Set(['/orders/:id', '/manifest', '/claims', '/orders/:id/delivery-photos/:photoId', '/claims/:id/photos/:photoId'])
+export const READ_AUDIT_MS = 10 * 60_000
+async function auditRead(req) {
+  const action = `GET ${req.route.path}`
+  const target = targetOf(req) ?? (typeof req.query?.date === 'string' ? req.query.date.slice(0, 10) : null)
+  const { hits } = await hit(`read-audit:${req.admin.id}:${action}:${target ?? ''}`, READ_AUDIT_MS)
+  if (hits > 1) return
+  await audit(req.admin, action, { target, detail: req.route.path === '/orders' ? { search: true } : null, requestId: req.id })
+}
+const auditsRead = (req) => READ_AUDITED.has(req.route.path) || (req.route.path === '/orders' && typeof req.query?.q === 'string' && req.query.q.trim() !== '')
+
+/** SEC-08 (STAFF_AUDIT_TRAIL): a refused staff request (403) is logged with who and where, not only answered. */
+export function watchRefusals(req, res, next) {
+  if (env.STAFF_AUDIT_TRAIL) {
+    res.on('finish', () => {
+      if (res.statusCode !== 403 || !req.admin) return
+      logger.warn({ staffId: req.admin.id, role: req.admin.role, method: req.method, path: `${req.baseUrl}${req.path}` }, 'staff request refused')
+    })
+  }
+  next()
+}
+
 /**
  * Records every successful staff change (any non-GET request that ended below
  * 400) once the response is sent: who, which route, on what, with what body.
  */
 export function auditStaffChanges(req, res, next) {
-  if (req.method === 'GET' || req.method === 'HEAD') return next()
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (env.STAFF_AUDIT_TRAIL && req.method === 'GET') {
+      res.on('finish', () => {
+        if (res.statusCode >= 400 || !req.admin || !req.route || !auditsRead(req)) return
+        background(auditRead(req))
+      })
+    }
+    return next()
+  }
   res.on('finish', () => {
     // req.audited: the route wrote its own, fuller row inside its transaction (product changes).
     if (res.statusCode >= 400 || !req.admin || !req.route || req.audited) return
-    const p = req.params ?? {}
-    const target = p.lineId ? `${p.id}/${p.lineId}` : p.weekStart ? `${p.weekStart}/${p.sku}` : (p.id ?? p.pincode ?? p.date ?? p.code ?? p.sku ?? null)
-    background(audit(req.admin, `${req.method} ${req.route.path}`, { target, detail: clean(req.body), requestId: req.id }))
+    background(audit(req.admin, `${req.method} ${req.route.path}`, { target: targetOf(req), detail: clean(req.body), requestId: req.id }))
   })
   next()
 }

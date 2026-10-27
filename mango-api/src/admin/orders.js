@@ -1,20 +1,23 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
 import express from 'express'
 import { z } from 'zod'
-import { isPacker, redactForPacker } from '../access.js'
+import { auditInTx, isPacker, redactForPacker } from '../access.js'
 import { requireManager } from '../auth.js'
 import { addDays, isDate, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
 import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
+import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
-import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { enqueue } from '../notify.js'
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
 import { productName } from '../products.js'
 import { bookReturnedStock, WRITE_OFF_REASONS } from '../stock-watch.js'
+import { billFor, billView } from '../bills.js'
+import { isOn } from '../feature-switches.js'
 
 export const router = express.Router()
 
@@ -68,6 +71,8 @@ router.get(
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
+        // A delivery of a gift order to many recipients (MULTI_GIFT).
+        ...(o.gift_order_id ? { giftOrderId: o.gift_order_id } : {}),
       })),
     })
   }),
@@ -75,13 +80,15 @@ router.get(
 
 export async function orderDetail(c, orderId) {
   const { rows } = await c.query(
-    `SELECT o.*, r.number AS replacement_for_number, s.label AS slot_label, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at
-       FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for LEFT JOIN delivery_slots s ON s.id = o.slot_id WHERE o.id = $1`,
+    `SELECT o.*, r.number AS replacement_for_number, s.label AS slot_label, s.starts_at AS slot_starts_at, s.ends_at AS slot_ends_at,
+            g.number AS gift_order_number, g.recipient_count AS gift_recipient_count
+       FROM orders o LEFT JOIN orders r ON r.id = o.replacement_for LEFT JOIN delivery_slots s ON s.id = o.slot_id
+       LEFT JOIN gift_orders g ON g.id = o.gift_order_id WHERE o.id = $1`,
     [orderId],
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events, notes, deliveryAttempts, rating] = await Promise.all([
+  const [items, stock, events, notes, deliveryAttempts, rating, bill] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -92,17 +99,29 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
     c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
+    isOn('BILLS_ENABLED') ? billFor(c, orderId) : null,
   ])
   const r = rating.rows[0]
   return {
     rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
+    // The account behind the order, for the customer profile (CUSTOMER_PROFILES_ENABLED).
+    customerId: o.customer_id,
+    // Business details the buyer gave for the bill, and the bill once paid (BILLS_ENABLED).
+    business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
+    bill: billView(bill),
     // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
     attempt: o.delivery_failures + 1,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
+    // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
+    retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
+    // MULTI_GIFT: one delivery of a gift order to many recipients, paid with its parent's payment.
+    giftOrder: o.gift_order_id ? { id: o.gift_order_id, number: o.gift_order_number, position: o.gift_position, recipients: o.gift_recipient_count } : null,
+    // Only a manager may cancel it: a paid order (refunded in full) and, with ORDER_RULE_CHECKS, a free replacement (INV-07).
+    cancelNeedsManager: o.payment_status === 'SUCCEEDED' || (env.ORDER_RULE_CHECKS && o.payment_method === 'REPLACEMENT'),
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
       kind: n.kind, channel: n.channel, status: n.status, attempts: n.attempts, createdAt: n.created_at, sentAt: n.sent_at, error: n.last_error,
@@ -169,7 +188,11 @@ router.post(
       z.object({ reason: z.string().trim().min(1, 'reason is required').max(500), refund: z.boolean().default(false) }),
       req.body ?? {},
     )
-    const refundDue = await tx((c) => cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund }))
+    const refundDue = await tx(async (c) => {
+      const due = await cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund })
+      await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and any refund) is never left without its record
+      return due
+    })
     if (refundDue) {
       await refundOrder(req.params.id).catch((err) => logger.error({ err, orderId: req.params.id }, 'refund failed; maintenance will retry'))
     }
@@ -214,8 +237,15 @@ router.post(
       req.body,
     )
     await tx(async (c) => {
+      const why = `Rescheduled by ${req.admin.email}`
+      // PLT-08, PLT-09 (DELIVERY_CHECKS): a missed delivery's retry is given its day here too.
+      const { rows } = await c.query('SELECT status FROM orders WHERE id = $1', [req.params.id])
+      if (env.DELIVERY_CHECKS && rows[0]?.status === 'DELIVERY_FAILED') {
+        await moveRetryToDate(c, req.params.id, { deliveryDate, slotId, actor: req.actor, why })
+        return
+      }
       const from = await moveOrderToDate(c, req.params.id, {
-        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why: `Rescheduled by ${req.admin.email}`,
+        deliveryDate, slotId, statuses: ['CONFIRMED', 'PROCESSING'], actor: req.actor, why,
       })
       if (deliveryDate !== from) await enqueue(c, req.params.id, newId('mov'), 'DATE_MOVED')
     })
@@ -286,7 +316,8 @@ router.post(
           // Changed since we listed it (packed, cancelled or moved): leave it.
           if (!o || o.delivery_date !== b.fromDate || !['CONFIRMED', 'PROCESSING'].includes(o.status)) return 'changed'
           if (b.slotId) o.slot_id = b.slotId
-          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why)
+          // INV-01: with ORDER_RULE_CHECKS a full slot moves the order on to the next date with room, like missing stock.
+          const d = await placeOnFirstDateWithStock(c, o, dates, req.actor, why, { slotMustFit: env.ORDER_RULE_CHECKS })
           if (!d) return null
           await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
           await rebalanceOrder(c, o.id, req.actor)
@@ -294,7 +325,7 @@ router.post(
         })
         if (date === 'changed') notMoved.push({ ...brief(p), reason: 'Changed while moving; check it by hand' })
         else if (date) moved.push({ ...brief(p), deliveryDate: date })
-        else notMoved.push({ ...brief(p), reason: `No stock on ${b.toDate} or any later open date` })
+        else notMoved.push({ ...brief(p), reason: `No stock${env.ORDER_RULE_CHECKS ? ' or slot room' : ''} on ${b.toDate} or any later open date` })
       } catch (err) {
         notMoved.push({ ...brief(p), reason: err.message })
       }

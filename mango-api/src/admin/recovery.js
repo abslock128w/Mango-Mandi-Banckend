@@ -9,21 +9,24 @@
 //   POST /webhook-failures/:id/resolve       mark a webhook problem handled
 //   POST /webhook-failures/:id/refund        refund a captured payment that matches no order
 //   POST /preorders/:id/keep                 keep a booking that needs a decision
+//   POST /preorder-capacity/:weekStart/:sku/recount   set a week's taken capacity from its bookings
 //   POST /refunds/:id/paid-another-way       settle a refund Razorpay can't send
 //   POST /staff/sign-out-all                 end every staff session at once
 import express from 'express'
 import { z } from 'zod'
 import { forgetStaff, requireManager } from '../auth.js'
 import { background } from '../background.js'
-import { now } from '../clock.js'
+import { isDate, now } from '../clock.js'
 import { query, tx } from '../db.js'
+import { env } from '../env.js'
 import { asyncHandler, conflict, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { auditLedger, ledger } from '../inventory.js'
 import { logger } from '../logger.js'
 import { addEvent } from '../orders.js'
-import { knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
-import { preordersNeedingDecision } from '../stock-watch.js'
+import { DISPUTE_DECIDED, holdingDispute, knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
+import { promoteWaitlist } from '../preorders.js'
+import { CAPACITY_STATUSES, preordersNeedingDecision } from '../stock-watch.js'
 
 export const router = express.Router()
 
@@ -211,6 +214,53 @@ router.post(
   }),
 )
 
+// ---------------------------------------------------------------- preorder capacity drift
+
+/**
+ * INV-06: sets a week's taken preorder capacity (preorder_capacity.reserved)
+ * to the boxes its live bookings hold, the count Needs attention compared it
+ * with. The capacity row is locked first, so a booking or a release in flight
+ * (both change that row) finishes before the bookings are counted. `reserved`
+ * and `booked` are the numbers the manager saw: if either moved since, nothing
+ * changes. A week that no longer drifts answers { recounted: false }. Spots
+ * freed this way go to the waitlist as usual.
+ */
+router.post(
+  '/preorder-capacity/:weekStart/:sku/recount',
+  requireManager,
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ reason, reserved: z.number().int().min(0), booked: z.number().int().min(0) }), req.body)
+    const weekStart = parse(z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), req.params.weekStart)
+    const { sku } = req.params
+    const out = await tx(async (c) => {
+      const lockRow = async () =>
+        (await c.query('SELECT reserved FROM preorder_capacity WHERE sku = $1 AND week_start = $2 FOR UPDATE', [sku, weekStart])).rows[0]
+      let row = await lockRow()
+      const count = async () =>
+        (await c.query('SELECT COALESCE(SUM(qty), 0)::int AS n FROM preorders WHERE sku = $1 AND week_start = $2 AND status = ANY($3)', [sku, weekStart, CAPACITY_STATUSES])).rows[0].n
+      if (!row) {
+        // Bookings with no capacity row (taken by force): make the row, then lock it like any other.
+        if (!(await count())) throw notFound('No preorder capacity or bookings for that week and product')
+        await c.query('INSERT INTO preorder_capacity (sku, week_start, capacity, reserved) VALUES ($1, $2, 0, 0) ON CONFLICT DO NOTHING', [sku, weekStart])
+        row = await lockRow()
+      }
+      const booked = await count()
+      const current = { reserved: row.reserved, booked }
+      if (row.reserved === booked) return noop(req, { sku, weekStart, recounted: false, ...current })
+      if (row.reserved !== b.reserved || booked !== b.booked) {
+        throw new HttpError(409, 'PREVIEW_CHANGED', 'The bookings for that week changed since you looked. Look at the new numbers and recount again.', current)
+      }
+      await c.query('UPDATE preorder_capacity SET reserved = $3 WHERE sku = $1 AND week_start = $2', [sku, weekStart, booked])
+      await auditIn(c, req, `${weekStart}/${sku}`, { reason: b.reason, before: row.reserved, after: booked })
+      return { sku, weekStart, recounted: true, before: row.reserved, reserved: booked, booked }
+    })
+    if (out.recounted && out.reserved < out.before) {
+      await promoteWaitlist().catch((err) => logger.warn({ err }, 'waitlist promotion after a recount failed; maintenance retries'))
+    }
+    res.json(out)
+  }),
+)
+
 // ---------------------------------------------------------------- refunds
 
 /** Refunds younger than this are still Razorpay's to send (Needs attention lists them after it too). */
@@ -231,7 +281,9 @@ const REFUND_TABLES = {
  * it), marked refund_status 'manual' and refund_id 'manual:<reference>'.
  * type: order, preorder, or payment (a second payment or one that matched no
  * order, by its payment id). Not while a refund attempt holds the lease, and
- * not when Razorpay already shows a refund for the payment.
+ * not when Razorpay already shows a refund for the payment. With
+ * REFUND_SAFETY_CHECKS, not while a chargeback on the payment is still open
+ * (a lost one is settled here, with the dispute id as the reference).
  */
 router.post(
   '/refunds/:id/paid-another-way',
@@ -252,6 +304,16 @@ router.post(
       throw conflict('This refund is already recorded as sent', 'ALREADY_REFUNDED')
     }
     if (at - row[t.requested] < REFUND_STUCK_MS) throw conflict('This refund was asked for less than 30 minutes ago. Give Razorpay time to send it.', 'REFUND_NOT_STUCK')
+    // PAY-06: while a chargeback is open the bank may still give the money back itself; paying now could pay twice.
+    if (env.REFUND_SAFETY_CHECKS) {
+      const d = await holdingDispute(row.payment_id)
+      if (d && !DISPUTE_DECIDED.includes(d.status)) {
+        throw conflict(
+          `Chargeback ${d.id} on this payment is still open, so the bank may give the customer the money back itself. Answer it in the Razorpay dashboard and wait for the bank's decision.`,
+          'DISPUTE_OPEN',
+        )
+      }
+    }
     // Razorpay may have taken a refund we never recorded (sent, then the save failed): that one counts, not a second payout.
     let checkNote = ''
     try {
@@ -260,6 +322,13 @@ router.post(
     } catch (err) {
       if (err instanceof HttpError) throw err
       logger.warn({ err, id: req.params.id }, 'could not check Razorpay before recording a refund paid another way')
+      // PAY-05: this route exists for "sent, then the save failed", exactly when Razorpay may hold a refund we don't.
+      if (env.REFUND_SAFETY_CHECKS) {
+        throw conflict(
+          "Razorpay could not be checked just now, so we can't tell whether it already sent this refund. Try again in a few minutes; recording it now could pay the customer twice.",
+          'RAZORPAY_UNCHECKED',
+        )
+      }
       checkNote = ' (Razorpay could not be checked)'
     }
     const out = await tx(async (c) => {
