@@ -577,7 +577,10 @@ screen.
   cancelled or returned more than `PII_RETENTION_MONTHS` (default 12) months ago lose the
   customer's name, phone, address and gift details, and their delivery attempts lose who took
   the box and the rider's location; amounts, items and tax fields stay for the books. Orders
-  with money still owed back wait until it is paid.
+  with money still owed back wait until it is paid. The same run deletes those orders' photos:
+  the rider's delivery photos, and the photos on their problem reports once the report is
+  resolved (from Vercel Blob and from the row). The shop's privacy notice states the 12
+  months: change it there too if you change `PII_RETENTION_MONTHS`.
 - **Erasure and export.** Customers delete their account in the shop (`DELETE /v1/me`) and
   download what we hold about them (`GET /v1/me/export`, JSON). For a deletion request that
   arrives by email or WhatsApp, check it comes from the number's owner, then run
@@ -599,7 +602,15 @@ half-applied. Look for a long transaction in `pg_stat_activity` and deploy again
 Keep the locks short:
 
 - **Add, then remove a release later.** Drops, renames and narrowing need a
-  `-- contract:` line.
+  `-- contract:` line. From file 048 on that includes dropping a constraint, index,
+  function, trigger, type or view, unless the same file makes it again under the
+  same name (widening a CHECK, below).
+- **No `BEGIN`, `COMMIT` or `CONCURRENTLY` in a file.** Each file already runs in one
+  transaction; the test refuses a file that ends it early.
+- **Never edit a file that has run.** Each applied file's sha256 is kept in
+  `schema_migrations.checksum` (048), and the runner refuses to start when an applied
+  file has changed, naming it. Make the change in a new file. For a harmless edit
+  (a comment), clear the record as the error says: the next run records the file again.
 - **New CHECK or FOREIGN KEY on an existing table: `NOT VALID`.** A plain
   `ADD CONSTRAINT` reads the whole table while nothing else can touch it. Add it
   `NOT VALID` (new rows are checked from then on) and

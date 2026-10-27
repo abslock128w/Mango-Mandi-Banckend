@@ -15,6 +15,10 @@ maintenance job sends at most hourly, `src/maintenance.js` `checkHealth` and
 (`GET /admin/v1/attention`, `src/admin/reports.js:96`; shown by
 `src/pages/NeedsAttention.tsx`).
 
+**An outside service down** (Razorpay, Meta, Jio, Google, Neon, Vercel, Blob,
+Sentry): [OUTAGES.md](OUTAGES.md) says what customers see and what the system
+does by itself, and links the runbook here.
+
 Golden rules:
 - **Money goes back only** when a customer cancels before PACKED, or a manager
   cancels an order or booking we can't deliver. The automatic refunds below
@@ -252,7 +256,7 @@ Owner:
    `reconcile` step. Check Needs attention, and the Razorpay webhook deliveries for
    the outage window.
 6. If data was lost (Neon lost the branch, which is unlikely), restore: VERCEL.md
-   "Rolling back" and the readiness notes' RESTORE-DRILL.md.
+   "Rolling back", and practise it with [RESTORE-DRILL.md](RESTORE-DRILL.md).
 
 ## Scheduler stopped
 

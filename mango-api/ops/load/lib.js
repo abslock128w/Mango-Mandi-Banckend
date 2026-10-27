@@ -1,11 +1,11 @@
-// Shared helpers for the k6 scripts in this folder (see LOAD-TEST.md).
+// Shared helpers for the k6 scripts in this folder (see deploy/LOAD-TEST.md).
 //
 // Environment:
 //   API      one or more API base URLs, comma-separated (each VU sticks to one,
 //            as a browser sticks to the instance it reached)
 //   STUB     provider stub (stub-providers.js), for login codes and payments.
 //            Login codes are read back from it, so checkout needs it: on staging,
-//            a copy reachable from the staging deployment (LOAD-TEST.md).
+//            a copy reachable from the staging deployment (deploy/LOAD-TEST.md).
 //   WEBHOOK_SECRET  the RAZORPAY_WEBHOOK_SECRET the API was started with
 //   PINCODE  a serviceable pincode (560034)
 import http from 'k6/http'

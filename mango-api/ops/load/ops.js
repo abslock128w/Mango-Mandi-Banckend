@@ -1,4 +1,4 @@
-// A delivery day in the panel (LOAD-TEST.md, scenario D), on the orders a
+// A delivery day in the panel (deploy/LOAD-TEST.md, scenario D), on the orders a
 // shop run (shop.js) left behind.
 //
 //   pack      six packers work down the confirmed orders: allocate, then
