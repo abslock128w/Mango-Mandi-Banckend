@@ -4,6 +4,8 @@
 import { query } from './db.js'
 import { now, todayIST } from './clock.js'
 import { env } from './env.js'
+import { logger } from './logger.js'
+import { dropPhoto } from './photos.js'
 import { scrubOrderAudit } from './privacy.js'
 import { removeBillBuyers } from './bills.js'
 
@@ -41,8 +43,9 @@ export function monthsBefore(day, months) {
  * and message on the order, and who took it and where the rider stood on its
  * delivery attempts. Amounts, items, tax fields and dates stay for the books.
  * Orders with money still owed back are left until it is paid. The account
- * itself is untouched (the customer can still delete it). Bounded per call;
- * the daily maintenance pass repeats until none are left. Returns the count.
+ * itself is untouched (the customer can still delete it). Then the photos of
+ * those orders go too (removeOldPhotos). Bounded per call; the daily
+ * maintenance pass repeats until none are left. Returns the count of orders.
  */
 export async function anonymiseOldOrders(at = now(), { months = env.PII_RETENTION_MONTHS, batch = 1_000 } = {}) {
   const cutoff = monthsBefore(todayIST(at), months)
@@ -62,5 +65,44 @@ export async function anonymiseOldOrders(at = now(), { months = env.PII_RETENTIO
     await scrubOrderAudit({ query }, 'SELECT unnest($1::text[])', [rows.map((r) => r.id)])
     await removeBillBuyers({ query }, 'SELECT unnest($1::text[])', [rows.map((r) => r.id)], at)
   }
+  const photos = await removeOldPhotos(at, { batch })
+  if (photos) logger.info({ photos }, 'photos removed from orders past the retention period')
   return rows.length
+}
+
+/**
+ * The photos of orders whose details were removed (pii_removed_at): the rider's
+ * delivery photos, and the photos on the customer's problem reports once the
+ * report is resolved (an open one keeps them until staff decide it; a later run
+ * takes them). Delivery photo rows stay, marked removed, because the delivery
+ * record points at them; claim photo rows are deleted, as account deletion does.
+ * The image goes from Vercel Blob or from the row. Covers orders anonymised
+ * before photos were included too. Returns how many photos went.
+ */
+export async function removeOldPhotos(at = now(), { batch = 1_000 } = {}) {
+  const delivery = await query(
+    `WITH due AS (
+       SELECT p.id, p.blob_path FROM delivery_photos p JOIN orders o ON o.id = p.order_id
+        WHERE p.removed_at IS NULL AND o.pii_removed_at IS NOT NULL
+        LIMIT $1 FOR UPDATE OF p SKIP LOCKED),
+     gone AS (UPDATE delivery_photos p SET removed_at = $2, bytes = NULL, blob_path = NULL FROM due WHERE p.id = due.id)
+     SELECT blob_path FROM due`,
+    [batch, at],
+  )
+  const claimed = await query(
+    `DELETE FROM claim_photos WHERE id IN (
+       SELECT cp.id FROM claim_photos cp JOIN claims c ON c.id = cp.claim_id JOIN orders o ON o.id = c.order_id
+        WHERE o.pii_removed_at IS NOT NULL AND c.status = 'RESOLVED'
+        LIMIT $1 FOR UPDATE OF cp SKIP LOCKED)
+     RETURNING blob_path`,
+    [batch],
+  )
+  // A claim filed with a link (before photos were uploaded) loses the link too.
+  await query(
+    `UPDATE claims c SET photo_url = NULL FROM orders o
+      WHERE o.id = c.order_id AND o.pii_removed_at IS NOT NULL AND c.status = 'RESOLVED' AND c.photo_url IS NOT NULL`,
+  )
+  // The rows are changed first: a Blob delete that fails is logged, and the image can no longer be served.
+  for (const row of [...delivery.rows, ...claimed.rows]) await dropPhoto(row)
+  return delivery.rowCount + claimed.rowCount
 }
