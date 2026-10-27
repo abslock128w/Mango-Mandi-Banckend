@@ -44,6 +44,7 @@ import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
 import { runSubscriptionJobs } from './subscriptions.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
+import { counterProblems, stepProblems } from './alert-checks.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -436,6 +437,9 @@ async function steps(forceAll) {
  * should have done: the loop can be alive and every step "ok" while doing
  * nothing, which is exactly what a tick check can't see. Also flags payments
  * found only by polling, which means Razorpay's webhooks aren't arriving.
+ * With OPS_ALERTS it is also the Vercel checker for the ops/alerts.yml rules
+ * (alert-checks.js, docs/alerts.md): steps failing in a row, and API errors,
+ * slow answers and a busy pool from the shared ops_counters.
  */
 export async function checkHealth(out = {}, at = now()) {
   const { rows } = await query(
@@ -476,7 +480,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
-  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)))
+  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)), ...(await stepProblems(at)), ...(await counterProblems(at)))
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`

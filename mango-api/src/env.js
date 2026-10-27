@@ -207,6 +207,11 @@ const schema = z.object({
   // With OPS_ALERTS (docs/alerts.md): an answer slower than this many ms counts as slow; 0 counts none.
   // File downloads, photo uploads and the maintenance run are never counted.
   SLOW_REQUEST_MS: z.coerce.number().int().min(0).default(2000),
+  // checkHealth warns when, in the last 10 minutes, there were more than this many server errors
+  // (5xx), slow answers, or 503 BUSY answers for want of a database connection.
+  ALERT_API_ERRORS: z.coerce.number().int().min(0).default(10),
+  ALERT_SLOW_REQUESTS: z.coerce.number().int().min(0).default(20),
+  ALERT_DB_BUSY: z.coerce.number().int().min(0).default(5),
   // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
   DELIVERY_CHECKS: flag(),
   // SEC-07: adding staff, changing a role or password, two-step resets and removals ask

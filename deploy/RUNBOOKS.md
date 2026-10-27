@@ -8,12 +8,14 @@ says how you notice, who acts, and the exact way back. Paths like
 logins; usually also the developer on call), **Manager** (panel role MANAGER),
 **Operator** (panel role OPERATOR; managers can do everything operators can).
 
-**Where alerts come from** (deploy/VERCEL.md "Watch it"): the uptime monitor on
-`/ready`, Sentry (errors, the `maintenance` cron monitor, and the warnings the
-maintenance job sends at most hourly, `src/maintenance.js` `checkHealth` and
-`runAudit`), and the panel's **Needs attention** card on Today
-(`GET /admin/v1/attention`, `src/admin/reports.js:96`; shown by
-`src/pages/NeedsAttention.tsx`).
+**Where alerts come from** (deploy/VERCEL.md "Watch it"; every alert, what
+checks it and who is told: [docs/alerts.md](../docs/alerts.md)): **Better Stack
+Uptime** on `/ready` (phone call and SMS), **Sentry** (errors, the `maintenance`
+cron monitor, and the warnings the maintenance job sends at most hourly,
+`src/maintenance.js` `checkHealth` and `runAudit`), and the panel's **Needs
+attention** card on Today (`GET /admin/v1/attention`, `src/admin/reports.js:96`;
+shown by `src/pages/NeedsAttention.tsx`). On Vercel the maintenance job is the
+alert checker: nothing reads `ops/alerts.yml` there.
 
 **An outside service down** (Razorpay, Meta, Jio, Google, Neon, Vercel, Blob,
 Sentry): [OUTAGES.md](OUTAGES.md) says what customers see and what the system
@@ -57,9 +59,12 @@ BUSY timeouts (`mango_db_pool_busy_total`), slow queries, and the pool's open,
 idle and waiting connections (`mango_db_pool_connections`). Alert rules are in
 `ops/alerts.yml`: loop stopped, step failing, WhatsApp failing, webhooks
 failing, login codes on fallback, ledger drift, 5xx rate and ratio, p95 over
-1.5 s, pool busy and queries waiting for a connection. On Vercel the same
-ground is covered by Sentry and the uptime monitor ("Where alerts come from"
-above).
+1.5 s, pool busy and queries waiting for a connection. On Vercel nothing reads
+them: the maintenance job checks the same ground from the database every
+minute (API errors, slow answers and pool BUSY from the per-minute
+`ops_counters`, with `OPS_ALERTS`) and warns through Sentry; Better Stack on
+`/ready` and the Sentry cron monitor catch the job stopping
+([docs/alerts.md](../docs/alerts.md)).
 
 ---
 
@@ -100,7 +105,12 @@ Sentry warnings with no panel item of their own:
 | No backup in the last 26 hours | Owner | the backup item above |
 | Stock counters disagree with the ledger | Owner | [Stock discrepancy](#stock-discrepancy-ledger-audit-drift) |
 | Login codes reached 80% of the day's budget | Owner | look for one number or address pumping codes (Vercel logs); raise `OTP_DAILY_LIMIT` only if it is real demand |
-| Cron monitor `maintenance`: missed or failed check-in | Owner | [Scheduler stopped](#scheduler-stopped) |
+| Cron monitor `maintenance`: missed or failed check-in | Owner | [Scheduler stopped](#scheduler-stopped); a failed check-in means a step failed: [A maintenance step keeps failing](#a-maintenance-step-keeps-failing) |
+| Maintenance steps have failed 3 times in a row (`OPS_ALERTS`) | Owner | [A maintenance step keeps failing](#a-maintenance-step-keeps-failing) |
+| The API is answering with server errors (5xx) (`OPS_ALERTS`, over `ALERT_API_ERRORS` in 10 minutes) | Owner | [API errors or slow answers](#api-errors-or-slow-answers) |
+| API answers are slow (`OPS_ALERTS`, over `ALERT_SLOW_REQUESTS` in 10 minutes) | Owner | [API errors or slow answers](#api-errors-or-slow-answers) |
+| The database pool is exhausted (`OPS_ALERTS`, over `ALERT_DB_BUSY` BUSY answers in 10 minutes) | Owner | [Downtime or database outage](#downtime-or-database-outage), step 3 |
+| Better Stack: `/ready` down (call and SMS) | Owner | [Downtime or database outage](#downtime-or-database-outage); `maintenanceAgeSeconds` over 240: [Scheduler stopped](#scheduler-stopped) |
 
 ### Problems the code raised with no recovery path (closed 23 Oct)
 
@@ -287,8 +297,10 @@ See [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
 
 ## Downtime or database outage
 
-Notice: the uptime monitor on `/ready` (503), customers reporting errors, Sentry
-"database unavailable" (reported at most once a minute, `src/app.js`).
+Notice: Better Stack's call or SMS for `/ready` (503), customers reporting errors,
+Sentry "database unavailable" (reported at most once a minute, `src/app.js`), or
+Sentry "The database pool is exhausted" (more than `ALERT_DB_BUSY` BUSY answers
+in 10 minutes).
 What customers see: the API answers 503 "We are having trouble right now. Please
 try again in a minute." (`UNAVAILABLE`, Retry-After 5) or "We are very busy"
 (`BUSY`, pool timeout). Nothing is half-written: each change is one transaction.
@@ -311,10 +323,38 @@ Owner:
 6. If data was lost (Neon lost the branch, which is unlikely), restore: VERCEL.md
    "Rolling back", and practise it with [RESTORE-DRILL.md](RESTORE-DRILL.md).
 
+## API errors or slow answers
+
+Notice: Sentry "The API is answering with server errors (5xx)" or "API answers
+are slow" (the maintenance job, at most hourly; docs/alerts.md), Sentry error
+events, customers or staff reporting errors.
+Owner:
+1. Sentry → Issues, newest first: the errors behind the 5xx answers, each with
+   its request id. Search that id in Vercel → Logs.
+2. The warning's details say how many of the errors were 503s for the database
+   (`busy`, `unavailable`). Most of them: [Downtime or database outage](#downtime-or-database-outage).
+3. Slow answers: Vercel → Logs, `slow query` lines (which SQL took the time),
+   and Neon → Monitoring (CPU, connections). A cold Neon compute makes a few
+   first answers slow; that alone stays under the threshold.
+4. Started with a deploy: roll back (RELEASE.md step 5).
+5. An outside service slow or down (Razorpay, Meta, Jio): [OUTAGES.md](OUTAGES.md).
+The warning stops once the last 10 minutes are back under the thresholds.
+
+## A maintenance step keeps failing
+
+Notice: Sentry "Maintenance steps have failed 3 times in a row" (its details
+name the steps), Sentry errors `maintenance step failed`, failed check-ins on
+the cron monitor, Needs attention "<step> is failing".
+Owner: read the error on the Needs attention item, then follow the "<step> is
+failing" row in the table above for that step. Vercel → Logs, search
+`maintenance step failed` and the step name. The warning stops when the step
+next succeeds (its `fail_count` goes back to 0).
+
 ## Scheduler stopped
 
-Notice: `/ready` 503 with `maintenanceAgeSeconds` over 300, Needs attention "The
-background loop has stopped", Sentry cron monitor missed check-ins.
+Notice: Better Stack's call or SMS (`/ready` 503 with `maintenanceAgeSeconds`
+over 240), Needs attention "The background loop has stopped", Sentry cron
+monitor missed check-ins.
 Effect: payment checks, refund retries, WhatsApp messages and the stock audit
 wait. Checkout still works (it releases expired holds itself, SCHEDULER.md).
 Owner:
