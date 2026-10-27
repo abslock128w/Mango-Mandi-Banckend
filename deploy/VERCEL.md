@@ -382,11 +382,12 @@ maintenance job; one stuck for 30 minutes shows in Needs attention.
   when the data can't be repaired, and then always do all of this:
   1. Neon → **Branches → main → Restore** to a time before the problem. Neon keeps the
      state just before the restore as a backup branch; don't delete it yet.
-     Straight away, before the shop takes an order, move the order and booking numbers
-     past every number handed out before the restore, so none is used twice (customer
-     messages, Razorpay receipts):
+     Straight away, before the shop takes an order, move the order, booking, gift,
+     subscription, help request and bill numbers past every number handed out before
+     the restore, so none is used twice (customer messages, Razorpay receipts, GST bills):
      `node --env-file=.env ops/bump-sequences.js --old-url <backup branch URL>`
-     (no backup branch, as after restoring an off-Neon copy: `--margin 1000`).
+     (no backup branch, as after restoring an off-Neon copy: `--margin 1000`; this
+     leaves a gap in this year's bill numbers, so note the restore in the bill register).
   2. Bring back the payments taken since the restore point (applied as the webhook
      would; lost orders are listed in Needs attention):
      `node --env-file=.env ops/replay-payments.js --from <restore point>`.
