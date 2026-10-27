@@ -219,6 +219,9 @@ jobs:
           # for this job only (the defaults are checked in mango-api/test/ops-platform.test.js).
           API_RATE_LIMIT: '20000'
           OTP_IP_LIMIT: '2000'
+          # Specs reuse a customer across quick quote and confirm retries; the default (20 a minute) is checked in
+          # mango-api/test/security-readiness.test.js.
+          CUSTOMER_ACTION_LIMIT: '600'
           # The shop in Hindi and Kannada (docs/languages.md), on so customer-app/tests/languages.spec.ts runs.
           SHOP_LANGUAGES: 'true'
       - run: npx playwright install --with-deps chromium

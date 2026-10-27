@@ -5,6 +5,7 @@ import { ApiError, api } from '../api'
 import { ADJUST_REASON_LABEL, BATCH_STATUS_LABEL, CONDITION_LABEL, LEDGER_EVENT_LABEL, RIPENESS_LABEL, actorLabel, date, dateTime, humanize, istDate, rupees } from '../format'
 import { can, canSee, opsAllowed } from '../permissions'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import { BATCH_FLOW, type AdjustReason, type BatchDetail as Batch, type BatchLine, type BatchStatus, type Condition, type LedgerEntry, type Purchase, type PurchaseInput, type Ripeness } from '../types'
 import {
   BackLink,
@@ -875,8 +876,11 @@ function PurchaseDialog({ batchId, purchase, onClose }: { batchId: string; purch
     note: purchase?.note ?? '',
   })
   const [formError, setFormError] = useState<string | null>(null)
+  // What a batch cost sets the margins: saving asks the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const save = useMutation({
-    mutationFn: (input: PurchaseInput) => (purchase ? api.updatePurchase(batchId, purchase.id, input) : api.addPurchase(batchId, input)),
+    mutationFn: (input: PurchaseInput) =>
+      stepUp.run((code) => (purchase ? api.updatePurchase(batchId, purchase.id, input, code) : api.addPurchase(batchId, input, code))),
     onSuccess: () => {
       toast.success(purchase ? 'Purchase saved' : 'Purchase recorded')
       void queryClient.invalidateQueries({ queryKey: ['batch-purchases', batchId] })
@@ -904,73 +908,76 @@ function PurchaseDialog({ batchId, purchase, onClose }: { batchId: string; purch
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
   const choices = (farms.data ?? []).filter((x) => x.active || x.id === f.farmId)
   return (
-    <Dialog
-      title={purchase ? 'Edit purchase' : 'Add purchase'}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="purchase-form" className="btn btn-primary" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save'}
-          </button>
-        </>
-      }
-    >
-      <form id="purchase-form" onSubmit={onSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="purchase-farm">Farm</label>
-          <select id="purchase-farm" data-autofocus value={f.farmId} onChange={set('farmId')}>
-            <option value="">Choose a farm</option>
-            {choices.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.name}
-                {x.place ? `, ${x.place}` : ''}
-              </option>
-            ))}
-          </select>
-          {farms.isSuccess && !choices.length && (
-            <p className="hint">
-              No farms yet: add one on the <Link to="/farms">Farms page</Link> first.
-            </p>
-          )}
-          {farms.isError && <FormError error={farms.error} />}
-        </div>
-        <div className="field">
-          <label htmlFor="purchase-date">Bought on</label>
-          <input id="purchase-date" type="date" max={istDate(0)} value={f.purchasedOn} onChange={set('purchasedOn')} />
-        </div>
-        <div className="field-row">
+    <>
+      <Dialog
+        title={purchase ? 'Edit purchase' : 'Add purchase'}
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="purchase-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </>
+        }
+      >
+        <form id="purchase-form" onSubmit={onSubmit} noValidate>
           <div className="field">
-            <label htmlFor="purchase-crates">Crates</label>
-            <input id="purchase-crates" inputMode="numeric" value={f.crates} onChange={set('crates')} />
+            <label htmlFor="purchase-farm">Farm</label>
+            <select id="purchase-farm" data-autofocus value={f.farmId} onChange={set('farmId')}>
+              <option value="">Choose a farm</option>
+              {choices.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.name}
+                  {x.place ? `, ${x.place}` : ''}
+                </option>
+              ))}
+            </select>
+            {farms.isSuccess && !choices.length && (
+              <p className="hint">
+                No farms yet: add one on the <Link to="/farms">Farms page</Link> first.
+              </p>
+            )}
+            {farms.isError && <FormError error={farms.error} />}
           </div>
           <div className="field">
-            <label htmlFor="purchase-boxes">Boxes they made</label>
-            <input id="purchase-boxes" inputMode="numeric" value={f.boxes} onChange={set('boxes')} />
+            <label htmlFor="purchase-date">Bought on</label>
+            <input id="purchase-date" type="date" max={istDate(0)} value={f.purchasedOn} onChange={set('purchasedOn')} />
           </div>
-        </div>
-        <div className="field">
-          <label htmlFor="purchase-crate-cost">Cost per crate, in rupees</label>
-          <input id="purchase-crate-cost" inputMode="decimal" value={f.costPerCrate} onChange={set('costPerCrate')} />
-        </div>
-        <div className="field-row">
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="purchase-crates">Crates</label>
+              <input id="purchase-crates" inputMode="numeric" value={f.crates} onChange={set('crates')} />
+            </div>
+            <div className="field">
+              <label htmlFor="purchase-boxes">Boxes they made</label>
+              <input id="purchase-boxes" inputMode="numeric" value={f.boxes} onChange={set('boxes')} />
+            </div>
+          </div>
           <div className="field">
-            <label htmlFor="purchase-transport">Transport, in rupees</label>
-            <input id="purchase-transport" inputMode="decimal" value={f.transportCost} onChange={set('transportCost')} />
+            <label htmlFor="purchase-crate-cost">Cost per crate, in rupees</label>
+            <input id="purchase-crate-cost" inputMode="decimal" value={f.costPerCrate} onChange={set('costPerCrate')} />
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label htmlFor="purchase-transport">Transport, in rupees</label>
+              <input id="purchase-transport" inputMode="decimal" value={f.transportCost} onChange={set('transportCost')} />
+            </div>
+            <div className="field">
+              <label htmlFor="purchase-other">Other costs, in rupees</label>
+              <input id="purchase-other" inputMode="decimal" value={f.otherCost} onChange={set('otherCost')} />
+            </div>
           </div>
           <div className="field">
-            <label htmlFor="purchase-other">Other costs, in rupees</label>
-            <input id="purchase-other" inputMode="decimal" value={f.otherCost} onChange={set('otherCost')} />
+            <label htmlFor="purchase-note">Note (optional)</label>
+            <input id="purchase-note" maxLength={500} value={f.note} onChange={set('note')} />
           </div>
-        </div>
-        <div className="field">
-          <label htmlFor="purchase-note">Note (optional)</label>
-          <input id="purchase-note" maxLength={500} value={f.note} onChange={set('note')} />
-        </div>
-        <FormError error={formError ?? save.error} />
-      </form>
-    </Dialog>
+          <FormError error={formError ?? save.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
   )
 }

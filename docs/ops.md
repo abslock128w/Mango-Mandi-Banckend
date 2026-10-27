@@ -91,6 +91,10 @@ was worked out", so a manager can check the number before trusting it.
 - Every add and edit writes a `staff_audit` row in the same transaction
   (`farm.create`, `farm.update`, `purchase.create`, `purchase.update`), with
   what changed (before and after).
+- Adding or changing a purchase asks the manager to confirm it is them
+  (step-up), even with `STAFF_STEP_UP` off, because costs set the margins. The
+  purchase is checked first, so a code isn't spent on a refused one. See
+  [authorization.md](authorization.md).
 
 **Margins**, for batches whose purchases fall in the date range: a batch's cost
 is spread evenly over the boxes its purchases name (cost per box). Each box sold

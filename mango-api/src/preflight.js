@@ -108,6 +108,9 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   else if (Buffer.from(env.TOTP_ENCRYPTION_KEY, 'base64').length !== 32) errors.push('TOTP_ENCRYPTION_KEY must be 32 bytes, base64 encoded (openssl rand -base64 32)')
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
   else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
+  // On unless written false (env.js); false means someone turned the safeguard off on purpose.
+  if (env.STAFF_STEP_UP === false) warnings.push('STAFF_STEP_UP is false: staff account changes no longer ask the manager to confirm it is them (money and pricing changes still ask)')
+  if (env.STAFF_AUDIT_TRAIL === false) warnings.push('STAFF_AUDIT_TRAIL is false: staff changes are audited after the answer, best effort, and views of customer details are not recorded')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
   // Bills, customer profiles and exports (trust-config.js): the seller printed on bills must be set.
   const trustCheck = checkTrustProduction(readTrustConfig({ ...process.env, ...env, NODE_ENV: 'production' }))

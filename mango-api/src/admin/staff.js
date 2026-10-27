@@ -95,6 +95,8 @@ router.patch(
     const hash = b.password ? await bcrypt.hash(b.password, 10) : null
     const result = await tx(async (c) => {
       if (demoted) await keepATwoStepManager(c, req.params.id, { lock: true })
+      // The role it replaces, for the audit row (never the password, not even its hash).
+      const { rows: was } = await c.query('SELECT role FROM admin_users WHERE id = $1 FOR UPDATE', [req.params.id])
       const { rows } = await c.query(
         `UPDATE admin_users SET role = COALESCE($2, role), password_hash = COALESCE($3, password_hash), session_version = session_version + 1
          WHERE id = $1 RETURNING id, email, role, created_at, totp_enabled_at`,
@@ -104,7 +106,7 @@ router.patch(
       await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'admin' AND revoked_at IS NULL", [req.params.id, now()])
       // A new password also lifts a lock from wrong passwords.
       if (hash) await clearPasswordFailures(rows[0].email, c)
-      await auditInTx(c, req)
+      await auditInTx(c, req, b.role ? { before: { role: was[0].role } } : {})
       return rows[0]
     })
     forgetStaff(req.params.id)

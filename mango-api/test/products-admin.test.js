@@ -36,7 +36,7 @@ describe('products', () => {
     assert.equal((await api.post('/admin/v1/products', { ...KESAR, sku: 'k' }, { token: admin })).status, 400)
     assert.equal((await api.post('/admin/v1/products', { ...KESAR, price: 0 }, { token: admin })).status, 400)
 
-    const made = await api.post('/admin/v1/products', KESAR, { token: admin })
+    const made = await api.post('/admin/v1/products', { ...KESAR, confirmCode: 'manager123' }, { token: admin })
     assert.equal(made.status, 201, JSON.stringify(made.body))
     assert.deepEqual([made.body.sku, made.body.active, made.body.hsnCode, made.body.gstRate], ['KES-3', true, '08045020', 0])
     assert.equal((await api.post('/admin/v1/products', KESAR, { token: admin })).body.error.code, 'PRODUCT_EXISTS')
@@ -53,7 +53,7 @@ describe('products', () => {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 10 } })
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.patch('/admin/v1/products/ALP-3', { name: 'x' }, { token: ops })).status, 403)
-    const r = await api.patch('/admin/v1/products/ALP-3', { name: 'Alphonso Premium 3kg', price: 199_900 }, { token: admin })
+    const r = await api.patch('/admin/v1/products/ALP-3', { name: 'Alphonso Premium 3kg', price: 199_900, confirmCode: 'manager123' }, { token: admin })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.equal(r.body.name, 'Alphonso Premium 3kg')
     const item = await shopItem('ALP-3')
@@ -66,7 +66,7 @@ describe('products', () => {
   })
 
   test('removing a never-used product deletes it, and a later deploy does not bring it back', async () => {
-    const r = await api.del('/admin/v1/products/BAD-5', { token: admin })
+    const r = await api.del('/admin/v1/products/BAD-5', { token: admin, body: { confirmCode: 'manager123' } })
     assert.deepEqual(r.body, { sku: 'BAD-5', outcome: 'deleted' })
     assert.ok(!(await api.get('/admin/v1/products', { token: admin })).body.some((p) => p.sku === 'BAD-5'))
     await seed()
@@ -83,7 +83,7 @@ describe('products', () => {
     const other = await customerToken(api)
     await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: other.accessToken })
 
-    assert.deepEqual((await api.del('/admin/v1/products/ALP-3', { token: admin })).body, { sku: 'ALP-3', outcome: 'hidden' })
+    assert.deepEqual((await api.del('/admin/v1/products/ALP-3', { token: admin, body: { confirmCode: 'manager123' } })).body, { sku: 'ALP-3', outcome: 'hidden' })
     assert.equal(await shopItem('ALP-3'), undefined)
     assert.equal((await api.get('/admin/v1/products', { token: admin })).body.find((p) => p.sku === 'ALP-3').active, false)
     assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })).body.error.code, 'INVALID_SKU')
@@ -149,9 +149,9 @@ describe('products', () => {
     await api.del('/admin/v1/products/ALP-3/photo', { token: admin })
 
     // A product deleted outright takes its photo with it.
-    await api.post('/admin/v1/products', KESAR, { token: admin })
+    await api.post('/admin/v1/products', { ...KESAR, confirmCode: 'manager123' }, { token: admin })
     await api.raw('PUT', '/admin/v1/products/KES-3/photo', { token: admin, headers: { 'Content-Type': 'image/png' }, raw: png })
-    assert.equal((await api.del('/admin/v1/products/KES-3', { token: admin })).body.outcome, 'deleted')
+    assert.equal((await api.del('/admin/v1/products/KES-3', { token: admin, body: { confirmCode: 'manager123' } })).body.outcome, 'deleted')
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM product_photos')).rows[0].n, 0)
   })
 })

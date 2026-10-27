@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { createECDH, randomBytes } from 'node:crypto'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { expect, test } from '../../tests/fixtures'
-import { managerToken } from './staff'
+import { MANAGER_CONFIRM, managerToken } from './staff'
 
 // "Feels like an app" (docs/app-feel.md) against the real API, with its switches on (LIVE_TRACKING,
 // FAVOURITES, SHOP_INSTALL, SHOP_SORT_FILTER, WEB_PUSH with the log provider): the installable
@@ -161,7 +161,7 @@ test('favourites: a guest hearts boxes, they follow the sign-in, and the Account
   const staff = { headers: { Authorization: `Bearer ${await managerToken(request)}` } }
   const sku = `FAV-${randomBytes(3).toString('hex').toUpperCase()}`
   const name = `Kesar Heart ${sku.slice(4)} Box`
-  const made = await request.post(`${API}/admin/v1/products`, { data: { sku, name, variety: 'Kesar', boxSize: '3kg', price: 149900 }, ...staff })
+  const made = await request.post(`${API}/admin/v1/products`, { data: { sku, name, variety: 'Kesar', boxSize: '3kg', price: 149900, ...MANAGER_CONFIRM }, ...staff })
   expect(made.status(), await made.text()).toBe(201)
   try {
     await page.goto('/')

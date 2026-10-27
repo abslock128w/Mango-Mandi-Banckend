@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { API_URL, api } from '../api'
 import { shrinkPhoto } from '../photo'
 import { rupees } from '../format'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Product, ProductInput } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
@@ -26,8 +27,10 @@ export default function Products() {
     },
     onError: (err) => toast.error(err),
   })
+  // Adding, removing and repricing ask the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const remove = useMutation({
-    mutationFn: (p: Product) => api.removeProduct(p.sku),
+    mutationFn: (p: Product) => stepUp.run((code) => api.removeProduct(p.sku, code)),
     onSuccess: (r) => {
       const name = removing?.name ?? r.sku
       toast.success(r.outcome === 'deleted' ? `${name} deleted` : `${name} taken off sale`)
@@ -142,6 +145,7 @@ export default function Products() {
           </p>
         </ConfirmDialog>
       )}
+      {stepUp.dialog}
     </>
   )
 }
@@ -193,9 +197,13 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
       setPhotoError('That file is not a photo. Choose a JPEG, PNG or WebP image.')
     }
   }
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const save = useMutation({
     mutationFn: async ({ sku, reason: why, ...input }: SaveInput) => {
-      let saved = product ? await api.updateProduct(product.sku, why ? { ...input, reason: why } : input) : await api.addProduct({ sku, ...input })
+      // The server asks for the confirmation only for a new product or a new price, GST rate or HSN code.
+      let saved = await stepUp.run((code) =>
+        product ? api.updateProduct(product.sku, why ? { ...input, reason: why } : input, code) : api.addProduct({ sku, ...input }, code),
+      )
       if (photo) saved = await api.setProductPhoto(saved.sku, photo)
       else if (dropPhoto && product?.photoUrl) saved = await api.removeProductPhoto(saved.sku)
       return saved
@@ -245,176 +253,182 @@ function ProductDialog({ product, varieties, onClose, onDone }: { product: Produ
 
   if (product && confirmPrice) {
     return (
-      <Dialog
-        title={`Change the price of ${product.name}?`}
-        onClose={onClose}
-        footer={
-          <>
-            <button type="button" className="btn" onClick={() => setConfirmPrice(null)} data-autofocus>
-              Back
-            </button>
-            <button type="submit" form="price-form" className="btn btn-primary" disabled={save.isPending}>
-              {save.isPending ? 'Saving…' : 'Change price'}
-            </button>
-          </>
-        }
-      >
-        <form
-          id="price-form"
-          onSubmit={(e) => {
-            e.preventDefault()
-            save.mutate({ ...confirmPrice, reason: reason.trim() || undefined })
-          }}
-          noValidate
+      <>
+        <Dialog
+          title={`Change the price of ${product.name}?`}
+          onClose={onClose}
+          footer={
+            <>
+              <button type="button" className="btn" onClick={() => setConfirmPrice(null)} data-autofocus>
+                Back
+              </button>
+              <button type="submit" form="price-form" className="btn btn-primary" disabled={save.isPending}>
+                {save.isPending ? 'Saving…' : 'Change price'}
+              </button>
+            </>
+          }
         >
-          <p className="price-change">
-            <span aria-hidden="true">
-              {rupees(product.price!)} → <strong>{rupees(confirmPrice.price)}</strong>
-            </span>
-            <span className="sr-only">
-              From {rupees(product.price!)} to {rupees(confirmPrice.price)}
-            </span>
-          </p>
-          <p>The new price applies from the next checkout. Orders already placed keep their price.</p>
-          <div className="field">
-            <label htmlFor="price-reason">Reason (optional)</label>
-            <textarea id="price-reason" rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} aria-describedby="price-reason-hint" />
-            <p className="hint" id="price-reason-hint">
-              Kept in the staff activity with the old price, like "Mandi rate went up".
+          <form
+            id="price-form"
+            onSubmit={(e) => {
+              e.preventDefault()
+              save.mutate({ ...confirmPrice, reason: reason.trim() || undefined })
+            }}
+            noValidate
+          >
+            <p className="price-change">
+              <span aria-hidden="true">
+                {rupees(product.price!)} → <strong>{rupees(confirmPrice.price)}</strong>
+              </span>
+              <span className="sr-only">
+                From {rupees(product.price!)} to {rupees(confirmPrice.price)}
+              </span>
             </p>
-          </div>
-          <FormError error={save.error} />
-        </form>
-      </Dialog>
+            <p>The new price applies from the next checkout. Orders already placed keep their price.</p>
+            <div className="field">
+              <label htmlFor="price-reason">Reason (optional)</label>
+              <textarea id="price-reason" rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} aria-describedby="price-reason-hint" />
+              <p className="hint" id="price-reason-hint">
+                Kept in the staff activity with the old price, like "Mandi rate went up".
+              </p>
+            </div>
+            <FormError error={save.error} />
+          </form>
+        </Dialog>
+        {stepUp.dialog}
+      </>
     )
   }
 
   return (
-    <Dialog
-      title={product ? `Edit ${product.name}` : 'Add product'}
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="product-form" className="btn btn-primary" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : product ? 'Save' : 'Add product'}
-          </button>
-        </>
-      }
-    >
-      <form id="product-form" onSubmit={onSubmit} noValidate>
-        {!product && (
+    <>
+      <Dialog
+        title={product ? `Edit ${product.name}` : 'Add product'}
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="product-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : product ? 'Save' : 'Add product'}
+            </button>
+          </>
+        }
+      >
+        <form id="product-form" onSubmit={onSubmit} noValidate>
+          {!product && (
+            <div className="field">
+              <label htmlFor="product-sku">SKU</label>
+              <input id="product-sku" autoComplete="off" maxLength={20} value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value.toUpperCase() })} />
+              <p className="hint">A short code that never changes, like KES-3. Letters, digits and dashes.</p>
+            </div>
+          )}
           <div className="field">
-            <label htmlFor="product-sku">SKU</label>
-            <input id="product-sku" autoComplete="off" maxLength={20} value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value.toUpperCase() })} />
-            <p className="hint">A short code that never changes, like KES-3. Letters, digits and dashes.</p>
-          </div>
-        )}
-        <div className="field">
-          <label htmlFor="product-name">Name</label>
-          <input id="product-name" maxLength={80} value={f.name} onChange={set('name')} />
-          <p className="hint">What customers see, like "Kesar 3kg Box".</p>
-        </div>
-        <div className="field">
-          <label htmlFor="product-variety">Variety</label>
-          <input id="product-variety" list="product-varieties" maxLength={40} value={f.variety} onChange={set('variety')} />
-          <datalist id="product-varieties">
-            {varieties.map((v) => (
-              <option key={v} value={v} />
-            ))}
-          </datalist>
-          <p className="hint">Batches are received by variety. It can't change once a batch holds this product.</p>
-        </div>
-        <div className="field">
-          <label htmlFor="product-box">Box size</label>
-          <input id="product-box" maxLength={20} value={f.boxSize} onChange={set('boxSize')} />
-        </div>
-        <div className="field">
-          <label htmlFor="product-price">Price in rupees, GST included</label>
-          <input id="product-price" inputMode="decimal" value={f.price} onChange={set('price')} />
-        </div>
-        <fieldset className="field">
-          <legend>What is in the box (optional)</legend>
-          <div className="field">
-            <label htmlFor="product-fruits">Mangoes per box, about</label>
-            <input id="product-fruits" inputMode="numeric" value={f.fruitsPerBox} onChange={set('fruitsPerBox')} />
+            <label htmlFor="product-name">Name</label>
+            <input id="product-name" maxLength={80} value={f.name} onChange={set('name')} />
+            <p className="hint">What customers see, like "Kesar 3kg Box".</p>
           </div>
           <div className="field">
-            <label htmlFor="product-weight">Weight of one mango, about, in grams</label>
-            <input id="product-weight" inputMode="numeric" value={f.fruitWeightG} onChange={set('fruitWeightG')} aria-describedby="product-contents-hint" />
-            <p className="hint" id="product-contents-hint">
-              Shown on the product page, like "About 12 mangoes, around 250 g each". Leave both empty to show nothing.
-            </p>
+            <label htmlFor="product-variety">Variety</label>
+            <input id="product-variety" list="product-varieties" maxLength={40} value={f.variety} onChange={set('variety')} />
+            <datalist id="product-varieties">
+              {varieties.map((v) => (
+                <option key={v} value={v} />
+              ))}
+            </datalist>
+            <p className="hint">Batches are received by variety. It can't change once a batch holds this product.</p>
           </div>
-        </fieldset>
-        <div className="field">
-          <span className="field-label" id="product-photo-label">
-            Photo (optional)
-          </span>
-          <div className="photo-pick">
-            {preview || current ? (
-              <img src={preview ?? current!} alt={`Photo of ${f.name || 'this product'}`} className="product-photo-preview" />
-            ) : (
-              <span className="product-photo-preview product-photo-empty small muted">No photo</span>
-            )}
-            <div>
-              <label htmlFor="product-photo" className="btn btn-small">
-                {preview || current ? 'Change photo' : 'Choose photo'}
-              </label>
-              <input
-                id="product-photo"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="sr-only"
-                aria-describedby="product-photo-label product-photo-hint"
-                onChange={(e) => void pickPhoto(e.target.files?.[0])}
-              />{' '}
-              {(preview || current) && (
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  onClick={() => {
-                    setPhoto(null)
-                    setDropPhoto(Boolean(product?.photoUrl))
-                  }}
-                >
-                  Remove photo
-                </button>
-              )}
-              <p className="hint" id="product-photo-hint">
-                Shown on the product's tile and page in the shop. A square photo of the fruit or the box works best.
+          <div className="field">
+            <label htmlFor="product-box">Box size</label>
+            <input id="product-box" maxLength={20} value={f.boxSize} onChange={set('boxSize')} />
+          </div>
+          <div className="field">
+            <label htmlFor="product-price">Price in rupees, GST included</label>
+            <input id="product-price" inputMode="decimal" value={f.price} onChange={set('price')} />
+          </div>
+          <fieldset className="field">
+            <legend>What is in the box (optional)</legend>
+            <div className="field">
+              <label htmlFor="product-fruits">Mangoes per box, about</label>
+              <input id="product-fruits" inputMode="numeric" value={f.fruitsPerBox} onChange={set('fruitsPerBox')} />
+            </div>
+            <div className="field">
+              <label htmlFor="product-weight">Weight of one mango, about, in grams</label>
+              <input id="product-weight" inputMode="numeric" value={f.fruitWeightG} onChange={set('fruitWeightG')} aria-describedby="product-contents-hint" />
+              <p className="hint" id="product-contents-hint">
+                Shown on the product page, like "About 12 mangoes, around 250 g each". Leave both empty to show nothing.
               </p>
             </div>
-          </div>
-          <FormError error={photoError} />
-        </div>
-        <div className="field">
-          <label htmlFor="product-description">Description (optional)</label>
-          <textarea id="product-description" rows={2} maxLength={300} value={f.description} onChange={set('description')} />
-          <p className="hint">One or two lines for the product card in the shop.</p>
-        </div>
-        <div className="field">
-          <label htmlFor="product-order">Position in the shop</label>
-          <input id="product-order" inputMode="numeric" value={f.sortOrder} onChange={set('sortOrder')} />
-          <p className="hint">Lower numbers show first. Products with the same number are listed by name.</p>
-        </div>
-        <details className="field">
-          <summary>Tax details</summary>
+          </fieldset>
           <div className="field">
-            <label htmlFor="product-gst">GST percent</label>
-            <input id="product-gst" inputMode="decimal" value={f.gst} onChange={set('gst')} />
-            <p className="hint">Fresh mangoes have nil GST.</p>
+            <span className="field-label" id="product-photo-label">
+              Photo (optional)
+            </span>
+            <div className="photo-pick">
+              {preview || current ? (
+                <img src={preview ?? current!} alt={`Photo of ${f.name || 'this product'}`} className="product-photo-preview" />
+              ) : (
+                <span className="product-photo-preview product-photo-empty small muted">No photo</span>
+              )}
+              <div>
+                <label htmlFor="product-photo" className="btn btn-small">
+                  {preview || current ? 'Change photo' : 'Choose photo'}
+                </label>
+                <input
+                  id="product-photo"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  aria-describedby="product-photo-label product-photo-hint"
+                  onChange={(e) => void pickPhoto(e.target.files?.[0])}
+                />{' '}
+                {(preview || current) && (
+                  <button
+                    type="button"
+                    className="btn btn-small"
+                    onClick={() => {
+                      setPhoto(null)
+                      setDropPhoto(Boolean(product?.photoUrl))
+                    }}
+                  >
+                    Remove photo
+                  </button>
+                )}
+                <p className="hint" id="product-photo-hint">
+                  Shown on the product's tile and page in the shop. A square photo of the fruit or the box works best.
+                </p>
+              </div>
+            </div>
+            <FormError error={photoError} />
           </div>
           <div className="field">
-            <label htmlFor="product-hsn">HSN code</label>
-            <input id="product-hsn" inputMode="numeric" maxLength={8} value={f.hsnCode} onChange={set('hsnCode')} />
+            <label htmlFor="product-description">Description (optional)</label>
+            <textarea id="product-description" rows={2} maxLength={300} value={f.description} onChange={set('description')} />
+            <p className="hint">One or two lines for the product card in the shop.</p>
           </div>
-        </details>
-        <FormError error={formError ?? save.error} />
-      </form>
-    </Dialog>
+          <div className="field">
+            <label htmlFor="product-order">Position in the shop</label>
+            <input id="product-order" inputMode="numeric" value={f.sortOrder} onChange={set('sortOrder')} />
+            <p className="hint">Lower numbers show first. Products with the same number are listed by name.</p>
+          </div>
+          <details className="field">
+            <summary>Tax details</summary>
+            <div className="field">
+              <label htmlFor="product-gst">GST percent</label>
+              <input id="product-gst" inputMode="decimal" value={f.gst} onChange={set('gst')} />
+              <p className="hint">Fresh mangoes have nil GST.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="product-hsn">HSN code</label>
+              <input id="product-hsn" inputMode="numeric" maxLength={8} value={f.hsnCode} onChange={set('hsnCode')} />
+            </div>
+          </details>
+          <FormError error={formError ?? save.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
   )
 }
 

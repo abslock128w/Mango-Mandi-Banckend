@@ -96,7 +96,7 @@ async function dispatchAll(orderId, boxes) {
   await scan(op.id, boxes.map((b) => payload(b.label_token)))
   ok(await finalize(op.id))
 }
-const cancel = (orderId) => api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: 'test cancel', refund: true }, { token: manager })
+const cancel = (orderId) => api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: 'test cancel', refund: true, confirmCode: 'manager123' }, { token: manager })
 
 describe('receipt verification', () => {
   test('scanned, count-confirmed and voided boxes stay apart, and nothing is deleted', async () => {

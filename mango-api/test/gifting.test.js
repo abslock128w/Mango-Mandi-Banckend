@@ -245,7 +245,7 @@ describe('checkout', () => {
   test('a promo applies under the usual rules, shared over the recipients, used once', async () => {
     await stock()
     const manager = await adminToken(api)
-    const pr = await api.post('/admin/v1/promos', { code: 'GIFT10', kind: 'PERCENT', value: 10, perCustomer: 1 }, { token: manager })
+    const pr = await api.post('/admin/v1/promos', { code: 'GIFT10', kind: 'PERCENT', value: 10, perCustomer: 1, confirmCode: 'manager123' }, { token: manager })
     assert.ok([200, 201].includes(pr.status), JSON.stringify(pr.body))
     const { c, q, cust } = await placed(3, { extra: { promoCode: 'GIFT10' } })
     assert.equal(q.discount, Math.floor((3 * BOX * 10) / 100))
@@ -409,7 +409,7 @@ describe('cancelling', () => {
   test("one recipient's cancel refunds only that recipient's amount, before packing only", async () => {
     await stock()
     const manager = await adminToken(api)
-    await api.post('/admin/v1/promos', { code: 'TEAM5', kind: 'PERCENT', value: 5, perCustomer: 1 }, { token: manager })
+    await api.post('/admin/v1/promos', { code: 'TEAM5', kind: 'PERCENT', value: 5, perCustomer: 1, confirmCode: 'manager123' }, { token: manager })
     const { c, cust } = await placed(3, { over: { qty: 1 }, extra: { promoCode: 'TEAM5' } })
     // Razorpay with keys, so the refund amounts are what was really sent.
     const realFetch = globalThis.fetch

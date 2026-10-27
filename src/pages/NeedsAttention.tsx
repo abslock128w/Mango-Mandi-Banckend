@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api'
 import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
 import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToast } from '../ui'
 
@@ -81,14 +82,17 @@ export default function NeedsAttention() {
     setAct(null)
     queryClient.invalidateQueries({ queryKey: ['attention'] })
   }
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const recover = useMutation({
     mutationFn: async ({ a, reason, reference }: { a: Exclude<Act, { kind: 'repair' }>; reason: string; reference?: string }) => {
       if (a.kind === 'resolve') return api.resolveWebhookFailure(a.hook.id, reason)
-      if (a.kind === 'refund-payment') return api.refundUnmatchedPayment(a.hook.id, reason)
+      if (a.kind === 'refund-payment') return stepUp.run((code) => api.refundUnmatchedPayment(a.hook.id, reason, code))
       if (a.kind === 'keep') return api.keepPreorder(a.preorder.id, reason)
       if (a.kind === 'recount') return api.recountPreorderCapacity(a.week.weekStart, a.week.sku, { reserved: a.week.reserved, booked: a.week.booked }, reason)
       const r = a.refund
-      return r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason)
+      return stepUp.run((code) =>
+        r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason, code) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason, code),
+      )
     },
     onSuccess: (_r, { a }) =>
       done(
@@ -449,6 +453,7 @@ export default function NeedsAttention() {
         <RecoveryDialog act={act} pending={recover.isPending} error={recover.error} onClose={() => setAct(null)} onSave={(reason, reference) => recover.mutate({ a: act, reason, reference })} />
       )}
       {doubting && <DoubtDialog d={doubting} pending={check.isPending} error={check.error} onClose={() => setDoubting(null)} onSave={(note) => check.mutate({ d: doubting, ok: false, note })} />}
+      {stepUp.dialog}
     </section>
   )
 }

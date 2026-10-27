@@ -9,6 +9,7 @@ import { api } from '../api'
 import { shrinkPhoto } from '../photo'
 import { RIPENESS_LABEL, dateTime, rupees, type Tone } from '../format'
 import { ExportPanel } from '../ExportPanel'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { BulkEvent, BulkListing, BulkListingInput, BulkStatus, Product, Ripeness } from '../types'
 import {
   AuthedPhoto,
@@ -293,8 +294,10 @@ function Editor({ listing, products }: { listing: BulkListing | null; products: 
     void queryClient.invalidateQueries({ queryKey: ['bulk-listings'] })
     void queryClient.invalidateQueries({ queryKey: ['bulk-history', l.id] })
   }
+  // A new deal, or new tiers or quantities, asks the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const save = useMutation({
-    mutationFn: (i: BulkListingInput) => (listing ? api.updateBulkListing(listing.id, i) : api.addBulkListing(i)),
+    mutationFn: (i: BulkListingInput) => stepUp.run((code) => (listing ? api.updateBulkListing(listing.id, i, code) : api.addBulkListing(i, code))),
     onSuccess: (l) => {
       done(l)
       toast.success(listing ? 'Saved' : 'Draft saved. Add photos, then publish.')
@@ -463,6 +466,7 @@ function Editor({ listing, products }: { listing: BulkListing | null; products: 
           {listing && <History listingId={listing.id} />}
         </div>
       </div>
+      {stepUp.dialog}
     </>
   )
 }

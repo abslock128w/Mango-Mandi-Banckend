@@ -10,6 +10,7 @@ import { isMonday, preorderView, PREORDER_STATUSES, promoteWaitlist, refundPreor
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
 import { productName, sellable } from '../products.js'
+import { stepUp } from './step-up.js'
 
 export const router = express.Router()
 
@@ -43,6 +44,8 @@ router.post(
     const { reason } = parse(z.object({ reason: z.string().trim().min(1, 'reason is required').max(500) }), req.body ?? {})
     const r = await tx(async (c) => {
       const done = await staffCancelPreorder(c, req.params.id, req.actor, reason)
+      // A paid booking is refunded: the manager confirms it is them (STEP_UP_ROUTES). A refusal rolls the cancel back.
+      if (done.refund) await stepUp(req, { always: true })
       await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and its refund) is never left without its record
       return done
     })

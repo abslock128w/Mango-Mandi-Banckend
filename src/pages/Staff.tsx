@@ -64,7 +64,7 @@ export default function Staff() {
   const [signingOut, setSigningOut] = useState(false)
   const [keepMe, setKeepMe] = useState(true)
   const signOutAll = useMutation({
-    mutationFn: (b: { reason: string; keepMe: boolean }) => api.signOutAllStaff(b.reason, b.keepMe),
+    mutationFn: (b: { reason: string; keepMe: boolean }) => stepUp.run((code) => api.signOutAllStaff(b.reason, b.keepMe, code)),
     onSuccess: (r) => {
       setSigningOut(false)
       refresh()

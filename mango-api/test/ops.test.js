@@ -279,7 +279,7 @@ describe('farm and purchase records (PURCHASE_RECORDS)', () => {
     env.PURCHASE_RECORDS = true
     const f = (await farm()).body
     const b = await intake(20)
-    const post = (body) => api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE, ...body }, { token: manager })
+    const post = (body) => api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE, ...body, confirmCode: 'manager123' }, { token: manager })
     for (const bad of [{ costPerCrate: 0 }, { costPerCrate: -100 }, { costPerCrate: 1000.5 }, { transportCost: -1 }, { otherCost: -5 }, { crates: 0 }, { boxes: 0 }, { purchasedOn: '2026-10-16' }, { purchasedOn: '2026-02-31' }]) {
       const r = await post(bad)
       assert.equal(r.status, 400, `${JSON.stringify(bad)} → ${r.status}`)
@@ -300,7 +300,7 @@ describe('farm and purchase records (PURCHASE_RECORDS)', () => {
     assert.equal((await post({ boxes: 8, crates: 2 })).status, 201)
     // Raising the first one's boxes past the batch is refused too.
     assert.equal((await api.patch(`/admin/v1/batches/${b.id}/purchases/${first.body.id}`, { boxes: 13 }, { token: manager })).status, 409)
-    const edited = await api.patch(`/admin/v1/batches/${b.id}/purchases/${first.body.id}`, { costPerCrate: 450_000 }, { token: manager })
+    const edited = await api.patch(`/admin/v1/batches/${b.id}/purchases/${first.body.id}`, { costPerCrate: 450_000, confirmCode: 'manager123' }, { token: manager })
     assert.equal(edited.status, 200)
     assert.equal(edited.body.costPerCrate, 450_000)
     // A short arrival lowers what the batch received.
@@ -321,7 +321,7 @@ describe('farm and purchase records (PURCHASE_RECORDS)', () => {
     env.PURCHASE_RECORDS = true
     const f = (await farm()).body
     const b = await intake(20)
-    const made = await api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE }, { token: manager })
+    const made = await api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE, confirmCode: 'manager123' }, { token: manager })
     assert.equal(made.status, 201)
     for (const token of [await operatorToken(), await qcToken()]) {
       const r = await api.get(`/admin/v1/batches/${b.id}/purchases`, { token })
@@ -346,7 +346,7 @@ describe('farm and purchase records (PURCHASE_RECORDS)', () => {
     env.PURCHASE_RECORDS = true
     const f = (await farm()).body
     const b = await intake(20)
-    assert.equal((await api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE }, { token: manager })).status, 201)
+    assert.equal((await api.post(`/admin/v1/batches/${b.id}/purchases`, { farmId: f.id, ...PURCHASE, confirmCode: 'manager123' }, { token: manager })).status, 201)
     const stock = { batchId: b.id, lineId: b.lines[0].id }
     // 2 boxes with 10% off, a free replacement box (no revenue), and a cancelled order (not a sale).
     const paid = await insertOrder({ date: '2026-10-16', sku: 'ALP-3', qty: 2, discount: 37_980, status: 'DELIVERED', stock })

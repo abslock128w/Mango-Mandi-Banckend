@@ -12,6 +12,7 @@ import { newId } from './ids.js'
 import { env } from './env.js'
 import { logger } from './logger.js'
 import { hit } from './ratelimit.js'
+import { READ_AUDITED_ROUTES } from './admin/policy.js'
 import { ROLE_PERMISSIONS, WAREHOUSE_ROUTES } from './warehouse/permissions.js'
 
 export const ROLES = ['MANAGER', 'OPERATOR', 'PACKER', 'QC', 'RIDER']
@@ -26,7 +27,18 @@ export const roleAllows = (role, method, path) => role === 'MANAGER' || (LIMITED
  */
 export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 
-const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:\w+/g, '[^/]+')}$`) })
+/**
+ * What a path parameter may look like. An id is our own (prefix_hex, a box code, an SKU):
+ * letters, digits, _ and -, nothing else, so an allowlisted route can't be stretched to a
+ * path the role was never given (an encoded slash, dots, a second segment).
+ */
+const PARAM_FORMATS = {
+  pincode: '\\d{6}',
+  date: '\\d{4}-\\d{2}-\\d{2}',
+  weekStart: '\\d{4}-\\d{2}-\\d{2}',
+}
+export const ID_SEGMENT = '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
+const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, (_m, name) => PARAM_FORMATS[name] ?? ID_SEGMENT)}$`) })
 
 const COMMON = [
   route('GET', '/auth/me'),
@@ -295,24 +307,36 @@ const targetOf = (req) => {
 /**
  * SEC-08 (24 Oct 2026 audit, STAFF_AUDIT_TRAIL): the route's audit row written
  * inside its own transaction, so the change and its record commit or fail
- * together; the after-response row is then skipped. A no-op with the flag off.
+ * together; the after-response row is then skipped. A no-op with the flag off,
+ * unless `before` is given: the values a change replaced (a role, the shop
+ * rules, a promo's limits) exist only inside the transaction, so that row is
+ * always written there, as detail.before. `body` replaces the request body in
+ * the detail (a big body cut down to what changed).
  */
 export async function auditInTx(c, req, extra = {}) {
-  if (!env.STAFF_AUDIT_TRAIL) return
+  const hasBefore = extra.before !== undefined
+  if (!env.STAFF_AUDIT_TRAIL && !hasBefore) return
+  const detail = clean({ ...(extra.body ?? req.body), ...extra.detail })
   await c.query(
     `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, request_id, created_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-    [newId('aud'), req.admin.id ?? null, req.admin.email, req.admin.role, `${req.method} ${req.route.path}`, extra.target ?? targetOf(req), clean({ ...req.body, ...extra.detail }), req.id ?? null, now()],
+    [
+      newId('aud'), req.admin.id ?? null, req.admin.email, req.admin.role, `${req.method} ${req.route.path}`, extra.target ?? targetOf(req),
+      hasBefore ? { ...detail, before: extra.before } : detail, req.id ?? null, now(),
+    ],
   )
   req.audited = true
 }
+
+/** The values in `was` of the fields this change names (`fields`: the body's keys). */
+export const beforeOf = (was, fields) => Object.fromEntries(Object.keys(was).filter((k) => fields.includes(k)).map((k) => [k, was[k]]))
 
 /**
  * SEC-08 (STAFF_AUDIT_TRAIL): GETs that show customers' personal details leave a
  * compact "viewed" row (who, which route, on what; never the search words).
  * At most one per person, route and target in READ_AUDIT_MS.
  */
-const READ_AUDITED = new Set(['/orders/:id', '/manifest', '/claims', '/orders/:id/delivery-photos/:photoId', '/claims/:id/photos/:photoId'])
+const READ_AUDITED = new Set(READ_AUDITED_ROUTES.map((r) => r.replace(/^GET /, '')))
 export const READ_AUDIT_MS = 10 * 60_000
 async function auditRead(req) {
   const action = `GET ${req.route.path}`

@@ -41,7 +41,7 @@ const DRAFT = {
 const ADDRESS = '12, 4th Cross, Koramangala, Bengaluru'
 const MIN = 60_000
 
-const create = (body = DRAFT, token = manager) => api.post('/admin/v1/bulk-listings', body, { token })
+const create = (body = DRAFT, token = manager) => api.post('/admin/v1/bulk-listings', { ...body, confirmCode: 'manager123' }, { token })
 const upload = (id, bytes = jpeg, type = 'image/jpeg', token = manager) =>
   api.raw('POST', `/admin/v1/bulk-listings/${id}/photos`, { raw: bytes, token, headers: { 'Content-Type': type } })
 async function published(body = DRAFT) {
@@ -113,7 +113,7 @@ describe('managing listings', () => {
     assert.equal(pub.status, 200, JSON.stringify(pub.body))
     assert.equal(pub.body.status, 'PUBLISHED')
     assert.equal(pub.body.onSale, true)
-    const edit = await api.patch(`/admin/v1/bulk-listings/${c.body.id}`, { tiers: [{ minQty: 10, unitPrice: 155_000 }, { minQty: 30, unitPrice: 145_000 }] }, { token: manager })
+    const edit = await api.patch(`/admin/v1/bulk-listings/${c.body.id}`, { tiers: [{ minQty: 10, unitPrice: 155_000 }, { minQty: 30, unitPrice: 145_000 }], confirmCode: 'manager123' }, { token: manager })
     assert.equal(edit.status, 200, JSON.stringify(edit.body))
     assert.ok(edit.body.version > pub.body.version)
     // A live listing can't be edited into something incomplete.
@@ -281,7 +281,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     assert.equal(await heldFor(c.body.orderId), 25, 'the same stock holds as a regular order')
     assert.equal((await api.get('/v1/cart', { token: t })).body.bulkLines.length, 0, 'the cart is emptied')
     // The manager changes the price and the text afterwards.
-    await api.patch(`/admin/v1/bulk-listings/${l.id}`, { title: 'Renamed deal', tiers: [{ minQty: 10, unitPrice: 120_000 }] }, { token: manager })
+    await api.patch(`/admin/v1/bulk-listings/${l.id}`, { title: 'Renamed deal', tiers: [{ minQty: 10, unitPrice: 120_000 }], confirmCode: 'manager123' }, { token: manager })
     const mine = (await api.get(`/v1/orders/${c.body.orderId}`, { token: t })).body
     assert.equal(mine.total, 25 * 149_900)
     assert.deepEqual(mine.items[0].bulk, { listingId: l.id, title: 'Alphonso for offices', tier: { minQty: 25, maxQty: 49, unitPrice: 149_900 } })
@@ -297,7 +297,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     const t = (await customerToken(api)).accessToken
     await addBulk(t, l.id, 25)
     const q = await quote(t)
-    await api.patch(`/admin/v1/bulk-listings/${l.id}`, { tiers: [{ minQty: 10, unitPrice: 159_900 }, { minQty: 25, unitPrice: 154_900 }] }, { token: manager })
+    await api.patch(`/admin/v1/bulk-listings/${l.id}`, { tiers: [{ minQty: 10, unitPrice: 159_900 }, { minQty: 25, unitPrice: 154_900 }], confirmCode: 'manager123' }, { token: manager })
     const stale = await confirm(t, q.body.quoteId)
     assert.equal(stale.status, 409)
     assert.equal(stale.body.error.code, 'PRICE_CHANGED')
@@ -332,7 +332,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     // Publish again, then take the product itself off sale.
     await api.post(`/admin/v1/bulk-listings/${l.id}/publish`, {}, { token: manager })
     await addBulk(t, l.id, 25)
-    await api.del('/admin/v1/products/ALP-3', { token: manager })
+    await api.del('/admin/v1/products/ALP-3', { token: manager, body: { confirmCode: 'manager123' } })
     const cart = (await api.get('/v1/cart', { token: t })).body
     assert.match(cart.bulkLines[0].problem, /no longer on sale/)
     assert.equal((await quote(t)).body.error.code, 'BULK_UNAVAILABLE')
@@ -414,7 +414,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
 
   test('a product used by a listing is hidden, not deleted', async () => {
     await create()
-    const del = await api.del('/admin/v1/products/ALP-3', { token: manager })
+    const del = await api.del('/admin/v1/products/ALP-3', { token: manager, body: { confirmCode: 'manager123' } })
     assert.equal(del.body.outcome, 'hidden')
   })
 

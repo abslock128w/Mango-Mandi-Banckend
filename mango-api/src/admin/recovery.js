@@ -27,6 +27,7 @@ import { addEvent } from '../orders.js'
 import { DISPUTE_DECIDED, holdingDispute, knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
 import { promoteWaitlist } from '../preorders.js'
 import { CAPACITY_STATUSES, preordersNeedingDecision } from '../stock-watch.js'
+import { stepUp } from './step-up.js'
 
 export const router = express.Router()
 
@@ -173,6 +174,7 @@ router.post(
       if (await knownPayment(w.payment_id, c)) {
         throw conflict(`Payment ${w.payment_id} now belongs to an order or booking: there is nothing to refund here`, 'PAYMENT_MATCHED')
       }
+      await stepUp(req, { always: true }) // money moves (STEP_UP_ROUTES)
       await c.query('INSERT INTO duplicate_payments (payment_id, amount, found_at) VALUES ($1, NULL, $2) ON CONFLICT DO NOTHING', [w.payment_id, now()])
       await resolveHook(c, req, w, `Refund in full sent: ${b.reason}`)
       await auditIn(c, req, w.payment_id, { reason: b.reason, webhookFailure: w.id })
@@ -338,6 +340,7 @@ router.post(
       }
       checkNote = ' (Razorpay could not be checked)'
     }
+    await stepUp(req, { always: true }) // a refund is recorded as paid (STEP_UP_ROUTES)
     const out = await tx(async (c) => {
       // The lease: a refund attempt that is calling Razorpay right now finishes first.
       const extra = b.type === 'payment' ? '' : `, payment_status = 'REFUNDED'`
@@ -381,6 +384,7 @@ router.post(
   requireManager,
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ reason, keepMe: z.boolean().default(true) }), req.body)
+    await stepUp(req, { always: true }) // STEP_UP_ROUTES: a stolen session must not lock every manager out
     const keep = b.keepMe ? req.admin.id : null
     const ids = await tx(async (c) => {
       const { rows } = await c.query('UPDATE admin_users SET session_version = session_version + 1 WHERE id IS DISTINCT FROM $1 RETURNING id', [keep])

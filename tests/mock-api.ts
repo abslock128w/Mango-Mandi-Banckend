@@ -29,6 +29,42 @@ const json = (route: Route, status: number, body?: unknown) =>
     body: body === undefined ? '' : JSON.stringify(body),
   })
 
+/** The demo manager's password: the mock's answer to "Confirm it's you" (step-up). */
+export const MANAGER_PASSWORD = 'manager123'
+
+/**
+ * The API's STEP_UP_ROUTES that always ask (mango-api/src/admin/step-up.js): refunds, prices,
+ * promo codes, bulk deal tiers, the shop rules, batch costs and signing every staff member out.
+ * A manager's request without `confirmCode` answers 403 REAUTH_REQUIRED, a wrong one REAUTH_FAILED.
+ */
+function asksStepUp(state: MockState, method: string, path: string, body: unknown): boolean {
+  const b = (body ?? {}) as Record<string, unknown>
+  if (method === 'POST' && /^\/orders\/[^/]+\/cancel$/.test(path)) return b.refund === true
+  if (method === 'POST' && /^\/preorders\/[^/]+\/cancel$/.test(path)) return state.preorders.find((x) => x.id === path.split('/')[2])?.paymentStatus === 'SUCCEEDED'
+  // As on the server, a request that fails its own checks is refused first (no reference: 400, not a confirmation).
+  if (method === 'POST' && /^\/refunds\/[^/]+\/paid-another-way$/.test(path)) return String(b.reference ?? '').length >= 3
+  if (method === 'POST' && /^\/(webhook-failures\/[^/]+\/refund|staff\/sign-out-all)$/.test(path)) return true
+  if (method === 'POST' && ['/products', '/promos', '/bulk-listings'].includes(path)) return true
+  if (method === 'PUT' && path === '/config') return true
+  if (/^\/batches\/[^/]+\/purchases(\/[^/]+)?$/.test(path)) return method === 'POST' || method === 'PATCH'
+  if (method === 'PATCH' && /^\/promos\/[^/]+$/.test(path)) return true
+  if (method === 'PATCH' && /^\/bulk-listings\/[^/]+$/.test(path)) return ['tiers', 'minQty', 'qtyStep', 'maxQty'].some((k) => k in b)
+  const product = /^\/products\/([^/]+)$/.exec(path)
+  if (product && method === 'DELETE') return true
+  if (product && method === 'PATCH') {
+    const p = state.products.find((x) => x.sku === decodeURIComponent(product[1]))
+    return Boolean(p) && (['price', 'gstRate', 'hsnCode'] as const).some((k) => k in b && b[k] !== p?.[k])
+  }
+  return false
+}
+
+/** Answers the "Confirm it's you" dialog with the manager's password. */
+export async function confirmItsMe(page: Page, password = MANAGER_PASSWORD) {
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" })
+  await confirm.getByLabel('Your password').fill(password)
+  await confirm.getByRole('button', { name: 'Confirm' }).click()
+}
+
 const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
 
 function review(p: Partial<Review> & { id: string; rating: number }): Review {
@@ -399,6 +435,14 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return route.fulfill({ status: 204 })
     }
     if (state.twoStep.required && !state.twoStep.enabled) return json(route, 403, { error: { code: 'TWO_STEP_SETUP_REQUIRED', message: 'Set up two-step sign-in first', requestId: 'req_s' } })
+    if (state.role === 'MANAGER' && asksStepUp(state, method, path, body)) {
+      const given = (body as { confirmCode?: unknown } | null)?.confirmCode
+      if (!given) return json(route, 403, { error: { code: 'REAUTH_REQUIRED', message: 'Enter your password to confirm.', method: 'password', requestId: 'req_r' } })
+      if (given !== MANAGER_PASSWORD) return json(route, 403, { error: { code: 'REAUTH_FAILED', message: 'That password is not right.', method: 'password', requestId: 'req_r' } })
+      // Recorded in calls with the confirmation; the handlers below see the change itself.
+      const { confirmCode: _confirmed, ...change } = body as Record<string, unknown>
+      body = change
+    }
     if (path === '/staff/sign-out-all') {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
       return json(route, 200, { signedOut: state.staff.length - 1, keptMe: (body as { keepMe?: boolean })?.keepMe !== false })

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { rupees } from '../format'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { NewPromo, Promo } from '../types'
 import { ReferralsSection } from './Referrals'
 import { Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
@@ -31,8 +32,10 @@ export default function Promos() {
   const [adding, setAdding] = useState(false)
   const { me } = useSession()
   const showReferrals = me?.role === 'MANAGER' && Boolean(me.features?.referrals)
+  // Promo codes are discounts: each change asks the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const toggle = useMutation({
-    mutationFn: (p: Promo) => api.updatePromo(p.code, { active: !p.active }),
+    mutationFn: (p: Promo) => stepUp.run((code) => api.updatePromo(p.code, { active: !p.active }, code)),
     onSuccess: (p) => {
       toast.success(`${p.code} is ${p.active ? 'on' : 'off'}`)
       void queryClient.invalidateQueries({ queryKey: ['promos'] })
@@ -103,6 +106,7 @@ export default function Promos() {
       </section>
       {showReferrals && <ReferralsSection />}
       {adding && <AddPromo onClose={() => setAdding(false)} onDone={() => void queryClient.invalidateQueries({ queryKey: ['promos'] })} />}
+      {stepUp.dialog}
     </>
   )
 }
@@ -117,8 +121,9 @@ function AddPromo({ onClose, onDone }: { onClose: () => void; onDone: () => void
   })
   const [formError, setFormError] = useState<string | null>(null)
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const add = useMutation({
-    mutationFn: (p: NewPromo) => api.addPromo(p),
+    mutationFn: (p: NewPromo) => stepUp.run((code) => api.addPromo(p, code)),
     onSuccess: (p) => {
       toast.success(`${p.code} made: ${promoText(p)}`)
       onDone()
@@ -153,80 +158,83 @@ function AddPromo({ onClose, onDone }: { onClose: () => void; onDone: () => void
   }
 
   return (
-    <Dialog
-      title="New promo code"
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="promo-form" className="btn btn-primary" disabled={add.isPending}>
-            {add.isPending ? 'Saving…' : 'Make code'}
-          </button>
-        </>
-      }
-    >
-      <form id="promo-form" onSubmit={onSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="promo-code">Code</label>
-          <input id="promo-code" autoComplete="off" maxLength={20} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} />
-          <p className="hint">What customers type, like MANGO10. Letters and digits.</p>
-        </div>
-        <fieldset className="field">
-          <legend>Discount</legend>
-          <div className="radio-row">
-            <label>
-              <input type="radio" name="kind" checked={f.kind === 'PERCENT'} onChange={() => setF({ ...f, kind: 'PERCENT' })} /> A percentage
-            </label>
-            <label>
-              <input type="radio" name="kind" checked={f.kind === 'FLAT'} onChange={() => setF({ ...f, kind: 'FLAT' })} /> An amount in rupees
-            </label>
-          </div>
-        </fieldset>
-        <div className="field">
-          <label htmlFor="promo-value">{f.kind === 'PERCENT' ? 'Percent off' : 'Rupees off'}</label>
-          <input id="promo-value" inputMode="decimal" value={f.value} onChange={set('value')} />
-        </div>
-        {f.kind === 'PERCENT' && (
+    <>
+      <Dialog
+        title="New promo code"
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="promo-form" className="btn btn-primary" disabled={add.isPending}>
+              {add.isPending ? 'Saving…' : 'Make code'}
+            </button>
+          </>
+        }
+      >
+        <form id="promo-form" onSubmit={onSubmit} noValidate>
           <div className="field">
-            <label htmlFor="promo-max">Most it can take off, in rupees (optional)</label>
-            <input id="promo-max" inputMode="decimal" value={f.maxDiscount} onChange={set('maxDiscount')} />
+            <label htmlFor="promo-code">Code</label>
+            <input id="promo-code" autoComplete="off" maxLength={20} value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} />
+            <p className="hint">What customers type, like MANGO10. Letters and digits.</p>
           </div>
-        )}
-        <div className="field">
-          <label htmlFor="promo-min">Smallest order, in rupees (optional)</label>
-          <input id="promo-min" inputMode="decimal" value={f.minSubtotal} onChange={set('minSubtotal')} />
-        </div>
-        <div className="field">
-          <label htmlFor="promo-start">Starts (optional)</label>
-          <input id="promo-start" type="date" value={f.startsOn} onChange={set('startsOn')} />
-        </div>
-        <div className="field">
-          <label htmlFor="promo-end">Ends (optional)</label>
-          <input id="promo-end" type="date" value={f.endsOn} onChange={set('endsOn')} />
-        </div>
-        <div className="field">
-          <label htmlFor="promo-uses">Total uses allowed (optional)</label>
-          <input id="promo-uses" inputMode="numeric" value={f.maxUses} onChange={set('maxUses')} />
-        </div>
-        <div className="field">
-          <label htmlFor="promo-per">Uses per customer</label>
-          <input id="promo-per" inputMode="numeric" value={f.perCustomer} onChange={set('perCustomer')} />
-        </div>
-        <div className="field radio-row">
-          <label>
-            <input type="checkbox" checked={f.firstOrderOnly} onChange={(e) => setF({ ...f, firstOrderOnly: e.target.checked })} /> Only on a customer's
-            first order
-          </label>
-        </div>
-        <div className="field">
-          <label htmlFor="promo-note">Note for customers (optional)</label>
-          <input id="promo-note" maxLength={120} value={f.description} onChange={set('description')} />
-          <p className="hint">Shown next to the discount at checkout, like "Diwali offer".</p>
-        </div>
-        <FormError error={formError ?? add.error} />
-      </form>
-    </Dialog>
+          <fieldset className="field">
+            <legend>Discount</legend>
+            <div className="radio-row">
+              <label>
+                <input type="radio" name="kind" checked={f.kind === 'PERCENT'} onChange={() => setF({ ...f, kind: 'PERCENT' })} /> A percentage
+              </label>
+              <label>
+                <input type="radio" name="kind" checked={f.kind === 'FLAT'} onChange={() => setF({ ...f, kind: 'FLAT' })} /> An amount in rupees
+              </label>
+            </div>
+          </fieldset>
+          <div className="field">
+            <label htmlFor="promo-value">{f.kind === 'PERCENT' ? 'Percent off' : 'Rupees off'}</label>
+            <input id="promo-value" inputMode="decimal" value={f.value} onChange={set('value')} />
+          </div>
+          {f.kind === 'PERCENT' && (
+            <div className="field">
+              <label htmlFor="promo-max">Most it can take off, in rupees (optional)</label>
+              <input id="promo-max" inputMode="decimal" value={f.maxDiscount} onChange={set('maxDiscount')} />
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="promo-min">Smallest order, in rupees (optional)</label>
+            <input id="promo-min" inputMode="decimal" value={f.minSubtotal} onChange={set('minSubtotal')} />
+          </div>
+          <div className="field">
+            <label htmlFor="promo-start">Starts (optional)</label>
+            <input id="promo-start" type="date" value={f.startsOn} onChange={set('startsOn')} />
+          </div>
+          <div className="field">
+            <label htmlFor="promo-end">Ends (optional)</label>
+            <input id="promo-end" type="date" value={f.endsOn} onChange={set('endsOn')} />
+          </div>
+          <div className="field">
+            <label htmlFor="promo-uses">Total uses allowed (optional)</label>
+            <input id="promo-uses" inputMode="numeric" value={f.maxUses} onChange={set('maxUses')} />
+          </div>
+          <div className="field">
+            <label htmlFor="promo-per">Uses per customer</label>
+            <input id="promo-per" inputMode="numeric" value={f.perCustomer} onChange={set('perCustomer')} />
+          </div>
+          <div className="field radio-row">
+            <label>
+              <input type="checkbox" checked={f.firstOrderOnly} onChange={(e) => setF({ ...f, firstOrderOnly: e.target.checked })} /> Only on a customer's
+              first order
+            </label>
+          </div>
+          <div className="field">
+            <label htmlFor="promo-note">Note for customers (optional)</label>
+            <input id="promo-note" maxLength={120} value={f.description} onChange={set('description')} />
+            <p className="hint">Shown next to the discount at checkout, like "Diwali offer".</p>
+          </div>
+          <FormError error={formError ?? add.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
   )
 }

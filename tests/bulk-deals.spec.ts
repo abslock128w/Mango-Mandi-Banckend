@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { expect, navLinkAnyState, openNavTo, test } from './fixtures'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // Bulk Deals in the panel. The role check uses the mocked API; the manager's
 // journey runs against a real, seeded mango-api (like the day-in-the-life spec)
@@ -58,6 +58,8 @@ test.describe('against mango-api', () => {
     await page.getByLabel('Description').fill('Short')
     await page.getByLabel('Tier 2 price per box, rupees').fill('1600')
     await page.getByRole('button', { name: 'Save draft' }).click()
+    // A deal sets prices, so the manager confirms it is them.
+    await confirmItsMe(page, password!)
     await expect(page).toHaveURL(/\/bulk-deals\/bulk_/)
     await expect(page.getByRole('heading', { name: title })).toBeVisible()
     await expect(page.getByText('Draft', { exact: true })).toBeVisible()
@@ -89,9 +91,10 @@ test.describe('against mango-api', () => {
     await expect(page.getByText('Published', { exact: true }).first()).toBeVisible()
     await expect(publishing).toContainText('Customers can see and buy this deal now.')
 
-    // A live price change saves, and the history says what changed.
+    // A live price change asks again, saves, and the history says what changed. The description change above did not ask.
     await page.getByLabel('Tier 2 price per box, rupees').fill('1550')
     await page.getByRole('button', { name: 'Save changes' }).click()
+    await confirmItsMe(page, password!)
     const history = page.getByRole('region', { name: 'History' })
     await expect(history).toContainText('Prices or quantities changed')
     await expect(history).toContainText('now 10+ ₹1,700.00, 25+ ₹1,550.00')

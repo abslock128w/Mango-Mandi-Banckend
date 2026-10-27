@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '../../tests/fixtures'
 import { reviewOrder } from './checkout'
-import { managerToken } from './staff'
+import { MANAGER_CONFIRM, managerToken } from './staff'
 
 // Bulk Deals against the real API: a manager publishes a deal (through the admin
 // API), a customer opens the Bulk Deals tab, picks a quantity, sees the tier price
@@ -38,6 +38,7 @@ async function publishDeal(request: Req, token: string, box: { sku: string; stag
     data: {
       sku: box.sku, title, description: 'Full boxes packed together for an office or a family get-together.', origin: 'Ratnagiri, Maharashtra',
       stages: [box.stage], minQty: 2, qtyStep: 2, maxQty: 6, tiers: [{ minQty: 2, unitPrice: box.price - 5000 }, { minQty: 4, unitPrice: box.price - 10000 }],
+      ...MANAGER_CONFIRM,
     },
   })
   expect(c.status(), await c.text()).toBe(201)
@@ -135,7 +136,7 @@ test('a price change and a deal taken down while in the cart', async ({ page, re
   // The manager lowers the price: the cart shows the new one and says what it was.
   const patch = await request.patch(`${API}/admin/v1/bulk-listings/${id}`, {
     headers: auth,
-    data: { tiers: [{ minQty: 2, unitPrice: box.price - 7000 }, { minQty: 4, unitPrice: box.price - 10000 }] },
+    data: { tiers: [{ minQty: 2, unitPrice: box.price - 7000 }, { minQty: 4, unitPrice: box.price - 10000 }], ...MANAGER_CONFIRM },
   })
   expect(patch.status(), await patch.text()).toBe(200)
   await page.goto('/cart')

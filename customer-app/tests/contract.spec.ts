@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '../../tests/fixtures'
-import { managerToken } from './staff'
+import { MANAGER_CONFIRM, managerToken } from './staff'
 import type { BulkDeal, BulkPrice, ServerBulkLine, Catalogue, CatalogueItem, Confirmed, DeliveryCheck, Order, OrderStatus, OrderSummary, ProductListing, Quote, QuoteLine, ShopFeatures, ShopPolicy, Slot, SlotOnDate, Stage, Tracking, api } from '../src/api'
 
 // TST-1: the shop's types (customer-app/src/api.ts) must match what the real
@@ -386,6 +386,7 @@ test('the API answers Bulk Deals in the shapes the shop expects', async ({ reque
     data: {
       sku: 'ALP-3', title: `Contract deal ${Date.now()}`, description: 'Full boxes for offices and family events, packed together.', origin: 'Ratnagiri',
       stages: ['RIPE', 'SEMI_RIPE'], minQty: 2, qtyStep: 1, maxQty: null, tiers: [{ minQty: 2, unitPrice: 180_000 }, { minQty: 5, unitPrice: 170_000 }],
+      ...MANAGER_CONFIRM,
     },
   })
   expect(created.status(), await created.text()).toBe(201)

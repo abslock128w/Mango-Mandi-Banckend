@@ -306,7 +306,7 @@ describe('issuing bills', () => {
 
   test('the bill is a snapshot: later edits to the order, product, promo or seller never change it', async () => {
     setTrustConfig(REGISTERED)
-    assert.equal((await api.post('/admin/v1/promos', { code: 'MANGO10', kind: 'PERCENT', value: 10 }, { token: manager })).status, 201)
+    assert.equal((await api.post('/admin/v1/promos', { code: 'MANGO10', kind: 'PERCENT', value: 10, confirmCode: 'manager123' }, { token: manager })).status, 201)
     const { orderId, cust } = await paidOrder(2, { promoCode: 'MANGO10' })
     const first = await download(`/v1/orders/${orderId}/bill`, cust.accessToken)
     const text = pdfText(first.body)
@@ -365,7 +365,7 @@ describe('issuing bills', () => {
   test('a cancelled order keeps its bill and number, marked cancelled; a free replacement gets none', async () => {
     const { orderId, cust } = await paidOrder()
     const internal = 'INTERNAL: flagged by ops, do not serve'
-    const r = await api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: internal, refund: true }, { token: manager })
+    const r = await api.post(`/admin/v1/orders/${orderId}/cancel`, { reason: internal, refund: true, confirmCode: 'manager123' }, { token: manager })
     assert.equal(r.status, 204, JSON.stringify(r.body))
     const b = await billRow(orderId)
     assert.equal(b.number, 'MM/26-27/000001')
@@ -409,6 +409,7 @@ describe('issuing bills', () => {
       {
         sku: 'ALP-3', title: 'Alphonso for offices', description: 'Hand-picked Ratnagiri Alphonso in 3 kg boxes, for offices and events.',
         origin: 'Ratnagiri, Maharashtra', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
+        confirmCode: 'manager123',
       },
       { token: manager },
     )

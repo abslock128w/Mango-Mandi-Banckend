@@ -5,6 +5,7 @@ import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate } from '../format'
 import { can, opsAllowed } from '../permissions'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { BulkMoveResult, CalendarDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
@@ -758,8 +759,10 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
   )
   const [formError, setFormError] = useState<string | null>(null)
 
+  // The rules apply to every customer's order: saving asks the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const save = useMutation({
-    mutationFn: (next: Rules) => api.saveRules(next),
+    mutationFn: (next: Rules) => stepUp.run((code) => api.saveRules(next, code)),
     onSuccess: (saved) => {
       toast.success(`Rules saved as version ${saved.version}. Open orders are being re-checked.`)
       queryClient.invalidateQueries({ queryKey: ['rules'] })
@@ -786,69 +789,72 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
   }
 
   return (
-    <Dialog
-      title="Edit selling rules"
-      onClose={onClose}
-      footer={
-        <>
-          <button type="button" className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" form="rules-form" className="btn btn-primary" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save as new version'}
-          </button>
-        </>
-      }
-    >
-      <form id="rules-form" onSubmit={onSubmit} noValidate>
-        {RULE_FIELDS.map((f) => (
-          <div className="field" key={f.key}>
-            <label htmlFor={`rule-${f.key}`}>{f.label}</label>
-            <input
-              id={`rule-${f.key}`}
-              inputMode="numeric"
-              value={values[f.key]}
-              onChange={(e) => setValues({ ...values, [f.key]: e.target.value.trim() })}
-            />
-            <p className="hint">{f.hint}</p>
-          </div>
-        ))}
-        <div className="field">
-          <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
-          <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />
-          <p className="hint">Preorders booked for a week after this day wait for a manager to keep or refund them.</p>
-        </div>
-        <fieldset>
-          <legend>Ripeness by age, all varieties</legend>
-          {windows.map((w, i) => (
-            <div className="btn-row align-end" key={w.stage}>
-              <div className="field">
-                <label htmlFor={`win-${w.stage}-min`}>{RIPENESS_LABEL[w.stage]} from day</label>
-                <input
-                  id={`win-${w.stage}-min`}
-                  inputMode="numeric"
-                  size={3}
-                  value={w.minAge}
-                  onChange={(e) => setWindows(windows.map((x, j) => (j === i ? { ...x, minAge: e.target.value.trim() } : x)))}
-                />
-              </div>
-              <div className="field">
-                <label htmlFor={`win-${w.stage}-max`}>to day</label>
-                <input
-                  id={`win-${w.stage}-max`}
-                  inputMode="numeric"
-                  size={3}
-                  value={w.maxAge}
-                  onChange={(e) => setWindows(windows.map((x, j) => (j === i ? { ...x, maxAge: e.target.value.trim() } : x)))}
-                />
-              </div>
+    <>
+      <Dialog
+        title="Edit selling rules"
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="rules-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Save as new version'}
+            </button>
+          </>
+        }
+      >
+        <form id="rules-form" onSubmit={onSubmit} noValidate>
+          {RULE_FIELDS.map((f) => (
+            <div className="field" key={f.key}>
+              <label htmlFor={`rule-${f.key}`}>{f.label}</label>
+              <input
+                id={`rule-${f.key}`}
+                inputMode="numeric"
+                value={values[f.key]}
+                onChange={(e) => setValues({ ...values, [f.key]: e.target.value.trim() })}
+              />
+              <p className="hint">{f.hint}</p>
             </div>
           ))}
-        </fieldset>
-        <p className="hint">Saving re-checks every open order against the new rules. Orders that no longer fit are flagged at risk.</p>
-        <FormError error={formError ?? save.error} />
-      </form>
-    </Dialog>
+          <div className="field">
+            <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
+            <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />
+            <p className="hint">Preorders booked for a week after this day wait for a manager to keep or refund them.</p>
+          </div>
+          <fieldset>
+            <legend>Ripeness by age, all varieties</legend>
+            {windows.map((w, i) => (
+              <div className="btn-row align-end" key={w.stage}>
+                <div className="field">
+                  <label htmlFor={`win-${w.stage}-min`}>{RIPENESS_LABEL[w.stage]} from day</label>
+                  <input
+                    id={`win-${w.stage}-min`}
+                    inputMode="numeric"
+                    size={3}
+                    value={w.minAge}
+                    onChange={(e) => setWindows(windows.map((x, j) => (j === i ? { ...x, minAge: e.target.value.trim() } : x)))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor={`win-${w.stage}-max`}>to day</label>
+                  <input
+                    id={`win-${w.stage}-max`}
+                    inputMode="numeric"
+                    size={3}
+                    value={w.maxAge}
+                    onChange={(e) => setWindows(windows.map((x, j) => (j === i ? { ...x, maxAge: e.target.value.trim() } : x)))}
+                  />
+                </div>
+              </div>
+            ))}
+          </fieldset>
+          <p className="hint">Saving re-checks every open order against the new rules. Orders that no longer fit are flagged at risk.</p>
+          <FormError error={formError ?? save.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
   )
 }
 

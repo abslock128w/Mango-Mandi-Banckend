@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import jwt from 'jsonwebtoken'
 import { ROLES, roleAllows } from '../src/access.js'
+import { DOC_FILE, renderMatrix } from '../scripts/auth-matrix-doc.js'
 import { router as adminRouter } from '../src/admin.js'
 import { ACCESS_TTL_S } from '../src/auth.js'
 import { addDays, todayIST } from '../src/clock.js'
@@ -81,8 +82,9 @@ function customerRoutes() {
 const ADMIN_ROUTES = adminRoutes()
 const CUSTOMER_ROUTES = customerRoutes()
 
-/** A path with every parameter filled by an id that doesn't exist. */
-const concrete = (path) => path.replace(/:(\w+)/g, (_m, name) => (name === 'date' || name === 'weekStart' ? '2026-01-05' : `none_${name}`))
+/** A path with every parameter filled by an id that doesn't exist, in that parameter's format (access.js PARAM_FORMATS). */
+const concrete = (path) =>
+  path.replace(/:(\w+)/g, (_m, name) => (name === 'date' || name === 'weekStart' ? '2026-01-05' : name === 'pincode' ? '999999' : `none_${name}`))
 
 /**
  * Bodies that pass the role gate without doing anything. A packer may only
@@ -156,6 +158,29 @@ describe('staff route × role matrix', () => {
 
   test('the role policy matches the reviewed snapshot (test/fixtures/role-policy.json)', () => {
     assert.deepEqual(currentPolicy(), POLICY, 'who may call which staff route changed: if on purpose, run with UPDATE_ROLE_POLICY=1 and commit the reviewed diff')
+  })
+
+  test('docs/authorization-matrix.md is up to date with the policy and the step-up list', () => {
+    assert.equal(readFileSync(DOC_FILE, 'utf8'), renderMatrix(POLICY), 'the authorization matrix doc is out of date: run node scripts/auth-matrix-doc.js and commit it')
+  })
+
+  test('an allowlisted route matches only ids in their own format, not any segment', () => {
+    for (const [method, path] of [['GET', '/orders/ord_3f9c0a'], ['PATCH', '/pincodes/560034'], ['PUT', '/calendar/2026-10-27'], ['GET', '/warehouse/boxes/7K3M9P2QX']]) {
+      assert.equal(roleAllows('OPERATOR', method, path), true, `${method} ${path}`)
+    }
+    for (const [method, path] of [
+      ['GET', '/orders/..'], ['GET', '/orders/ord%2F..%2Fstaff'], ['GET', '/orders/a.b'], ['GET', '/orders/_x'], ['GET', `/orders/${'a'.repeat(65)}`],
+      ['PATCH', '/pincodes/56003'], ['PATCH', '/pincodes/abcdef'], ['PUT', '/calendar/tomorrow'], ['PUT', '/calendar/2026-10-27x'],
+    ]) {
+      assert.equal(roleAllows('OPERATOR', method, path), false, `${method} ${path}`)
+    }
+  })
+
+  test('a malformed id reaches an operator as 403, not the route', async () => {
+    for (const path of ['/orders/a.b', '/pincodes/abc']) {
+      const res = await call(path.startsWith('/pincodes') ? 'PATCH' : 'GET', `/admin/v1${path}`, { token: tokens.OPERATOR, body: { city: 'X' } })
+      assert.equal(res.status, 403, `${path}: ${JSON.stringify(res.body)}`)
+    }
   })
 
   for (const r of ADMIN_ROUTES) {

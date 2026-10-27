@@ -138,7 +138,7 @@ describe('PLT-01: rules saved by a newer release still load', () => {
     assert.equal('someFutureRule' in live.rules, false)
     assert.equal(live.rules.holdMinutes, DEFAULT_RULES.holdMinutes)
     assert.equal((await api.get('/v1/products')).status, 200)
-    const save = await api.put('/admin/v1/config', { rules: newer }, { token: manager })
+    const save = await api.put('/admin/v1/config', { rules: newer, confirmCode: 'manager123' }, { token: manager })
     assert.equal(save.status, 400)
   })
 
