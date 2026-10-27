@@ -123,6 +123,7 @@
   "GET /v1/me/help": "customer",
   "GET /v1/me/help/requests": "customer",
   "GET /v1/me/help/requests/:id": "customer",
+  "GET /v1/me/language": "customer",
   "GET /v1/me/push": "customer",
   "GET /v1/me/referral": "customer",
   "GET /v1/me/reviews": "customer",
@@ -309,6 +310,7 @@
   "PUT /admin/v1/reviews/:id/reply": "staff",
   "PUT /admin/v1/settings/switches/:key": "staff",
   "PUT /v1/me/favourites/:sku": "customer",
+  "PUT /v1/me/language": "customer",
   "PUT /v1/me/push/subscription": "customer",
   "PUT /v1/orders/:id/rating": "customer"
 }

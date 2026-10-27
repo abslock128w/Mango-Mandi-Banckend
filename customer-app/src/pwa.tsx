@@ -8,6 +8,7 @@
 // stays as /sw.js?shell=off, which keeps no cache.
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useT } from './i18n'
 import { policyQuery } from './queries'
 
 /** The worker's address: with the shell, or for notifications only. */
@@ -117,6 +118,7 @@ export function InstallCard() {
   const event = useSyncExternalStore(subscribe, () => offer)
   const [hidden, setHidden] = useState(dismissedRecently)
   const [busy, setBusy] = useState(false)
+  const t = useT()
   if (!q.data?.features?.installApp || !event || hidden) return null
   const notNow = () => {
     rememberDismissed()
@@ -145,15 +147,15 @@ export function InstallCard() {
       <img src="/icon-192.png" width="48" height="48" alt="" />
       <div>
         <h2 id="install-title" className="install-title">
-          Add MandiMangoes to your home screen
+          {t('install.title')}
         </h2>
-        <p className="small muted">Open the shop in one tap, like an app. Nothing to download from a store.</p>
+        <p className="small muted">{t('install.body')}</p>
         <div className="row">
           <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void install()}>
-            Install app
+            {t('install.cta')}
           </button>
           <button type="button" className="btn btn-quiet" onClick={notNow}>
-            Not now
+            {t('install.notNow')}
           </button>
         </div>
       </div>

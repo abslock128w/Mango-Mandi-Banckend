@@ -1,4 +1,5 @@
 import { API_URL, type Stage } from './api'
+import { t } from './i18n-core.ts'
 
 /** Skin colours by ripeness: green when raw, blushing as it softens, golden when ripe. */
 const SKIN: Record<Stage, { base: string; blush: string }> = {
@@ -28,32 +29,15 @@ export function MangoArt({ stage, size = 56, label }: { stage: Stage; size?: num
 }
 
 /** How to look after each ripeness once it arrives. */
-export const CARE: Record<Stage, { title: string; tips: string[] }> = {
-  RAW: {
-    title: 'Raw mangoes',
-    tips: [
-      'Keep them at room temperature, out of the sun. Wrapping them in newspaper or a paper bag speeds things up.',
-      "Don't refrigerate them yet: cold stops them ripening.",
-      'They are ready in 3 to 4 days, when they smell sweet at the stem and give a little when pressed.',
-    ],
+const care = (stage: 'raw' | 'semiRipe' | 'ripe') => ({
+  get title() {
+    return t(`care.${stage}.title`)
   },
-  SEMI_RIPE: {
-    title: 'Semi-ripe mangoes',
-    tips: [
-      'Leave them at room temperature for 1 to 2 days.',
-      'They are ready when they smell sweet at the stem and give a little when pressed.',
-      'Once ripe, eat them or move them to the fridge.',
-    ],
+  get tips() {
+    return [t(`care.${stage}.tip1`), t(`care.${stage}.tip2`), t(`care.${stage}.tip3`)]
   },
-  RIPE: {
-    title: 'Ripe mangoes',
-    tips: [
-      'Ready to eat now. Enjoy them within a day or two.',
-      'To keep them 2 to 3 more days, put them in the fridge.',
-      'Take them out half an hour before eating for the best flavour.',
-    ],
-  },
-}
+})
+export const CARE: Record<Stage, { title: string; tips: string[] }> = { RAW: care('raw'), SEMI_RIPE: care('semiRipe'), RIPE: care('ripe') }
 
 /** A public photo URL (product or review) resized by the API to `width` px (one of its allowed widths). */
 export function photoAt(url: string, width: number) {
@@ -102,7 +86,7 @@ export function ProductImage({
       sizes={f.sizes}
       width={f.width}
       height={f.height}
-      alt={`Photo of ${name}`}
+      alt={t('product.photoOf', { name })}
       className={className ?? 'product-photo'}
       loading={eager || priority ? 'eager' : 'lazy'}
       decoding={priority ? 'sync' : 'async'}

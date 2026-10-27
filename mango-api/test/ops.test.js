@@ -377,6 +377,17 @@ describe('farm and purchase records (PURCHASE_RECORDS)', () => {
 
 // ---------------------------------------------------------------- feature switches
 
+/** Runs fn as a build that does not read this switch yet: its entry in env is removed, then put back. */
+async function withoutEnvKey(key, fn) {
+  const had = Object.hasOwn(env, key)
+  const value = env[key]
+  delete env[key]
+  try {
+    return await fn()
+  } finally {
+    if (had) env[key] = value
+  }
+}
 const put = (key, body, token = manager) => api.put(`/admin/v1/settings/switches/${key}`, body, { token })
 
 describe('feature switches in the panel (PANEL_FEATURE_SWITCHES)', () => {
@@ -410,9 +421,16 @@ describe('feature switches in the panel (PANEL_FEATURE_SWITCHES)', () => {
     const fav = list.body.items.find((s) => s.key === 'FAVOURITES')
     assert.deepEqual({ effective: fav.effective, override: fav.override, envValue: fav.envValue }, { effective: false, override: null, envValue: false })
     assert.ok(fav.description.length > 10)
-    // Switches this build doesn't read yet are not offered (once every listed switch ships, there is none to check).
-    const notYet = PANEL_SWITCHES.find((s) => !knownSwitch(s.key))?.key
-    if (notYet) assert.equal(list.body.items.some((s) => s.key === notYet), false)
+    // Switches this build doesn't read yet are not offered. Every listed switch now ships, so one is
+    // simulated: SHOP_LANGUAGES with its env entry removed, as in a build from before it existed.
+    assert.equal(list.body.items.some((s) => s.key === 'SHOP_LANGUAGES'), true)
+    const notYet = await withoutEnvKey('SHOP_LANGUAGES', async () => {
+      assert.equal(knownSwitch('SHOP_LANGUAGES'), false)
+      return api.get('/admin/v1/settings/switches', { token: manager })
+    })
+    assert.equal(notYet.status, 200)
+    assert.equal(notYet.body.items.some((s) => s.key === 'SHOP_LANGUAGES'), false)
+    assert.equal(notYet.body.items.some((s) => s.key === 'FAVOURITES'), true)
 
     const ask = await put('FAVOURITES', { enabled: true })
     assert.equal(ask.status, 403)
@@ -449,6 +467,10 @@ describe('feature switches in the panel (PANEL_FEATURE_SWITCHES)', () => {
       assert.equal(r.status, 403, key)
       assert.equal(r.body.error.code, 'NOT_SWITCHABLE', key)
     }
+    // A listed switch this build does not read (simulated, as every listed switch now ships) is refused too.
+    const notYet = await withoutEnvKey('SHOP_LANGUAGES', () => put('SHOP_LANGUAGES', { enabled: true, confirmCode: 'manager123' }))
+    assert.equal(notYet.status, 403)
+    assert.equal(notYet.body.error.code, 'NOT_SWITCHABLE')
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM feature_switches')).rows[0].n, 0)
     // A row written straight into the table for a safeguard is ignored too.
     await query(`INSERT INTO feature_switches (key, enabled, updated_by, updated_at) VALUES ('STOCK_INTAKE_CHECKS', TRUE, 'test', now())`)

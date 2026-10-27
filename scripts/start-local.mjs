@@ -77,6 +77,8 @@ export function localPlan(argv, wifiIps = []) {
     // Customer care (docs/care.md): the help centre and season subscriptions, with a season that ends in 90 days.
     HELP_CENTRE: 'true',
     SUBSCRIPTIONS: 'true',
+    // Shop languages (docs/languages.md): Hindi and Kannada beside English.
+    SHOP_LANGUAGES: 'true',
     SUBSCRIPTION_SEASON_END: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),

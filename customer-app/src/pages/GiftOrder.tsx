@@ -9,27 +9,31 @@ import { api, signedInPhone, type GiftOrder } from '../api'
 import { STAGE_LABEL, STATUS_LABEL, day, rupees, slotText, when } from '../format'
 import { MIN_PAY_SECONDS, openRazorpay } from '../payment'
 import { ConfirmDialog, DocTitle, ErrorNote, PageHeader, Spinner } from '../ui'
+import { useT } from '../i18n'
+import type { Key } from '../i18n-core.ts'
 
-const GIFT_STATUS: Record<GiftOrder['status'], { label: string; tone: string }> = {
-  PAYMENT_PENDING: { label: 'Waiting for payment', tone: 'warn' },
-  PAID: { label: 'Paid', tone: 'good' },
-  CANCELLED: { label: 'Cancelled', tone: 'muted' },
+const GIFT_STATUS: Record<GiftOrder['status'], { label: Key; tone: string }> = {
+  PAYMENT_PENDING: { label: 'gift.status.pending', tone: 'warn' },
+  PAID: { label: 'gift.status.paid', tone: 'good' },
+  CANCELLED: { label: 'gift.status.cancelled', tone: 'muted' },
 }
 
 export default function GiftOrderPage() {
   const { id } = useParams()
+  const t = useT()
   const q = useQuery({
     queryKey: ['gift-order', id],
     queryFn: () => api.giftOrder(id!),
     // While the payment is on its way, the page asks again on its own.
     refetchInterval: (query) => (query.state.data?.status === 'PAYMENT_PENDING' ? 5_000 : false),
   })
-  if (q.isPending) return <Spinner label="Loading your gift order" />
+  if (q.isPending) return <Spinner label={t('gift.loadingOrder')} />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   return <GiftOrderView g={q.data} />
 }
 
 function GiftOrderView({ g }: { g: GiftOrder }) {
+  const t = useT()
   const queryClient = useQueryClient()
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['gift-order', g.id] })
@@ -69,16 +73,16 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
 
   return (
     <>
-      <DocTitle title={`Gift order ${g.number}`} />
-      <PageHeader title={`Gift order ${g.number}`}>
-        <span className={`pill pill-${status.tone}`}>{status.label}</span>
+      <DocTitle title={t('gift.orderTitle', { number: g.number })} />
+      <PageHeader title={t('gift.orderTitle', { number: g.number })}>
+        <span className={`pill pill-${status.tone}`}>{t(status.label)}</span>
       </PageHeader>
 
       {thanks && g.status === 'PAID' && (
         <section className="card note-card thanks-card" ref={thanksNote} tabIndex={-1}>
           <p>
-            <strong>Thank you, your gift order is placed.</strong> We'll deliver to all {g.recipientCount} recipients on {day(g.deliveryDate)}
-            {g.slot && `, ${slotText(g.slot)}`}. Each one gets the delivery message on the day.
+            <strong>{t('gift.thanks')}</strong>{' '}
+            {t('gift.thanksBody', { count: g.recipientCount, when: g.slot ? t('gift.daySlot', { day: day(g.deliveryDate), slot: slotText(g.slot) }) : day(g.deliveryDate) })}
           </p>
         </section>
       )}
@@ -86,23 +90,23 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
       {g.status === 'PAYMENT_PENDING' && (
         <section className="card note-card" aria-live="polite">
           <p>
-            <strong>Waiting for your payment to be confirmed.</strong> This page updates on its own.
-            {g.holdExpiresAt && holdLeftMs > 0 && <> The boxes for every recipient are held until {when(g.holdExpiresAt)}.</>}
+            <strong>{t('order.waitingPay')}</strong> {t('order.updatesItself')}
+            {g.holdExpiresAt && holdLeftMs > 0 && t('gift.heldUntil', { when: when(g.holdExpiresAt) })}
           </p>
           {canPay && (
             <button type="button" className="btn btn-primary" disabled={payAgain.isPending} onClick={() => payAgain.mutate()}>
-              Pay {rupees(g.total)}
+              {t('checkout.pay', { total: rupees(g.total) })}
             </button>
           )}
           {import.meta.env.DEV && !g.razorpayKeyId && (
             <div className="dev-pay">
-              <p className="small muted">Test mode: Razorpay isn't set up, so choose how the payment ends.</p>
+              <p className="small muted">{t('order.devPay')}</p>
               <div className="row">
                 <button type="button" className="btn btn-primary" disabled={devPay.isPending} onClick={() => devPay.mutate('captured')}>
-                  Payment succeeds
+                  {t('order.devSucceeds')}
                 </button>
                 <button type="button" className="btn" disabled={devPay.isPending} onClick={() => devPay.mutate('failed')}>
-                  Payment fails
+                  {t('order.devFails')}
                 </button>
               </div>
             </div>
@@ -114,12 +118,8 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
       {g.status === 'CANCELLED' && (
         <section className="card note-card">
           <p>
-            <strong>This gift order was cancelled.</strong>{' '}
-            {paid
-              ? 'Each paid recipient is refunded their part; banks take up to 5 to 7 days to show it.'
-              : g.cancelReason === 'HOLD_EXPIRED'
-                ? "We didn't receive your payment in time. If you paid, it reaches us shortly and the order goes ahead."
-                : 'Nothing was charged.'}
+            <strong>{t('gift.cancelledTitle')}</strong>{' '}
+            {paid ? t('gift.cancelledPaid') : g.cancelReason === 'HOLD_EXPIRED' ? t('gift.cancelledLate') : t('gift.nothingCharged')}
           </p>
         </section>
       )}
@@ -127,37 +127,33 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
       <section className="card">
         <dl className="facts">
           <div>
-            <dt>Arrives</dt>
+            <dt>{t('checkout.arrives')}</dt>
             <dd>
               {day(g.deliveryDate)}
               {g.slot && `, ${slotText(g.slot)}`}
             </dd>
           </div>
           <div>
-            <dt>Recipients</dt>
+            <dt>{t('gift.recipients')}</dt>
             <dd>
-              {g.recipientCount}, {g.boxes} {g.boxes === 1 ? 'box' : 'boxes'}
+              {t('gift.recipientsBoxes', { recipients: g.recipientCount, count: g.boxes })}
             </dd>
           </div>
           {g.promoCode && (
             <div>
-              <dt>Promo</dt>
-              <dd>
-                {g.promoCode}, −{rupees(g.discount)}
-              </dd>
+              <dt>{t('gift.promo')}</dt>
+              <dd>{t('gift.promoValue', { code: g.promoCode, amount: rupees(g.discount) })}</dd>
             </div>
           )}
           <div>
-            <dt>Total</dt>
-            <dd>
-              <strong>{rupees(g.total)}</strong>, one payment
-            </dd>
+            <dt>{t('gift.total')}</dt>
+            <dd>{t.rich('gift.onePayment', { total: <strong>{rupees(g.total)}</strong> })}</dd>
           </div>
         </dl>
       </section>
 
       <section className="card" aria-labelledby="recipients-title">
-        <h2 id="recipients-title">Recipients</h2>
+        <h2 id="recipients-title">{t('gift.recipients')}</h2>
         <ol className="gift-review-list">
           {g.recipients.map((r) => (
             <li key={r.orderId} className="gift-recipient-row">
@@ -167,17 +163,17 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
                   {r.address}, {r.pincode}
                 </span>
                 <span className="small">
-                  {r.qty} × {r.boxName}
+                  {t('gift.lineQty', { qty: r.qty, box: r.boxName ?? '' })}
                   {r.stage && `, ${STAGE_LABEL[r.stage]}`} · {rupees(r.total)}
                 </span>
                 <span className="small">
-                  <Link to={`/orders/${r.orderId}`}>Delivery {r.number}</Link>: {STATUS_LABEL[r.status]}
-                  {r.refundStatus === 'REFUNDED' ? `, ${rupees(r.total)} refunded` : r.refundStatus === 'PENDING' ? `, refund of ${rupees(r.total)} on its way` : ''}
+                  <Link to={`/orders/${r.orderId}`}>{t('gift.delivery.n', { number: r.number })}</Link>: {STATUS_LABEL[r.status]}
+                  {r.refundStatus === 'REFUNDED' ? t('gift.refunded', { amount: rupees(r.total) }) : r.refundStatus === 'PENDING' ? t('gift.refundOnWay', { amount: rupees(r.total) }) : ''}
                 </span>
               </div>
               {r.cancellable && (
                 <button type="button" className="link-btn danger" onClick={() => setConfirming(r.orderId)}>
-                  Cancel for {r.name}
+                  {t('gift.cancelFor', { name: r.name })}
                 </button>
               )}
             </li>
@@ -185,13 +181,11 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
         </ol>
         {g.cancellable && (
           <button type="button" className="btn btn-block" onClick={() => setConfirming('all')}>
-            Cancel the whole gift order
+            {t('gift.cancelAll')}
           </button>
         )}
         <p className="muted small">
-          {paid
-            ? 'You can cancel one recipient, or the whole order, for a refund of that part until their boxes are packed. After packing nothing is refunded.'
-            : 'Until it is paid you can cancel the whole order. Nothing is charged.'}
+          {paid ? t('gift.cancelPaidNote') : t('gift.cancelUnpaidNote')}
         </p>
       </section>
 
@@ -199,10 +193,10 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
 
       {confirming && (
         <ConfirmDialog
-          title={confirming === 'all' ? 'Cancel the whole gift order?' : `Cancel the delivery for ${who?.name ?? 'this recipient'}?`}
-          keepLabel="Keep it"
-          confirmLabel={confirming === 'all' ? 'Cancel the gift order' : 'Cancel this recipient'}
-          busyLabel="Cancelling…"
+          title={confirming === 'all' ? t('gift.cancelAllTitle') : t('gift.cancelOneTitle', { name: who?.name ?? t('gift.thisRecipient') })}
+          keepLabel={t('gift.keepIt')}
+          confirmLabel={confirming === 'all' ? t('gift.cancelOrder') : t('gift.cancelRecipient')}
+          busyLabel={t('order.cancelling')}
           busy={cancel.isPending}
           error={cancel.error}
           onConfirm={() => cancel.mutate(confirming)}
@@ -211,9 +205,9 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
           <p>
             {confirming === 'all'
               ? paid
-                ? `Every recipient's delivery is cancelled and ${rupees(g.recipients.filter((r) => r.status !== 'CANCELLED').reduce((s, r) => s + r.total, 0))} is refunded.`
-                : 'Every recipient is cancelled and their boxes go back on sale. Nothing is charged.'
-              : `Their boxes go back on sale and ${rupees(who?.total ?? 0)} is refunded. The other recipients still get theirs.`}
+                ? t('gift.cancelAllPaidBody', { amount: rupees(g.recipients.filter((r) => r.status !== 'CANCELLED').reduce((s, r) => s + r.total, 0)) })
+                : t('gift.cancelAllUnpaidBody')
+              : t('gift.cancelOneBody', { amount: rupees(who?.total ?? 0) })}
           </p>
         </ConfirmDialog>
       )}
@@ -223,6 +217,7 @@ function GiftOrderView({ g }: { g: GiftOrder }) {
 
 /** The one bill for the whole gift order, with the business name and GSTIN if given. */
 function GiftBillCard({ g }: { g: GiftOrder }) {
+  const t = useT()
   const bill = g.bill!
   const download = useMutation({
     mutationFn: async () => {
@@ -238,18 +233,18 @@ function GiftBillCard({ g }: { g: GiftOrder }) {
   })
   return (
     <section className="card bill-card" aria-labelledby="bill-title">
-      <h2 id="bill-title">Your bill</h2>
+      <h2 id="bill-title">{t('bill.title')}</h2>
       <p>
-        {bill.title} <strong>{bill.number}</strong>, dated {day(bill.billDate)}, for {rupees(bill.total)}: one bill for every recipient.
+        {t.rich('gift.billLine', { title: bill.title, number: <strong>{bill.number}</strong>, day: day(bill.billDate), total: rupees(bill.total) })}
       </p>
       {g.business && (
         <p className="muted small">
-          Billed to {g.business.name}, GSTIN {g.business.gstin}.
+          {t('bill.billedTo', { name: g.business.name, gstin: g.business.gstin })}
         </p>
       )}
-      {bill.cancelled && <p className="note small">Every recipient was cancelled, so the bill is marked cancelled. It keeps its number.</p>}
+      {bill.cancelled && <p className="note small">{t('gift.billCancelled')}</p>}
       <button type="button" className="btn btn-block" disabled={download.isPending} onClick={() => download.mutate()}>
-        {download.isPending ? 'Preparing your bill…' : 'Download bill (PDF)'}
+        {download.isPending ? t('bill.preparing') : t('bill.download')}
       </button>
       <ErrorNote error={download.error} />
     </section>

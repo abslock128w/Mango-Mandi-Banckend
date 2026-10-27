@@ -7,6 +7,7 @@ import { api, type Favourite } from '../api'
 import { STAGE_LABEL, day, rupees } from '../format'
 import { useFavourites } from '../favourites'
 import { useFeatures } from '../features'
+import { useT } from '../i18n'
 import { ProductImage } from '../mango'
 import { currentSubscription, permission, pushSupported, turnOff, turnOn } from '../push'
 import { catalogueQuery } from '../queries'
@@ -23,33 +24,34 @@ export function FavouritesCard() {
   const { pincode, date } = useStore()
   const cat = useQuery({ ...catalogueQuery(pincode ?? '', date), enabled: f.on && Boolean(pincode) })
   const [added, setAdded] = useState('')
+  const t = useT()
   if (!f.on) return null
   const list = f.list
   const groups = cat.data?.serviceable ? groupBySku(cat.data.items) : []
   return (
     <section className="card narrow" aria-labelledby="favourites">
-      <h2 id="favourites">Favourites</h2>
+      <h2 id="favourites">{t('fav.title')}</h2>
       {f.mergeError != null && (
-        <ErrorNote error={`The hearts you added before signing in are kept on this phone and will be added on your next visit. (${f.mergeError instanceof Error ? f.mergeError.message : 'Could not reach MandiMangoes'})`} />
+        <ErrorNote error={t('fav.mergeFailed', { reason: f.mergeError instanceof Error ? f.mergeError.message : t('fav.unreachable') })} />
       )}
       {list.isPending ? (
-        <Spinner label="Loading favourites" />
+        <Spinner label={t('fav.loading')} />
       ) : list.isError ? (
         <ErrorNote error={list.error} onRetry={() => list.refetch()} />
       ) : list.data.items.length === 0 ? (
-        <p className="muted">Tap the heart on a box to keep it here, ready to add to your cart in one tap.</p>
+        <p className="muted">{t('fav.empty')}</p>
       ) : (
         <>
           {!pincode ? (
             <p className="small">
-              <Link to="/?where=1">Set your delivery pincode</Link> to see which of these are in stock.
+              {t.rich('fav.setPincode', { link: <Link to="/?where=1">{t('fav.setPincodeLink')}</Link> })}
             </p>
           ) : cat.isError ? (
             <ErrorNote error={cat.error} onRetry={() => cat.refetch()} />
           ) : cat.data && !cat.data.serviceable ? (
-            <p className="small">We don't deliver to {pincode} yet, so there's nothing to add.</p>
+            <p className="small">{t('fav.notServed', { pincode })}</p>
           ) : cat.data ? (
-            <p className="small muted">In stock for {day(cat.data.deliveryDate!)}. You choose the delivery day at checkout.</p>
+            <p className="small muted">{t('fav.inStockFor', { day: day(cat.data.deliveryDate!) })}</p>
           ) : null}
           <ul className="fav-list">
             {list.data.items.map((item) => (
@@ -86,6 +88,7 @@ function FavouriteRow({
   onAdded: (text: string) => void
 }) {
   const f = useFavourites()
+  const t = useT()
   const { cart, setQty } = useStore()
   const open = group?.stages.filter((s) => s.qty > 0) ?? []
   const soonest = group?.stages.map((s) => s.nextAvailableDate).filter(Boolean).sort()[0]
@@ -98,13 +101,13 @@ function FavouriteRow({
       </span>
       <div className="fav-body">
         {item.onSale ? <Link to={`/mangoes/${item.sku}`}>{item.name}</Link> : <strong>{item.name}</strong>}
-        {item.price != null && <span className="small muted">{rupees(item.price)} a box</span>}
+        {item.price != null && <span className="small muted">{t('price.aBox', { price: rupees(item.price) })}</span>}
         {!item.onSale ? (
-          <span className="small muted">No longer on sale</span>
+          <span className="small muted">{t('fav.offSale')}</span>
         ) : checking ? (
-          <span className="small muted">Checking stock…</span>
+          <span className="small muted">{t('fav.checking')}</span>
         ) : group && open.length > 0 ? (
-          <div className="fav-add" role="group" aria-label={`Add ${item.name} to the cart`}>
+          <div className="fav-add" role="group" aria-label={t('fav.addGroup', { name: item.name })}>
             {open.map((s) => {
               const inCart = cart.find((l) => l.sku === s.sku && l.stage === s.stage)?.qty ?? 0
               const full = inCart >= Math.min(MAX_PER_LINE, s.qty)
@@ -114,10 +117,10 @@ function FavouriteRow({
                   type="button"
                   className="btn"
                   disabled={full}
-                  aria-label={full ? `${item.name}, ${STAGE_LABEL[s.stage]}: as many as we have are in your cart` : `Add one ${item.name}, ${STAGE_LABEL[s.stage]}, to the cart`}
+                  aria-label={t(full ? 'fav.allInCart' : 'fav.addOne', { name: item.name, stage: STAGE_LABEL[s.stage] })}
                   onClick={() => {
                     setQty({ sku: s.sku, stage: s.stage, name: s.name, price: s.price }, inCart + 1)
-                    onAdded(`Added one ${item.name}, ${STAGE_LABEL[s.stage].toLowerCase()}. ${inCart + 1} in your cart.`)
+                    onAdded(t('fav.added', { name: item.name, stage: STAGE_LABEL[s.stage].toLowerCase(), count: inCart + 1 }))
                   }}
                 >
                   + {STAGE_LABEL[s.stage]}
@@ -129,15 +132,14 @@ function FavouriteRow({
         ) : group && alertFor && shownDay ? (
           <span className="fav-sold-out">
             <span className="small sold-out">
-              Sold out for {day(shownDay)}
-              {soonest ? `, back ${day(soonest)}` : ''}
+              {soonest ? t('fav.soldOutBack', { day: day(shownDay), back: day(soonest) }) : t('fav.soldOut', { day: day(shownDay) })}
             </span>{' '}
             <NotifyMe item={alertFor} label={`${item.name}, ${STAGE_LABEL[alertFor.stage]}`} />
           </span>
         ) : null}
       </div>
-      <button type="button" className="link-btn" onClick={() => f.toggle(item.sku)} aria-label={`Remove ${item.name} from favourites`}>
-        Remove
+      <button type="button" className="link-btn" onClick={() => f.toggle(item.sku)} aria-label={t('fav.remove', { name: item.name })}>
+        {t('common.remove')}
       </button>
     </li>
   )
@@ -147,6 +149,7 @@ function FavouriteRow({
 export function NotificationsCard() {
   const features = useFeatures()
   const queryClient = useQueryClient()
+  const t = useT()
   const supported = pushSupported()
   const info = useQuery({ queryKey: ['push-info'], queryFn: api.pushInfo, enabled: features.push })
   const here = useQuery({ queryKey: ['push-info', 'this-browser'], queryFn: async () => (await currentSubscription())?.endpoint ?? null, enabled: features.push && supported })
@@ -159,36 +162,30 @@ export function NotificationsCard() {
   const blocked = supported && permission() === 'denied' && !subscribed
   return (
     <section className="card narrow" aria-labelledby="notifications">
-      <h2 id="notifications">Order updates in this browser</h2>
-      <p className="small muted">
-        A notification when your order is confirmed, out for delivery and delivered, alongside the WhatsApp message. It only says there's news about
-        your order, never your name, address or what you bought, because it can show on a locked phone.
-      </p>
+      <h2 id="notifications">{t('push.title')}</h2>
+      <p className="small muted">{t('push.intro')}</p>
       {!supported ? (
-        <p>
-          This browser can't show notifications. On an iPhone, add MandiMangoes to your Home Screen first (Share, then Add to Home Screen), then open it
-          from there and come back here.
-        </p>
+        <p>{t('push.cannot')}</p>
       ) : info.isError ? (
         <ErrorNote error={info.error} onRetry={() => info.refetch()} />
       ) : here.isPending || info.isPending ? (
-        <Spinner label="Checking notifications" />
+        <Spinner label={t('push.checking')} />
       ) : (
         <>
           <p role="status">
-            <strong>{subscribed ? 'On in this browser.' : 'Off in this browser.'}</strong>
-            {others > 0 && ` On in ${others} other ${others === 1 ? 'browser' : 'browsers'} you use.`}
+            <strong>{subscribed ? t('push.onHere') : t('push.offHere')}</strong>
+            {others > 0 && ` ${t('push.onElsewhere', { count: others })}`}
           </p>
           {blocked && (
-            <p className="small">Notifications are blocked for MandiMangoes in this browser. Allow them in the browser's site settings, then turn them on here.</p>
+            <p className="small">{t('push.blockedHere')}</p>
           )}
           {subscribed ? (
             <button type="button" className="btn btn-quiet" disabled={off.isPending} onClick={() => off.mutate()}>
-              {off.isPending ? 'Turning off…' : 'Turn off notifications'}
+              {off.isPending ? t('push.turningOff') : t('push.turnOff')}
             </button>
           ) : (
             <button type="button" className="btn" disabled={on.isPending || !info.data?.available} onClick={() => on.mutate()}>
-              {on.isPending ? 'Turning on…' : 'Turn on notifications'}
+              {on.isPending ? t('push.turningOn') : t('push.turnOn')}
             </button>
           )}
           <ErrorNote error={on.error ?? off.error} />

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type UseInfiniteQueryResult } from '@tanstack/react-query'
 import { ApiError, api, type PublicReview, type RatingSummary, type ReviewPage, type Stage } from '../api'
-import { STAGE_HINT, STAGE_LABEL, boxContents, day, rupees } from '../format'
+import { STAGE_HINT, STAGE_LABEL, boxContents, day, longDate, rupees } from '../format'
 import { MangoArt, ProductImage, photoAt } from '../mango'
 import { Stepper } from '../forms'
 import { useStore } from '../store'
@@ -13,11 +13,11 @@ import { storyFor } from '../varieties'
 import { catalogueQuery, productReviewsQuery, productsQuery } from '../queries'
 import { BuySkeleton } from './BuySkeleton'
 import { HeartButton, HeartProblem } from '../favourites'
+import { useT } from '../i18n'
 
-const dateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' })
 /** Reviews shown before "See all", so the page stays short. */
 const FIRST_REVIEWS = 3
-const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packaging: 'Packaging', delivery: 'Delivery' } as const
+const SUB_LABEL = { taste: 'review.sub.taste', ripenessAccuracy: 'review.sub.ripeness', packaging: 'review.sub.packaging', delivery: 'review.sub.delivery' } as const
 
 /**
  * /mangoes/:sku — the box: pick the ripeness and how many, add to cart; then what buyers say about the variety.
@@ -26,6 +26,7 @@ const SUB_LABEL = { taste: 'Taste', ripenessAccuracy: 'Ripe as promised', packag
 export default function ProductPage() {
   const { sku = '' } = useParams()
   const { pincode, date } = useStore()
+  const t = useT()
   const [stars, setStars] = useState<number | null>(null)
   const [withPhotos, setWithPhotos] = useState(false)
   // A filter keeps the reviews on screen until the matching ones arrive, instead of a blank page.
@@ -39,9 +40,9 @@ export default function ProductPage() {
   if (q.isError && q.error instanceof ApiError && q.error.status === 404) {
     return (
       <section className="card">
-        <DocTitle title="Mango not found" />
-        <h1>Mango not found</h1>
-        <Link to="/">Back to the shop</Link>
+        <DocTitle title={t('product.notFound')} />
+        <h1>{t('product.notFound')}</h1>
+        <Link to="/">{t('common.backToShop')}</Link>
       </section>
     )
   }
@@ -56,7 +57,7 @@ export default function ProductPage() {
         {story && <VarietyStoryCard variety={story.variety} name={story.name} />}
         <div className="product-reviews">
           {q.isPending ? (
-            <Skeleton label="Loading reviews" cards={2} />
+            <Skeleton label={t('product.loadingReviews')} cards={2} />
           ) : q.isError ? (
             <ErrorNote error={q.error} onRetry={() => q.refetch()} />
           ) : (
@@ -106,16 +107,17 @@ function Reviews({
   const expanded = showAll || filtered
   const shown = expanded ? items : items.slice(0, FIRST_REVIEWS)
   const more = !expanded && (items.length > FIRST_REVIEWS || q.hasNextPage)
+  const t = useT()
   return (
     <>
       <section className="card" aria-labelledby="ratings-title" id="reviews">
-        <h2 id="ratings-title">Ratings and reviews</h2>
-        <p className="muted small">From verified buyers of every {variety} box.</p>
+        <h2 id="ratings-title">{t('product.ratingsTitle')}</h2>
+        <p className="muted small">{t('product.fromBuyers', { variety })}</p>
         <RatingBars summary={first.summary} active={stars} onPick={setStars} />
         <div className="review-filters">
           <label className="option">
             <input type="checkbox" checked={withPhotos} onChange={(e) => setWithPhotos(e.target.checked)} />
-            <span>Only reviews with photos ({first.summary.withPhotos})</span>
+            <span>{t('product.withPhotos', { count: first.summary.withPhotos })}</span>
           </label>
           {filtered && (
             <button
@@ -126,7 +128,7 @@ function Reviews({
                 setWithPhotos(false)
               }}
             >
-              Show all reviews
+              {t('product.showAllReviews')}
             </button>
           )}
         </div>
@@ -134,10 +136,10 @@ function Reviews({
 
       <section aria-labelledby="reviews-title" aria-busy={q.isPlaceholderData}>
         <h2 id="reviews-title" className="section-title">
-          {filtered ? 'Matching reviews' : 'Reviews'}
+          {filtered ? t('product.matchingReviews') : t('product.reviews')}
         </h2>
         {items.length === 0 ? (
-          <p className="card muted">{filtered ? 'No reviews match. Try showing all reviews.' : 'No reviews yet. Buyers can review after delivery.'}</p>
+          <p className="card muted">{filtered ? t('product.noMatch') : t('product.noReviews')}</p>
         ) : (
           <ul className="review-list">
             {shown.map((r) => (
@@ -149,12 +151,12 @@ function Reviews({
         )}
         {more && (
           <button type="button" className="btn btn-block" onClick={onShowAll}>
-            See all {first.summary.count} reviews
+            {t('product.seeAll', { count: first.summary.count })}
           </button>
         )}
         {expanded && q.hasNextPage && (
           <button type="button" className="btn btn-block" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-            {q.isFetchingNextPage ? 'Loading…' : 'Show more reviews'}
+            {q.isFetchingNextPage ? `${t('common.loading')}…` : t('product.showMore')}
           </button>
         )}
       </section>
@@ -164,21 +166,22 @@ function Reviews({
 
 function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (index: number) => void }) {
   const subs = (Object.keys(SUB_LABEL) as (keyof typeof SUB_LABEL)[]).filter((k) => r[k] != null)
+  const t = useT()
   return (
-    <article aria-label={`Review by ${r.displayName}, ${r.rating} out of 5 stars`}>
+    <article aria-label={t('product.reviewBy', { name: r.displayName, rating: r.rating })}>
       <header className="review-head">
         <Stars value={r.rating} small />
-        <span className="badge-verified">Verified purchase</span>
+        <span className="badge-verified">{t('product.verified')}</span>
       </header>
       <p className="muted small">
-        <strong className="reviewer">{r.displayName}</strong> · {dateFmt.format(new Date(r.createdAt))} · {r.productName}
-        {r.ripenessOrdered && <>, ordered {STAGE_LABEL[r.ripenessOrdered].toLowerCase()}</>}
+        <strong className="reviewer">{r.displayName}</strong> · {longDate(r.createdAt)} · {r.productName}
+        {r.ripenessOrdered && <>, {t('product.ordered', { stage: STAGE_LABEL[r.ripenessOrdered].toLowerCase() })}</>}
       </p>
       {subs.length > 0 && (
         <dl className="sub-scores">
           {subs.map((k) => (
             <div key={k}>
-              <dt>{SUB_LABEL[k]}</dt>
+              <dt>{t(SUB_LABEL[k])}</dt>
               <dd>
                 <Stars value={r[k]!} small />
               </dd>
@@ -189,10 +192,10 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
       {/* Plain text: React escapes it, and nothing here renders HTML. */}
       {r.comment && <p className="review-text">{r.comment}</p>}
       {r.photos.length > 0 && (
-        <ul className="review-photos" aria-label="Photos from this buyer">
+        <ul className="review-photos" aria-label={t('product.buyerPhotos')}>
           {r.photos.map((p, i) => (
             <li key={p.id}>
-              <button type="button" onClick={() => onPhoto(i)} aria-label={`Open photo ${i + 1} of ${r.photos.length} from ${r.displayName}`}>
+              <button type="button" onClick={() => onPhoto(i)} aria-label={t('product.openPhoto', { n: i + 1, total: r.photos.length, name: r.displayName })}>
                 {/* An 88 px thumbnail: the API sends it 160 or 320 px wide (for sharper screens), not the full photo. */}
                 <img src={photoAt(p.url, 160)} srcSet={`${photoAt(p.url, 160)} 1x, ${photoAt(p.url, 320)} 2x`} alt="" loading="lazy" decoding="async" width={88} height={88} />
               </button>
@@ -203,7 +206,7 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
       {r.reply && (
         <div className="brand-reply">
           <p className="small">
-            <strong>Reply from MandiMangoes</strong>
+            <strong>{t('product.reply')}</strong>
           </p>
           <p className="review-text">{r.reply.body}</p>
         </div>
@@ -215,30 +218,31 @@ function ReviewCard({ review: r, onPhoto }: { review: PublicReview; onPhoto: (in
 /** Where the variety comes from and what it is best for (only for varieties we have a story for). */
 function VarietyStoryCard({ variety, name }: { variety: string; name: string }) {
   const story = storyFor(variety, name)
+  const t = useT()
   if (!story) return null
   return (
     <section className="card story" aria-labelledby="story-title">
-      <h2 id="story-title">About {story.name}</h2>
+      <h2 id="story-title">{t('story.about', { name: story.name })}</h2>
       <dl className="story-facts">
         <div>
-          <dt>Where it grows</dt>
+          <dt>{t('story.from')}</dt>
           <dd>{story.from}</dd>
         </div>
         <div>
-          <dt>Taste</dt>
+          <dt>{t('review.sub.taste')}</dt>
           <dd>{story.taste}</dd>
         </div>
         <div>
-          <dt>Best for</dt>
+          <dt>{t('story.bestFor')}</dt>
           <dd>{story.bestFor}</dd>
         </div>
         <div>
-          <dt>Season</dt>
+          <dt>{t('story.season')}</dt>
           <dd>{story.season}</dd>
         </div>
       </dl>
       <Link to="/quality" className="link-btn">
-        How we pick and check every box
+        {t('quality.title')}
       </Link>
     </section>
   )
@@ -247,6 +251,7 @@ function VarietyStoryCard({ variety, name }: { variety: string; name: string }) 
 /** The Amazon-style buy box: ripeness, how many, Add to cart. Stock is for the day the shop is showing. */
 function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: string; summary: RatingSummary | null }) {
   const { pincode, date, setWhere, cart, setQty } = useStore()
+  const t = useT()
   const q = useQuery({ ...catalogueQuery(pincode ?? '', date), enabled: Boolean(pincode) })
   // A home shelf opens the box at its ripeness with ?stage=.
   const [params] = useSearchParams()
@@ -292,13 +297,13 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
         <div className="buy-body">
           <header className="product-head">
             <div className="product-name">
-              <h1 id="product-title">{name ?? <span className="sk-text">Mango box</span>}</h1>
+              <h1 id="product-title">{name ?? <span className="sk-text">{t('product.placeholderName')}</span>}</h1>
               {known && <HeartButton sku={known.sku} name={known.name} className="product-heart" />}
               {known && <HeartProblem sku={known.sku} />}
               {known && <ProductRating sku={known.sku} variety={known.variety} href="#reviews" summary={summary} />}
               {known && (
                 <p className="buy-price">
-                  <strong>{rupees(known.price)}</strong> <span className="muted small">per box · free delivery</span>
+                  <strong>{rupees(known.price)}</strong> <span className="muted small">{t('product.perBox')}</span>
                 </p>
               )}
             </div>
@@ -306,11 +311,11 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           {known?.description && <p>{known.description}</p>}
           {contents && (
             <p className="box-contents">
-              <strong>In the box:</strong> {contents}
+              <strong>{t('product.inTheBox')}</strong> {contents}
             </p>
           )}
-          <p>Enter your pincode to see the ripeness we have for your day and add a box.</p>
-          <PincodeCheck initial="" label="Your delivery pincode" submitLabel="Check delivery" onDone={(pin, first) => setWhere(pin, first)} />
+          <p>{t('product.enterPincode')}</p>
+          <PincodeCheck initial="" label={t('shop.pincodeLabel')} submitLabel={t('product.checkDelivery')} onDone={(pin, first) => setWhere(pin, first)} />
         </div>
       </section>
     )
@@ -325,8 +330,8 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
       <section className="card" aria-labelledby="product-title">
         <DocTitle title={name} />
         <h1 id="product-title">{name}</h1>
-        <p>{q.data.serviceable ? `This box isn't on sale for ${pincode} right now.` : `We don't deliver to ${pincode} yet.`}</p>
-        <Link to="/">See all mangoes</Link>
+        <p>{q.data.serviceable ? t('product.notOnSale', { pincode }) : t('shop.notServed', { pincode })}</p>
+        <Link to="/">{t('product.seeAllMangoes')}</Link>
       </section>
     )
   }
@@ -349,7 +354,7 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
   function add() {
     if (!item || room === 0) return
     setQty({ sku: item.sku, stage: item.stage, name: item.name, price: item.price }, inCart + n)
-    setAdded(`Added ${n} ${n === 1 ? 'box' : 'boxes'} of ${label}.`)
+    setAdded(t('product.added', { count: n, label }))
     setCount(1)
   }
 
@@ -369,21 +374,21 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
             <HeartProblem sku={p.sku} />
             <ProductRating sku={p.sku} variety={p.variety} href="#reviews" summary={summary} />
             <p className="buy-price">
-              <strong>{rupees(p.price)}</strong> <span className="muted small">per box · free delivery</span>
+              <strong>{rupees(p.price)}</strong> <span className="muted small">{t('product.perBox')}</span>
             </p>
           </div>
         </header>
         {p.description && <p>{p.description}</p>}
         {contents && (
           <p className="box-contents">
-            <strong>In the box:</strong> {contents}
+            <strong>{t('product.inTheBox')}</strong> {contents}
           </p>
         )}
 
         {sizes.length > 1 && (
           <div className="field">
             <span className="label" id="size-label">
-              Box size
+              {t('product.boxSize')}
             </span>
             <div className="chips" role="group" aria-labelledby="size-label">
               {sizes.map((x) => (
@@ -397,12 +402,15 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
 
         {unavailable && (
           <p className="note" id="ripe-note">
-            {STAGE_LABEL[unavailable]} is sold out for {day(shownDay)}. Choose another ripeness below
-            {p.stages.find((s) => s.stage === unavailable)?.nextAvailableDate ? `, or see ${STAGE_LABEL[unavailable].toLowerCase()} stock for another day` : ''}.
+            {t(p.stages.find((s) => s.stage === unavailable)?.nextAvailableDate ? 'product.stageSoldOutOther' : 'product.stageSoldOut', {
+              stage: STAGE_LABEL[unavailable],
+              stageLower: STAGE_LABEL[unavailable].toLowerCase(),
+              day: day(shownDay),
+            })}
           </p>
         )}
         <fieldset className="field" aria-describedby={unavailable ? 'ripe-note' : undefined}>
-          <legend>Choose ripeness</legend>
+          <legend>{t('product.chooseRipeness')}</legend>
           <ul className="ripe-options">
             {p.stages.map((s) => {
               const id = `st-${s.stage}`
@@ -427,8 +435,8 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
                     <span className="stage-text">
                       <strong id={`${id}-name`}>{STAGE_LABEL[s.stage]}</strong>
                       <span id={`${id}-info`} className="muted small">
-                        {STAGE_HINT[s.stage]} {sold ? 'Sold out for this day.' : `Eat by ${day(s.eatBy)}.`}
-                        {!sold && s.qty <= 5 && <span className="low"> Only {s.qty} left.</span>}
+                        {STAGE_HINT[s.stage]} {sold ? t('product.soldOutDay') : t('product.eatBy', { day: day(s.eatBy) })}
+                        {!sold && s.qty <= 5 && <span className="low"> {t('product.onlyLeft', { count: s.qty })}</span>}
                       </span>
                     </span>
                   </label>
@@ -444,7 +452,7 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
                             setWhere(pincode, s.nextAvailableDate!)
                           }}
                         >
-                          Show stock for {day(s.nextAvailableDate)}
+                          {t('product.showStockFor', { day: day(s.nextAvailableDate) })}
                         </button>
                       ) : (
                         <NotifyMe item={s} label={`${p.name}, ${STAGE_LABEL[s.stage]}`} />
@@ -461,26 +469,26 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
           <>
             <div className="field">
               <Stepper
-                label="How many boxes"
+                label={t('product.howMany')}
                 showLabel
                 value={n}
                 shown={room === 0 ? 0 : n}
                 min={1}
                 max={room}
                 onChange={setCount}
-                lessLabel="One box fewer"
-                moreLabel="One box more"
+                lessLabel={t('product.oneFewer')}
+                moreLabel={t('product.oneMore')}
               />
               {inCart > 0 && (
                 <p className="muted small">
-                  {inCart} already in your cart{room === 0 ? ', the most we can send for this day.' : '.'}
+                  {t(room === 0 ? 'product.inCartMax' : 'product.inCartAlready', { count: inCart })}
                 </p>
               )}
             </div>
             {/* Sticks to the bottom of a phone screen (above the tabs) until the buy box scrolls past. */}
             <div className="buy-bar">
               <button type="button" className="btn btn-primary btn-block" onClick={add} disabled={room === 0}>
-                Add to cart · {rupees(item.price * (room === 0 ? 0 : n))}
+                {t('product.addToCart')} · {rupees(item.price * (room === 0 ? 0 : n))}
               </button>
             </div>
           </>
@@ -489,19 +497,19 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
             {/* UX-6: nothing picked yet. The button stays where it will be, and says why it waits. */}
             <div className="buy-bar">
               <button type="button" className="btn btn-primary btn-block" disabled aria-describedby="pick-first">
-                Add to cart
+                {t('product.addToCart')}
               </button>
             </div>
             <p className="muted small" id="pick-first">
-              Choose a ripeness above to add a box.
+              {t('product.pickFirst')}
             </p>
           </>
         ) : (
-          <p className="sold-out">Every ripeness is sold out for {day(shownDay)}.</p>
+          <p className="sold-out">{t('product.allSoldOut', { day: day(shownDay) })}</p>
         )}
         {switched && (
           <p className="note" role="status" tabIndex={-1} ref={switchedNote}>
-            Now showing stock for {day(shownDay)}.{' '}
+            {t('product.nowShowing', { day: day(shownDay) })}{' '}
             <button
               type="button"
               className="link-btn"
@@ -510,16 +518,16 @@ function BuyBox({ sku, fallbackName, summary }: { sku: string; fallbackName?: st
                 setSwitched(null)
               }}
             >
-              Back to {day(switched.shown)}
+              {t('product.backTo', { day: day(switched.shown) })}
             </button>
           </p>
         )}
         {added && (
           <p className="note" role="status">
-            {added} <Link to="/cart">View cart</Link>
+            {added} <Link to="/cart">{t('shop.viewCart')}</Link>
           </p>
         )}
-        <p className="muted small">Showing stock for {day(shownDay)}. You choose the delivery day at checkout.</p>
+        <p className="muted small">{t('product.showingStock', { day: day(shownDay) })}</p>
       </div>
     </section>
   )
@@ -530,6 +538,7 @@ function Lightbox({ review, start, onClose }: { review: PublicReview; start: num
   const [i, setI] = useState(start)
   const n = review.photos.length
   const move = (d: number) => setI((x) => (x + d + n) % n)
+  const t = useT()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') setI((x) => (x + 1) % n)
@@ -540,28 +549,28 @@ function Lightbox({ review, start, onClose }: { review: PublicReview; start: num
   }, [n])
   return (
     <Dialog
-      title={`Photo ${i + 1} of ${n} from ${review.displayName}`}
+      title={t('product.photoTitle', { n: i + 1, total: n, name: review.displayName })}
       onClose={onClose}
       footer={
         <>
           {n > 1 && (
             <>
               <button type="button" className="btn" onClick={() => move(-1)}>
-                Previous
+                {t('common.previous')}
               </button>
               <button type="button" className="btn" onClick={() => move(1)}>
-                Next
+                {t('common.next')}
               </button>
             </>
           )}
           <button type="button" className="btn btn-primary" data-autofocus onClick={onClose}>
-            Close
+            {t('common.close')}
           </button>
         </>
       }
     >
       <div className="lightbox">
-        <img src={api.publicPhotoUrl(review.photos[i].url)} alt={`Photo ${i + 1} of the ${review.productName} from ${review.displayName}`} />
+        <img src={api.publicPhotoUrl(review.photos[i].url)} alt={t('product.photoAlt', { n: i + 1, product: review.productName, name: review.displayName })} />
       </div>
     </Dialog>
   )

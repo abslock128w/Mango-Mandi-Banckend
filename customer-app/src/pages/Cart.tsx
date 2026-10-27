@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ApiError, api } from '../api'
 import { STAGE_LABEL, rupees } from '../format'
 import { Stepper } from '../forms'
+import { useT } from '../i18n'
 import { MangoArt } from '../mango'
 import { useStore, type BulkCartLine } from '../store'
 import { UnpaidOrderBanner } from '../unpaid'
@@ -10,6 +11,7 @@ import { UnpaidOrderBanner } from '../unpaid'
 export default function Cart() {
   const { cart, setQty, bulk, profile } = useStore()
   const navigate = useNavigate()
+  const t = useT()
   const total = cart.reduce((s, l) => s + l.price * l.qty, 0) + bulk.reduce((s, l) => s + l.unitPrice * l.qty, 0)
 
   if (!cart.length && !bulk.length) {
@@ -17,10 +19,10 @@ export default function Cart() {
       <>
         <UnpaidOrderBanner />
         <section className="card empty">
-          <h1>Your cart is empty</h1>
-          <p className="muted">Pick a day and the ripeness you want, and add a box or two.</p>
+          <h1>{t('error.cartEmpty')}</h1>
+          <p className="muted">{t('cart.emptyHint')}</p>
           <Link to="/" className="btn btn-primary">
-            Shop mangoes
+            {t('quality.shop')}
           </Link>
         </section>
       </>
@@ -31,8 +33,8 @@ export default function Cart() {
     <>
       <UnpaidOrderBanner />
       <section className="card">
-        <h1>Your cart</h1>
-        <p className="muted small">You choose the delivery day and time at checkout.</p>
+        <h1>{t('title.cart')}</h1>
+        <p className="muted small">{t('cart.dayAtCheckout')}</p>
         <ul className="lines">
           {bulk.map((l) => (
             <BulkLine key={`bulk-${l.listingId}-${l.stage}`} line={l} />
@@ -45,17 +47,17 @@ export default function Cart() {
                 <div className="line-info">
                   <strong>{l.name}</strong>
                   <span className="muted small">
-                    {STAGE_LABEL[l.stage]} · {rupees(l.price)} each
+                    {STAGE_LABEL[l.stage]} · {t('price.each', { price: rupees(l.price) })}
                   </span>
                 </div>
                 <Stepper
-                  label={`${label} quantity`}
+                  label={t('qty.label', { label })}
                   value={l.qty}
                   min={0}
                   max={20}
                   onChange={(n) => setQty(l, n)}
-                  lessLabel={`One less ${label}`}
-                  moreLabel={`One more ${label}`}
+                  lessLabel={t('qty.less', { label })}
+                  moreLabel={t('qty.more', { label })}
                 />
                 <strong className="line-price">{rupees(l.price * l.qty)}</strong>
               </li>
@@ -63,17 +65,18 @@ export default function Cart() {
           })}
         </ul>
         <div className="total-row">
-          <span>Total</span>
+          <span>{t('common.total')}</span>
           <strong>{rupees(total)}</strong>
         </div>
         <p className="muted small">
-          Delivery is free. Stock is checked again for your delivery day at checkout.{bulk.length > 0 && ' Bulk deal prices are confirmed at checkout, before you pay.'}
+          {t('cart.freeDelivery')}
+          {bulk.length > 0 && ` ${t('cart.bulkConfirmed')}`}
         </p>
         <button type="button" className="btn btn-primary btn-block" onClick={() => navigate(profile ? '/checkout' : '/sign-in?next=/checkout')}>
-          {profile ? 'Continue to delivery' : 'Sign in to check out'}
+          {profile ? t('cart.continue') : t('cart.signInToCheckOut')}
         </button>
         <Link to="/" className="btn btn-block btn-quiet">
-          Keep shopping
+          {t('cart.keepShopping')}
         </Link>
       </section>
     </>
@@ -86,6 +89,7 @@ export default function Cart() {
  */
 function BulkLine({ line: l }: { line: BulkCartLine }) {
   const { setBulk } = useStore()
+  const t = useT()
   const label = `${l.title}, ${STAGE_LABEL[l.stage]}`
   const now = useQuery({ queryKey: ['bulk-price', l.listingId, l.qty], queryFn: () => api.bulkPrice(l.listingId, l.qty), retry: false, staleTime: 30_000 })
   const deal = useQuery({ queryKey: ['bulk-deal', l.listingId, null], queryFn: () => api.bulkDeal(l.listingId, null), retry: false, staleTime: 60_000 })
@@ -100,41 +104,41 @@ function BulkLine({ line: l }: { line: BulkCartLine }) {
       <MangoArt stage={l.stage} size={36} />
       <div className="line-info">
         <strong>
-          <span className="bulk-tag">Bulk</span>
+          <span className="bulk-tag">{t('bulk.tag')}</span>
           <Link to={`/bulk/${l.listingId}`}>{l.title}</Link>
         </strong>
         <span className="muted small">
-          {l.name}, {STAGE_LABEL[l.stage]} · {rupees(price)} a box
+          {l.name}, {STAGE_LABEL[l.stage]} · {t('price.aBox', { price: rupees(price) })}
         </span>
         {moved && (
           <span className="small price-changed">
-            Was {rupees(l.unitPrice)} a box when you added it.{' '}
+            {t('cart.priceWas', { price: rupees(l.unitPrice) })}{' '}
             <button type="button" className="link-btn" onClick={() => setBulk({ ...l, unitPrice: now.data!.unitPrice }, l.qty)}>
-              OK, got it
+              {t('cart.gotIt')}
             </button>
           </span>
         )}
-        {gone && <span className="small sold-out">This deal has ended. Remove it to check out.</span>}
+        {gone && <span className="small sold-out">{t('cart.dealEnded')}</span>}
         {badQty && <span className="small sold-out">{badQty}</span>}
       </div>
       {d && !gone ? (
         <Stepper
-          label={`${label} quantity`}
+          label={t('qty.label', { label })}
           value={l.qty}
           min={d.minQty}
           max={Math.max(d.maxQty, l.qty)}
           step={d.qtyStep}
           onChange={(n) => setBulk(l, n)}
-          lessLabel={`Fewer ${label}`}
-          moreLabel={`More ${label}`}
+          lessLabel={t('qty.fewer', { label })}
+          moreLabel={t('qty.moreBulk', { label })}
         />
       ) : (
-        <span>{l.qty} boxes</span>
+        <span>{t('common.boxes', { count: l.qty })}</span>
       )}
       <span className="line-price bulk-line-end">
         <strong>{rupees(price * l.qty)}</strong>
-        <button type="button" className="link-btn small" onClick={() => setBulk(l, 0)} aria-label={`Remove ${label}`}>
-          Remove
+        <button type="button" className="link-btn small" onClick={() => setBulk(l, 0)} aria-label={t('common.removeItem', { label })}>
+          {t('common.remove')}
         </button>
       </span>
     </li>

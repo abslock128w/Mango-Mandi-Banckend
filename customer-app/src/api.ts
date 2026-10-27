@@ -4,6 +4,7 @@
 // refresh the API refuses (401) signs the customer out.
 
 import { ApiError, readAnswer } from './answer'
+import { currentLang, t, type Key } from './i18n-core.ts'
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -89,6 +90,15 @@ export interface ShopFeatures {
   funnel?: boolean
   /** "Send to many": one gift order to many recipients (MULTI_GIFT). */
   multiGift?: boolean
+  /** The shop in Hindi and Kannada as well as English (SHOP_LANGUAGES, docs/languages.md). */
+  languages?: boolean
+}
+/** The shop's languages (the API's GET/PUT /v1/me/language). */
+export type ShopLanguage = 'en' | 'hi' | 'kn'
+export interface LanguageView {
+  /** Null until the customer chooses. */
+  language: ShopLanguage | null
+  languages: ShopLanguage[]
 }
 /** My refer-a-friend state (GET /v1/me/referral). Amounts in paise except the two rupee rules. */
 export interface ReferralView {
@@ -939,6 +949,9 @@ export const api = {
   rate: (orderId: string, stars: number, comment: string | null) => request<void>('PUT', `/orders/${id(orderId)}/rating`, { stars, comment }),
   settings: () => request<Settings>('GET', '/me'),
   saveSettings: (settings: Settings) => request<Settings>('PATCH', '/me', settings),
+  /** SHOP_LANGUAGES: the language saved to the account (404 while the switch is off). */
+  language: () => request<LanguageView>('GET', '/me/language'),
+  saveLanguage: (language: ShopLanguage) => request<LanguageView>('PUT', '/me/language', { language }),
   stockAlerts: () => request<StockAlert[]>('GET', '/stock-alerts'),
   addStockAlert: (input: { sku: string; stage: Stage; pincode: string }) => request<StockAlert>('POST', '/stock-alerts', input),
   removeStockAlert: (alertId: string) => request<void>('DELETE', `/stock-alerts/${id(alertId)}`),
@@ -1055,9 +1068,38 @@ export const api = {
   devPayGift: (giftOrderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay-gift', { giftOrderId, outcome }),
 }
 
+/**
+ * Answers the shop shows in the customer's language (docs/languages.md): the shop's own
+ * (a page the API could not answer, a file that would not download) and the API's commonest
+ * fixed ones. Any other API message is shown as the API wrote it, in English.
+ */
+const TRANSLATED_ERRORS: Record<string, Key> = {
+  BAD_RESPONSE: 'error.badResponse',
+  UNAVAILABLE: 'error.unavailable',
+  PHOTO_UNAVAILABLE: 'error.photoUnavailable',
+  BILL_UNAVAILABLE: 'error.billUnavailable',
+  TEMPLATE_UNAVAILABLE: 'error.templateUnavailable',
+  NOT_SERVICEABLE: 'error.notServiceable',
+  CART_EMPTY: 'error.cartEmpty',
+  PHONE_REQUIRED: 'error.phoneRequired',
+  PHONE_TAKEN: 'error.phoneTaken',
+  PHONE_ALREADY_SET: 'error.phoneAlreadySet',
+  SLOT_REQUIRED: 'error.slotRequired',
+  SLOT_INVALID: 'error.slotInvalid',
+  QUOTE_EXPIRED: 'error.quoteExpired',
+  PROMO_NOT_FOR_BULK: 'error.promoNotForBulk',
+  OTP_INVALID: 'error.otpInvalid',
+  OTP_LIMIT: 'error.otpLimit',
+  OTP_PAUSED: 'error.otpPaused',
+  RATE_LIMITED: 'error.rateLimited',
+}
+
 export function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message
-  if (err instanceof TypeError) return 'Could not reach MandiMangoes. Check your connection and try again.'
+  if (err instanceof ApiError) {
+    const key = currentLang() === 'en' ? undefined : TRANSLATED_ERRORS[err.code]
+    return key ? t(key) : err.message
+  }
+  if (err instanceof TypeError) return t('error.network')
   if (err instanceof Error) return err.message
-  return 'Something went wrong.'
+  return t('error.generic')
 }

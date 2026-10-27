@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api, errorMessage } from './api'
+import { useT } from './i18n'
+import { t as tr } from './i18n-core.ts'
 import { DocTitle } from './ui'
 
 declare global {
@@ -32,7 +34,7 @@ function loadTurnstile() {
     s.onload = () => resolve()
     s.onerror = () => {
       cf = null
-      reject(new Error('Could not load the security check. Check your connection and try again.'))
+      reject(new Error(tr('auth.securityCheckFailed')))
     }
     document.head.appendChild(s)
   })
@@ -97,7 +99,7 @@ function loadGoogle() {
     s.onload = () => resolve()
     s.onerror = () => {
       gis = null
-      reject(new Error('Could not load Google sign-in.'))
+      reject(new Error(tr('auth.googleFailed')))
     }
     document.head.appendChild(s)
   })
@@ -109,6 +111,7 @@ export function GoogleButton({ onSignedIn, onError }: { onSignedIn: () => void; 
   const config = useQuery({ queryKey: ['auth-config'], queryFn: api.authConfig, staleTime: Infinity, retry: false })
   const box = useRef<HTMLDivElement>(null)
   const clientId = config.data?.googleClientId ?? null
+  const t = useT()
   const done = useRef({ onSignedIn, onError })
   done.current = { onSignedIn, onError }
 
@@ -146,7 +149,7 @@ export function GoogleButton({ onSignedIn, onError }: { onSignedIn: () => void; 
     <>
       <div ref={box} className="google-btn" />
       <p className="or" aria-hidden="true">
-        <span>or</span>
+        <span>{t('auth.or')}</span>
       </p>
     </>
   )
@@ -164,12 +167,13 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
   const [sent, setSent] = useState<{ channel: 'sms' | 'whatsapp'; devCode?: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const human = useTurnstile(setError)
+  const t = useT()
 
   const request = useMutation({
     mutationFn: (channel?: 'sms' | 'whatsapp') => {
-      const t = human.token ?? undefined
+      const token = human.token ?? undefined
       human.used()
-      return mode === 'signin' ? api.requestCode(tenDigits(phone), channel, t) : api.requestPhoneCode(tenDigits(phone), channel, t)
+      return mode === 'signin' ? api.requestCode(tenDigits(phone), channel, token) : api.requestPhoneCode(tenDigits(phone), channel, token)
     },
     onSuccess: (r) => {
       setSent(r)
@@ -187,13 +191,13 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
   function sendCode(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!/^[6-9]\d{9}$/.test(tenDigits(phone))) return setError('Enter your 10-digit mobile number.')
-    if (human.needed && !human.token) return setError('One moment: finishing a quick security check. Try again in a second.')
+    if (!/^[6-9]\d{9}$/.test(tenDigits(phone))) return setError(t('auth.enterMobile'))
+    if (human.needed && !human.token) return setError(t('auth.oneMoment'))
     request.mutate(undefined)
   }
   const resend = (channel: 'sms' | 'whatsapp') => {
     setError(null)
-    if (human.needed && !human.token) return setError('One moment: finishing a quick security check. Try again in a second.')
+    if (human.needed && !human.token) return setError(t('auth.oneMoment'))
     request.mutate(channel)
   }
   // Stays mounted across both steps, so the check can run again for a resend.
@@ -201,7 +205,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
   function checkCode(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    if (!/^\d{6}$/.test(code)) return setError('Enter the 6-digit code.')
+    if (!/^\d{6}$/.test(code)) return setError(t('auth.enterCode'))
     verify.mutate()
   }
   const errorNote = error && (
@@ -214,9 +218,9 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
     return (
       <>
         <form onSubmit={sendCode} noValidate>
-          <p className="muted">{intro ?? "We'll send a 6-digit code to your phone. No password needed."}</p>
+          <p className="muted">{intro ?? t('auth.intro')}</p>
           <div className="field">
-            <label htmlFor="phone">Mobile number</label>
+            <label htmlFor="phone">{t('auth.mobile')}</label>
             <div className="prefixed">
               <span aria-hidden="true">+91</span>
               <input
@@ -233,7 +237,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
           </div>
           {errorNote}
           <button type="submit" className="btn btn-primary btn-block" disabled={request.isPending}>
-            {request.isPending ? 'Sending…' : 'Send code'}
+            {request.isPending ? t('auth.sending') : t('auth.sendCode')}
           </button>
         </form>
         {check}
@@ -244,14 +248,14 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
     <>
       <form onSubmit={checkCode} noValidate>
         <p className="muted">
-          We sent a code by {sent.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} to +91 {tenDigits(phone)}.{' '}
+          {t(sent.channel === 'whatsapp' ? 'auth.sentWhatsApp' : 'auth.sentSms', { phone: `+91 ${tenDigits(phone)}` })}{' '}
           <button type="button" className="link-btn" onClick={() => setSent(null)}>
-            Change number
+            {t('auth.changeNumber')}
           </button>
         </p>
-        {sent.devCode && <p className="note">Test mode: your code is {sent.devCode}.</p>}
+        {sent.devCode && <p className="note">{t('auth.testCode', { code: sent.devCode })}</p>}
         <div className="field">
-          <label htmlFor="code">6-digit code</label>
+          <label htmlFor="code">{t('auth.codeLabel')}</label>
           <input
             id="code"
             inputMode="numeric"
@@ -264,14 +268,14 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
         </div>
         {errorNote}
         <button type="submit" className="btn btn-primary btn-block" disabled={verify.isPending}>
-          {verify.isPending ? 'Checking…' : mode === 'signin' ? 'Sign in' : 'Add number'}
+          {verify.isPending ? t('auth.checking') : mode === 'signin' ? t('signIn.title') : t('auth.addNumber')}
         </button>
         <div className="resend">
           <button type="button" className="link-btn" disabled={request.isPending} onClick={() => resend('sms')}>
-            Send again by SMS
+            {t('auth.resendSms')}
           </button>
           <button type="button" className="link-btn" disabled={request.isPending} onClick={() => resend('whatsapp')}>
-            Send on WhatsApp instead
+            {t('auth.resendWhatsApp')}
           </button>
         </div>
       </form>
@@ -282,15 +286,12 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: 'signin' | 'add';
 
 /** Shown before checkout or booking when the account (made with Google) has no mobile number yet. */
 export function AddPhoneCard() {
+  const t = useT()
   return (
     <section className="card narrow" aria-labelledby="add-phone">
-      <DocTitle title="Add your mobile number" />
-      <h1 id="add-phone">Add your mobile number</h1>
-      <PhoneCodeForm
-        mode="add"
-        onDone={() => undefined}
-        intro="The rider calls this number, and your order updates come to it on WhatsApp. We'll send a code to check it."
-      />
+      <DocTitle title={t('auth.addPhoneTitle')} />
+      <h1 id="add-phone">{t('auth.addPhoneTitle')}</h1>
+      <PhoneCodeForm mode="add" onDone={() => undefined} intro={t('auth.addPhoneIntro')} />
     </section>
   )
 }

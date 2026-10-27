@@ -156,6 +156,9 @@ const schema = z.object({
   // WhatsApp for both: mandi_help_reply and mandi_subscription_due. Turn on once Meta approves them;
   // until then customers see replies and reminders in the shop (and as browser notifications with WEB_PUSH).
   WHATSAPP_CARE_UPDATES: flag(),
+  // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English, chosen by each customer
+  // (saved to their account once signed in). Off: the shop is English only (docs/languages.md).
+  SHOP_LANGUAGES: flag(),
   // Stocktake (cycle count) sessions and their review (docs/warehouse/STOCKTAKE.md). Needs WAREHOUSE_V2.
   WAREHOUSE_STOCKTAKE: z
     .enum(['true', 'false'])

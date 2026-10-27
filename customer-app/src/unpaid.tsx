@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from './api'
+import { useT } from './i18n'
 import { useStore } from './store'
 
 /**
@@ -10,6 +11,7 @@ import { useStore } from './store'
  */
 export function UnpaidOrderBanner() {
   const { profile } = useStore()
+  const t = useT()
   const q = useQuery({ queryKey: ['orders'], queryFn: api.orders, enabled: Boolean(profile), staleTime: 10_000 })
   const now = Date.now()
   const open = q.data?.find((o) => o.status === 'PAYMENT_PENDING' && o.holdExpiresAt && new Date(o.holdExpiresAt).getTime() > now)
@@ -17,9 +19,9 @@ export function UnpaidOrderBanner() {
   return (
     <p className="note unpaid-banner" role="status">
       <span>
-        <strong>Order {open.number} is waiting for payment.</strong> Pay for it or cancel it before placing another order.
+        <strong>{t('unpaid.waiting', { number: open.number })}</strong> {t('unpaid.payOrCancel')}
       </span>{' '}
-      <Link to={`/orders/${open.id}`}>Open order {open.number}</Link>
+      <Link to={`/orders/${open.id}`}>{t('unpaid.open', { number: open.number })}</Link>
     </p>
   )
 }

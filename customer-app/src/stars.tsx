@@ -1,5 +1,7 @@
-import { useRef, type KeyboardEvent } from 'react'
+import { useId, useRef, type KeyboardEvent } from 'react'
 import type { RatingSummary } from './api'
+import { useT } from './i18n'
+import { t } from './i18n-core.ts'
 
 const STAR_PATH = 'M12 2.8l2.8 5.9 6.4.8-4.7 4.4 1.2 6.4L12 17.2l-5.7 3.1 1.2-6.4-4.7-4.4 6.4-.8z'
 
@@ -12,7 +14,10 @@ function StarMark({ on }: { on: boolean }) {
   )
 }
 
-export const STAR_WORDS = ['', 'Poor', 'Not great', 'Okay', 'Good', 'Loved them']
+/** "Poor" to "Loved them" for 1 to 5 stars, in the shop's language ('' for none). */
+export const STAR_WORDS: readonly string[] = new Proxy(['', '', '', '', '', ''], {
+  get: (target, prop) => (typeof prop === 'string' && /^[1-5]$/.test(prop) ? t(`stars.word${prop as '1'}`) : Reflect.get(target, prop)),
+})
 
 /**
  * A 1 to 5 star picker that works like a radio group: Tab reaches it once,
@@ -33,7 +38,9 @@ export function StarInput({
   describedBy?: string
 }) {
   const refs = useRef<(HTMLButtonElement | null)[]>([])
-  const labelId = `stars-${label.replace(/\W+/g, '-').toLowerCase()}`
+  const t = useT()
+  // useId, not the label: a Hindi or Kannada label has no Latin letters to make a unique id from.
+  const labelId = `stars-${useId().replace(/:/g, '')}`
   const pick = (n: number) => {
     onChange(n)
     refs.current[n - 1]?.focus()
@@ -63,7 +70,7 @@ export function StarInput({
             type="button"
             role="radio"
             aria-checked={value === n}
-            aria-label={`${n} ${n === 1 ? 'star' : 'stars'}, ${STAR_WORDS[n]}`}
+            aria-label={t('stars.option', { count: n, word: STAR_WORDS[n] })}
             // One tab stop: the chosen star, or the first one when none is chosen.
             tabIndex={(value ?? 1) === n ? 0 : -1}
             className={value != null && n <= value ? 'star on' : 'star'}
@@ -85,8 +92,9 @@ export function StarInput({
 /** Stars shown read-only, e.g. "4 out of 5 stars". Half stars round to the nearest whole. */
 export function Stars({ value, small = false }: { value: number; small?: boolean }) {
   const full = Math.round(value)
+  const t = useT()
   return (
-    <span className={small ? 'stars-shown small' : 'stars-shown'} role="img" aria-label={`${value} out of 5 stars`}>
+    <span className={small ? 'stars-shown small' : 'stars-shown'} role="img" aria-label={t('stars.outOf5', { value })}>
       {[1, 2, 3, 4, 5].map((n) => (
         <StarMark key={n} on={n <= full} />
       ))}
@@ -97,16 +105,17 @@ export function Stars({ value, small = false }: { value: number; small?: boolean
 /** Average, count and one bar per star level; a bar can filter the list. */
 export function RatingBars({ summary, active, onPick }: { summary: RatingSummary; active?: number | null; onPick?: (n: number | null) => void }) {
   const max = Math.max(1, ...Object.values(summary.distribution))
+  const t = useT()
   return (
     <div className="rating-summary">
       <div className="rating-avg">
         <strong>{summary.average != null ? summary.average.toFixed(1) : '–'}</strong>
         {summary.average != null && <Stars value={summary.average} />}
         <span className="muted small">
-          {summary.count} {summary.count === 1 ? 'review' : 'reviews'}
+          {t('stars.reviewCount', { count: summary.count })}
         </span>
       </div>
-      <ul className="rating-bars" aria-label="Reviews by stars">
+      <ul className="rating-bars" aria-label={t('stars.byStars')}>
         {[5, 4, 3, 2, 1].map((n) => {
           const count = summary.distribution[String(n) as '1']
           const body = (
@@ -125,7 +134,7 @@ export function RatingBars({ summary, active, onPick }: { summary: RatingSummary
                   type="button"
                   className={active === n ? 'bar-row on' : 'bar-row'}
                   aria-pressed={active === n}
-                  aria-label={`${n} star reviews: ${count}. ${active === n ? 'Showing only these; press to show all' : 'Show only these'}`}
+                  aria-label={t(active === n ? 'stars.barShowing' : 'stars.barShow', { stars: n, count })}
                   onClick={() => onPick(active === n ? null : n)}
                 >
                   {body}

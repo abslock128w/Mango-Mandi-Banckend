@@ -535,11 +535,26 @@ h1.section-title {
   cursor: pointer;
 }
 .chip[aria-checked='true'],
-.chip[aria-current='true'] {
+.chip[aria-current='true'],
+.chip[aria-pressed='true'] {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--bg);
   font-weight: 600;
+}
+/* The shop language control (Account page and sign-in; SHOP_LANGUAGES). */
+.lang-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.lang-picker-compact .lang-choices {
+  justify-content: center;
+  margin-bottom: var(--space-4);
 }
 .product-head {
   display: flex;

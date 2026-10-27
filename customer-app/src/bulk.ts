@@ -1,6 +1,7 @@
 // Bulk Deals in the shop: reading a deal's price tiers. The API sends the tiers and
 // prices every line again at checkout, so these only decide what the page shows.
 import type { BulkDeal, BulkTier, Stage } from './api'
+import { t } from './i18n-core.ts'
 
 /** The tier a quantity falls in: the last one it reaches. */
 export function tierAt(tiers: BulkTier[], qty: number): BulkTier | null {
@@ -22,7 +23,8 @@ export function maxFor(deal: BulkDeal, available: number | null) {
 }
 
 /** "10 to 24 boxes", "50+ boxes". */
-export const tierRange = (t: BulkTier) => (t.maxQty == null ? `${t.minQty}+ boxes` : t.maxQty === t.minQty ? `${t.minQty} boxes` : `${t.minQty} to ${t.maxQty} boxes`)
+export const tierRange = (r: Pick<BulkTier, 'minQty' | 'maxQty'>) =>
+  r.maxQty == null ? t('bulk.tierFrom', { min: r.minQty }) : r.maxQty === r.minQty ? t('bulk.tierExact', { count: r.minQty }) : t('bulk.tierRange', { min: r.minQty, max: r.maxQty })
 
 /** Boxes available for a ripeness on a day, from the deal's availability, or null when not known (no pincode). */
 export function availableOn(deal: BulkDeal, date: string | null, stage: Stage | null): number | null {

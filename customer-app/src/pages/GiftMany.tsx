@@ -18,6 +18,7 @@ import { gstinProblem, tidyGstin } from '../gstin'
 import { useFeatures } from '../features'
 import { policyQuery, productsQuery } from '../queries'
 import { recipientProblems, recipientsFromCsv } from '../gift-csv'
+import { useT } from '../i18n'
 
 const STAGES: Stage[] = ['RIPE', 'SEMI_RIPE', 'RAW']
 const blank = (pincode: string | null, sku: string): GiftRecipientInput => ({ name: '', phone: '', address: '', pincode: pincode ?? '', sku, stage: 'RIPE', qty: 1, note: '' })
@@ -27,8 +28,9 @@ export default function GiftMany() {
   const { profile } = useStore()
   const features = useFeatures()
   const policy = useQuery(policyQuery())
+  const t = useT()
   if (profile && !profile.phone) return <AddPhoneCard />
-  if (policy.isPending) return <Spinner label="Loading" />
+  if (policy.isPending) return <Spinner label={t('common.loading')} />
   if (!features.multiGift) return <Navigate to="/checkout" replace />
   return <GiftManyForm max={policy.data?.multiGiftMaxRecipients ?? 25} bills={policy.data?.bills === true} />
 }
@@ -43,6 +45,7 @@ const byRow = (list: RecipientProblem[]): Problems => {
 
 function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
   const { pincode: shopPincode, date, setWhere } = useStore()
+  const t = useT()
   const navigate = useNavigate()
   const location = useLocation()
   const [params] = useSearchParams()
@@ -108,7 +111,7 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
     e.target.value = ''
     if (!file) return
     if (file.size > 200_000) {
-      setFileNote({ ok: null, problems: [{ row: 0, field: 'file', message: 'That file is too big for a recipients list. Use the template.' }] })
+      setFileNote({ ok: null, problems: [{ row: 0, field: 'file', message: t('gift.fileTooBig') }] })
       return
     }
     const read = recipientsFromCsv(await file.text(), boxes, max)
@@ -116,7 +119,7 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
       setRecipients(read.recipients.map((r) => ({ ...r, note: r.note ?? '' })))
       setProblems(byRow(read.problems))
     }
-    setFileNote({ ok: read.recipients.length ? `${read.recipients.length} ${read.recipients.length === 1 ? 'recipient' : 'recipients'} loaded from ${file.name}.` : null, problems: read.problems })
+    setFileNote({ ok: read.recipients.length ? t('gift.loaded', { count: read.recipients.length, file: file.name }) : null, problems: read.problems })
   }
 
   const review = useMutation({
@@ -187,10 +190,10 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
     const found: Problems = {}
     recipients.forEach((r, i) => {
       for (const p of recipientProblems(r)) (found[i] ??= {})[p.field] = p.message
-      if (!r.sku) (found[i] ??= {}).sku = 'Choose a box'
+      if (!r.sku) (found[i] ??= {}).sku = t('gift.chooseBox')
     })
     setProblems(found)
-    const bad = bills && isBusiness ? (business.name.trim().length < 2 ? 'Enter the business name as it is on the GST certificate.' : gstinProblem(business.gstin)) : null
+    const bad = bills && isBusiness ? (business.name.trim().length < 2 ? t('checkout.businessName') : gstinProblem(business.gstin)) : null
     setBusinessProblem(bad)
     const first = Object.keys(found).map(Number).sort((a, b) => a - b)[0]
     if (first !== undefined) {
@@ -209,32 +212,32 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
     const unsellable = pay.error instanceof ApiError && ['PRICE_CHANGED', 'PRODUCT_UNAVAILABLE', 'QUOTE_EXPIRED', 'PAYMENT_GATEWAY_ERROR'].includes(pay.error.code)
     return (
       <section className="card checkout-review gift-review">
-        <DocTitle title="Review your gift order" />
+        <DocTitle title={t('gift.reviewDocTitle')} />
         <h1 ref={heading} tabIndex={-1}>
-          Review and pay
+          {t('checkout.reviewTitle')}
         </h1>
         <UnpaidOrderBanner />
         <dl className="facts">
           <div>
-            <dt>Arrives</dt>
+            <dt>{t('checkout.arrives')}</dt>
             <dd>
               {day(quote.deliveryDate)}
               {quote.slot && `, ${slotText(quote.slot)}`}
             </dd>
           </div>
           <div>
-            <dt>Recipients</dt>
+            <dt>{t('gift.recipients')}</dt>
             <dd>
-              {quote.recipients.length}, {quote.boxes} {quote.boxes === 1 ? 'box' : 'boxes'}
+              {t('gift.recipientsBoxes', { recipients: quote.recipients.length, count: quote.boxes })}
             </dd>
           </div>
           {bills && isBusiness && (
             <div>
-              <dt>Bill to</dt>
+              <dt>{t('checkout.billTo')}</dt>
               <dd>
                 {business.name.trim()}
                 <br />
-                GSTIN {tidyGstin(business.gstin)}
+                {t('checkout.gstinValue', { gstin: tidyGstin(business.gstin) })}
               </dd>
             </div>
           )}
@@ -248,9 +251,9 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
                   {r.address}, {r.pincode}
                 </span>
                 <span className="small">
-                  {r.qty} × {r.boxName}, {STAGE_LABEL[r.stage]} · eat by {day(r.eatBy)}
+                  {t('gift.reviewLine', { qty: r.qty, box: r.boxName, stage: STAGE_LABEL[r.stage], day: day(r.eatBy) })}
                 </span>
-                {r.note && <span className="muted small">Note: {r.note}</span>}
+                {r.note && <span className="muted small">{t('gift.note', { note: r.note })}</span>}
               </div>
               <strong className="line-price">{rupees(r.linePrice)}</strong>
             </li>
@@ -259,44 +262,41 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
         {quote.promo && (
           <>
             <div className="sum-row">
-              <span>Boxes</span>
+              <span>{t('checkout.boxes')}</span>
               <span>{rupees(quote.subtotal)}</span>
             </div>
             <div className="sum-row discount">
-              <span>Promo {quote.promo.code}</span>
+              <span>{t('checkout.promo', { code: quote.promo.code })}</span>
               <span>−{rupees(quote.discount)}</span>
             </div>
           </>
         )}
         <div className="sum-row">
-          <span>Delivery</span>
-          <span>Free</span>
+          <span>{t('gift.delivery')}</span>
+          <span>{t('checkout.free')}</span>
         </div>
         <div className="total-row">
-          <span>Total, one payment</span>
+          <span>{t('gift.totalOnePayment')}</span>
           <strong>{rupees(quote.total)}</strong>
         </div>
-        <p className="muted small">
-          Every recipient's boxes are held for {quote.holdMinutes} minutes while you pay. Each recipient is delivered separately and gets the
-          delivery message on the day. You can cancel the whole order, or one recipient, for a refund of their part until their boxes are packed.
-        </p>
-        <ErrorNote error={pay.error ? (unsellable ? `${errorMessage(pay.error)} Nothing was charged. Tap Change details and review again.` : pay.error) : null} />
+        <p className="muted small">{t('gift.holdNote', { minutes: quote.holdMinutes })}</p>
+        <ErrorNote error={pay.error ? (unsellable ? t('gift.unsellable', { reason: errorMessage(pay.error) }) : pay.error) : null} />
         {pay.error instanceof ApiError && pay.error.code === 'UNPAID_ORDER_EXISTS' && (
           <Link to={typeof pay.error.detail.giftOrderId === 'string' ? `/gifts/${pay.error.detail.giftOrderId}` : `/orders/${String(pay.error.detail.orderId)}`} className="btn btn-block">
-            Open your unpaid order
+            {t('checkout.openUnpaid')}
           </Link>
         )}
         <button type="button" className="btn btn-primary btn-block" disabled={pay.isPending || unsellable} onClick={() => pay.mutate()}>
-          {pay.isPending ? 'Opening payment…' : `Pay ${rupees(quote.total)}`}
+          {pay.isPending ? t('checkout.openingPayment') : t('checkout.pay', { total: rupees(quote.total) })}
         </button>
-        <p className="small center pay-trust">Secure payment by Razorpay. UPI, cards, netbanking. No cash on delivery.</p>
+        <p className="small center pay-trust">{t('checkout.secure')}</p>
         <button
           type="button"
           className="btn btn-block btn-quiet"
           disabled={pay.isPending}
           onClick={() => ((location.state as { fromForm?: boolean } | null)?.fromForm ? navigate(-1) : navigate({ search: '' }, { replace: true }))}
         >
-          Change details
+          {t('checkout.changeDetails')}
         </button>
       </section>
     )
@@ -305,27 +305,26 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
   const reviewError = review.error && !(review.error instanceof ApiError && review.error.code === 'RECIPIENTS_INVALID') ? review.error : null
   return (
     <section className="card gift-many">
-      <DocTitle title="Send to many" />
+      <DocTitle title={t('title.giftMany')} />
       <h1 ref={heading} tabIndex={-1}>
-        Send to many
+        {t('title.giftMany')}
       </h1>
       <p className="muted">
-        One order, one payment, a box for each person: up to {max} recipients, all delivered on the same day. <Link to="/checkout">Sending to one person?</Link>
+        {t.rich('gift.lead', { max, link: <Link to="/checkout">{t('gift.sendingOne')}</Link> })}
       </p>
       <UnpaidOrderBanner />
       <div className="gift-csv card-inset">
-        <h2>Have a list?</h2>
+        <h2>{t('gift.haveList')}</h2>
         <p className="small muted">
-          Fill in the template in a spreadsheet, save it as CSV and upload it. We check every row and show what to fix. Box codes:{' '}
-          {boxes.map((b) => `${b.sku} (${b.name})`).join(', ')}.
+          {t('gift.csvHow', { codes: boxes.map((b) => t('gift.boxCode', { sku: b.sku, name: b.name })).join(', ') })}
         </p>
         <div className="row">
           <button type="button" className="btn" disabled={downloadTemplate.isPending} onClick={() => downloadTemplate.mutate()}>
-            Download the template
+            {t('gift.downloadTemplate')}
           </button>
           <label className="btn file-btn">
-            Upload a CSV
-            <input type="file" accept=".csv,text/csv" className="sr-only" onChange={onFile} aria-label="Upload a recipients CSV" />
+            {t('gift.uploadCsv')}
+            <input type="file" accept=".csv,text/csv" className="sr-only" onChange={onFile} aria-label={t('gift.uploadCsvLabel')} />
           </label>
         </div>
         <ErrorNote error={downloadTemplate.error} />
@@ -336,10 +335,10 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
         )}
         {fileNote.problems.length > 0 && (
           <div className="field-error" role="alert">
-            <p>Fix these rows (row 1 is the first recipient under the column names):</p>
+            <p>{t('gift.fixRows')}</p>
             <ul className="csv-problems">
               {fileNote.problems.slice(0, 20).map((p, i) => (
-                <li key={i}>{p.row ? `Row ${p.row}: ${p.message}` : p.message}</li>
+                <li key={i}>{p.row ? t('gift.row', { row: p.row, message: p.message }) : p.message}</li>
               ))}
             </ul>
           </div>
@@ -353,15 +352,15 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
             return (
               <li key={i} className="card-inset gift-recipient">
                 <div className="title-row">
-                  <h2>Recipient {i + 1}</h2>
-                  <button type="button" className="link-btn" onClick={() => remove(i)} aria-label={`Remove recipient ${i + 1}`}>
-                    Remove
+                  <h2>{t('gift.recipientN', { n: i + 1 })}</h2>
+                  <button type="button" className="link-btn" onClick={() => remove(i)} aria-label={t('gift.removeRecipient', { n: i + 1 })}>
+                    {t('common.remove')}
                   </button>
                 </div>
-                <Field id={fid('name')} label="Their name" error={err.name}>
+                <Field id={fid('name')} label={t('gift.theirName')} error={err.name}>
                   <input maxLength={80} value={r.name} onChange={(e) => set(i, { name: e.target.value })} />
                 </Field>
-                <Field id={fid('phone')} label="Their mobile number" hint="The rider calls them, and they get the delivery message." error={err.phone}>
+                <Field id={fid('phone')} label={t('gift.theirMobile')} hint={t('gift.theirMobileHint')} error={err.phone}>
                   {(control) => (
                     <div className="prefixed">
                       <span aria-hidden="true">+91</span>
@@ -369,29 +368,29 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
                     </div>
                   )}
                 </Field>
-                <Field id={fid('address')} label="Their address" hint="House or flat number, street, area and a landmark." error={err.address}>
+                <Field id={fid('address')} label={t('gift.theirAddress')} hint={t('gift.addressHint')} error={err.address}>
                   <textarea rows={2} maxLength={500} value={r.address} onChange={(e) => set(i, { address: e.target.value })} />
                 </Field>
                 <div className="gift-pair">
-                  <Field id={fid('pincode')} label="Pincode" error={err.pincode}>
+                  <Field id={fid('pincode')} label={t('gift.pincode')} error={err.pincode}>
                     <input inputMode="numeric" maxLength={6} value={r.pincode} onChange={(e) => set(i, { pincode: e.target.value.replace(/\D/g, '') })} />
                   </Field>
-                  <Field id={fid('qty')} label="Boxes" error={err.qty}>
+                  <Field id={fid('qty')} label={t('gift.boxes')} error={err.qty}>
                     <input type="number" inputMode="numeric" min={1} max={20} value={r.qty || ''} onChange={(e) => set(i, { qty: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
                   </Field>
                 </div>
                 <div className="gift-pair">
-                  <Field id={fid('sku')} label="Box" error={err.sku}>
+                  <Field id={fid('sku')} label={t('gift.box')} error={err.sku}>
                     <select value={r.sku} onChange={(e) => set(i, { sku: e.target.value })}>
-                      {!r.sku && <option value="">Choose a box</option>}
+                      {!r.sku && <option value="">{t('gift.chooseBox')}</option>}
                       {boxes.map((b) => (
                         <option key={b.sku} value={b.sku}>
-                          {b.name}, {rupees(b.price)}
+                          {t('gift.boxOption', { name: b.name, price: rupees(b.price) })}
                         </option>
                       ))}
                     </select>
                   </Field>
-                  <Field id={fid('stage')} label="Ripeness" error={err.stage}>
+                  <Field id={fid('stage')} label={t('gift.ripeness')} error={err.stage}>
                     <select value={r.stage} onChange={(e) => set(i, { stage: e.target.value as Stage })}>
                       {STAGES.map((s) => (
                         <option key={s} value={s}>
@@ -401,7 +400,7 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
                     </select>
                   </Field>
                 </div>
-                <Field id={fid('note')} label="A note in the box (optional)" error={err.note}>
+                <Field id={fid('note')} label={t('checkout.giftNote')} error={err.note}>
                   <textarea rows={2} maxLength={200} value={r.note ?? ''} onChange={(e) => set(i, { note: e.target.value })} />
                 </Field>
               </li>
@@ -409,23 +408,23 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
           })}
         </ol>
         <button type="button" className="btn btn-block" onClick={add} disabled={recipients.length >= max}>
-          {recipients.length >= max ? `That's the most for one order (${max})` : 'Add another recipient'}
+          {recipients.length >= max ? t('gift.mostForOne', { max }) : t('gift.addAnother')}
         </button>
 
         {!dayPin ? (
-          <p className="muted small">Enter a pincode to see the delivery days.</p>
+          <p className="muted small">{t('gift.enterPincode')}</p>
         ) : days.isPending || (chosen && slots.isPending) ? (
-          <Spinner label="Loading delivery days" />
+          <Spinner label={t('gift.loadingDays')} />
         ) : days.isError ? (
           <ErrorNote error={days.error} onRetry={() => days.refetch()} />
         ) : !days.data.serviceable ? (
-          <p className="field-error">We do not deliver to {dayPin} yet. Check the first recipient's pincode.</p>
+          <p className="field-error">{t('gift.notServed', { pincode: dayPin })}</p>
         ) : (
           <>
             <fieldset className="field">
-              <legend>When should everyone get it?</legend>
+              <legend>{t('gift.whenEveryone')}</legend>
               <DayChips
-                label="When should everyone get it?"
+                label={t('gift.whenEveryone')}
                 days={days.data.deliveryDates}
                 value={chosen}
                 format={day}
@@ -435,43 +434,43 @@ function GiftManyForm({ max, bills }: { max: number; bills: boolean }) {
                 }}
               />
             </fieldset>
-            {slots.data && <SlotPicker name="slot" slots={slots.data.slots} value={slotId} onChange={setSlotId} error={slots.data.slots.length && !slotId && review.isError ? 'Choose a delivery time.' : null} />}
+            {slots.data && <SlotPicker name="slot" slots={slots.data.slots} value={slotId} onChange={setSlotId} error={slots.data.slots.length && !slotId && review.isError ? t('checkout.chooseTime') : null} />}
           </>
         )}
 
-        <Field id="name" label="Your name (the sender)">
+        <Field id="name" label={t('gift.senderName')}>
           <input autoComplete="name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         {bills && (
           <>
             <label className="option gift-toggle">
               <input type="checkbox" checked={isBusiness} onChange={(e) => setIsBusiness(e.target.checked)} />
-              <span>Buying for a business? Add its name and GSTIN to the one bill for this order</span>
+              <span>{t('gift.forBusiness')}</span>
             </label>
             {isBusiness && (
               <fieldset className="field gift-fields">
-                <legend>Business details for the bill</legend>
-                <Field id="business-name" label="Business name" hint="As it is on the GST certificate." error={businessProblem && business.name.trim().length < 2 ? businessProblem : null}>
+                <legend>{t('checkout.businessLegend')}</legend>
+                <Field id="business-name" label={t('checkout.businessNameLabel')} hint={t('checkout.businessNameHint')} error={businessProblem && business.name.trim().length < 2 ? businessProblem : null}>
                   <input autoComplete="organization" maxLength={100} value={business.name} onChange={(e) => setBusiness({ ...business, name: e.target.value })} />
                 </Field>
-                <Field id="gstin" label="GSTIN" hint="15 characters, for example 29ABCDE1234F1ZW." error={businessProblem && business.name.trim().length >= 2 ? businessProblem : null}>
+                <Field id="gstin" label={t('checkout.gstinLabel')} hint={t('checkout.gstinHint')} error={businessProblem && business.name.trim().length >= 2 ? businessProblem : null}>
                   <input autoCapitalize="characters" spellCheck={false} maxLength={20} value={business.gstin} onChange={(e) => setBusiness({ ...business, gstin: e.target.value.toUpperCase() })} />
                 </Field>
               </fieldset>
             )}
           </>
         )}
-        <Field id="promo" label="Promo code (optional)">
+        <Field id="promo" label={t('checkout.promoLabel')}>
           <input autoComplete="off" autoCapitalize="characters" maxLength={20} value={promoCode} onChange={(e) => setPromoCode(e.target.value.toUpperCase())} />
         </Field>
         {Object.keys(problems).length > 0 && (
           <p className="field-error" role="alert">
-            Some recipients need fixing: {Object.keys(problems).map((k) => `recipient ${Number(k) + 1}`).join(', ')}.
+            {t('gift.needFixing', { list: Object.keys(problems).map((k) => t('gift.recipientLower', { n: Number(k) + 1 })).join(', ') })}
           </p>
         )}
         <ErrorNote error={reviewError} />
         <button type="submit" className="btn btn-primary btn-block" disabled={review.isPending || products.isPending}>
-          {review.isPending ? 'Checking stock…' : `Review ${recipients.length} ${recipients.length === 1 ? 'recipient' : 'recipients'}`}
+          {review.isPending ? t('gift.checkingStock') : t('gift.reviewN', { count: recipients.length })}
         </button>
       </form>
     </section>

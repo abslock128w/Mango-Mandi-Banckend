@@ -5,20 +5,22 @@ import { api, signedInProfile, type FollowUp, type MyReview, type Reviewable, ty
 import { STAGE_LABEL, day, when } from '../format'
 import { Field, PhotoPicker, usePhotoUploads } from '../forms'
 import { StarInput, Stars } from '../stars'
+import { useT } from '../i18n'
+import type { Key } from '../i18n-core.ts'
 import { ConfirmDialog, ErrorNote, Spinner } from '../ui'
 
 const MAX_PHOTOS = 3
 const MAX_COMMENT = 1000
-const SUBS: { key: keyof SubRatings; label: string }[] = [
-  { key: 'taste', label: 'Taste' },
-  { key: 'ripenessAccuracy', label: 'Ripe as promised?' },
-  { key: 'packaging', label: 'Packaging' },
-  { key: 'delivery', label: 'Delivery' },
+const SUBS: { key: keyof SubRatings; label: Key }[] = [
+  { key: 'taste', label: 'review.sub.taste' },
+  { key: 'ripenessAccuracy', label: 'review.ripeAsked' },
+  { key: 'packaging', label: 'review.sub.packaging' },
+  { key: 'delivery', label: 'review.sub.delivery' },
 ]
 
 type SentResult = { review: MyReview; followUp: FollowUp }
 
-/** "Ravi Kumar" → "Ravi K.", as the API shows it. */
+/** "Ravi Kumar" → "Ravi K.", as the API shows it (in English, as every buyer sees it on the product page). */
 function shownAs(name: string | null | undefined, anonymous: boolean) {
   if (anonymous) return 'Anonymous'
   const parts = (name ?? '').trim().split(/\s+/).filter(Boolean)
@@ -34,18 +36,19 @@ export default function ReviewPage() {
   // Kept here, not in the form: once sent, the refreshed list no longer has
   // this item as reviewable, and the thank-you screen must stay.
   const [done, setDone] = useState<SentResult | null>(null)
+  const t = useT()
   if (done) return <Sent result={done} />
-  if (q.isPending) return <Spinner label="Loading" />
+  if (q.isPending) return <Spinner />
   if (q.isError) return <ErrorNote error={q.error} onRetry={() => q.refetch()} />
   const item = itemId ? q.data.reviewable.find((i) => i.orderItemId === itemId) : undefined
   const existing = reviewId ? q.data.reviews.find((r) => r.id === reviewId) : undefined
   if (existing && !existing.canEdit) {
     return (
       <section className="card narrow">
-        <h1>This review can no longer be changed</h1>
-        <p className="muted">Reviews can be changed for 48 hours after you send them. You can still delete it from your account page.</p>
+        <h1>{t('review.locked')}</h1>
+        <p className="muted">{t('review.lockedBody')}</p>
         <Link to="/account" className="btn btn-primary">
-          Go to my account
+          {t('review.goAccount')}
         </Link>
       </section>
     )
@@ -53,10 +56,10 @@ export default function ReviewPage() {
   if (!item && !existing) {
     return (
       <section className="card narrow">
-        <h1>Nothing to review here</h1>
-        <p className="muted">This item is already reviewed, or it was delivered more than 30 days ago.</p>
+        <h1>{t('review.nothing')}</h1>
+        <p className="muted">{t('review.nothingBody')}</p>
         <Link to="/orders" className="btn btn-primary">
-          See my orders
+          {t('order.seeMine')}
         </Link>
       </section>
     )
@@ -67,6 +70,7 @@ export default function ReviewPage() {
 function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: MyReview; onSent: (r: SentResult) => void }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const t = useT()
   const [rating, setRating] = useState<number | null>(existing?.rating ?? null)
   const [subs, setSubs] = useState<SubRatings>({
     taste: existing?.taste ?? null,
@@ -84,7 +88,8 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
     add: addPhotos,
     remove: removePhoto,
   } = usePhotoUploads((photo) => api.uploadReviewPhoto(photo), MAX_PHOTOS, existing?.photos.map((p) => ({ id: p.id, preview: null })))
-  const [formError, setFormError] = useState<string | null>(null)
+  // `stars`: the problem is the missing star rating, shown under the stars; any other above the button.
+  const [formError, setFormError] = useState<{ stars?: boolean; message: string } | null>(null)
   // One key per form: a retry after a dropped connection can't make a second review.
   const [idemKey] = useState(() => crypto.randomUUID())
 
@@ -123,32 +128,32 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
   function submit(e: FormEvent) {
     e.preventDefault()
     setFormError(null)
-    if (!rating) return setFormError('Choose from 1 to 5 stars.')
-    if (uploading) return setFormError('Wait for the photo to finish uploading.')
-    if (comment.length > MAX_COMMENT) return setFormError(`Keep the review to ${MAX_COMMENT} characters.`)
+    if (!rating) return setFormError({ stars: true, message: t('review.chooseStars') })
+    if (uploading) return setFormError({ message: t('claim.waitPhoto') })
+    if (comment.length > MAX_COMMENT) return setFormError({ message: t('review.tooLong', { max: MAX_COMMENT }) })
     send.mutate()
   }
 
   // "Choose stars" shows under the stars; anything else above the button.
-  const starsError = formError?.startsWith('Choose') ? formError : null
+  const starsError = formError?.stars ? formError.message : null
   const left = MAX_COMMENT - comment.length
   return (
     <section className="card narrow" aria-labelledby="review-title">
-      <h1 id="review-title">{existing ? 'Change your review' : 'Write a review'}</h1>
+      <h1 id="review-title">{existing ? t('title.editReview') : t('title.review')}</h1>
       <p className="muted">
         {productName}
-        {stage && <> · ordered {STAGE_LABEL[stage].toLowerCase()}</>}
-        {item && <> · delivered {when(item.deliveredAt)}</>}
+        {stage && <> · {t('product.ordered', { stage: STAGE_LABEL[stage].toLowerCase() })}</>}
+        {item && <> · {t('review.delivered', { when: when(item.deliveredAt) })}</>}
       </p>
       <form onSubmit={submit} noValidate>
         <StarInput
-          label="Your rating"
+          label={t('review.yourRating')}
           value={rating}
           describedBy={starsError ? 'rating-error' : undefined}
           onChange={(n) => {
             setRating(n)
             // A "choose stars" message is answered once stars are chosen.
-            if (formError?.startsWith('Choose')) setFormError(null)
+            if (formError?.stars) setFormError(null)
           }}
         />
         {starsError && (
@@ -157,22 +162,22 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
           </p>
         )}
         <fieldset className="field sub-ratings">
-          <legend>More detail (optional)</legend>
+<legend>{t('review.moreDetail')}</legend>
           {SUBS.map((s) => (
-            <StarInput key={s.key} label={s.label} size="small" value={subs[s.key]} onChange={(n) => setSubs((v) => ({ ...v, [s.key]: n }))} />
+            <StarInput key={s.key} label={t(s.label)} size="small" value={subs[s.key]} onChange={(n) => setSubs((v) => ({ ...v, [s.key]: n }))} />
           ))}
         </fieldset>
         <Field
           id="review-text"
-          label="Tell other buyers about them (optional)"
-          hint="Please leave out phone numbers, emails and links. Reviews are checked by our team before they appear."
+          label={t('review.tellOthers')}
+          hint={t('review.tellOthersHint')}
           describedBy="review-count"
         >
           {(control) => (
             <>
               <textarea {...control} rows={4} maxLength={MAX_COMMENT} value={comment} onChange={(e) => setComment(e.target.value)} />
               <p id="review-count" className={left < 50 ? 'counter warn' : 'counter'} aria-live="polite">
-                {left} characters left
+                {t('review.charsLeft', { count: left })}
               </p>
             </>
           )}
@@ -181,7 +186,7 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
           id="review-photos"
           max={MAX_PHOTOS}
           accept="image/jpeg,image/png,image/webp"
-          alt={(i) => `Your photo ${i + 1}`}
+          alt={(i) => t('review.yourPhoto', { n: i + 1 })}
           photos={photos}
           uploading={uploading}
           error={photoError}
@@ -190,23 +195,20 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
         />
         <label className="option">
           <input type="checkbox" checked={anonymous} onChange={(e) => setAnonymous(e.target.checked)} />
-          <span>Post without my name</span>
+          <span>{t('review.anonymous')}</span>
         </label>
-        <p className="muted small">
-          Shown as <strong>{shownAs(signedInProfile()?.name, anonymous)}</strong>, with a “Verified purchase” badge. We never show your phone, email or
-          address.
-        </p>
+        <p className="muted small">{t.rich('review.shownAs', { name: <strong>{shownAs(signedInProfile()?.name, anonymous)}</strong> })}</p>
         {formError && !starsError && (
           <p className="field-error" role="alert">
-            {formError}
+            {formError.message}
           </p>
         )}
         <ErrorNote error={send.error} />
         <button type="submit" className="btn btn-primary btn-block" disabled={send.isPending || uploading}>
-          {send.isPending ? 'Sending…' : existing ? 'Save changes' : 'Send review'}
+          {send.isPending ? t('auth.sending') : existing ? t('review.save') : t('review.send')}
         </button>
         <button type="button" className="btn btn-block btn-quiet" onClick={() => navigate(-1)}>
-          Cancel
+          {t('common.cancel')}
         </button>
       </form>
     </section>
@@ -215,31 +217,36 @@ function ReviewForm({ item, existing, onSent }: { item?: Reviewable; existing?: 
 
 function Sent({ result }: { result: SentResult }) {
   const { review, followUp } = result
+  const t = useT()
   return (
     <section className="card narrow" aria-labelledby="sent-title">
       <h1 id="sent-title" tabIndex={-1} ref={(el) => el?.focus()}>
-        Thank you for your review
+        {t('review.thanks')}
       </h1>
       <Stars value={review.rating} />
       <p className="note" role="status">
-        It is under review. Our team checks every review, usually within a day, and then it appears on the product page.
+        {t('review.underReview')}
       </p>
       {followUp?.type === 'CLAIM' && (
         <div className="note note-warn">
-          <p>Sorry the mangoes let you down. If something was wrong with the fruit, report it and we will send a fresh box.</p>
-          <p className="small">You can report it until {when(followUp.claimUntil)}.</p>
+          <p>
+            {t('review.sorry')} {t('review.sorryClaim')}
+          </p>
+          <p className="small">{t('review.reportUntil', { when: when(followUp.claimUntil) })}</p>
           <Link to={`/orders/${followUp.orderId}/claim`} className="btn btn-primary">
-            Report a problem
+            {t('title.claim')}
           </Link>
         </div>
       )}
       {followUp?.type === 'SUPPORT' && (
         <div className="note note-warn">
-          <p>Sorry the mangoes let you down. {followUp.contact}</p>
+          <p>
+            {t('review.sorry')} {followUp.contact}
+          </p>
         </div>
       )}
       <Link to={`/orders/${review.orderId}`} className="btn btn-block">
-        Back to the order
+        {t('common.backToOrder')}
       </Link>
     </section>
   )
@@ -248,22 +255,24 @@ function Sent({ result }: { result: SentResult }) {
 /** The order page's reviews block: write one per delivered item, or see where each review is. */
 export function OrderReviews({ orderId }: { orderId: string }) {
   const q = useQuery({ queryKey: ['order-reviews', orderId], queryFn: () => api.myReviews(orderId) })
+  const t = useT()
   if (q.isPending || q.isError) return null
   const { reviews, reviewable } = q.data
   if (!reviews.length && !reviewable.length) return null
   return (
     <section className="card" aria-labelledby="order-reviews">
-      <h2 id="order-reviews">{reviewable.length ? 'How were your mangoes?' : 'Your reviews'}</h2>
+      <h2 id="order-reviews">{reviewable.length ? t('review.howWere') : t('review.yours')}</h2>
       <ul className="review-items">
         {reviewable.map((i) => (
           <li key={i.orderItemId}>
             <div>
               <strong>{i.productName}</strong>
               {i.ripenessOrdered && <span className="muted small"> · {STAGE_LABEL[i.ripenessOrdered]}</span>}
-              <p className="muted small">You can review this until {day(i.reviewableUntil.slice(0, 10))}.</p>
+              <p className="muted small">{t('review.until', { day: day(i.reviewableUntil.slice(0, 10)) })}</p>
             </div>
             <Link to={`/review/${i.orderItemId}`} className="btn btn-primary">
-              Write a review<span className="sr-only"> of {i.productName}</span>
+              {t('title.review')}
+              <span className="sr-only"> {t('review.ofProduct', { name: i.productName })}</span>
             </Link>
           </li>
         ))}
@@ -271,11 +280,12 @@ export function OrderReviews({ orderId }: { orderId: string }) {
           <li key={r.id}>
             <div>
               <strong>{r.productName}</strong> <Stars value={r.rating} small />
-              <p className="muted small">{REVIEW_STATE[r.status]}</p>
+              <p className="muted small">{t(REVIEW_STATE[r.status])}</p>
             </div>
             {r.canEdit && (
               <Link to={`/reviews/${r.id}/edit`} className="btn btn-quiet">
-                Change<span className="sr-only"> review of {r.productName}</span>
+                {t('review.change')}
+                <span className="sr-only"> {t('review.reviewOf', { name: r.productName })}</span>
               </Link>
             )}
           </li>
@@ -285,11 +295,12 @@ export function OrderReviews({ orderId }: { orderId: string }) {
   )
 }
 
-export const REVIEW_STATE: Record<MyReview['status'], string> = {
-  PENDING: 'Under review',
-  APPROVED: 'Published',
-  REJECTED: 'Not published',
-  HIDDEN: 'Taken down',
+/** A review's state, as a dictionary key: "Under review" to "Taken down". */
+const REVIEW_STATE: Record<MyReview['status'], Key> = {
+  PENDING: 'review.state.pending',
+  APPROVED: 'review.state.approved',
+  REJECTED: 'review.state.rejected',
+  HIDDEN: 'review.state.hidden',
 }
 
 /** Account page: every review I wrote, with edit (48 hours) and delete. */
@@ -297,6 +308,7 @@ export function MyReviews() {
   const queryClient = useQueryClient()
   const q = useQuery({ queryKey: ['my-reviews'], queryFn: () => api.myReviews() })
   const [deleting, setDeleting] = useState<MyReview | null>(null)
+  const t = useT()
   const del = useMutation({
     mutationFn: (id: string) => api.deleteReview(id),
     onSuccess: () => {
@@ -308,27 +320,29 @@ export function MyReviews() {
   if (q.isPending || q.isError || !q.data.reviews.length) return null
   return (
     <section className="card narrow" aria-labelledby="my-reviews">
-      <h2 id="my-reviews">My reviews</h2>
+      <h2 id="my-reviews">{t('review.mine')}</h2>
       <ul className="review-items">
         {q.data.reviews.map((r) => (
           <li key={r.id}>
             <div>
               <strong>{r.productName}</strong> <Stars value={r.rating} small />
               <p className="muted small">
-                {REVIEW_STATE[r.status]}
+                {t(REVIEW_STATE[r.status])}
                 {r.moderationReason && <>: {r.moderationReason}</>}
-                {r.canEdit && <> · can be changed until {when(r.editableUntil)}</>}
+                {r.canEdit && <> · {t('review.editableUntil', { when: when(r.editableUntil) })}</>}
               </p>
               {r.comment && <p className="review-text">{r.comment}</p>}
             </div>
             <div className="row-actions">
               {r.canEdit && (
                 <Link to={`/reviews/${r.id}/edit`} className="link-btn">
-                  Change<span className="sr-only"> review of {r.productName}</span>
+                  {t('review.change')}
+                  <span className="sr-only"> {t('review.reviewOf', { name: r.productName })}</span>
                 </Link>
               )}
               <button type="button" className="link-btn danger" onClick={() => setDeleting(r)}>
-                Delete<span className="sr-only"> review of {r.productName}</span>
+                {t('review.delete')}
+                <span className="sr-only"> {t('review.reviewOf', { name: r.productName })}</span>
               </button>
             </div>
           </li>
@@ -336,16 +350,16 @@ export function MyReviews() {
       </ul>
       {deleting && (
         <ConfirmDialog
-          title="Delete this review?"
-          keepLabel="Keep it"
-          confirmLabel="Delete review"
-          busyLabel="Deleting…"
+          title={t('review.deleteConfirm')}
+          keepLabel={t('review.keepIt')}
+          confirmLabel={t('review.deleteReview')}
+          busyLabel={t('account.deleting')}
           busy={del.isPending}
           error={del.error}
           onConfirm={() => del.mutate(deleting.id)}
           onClose={() => setDeleting(null)}
         >
-          <p>Your review of {deleting.productName} and its photos will be removed. You can't write a new one for the same item.</p>
+          <p>{t('review.deleteBody', { name: deleting.productName })}</p>
         </ConfirmDialog>
       )}
     </section>
