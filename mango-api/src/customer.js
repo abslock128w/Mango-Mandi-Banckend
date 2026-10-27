@@ -54,6 +54,21 @@ export const router = express.Router()
 // High enough for a carrier NAT address at a launch spike (ratelimit.js otpIpLimit).
 const otpLimiter = sharedLimiter('otp-ip', { windowMs: OTP_IP_WINDOW_MS, limit: otpIpLimit() })
 
+/**
+ * Per signed-in customer, not per address (many customers share a carrier NAT address):
+ * a quote, a confirm and a cancel each hold stock rows and may call Razorpay, so one
+ * account looping on them is stopped at CUSTOMER_ACTION_LIMIT a minute (20; the shop
+ * itself sends a handful). Counted in Postgres, so every instance shares the count.
+ */
+export const CUSTOMER_ACTION_WINDOW_MS = 60_000
+const perCustomer = (name) =>
+  sharedLimiter(`customer-${name}`, {
+    windowMs: CUSTOMER_ACTION_WINDOW_MS,
+    limit: () => env.CUSTOMER_ACTION_LIMIT,
+    keyGenerator: (req) => req.customer.id,
+    message: 'Too many tries in a minute. Wait a moment and try again.',
+  })
+
 /** Claims a customer can raise in 30 days from the app. */
 const MAX_CLAIMS_PER_MONTH = 3
 
@@ -786,6 +801,7 @@ router.delete(
 
 router.post(
   '/checkout/quote',
+  perCustomer('quote'),
   asyncHandler(async (req, res) => {
     const b = parse(
       z.object({
@@ -904,6 +920,7 @@ const confirmResponse = (o) => ({
 
 router.post(
   '/checkout/confirm',
+  perCustomer('confirm'),
   asyncHandler(async (req, res) => {
     const rawKey = req.get('Idempotency-Key')
     if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
@@ -1218,6 +1235,7 @@ router.post(
 
 router.post(
   '/orders/:id/cancel',
+  perCustomer('cancel'),
   asyncHandler(async (req, res) => {
     const refundDue = await tx((c) => customerCancel(c, req.params.id, req.customer.id, req.actor))
     if (refundDue) await sendDueRefunds({ orderId: req.params.id })

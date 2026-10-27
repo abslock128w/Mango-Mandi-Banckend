@@ -525,6 +525,28 @@ describe('a sign-in ends after a fixed time, however often it is refreshed', () 
   })
 })
 
+describe('per-customer limits on checkout and cancel', () => {
+  test('a customer gets 20 quotes a minute (CUSTOMER_ACTION_LIMIT), counted per account, not per address', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const a = await customerToken(api)
+    const b = await customerToken(api)
+    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
+    const quote = (c) => api.post('/v1/checkout/quote', { pincode: '560034' }, { token: c.accessToken })
+    enforceLimitsInTests(true)
+    for (let i = 0; i < env.CUSTOMER_ACTION_LIMIT; i++) assert.equal((await quote(a)).status, 200, `quote ${i + 1}`)
+    const limited = await quote(a)
+    assert.equal(limited.status, 429)
+    assert.equal(limited.body.error.code, 'RATE_LIMITED')
+    assert.equal((await quote(b)).status, 200, 'another account on the same address is not affected')
+    // Confirm and cancel have their own count.
+    const cancel = await api.post('/v1/orders/ord_none/cancel', {}, { token: a.accessToken })
+    assert.equal(cancel.status, 404)
+    // A minute later the count starts again.
+    setNow(new Date(now().getTime() + 61_000).toISOString())
+    assert.equal((await quote(a)).status, 200)
+  })
+})
+
 // ---------------------------------------------------------------- audit trails
 
 describe('audit trails name who and why', () => {
