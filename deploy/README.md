@@ -128,12 +128,15 @@ The `Deploy` GitHub Action deploys `main` after CI passes on it, and can be run 
 **Backups.** Set up once, then checked by the staff panel: see [Backups](#backups).
 `docker compose logs --tail 20 backup` shows the last runs.
 
-**Monitoring.** Point an uptime checker (UptimeRobot, Better Stack) at
-`https://API_DOMAIN/ready` and the shop's home page. The alert rules in
-[`../mango-api/ops/alerts.yml`](../mango-api/ops/alerts.yml) need Prometheus scraping
-`api:3000/metrics` from inside the server; Caddy keeps `/metrics` off the internet.
-These rules and `/metrics` apply to this Docker setup only; on Vercel `/metrics` is
-404 and alerting is Sentry plus an uptime monitor ([VERCEL.md, Watch it](VERCEL.md#8-watch-it)).
+**Monitoring.** Point Better Stack Uptime (the chosen uptime monitor,
+[docs/alerts.md](../docs/alerts.md)) at `https://API_DOMAIN/ready` and the shop's home
+page. The alert rules in [`../mango-api/ops/alerts.yml`](../mango-api/ops/alerts.yml)
+need Prometheus scraping `api:3000/metrics` from inside the server, and Alertmanager to
+page someone; Caddy keeps `/metrics` off the internet. These rules and `/metrics` apply
+to this Docker setup only. On Vercel nothing reads them: the maintenance job checks the
+same things from the database and warns through Sentry, and Better Stack watches
+`/ready` ([VERCEL.md, Watch it](VERCEL.md#8-watch-it)). Those Sentry warnings fire here
+too when `SENTRY_DSN` is set.
 
 **Rolling back a migration.** Migrations only move forward. Going back to an older commit
 keeps the newer tables, which older code ignores. If a migration itself is wrong, prefer a

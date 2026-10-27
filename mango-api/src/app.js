@@ -25,6 +25,7 @@ import { loadProducts } from './products.js'
 import { refreshSwitches } from './feature-switches.js'
 import { checkDatabaseEnvironment } from './migrate.js'
 import { maintenanceReady } from './readiness.js'
+import { allowCounterWrites, opsCounting } from './ops-counters.js'
 import { flushErrors, reportError, scrubText } from './sentry.js'
 import { background } from './background.js'
 
@@ -53,7 +54,8 @@ async function ensureLoaded() {
 // Once per instance: refuse to serve a database that belongs to another environment.
 let dbChecked = null
 let lastOutageReport = 0
-const checkedDatabase = () => (dbChecked ??= checkDatabaseEnvironment({ query }).catch((err) => {
+// Only then may this instance write its alert counters to it (ops-counters.js).
+const checkedDatabase = () => (dbChecked ??= checkDatabaseEnvironment({ query }).then(allowCounterWrites, (err) => {
   dbChecked = null
   // Unreachable is not "wrong": answer it as an outage (503 UNAVAILABLE) below.
   if (isDbUnavailable(err)) throw err
@@ -105,6 +107,9 @@ export function createApp() {
     })
     next()
   })
+  // With OPS_ALERTS: 5xx and slow answers counted per minute in Postgres, after the
+  // answer is sent, for the maintenance job's alert checks (docs/alerts.md).
+  app.use(opsCounting)
 
   // Products and rules are cached per instance. Every route that reads them
   // waits for the load, webhooks and the cron included: on a fresh serverless
@@ -192,6 +197,7 @@ export function createApp() {
       // LOAD-1: no free connection is a busy minute, not a failed payment: Razorpay retries the 503.
       if (isPoolTimeout(err) || err?.code === '53300') {
         logger.warn({ reqId: req.id, path: req.path }, 'database busy')
+        res.locals.opsEvent = 'db-busy'
         return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id, ...retryAfter(2) } })
       }
       await noteWebhookEventFailure(intake?.id, err)
@@ -298,11 +304,13 @@ export function createApp() {
     // No free database connection in time, or Neon refusing more: a short, retryable 503.
     if (isPoolTimeout(err) || err?.code === '53300') {
       logger.warn({ reqId: req.id, path: req.path }, 'database busy')
+      res.locals.opsEvent = 'db-busy' // counted for the DatabasePoolBusy check (docs/alerts.md)
       return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'We are very busy. Please try again in a moment.', requestId: req.id, ...retryAfter(2) } })
     }
     // Database unreachable (OPS-08): a retryable 503, reported at most once a minute.
     if (isDbUnavailable(err)) {
       metrics.dbUnavailable.inc()
+      res.locals.opsEvent = 'db-unavailable'
       if (Date.now() - lastOutageReport > 60_000) {
         lastOutageReport = Date.now()
         logger.error({ err, reqId: req.id, path: req.path }, 'database unavailable')

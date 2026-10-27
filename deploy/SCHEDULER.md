@@ -117,9 +117,12 @@ minute alerts at most 5 minutes after the last good run, and one slow or skipped
 run never trips it. A monitor that checks only every 3 or 5 minutes (common on
 free plans) alerts up to about 7 or 9 minutes after the last run instead.
 
-### Set up the uptime monitor (free)
+### Set up the uptime monitor (Better Stack Uptime)
 
-Use a different service from the pinger, so one outage can't silence both.
+The uptime monitor is **Better Stack Uptime** ([docs/alerts.md](../docs/alerts.md);
+its setup, with the call and SMS rota, is in `deploy/VERCEL.md`, "Watch it"). It
+is a different service from the pinger, so one outage can't silence both.
+Whichever plan or service is used, the monitor must do this:
 
 1. Create an HTTP(S) monitor for `https://<your API domain>/ready`, method GET,
    no headers. It must count any status other than 200 as down (the default on
@@ -132,9 +135,10 @@ Use a different service from the pinger, so one outage can't silence both.
    at one extra check at most; each extra check adds a minute.
 5. Turn on the "back up" (recovery) notification too.
 
-If no free service gives one-minute checks, a second cron-job.org job (a
-separate account is better) that calls `/ready` every minute and e-mails on a
-failure works as the monitor, together with the Sentry cron monitor below.
+Until Better Stack is set up, or if its plan has no one-minute checks, a second
+cron-job.org job (a separate account is better) that calls `/ready` every minute
+and e-mails on a failure works as the monitor, together with the Sentry cron
+monitor below.
 
 ### Sentry cron monitor
 

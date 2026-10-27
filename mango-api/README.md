@@ -554,15 +554,24 @@ generated [docs/authorization-matrix.md](../docs/authorization-matrix.md).
   Send again button), a refund has been stuck for 30 minutes, or a webhook was rejected.
   It reads `GET /admin/v1/attention`. Each loop step's last success and error are kept in
   `maintenance_runs`; rejected webhooks are kept in `webhook_failures` for 30 days.
-- **Alerts.** On Vercel, alerts go through Sentry: the maintenance job's cron monitor, an
-  uptime monitor on `/ready`, and a Sentry message (at most hourly each) for overdue
-  messages or refunds, failing webhooks, a missed backup and ledger drift (see
-  [deploy/VERCEL.md, Watch it](../deploy/VERCEL.md#8-watch-it)).
+- **Alerts** ([docs/alerts.md](../docs/alerts.md) has every alert, what checks it and who
+  is told). On Vercel the maintenance job is the alert checker: every minute it reads
+  shared state from Postgres and sends a Sentry warning (at most hourly each) for overdue
+  messages or refunds, failing webhooks, steps failing 3 times in a row, a missed backup,
+  ledger drift, and, from the per-minute `ops_counters` table (migration 050,
+  `src/ops-counters.js`), API errors, slow answers and a busy database pool. Sentry's alert
+  rule and its cron monitor `maintenance`, and Better Stack Uptime on `/ready` (phone call
+  and SMS), tell the on-call people
+  ([deploy/VERCEL.md, Watch it](../deploy/VERCEL.md#8-watch-it)). `OPS_ALERTS` turns the
+  newer checks on; unset, it is on in production and off elsewhere. `SLOW_REQUEST_MS` and
+  `ALERT_API_ERRORS`, `ALERT_SLOW_REQUESTS`, `ALERT_DB_BUSY` set the thresholds.
   **Docker path only:** [`ops/alerts.yml`](ops/alerts.yml) holds Prometheus alert rules for
   the loop stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on
-  fallback, ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer
-  token and route the alerts to the phone of whoever is on call. `/metrics` answers 404 on
-  Vercel, so neither the metrics nor these rules apply there.
+  fallback, ledger drift, API errors and slowness, and the database pool. Scrape `/metrics`
+  with `METRICS_TOKEN` as a bearer token and route the alerts to the phone of whoever is on
+  call. `/metrics` answers 404 on Vercel, so neither the metrics nor these rules apply
+  there; [`src/alert-checks.js`](src/alert-checks.js) names the Vercel check for each rule,
+  and a test fails when a rule has none.
 - **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file,
   encrypted to a GPG public key (`BACKUP_GPG_PUBLIC_KEY_FILE` or `BACKUP_GPG_RECIPIENT`;
   with neither it refuses), and keeps 14 days (`RETAIN_DAYS`). `BACKUP_UPLOAD_CMD` copies

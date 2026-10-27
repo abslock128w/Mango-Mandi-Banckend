@@ -44,6 +44,7 @@ import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
 import { runSubscriptionJobs } from './subscriptions.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
+import { counterProblems, stepProblems } from './alert-checks.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -166,6 +167,8 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
   await query('DELETE FROM rate_limits WHERE reset_at < $1', [new Date(at.getTime() - HOURLY_MS)])
   await query('DELETE FROM job_leases WHERE expires_at < $1', [new Date(at.getTime() - day)])
+  // Per-minute alert counters (ops-counters.js): checkHealth reads the last 10 minutes.
+  await query('DELETE FROM ops_counters WHERE bucket < $1', [new Date(at.getTime() - 7 * day)])
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
@@ -443,6 +446,9 @@ async function steps(forceAll) {
  * should have done: the loop can be alive and every step "ok" while doing
  * nothing, which is exactly what a tick check can't see. Also flags payments
  * found only by polling, which means Razorpay's webhooks aren't arriving.
+ * With OPS_ALERTS it is also the Vercel checker for the ops/alerts.yml rules
+ * (alert-checks.js, docs/alerts.md): steps failing in a row, and API errors,
+ * slow answers and a busy pool from the shared ops_counters.
  */
 export async function checkHealth(out = {}, at = now()) {
   const { rows } = await query(
@@ -483,7 +489,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
-  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)))
+  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)), ...(await stepProblems(at)), ...(await counterProblems(at)))
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`

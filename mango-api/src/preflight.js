@@ -118,6 +118,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   // On unless written false (env.js); false means someone turned the safeguard off on purpose.
   if (env.STAFF_STEP_UP === false) warnings.push('STAFF_STEP_UP is false: staff account changes no longer ask the manager to confirm it is them (money and pricing changes still ask)')
   if (env.STAFF_AUDIT_TRAIL === false) warnings.push('STAFF_AUDIT_TRAIL is false: staff changes are audited after the answer, best effort, and views of customer details are not recorded')
+  // On unless written false (env.js): on Vercel these checks are what stand in for ops/alerts.yml (docs/alerts.md).
+  if (env.OPS_ALERTS === false) {
+    warnings.push('OPS_ALERTS is false: nobody is warned about API errors, slow answers, a busy database pool, steps failing 3 runs in a row or messages dropped unsent (docs/alerts.md)')
+  }
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
   // Tax law needs bills, with the buyer's name and address, kept for years (docs/trust.md).
   const billMonths = env.BILL_RETENTION_MONTHS

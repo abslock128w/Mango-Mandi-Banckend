@@ -1,13 +1,17 @@
 # Prometheus alert rules for mango-api. DOCKER PATH ONLY (deploy/README.md):
-# a long-running server where Prometheus can scrape GET /metrics on every
-# instance (protect it with METRICS_TOKEN). Route these to the on-call phone.
+# a long-running server where Prometheus scrapes GET /metrics on every
+# instance (protect it with METRICS_TOKEN) and Alertmanager routes these to
+# the on-call phone.
 #
-# On Vercel nothing evaluates this file: /metrics answers 404 there and each
-# function instance is short-lived. The Vercel path alerts through Sentry
-# instead (deploy/VERCEL.md, "Watch it"): the maintenance cron monitor, the
-# uptime monitor on /ready, and reportProblem/reportError from the job, which
-# covers the same ground (failing steps, overdue messages and refunds,
-# webhook failures, ledger drift, missed backups).
+# On Vercel nothing reads this file: /metrics answers 404 there and each
+# function instance is short-lived. There the checker is the maintenance job
+# itself, every minute, from shared state in Postgres (checkHealth, with
+# OPS_ALERTS, on by default in production), and the tools that tell people are
+# Sentry (an alert rule on its warnings, and the Cron monitor "maintenance")
+# and Better Stack Uptime on /ready (phone call and SMS).
+# src/alert-checks.js names the Vercel check for every rule below, and
+# test/alert-checks.test.js fails when a rule here has none. Add a rule here,
+# add its entry there. The full table: docs/alerts.md.
 groups:
   - name: mango-api
     rules:
