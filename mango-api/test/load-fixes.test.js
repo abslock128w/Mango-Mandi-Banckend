@@ -1,5 +1,5 @@
 // Fixes from the local load test (readiness-2026-10-23/LOAD-TEST.md).
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, test } from 'node:test'
 import { pool, query } from '../src/db.js'
@@ -62,7 +62,7 @@ test('a request that cannot get a row lock in time answers 503 BUSY, not 500', a
   const cust = await customerToken(api, '9876511112')
   const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
-  await query(`UPDATE orders SET status = 'CONFIRMED' WHERE id = $1`, [c.body.orderId])
+  await forceOrderState(`UPDATE orders SET status = 'CONFIRMED' WHERE id = $1`, [c.body.orderId])
   const staff = await adminToken(api)
 
   const holder = await pool.connect()

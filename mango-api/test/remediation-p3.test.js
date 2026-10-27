@@ -1,5 +1,5 @@
 // Remediation Stage 3 regression tests, one block per audit finding.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { Writable } from 'node:stream'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -187,12 +187,12 @@ describe('FE-2 / FE-3: the API sends what the shop and panel used to guess', () 
     assert.equal(o.claimUntil, null)
     assert.equal(o.retryScheduled, null)
 
-    await query(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 1 WHERE id = $1`, [o.id])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 1 WHERE id = $1`, [o.id])
     assert.deepEqual([(await view()).retryScheduled, (await view()).deliveryFailures], [true, 1])
     await query(`UPDATE orders SET delivery_failures = 3 WHERE id = $1`, [o.id])
     assert.equal((await view()).retryScheduled, false)
 
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.id])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.id])
     await tx((c2) => addEvent(c2, o.id, 'OUT_FOR_DELIVERY', 'DELIVERED', SYSTEM))
     o = await view()
     const delivered = (await query(`SELECT MAX(created_at) AS at FROM order_events WHERE order_id = $1 AND status = 'DELIVERED'`, [o.id])).rows[0].at

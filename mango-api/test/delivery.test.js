@@ -1,5 +1,5 @@
 // Proof of delivery: the rider role, the customer's delivery code, photos and missed deliveries.
-import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { closeAll, adminToken, checkout, client, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
@@ -251,7 +251,7 @@ describe('photos in Blob storage', () => {
     assert.equal(up.status, 201, JSON.stringify(up.body))
     assert.equal(blobs.size, 1)
     // The order moves on while a second photo is uploading: the save is refused and the file deleted again.
-    onPut = () => query(`UPDATE orders SET status = 'DELIVERY_FAILED' WHERE id = $1`, [id])
+    onPut = () => forceOrderState(`UPDATE orders SET status = 'DELIVERY_FAILED' WHERE id = $1`, [id])
     const late = await upload(id, JPEG)
     assert.equal(late.status, 400, JSON.stringify(late.body))
     assert.equal(late.body.error.code, 'INVALID_TRANSITION')

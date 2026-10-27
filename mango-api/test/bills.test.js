@@ -4,7 +4,7 @@
 // details checked at checkout, the PDF for the owner and for managers and
 // operators (audited), and a cancelled order's bill kept and marked.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -509,9 +509,9 @@ describe('issuing bills', () => {
     const c3 = await paidOrder()
     const d = await paidOrder()
     // As the previous release (no bills code) would leave them, on this schema.
-    await query(`UPDATE orders SET status = 'CANCELLED', staff_cancelled_at = now() WHERE id = $1`, [a.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'CANCELLED', staff_cancelled_at = now() WHERE id = $1`, [a.orderId])
     await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, reason, created_at) VALUES ($1, $2, 'CONFIRMED', 'CANCELLED', 'admin:x', 'INTERNAL: not for the customer', now())`, [newId('evt'), a.orderId])
-    await query(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = now() WHERE id = $1`, [b.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = now() WHERE id = $1`, [b.orderId])
     await query(`UPDATE orders SET customer_name = NULL, delivery_address = NULL, pii_removed_at = now() WHERE id = $1`, [c3.orderId])
     await query(`UPDATE customers SET deleted_at = now() WHERE id = (SELECT customer_id FROM orders WHERE id = $1)`, [d.orderId])
     for (const x of [a, b, c3, d]) assert.equal((await billRow(x.orderId)).cancelled_at, null)

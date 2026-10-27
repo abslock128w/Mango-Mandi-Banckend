@@ -10,7 +10,7 @@
 //   - the audit trails name who did it and why;
 //   - a database restore followed by ops/reapply-deletions.js leaves no
 //     deleted account behind.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHmac } from 'node:crypto'
@@ -250,7 +250,7 @@ describe('customer to customer', () => {
 
     // B has a delivered order of their own, to aim A's photo ids at.
     const bOrder = await paid(b)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [bOrder.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [bOrder.orderId])
     await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [newId('evt'), bOrder.orderId, now()])
     const bItem = (await query('SELECT id FROM order_items WHERE order_id = $1', [bOrder.orderId])).rows[0].id
 
@@ -562,7 +562,7 @@ describe('a database restore does not bring a deleted account back', () => {
     const a = await customerToken(api, '9876511101')
     const b = await customerToken(api, '9876511102')
     const order = await paid(a)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [order.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [order.orderId])
     // The pre-restore database, as Neon keeps it as a backup branch: only what the script reads.
     await query('DROP SCHEMA IF EXISTS pre_restore CASCADE')
     await query('CREATE SCHEMA pre_restore')

@@ -7,7 +7,7 @@
 // cases: no token, a garbage token, an expired token, the wrong kind of token,
 // one customer reaching for another's things, a removed staff member, and the
 // unsigned webhooks and cron.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -272,7 +272,7 @@ describe('customer routes', () => {
     assert.deepEqual((await query('SELECT status, delivery_date, slot_id FROM orders WHERE id = $1', [id])).rows[0], before)
 
     // Rating and claims only open once delivered: the other customer still gets a 404.
-    await query("UPDATE orders SET status = 'DELIVERED' WHERE id = $1", [id])
+    await forceOrderState("UPDATE orders SET status = 'DELIVERED' WHERE id = $1", [id])
     assert.equal((await api.put(`/v1/orders/${id}/rating`, { stars: 1, comment: 'not mine' }, t)).status, 404)
     const claim = await api.post('/v1/claims', { orderId: id, issueType: 'DAMAGED', description: 'they were all squashed' }, t)
     assert.equal(claim.status, 404)

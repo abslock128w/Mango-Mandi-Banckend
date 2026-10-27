@@ -8,7 +8,7 @@
 //
 // Razorpay is never called. A fetch stub stands in for it with only the calls
 // the code already makes (the same stub pay-fixes.test.js uses).
-import { adminToken, checkout, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
@@ -384,7 +384,7 @@ describe('0. assertDatabaseValid catches broken data', () => {
                    SELECT $1, $2, 'ADJUST_BUFFER', sku, reserve_buffer, 'system', 'test', $4 FROM batch_lines WHERE id = $3`, [newId('led'), batchId, lineId, now()])
     }],
     'stock on a cancelled order': [/cannot have it/, async ({ orderId }) => {
-      await query(`UPDATE orders SET status = 'CANCELLED' WHERE id = $1`, [orderId])
+      await forceOrderState(`UPDATE orders SET status = 'CANCELLED' WHERE id = $1`, [orderId])
       await ev(orderId, 'CONFIRMED', 'CANCELLED')
     }],
     'more boxes than ordered': [/more boxes than it ordered/, async ({ orderId, lineId, batchId }) => {
@@ -396,10 +396,10 @@ describe('0. assertDatabaseValid catches broken data', () => {
     'confirmed without a payment': [/without a captured payment/, ({ orderId }) => query(`UPDATE orders SET payment_status = 'INITIATED' WHERE id = $1`, [orderId])],
     'refund on an open order': [/not cancelled/, ({ orderId }) => query('UPDATE orders SET refund_requested_at = $2 WHERE id = $1', [orderId, now()])],
     'a skipped step': [/is not allowed/, async ({ orderId }) => {
-      await query(`UPDATE orders SET status = 'SHIPPED' WHERE id = $1`, [orderId])
+      await forceOrderState(`UPDATE orders SET status = 'SHIPPED' WHERE id = $1`, [orderId])
       await ev(orderId, 'CONFIRMED', 'SHIPPED')
     }],
-    'status with no history': [/history ends at CONFIRMED/, ({ orderId }) => query(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [orderId])],
+    'status with no history': [/history ends at CONFIRMED/, ({ orderId }) => forceOrderState(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [orderId])],
     'a captured payment we lost': [/attached 0 times/, () => null, { captured: ['pay_nowhere'] }],
     'refunded twice at Razorpay': [/refunded 2 times/, () => null, ({ paymentId }) => ({
       refunds: [{ id: 'rfnd_a', payment_id: paymentId, amount: 1, status: 'processed' }, { id: 'rfnd_b', payment_id: paymentId, amount: 1, status: 'pending' }],
