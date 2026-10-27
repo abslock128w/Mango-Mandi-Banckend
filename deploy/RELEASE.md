@@ -200,7 +200,7 @@ Then, by hand (5 minutes):
 | WhatsApp webhook | Meta app → WhatsApp → Configuration | callback verified (green) |
 | DB connections | Neon → `main` → Monitoring → Connections | below the compute's limit, no climb after the deploy |
 | Notification worker | panel → Today → Needs attention | no "Sending WhatsApp updates is failing", no growing "WhatsApp messages not delivered" |
-| Errors | Sentry → Issues, last 30 minutes | nothing new from this release |
+| Errors | Sentry → Issues in the API, `mandimangoes-shop` and `mandimangoes-panel` projects, last 30 minutes | nothing new from this release |
 | A real path | open the shop on a phone, add a box to the cart, reach the payment step (do not pay); open the panel's Today page | works, looks right |
 
 If any of these fail and you can't fix it in 10 minutes, **roll back** (step 5)

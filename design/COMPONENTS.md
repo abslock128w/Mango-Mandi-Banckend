@@ -66,6 +66,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 | AddressPicker | `forms.tsx` `AddressPicker` | saved addresses or a new one | Checkout |
 | PhotoPicker | `forms.tsx` `PhotoPicker` + `usePhotoUploads` | uploading, error, max reached | Shrinks, uploads and previews photos. Claim, Review |
 | Loading / error | `ui.tsx` `Spinner`, `ErrorNote` | loading, error with retry | Skeletons replace spinners in milestone 2 |
+| ErrorBoundary | `ui.tsx` `ErrorBoundary`, around the whole app in `main.tsx` | crashed | "Something went wrong." with Try again (a reload) instead of a blank page; reported to Sentry when the build has a DSN (`shared/error-reports`) |
 | MangoArt / ProductImage | `mango.tsx` | photo set, no photo | Managers add a photo per product on the panel's Products page; without one the drawn mango shows |
 
 ## Staff panel
@@ -88,6 +89,7 @@ The panel imports the same `tokens.css`. Its colour names are aliases of the sha
 | `BackLink` | `{to, children}` | "← Orders" above a detail title, 44px tall. OrderDetail (packers get "← Pack list"), BatchDetail |
 | `PhoneLink` | `{phone, who?}` | Tap-to-call `tel:` link, 44px tall, "—" when empty. OrderDetail, Claims, Preorders, NeedsAttention |
 | `MissedDialog` (`src/MissedDialog.tsx`) | failed-delivery reason from a list, note, photo | OrderDetail, Deliveries |
+| `ErrorBoundary` | `{children}` | Around the app (`main.tsx`) and each screen (`Layout.tsx`, keyed by path). "This screen hit a problem" with Reload; the innermost one reports to Sentry when the build has a DSN (`shared/error-reports`) |
 
 Labels: the panel never shows enum names or ids. Map them in `src/format.ts` (`STOCK_STATE_LABEL`, `LEDGER_EVENT_LABEL`, `NOTIFICATION_LABEL`, `PAYMENT_METHOD_LABEL`, `ripenessLabel`, `actorLabel`, `telHref`).
 

@@ -17,6 +17,11 @@ npm run shop:build                # production build in customer-app/dist
 Allow the app's address in the API with `CUSTOMER_ORIGIN` (default
 `http://localhost:5174`; comma-separate several).
 
+Errors in customers' browsers go to Sentry when the build sets `VITE_SENTRY_DSN`
+(the code is in `../shared/error-reports`, shared with the panel). A crash shows
+"Something went wrong" with Try again instead of a blank page. What a report may
+and may not carry: [deploy/VERCEL.md](../deploy/VERCEL.md#error-reports-from-the-shop-and-the-panel).
+
 ## Screens
 
 | Path | What it does |
@@ -46,3 +51,5 @@ cd customer-app && npx playwright test   # needs mango-api running in developmen
 One journey runs on phone and desktop widths: an unserved pincode, picking boxes,
 the cart, signing in with the test code, checkout, a test payment, cancelling with
 a refund, and signing out, with an accessibility check on each main screen.
+`tests/error-reports.spec.ts` needs no API: it builds the shop with a made-up
+Sentry DSN and checks what a report carries.

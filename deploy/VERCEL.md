@@ -28,7 +28,9 @@ The API runs in Singapore (`sin1`), next to the database.
   are the same as in [README.md](README.md#what-you-need-first); start them now,
   they take weeks.
 - [ ] **A Google OAuth client** for "Sign in with Google" (step 4).
-- [ ] **Sentry** project (free tier is fine) for error alerts.
+- [ ] **Sentry** (free tier is fine) for error alerts: one project for the API, and
+  `mandimangoes-shop` and `mandimangoes-panel` for errors in browsers (see
+  [Error reports from the shop and the panel](#error-reports-from-the-shop-and-the-panel)).
 
 ## 1. Neon
 
@@ -155,10 +157,13 @@ secrets with `openssl rand -hex 32`. Never commit them.
 
 ### `mandi-shop` and `mandi-admin`
 
-| Variable | Production | Preview |
-|----------|-----------|---------|
-| `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL |
+| Variable | Production | Preview | Notes |
+|----------|-----------|---------|-------|
+| `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL | |
 | `VITE_SUPPORT_WHATSAPP` (`mandi-shop` only) | the shop's help WhatsApp number, country code and number, digits only (91 and the 10-digit number) | the same, or a team number | **required**: a production build of the shop fails without it, so every page has a help contact (footer, order page, /help, /terms) |
+| `VITE_SENTRY_DSN` | the DSN of `mandimangoes-shop` (on `mandi-shop`) or `mandimangoes-panel` (on `mandi-admin`) | the same | errors in browsers go to Sentry. Unset: no reports, and no Sentry code in the build |
+| `VITE_SENTRY_ENVIRONMENT` | leave unset (`production`) | leave unset (`preview`) | the environment tag; Vercel's own environment when unset. Reports are also tagged with the git commit being built (`VERCEL_GIT_COMMIT_SHA`, which Vercel provides while "Automatically expose System Environment Variables" is on, the default) |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | optional: an organization auth token (Sentry → Settings → Developer Settings → Organization Tokens; mark it **Sensitive** in Vercel), the organization slug, and `mandimangoes-shop` or `mandimangoes-panel` | the same, or leave unset | readable stack traces. With all three, the build uploads its source maps to that project and deletes them before the site is served. Unset, nothing changes. A failed upload only warns; the deploy goes on |
 
 ### Check before the first real deploy
 
@@ -286,11 +291,43 @@ checks, phone calls and SMS):
    call is not taken for spam. Test the call and the SMS once before launch.
 
 - The same Sentry rule covers new errors from the API, and the warning when login
-  codes reach 80% of the day's budget.
+  codes reach 80% of the day's budget. Make the same rule in the `mandi-shop` and
+  `mandi-admin` projects for errors in customers' and staff browsers, once those
+  projects are set up ([Error reports](#error-reports-from-the-shop-and-the-panel)).
 - **Vercel → Logs** for request logs; **Neon → Monitoring** for database load. Search
   a customer's `X-Request-Id` (`req_…`) to see everything that request did; each
   maintenance run writes one `maintenance run` line with its counts, and slow
   queries show as `slow query` (deploy/RUNBOOKS.md, "Observability").
+
+### Error reports from the shop and the panel
+
+The shop and the panel report errors that happen in customers' and staff browsers to
+their own Sentry projects, `mandimangoes-shop` and `mandimangoes-panel`, when the build
+has `VITE_SENTRY_DSN` (step 3). The code is in `shared/error-reports/`.
+
+- **What is sent:** errors nothing caught, promise rejections nothing handled, and
+  screens that crashed (the error boundary's "This screen hit a problem" in the panel,
+  "Something went wrong" in the shop). Each is tagged `app` (`shop` or `panel`), the
+  environment and the release (the git commit). With it come the last steps before
+  the error: page changes and API calls (method, path and status), clicks (which
+  element, never its text), and console warnings and errors.
+- **What is never sent:** phone numbers, e-mail addresses, codes, tokens, Razorpay
+  keys and ids (all masked), anything after `?` or `#` in a URL (search words, tokens),
+  request bodies, cookies, the person or their IP address, and text on the page, so no
+  names or addresses. There is no Session Replay and no performance tracing.
+- **Speed:** the first download grows by less than 1 KB (a small loader that holds
+  early errors). The Sentry code (about 34 KB gzipped) loads once the page is idle,
+  and only in a build with a DSN.
+- **Each of the two Sentry projects, before launch:** Settings → Security & Privacy:
+  turn on **Prevent Storing of IP Addresses**, **Data Scrubber** and **Use Default
+  Scrubbers**. In General Settings, under Client Security, set **Allowed Domains** to
+  the app's own domains (`mandimangoes.in` and `www.mandimangoes.in` for the shop,
+  `ops.mandimangoes.in` for the panel) so other websites cannot send with the DSN. Add an
+  alert rule for new issues to the same people as the API's.
+- **Readable stack traces** are optional (`SENTRY_AUTH_TOKEN` in step 3). Without them
+  the stack shows the minified code, which still names the page's file.
+- The Content-Security-Policy already allows Sentry's ingest hosts
+  (`*.ingest.sentry.io`, `.us.` and `.de.`), so nothing else changes on Vercel.
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
 
@@ -384,6 +421,8 @@ the pass marks; [LOAD-TEST.md](LOAD-TEST.md) covers all five scenarios.
       Better Stack Uptime monitor on `/ready` are set up ("Watch it"), and each has reached a
       named person once in a test.
 - [ ] `OPS_ALERTS` is unset or `true` on production (preflight warns when it is `false`).
+- [ ] `VITE_SENTRY_DSN` is set on `mandi-shop` and `mandi-admin`, and both browser projects
+      store no IP addresses and scrub data ([Error reports](#error-reports-from-the-shop-and-the-panel)).
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
       Set on: _date_.
 - [ ] `mango_app` has `jit = off` and no UPDATE, DELETE or TRUNCATE on `batch_ledger`

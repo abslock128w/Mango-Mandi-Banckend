@@ -19,6 +19,7 @@
     "shop:preview": "vite preview --config customer-app/vite.config.ts"
   },
   "dependencies": {
+    "@sentry/browser": "11.7.0",
     "@tanstack/react-query": "^5.56.2",
     "@vercel/blob": "^2.8.2",
     "qrcode": "^1.5.4",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "^1.47.2",
+    "@sentry/vite-plugin": "5.4.1",
     "@types/node": "^22.20.5",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.5",
@@ -42,6 +44,7 @@
     "vite": "^6.4.5"
   },
   "overrides": {
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "@sentry/bundler-plugins": "10.76.2"
   }
 }

@@ -14,9 +14,9 @@ import { safeNext } from '../../src/next.ts'
 const shop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const repo = path.resolve(shop, '..')
 
-test('the dev server serves the shop, design and packages, not the rest of the repo', () => {
+test('the dev server serves the shop, design, shared code and packages, not the rest of the repo', () => {
   const s = shopServer(shop, {})
-  assert.deepEqual(s.fs.allow, [shop, path.join(repo, 'design'), path.join(repo, 'node_modules')])
+  assert.deepEqual(s.fs.allow, [shop, path.join(repo, 'design'), path.join(repo, 'shared'), path.join(repo, 'node_modules')])
   assert.ok(!s.fs.allow.includes(repo), 'not the repo root (lockfiles, workflows, .local)')
   assert.equal('proxy' in s, false)
   assert.equal('allowedHosts' in s, false)

@@ -50,9 +50,10 @@ export function shopServer(dir: string, env: ShopServerEnv) {
   const repo = path.resolve(dir, '..')
   return {
     port: 5174,
-    // The shop, the shared design tokens in ../design and the packages it loads; not the rest of
-    // the repo (source, workflows, lockfiles, .local's database files).
-    fs: { strict: true, allow: [dir, path.join(repo, 'design'), path.join(repo, 'node_modules')] },
+    // The shop, the shared design tokens in ../design, the code it shares with the panel in
+    // ../shared and the packages it loads; not the rest of the repo (source, workflows,
+    // lockfiles, .local's database files).
+    fs: { strict: true, allow: [dir, path.join(repo, 'design'), path.join(repo, 'shared'), path.join(repo, 'node_modules')] },
     // Local runs for phones (scripts/start-local.mjs --phone): the shop calls its own address and
     // Vite passes /v1 on to the API, so a phone needs to reach only this server, by Wi-Fi address
     // or through the temporary phone link. The API then sees the request as coming from the shop.

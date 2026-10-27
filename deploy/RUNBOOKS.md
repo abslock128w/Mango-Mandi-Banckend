@@ -10,12 +10,13 @@ logins; usually also the developer on call), **Manager** (panel role MANAGER),
 
 **Where alerts come from** (deploy/VERCEL.md "Watch it"; every alert, what
 checks it and who is told: [docs/alerts.md](../docs/alerts.md)): **Better Stack
-Uptime** on `/ready` (phone call and SMS), **Sentry** (errors, the `maintenance`
-cron monitor, and the warnings the maintenance job sends at most hourly,
-`src/maintenance.js` `checkHealth` and `runAudit`), and the panel's **Needs
-attention** card on Today (`GET /admin/v1/attention`, `src/admin/reports.js:96`;
-shown by `src/pages/NeedsAttention.tsx`). On Vercel the maintenance job is the
-alert checker: nothing reads `ops/alerts.yml` there.
+Uptime** on `/ready` (phone call and SMS), **Sentry** (the API's errors, errors in
+the shop and the panel, the `maintenance` cron monitor, and the warnings the
+maintenance job sends at most hourly, `src/maintenance.js` `checkHealth` and
+`runAudit`), and the panel's **Needs attention** card on Today
+(`GET /admin/v1/attention`, `src/admin/reports.js:96`; shown by
+`src/pages/NeedsAttention.tsx`). On Vercel the maintenance job is the alert
+checker: nothing reads `ops/alerts.yml` there.
 
 **An outside service down** (Razorpay, Meta, Jio, Google, Neon, Vercel, Blob,
 Sentry): [OUTAGES.md](OUTAGES.md) says what customers see and what the system

@@ -54,14 +54,17 @@ src/
   styles.css        tokens, components, dark mode, print
   App.tsx           router, auth guard, session restore, sign-out listener
   Layout.tsx        nav + per-screen error boundary
-  main.tsx          React + Query + Toast providers
+  main.tsx          React + Query + Toast providers; starts error reports
   pages/            one file per screen
+shared/
+  error-reports/    browser errors to Sentry, shared with the shop (off without VITE_SENTRY_DSN)
 tests/
   fixtures.ts       console-error-failing fixture
   mock-api.ts       in-memory /admin/v1 stand-in for backend-free specs
   smoke.spec.ts     backend-free: auth guard, login, session restore, banners
   screens.spec.ts   backend-free: every screen and its actions, no horizontal scroll
   a11y.spec.ts      backend-free: axe WCAG 2 A/AA on login and every screen
+  error-reports.spec.ts     backend-free: Sentry reports with a made-up DSN, and none without
   day-in-the-life.spec.ts   §10 acceptance script (needs backend)
 ```
 
@@ -149,6 +152,10 @@ The Playwright report is uploaded as an artifact on failure.
 - A **config banner** warns when `VITE_API_URL` is unset.
 - Every failed query shows a **Retry** button; a render error is caught by an
   **error boundary** that keeps the nav and offers a reload.
+- With `VITE_SENTRY_DSN` set at build time, crashes and uncaught errors go to Sentry,
+  without customers' phone numbers, addresses or search words
+  ([deploy/VERCEL.md](deploy/VERCEL.md#error-reports-from-the-shop-and-the-panel)).
+  Unset (the default locally), no Sentry code is built in.
 
 ## Session and security notes
 
