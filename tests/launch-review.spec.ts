@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 import type { Claim } from '../src/types'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // Launch review: managers cancel bookings we can't fill with a refund, photo
 // deliveries are checked by someone other than the rider, and claims show the
@@ -14,6 +14,9 @@ test('a manager cancels a paid booking with a refund; operators cannot', async (
   await dialog.getByLabel('Reason').fill('Hail damaged the crop')
   await dialog.getByRole('button', { name: 'Cancel and refund' }).click()
   await expect.poll(() => api.calls.find((c) => c.path === '/preorders/p1/cancel')?.body).toEqual({ reason: 'Hail damaged the crop' })
+  // The refund moves money, so the manager confirms it is them and the same cancel is sent again.
+  await confirmItsMe(page)
+  await expect.poll(() => api.calls.filter((c) => c.path === '/preorders/p1/cancel').at(-1)?.body).toEqual({ reason: 'Hail damaged the crop', confirmCode: 'manager123' })
 })
 
 test('a photo delivery is signed off or flagged from Needs attention', async ({ page }) => {

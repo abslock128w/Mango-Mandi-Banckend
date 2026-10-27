@@ -285,31 +285,35 @@ export const api = {
   repairLedger: (batchId: string, lineId: string, reason: string, expected: LineCounters) =>
     request<LedgerRepairPlan>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/repair`, { reason, expected }),
   resolveWebhookFailure: (failureId: string, note: string) => request<unknown>('POST', `/webhook-failures/${id(failureId)}/resolve`, { note }),
-  refundUnmatchedPayment: (failureId: string, reason: string) =>
-    request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason }),
+  // Money and pricing changes always ask the manager to confirm it is them (`confirmCode`, the server's STEP_UP_ROUTES).
+  refundUnmatchedPayment: (failureId: string, reason: string, confirmCode?: string) =>
+    request<{ paymentId: string; queued: boolean }>('POST', `/webhook-failures/${id(failureId)}/refund`, { reason, ...confirmBody(confirmCode) }),
   keepPreorder: (preorderId: string, reason: string) => request<unknown>('POST', `/preorders/${id(preorderId)}/keep`, { reason }),
   /** INV-06: sets a week's taken preorder capacity from its bookings; reserved and booked are the numbers shown. */
   recountPreorderCapacity: (weekStart: string, sku: string, seen: { reserved: number; booked: number }, reason: string) =>
     request<{ recounted: boolean; reserved: number; booked: number }>('POST', `/preorder-capacity/${id(weekStart)}/${id(sku)}/recount`, { ...seen, reason }),
-  refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string) =>
-    request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason }),
-  signOutAllStaff: (reason: string, keepMe = true) => request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe }),
+  refundPaidAnotherWay: (type: 'order' | 'preorder' | 'payment', refundId: string, reference: string, reason: string, confirmCode?: string) =>
+    request<{ id: string; refundId: string }>('POST', `/refunds/${id(refundId)}/paid-another-way`, { type, reference, reason, ...confirmBody(confirmCode) }),
+  signOutAllStaff: (reason: string, keepMe = true, confirmCode?: string) =>
+    request<{ signedOut: number; keptMe: boolean }>('POST', '/staff/sign-out-all', { reason, keepMe, ...confirmBody(confirmCode) }),
   /** Signs off a photo delivery, or flags it as doubtful (with a note) for a call to the customer. */
   reviewDelivery: (attemptId: string, ok: boolean, note?: string) => request<void>('POST', `/delivery-reviews/${id(attemptId)}`, { ok, note }),
   products: () => request<Product[]>('GET', '/products'),
-  addProduct: (p: ProductInput & { sku: string }) => request<Product>('POST', '/products', p),
+  addProduct: (p: ProductInput & { sku: string }, confirmCode?: string) => request<Product>('POST', '/products', { ...p, ...confirmBody(confirmCode) }),
   /** `reason`: why (optional), kept in the staff activity with the values before the change (ADM-2). */
-  updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean; reason?: string }) => request<Product>('PATCH', `/products/${id(sku)}`, patch),
+  updateProduct: (sku: string, patch: Partial<ProductInput> & { active?: boolean; reason?: string }, confirmCode?: string) =>
+    request<Product>('PATCH', `/products/${id(sku)}`, { ...patch, ...confirmBody(confirmCode) }),
   /** Deletes a product never stocked or sold; otherwise takes it off sale and keeps it. */
-  removeProduct: (sku: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`),
+  removeProduct: (sku: string, confirmCode?: string) => request<{ sku: string; outcome: 'deleted' | 'hidden' }>('DELETE', `/products/${id(sku)}`, confirmBody(confirmCode)),
   /** Sets the product's shop photo (replacing any earlier one). */
   setProductPhoto: (sku: string, photo: Blob) => request<Product>('PUT', `/products/${id(sku)}/photo`, photo),
 
   bulkListings: (status?: BulkStatus | null, page = 1) =>
     request<{ items: BulkListingSummary[]; page: number; pageSize: number; total: number }>('GET', `/bulk-listings${qs({ status, page })}`),
   bulkListing: (listingId: string) => request<BulkListing>('GET', `/bulk-listings/${id(listingId)}`),
-  addBulkListing: (input: BulkListingInput) => request<BulkListing>('POST', '/bulk-listings', input),
-  updateBulkListing: (listingId: string, patch: Partial<BulkListingInput>) => request<BulkListing>('PATCH', `/bulk-listings/${id(listingId)}`, patch),
+  addBulkListing: (input: BulkListingInput, confirmCode?: string) => request<BulkListing>('POST', '/bulk-listings', { ...input, ...confirmBody(confirmCode) }),
+  updateBulkListing: (listingId: string, patch: Partial<BulkListingInput>, confirmCode?: string) =>
+    request<BulkListing>('PATCH', `/bulk-listings/${id(listingId)}`, { ...patch, ...confirmBody(confirmCode) }),
   /** Publish, unpublish or archive (archived is final). */
   moveBulkListing: (listingId: string, to: 'publish' | 'unpublish' | 'archive') => request<BulkListing>('POST', `/bulk-listings/${id(listingId)}/${to}`, {}),
   bulkHistory: (listingId: string) => request<BulkEvent[]>('GET', `/bulk-listings/${id(listingId)}/history`),
@@ -385,8 +389,8 @@ export const api = {
     request<void>('PATCH', `/orders/${id(orderId)}/status`, override ? { status, override: true, reason: override.reason } : { status }),
   allocate: (orderId: string) => request<void>('POST', `/orders/${id(orderId)}/allocate`),
   /** A paid order can only be cancelled by a manager, with a full refund (refund: true). */
-  cancelOrder: (orderId: string, reason: string, refund = false) =>
-    request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason, refund }),
+  cancelOrder: (orderId: string, reason: string, refund = false, confirmCode?: string) =>
+    request<void>('POST', `/orders/${id(orderId)}/cancel`, { reason, refund, ...confirmBody(confirmCode) }),
   /** Boxes back from an order cancelled or returned after dispatch: back on the shelf, or written off with a reason. */
   bookReturnedStock: (orderId: string, input: { action: 'RESTOCK' | 'WRITE_OFF'; reasonCode?: 'DAMAGED' | 'THEFT_LOSS' | 'OTHER'; reason: string }) =>
     request<{ boxes: number }>('POST', `/orders/${id(orderId)}/returned-stock`, input),
@@ -489,9 +493,9 @@ export const api = {
   cancelSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/cancel`, { reason }),
 
   promos: () => request<Promo[]>('GET', '/promos'),
-  addPromo: (p: NewPromo) => request<Promo>('POST', '/promos', p),
-  updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }) =>
-    request<Promo>('PATCH', `/promos/${id(code)}`, patch),
+  addPromo: (p: NewPromo, confirmCode?: string) => request<Promo>('POST', '/promos', { ...p, ...confirmBody(confirmCode) }),
+  updatePromo: (code: string, patch: { active?: boolean; endsOn?: string | null; maxUses?: number | null; description?: string | null }, confirmCode?: string) =>
+    request<Promo>('PATCH', `/promos/${id(code)}`, { ...patch, ...confirmBody(confirmCode) }),
   staff: () => request<StaffMember[]>('GET', '/staff'),
   // Staff changes carry `confirmCode` when the server asks the manager to confirm it is them (SEC-07, STAFF_STEP_UP).
   addStaff: (input: { email: string; role: Role; password: string }, confirmCode?: string) =>
@@ -517,9 +521,10 @@ export const api = {
   addFarm: (input: FarmInput) => request<Farm>('POST', '/farms', input),
   updateFarm: (farmId: string, patch: Partial<FarmInput>) => request<Farm>('PATCH', `/farms/${id(farmId)}`, patch),
   batchPurchases: (batchId: string) => request<BatchPurchases>('GET', `/batches/${id(batchId)}/purchases`),
-  addPurchase: (batchId: string, input: PurchaseInput) => request<Purchase>('POST', `/batches/${id(batchId)}/purchases`, input),
-  updatePurchase: (batchId: string, purchaseId: string, patch: Partial<PurchaseInput>) =>
-    request<Purchase>('PATCH', `/batches/${id(batchId)}/purchases/${id(purchaseId)}`, patch),
+  addPurchase: (batchId: string, input: PurchaseInput, confirmCode?: string) =>
+    request<Purchase>('POST', `/batches/${id(batchId)}/purchases`, { ...input, ...confirmBody(confirmCode) }),
+  updatePurchase: (batchId: string, purchaseId: string, patch: Partial<PurchaseInput>, confirmCode?: string) =>
+    request<Purchase>('PATCH', `/batches/${id(batchId)}/purchases/${id(purchaseId)}`, { ...patch, ...confirmBody(confirmCode) }),
   margins: (p: { from: string; to: string }) => request<Margins>('GET', `/analytics/margins${qs(p)}`),
   featureSwitches: () => request<{ cacheSeconds: number; items: FeatureSwitch[] }>('GET', '/settings/switches'),
   /** A change always asks the manager to confirm it is them (confirmCode). enabled null: back to the server's setting. */
@@ -532,8 +537,8 @@ export const api = {
   preorders: (status?: PreorderStatus | null) => request<Preorder[]>('GET', `/preorders${qs({ status })}`),
   preorderCapacity: () => request<PreorderCapacity[]>('GET', '/preorder-capacity'),
   /** Manager only: cancels a booking we can't fill; a paid one is refunded in full. */
-  cancelPreorder: (preorderId: string, reason: string) =>
-    request<{ refunded: boolean }>('POST', `/preorders/${id(preorderId)}/cancel`, { reason }),
+  cancelPreorder: (preorderId: string, reason: string, confirmCode?: string) =>
+    request<{ refunded: boolean }>('POST', `/preorders/${id(preorderId)}/cancel`, { reason, ...confirmBody(confirmCode) }),
   setPreorderCapacity: (weekStart: string, sku: string, capacity: number) =>
     request<unknown>('PUT', `/preorder-capacity/${id(weekStart)}/${id(sku)}`, { capacity }),
   slots: () => request<DeliverySlot[]>('GET', '/slots'),
@@ -542,7 +547,7 @@ export const api = {
   updateSlot: (slotId: string, patch: Partial<Omit<DeliverySlot, 'id'>>) =>
     request<DeliverySlot>('PATCH', `/slots/${id(slotId)}`, patch),
   rules: () => request<RulesVersion>('GET', '/config'),
-  saveRules: (rules: Rules) => request<RulesVersion>('PUT', '/config', { rules }),
+  saveRules: (rules: Rules, confirmCode?: string) => request<RulesVersion>('PUT', '/config', { rules, ...confirmBody(confirmCode) }),
 }
 
 export interface ErrorInfo {

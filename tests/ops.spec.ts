@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { Page, Route } from '@playwright/test'
 import { expect, navLinkAnyState, openNavTo, test } from './fixtures'
-import { mockApi, type MockState } from './mock-api'
+import { confirmItsMe, mockApi, type MockState } from './mock-api'
 import type { BatchPurchases, Farm, FeatureSwitch, ForecastDay, Margins, Purchase, Role, StockForecast } from '../src/types'
 
 // The panel's side of staff operations (docs/ops.md) against the mock API: the stock forecast on
@@ -119,8 +119,11 @@ async function ops(page: Page, role: Role, on = true): Promise<Ops> {
       return route.fulfill(json(answer))
     }
     if (!manager) return route.fulfill(err(403, 'FORBIDDEN', 'Requires manager role'))
-    const b = body as { boxes: number }
+    const { confirmCode, ...b } = body as { boxes: number; confirmCode?: string }
     if (b.boxes > 10) return route.fulfill(err(409, 'PURCHASE_EXCEEDS_BATCH', 'This batch received 30 boxes and its other purchases already account for 20, so this purchase can claim at most 10.'))
+    // As on the API, a cost is only saved once the manager confirms it is them, after the purchase's own checks.
+    if (!confirmCode) return route.fulfill(err(403, 'REAUTH_REQUIRED', 'Enter your password to confirm.', { method: 'password' }))
+    if (confirmCode !== 'manager123') return route.fulfill(err(403, 'REAUTH_FAILED', 'That password is not right.', { method: 'password' }))
     return route.fulfill(json({ ...PURCHASE, ...b, id: 'pur2' }, 201))
   })
   await page.route('**/admin/v1/analytics/margins**', (route) => {
@@ -230,10 +233,14 @@ test('a batch’s purchase: managers see costs and record one in rupees (sent as
   await expect(dialog.getByRole('alert')).toContainText('can claim at most 10')
   await dialog.getByLabel('Boxes they made').fill('10')
   await dialog.getByRole('button', { name: 'Save' }).click()
+  // A cost sets the margins, so the manager confirms it is them before it is saved.
+  await confirmItsMe(page)
   await expect(page.getByText('Purchase recorded')).toBeVisible()
+  const sent = { farmId: 'frm1', purchasedOn: '2026-10-14', crates: 2, costPerCrate: 450_050, transportCost: 75_000, otherCost: 0, note: null }
   expect(api.calls.filter((c) => c.method === 'POST' && c.path === '/batches/b1/purchases').map((c) => c.body)).toEqual([
-    { farmId: 'frm1', purchasedOn: '2026-10-14', crates: 2, boxes: 12, costPerCrate: 450_050, transportCost: 75_000, otherCost: 0, note: null },
-    { farmId: 'frm1', purchasedOn: '2026-10-14', crates: 2, boxes: 10, costPerCrate: 450_050, transportCost: 75_000, otherCost: 0, note: null },
+    { ...sent, boxes: 12 },
+    { ...sent, boxes: 10 },
+    { ...sent, boxes: 10, confirmCode: 'manager123' },
   ])
 })
 

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from './fixtures'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // 24 Oct 2026 audit leftovers A (docs/audit-2026-10-24-status-A.md): what the
 // panel shows for a held refund (PAY-06), a late truck (INV-08) and preorder
@@ -56,9 +56,11 @@ test('Needs attention: a refund held by a lost chargeback is settled with the di
   await expect(dialog).not.toContainText('UTR')
   await dialog.getByLabel('What you checked').fill('Razorpay shows the chargeback lost on 14 Oct')
   await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await confirmItsMe(page)
+  const body = { type: 'order', reference: 'disp_9', reason: 'Razorpay shows the chargeback lost on 14 Oct' }
   await expect
     .poll(() => state.calls.filter((c) => c.path === '/refunds/o2/paid-another-way').map((c) => c.body))
-    .toEqual([{ type: 'order', reference: 'disp_9', reason: 'Razorpay shows the chargeback lost on 14 Oct' }])
+    .toEqual([body, { ...body, confirmCode: 'manager123' }])
   await expect(dialog).toBeHidden()
 })
 

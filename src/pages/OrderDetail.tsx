@@ -21,6 +21,7 @@ import { PACKER_STATUSES, can, canSee, trustAllowed } from '../permissions'
 import { CustomerProfileLink } from '../CustomerLink'
 import { MissedDialog } from '../MissedDialog'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import {
   AuthedPhoto,
   BackLink,
@@ -602,8 +603,10 @@ function ReturnedStockDialog({ order, action, onClose, onDone }: { order: Order;
 function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
   const paid = order.payment?.status === 'SUCCEEDED'
+  // A refund asks the manager to confirm it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const cancel = useMutation({
-    mutationFn: (reason: string) => api.cancelOrder(order.id, reason, paid),
+    mutationFn: (reason: string) => stepUp.run((code) => api.cancelOrder(order.id, reason, paid, code)),
     onSuccess: () => {
       toast.success(paid ? `Order ${order.number} cancelled; ${rupees(order.payment?.amount ?? order.total)} is being refunded` : `Order ${order.number} cancelled`)
       onDone()
@@ -620,25 +623,28 @@ function CancelDialog({ order, onClose, onDone }: { order: Order; onClose: () =>
   const holdsStock = order.stock.some((s) => s.state !== 'released')
 
   return (
-    <ReasonDialog
-      title={paid ? `Cancel and refund order ${order.number}?` : `Cancel order ${order.number}?`}
-      confirmLabel={paid ? 'Cancel and refund' : 'Cancel order'}
-      cancelLabel="Keep order"
-      busyLabel="Cancelling…"
-      hint="At least 3 characters. Saved on the order timeline."
-      busy={cancel.isPending}
-      error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null}
-      onClose={onClose}
-      onSubmit={(reason) => cancel.mutate(reason)}
-    >
-      {paid && (
-        <p>
-          The customer paid <strong>{rupees(order.payment?.amount ?? order.total)}</strong>. It goes back to them in full, and they get a WhatsApp
-          message when it is sent. Use this only when we can't deliver the order; problems with delivered fruit get a replacement instead.
-        </p>
-      )}
-      <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
-    </ReasonDialog>
+    <>
+      <ReasonDialog
+        title={paid ? `Cancel and refund order ${order.number}?` : `Cancel order ${order.number}?`}
+        confirmLabel={paid ? 'Cancel and refund' : 'Cancel order'}
+        cancelLabel="Keep order"
+        busyLabel="Cancelling…"
+        hint="At least 3 characters. Saved on the order timeline."
+        busy={cancel.isPending}
+        error={cancel.isError && !isConflict(cancel.error) ? cancel.error : null}
+        onClose={onClose}
+        onSubmit={(reason) => cancel.mutate(reason)}
+      >
+        {paid && (
+          <p>
+            The customer paid <strong>{rupees(order.payment?.amount ?? order.total)}</strong>. It goes back to them in full, and they get a WhatsApp
+            message when it is sent. Use this only when we can't deliver the order; problems with delivered fruit get a replacement instead.
+          </p>
+        )}
+        <p>{holdsStock ? 'Stock held for this order will be released.' : 'No stock is held for this order.'}</p>
+      </ReasonDialog>
+      {stepUp.dialog}
+    </>
   )
 }
 
