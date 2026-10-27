@@ -4,7 +4,7 @@ The MandiMangoes backend: the `/admin/v1` API the Mango Ops panel uses, the `/v1
 storefront API, Razorpay payments, and the engine that decides which boxes can be sold
 as raw, semi-ripe or ripe on each delivery date.
 
-Node 22, Express 4, PostgreSQL 16. One process, one database; stock holds, payment
+Node 24 (LTS, supported until 30 April 2028), Express 4, PostgreSQL 16. One process, one database; stock holds, payment
 confirmation and allocation all commit in the same Postgres transaction.
 
 ## Run it locally

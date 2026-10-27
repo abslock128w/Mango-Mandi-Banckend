@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       # SEC-12: no high or critical advisory in what the shop and panel ship.
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: mango-api/package-lock.json
       - run: npm ci
@@ -141,7 +141,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       # The old release's bill, gift and label tests read their PDFs with poppler too.
       - name: Install the PDF renderer for the old release's PDF tests
         run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
@@ -168,7 +168,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: |
             package-lock.json

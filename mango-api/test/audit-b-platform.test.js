@@ -110,10 +110,16 @@ describe('PLT-12: docs agree with the code', () => {
 
 describe('PLT-16: CI hardening', () => {
   test('CI reads only; a fork never deploys; the Node major is pinned', async () => {
-    assert.match(await text('.github/workflows/ci.yml'), /\npermissions:\n {2}contents: read\n/)
+    const ci = await text('.github/workflows/ci.yml')
+    assert.match(ci, /\npermissions:\n {2}contents: read\n/)
     assert.match(await text('.github/workflows/deploy.yml'), /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
-    const pkg = JSON.parse(await text('mango-api/package.json'))
-    assert.match(pkg.engines.node, /<23$/)
+    // Node 24 (LTS until April 2028): production, CI and the Docker images all run the same major.
+    for (const file of ['mango-api/package.json', 'package.json']) {
+      assert.equal(JSON.parse(await text(file)).engines.node, '>=24.11 <25', file)
+    }
+    assert.deepEqual([...new Set([...ci.matchAll(/node-version: (\S+)/g)].map((m) => m[1]))], ['24'])
+    assert.match(await text('mango-api/Dockerfile'), /^FROM node:24-alpine$/m)
+    assert.match(await text('deploy/web.Dockerfile'), /^FROM node:24-alpine /m)
   })
 })
 
