@@ -219,7 +219,10 @@ describe('CSV exports', () => {
     }
     const rows = await audits('EXPORT orders')
     assert.equal(rows.length, 1)
-    assert.deepEqual(rows[0].detail, { from: '2026-10-01', to: '2026-10-31', by: 'placed', rows: 3, complete: true })
+    assert.deepEqual(rows[0].detail, { from: '2026-10-01', to: '2026-10-31', by: 'placed' })
+    // The audit trail is append-only: the row count is a second row pointing at the first.
+    const finished = (await audits('export.finished')).filter((f) => f.target === 'orders')
+    assert.deepEqual(finished.map((f) => f.detail), [{ exportAudit: rows[0].id, rows: 3, complete: true }])
 
     const orders = (await exportCsv('orders', RANGE)).rows
     const head = orders[0]
@@ -272,7 +275,7 @@ describe('CSV exports', () => {
     assert.equal(new Set(numbers).size, 7)
     const placedAt = r.rows.slice(1).map((row) => row[1])
     assert.deepEqual(placedAt, [...placedAt].sort())
-    assert.equal((await audits('EXPORT orders'))[0].detail.rows, 7)
+    assert.equal((await audits('export.finished'))[0].detail.rows, 7)
   })
 
   test('a payment that lands days after the order was placed is in the export for the day it was paid', async () => {

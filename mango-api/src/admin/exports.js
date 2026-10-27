@@ -202,10 +202,11 @@ router.get(
     let sent = 0
     let complete = false
     let recorded = false
+    // staff_audit is append-only (migration 046): the row count is a second row, export.finished,
+    // pointing at the first one (its id in detail.exportAudit).
     const record = () =>
-      query(`UPDATE staff_audit SET detail = COALESCE(detail, '{}'::jsonb) || jsonb_build_object('rows', $2::int, 'complete', $3::bool) WHERE id = $1`, [
-        auditId, sent, complete,
-      ]).catch((err) => logger.error({ err, auditId }, 'could not record the export row count'))
+      auditNow(req, 'export.finished', { target: kind, detail: { exportAudit: auditId, rows: sent, complete } })
+        .catch((err) => logger.error({ err, auditId }, 'could not record the export row count'))
     try {
       if (!(await write(res, `${spec.header.map(csvCell).join(',')}\r\n`))) return
       for (;;) {

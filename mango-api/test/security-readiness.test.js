@@ -540,22 +540,52 @@ describe('audit trails name who and why', () => {
     assert.equal(Number(att.lat), 12.935)
     assert.equal(att.received_by, 'Security guard')
 
-    // Rows written before this fix carry them: deleting the account takes them out.
-    await query(`UPDATE staff_audit SET detail = detail || '{"lat": 12.9, "lng": 77.6, "receivedBy": "Priya"}'::jsonb WHERE target = $1`, [o.orderId])
+    // Rows written before this fix carry them: deleting the account takes them out. The audit
+    // trail is append-only (migration 046), so such a row is written as it was then, not edited in.
+    const legacy = async (id, orderId, detail) =>
+      query(`INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at) VALUES ($1, NULL, 'rider@mandimangoes.test', 'RIDER', 'POST /orders/:id/delivery (old)', $2, $3, now())`, [id, orderId, detail])
+    const legacyDetail = async (id) => (await query('SELECT detail FROM staff_audit WHERE id = $1', [id])).rows[0].detail
+    await legacy('aud_legacy_1', o.orderId, { outcome: 'DELIVERED', lat: 12.9, lng: 77.6, receivedBy: 'Priya', note: 'Left with Priya at flat 4B' })
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
-    const after = await auditRow()
+    const after = await legacyDetail('aud_legacy_1')
     for (const k of ['lat', 'lng', 'receivedBy', 'note']) assert.ok(!(k in after), `${k} left in the audit row`)
     assert.equal(after.outcome, 'DELIVERED', 'the rest of the row stays')
+    for (const k of ['lat', 'lng', 'receivedBy', 'note']) assert.ok(!(k in (await auditRow())), `${k} left in the new audit row`)
 
     // The 12-month retention pass does the same for live accounts.
     const other = await customerToken(api)
     const old = await deliveredWithPhoto(other, { note: 'Gate 2, ask for Ravi' })
     await auditRow()
-    await query(`UPDATE staff_audit SET detail = detail || '{"lat": 1, "receivedBy": "Ravi"}'::jsonb WHERE target = $1`, [old.orderId])
+    await legacy('aud_legacy_2', old.orderId, { outcome: 'DELIVERED', lat: 1, receivedBy: 'Ravi', note: 'Gate 2, ask for Ravi' })
     await query(`UPDATE orders SET delivery_date = '2025-01-10' WHERE id = $1`, [old.orderId])
     assert.equal(await anonymiseOldOrders(), 1)
-    const kept = (await query(`SELECT detail FROM staff_audit WHERE action = 'POST /orders/:id/delivery' AND target = $1`, [old.orderId])).rows[0].detail
+    const kept = await legacyDetail('aud_legacy_2')
     for (const k of ['lat', 'receivedBy', 'note']) assert.ok(!(k in kept), `${k} left after retention`)
+    assert.equal(kept.outcome, 'DELIVERED')
+  })
+})
+
+describe('the staff audit trail is append-only (migration 046)', () => {
+  test('a row cannot be deleted, edited or truncated; the privacy scrub may only take keys out of detail', async () => {
+    await query(
+      `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at)
+       VALUES ('aud_guard_1', 'adm_x', 'manager@mandimangoes.test', 'MANAGER', 'PATCH /staff/:id', 'adm_y', '{"role": "OPERATOR", "note": "x", "before": {"role": "PACKER"}}', now())`,
+    )
+    const refused = /append-only/
+    await assert.rejects(query(`DELETE FROM staff_audit WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query('TRUNCATE staff_audit'), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET email = 'someone@else.test' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET action = 'GET /orders' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET created_at = now() - interval '1 year' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET detail = detail || '{"role": "MANAGER"}' WHERE id = 'aud_guard_1'`), refused, 'changing a value')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = detail || '{"extra": 1}' WHERE id = 'aud_guard_1'`), refused, 'adding a key')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = '{"role": "OPERATOR", "note": "x", "before": {}}' WHERE id = 'aud_guard_1'`), refused, 'emptying a nested value')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = NULL WHERE id = 'aud_guard_1'`), refused)
+    // What privacy.js does: keys out, nothing else.
+    await query(`UPDATE staff_audit SET detail = detail - 'note' WHERE id = 'aud_guard_1'`)
+    const row = (await query(`SELECT * FROM staff_audit WHERE id = 'aud_guard_1'`)).rows[0]
+    assert.deepEqual(row.detail, { role: 'OPERATOR', before: { role: 'PACKER' } })
+    assert.equal(row.email, 'manager@mandimangoes.test')
   })
 })
 

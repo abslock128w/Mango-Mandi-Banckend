@@ -178,7 +178,7 @@ An invalid GSTIN is answered `400 VALIDATION_ERROR` with a message saying what i
 - **Streaming.** The file is written while it is read, 1,000 rows per keyset page on `(sort_at, sort_id)`. A big export never sits in memory, and rows cannot be skipped or repeated between pages.
 - **Formula injection.** Every cell goes through the warehouse `csvCell`. A value starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`, and every cell is quoted.
 - **No phone numbers or addresses.** Customers appear by `customer_id`; their profile has the rest, behind the audit.
-- **Audit.** `EXPORT <kind>` is written before the first byte. When the stream ends it is updated with the row count and whether it finished.
+- **Audit.** `EXPORT <kind>` is written before the first byte. When the stream ends, a second row `export.finished` records the row count and whether it finished, with the first row's id in `exportAudit`. The audit table is append-only, so the first row is never edited.
 - **Panel.** Each page has a "Download as CSV" card:
   - Orders: orders, order lines;
   - Claims;
