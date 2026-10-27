@@ -104,6 +104,8 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
     if (preview) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
     else errors.push('SENTRY_DSN is required in production: without it nobody is alerted to errors, failed refunds or a stopped maintenance job')
   }
+  if (!env.TOTP_ENCRYPTION_KEY) warnings.push('TOTP_ENCRYPTION_KEY is not set: staff two-step secrets are stored unencrypted (openssl rand -base64 32)')
+  else if (Buffer.from(env.TOTP_ENCRYPTION_KEY, 'base64').length !== 32) errors.push('TOTP_ENCRYPTION_KEY must be 32 bytes, base64 encoded (openssl rand -base64 32)')
   if (env.STAFF_TWO_STEP === 'optional') warnings.push('STAFF_TWO_STEP is optional: staff can sign in with only a password')
   else if (env.STAFF_TWO_STEP === 'managers') warnings.push('STAFF_TWO_STEP is managers: packers, QC and riders sign in with only a password (the default is all)')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')

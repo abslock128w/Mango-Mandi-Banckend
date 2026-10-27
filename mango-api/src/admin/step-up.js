@@ -18,6 +18,7 @@ import { HttpError } from '../errors.js'
 import { logger } from '../logger.js'
 import { hit } from '../ratelimit.js'
 import { verifyCode } from '../totp.js'
+import { openSecret } from '../secret-box.js'
 
 /** Wrong confirmations allowed per manager in STEP_UP_WINDOW_MS before they must wait. */
 export const STEP_UP_TRIES = 5
@@ -44,7 +45,7 @@ function confirmed(adminId, given) {
     const u = rows[0]
     if (!u) return { method: 'password', ok: false }
     if (u.totp_enabled_at) {
-      const step = verifyCode(u.totp_secret, given.replace(/\s/g, ''), now().getTime(), u.totp_last_step)
+      const step = verifyCode(openSecret(adminId, u.totp_secret), given.replace(/\s/g, ''), now().getTime(), u.totp_last_step)
       if (step != null) await c.query('UPDATE admin_users SET totp_last_step = $2 WHERE id = $1', [adminId, step])
       return { method: 'code', ok: step != null }
     }

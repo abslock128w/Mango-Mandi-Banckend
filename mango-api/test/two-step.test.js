@@ -5,6 +5,9 @@ import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
 import { env } from '../src/env.js'
 import { base32Encode, codeAt, stepAt, verifyCode } from '../src/totp.js'
+import { query, tx } from '../src/db.js'
+import { openSecret, sealSecret, sealStoredSecrets } from '../src/secret-box.js'
+import { checkProduction } from '../src/preflight.js'
 
 let srv
 let api
@@ -19,6 +22,7 @@ after(async () => {
 beforeEach(() => resetDb())
 afterEach(() => {
   env.STAFF_TWO_STEP = 'optional'
+  env.TOTP_ENCRYPTION_KEY = ''
 })
 
 const MANAGER = { email: 'manager@mandimangoes.test', password: 'manager123' }
@@ -130,5 +134,59 @@ describe('two-step sign-in', () => {
     assert.equal((await api.post('/admin/v1/me/two-step/disable', { code: code(secret) }, { token: manager })).status, 204)
     assert.ok((await api.post('/admin/v1/auth/login', MANAGER).then((r) => r.body.accessToken)))
     setNow(T0)
+  })
+})
+
+describe('two-step secrets are encrypted at rest (TOTP_ENCRYPTION_KEY)', () => {
+  const KEY = Buffer.alloc(32, 7).toString('base64')
+  const stored = async () => (await query('SELECT id, totp_secret, totp_pending FROM admin_users WHERE email = $1', [MANAGER.email])).rows[0]
+
+  test('with the key, the stored secret is sealed and sign-in, step-up and disable still work', async () => {
+    env.TOTP_ENCRYPTION_KEY = KEY
+    const token = await adminToken(api)
+    const setup = await api.post('/admin/v1/me/two-step/setup', undefined, { token })
+    const pending = await stored()
+    assert.match(pending.totp_pending, /^enc:v1:/)
+    assert.ok(!pending.totp_pending.includes(setup.body.secret))
+    const on = await api.post('/admin/v1/me/two-step/enable', { code: code(setup.body.secret) }, { token })
+    assert.equal(on.status, 200, JSON.stringify(on.body))
+    const u = await stored()
+    assert.match(u.totp_secret, /^enc:v1:/)
+    assert.equal(openSecret(u.id, u.totp_secret), setup.body.secret)
+    // Bound to its row: the same value does not open for another staff member.
+    assert.throws(() => openSecret('adm_someone_else', u.totp_secret))
+    later(60)
+    const { ticket } = (await api.post('/admin/v1/auth/login', MANAGER)).body
+    const ok = await api.post('/admin/v1/auth/two-step', { ticket, code: code(setup.body.secret) })
+    assert.equal(ok.status, 200, JSON.stringify(ok.body))
+    later(60)
+    const off = await api.post('/admin/v1/me/two-step/disable', { code: code(setup.body.secret) }, { token: ok.body.accessToken })
+    assert.equal(off.status, 204, JSON.stringify(off.body))
+  })
+
+  test('a secret stored before the key was set keeps working and is sealed on the next sign-in', async () => {
+    const { secret } = await enrol(await adminToken(api))
+    assert.equal((await stored()).totp_secret, secret, 'no key: stored as before')
+    env.TOTP_ENCRYPTION_KEY = KEY
+    later(60)
+    const { ticket } = (await api.post('/admin/v1/auth/login', MANAGER)).body
+    assert.equal((await api.post('/admin/v1/auth/two-step', { ticket, code: code(secret) })).status, 200)
+    const u = await stored()
+    assert.match(u.totp_secret, /^enc:v1:/)
+    assert.equal(openSecret(u.id, u.totp_secret), secret)
+  })
+
+  test('ops/seal-two-step.js seals every plain secret once; preflight wants the key', async () => {
+    const { secret } = await enrol(await adminToken(api))
+    env.TOTP_ENCRYPTION_KEY = KEY
+    assert.equal(await tx((c) => sealStoredSecrets(c)), 1)
+    assert.equal(await tx((c) => sealStoredSecrets(c)), 0, 'already sealed')
+    const u = await stored()
+    assert.equal(openSecret(u.id, u.totp_secret), secret)
+    assert.notEqual(sealSecret(u.id, secret), sealSecret(u.id, secret), 'a fresh IV each time')
+    const base = { ...env, JWT_SECRET: 'x'.repeat(40), COOKIE_SECURE: true }
+    assert.ok(checkProduction({ ...base, TOTP_ENCRYPTION_KEY: '' }).warnings.some((w) => w.startsWith('TOTP_ENCRYPTION_KEY is not set')))
+    assert.ok(checkProduction({ ...base, TOTP_ENCRYPTION_KEY: 'c2hvcnQ=' }).errors.some((e) => e.startsWith('TOTP_ENCRYPTION_KEY must be 32 bytes')))
+    assert.ok(!checkProduction({ ...base, TOTP_ENCRYPTION_KEY: KEY }).errors.some((e) => e.includes('TOTP_ENCRYPTION_KEY')))
   })
 })

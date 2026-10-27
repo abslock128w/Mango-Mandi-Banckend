@@ -250,6 +250,10 @@ const schema = z.object({
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
   OTP_PEPPER: z.string().default(''),
+  // TD-09: encrypts staff two-step (TOTP) secrets at rest, 32 bytes base64 (openssl rand -base64 32).
+  // Keep it apart from JWT_SECRET and the database. Unset: secrets are stored as before.
+  // Once set, never remove or change it without first re-enrolling staff: sealed secrets need it.
+  TOTP_ENCRYPTION_KEY: z.string().default(''),
   // SEC-05: customer details on finished orders (name, phone, address, gift details, delivery GPS)
   // are removed this many months after the delivery date. Amounts and tax fields stay.
   PII_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(12),

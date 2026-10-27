@@ -332,6 +332,13 @@ Do the rotation first, investigate after. Each change on Vercel needs a
 (Vercel → Deployments → Current → Redeploy; it rebuilds the same commit; the
 migration step finds nothing to do).
 
+### `TOTP_ENCRYPTION_KEY`
+Encrypts staff two-step secrets in the database. It cannot simply be swapped:
+secrets sealed with the old key stop opening. If it leaks, set a new key,
+Redeploy, then have a manager reset two-step for every staff member (Staff page)
+so each one enrols again. A leaked key alone is not enough to sign in; it also
+needs a copy of the database.
+
 ### `JWT_SECRET`
 Signs every access and refresh token (staff and customers) and, unless
 `OTP_PEPPER` is set, peppers login-code hashes.
