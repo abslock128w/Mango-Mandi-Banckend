@@ -24,7 +24,18 @@ for f in "$OLD_API/migrations"/*.sql; do
     echo "migration $(basename "$f") changed after it shipped"; exit 1
   fi
 done
+guarded=no; [ -e "$OLD_API/migrations/046_staff_audit_guard.sql" ] && guarded=yes
 cp "$ROOT/mango-api/migrations"/*.sql "$OLD_API/migrations/"
+# Migrations 045 and 046 added database guards: order status moves must follow the order
+# map, and staff_audit rows cannot be edited. A release from before them sets up its test
+# data by writing those tables directly (an order made DELIVERED in one step, an old-style
+# audit row edited in), which the guards refuse by design. So its tests run with the two
+# documented overrides on. Its own code needs neither: every status move it makes is in
+# the new map, and its one audit edit (the CSV export row count) is caught and logged.
+if [ "$guarded" = no ]; then
+  echo "old release predates the 045/046 guards: its tests run with the overrides on"
+  export PGOPTIONS="${PGOPTIONS:-} -c mango.order_status_override=on -c mango.staff_audit_override=on"
+fi
 cd "$OLD_API"
 npm ci --silent --no-audit --no-fund
 npm test

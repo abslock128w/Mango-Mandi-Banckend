@@ -21,7 +21,7 @@ import sharp from 'sharp'
 import { createApp } from '../src/app.js'
 import { forgetCustomer } from '../src/auth.js'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
-import { query } from '../src/db.js'
+import { query, tx } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { env } from '../src/env.js'
 import { DEV_CHECKOUT_SECRET } from '../src/payments.js'
@@ -666,6 +666,42 @@ describe('the staff audit trail is append-only (migration 046)', () => {
     const row = (await query(`SELECT * FROM staff_audit WHERE id = 'aud_guard_1'`)).rows[0]
     assert.deepEqual(row.detail, { role: 'OPERATOR', before: { role: 'PACKER' } })
     assert.equal(row.email, 'manager@mandimangoes.test')
+  })
+
+  test('only the table owner can lift the guard, and only with mango.staff_audit_override', async () => {
+    await query(
+      `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at)
+       VALUES ('aud_guard_2', 'adm_x', 'manager@mandimangoes.test', 'MANAGER', 'PATCH /staff/:id', 'adm_y', '{"role": "OPERATOR"}', now())`,
+    )
+    const refused = /append-only/
+    // A role that does not own the table, like the app's mango_app login: the setting does nothing.
+    const probe = 'mango_audit_probe'
+    await query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${probe}') THEN CREATE ROLE ${probe} NOLOGIN; END IF; END $$`)
+    await query(`GRANT USAGE ON SCHEMA public TO ${probe}`)
+    await query(`GRANT SELECT, UPDATE, DELETE ON staff_audit TO ${probe}`)
+    try {
+      await assert.rejects(
+        tx(async (c) => {
+          await c.query(`SET LOCAL ROLE ${probe}`)
+          await c.query(`SET LOCAL mango.staff_audit_override = 'on'`)
+          await c.query(`DELETE FROM staff_audit WHERE id = 'aud_guard_2'`)
+        }),
+        refused,
+      )
+      // The owner without the setting: still refused.
+      await assert.rejects(query(`DELETE FROM staff_audit WHERE id = 'aud_guard_2'`), refused)
+      // The owner with it, for one transaction only.
+      await tx(async (c) => {
+        await c.query(`SET LOCAL mango.staff_audit_override = 'on'`)
+        await c.query(`UPDATE staff_audit SET detail = '{"role": "PACKER"}' WHERE id = 'aud_guard_2'`)
+      })
+      assert.deepEqual((await query(`SELECT detail FROM staff_audit WHERE id = 'aud_guard_2'`)).rows[0].detail, { role: 'PACKER' })
+      await assert.rejects(query(`UPDATE staff_audit SET detail = '{"role": "QC"}' WHERE id = 'aud_guard_2'`), refused, 'the next transaction is guarded again')
+    } finally {
+      await query(`REVOKE ALL ON staff_audit FROM ${probe}`)
+      await query(`REVOKE USAGE ON SCHEMA public FROM ${probe}`)
+      await query(`DROP ROLE IF EXISTS ${probe}`)
+    }
   })
 })
 
