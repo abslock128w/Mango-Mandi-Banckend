@@ -13,6 +13,13 @@ const flag = () =>
     .default('false')
     .transform((v) => v === 'true')
 
+/** An on/off setting whose default depends on where it runs: undefined unless set (see the ??= below the schema). */
+const optionalFlag = () =>
+  z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true'))
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -198,11 +205,12 @@ const schema = z.object({
   // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
   DELIVERY_CHECKS: flag(),
   // SEC-07: adding staff, changing a role or password, two-step resets and removals ask
-  // the manager for their own two-step code (or password) again.
-  STAFF_STEP_UP: flag(),
+  // the manager for their own two-step code (or password) again. Unset: on in production,
+  // off elsewhere. Money and pricing changes always ask (admin/step-up.js STEP_UP_ROUTES).
+  STAFF_STEP_UP: optionalFlag(),
   // SEC-08: staff changes are audited in their own transaction, opening customer details
-  // is audited, and refused attempts are logged.
-  STAFF_AUDIT_TRAIL: flag(),
+  // is audited, and refused attempts are logged. Unset: on in production, off elsewhere.
+  STAFF_AUDIT_TRAIL: optionalFlag(),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).
@@ -373,7 +381,18 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   console.error('Refusing to start: on Vercel NODE_ENV must be production, previews too (see deploy/VERCEL.md)')
   process.exit(1)
 }
-env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
+/**
+ * Staff safeguards that are strict by default in production while the local demo keeps
+ * working without them. A value written in the environment always wins (preflight warns
+ * when production turns one off).
+ */
+export function strictDefaults(e, prod) {
+  e.STAFF_TWO_STEP ??= prod ? 'all' : 'optional'
+  e.STAFF_STEP_UP ??= prod
+  e.STAFF_AUDIT_TRAIL ??= prod
+  return e
+}
+strictDefaults(env, isProd)
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')
