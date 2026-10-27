@@ -14,6 +14,7 @@ import { backupStatus } from '../maintenance.js'
 import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
+import { pushOn } from '../push.js'
 import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 
 export const router = express.Router()
@@ -112,7 +113,7 @@ router.get(
 export function attentionCount(a) {
   const lists = [
     a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.preorderCapacityDrift,
-    a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.disputes, a.webhookFailures,
+    a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.failedPushes, a.disputes, a.webhookFailures,
   ]
   return (a.loop.stale ? 1 : 0) + (a.backup?.stale ? 1 : 0) + (a.lowRatings.length ? 1 : 0) + lists.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0)
 }
@@ -120,7 +121,7 @@ export function attentionCount(a) {
 /** Everything the Needs attention view lists (GET /attention; the managers' daily summary counts it). */
 export async function attentionReport(at = now()) {
   const week = new Date(at.getTime() - 7 * 86_400_000)
-  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks] = await Promise.all([
+  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks, pushes] = await Promise.all([
     query('SELECT * FROM maintenance_runs ORDER BY step'),
     query(
       `SELECT n.id, n.kind, n.status, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -210,6 +211,14 @@ export async function attentionReport(at = now()) {
     // INV-06, INV-08: preorder capacity counters that drifted, and trucks late to arrive.
     preorderCapacityDrift({ query }, 50),
     lateArrivals({ query }, at),
+    // Browser notifications (WEB_PUSH) given up on, or still waiting 15 minutes past their time (the push step is not running).
+    query(
+      `SELECT m.id, m.kind, m.status, m.last_error, m.attempts, m.created_at, m.next_attempt_at, o.id AS order_id, o.number AS order_number
+         FROM push_messages m LEFT JOIN orders o ON o.id = m.order_id
+        WHERE ((m.status = 'FAILED' AND m.created_at >= $1) OR ($3 AND m.status = 'PENDING' AND m.next_attempt_at < $2))
+        ORDER BY m.created_at DESC LIMIT 50`,
+      [week, new Date(at.getTime() - 15 * 60_000), pushOn()],
+    ),
   ])
   const tick = runs.rows.find((r) => r.step === 'tick')
   return {
@@ -218,12 +227,18 @@ export async function attentionReport(at = now()) {
       stale: !tick?.last_ok_at || at - tick.last_ok_at > LOOP_STALE_MS,
       failingSteps: runs.rows
         .filter((r) => r.last_err_at && (!r.last_ok_at || r.last_err_at > r.last_ok_at))
-        .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error })),
+        // failCount: failures in a row; lastDurationMs: how long the last attempt took (both null before migration 047 ran).
+        .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error, failCount: r.fail_count ?? null, lastDurationMs: r.last_duration_ms ?? null })),
     },
     backup,
     failedMessages: failed.rows.map((n) => ({
       id: n.id, kind: n.kind, status: n.status, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
       order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
+    })),
+    // status 'PENDING': overdue, not yet sent; 'FAILED': given up on after retries.
+    failedPushes: pushes.rows.map((m) => ({
+      id: m.id, kind: m.kind, status: m.status, error: m.last_error, attempts: m.attempts, createdAt: m.created_at,
+      order: m.order_id ? { id: m.order_id, number: m.order_number } : null,
     })),
     // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent;
     // 'held': not sent while a chargeback on the payment is open or was lost (PAY-06, REFUND_SAFETY_CHECKS), with the dispute

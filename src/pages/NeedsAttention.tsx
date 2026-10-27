@@ -39,6 +39,9 @@ const STEP_LABEL: Record<string, string> = {
   health: 'Health check',
 }
 
+/** "under a second", "8.2 s", "12 s": how long a step's last try took. */
+const seconds = (ms: number) => (ms < 1000 ? 'under a second' : `${ms < 10_000 ? (ms / 1000).toFixed(1) : Math.round(ms / 1000)} s`)
+
 /** Why a message was dropped unsent, in staff words (INT-06). */
 function skippedWhy(error: string): string {
   if (error === 'older than a day') return 'it waited over a day, so the background run was not sending. Send it again if it still matters'
@@ -193,6 +196,9 @@ export default function NeedsAttention() {
         ...a.loop.failingSteps.map((s) => (
           <li key={s.step}>
             <strong>{STEP_LABEL[s.step] ?? s.step} is failing</strong> since {dateTime(s.since)}
+            {s.failCount
+              ? ` (failed ${s.failCount === 1 ? 'once' : `${s.failCount} times in a row`}${s.lastDurationMs != null ? `, the last try took ${seconds(s.lastDurationMs)}` : ''})`
+              : null}
             {s.error ? <span className="muted">: {s.error}</span> : null}
           </li>
         )),
@@ -358,6 +364,14 @@ export default function NeedsAttention() {
         <button type="button" className="btn btn-small" disabled={retry.isPending} onClick={() => retry.mutate(m.id)}>
           Send again<span className="sr-only"> for {m.order?.number ?? m.preorderNumber ?? 'this customer'}</span>
         </button>
+      </li>
+    )) },
+    { key: 'push', title: 'Browser notifications not delivered', items: (a.failedPushes ?? []).map((m) => (
+      <li key={m.id}>
+        <strong>{m.status === 'PENDING' ? 'Browser notification overdue' : 'Browser notification not delivered'}</strong> ({(NOTIFICATION_LABEL[m.kind as NotificationKind] ?? humanize(m.kind)).toLowerCase()})
+        {m.order ? <> for <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link></> : null}
+        {m.status === 'PENDING' ? '. The background run is not sending them' : ` after ${m.attempts} tries`}
+        {m.error ? <span className="muted">: {m.error}</span> : null}
       </li>
     )) },
     { key: 'reviews', title: 'Low ratings', items: low.length > 0 ? [
