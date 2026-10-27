@@ -230,7 +230,7 @@ describe('WhatsApp sends are recorded truthfully', () => {
 describe('limited promo codes', () => {
   test('a checkout swept for non-payment keeps its use for half an hour, since a late payment revives it', async () => {
     const admin = await adminToken(api)
-    assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1 }, { token: admin })).status, 201)
+    assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1, confirmCode: 'manager123' }, { token: admin })).status, 201)
     const a = await customerToken(api)
     await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: a.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: a.accessToken })

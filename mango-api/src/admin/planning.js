@@ -1,6 +1,7 @@
 // Planning: pincodes, rules, the delivery calendar, slots, and supply coverage.
 import express from 'express'
 import { z } from 'zod'
+import { auditInTx, beforeOf } from '../access.js'
 import { requireManager } from '../auth.js'
 import { addDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig, rulesSchema, saveConfig } from '../config.js'
@@ -12,6 +13,7 @@ import { availability } from '../inventory.js'
 import { triggerRebalanceAll } from '../maintenance.js'
 import { shopProducts } from '../products.js'
 import { STAGES } from '../stage.js'
+import { stepUp, withoutConfirm } from './step-up.js'
 
 export const router = express.Router()
 
@@ -42,13 +44,18 @@ router.patch(
       z.object({ city: z.string().trim().min(1).max(80).optional(), zone: z.string().trim().max(80).nullable().optional(), active: z.boolean().optional() }),
       req.body,
     )
-    const { rows } = await query(
-      `UPDATE pincodes SET city = COALESCE($2, city), zone = CASE WHEN $5 THEN $3 ELSE zone END, active = COALESCE($4, active)
-        WHERE pincode = $1 RETURNING *`,
-      [req.params.pincode, b.city ?? null, b.zone ?? null, b.active ?? null, 'zone' in b],
-    )
-    if (!rows.length) throw notFound('Pincode not found')
-    res.json(pincodeDto(rows[0]))
+    const row = await tx(async (c) => {
+      const { rows: was } = await c.query('SELECT * FROM pincodes WHERE pincode = $1 FOR UPDATE', [req.params.pincode])
+      if (!was.length) throw notFound('Pincode not found')
+      const { rows } = await c.query(
+        `UPDATE pincodes SET city = COALESCE($2, city), zone = CASE WHEN $5 THEN $3 ELSE zone END, active = COALESCE($4, active)
+          WHERE pincode = $1 RETURNING *`,
+        [req.params.pincode, b.city ?? null, b.zone ?? null, b.active ?? null, 'zone' in b],
+      )
+      await auditInTx(c, req, { before: beforeOf(pincodeDto(was[0]), Object.keys(b)) })
+      return rows[0]
+    })
+    res.json(pincodeDto(row))
   }),
 )
 
@@ -73,8 +80,15 @@ router.put(
   '/config',
   requireManager,
   asyncHandler(async (req, res) => {
-    const rules = parse(rulesSchema, req.body?.rules ?? req.body)
-    const saved = await saveConfig(rules, req.admin.email)
+    const rules = parse(rulesSchema, req.body?.rules ?? withoutConfirm(req.body))
+    await stepUp(req, { always: true }) // fees, windows and limits for every customer (STEP_UP_ROUTES)
+    const saved = await saveConfig(rules, req.admin.email, {
+      // The audit row keeps only the rules that changed, before and after, with the new version.
+      inTx: (c, was) => {
+        const changed = Object.keys(rules).filter((k) => JSON.stringify(rules[k]) !== JSON.stringify(was?.[k]))
+        return auditInTx(c, req, { target: null, body: { rules: beforeOf(rules, changed) }, before: { rules: beforeOf(was ?? {}, changed) } })
+      },
+    })
     await triggerRebalanceAll() // new windows can invalidate allocations
     res.json(saved)
   }),
@@ -162,6 +176,7 @@ router.patch(
         'UPDATE delivery_slots SET label = $2, starts_at = $3, ends_at = $4, max_boxes = $5, active = $6, sort = $7 WHERE id = $1 RETURNING *',
         [s.id, s.label, s.startsAt, s.endsAt, s.maxBoxes ?? null, s.active, s.sort],
       )
+      await auditInTx(c, req, { before: beforeOf(slotView(rows[0]), Object.keys(b)) })
       return slotView(r.rows[0])
     })
     res.json(out)

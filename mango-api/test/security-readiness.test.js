@@ -482,7 +482,12 @@ describe('audit trails name who and why', () => {
 
     const cust = await customerToken(api)
     const refunded = await paid(cust)
-    assert.equal((await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true }, { token: manager })).status, 204)
+    // Money moves, so the manager confirms with their password (STEP_UP_ROUTES).
+    const asked = await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true }, { token: manager })
+    assert.equal(asked.status, 403)
+    assert.equal(asked.body.error.code, 'REAUTH_REQUIRED')
+    assert.equal((await query('SELECT status FROM orders WHERE id = $1', [refunded.orderId])).rows[0].status, 'CONFIRMED', 'nothing changed without the confirmation')
+    assert.equal((await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true, confirmCode: 'manager123' }, { token: manager })).status, 204)
     const ev = (await query(`SELECT actor, reason FROM order_events WHERE order_id = $1 AND status = 'CANCELLED'`, [refunded.orderId])).rows[0]
     assert.equal(ev.actor, 'manager@mandimangoes.test')
     assert.match(ev.reason, /full refund: van broke down/)
@@ -507,6 +512,8 @@ describe('audit trails name who and why', () => {
     }
     const role = rows.find((r) => r.action === 'PATCH /staff/:id')
     assert.deepEqual([role.email, role.role, role.target, role.detail.role, role.detail.password], ['manager@mandimangoes.test', 'MANAGER', add.body.id, 'OPERATOR', '[removed]'])
+    // The role it replaced, written in the change's own transaction; never a password or its hash.
+    assert.deepEqual(role.detail.before, { role: 'PACKER' })
     const cancel = rows.find((r) => r.action === 'POST /orders/:id/cancel')
     assert.deepEqual([cancel.email, cancel.target, cancel.detail.reason, cancel.detail.refund], ['manager@mandimangoes.test', refunded.orderId, 'van broke down', true])
     const stock = rows.find((r) => r.action === 'PATCH /batches/:id/lines/:lineId')

@@ -58,7 +58,7 @@ describe('manager refunds for orders we cannot deliver', () => {
     assert.equal(unconfirmed.body.error.code, 'REFUND_REQUIRED')
     assert.equal((await order(o.orderId)).status, 'CONFIRMED')
 
-    const r = await cancel(o.orderId, { reason: 'Truck short', refund: true })
+    const r = await cancel(o.orderId, { reason: 'Truck short', refund: true, confirmCode: 'manager123' })
     assert.equal(r.status < 300, true, JSON.stringify(r.body))
     const after = await order(o.orderId)
     assert.equal(after.status, 'CANCELLED')
@@ -87,7 +87,7 @@ describe('manager refunds for orders we cannot deliver', () => {
     const cust = await customerToken(api)
     const o = await paidOrder(cust)
     await query(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 3 WHERE id = $1`, [o.orderId])
-    assert.equal((await cancel(o.orderId, { reason: 'Three missed deliveries', refund: true })).status < 300, true)
+    assert.equal((await cancel(o.orderId, { reason: 'Three missed deliveries', refund: true, confirmCode: 'manager123' })).status < 300, true)
     assert.equal((await order(o.orderId)).payment_status, 'REFUNDED')
   })
 })
@@ -106,7 +106,11 @@ describe('preorders we cannot fill', () => {
     assert.equal(b.status, 201, JSON.stringify(b.body))
     assert.equal((await api.post('/v1/dev/pay-preorder', { preorderId: b.body.id, outcome: 'captured' })).body.result, 'booked')
     assert.equal((await api.post(`/admin/v1/preorders/${b.body.id}/cancel`, { reason: 'Hail damaged the crop' }, { token: ops })).status, 403)
-    const r = await api.post(`/admin/v1/preorders/${b.body.id}/cancel`, { reason: 'Hail damaged the crop' }, { token: admin })
+    // A refund: the manager confirms it is them, and nothing changes until they do (STEP_UP_ROUTES).
+    const asked = await api.post(`/admin/v1/preorders/${b.body.id}/cancel`, { reason: 'Hail damaged the crop' }, { token: admin })
+    assert.equal(asked.body.error.code, 'REAUTH_REQUIRED')
+    assert.equal((await query('SELECT status FROM preorders WHERE id = $1', [b.body.id])).rows[0].status, 'BOOKED')
+    const r = await api.post(`/admin/v1/preorders/${b.body.id}/cancel`, { reason: 'Hail damaged the crop', confirmCode: 'manager123' }, { token: admin })
     assert.deepEqual(r.body, { refunded: true })
     const p = (await query('SELECT * FROM preorders WHERE id = $1', [b.body.id])).rows[0]
     assert.equal(p.status, 'CANCELLED')

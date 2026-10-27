@@ -591,7 +591,7 @@ describe('live tracking without GPS', () => {
     // Minutes per stop is a selling rule.
     const cfg = (await api.get('/admin/v1/config', { token: admin })).body
     assert.equal((await api.put('/admin/v1/config', { rules: { ...cfg.rules, minutesPerStop: 121 } }, { token: admin })).status, 400)
-    assert.equal((await api.put('/admin/v1/config', { rules: { ...cfg.rules, minutesPerStop: 15 } }, { token: admin })).status, 200)
+    assert.equal((await api.put('/admin/v1/config', { rules: { ...cfg.rules, minutesPerStop: 15 }, confirmCode: 'manager123' }, { token: admin })).status, 200)
     assert.deepEqual(await tracking(stops[2]), { stopsAway: 0, minutesPerStop: 15, etaMinutes: 15 })
   })
 

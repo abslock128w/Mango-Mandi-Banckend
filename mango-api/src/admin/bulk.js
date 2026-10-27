@@ -13,6 +13,7 @@ import { asyncHandler, badRequest, conflict, HttpError, notFound, parse } from '
 import { newId } from '../ids.js'
 import { checkPhoto, cleanImage, dropPhoto, MAX_REVIEW_UPLOAD_BYTES, photoWidth, sendPublicPhoto, storePhoto } from '../photos.js'
 import { findProduct } from '../products.js'
+import { stepUp, withoutConfirm } from './step-up.js'
 
 export const router = express.Router()
 
@@ -108,10 +109,11 @@ router.post(
         endsAt: listingFields.endsAt.default(null),
         sortOrder: listingFields.sortOrder.default(0),
       }).strict(),
-      req.body,
+      withoutConfirm(req.body),
     )
     checkProduct(b.sku)
     checkRules(b)
+    await stepUp(req, { always: true }) // its price tiers (STEP_UP_ROUTES)
     const id = newId('bulk')
     const out = await tx(async (c) => {
       await c.query(
@@ -130,6 +132,8 @@ router.post(
 )
 
 const EDITABLE = Object.keys(listingFields)
+/** The fields that set what a customer pays: changing one asks the manager to confirm it is them. */
+const PRICING = ['tiers', 'minQty', 'qtyStep', 'maxQty']
 
 /**
  * Edits a listing. Every change bumps its version, so a customer's quote made
@@ -140,7 +144,7 @@ router.patch(
   '/bulk-listings/:id',
   requireManager,
   asyncHandler(async (req, res) => {
-    const b = parse(z.object(Object.fromEntries(EDITABLE.map((k) => [k, listingFields[k].optional()]))).strict(), req.body)
+    const b = parse(z.object(Object.fromEntries(EDITABLE.map((k) => [k, listingFields[k].optional()]))).strict(), withoutConfirm(req.body))
     if (!Object.keys(b).length) throw badRequest('Nothing to change')
     if (b.sku) checkProduct(b.sku)
     const out = await tx(async (c) => {
@@ -154,6 +158,8 @@ router.patch(
       }
       const changes = diff(Object.fromEntries(EDITABLE.map((k) => [k, before[k]])), Object.fromEntries(EDITABLE.map((k) => [k, next[k]])))
       if (!Object.keys(changes).length) return adminView(c, before)
+      const pricing = PRICING.some((k) => changes[k])
+      if (pricing) await stepUp(req, { always: true }) // STEP_UP_ROUTES
       const version = before.version + 1
       await c.query(
         `UPDATE bulk_listings SET sku = $2, title = $3, description = $4, origin = $5, stages = $6, min_qty = $7, qty_step = $8, max_qty = $9, tiers = $10,
@@ -163,7 +169,7 @@ router.patch(
           next.startsAt, next.endsAt, next.sortOrder, version, now(), req.admin.email,
         ],
       )
-      await listingEvent(c, before.id, changes.tiers || changes.minQty || changes.qtyStep || changes.maxQty ? 'PRICING_CHANGED' : 'EDITED', version, changes, req.admin)
+      await listingEvent(c, before.id, pricing ? 'PRICING_CHANGED' : 'EDITED', version, changes, req.admin)
       return adminView(c, await getListing(c, before.id))
     })
     res.json(out)

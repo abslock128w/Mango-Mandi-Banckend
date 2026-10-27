@@ -205,7 +205,7 @@ describe('CSV exports', () => {
   test('every kind downloads for a manager, with a header, and is audited with its row count', async () => {
     const h = await history()
     // A manager cancels the second paid order: a refund (the only kinds there are).
-    assert.equal((await api.post(`/admin/v1/orders/${h.paid[1]}/cancel`, { reason: 'Cannot deliver to this pincode', refund: true }, { token: manager })).status, 204)
+    assert.equal((await api.post(`/admin/v1/orders/${h.paid[1]}/cancel`, { reason: 'Cannot deliver to this pincode', refund: true, confirmCode: 'manager123' }, { token: manager })).status, 204)
     const want = { orders: 3, 'order-lines': 3, claims: 1, reviews: 1, 'bulk-orders': 0, payments: 2, refunds: 1 }
     assert.deepEqual(Object.keys(want).sort(), [...EXPORT_KINDS].sort())
     for (const kind of EXPORT_KINDS) {

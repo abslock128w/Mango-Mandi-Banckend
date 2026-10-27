@@ -20,7 +20,7 @@ import { newId } from '../ids.js'
 import { productName } from '../products.js'
 import { auditNow } from '../staff-audit.js'
 import { maskPhone } from './customers.js'
-import { stepUp } from './step-up.js'
+import { stepUp, withoutConfirm } from './step-up.js'
 
 export const router = express.Router()
 
@@ -229,10 +229,11 @@ router.post(
   requireManager,
   purchasesOn,
   asyncHandler(async (req, res) => {
-    const b = parse(purchaseBody, req.body ?? {})
+    const b = parse(purchaseBody, withoutConfirm(req.body ?? {}))
     const out = await tx(async (c) => {
       const farm = await checkPurchase(c, req.params.id, b)
       if (!farm.active) throw badRequest('This farm is switched off. Switch it on again on the Farms page to record a purchase.', 'FARM_INACTIVE')
+      await stepUp(req, { always: true }) // costs set the margins (STEP_UP_ROUTES)
       const id = newId('pur')
       await c.query(
         `INSERT INTO batch_purchases (id, batch_id, farm_id, purchased_on, crates, boxes, cost_per_crate, transport_cost, other_cost, note, created_by, created_at)
@@ -251,7 +252,7 @@ router.patch(
   requireManager,
   purchasesOn,
   asyncHandler(async (req, res) => {
-    const patch = parse(purchaseFields.partial().refine((x) => Object.keys(x).length > 0, 'Change at least one field'), req.body ?? {})
+    const patch = parse(purchaseFields.partial().refine((x) => Object.keys(x).length > 0, 'Change at least one field'), withoutConfirm(req.body ?? {}))
     const out = await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM batch_purchases WHERE id = $1 AND batch_id = $2 FOR UPDATE', [req.params.purchaseId, req.params.id])
       if (!rows.length) throw notFound('Purchase not found')
@@ -262,13 +263,15 @@ router.patch(
       }
       const next = { ...cur, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) }
       await checkPurchase(c, req.params.id, next, p.id)
+      await stepUp(req, { always: true }) // STEP_UP_ROUTES
       await c.query(
         `UPDATE batch_purchases SET farm_id = $2, purchased_on = $3, crates = $4, boxes = $5, cost_per_crate = $6, transport_cost = $7, other_cost = $8,
                 note = $9, updated_by = $10, updated_at = $11 WHERE id = $1`,
         [p.id, next.farmId, next.purchasedOn, next.crates, next.boxes, next.costPerCrate, next.transportCost, next.otherCost, next.note || null, req.admin.id, now()],
       )
       const changed = Object.fromEntries(Object.keys(next).filter((k) => next[k] !== cur[k]).map((k) => [k, { from: cur[k], to: next[k] }]))
-      await auditNow(req, 'purchase.update', { target: `${req.params.id}/${p.id}`, detail: { changed } }, c)
+      const before = Object.fromEntries(Object.keys(changed).map((k) => [k, cur[k]]))
+      await auditNow(req, 'purchase.update', { target: `${req.params.id}/${p.id}`, detail: { changed, before } }, c)
       return (await c.query(`${purchaseSelect} WHERE p.id = $1`, [p.id])).rows[0]
     })
     res.json(purchaseView(out, true))

@@ -9,6 +9,7 @@ import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
 import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
+import { stepUp } from './step-up.js'
 import { newId } from '../ids.js'
 import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { enqueue } from '../notify.js'
@@ -190,6 +191,8 @@ router.post(
     )
     const refundDue = await tx(async (c) => {
       const due = await cancelOrder(c, req.params.id, req.actor, reason, { manager: req.admin.role === 'MANAGER', refund })
+      // Money moves: the manager confirms it is them (STEP_UP_ROUTES). A refusal rolls the cancel back.
+      if (due) await stepUp(req, { always: true })
       await auditInTx(c, req) // SEC-08, STAFF_AUDIT_TRAIL: a cancel (and any refund) is never left without its record
       return due
     })

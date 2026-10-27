@@ -276,7 +276,7 @@ describe('refer a friend', () => {
       sku: 'BAD-3', title: 'Badami for offices', description: 'Badami in 3 kg boxes, for offices and events, packed together.',
       origin: 'Karnataka', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 119_900 }],
     }
-    const l = await api.post('/admin/v1/bulk-listings', draft, { token: admin })
+    const l = await api.post('/admin/v1/bulk-listings', { ...draft, confirmCode: 'manager123' }, { token: admin })
     assert.equal(l.status, 201, JSON.stringify(l.body))
     assert.equal((await api.raw('POST', `/admin/v1/bulk-listings/${l.body.id}/photos`, { raw: jpeg, token: admin, headers: { 'Content-Type': 'image/jpeg' } })).status, 201)
     assert.equal((await api.post(`/admin/v1/bulk-listings/${l.body.id}/publish`, {}, { token: admin })).status, 200)

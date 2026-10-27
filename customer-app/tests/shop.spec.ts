@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '../../tests/fixtures'
 import { reviewOrder } from './checkout'
-import { managerToken } from './staff'
+import { MANAGER_CONFIRM, managerToken } from './staff'
 
 // A customer's whole journey against the real API: pincode, pick boxes, sign in
 // by code, choose a slot, pay (test payment), then cancel for a full refund.
@@ -436,7 +436,7 @@ test('send a gift with a promo code', async ({ page, request }, info) => {
   const login = { accessToken: await managerToken(request) }
   const staff = { headers: { Authorization: `Bearer ${login.accessToken}` } }
   const code = `GIFT${String(Date.now()).slice(-6)}${info.project.name === 'phone' ? 1 : 2}`
-  const made = await request.post(`${API}/admin/v1/promos`, { data: { code, kind: 'PERCENT', value: 10, description: 'Test offer' }, ...staff })
+  const made = await request.post(`${API}/admin/v1/promos`, { data: { code, kind: 'PERCENT', value: 10, description: 'Test offer', ...MANAGER_CONFIRM }, ...staff })
   expect(made.ok(), await made.text()).toBeTruthy()
 
   const phone = `7${String(Date.now()).slice(-8)}${info.project.name === 'phone' ? 1 : 2}`

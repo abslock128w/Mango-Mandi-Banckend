@@ -134,7 +134,7 @@ describe('PAY-05: "paid back another way" while Razorpay cannot be checked', () 
     return order
   }
   const settle = (orderId) =>
-    api.post(`/admin/v1/refunds/${orderId}/paid-another-way`, { type: 'order', reference: 'UTR998877', reason: 'paid by bank transfer' }, { token: manager })
+    api.post(`/admin/v1/refunds/${orderId}/paid-another-way`, { type: 'order', reference: 'UTR998877', reason: 'paid by bank transfer', confirmCode: 'manager123' }, { token: manager })
 
   test('with REFUND_SAFETY_CHECKS it is refused and nothing is written', async () => {
     env.REFUND_SAFETY_CHECKS = true
@@ -260,7 +260,7 @@ describe('PAY-06: refunds while a chargeback is open', () => {
     await drainBackground()
     later(31 * MIN)
     const settle = () =>
-      api.post(`/admin/v1/refunds/${order.orderId}/paid-another-way`, { type: 'order', reference: 'disp_auda', reason: 'the bank returned it' }, { token: manager })
+      api.post(`/admin/v1/refunds/${order.orderId}/paid-another-way`, { type: 'order', reference: 'disp_auda', reason: 'the bank returned it', confirmCode: 'manager123' }, { token: manager })
     const r = await settle()
     assert.equal(r.status, 409, JSON.stringify(r.body))
     assert.equal(r.body.error.code, 'DISPUTE_OPEN')

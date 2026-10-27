@@ -313,7 +313,7 @@ describe('orders', () => {
     const pick = await startOp('pick', { orderId: o.id })
     await scan(pick.id, [payload(boxes[0].label_token), payload(boxes[1].label_token)])
     assert.equal((await lineOf(lot.lineId)).on_hand, 1)
-    const cancel = await api.post(`/admin/v1/orders/${o.id}/cancel`, { reason: 'customer asked', refund: true }, { token: manager })
+    const cancel = await api.post(`/admin/v1/orders/${o.id}/cancel`, { reason: 'customer asked', refund: true, confirmCode: 'manager123' }, { token: manager })
     assert.equal(cancel.status, 204, JSON.stringify(cancel.body))
     const b0 = await box(boxes[0].id)
     assert.equal(b0.lifecycle, 'in_stock')
