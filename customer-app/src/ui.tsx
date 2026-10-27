@@ -1,7 +1,9 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { Component, useEffect, useRef, type ErrorInfo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { errorMessage } from './api'
 import { useT } from './i18n'
+import { t } from './i18n-core.ts'
+import { reportError } from '../../shared/error-reports/index.ts'
 
 export function Spinner({ label }: { label?: string }) {
   const t = useT()
@@ -45,6 +47,38 @@ export function ErrorNote({ error, onRetry }: { error: unknown; onRetry?: () => 
       )}
     </div>
   )
+}
+
+/**
+ * The shop's last line of defence (main.tsx): a crash while drawing any page shows
+ * "Something went wrong" and Try again (a reload) instead of a blank page, and is
+ * reported to Sentry when that is set up (shared/error-reports). It sits outside the
+ * language provider, so it reads the current language directly.
+ */
+export class ErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false }
+
+  static getDerivedStateFromError() {
+    return { crashed: true }
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    reportError(error, info.componentStack)
+  }
+
+  render() {
+    if (!this.state.crashed) return this.props.children
+    return (
+      <main id="main" className="page">
+        <div className="note note-error" role="alert">
+          <span>{t('error.generic')}</span>
+          <button type="button" className="link-btn" onClick={() => window.location.reload()}>
+            {t('common.tryAgain')}
+          </button>
+        </div>
+      </main>
+    )
+  }
 }
 
 // Tab stops only: a roving radio group's unpicked options (tabindex -1) are reached with the arrow keys.
