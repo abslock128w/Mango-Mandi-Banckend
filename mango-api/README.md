@@ -343,8 +343,9 @@ below override both.
   closes when the hold ends.
 - **Customer cancels** are allowed until the order is packed. A paid order is refunded
   in full: the refund is requested in the cancel transaction, sent to Razorpay right
-  after, and retried by the maintenance loop until it lands (it checks for an existing
-  refund first, so retries never pay twice). A payment that arrives after the customer
+  after, and retried by the maintenance loop with a growing wait (2 minutes up to an
+  hour, 8 attempts, then a manager settles it; it checks for an existing refund first,
+  so retries never pay twice). Every state and money path: docs/order-states.md. A payment that arrives after the customer
   cancelled is refunded too, and a replayed payment can't revive the order. Staff can
   cancel an unpaid order up to out-for-delivery; a paid one needs a manager and is
   refunded in full. A payment that lands after a staff cancel is refunded, not

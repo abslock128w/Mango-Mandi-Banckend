@@ -367,8 +367,10 @@ API refunds in these cases, because the payment bought nothing:
 
 Every refund is leased and looked up at Razorpay before it is sent, so it is never
 paid twice; each new attempt carries a new receipt (`<number>-r<attempt>`).
-Refunds are sent after the webhook is answered and retried every minute by the
-maintenance job; one stuck for 30 minutes shows in Needs attention.
+Refunds are sent after the webhook is answered; one that fails is sent again by
+the maintenance job after 2, 4, 8, 16, 32 and then 60 minutes, 8 attempts at most,
+then left for a manager ("Refund failed: needs a manager"). One stuck for 30
+minutes shows in Needs attention (docs/order-states.md).
 
 ## Rolling back
 
