@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import jwt from 'jsonwebtoken'
 import { ROLES, roleAllows } from '../src/access.js'
+import { DOC_FILE, renderMatrix } from '../scripts/auth-matrix-doc.js'
 import { router as adminRouter } from '../src/admin.js'
 import { ACCESS_TTL_S } from '../src/auth.js'
 import { addDays, todayIST } from '../src/clock.js'
@@ -157,6 +158,10 @@ describe('staff route × role matrix', () => {
 
   test('the role policy matches the reviewed snapshot (test/fixtures/role-policy.json)', () => {
     assert.deepEqual(currentPolicy(), POLICY, 'who may call which staff route changed: if on purpose, run with UPDATE_ROLE_POLICY=1 and commit the reviewed diff')
+  })
+
+  test('docs/authorization-matrix.md is up to date with the policy and the step-up list', () => {
+    assert.equal(readFileSync(DOC_FILE, 'utf8'), renderMatrix(POLICY), 'the authorization matrix doc is out of date: run node scripts/auth-matrix-doc.js and commit it')
   })
 
   test('an allowlisted route matches only ids in their own format, not any segment', () => {
