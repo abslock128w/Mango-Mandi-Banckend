@@ -140,6 +140,8 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `API_RATE_LIMIT` | `3000` | | requests per 15 minutes from one address before 429. Mobile carriers put many customers behind one address, so keep it high; it only stops floods |
 | `OTP_IP_LIMIT` | leave unset (`200`) | | login-code requests per 15 minutes from one address. High on purpose, for the same carrier-NAT reason: Turnstile, the per-number caps (5 an hour, 16 a day) and `OTP_DAILY_LIMIT` are what stop SMS pumping. Lower it only if Sentry shows one address pumping codes |
 | `METRICS_TOKEN` | not needed | | `/metrics` answers 404 on Vercel; it and `ops/alerts.yml` are for the Docker path only |
+| `OPS_ALERTS` | leave unset (on) | leave unset (on too: previews run as production; the Sentry alert rule only pages for `production`) | the maintenance job's alert checks ([docs/alerts.md](../docs/alerts.md)); `false` turns them off and preflight warns |
+| `SLOW_REQUEST_MS`, `ALERT_API_ERRORS`, `ALERT_SLOW_REQUESTS`, `ALERT_DB_BUSY` | leave unset (2000, 10, 20, 5) | | when an answer counts as slow, and how many errors, slow answers and BUSY answers in 10 minutes raise a warning |
 | `BACKUP_HEARTBEAT_EXPECTED` | `true` once the backup workflow records its heartbeat (see [Backups](#backups-and-restore-drill)) | | Needs attention and Sentry warn when no backup has succeeded for 26 hours |
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
@@ -234,26 +236,50 @@ Then point the webhooks at the API:
 
 | Alert | Goes to (name, phone) | Backup person |
 |-------|-----------------------|---------------|
-| Uptime monitor on `/ready` (SMS/phone) | _fill in_ | _fill in_ |
-| Sentry: new errors, cron monitor `maintenance`, refund failures | _fill in_ | _fill in_ |
+| Better Stack Uptime on `/ready` (phone call and SMS, by the on-call rota) | _fill in_ | _fill in_ |
+| Sentry: the alert rule below (e-mail and Sentry app push), Cron monitor `maintenance` | _fill in_ | _fill in_ |
 | Panel "Needs attention" (checked every morning) | _fill in_ | _fill in_ |
 
-Production refuses to start without `SENTRY_DSN`.
+**What checks the alerts on Vercel.** The maintenance job itself. Every minute it
+reads shared state from Postgres and sends a Sentry warning for each problem, at
+most hourly each: failing steps, overdue messages and refunds, webhook failures,
+API errors, slow answers and a busy database pool (counted per minute in the
+database), ledger drift, a missed backup. Two tools then tell people: **Sentry**
+and **Better Stack Uptime**. `ops/alerts.yml` is for the Docker path only:
+nothing reads it, or `/metrics`, on Vercel. Every alert, what checks it and who
+is told: [docs/alerts.md](../docs/alerts.md). Leave `OPS_ALERTS` unset (on in
+production); preflight warns if it is `false`.
 
-- **Uptime monitor** (Better Stack, UptimeRobot, or Vercel's own): check
-  `https://api.mandimangoes.in/ready` every minute and alert by SMS. It fails when the
-  database is down or the maintenance job has not run for a few minutes.
-- **Sentry cron monitor.** The maintenance job checks in with Sentry on every run, and
-  the first run creates the monitor `maintenance`. In Sentry → **Crons**, open it and
-  turn on an alert for missed and failed check-ins. Together with the uptime monitor,
-  someone hears about a stopped job even if nobody opens the panel.
-- **Sentry** e-mails you on new errors from the API, and warns when login codes reach
-  80% of the day's budget. The maintenance job also sends a Sentry warning (at most
-  hourly each) for overdue messages or refunds, failing webhooks, a missed backup
-  (with `BACKUP_HEARTBEAT_EXPECTED=true`) and stock counters that disagree with the
-  ledger. Set a Sentry alert rule on these warnings, not only on errors. (The
-  Prometheus rules in `ops/alerts.yml` are for the Docker path; nothing reads them
-  on Vercel.)
+**Sentry** (production refuses to start without `SENTRY_DSN`):
+1. **Alerts → Create Alert → Issues**, project `mandi-api`, environment
+   `production`. When: a new issue is created, or an issue changes from resolved
+   to unresolved. If: the event's level is **warning or above** (so the job's
+   warnings count, not only errors). Then: send a notification to the on-call
+   people (a Sentry team with the names above). That is an e-mail, and a push on
+   their phones once each person signs in to the Sentry app and allows issue alert
+   notifications. Name it "On call: production problems".
+2. **Crons → `maintenance`** (the first run creates the monitor; it expects a
+   check-in every minute, with 3 minutes' grace). Turn on its alert for missed and
+   failed check-ins, to the same people. A run with a failed step checks in as
+   failed.
+3. After fixing a problem, mark its Sentry issue **Resolved**. If the problem
+   comes back, the job's next warning reopens it and the rule alerts again.
+   While it lasts, the job repeats the warning hourly (it shows on the issue).
+
+**Better Stack Uptime** (betterstack.com; check that the plan includes 1-minute
+checks, phone calls and SMS):
+1. **Uptime → Monitors → Create monitor**: alert when the URL becomes
+   unavailable, URL `https://api.mandimangoes.in/ready`, checked **every minute**.
+   `/ready` answers 503 when the database is down or the maintenance job has not
+   finished a run for 4 minutes, and nothing at all when the API is down.
+2. On-call: **Who's on-call** (on-call calendar) with the rota from the table
+   above. Escalation: **call and SMS** the person on call at once; if nobody
+   acknowledges within 5 minutes, call the backup person.
+3. Each person installs the Better Stack app or saves its calling number, so the
+   call is not taken for spam. Test the call and the SMS once before launch.
+
+- The same Sentry rule covers new errors from the API, and the warning when login
+  codes reach 80% of the day's budget.
 - **Vercel → Logs** for request logs; **Neon → Monitoring** for database load. Search
   a customer's `X-Request-Id` (`req_…`) to see everything that request did; each
   maintenance run writes one `maintenance run` line with its counts, and slow
@@ -341,7 +367,10 @@ the pass marks; [LOAD-TEST.md](LOAD-TEST.md) covers all five scenarios.
 - [ ] Razorpay test webhooks sent to the staging API confirm orders: pay a test order in
       the staging shop, then in Razorpay → **Webhooks** check the delivery shows 200.
 - [ ] The k6 browse scenario passes against staging (`ops/load/shop.js`).
-- [ ] The Sentry cron monitor and the uptime monitor on `/ready` are set up and alert someone.
+- [ ] The Sentry alert rule (level warning or above), the Sentry cron monitor alert and the
+      Better Stack Uptime monitor on `/ready` are set up ("Watch it"), and each has reached a
+      named person once in a test.
+- [ ] `OPS_ALERTS` is unset or `true` on production (preflight warns when it is `false`).
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
       Set on: _date_.
 - [ ] `mango_app` has `jit = off` and no UPDATE, DELETE or TRUNCATE on `batch_ledger`
