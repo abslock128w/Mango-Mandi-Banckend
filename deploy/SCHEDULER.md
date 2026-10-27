@@ -11,16 +11,27 @@ still waits for the job.
 
 ## Which scheduler
 
-| Hosting | Every-minute trigger | Cost |
-|---------|----------------------|------|
-| Docker / one server (`deploy/README.md`) or the local launcher | Built in: the API runs the job itself every minute. Nothing to set up. | none |
-| Vercel **Pro** | Change `mango-api/vercel.json` `crons[0].schedule` to `* * * * *`. | Pro plan |
-| Vercel **Hobby** | An external pinger (below). `vercel.json` keeps a once-a-day Vercel Cron (03:00 IST) as a backstop, which Hobby allows. | free |
+**Production runs on Vercel Pro and uses Vercel's own every-minute cron.** Vercel's
+Hobby plan is for personal, non-commercial use, and a free pinger promises nothing
+about staying up, so neither is acceptable for the live shop. Hobby with a pinger is
+fine for a staging copy or a demo.
+
+| Hosting | Every-minute trigger | Use it for |
+|---------|----------------------|------------|
+| Vercel **Pro** | Vercel Cron. After upgrading, change `mango-api/vercel.json` `crons[0].schedule` from `30 21 * * *` to `* * * * *` and deploy. | production |
+| Docker / one server (`deploy/README.md`) or the local launcher | Built in: the API runs the job itself every minute. Nothing to set up. | the alternative to Vercel; local demo |
+| Vercel **Hobby** | An external pinger (below). `vercel.json` keeps a once-a-day Vercel Cron (03:00 IST) as a backstop, which Hobby allows. | staging, demos |
 
 Hobby refuses to deploy a project whose cron runs more than once a day, which is
-why `vercel.json` ships with the daily schedule.
+why `vercel.json` ships with the daily schedule until the Pro upgrade. Vercel Pro
+is billed per team member each month (see vercel.com/pricing); it also lifts the
+function time and log retention limits that Hobby has.
 
-## External pinger (Vercel Hobby)
+After the switch, check it the same way as below: a `GET /internal/maintenance 200`
+line every minute in Vercel → Logs, `/ready` answering `{"ready":true,...}`, and the
+Sentry cron monitor `maintenance` showing a check-in every minute.
+
+## External pinger (staging or a demo on Vercel Hobby)
 
 Any service that can call a URL every minute with a custom header works, for
 example cron-job.org (free). Set it up like this:
@@ -40,6 +51,8 @@ A wrong secret shows as 401 in the logs and `/ready` turns 503 after 4 minutes.
 Two runs at once are safe: the job takes a lease in the database (`job_leases`)
 and the second run returns `{"skipped":true}`. A run killed at Vercel's 60-second
 limit loses its lease after 65 seconds, so the next minute's run goes ahead.
+The pinger and Vercel Cron can both run after the upgrade; keep the pinger until
+the first week on Pro has shown a check-in every minute, then turn it off.
 
 ## What records each run
 

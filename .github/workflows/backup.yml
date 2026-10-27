@@ -1,4 +1,6 @@
-# Nightly encrypted copy of the production database, kept outside Neon.
+# Nightly encrypted copy of the production database, kept outside Neon: in this
+# repository's GitHub Actions artifact storage (Actions > Backup > a run > Artifacts),
+# on GitHub's servers, apart from Neon and Vercel.
 # Neon's own history covers its restore window (1 day by default on paid
 # plans; deploy/VERCEL.md step 1.5 raises it to 7); this covers Neon itself
 # being unavailable, or a mistake noticed after the history window.

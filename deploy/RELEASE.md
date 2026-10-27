@@ -194,7 +194,7 @@ Then, by hand (5 minutes):
 
 | What | How | Good looks like |
 |------|-----|-----------------|
-| Scheduler | Vercel → `mandi-api` → Logs, filter `/internal/maintenance` | a `200` every minute (Pro cron or the external pinger, deploy/SCHEDULER.md); never `401` |
+| Scheduler | Vercel → `mandi-api` → Logs, filter `/internal/maintenance` | a `200` every minute (Vercel Pro cron in production; the pinger only on staging, deploy/SCHEDULER.md); never `401` |
 | Sentry cron monitor | Sentry → Crons → `maintenance` | check-ins every minute, status OK |
 | Webhooks | Razorpay → Webhooks → the production webhook → recent deliveries | 200s after the deploy time (if any payment happened); none `4xx` |
 | WhatsApp webhook | Meta app → WhatsApp → Configuration | callback verified (green) |

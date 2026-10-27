@@ -319,8 +319,10 @@ Effect: payment checks, refund retries, WhatsApp messages and the stock audit
 wait. Checkout still works (it releases expired holds itself, SCHEDULER.md).
 Owner:
 1. Vercel → `mandi-api` → Logs, path `/internal/maintenance`:
-   - **no requests**: the pinger stopped (cron-job.org: is the job enabled, did it
-     send a failure e-mail?) or, on Pro, `vercel.json`'s cron is not `* * * * *`;
+   - **no requests**: in production (Vercel Pro), `mango-api/vercel.json`'s cron is
+     not `* * * * *`, or Vercel → `mandi-api` → Settings → **Cron Jobs** shows it
+     turned off; on staging (Hobby), the pinger stopped (cron-job.org: is the job
+     enabled, did it send a failure e-mail?);
    - **401**: `CRON_SECRET` differs between Vercel and the pinger (after a rotation);
    - **500**: the run fails: Sentry has the error; a step failing does not stop the
      tick, so a 500 means the run itself (often the database);

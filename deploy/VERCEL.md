@@ -17,9 +17,11 @@ The API runs in Singapore (`sin1`), next to the database.
 
 ## What you need first
 
-- [ ] **An every-minute scheduler** for the maintenance job: Vercel Pro, or on
-  Hobby a free external pinger such as cron-job.org. See [SCHEDULER.md](SCHEDULER.md).
-  Without it, payment checks, refund retries and WhatsApp messages stall.
+- [ ] **Vercel Pro** for production, with its every-minute cron for the maintenance
+  job ([SCHEDULER.md](SCHEDULER.md)). Vercel's Hobby plan is for non-commercial use,
+  and a free pinger promises nothing, so Hobby with a pinger is for staging and demos
+  only. Without the every-minute job, payment checks, refund retries and WhatsApp
+  messages stall. Dated plan for this and every other item: [GO-LIVE.md](GO-LIVE.md).
 - [ ] **Neon** account (the Launch plan is enough to start).
 - [ ] **A domain**, e.g. `mandimangoes.in`, with access to its DNS.
 - [ ] **Razorpay live account** with KYC done. Jio DLT and Meta WhatsApp approval
@@ -97,6 +99,10 @@ API refuses to use it; production refuses `staging` the same way.
 For each row in the table above: **Add New → Project**, import this GitHub
 repository, set the **Root Directory**, and leave the build settings as detected.
 Then add the domain under **Settings → Domains** and the DNS record Vercel shows.
+
+All three run on **Node.js 24**. `mandi-api` and `mandi-admin` take it from their
+`package.json` (`engines`); `mandi-shop` has no `package.json` of its own, so set it
+under **Settings → Build and Deployment → Node.js Version → 24.x**.
 
 Put the shop and the panel on the same domain as the API (`mandimangoes.in`,
 `ops.mandimangoes.in`, `api.mandimangoes.in`). The sign-in cookie then works with
@@ -284,7 +290,13 @@ Production refuses to start without `SENTRY_DSN`.
   whether that is acceptable or a scheduled copy of the store is needed.
 - **Nightly encrypted copy off Neon.** The GitHub Actions workflow
   [`backup.yml`](../.github/workflows/backup.yml) runs `ops/backup.sh` at 03:00 IST,
-  encrypts the dump with your GPG public key and keeps it 30 days. Set it up once:
+  encrypts the dump with your GPG public key and keeps it 30 days.
+  **Where the copies live:** in the repository's GitHub Actions artifact storage
+  (GitHub → Actions → **Backup** → a run → **Artifacts**), on GitHub's servers, apart
+  from Neon and Vercel. Once the repository is in the client's GitHub organisation
+  (deploy/GO-LIVE.md, item 2) the copies belong to the client. Only the holder of the
+  GPG private key can read them. A copy is a few megabytes; check the Actions storage
+  used under the organisation's **Settings → Billing** once a month. Set it up once:
   1. Make a read-only Neon role and copy its **direct** connection string. Tables
      that later migrations add must be readable too, or the first new table stops
      every backup with "permission denied":
