@@ -173,13 +173,17 @@ open a dialog that names the consequence before it runs.
 - **Offline** → a banner appears until the connection returns.
 - **A request failed** → a Retry button, not a dead screen.
 - **A screen crashes** → an error card with Reload; the nav survives.
+- **Any crash or uncaught error** → reported to Sentry when the build sets
+  `VITE_SENTRY_DSN`, without customers' phone numbers, addresses or search words
+  (deploy/VERCEL.md, "Error reports from the shop and the panel").
 - Unknown URLs show a Not-found page.
 
 ## 7. Security
 
 - Access token kept in memory only — never stored, never logged.
 - Refresh token in an httpOnly cookie set by the backend.
-- No customer data in URLs or logs beyond order numbers.
+- No customer data in URLs or logs beyond order numbers. Error reports to Sentry mask
+  phone numbers, e-mails and codes, drop query strings, and carry no text from the page.
 - All API text is rendered as plain text; the app ships no third-party scripts.
 - Use HTTPS in production and set the API's `ADMIN_ORIGIN` to the panel's host.
 - Riders see only the stops given to them. Managers and operators give stops (one, or a whole

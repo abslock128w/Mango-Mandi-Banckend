@@ -9,9 +9,10 @@ logins; usually also the developer on call), **Manager** (panel role MANAGER),
 **Operator** (panel role OPERATOR; managers can do everything operators can).
 
 **Where alerts come from** (deploy/VERCEL.md "Watch it"): the uptime monitor on
-`/ready`, Sentry (errors, the `maintenance` cron monitor, and the warnings the
-maintenance job sends at most hourly, `src/maintenance.js` `checkHealth` and
-`runAudit`), and the panel's **Needs attention** card on Today
+`/ready`, Sentry (the API's errors, errors in the shop and the panel, the
+`maintenance` cron monitor, and the warnings the maintenance job sends at most
+hourly, `src/maintenance.js` `checkHealth` and `runAudit`), and the panel's
+**Needs attention** card on Today
 (`GET /admin/v1/attention`, `src/admin/reports.js:96`; shown by
 `src/pages/NeedsAttention.tsx`).
 
