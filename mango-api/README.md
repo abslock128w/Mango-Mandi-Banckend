@@ -588,11 +588,19 @@ generated [docs/authorization-matrix.md](../docs/authorization-matrix.md).
   ([`src/retention.js`](src/retention.js)), up to 5,000 a run. Once a day, orders delivered,
   cancelled or returned more than `PII_RETENTION_MONTHS` (default 12) months ago lose the
   customer's name, phone, address and gift details, and their delivery attempts lose who took
-  the box and the rider's location; amounts, items and tax fields stay for the books. Orders
-  with money still owed back wait until it is paid. The same run deletes those orders' photos:
-  the rider's delivery photos, and the photos on their problem reports once the report is
-  resolved (from Vercel Blob and from the row). The shop's privacy notice states the 12
-  months: change it there too if you change `PII_RETENTION_MONTHS`.
+  the box and the rider's location; amounts, items, tax fields, payment and refund ids stay
+  for the books. Orders with money still owed back wait until it is paid. The same run deletes
+  those orders' photos: the rider's delivery photos, and the photos on their problem reports
+  once the report is resolved (from Vercel Blob and from the row). The shop's privacy notice
+  states the 12 months: change it there too if you change `PII_RETENTION_MONTHS`.
+- **Bills are kept longer.** Neither that run nor account deletion touches bills: tax law
+  needs them kept as issued. A bill keeps the buyer's name and delivery address for
+  `BILL_RETENTION_MONTHS` (default 96, 8 years from the bill date); then the same daily run
+  removes them, up to 5,000 bills a day. Resolved Razorpay webhook problems are kept as long.
+  Production refuses a value under 72 and warns under 96. **The client's CA must confirm the
+  period** ([docs/trust.md](../docs/trust.md#how-long-bills-are-kept) has the law and a table
+  of what every cleanup removes). The privacy notice and the account page say 8 years: change
+  them too if you change it.
 - **Erasure and export.** Customers delete their account in the shop (`DELETE /v1/me`) and
   download what we hold about them (`GET /v1/me/export`, JSON). For a deletion request that
   arrives by email or WhatsApp, check it comes from the number's owner, then run

@@ -2,19 +2,22 @@
 // per financial year taken under a row lock, a snapshot that later edits
 // never change, the document's title from the seller settings, business
 // details checked at checkout, the PDF for the owner and for managers and
-// operators (audited), and a cancelled order's bill kept and marked.
+// operators (audited), a cancelled order's bill kept and marked, and the
+// buyer's name and address kept on the bill for BILL_RETENTION_MONTHS whatever
+// the order's 12-month retention or an account deletion removes.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
 import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
-import { BILL_CATCH_UP_DAYS, billable, billNumber, composeBill, financialYear, issueBill, issueMissingBills, reconcileBills, removeBillBuyers } from '../src/bills.js'
+import { BILL_CATCH_UP_DAYS, billable, billNumber, composeBill, financialYear, issueBill, issueMissingBills, reconcileBills } from '../src/bills.js'
 import { billPdf, printable, rupees } from '../src/bill-pdf.js'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
 import { gstinCheckChar, gstinProblem } from '../src/gstin.js'
 import { newId } from '../src/ids.js'
 import { runMaintenance, runPreorderJobs } from '../src/maintenance.js'
+import { anonymiseOldOrders, removeOldBillBuyers } from '../src/retention.js'
 import { checkTrustProduction, readTrustConfig, setTrustConfig, trust } from '../src/trust-config.js'
 
 let srv
@@ -429,7 +432,7 @@ describe('issuing bills', () => {
     assert.match(text, /Rs\. 15,990\.00/)
   })
 
-  test('a paid order without a bill is billed by the maintenance step; privacy removes the buyer but keeps the bill', async () => {
+  test('a paid order without a bill is billed by the maintenance step; the buyer leaves the bill only after BILL_RETENTION_MONTHS', async () => {
     setTrustConfig({ BILLS_ENABLED: 'false' })
     const { orderId } = await paidOrder()
     setTrustConfig({})
@@ -438,14 +441,62 @@ describe('issuing bills', () => {
     assert.equal(await issueMissingBills(), 0, 'only once')
     const b = await billRow(orderId)
     assert.equal(b.buyer_name, 'Ravi Kumar')
-    await removeBillBuyers({ query }, 'SELECT $1::text', [orderId])
+    // 96 months (the default) from the bill date: the last day it is kept, then the day after.
+    const eightYearsOn = `${Number(b.bill_date.slice(0, 4)) + 8}${b.bill_date.slice(4)}`
+    const noonIST = (day) => new Date(`${day}T06:30:00Z`)
+    assert.equal(await removeOldBillBuyers(noonIST(addDays(eightYearsOn, -40))), 0)
+    assert.equal(await removeOldBillBuyers(noonIST(eightYearsOn)), 0, 'still within 96 months of the bill date')
+    assert.equal((await billRow(orderId)).buyer_name, 'Ravi Kumar')
+    assert.equal(await removeOldBillBuyers(noonIST(addDays(eightYearsOn, 1))), 1)
+    assert.equal(await removeOldBillBuyers(noonIST(addDays(eightYearsOn, 1))), 0, 'once only')
     const gone = await billRow(orderId)
     assert.equal(gone.buyer_name, null)
     assert.equal(gone.buyer_address, null)
+    assert.ok(gone.buyer_removed_at)
     assert.equal(gone.number, b.number)
+    assert.equal(gone.total, b.total)
     const text = pdfText(billPdf(gone))
     assert.match(text, /removed \(privacy\)/)
     assert.ok(!text.includes('Ravi Kumar'))
+    assert.ok(text.includes(b.number), 'the number, lines and amounts stay')
+  })
+
+  test('12 months after delivery, and after the account is deleted, the bill still prints the buyer; exports keep their bill columns', async () => {
+    const { orderId, cust } = await paidOrder(1, { business: { name: 'Tasty Caterers Pvt Ltd', gstin: BUYER_GSTIN } })
+    const b = await billRow(orderId)
+    assert.equal(b.buyer_address, `${ADDRESS}, 560034`)
+    const issued = await download(`/v1/orders/${orderId}/bill`, cust.accessToken)
+    const printed = pdfText(issued.body)
+    assert.ok(printed.includes('Ravi Kumar') && printed.includes('Koramangala'), printed)
+
+    // Delivered well over 12 months ago: the order's own copy of the name, phone and address goes.
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED', delivery_date = $2 WHERE id = $1`, [orderId, addDays(todayIST(), -400)])
+    assert.equal(await anonymiseOldOrders(), 1)
+    const o = (await query('SELECT * FROM orders WHERE id = $1', [orderId])).rows[0]
+    for (const k of ['customer_name', 'phone', 'delivery_address']) assert.equal(o[k], null, k)
+    assert.ok(o.pii_removed_at)
+    // The bill keeps everything printed on it, so a reprint is the same file, for the customer and for staff.
+    const kept = await billRow(orderId)
+    assert.deepEqual([kept.buyer_name, kept.buyer_address, kept.buyer_removed_at], ['Ravi Kumar', `${ADDRESS}, 560034`, null])
+    assert.deepEqual((await download(`/v1/orders/${orderId}/bill`, cust.accessToken)).body, issued.body, 'byte for byte the bill as issued')
+    const staffCopy = pdfText((await download(`/admin/v1/orders/${orderId}/bill`, manager)).body)
+    assert.ok(staffCopy.includes('Ravi Kumar') && staffCopy.includes('Koramangala') && !staffCopy.includes('removed (privacy)'), staffCopy)
+    // The maintenance run's bills step no longer takes the buyer off an anonymised order's bill.
+    await runMaintenance({ forceAll: true })
+    assert.equal((await billRow(orderId)).buyer_name, 'Ravi Kumar')
+
+    // The orders export reads the bill and the business details, none of which the retention pass clears.
+    const today = todayIST()
+    const csv = await (await fetch(`${srv.base}/admin/v1/exports/orders?from=${today}&to=${today}`, { headers: { Authorization: `Bearer ${manager}` } })).text()
+    const [head, row] = csv.split('\r\n')
+    for (const col of ['bill_number', 'bill_cancelled', 'pincode', 'business_name', 'business_gstin']) assert.ok(head.includes(col), `${col} in ${head}`)
+    for (const v of [b.number, '560034', 'Tasty Caterers Pvt Ltd', BUYER_GSTIN]) assert.ok(row.includes(v), `${v} in ${row}`)
+
+    // Deleting the account leaves the bill as issued too.
+    assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
+    const deleted = await billRow(orderId)
+    assert.deepEqual([deleted.buyer_name, deleted.buyer_address, deleted.buyer_removed_at], ['Ravi Kumar', `${ADDRESS}, 560034`, null])
+    assert.ok(pdfText((await download(`/admin/v1/orders/${orderId}/bill`, manager)).body).includes('Ravi Kumar'))
   })
 
   test('a paid preorder that becomes an order is billed by the maintenance run', async () => {
@@ -504,7 +555,7 @@ describe('issuing bills', () => {
     assert.equal((await billRow(id)).number, 'MM/26-27/000001')
   })
 
-  test('bills catch up with cancels and privacy removals another release made without them', async () => {
+  test('bills catch up with cancels another release made without them; its privacy removals leave bills as issued', async () => {
     const a = await paidOrder()
     const b = await paidOrder()
     const c3 = await paidOrder()
@@ -524,15 +575,15 @@ describe('issuing bills', () => {
     assert.equal(ba.cancel_reason, 'cancelled by the shop')
     assert.ok(!pdfText(billPdf(ba)).includes('INTERNAL'))
     assert.equal((await billRow(b.orderId)).cancel_reason, 'cancelled by the buyer')
-    for (const x of [c3, d]) {
+    // Tax law needs the bill as issued: an anonymised order or a deleted account keeps its bill's buyer.
+    for (const x of [a, c3, d]) {
       const row = await billRow(x.orderId)
-      assert.equal(row.buyer_name, null)
-      assert.equal(row.buyer_address, null)
-      assert.ok(row.buyer_removed_at)
-      assert.equal(row.cancelled_at, null)
+      assert.equal(row.buyer_name, 'Ravi Kumar')
+      assert.equal(row.buyer_address, `${ADDRESS}, 560034`)
+      assert.equal(row.buyer_removed_at, null)
     }
-    assert.equal((await billRow(a.orderId)).buyer_name, 'Ravi Kumar', 'only the removed ones lose their buyer')
-    assert.deepEqual(await reconcileBills(), { cancelled: 0, buyersRemoved: 0 })
+    for (const x of [c3, d]) assert.equal((await billRow(x.orderId)).cancelled_at, null)
+    assert.deepEqual(await reconcileBills(), { cancelled: 0 })
   })
 
   test('switched off: no bill is issued and the downloads answer 404', async () => {

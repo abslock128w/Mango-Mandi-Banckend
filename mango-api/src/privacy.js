@@ -5,7 +5,6 @@ import { now } from './clock.js'
 import { conflict, notFound } from './errors.js'
 import { scrubCustomerReviews } from './reviews.js'
 import { ORDER_AUDIT_PERSONAL_KEYS } from './access.js'
-import { removeBillBuyers } from './bills.js'
 
 /**
  * SEC-R3: the staff audit rows of these orders lose the delivery details they
@@ -45,9 +44,13 @@ export async function hasOpenBusiness(c, customerId) {
 
 /**
  * Removes the customer's name, phone, email, addresses, notes and photos from
- * the account, its orders, bookings and claims. Orders keep their amounts for
- * the books. Returns the stored photos to drop after commit. `force` skips the
- * open-business check (re-applying a deletion that already happened once).
+ * the account, its orders, bookings and claims. Orders keep their amounts,
+ * payment and refund ids for the books. Bills are not touched: tax law needs
+ * them kept as issued, with the buyer's name and address, for
+ * BILL_RETENTION_MONTHS after the bill date (retention.js removeOldBillBuyers
+ * takes the name and address off after that; docs/trust.md). Returns the
+ * stored photos to drop after commit. `force` skips the open-business check
+ * (re-applying a deletion that already happened once).
  */
 export async function eraseCustomer(c, customerId, { force = false, deletedAt = now() } = {}) {
   const { rows } = await c.query('SELECT id, phone FROM customers WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [customerId])
@@ -65,8 +68,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
     [me.id],
   )
   await scrubOrderAudit(c, `SELECT id FROM orders WHERE customer_id = $1`, [me.id])
-  // Their bills keep the number, lines and amounts (and any business name and GSTIN) for the books.
-  await removeBillBuyers(c, `SELECT id FROM orders WHERE customer_id = $1`, [me.id], deletedAt)
+  // Their bills stay exactly as issued, name and address included, until BILL_RETENTION_MONTHS after the bill date.
   const deliveryPics = await c.query(
     `SELECT blob_path FROM delivery_photos WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL FOR UPDATE`,
     [me.id],
