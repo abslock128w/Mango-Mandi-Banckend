@@ -16,7 +16,7 @@
 // Suggested boxes for a product = its short boxes / (1 - expected waste), rounded up.
 import { addDays, diffDays, todayIST } from './clock.js'
 import { getConfig } from './config.js'
-import { sellableAs, sellableQty, sellableRows } from './inventory.js'
+import { saleLimitDays, sellableAs, sellableQty, sellableRows } from './inventory.js'
 import { allProducts, shopProducts } from './products.js'
 import { STAGES, stageFor } from './stage.js'
 
@@ -241,7 +241,7 @@ export async function stockForecast(c, today = todayIST()) {
     const firmShort = shortDays.filter((x) => !x.fromHistory).reduce((n, x) => n + x.boxes, 0)
     const suggested = enoughHistory ? Math.ceil(shortBoxes / (1 - w.rate) - 1e-9) : null
     const batches = lines.map((l) => {
-      const sellableUntil = addDays(l.pluckedOn, cfg.maxSellableAge)
+      const sellableUntil = addDays(l.pluckedOn, saleLimitDays(l.sku, cfg))
       const lastDay = [...l.byDate.keys()].at(-1)
       const leftAtEnd = lastDay ? Math.max(0, Math.floor(l.byDate.get(lastDay).free * (1 - w.rate)) - l.used) : 0
       return {

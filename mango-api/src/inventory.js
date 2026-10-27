@@ -6,9 +6,10 @@
 // CONDEMN and RETIRE rows, so their sum must equal on_hand. held and committed
 // must equal the order_stock rows in those states. The nightly audit checks both.
 import { getConfig } from './config.js'
-import { addDays, now, todayIST } from './clock.js'
+import { addDays, diffDays, now, todayIST } from './clock.js'
 import { env } from './env.js'
 import { newId } from './ids.js'
+import { findProduct } from './products.js'
 import { stageFor } from './stage.js'
 
 export const SELLABLE_STATUSES = ['IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING']
@@ -46,6 +47,16 @@ const lineSelect = (atParam) => `
     ) x ON TRUE`
 
 /**
+ * The oldest a box of `sku` may be (days from pluck) on its delivery date:
+ * the shop-wide maxSellableAge, or the product's shelf_life_days when that
+ * is shorter. Day N of the limit still sells; day N + 1 does not.
+ */
+export function saleLimitDays(sku, cfg = getConfig()) {
+  const life = findProduct(sku)?.shelfLifeDays
+  return life == null ? cfg.maxSellableAge : Math.min(cfg.maxSellableAge, life)
+}
+
+/**
  * Whether a line's batch can be sold for a delivery date, and as what.
  * Returns { stage, factor } or null. `existing` checks stock that is already
  * allocated rather than a new sale. `factor` scales on_hand: in-transit stock
@@ -54,6 +65,8 @@ const lineSelect = (atParam) => `
 export function sellableAs(row, deliveryDate, cfg = getConfig(), { existing = false } = {}) {
   if (!SELLABLE_STATUSES.includes(row.status)) return null
   if (row.condition === 'REJECT') return null
+  // The product's own shelf life can be shorter than the shop-wide cap that stageFor applies.
+  if (diffDays(deliveryDate, row.plucked_on) > saleLimitDays(row.sku, cfg)) return null
   let factor = 1
   if (PHYSICAL_STATUSES.includes(row.status)) {
     // New sales need an intake QC first. Stock already promised while the
