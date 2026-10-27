@@ -7,8 +7,6 @@
 // variety names, addresses and anything else from the database are never looked up
 // here: they stay as the shop team entered them.
 import { en } from './i18n/en.ts'
-import { hi } from './i18n/hi.ts'
-import { kn } from './i18n/kn.ts'
 
 export type Lang = 'en' | 'hi' | 'kn'
 export type Entry = string | { one: string; other: string }
@@ -17,7 +15,36 @@ export type Dict = Record<Key, Entry>
 export type Vars = Record<string, string | number>
 
 export const LANGS: Lang[] = ['en', 'hi', 'kn']
-export const DICTS: Record<Lang, Dict> = { en, hi, kn }
+/**
+ * English is always here. Hindi and Kannada are separate files fetched the first time a
+ * customer picks them (loadLang), so the first download stays small for everyone else.
+ */
+export const DICTS: Partial<Record<Lang, Dict>> = { en }
+const loaders: Record<Exclude<Lang, 'en'>, () => Promise<Dict>> = {
+  hi: () => import('./i18n/hi.ts').then((m) => m.hi),
+  kn: () => import('./i18n/kn.ts').then((m) => m.kn),
+}
+const loading = new Map<Lang, Promise<void>>()
+/** True once `lang`'s words are here (English always is). */
+export const isLoaded = (lang: Lang) => DICTS[lang] !== undefined
+/** Fetches `lang`'s words once; later calls share the same request. A failed fetch can be retried. */
+export function loadLang(lang: Lang): Promise<void> {
+  if (lang === 'en' || isLoaded(lang)) return Promise.resolve()
+  let p = loading.get(lang)
+  if (!p) {
+    p = loaders[lang]().then(
+      (dict) => {
+        DICTS[lang] = dict
+      },
+      (err: unknown) => {
+        loading.delete(lang)
+        throw err
+      },
+    )
+    loading.set(lang, p)
+  }
+  return p
+}
 /** Each language's name in its own script, as the language control shows it. */
 export const LANG_NAMES: Record<Lang, string> = { en: 'English', hi: 'हिन्दी', kn: 'ಕನ್ನಡ' }
 /** Dates and money: Indian formats, with Latin digits (0-9) in every language. */
@@ -50,9 +77,9 @@ export function fill(text: string, vars?: Vars): string {
   return text.replace(/\{(\w+)\}/g, (all, name: string) => (Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : all))
 }
 
-/** The entry's text in `lang` (English when that dictionary lacks it), with the plural form for vars.count. */
+/** The entry's text in `lang` (English when that dictionary lacks it or is not loaded yet), with the plural form for vars.count. */
 export function translate(lang: Lang, key: Key, vars?: Vars): string {
-  const entry = DICTS[lang][key] ?? en[key]
+  const entry = DICTS[lang]?.[key] ?? en[key]
   if (typeof entry === 'string') return fill(entry, vars)
   const n = Number(vars?.count ?? 0)
   return fill(entry[pluralForm(lang, n)], vars)

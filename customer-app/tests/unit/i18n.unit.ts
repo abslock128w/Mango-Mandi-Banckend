@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DICTS, fill, isLang, LANGS, LOCALES, placeholders, translate, type Key } from '../../src/i18n-core.ts'
+import { DICTS, fill, isLang, isLoaded, LANGS, loadLang, LOCALES, placeholders, translate, type Key } from '../../src/i18n-core.ts'
 import { en } from '../../src/i18n/en.ts'
+import { hi } from '../../src/i18n/hi.ts'
+import { kn } from '../../src/i18n/kn.ts'
+
+const dicts = { hi, kn }
 
 // The shop's dictionaries (SHOP_LANGUAGES, docs/languages.md): Hindi and Kannada have exactly
 // the English keys, with the same {placeholders} and the same shape (plain or { one, other }),
@@ -11,7 +15,7 @@ const keys = Object.keys(en).sort()
 
 for (const lang of ['hi', 'kn'] as const) {
   test(`${lang} has exactly the English keys`, () => {
-    const have = Object.keys(DICTS[lang]).sort()
+    const have = Object.keys(dicts[lang]).sort()
     assert.deepEqual(
       keys.filter((k) => !have.includes(k)),
       [],
@@ -28,7 +32,7 @@ for (const lang of ['hi', 'kn'] as const) {
     const wrong: string[] = []
     for (const k of keys as Key[]) {
       const source = en[k]
-      const entry = DICTS[lang][k]
+      const entry = dicts[lang][k]
       if (typeof source !== typeof entry) wrong.push(`${k}: ${typeof source === 'string' ? 'plain' : 'plural'} in English`)
       else if (placeholders(source).join() !== placeholders(entry).join()) wrong.push(`${k}: {${placeholders(source).join('}, {')}} in English, {${placeholders(entry).join('}, {')}} in ${lang}`)
       for (const text of typeof entry === 'string' ? [entry] : [entry.one, entry.other]) {
@@ -45,7 +49,7 @@ for (const lang of ['hi', 'kn'] as const) {
     // codes or the brand ("{label}, {from}"…) are the only ones allowed to match English.
     const script = lang === 'hi' ? /[ऀ-ॿ]/ : /[ಀ-೿]/
     const copied = (keys as Key[]).filter((k) => {
-      const entry = DICTS[lang][k]
+      const entry = dicts[lang][k]
       const text = typeof entry === 'string' ? entry : `${entry.one} ${entry.other}`
       return !script.test(text) && /[A-Za-z]{3,}/.test(text.replace(/\{\w+\}/g, '').replace(/MandiMangoes|GSTIN|WhatsApp|Razorpay|PDF|CSV|UPI/g, ''))
     })
@@ -63,7 +67,18 @@ test('placeholders are filled, and a missing one stays visible instead of vanish
   assert.equal(fill('{toString}', {}), '{toString}')
 })
 
-test('plural forms follow each language’s rules for the count', () => {
+test('Hindi and Kannada load on demand; until then their words fall back to English', async () => {
+  assert.equal(isLoaded('en'), true)
+  assert.equal(isLoaded('hi'), false)
+  assert.equal(translate('hi', 'nav.cart'), translate('en', 'nav.cart'))
+  await Promise.all([loadLang('hi'), loadLang('hi'), loadLang('kn')])
+  assert.equal(isLoaded('hi'), true)
+  assert.equal(DICTS.hi, hi)
+  assert.equal(DICTS.kn, kn)
+})
+
+test('plural forms follow each language’s rules for the count', async () => {
+  await Promise.all([loadLang('hi'), loadLang('kn')])
   assert.equal(translate('en', 'common.boxes', { count: 1 }), '1 box')
   assert.equal(translate('en', 'common.boxes', { count: 2 }), '2 boxes')
   assert.equal(translate('en', 'common.boxes', { count: 0 }), '0 boxes')

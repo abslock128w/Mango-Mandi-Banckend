@@ -7,7 +7,7 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api, errorMessage } from './api'
 import { useFeatures } from './features'
-import { currentLang, isLang, LANG_NAMES, LANGS, setCurrentLang, translate, type Key, type Lang, type Vars } from './i18n-core.ts'
+import { currentLang, isLang, isLoaded, LANG_NAMES, LANGS, loadLang, setCurrentLang, translate, type Key, type Lang, type Vars } from './i18n-core.ts'
 import { useStore } from './store'
 
 export { LANG_NAMES, LANGS, type Key, type Lang }
@@ -48,7 +48,26 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const { profile } = useStore()
   const [chosen, setChosen] = useState<Lang>(() => storedLang() ?? 'en')
   const [error, setError] = useState<string | null>(null)
-  const lang: Lang = available ? chosen : 'en'
+  // Hindi and Kannada arrive as separate files: until the chosen one is here the shop keeps
+  // showing English, then redraws once it lands (loaded counts the files that arrived).
+  const [, setLoaded] = useState(0)
+  const wanted: Lang = available ? chosen : 'en'
+  const lang: Lang = isLoaded(wanted) ? wanted : 'en'
+  useEffect(() => {
+    if (isLoaded(wanted)) return
+    let live = true
+    loadLang(wanted).then(
+      () => {
+        if (live) setLoaded((n) => n + 1)
+      },
+      (e: unknown) => {
+        if (live) setError(errorMessage(e))
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [wanted])
   // Set while rendering, before any child renders, so helpers outside React (dates, money,
   // status names) read the same language as the components that call them.
   if (currentLang() !== lang) setCurrentLang(lang)
