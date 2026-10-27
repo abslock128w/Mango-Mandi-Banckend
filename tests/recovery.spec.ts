@@ -143,3 +143,15 @@ test('Staff: a manager signs out all staff with a reason, keeping their own sess
   await expect.poll(() => state.calls.find((c) => c.path === '/staff/sign-out-all')?.body).toEqual({ reason: 'a laptop was stolen', keepMe: true })
   await expect(page.getByText('3 people signed out')).toBeVisible()
 })
+
+test('box check: a warehouse whose labelled boxes disagree with the counts is listed with a link to its reports', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = {
+    ...state.attention,
+    boxMismatches: [{ warehouseId: 'wh_main', name: 'Main warehouse', stockMismatches: 2, orderUnitMismatches: 0, impossibleStates: 1, lotCountMismatches: 0 }],
+  }
+  await page.goto('/')
+  const item = card(page).getByRole('listitem').filter({ hasText: 'Labelled boxes disagree with the stock counts' })
+  await expect(item).toContainText('in Main warehouse (2 stock lines, 1 box in a wrong state)')
+  await expect(item.getByRole('link', { name: 'Warehouse reports' })).toHaveAttribute('href', '/warehouse/reports')
+})

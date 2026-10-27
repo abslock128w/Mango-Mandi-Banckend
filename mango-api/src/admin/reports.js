@@ -14,6 +14,7 @@ import { backupStatus } from '../maintenance.js'
 import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
+import { boxCheck } from '../warehouse/reports.js'
 import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 
 export const router = express.Router()
@@ -111,7 +112,7 @@ router.get(
  */
 export function attentionCount(a) {
   const lists = [
-    a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.preorderCapacityDrift,
+    a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.boxMismatches, a.preorderCapacityDrift,
     a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.disputes, a.webhookFailures,
   ]
   return (a.loop.stale ? 1 : 0) + (a.backup?.stale ? 1 : 0) + (a.lowRatings.length ? 1 : 0) + lists.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0)
@@ -120,7 +121,7 @@ export function attentionCount(a) {
 /** Everything the Needs attention view lists (GET /attention; the managers' daily summary counts it). */
 export async function attentionReport(at = now()) {
   const week = new Date(at.getTime() - 7 * 86_400_000)
-  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks] = await Promise.all([
+  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks, boxes] = await Promise.all([
     query('SELECT * FROM maintenance_runs ORDER BY step'),
     query(
       `SELECT n.id, n.kind, n.status, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -210,6 +211,8 @@ export async function attentionReport(at = now()) {
     // INV-06, INV-08: preorder capacity counters that drifted, and trucks late to arrive.
     preorderCapacityDrift({ query }, 50),
     lateArrivals({ query }, at),
+    // Labelled boxes that disagree with the counters, per warehouse (the hourly box check, docs/warehouse/STOCK.md).
+    env.WAREHOUSE_V2 ? boxCheck({ query }) : [],
   ])
   const tick = runs.rows.find((r) => r.step === 'tick')
   return {
@@ -246,6 +249,7 @@ export async function attentionReport(at = now()) {
       order: d.order_id ? { id: d.order_id, number: d.order_number } : null, preorderNumber: d.preorder_number,
     })),
     ledgerDrift: drift.slice(0, 50),
+    boxMismatches: boxes.map(({ sample: _sample, ...w }) => w),
     preorderCapacityDrift: preorderDrift,
     // sellingPaused: STOCK_INTAKE_CHECKS is on, so their stock no longer sells to new orders.
     lateArrivals: lateTrucks.map((b) => ({ ...b, sellingPaused: env.STOCK_INTAKE_CHECKS })),
