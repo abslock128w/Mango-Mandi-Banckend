@@ -10,6 +10,7 @@ import { query } from '../src/db.js'
 import { env } from '../src/env.js'
 import { useGoogleKeys } from '../src/google.js'
 import { isCommonPassword } from '../src/passwords.js'
+import { usePhotoStore } from '../src/photos.js'
 import { anonymiseOldOrders, monthsBefore } from '../src/retention.js'
 import { main as eraseMain, normalisePhone } from '../ops/erase-customer.js'
 
@@ -186,6 +187,62 @@ describe('SEC-05: retention, export and erasure by request', () => {
     assert.ok((await query('SELECT phone FROM orders WHERE id = $1', [recent.body.orderId])).rows[0].phone)
     assert.ok((await query('SELECT phone FROM orders WHERE id = $1', [owed.body.orderId])).rows[0].phone)
     assert.equal(await anonymiseOldOrders(), 0, 'once only')
+  })
+
+  test('a year after delivery the delivery and problem-report photos go too, from Blob and from the row', async () => {
+    const blobs = new Map([['delivery/dph_blob.jpg', Buffer.from('rider photo')], ['claims/cph_blob.jpg', Buffer.from('crushed box')], ['claims/cph_open.jpg', Buffer.from('open')]])
+    usePhotoStore({ put: async (p, b) => (blobs.set(p, b), p), get: async (p) => blobs.get(p) ?? null, del: async (p) => void blobs.delete(p) })
+    try {
+      await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+      const cust = await customerToken(api)
+      const placed = []
+      for (const key of ['p1', 'p2', 'p3']) {
+        const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { key })
+        assert.equal(o.status, 201, JSON.stringify(o.body))
+        await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
+        placed.push(o.body.orderId)
+      }
+      const [old, recent, disputed] = placed
+      await query(`UPDATE orders SET status = 'DELIVERED', delivery_date = '2025-09-01' WHERE id = ANY($1)`, [[old, disputed]])
+      await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [recent])
+      const photo = (id, orderId, { bytes = null, blob = null }) =>
+        query(`INSERT INTO delivery_photos (id, order_id, mime, bytes, blob_path, taken_by, created_at) VALUES ($1, $2, 'image/jpeg', $3, $4, 'rider', now())`, [id, orderId, bytes, blob])
+      await photo('dph_blob', old, { blob: 'delivery/dph_blob.jpg' })
+      await photo('dph_row', old, { bytes: Buffer.from('in the row') })
+      await photo('dph_recent', recent, { bytes: Buffer.from('recent') })
+      const claim = (id, orderId, status) =>
+        query(
+          `INSERT INTO claims (id, order_id, customer_id, issue_type, description, photo_url, status, created_at)
+           VALUES ($1, $2, $3, 'DAMAGED', 'Crushed', 'https://abc.private.blob.vercel-storage.com/claims/x.jpg', $4, now())`,
+          [id, orderId, cust.customer.id, status],
+        )
+      await claim('clm_done', old, 'RESOLVED')
+      await claim('clm_open', disputed, 'UNDER_REVIEW')
+      const claimPhoto = (id, claimId, { bytes = null, blob = null }) =>
+        query(`INSERT INTO claim_photos (id, customer_id, claim_id, mime, bytes, blob_path, created_at) VALUES ($1, $2, $3, 'image/jpeg', $4, $5, now())`, [
+          id, cust.customer.id, claimId, bytes, blob,
+        ])
+      await claimPhoto('cph_blob', 'clm_done', { blob: 'claims/cph_blob.jpg' })
+      await claimPhoto('cph_row', 'clm_done', { bytes: Buffer.from('in the row') })
+      await claimPhoto('cph_open', 'clm_open', { blob: 'claims/cph_open.jpg' })
+
+      assert.equal(await anonymiseOldOrders(), 2)
+      const dph = Object.fromEntries((await query('SELECT id, bytes, blob_path, removed_at FROM delivery_photos')).rows.map((r) => [r.id, r]))
+      for (const id of ['dph_blob', 'dph_row']) assert.deepEqual([dph[id].bytes, dph[id].blob_path, Boolean(dph[id].removed_at)], [null, null, true], id)
+      assert.ok(dph.dph_recent.bytes && !dph.dph_recent.removed_at, 'a recent order keeps its photo')
+      assert.deepEqual((await query('SELECT id FROM claim_photos ORDER BY id')).rows.map((r) => r.id), ['cph_open'], 'a claim still being decided keeps its photos')
+      assert.deepEqual([...blobs.keys()], ['claims/cph_open.jpg'])
+      assert.equal((await query(`SELECT photo_url FROM claims WHERE id = 'clm_done'`)).rows[0].photo_url, null)
+      assert.ok((await query(`SELECT photo_url FROM claims WHERE id = 'clm_open'`)).rows[0].photo_url)
+
+      // Once that claim is decided, the next daily run takes its photos as well.
+      await query(`UPDATE claims SET status = 'RESOLVED', resolution = 'REJECTED' WHERE id = 'clm_open'`)
+      assert.equal(await anonymiseOldOrders(), 0)
+      assert.equal((await query('SELECT COUNT(*)::int AS n FROM claim_photos')).rows[0].n, 0)
+      assert.equal(blobs.size, 0)
+    } finally {
+      usePhotoStore(null)
+    }
   })
 
   test('GET /v1/me/export gives the customer their own data, and nobody else\'s', async () => {

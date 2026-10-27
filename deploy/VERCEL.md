@@ -179,7 +179,8 @@ start when one of the hard errors is present.
 On `mandi-api`: **Storage → Create → Blob**, choose private access, and connect it
 to the project. Vercel adds `BLOB_READ_WRITE_TOKEN` for you. Delivery and claim
 photos then go there. Production won't start without it, so photos never end up
-in the database; previews may keep them there.
+in the database; previews may keep them there. The photos have no copy anywhere
+else (see [Backups and restore drill](#backups-and-restore-drill)).
 
 ## 6. Deploy
 
@@ -262,18 +263,25 @@ Production refuses to start without `SENTRY_DSN`.
 
 ## Backups and restore drill
 
-- **What you can lose (RPO).** Neon keeps every change for its history window, so
-  `main` can go back to any second inside it. The window is **1 day by default on paid
-  plans** (6 hours on Free); step 1.5 sets it to 7 days, the Launch plan's maximum
-  (longer on Scale). Check it under Neon → **Settings** before trusting a restore. The
-  nightly off-Neon copy (below) covers older mistakes and Neon itself being down, but
-  anything after the last copy is lost in that case: up to a day.
-- **How long it takes (RTO): aim for an hour**, from deciding to restore to the shop
-  taking orders again. Time the drill and write the real number down.
+- **What you can lose (RPO): under a minute** for a point inside Neon's 7-day history
+  window, **up to 24 hours** from the nightly off-site copy. Neon keeps every change
+  for its history window, so `main` can go back to any second inside it. The window is
+  **1 day by default on paid plans** (6 hours on Free); step 1.5 sets it to 7 days, the
+  Launch plan's maximum (longer on Scale). Check it under Neon → **Settings** before
+  trusting a restore. The nightly off-Neon copy (below) covers older mistakes and Neon
+  itself being down, but anything after the last copy is lost in that case.
+- **How long it takes (RTO): target 1 hour**, from deciding to restore to the shop
+  taking orders again. **Not measured yet**: the owner must run the drill and write
+  the real time in [RESTORE-DRILL.md](RESTORE-DRILL.md)'s log.
 - **Drill** before launch and monthly in season: make a branch of `main` at a time a
   few minutes ago, then run `DRILL_URL=<its connection string> ./mango-api/ops/restore-drill.sh`.
   It checks the schema, row counts and that the stock books balance. Delete the
-  branch afterwards; it holds customer data.
+  branch afterwards; it holds customer data. Steps: [RESTORE-DRILL.md](RESTORE-DRILL.md).
+- **Photos have no backup of their own** (an owner decision, not yet taken). Delivery,
+  claim, review, product and deal photos are kept only in Vercel Blob (rows hold the
+  path; neither Neon's history nor the nightly copy has the images). A deleted Blob
+  store, or a photo deleted by mistake, cannot be brought back. The owner decides
+  whether that is acceptable or a scheduled copy of the store is needed.
 - **Nightly encrypted copy off Neon.** The GitHub Actions workflow
   [`backup.yml`](../.github/workflows/backup.yml) runs `ops/backup.sh` at 03:00 IST,
   encrypts the dump with your GPG public key and keeps it 30 days. Set it up once:
@@ -325,7 +333,7 @@ Production refuses to start without `SENTRY_DSN`.
 `mango-api/ops/load/shop.js` is a [k6](https://k6.io) script. Run the browse
 scenario against staging, and the checkout spike (50 buyers at once) against a
 local copy, before the season opens. The top of the file has the commands and
-the pass marks.
+the pass marks; [LOAD-TEST.md](LOAD-TEST.md) covers all five scenarios.
 
 ## Go-live checks
 

@@ -391,6 +391,8 @@ export async function sendDueRefunds({ orderId = null, preorderId = null, orderI
 }
 
 const DISPUTE_DONE = ['won', 'lost', 'closed']
+/** The statuses payment_disputes holds (its CHECK, migration 048): Razorpay's dispute states and its event names' last word. */
+export const DISPUTE_STATUSES = ['open', 'created', 'under_review', 'action_required', ...DISPUTE_DONE]
 
 /**
  * PAY-B12: a chargeback. Recorded (one row per dispute, updated by each
@@ -416,7 +418,10 @@ async function handleDisputeEvent(event, eventId) {
     if (!ins.rowCount) return { duplicate: true }
     const o = paymentId ? (await c.query('SELECT id, status FROM orders WHERE payment_id = $1', [paymentId])).rows[0] : null
     const p = paymentId && !o ? (await c.query('SELECT id FROM preorders WHERE payment_id = $1', [paymentId])).rows[0] : null
-    const status = String(d.status ?? kind.slice('payment.dispute.'.length) ?? 'open').slice(0, 40) || 'open'
+    // A status Razorpay may add later is kept as open, so the dispute still shows in Needs attention (and is logged as sent).
+    const sent = String(d.status ?? kind.slice('payment.dispute.'.length) ?? 'open').slice(0, 40)
+    const status = DISPUTE_STATUSES.includes(sent) ? sent : 'open'
+    if (sent !== status) logger.warn({ disputeId, sent }, 'payment dispute with a status we do not know; recorded as open')
     const respondBy = Number.isInteger(d.respond_by) ? new Date(d.respond_by * 1000) : null
     await c.query(
       `INSERT INTO payment_disputes (dispute_id, payment_id, order_id, preorder_id, amount, currency, status, reason_code, respond_by, last_event, created_at, updated_at)

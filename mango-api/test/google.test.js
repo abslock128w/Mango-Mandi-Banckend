@@ -3,7 +3,7 @@ import { adminToken, client, closeAll, customerToken, resetDb, startServer } fro
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { createLocalJWKSet, errors as joseErrors, exportJWK, generateKeyPair, SignJWT } from 'jose'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
 import { useGoogleKeys } from '../src/google.js'
@@ -12,10 +12,12 @@ import { b64url, generateKeyPair as pushKeyPair } from '../src/webpush.js'
 let srv
 let api
 let signKey
+let signPublic
 
 before(async () => {
   const { publicKey, privateKey } = await generateKeyPair('RS256')
   signKey = privateKey
+  signPublic = publicKey
   useGoogleKeys(createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }] }))
   srv = await startServer()
   api = client(srv.base)
@@ -59,6 +61,29 @@ describe('sign in with Google', () => {
     assert.equal((await api.post('/v1/auth/google', { credential: forged })).body.error.code, 'GOOGLE_INVALID')
     assert.equal((await api.post('/v1/auth/google', { credential: await credential({}, 'someone-else') })).body.error.code, 'GOOGLE_INVALID')
     assert.equal((await api.post('/v1/auth/google', { credential: await credential({ email_verified: false }) })).body.error.code, 'GOOGLE_UNVERIFIED')
+  })
+
+  test("when Google's keys cannot be fetched, sign-in answers 503 (try again), not 401", async () => {
+    const working = createLocalJWKSet({ keys: [{ ...(await exportJWK((await generateKeyPair('RS256')).publicKey)), kid: 'k9', alg: 'RS256' }] })
+    const cases = [
+      ['a network error', () => Promise.reject(new TypeError('fetch failed'))],
+      ['a timeout', () => Promise.reject(new joseErrors.JWKSTimeout())],
+      ['an error page', () => Promise.reject(new joseErrors.JOSEError('Expected 200 OK from the JSON Web Key Set HTTP response'))],
+    ]
+    try {
+      for (const [what, keys] of cases) {
+        useGoogleKeys(keys)
+        for (const path of ['/v1/auth/google', '/admin/v1/auth/google']) {
+          const r = await api.post(path, { credential: await credential() })
+          assert.deepEqual([r.status, r.body.error.code], [503, 'GOOGLE_UNAVAILABLE'], `${what} on ${path}`)
+        }
+      }
+      // A token that doesn't match Google's keys is still refused as invalid.
+      useGoogleKeys(working)
+      assert.equal((await api.post('/v1/auth/google', { credential: await credential() })).body.error.code, 'GOOGLE_INVALID')
+    } finally {
+      useGoogleKeys(createLocalJWKSet({ keys: [{ ...(await exportJWK(signPublic)), kid: 'k1', alg: 'RS256' }] }))
+    }
   })
 
   test('a new customer signs in, must add a phone before ordering, and keeps one account', async () => {

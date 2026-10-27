@@ -89,7 +89,10 @@ export async function storePhoto(folder, id, bytes, ext, mime) {
 /**
  * SEC-9: whether a link is one of our own Blob store's (the only photo links
  * a claim may carry). Claims attach photos by upload now; any other link
- * would be a customer-chosen URL put in front of staff.
+ * would be a customer-chosen URL put in front of staff. Only the store's
+ * private host counts: this API has written private blobs only, since Blob
+ * was first used (17 Oct), so a link to the public host can't be one of our
+ * photos (such a link on an old claim is simply not shown).
  */
 export function isOwnPhotoUrl(link) {
   const store = /^vercel_blob_rw_([a-z0-9]+)_/i.exec(env.BLOB_READ_WRITE_TOKEN)
@@ -97,7 +100,7 @@ export function isOwnPhotoUrl(link) {
   try {
     const u = new URL(link)
     if (u.protocol !== 'https:' || u.username || u.password || u.port) return false
-    return u.hostname === `${store[1].toLowerCase()}.public.blob.vercel-storage.com` || u.hostname === `${store[1].toLowerCase()}.private.blob.vercel-storage.com`
+    return u.hostname === `${store[1].toLowerCase()}.private.blob.vercel-storage.com`
   } catch {
     return false
   }

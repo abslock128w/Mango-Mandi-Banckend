@@ -6,6 +6,7 @@
 # plans (6 hours on Free) until it is raised: deploy/VERCEL.md step 1.5 sets it
 # to 7 days (the Launch plan's maximum). A point older than the window can't be
 # branched from; use the nightly off-Neon dump (backup.yml) instead.
+# Steps, targets and the drill log: deploy/RESTORE-DRILL.md.
 #
 # 1. Make a branch of main as it was a few minutes ago (console: Branches →
 #    Create branch → "Point in time"), or with the Neon CLI:

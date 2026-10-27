@@ -42,7 +42,9 @@ export default function Privacy() {
       <h2>{t('privacy.h.howLong')}</h2>
       <p lang={en}>
         While you have an account. Sign-in codes are cleared within hours, and photos added to a report that was never sent are cleared after a
-        day. Order amounts are kept for our accounts after you delete your account, without your name, number or address.
+        day. 12 months after an order is delivered or cancelled, we remove your name, number and address from it, and delete the rider's
+        delivery photo and the photos on any problem report about it (once the report is settled). Order amounts are kept for our accounts,
+        also after you delete your account, without your name, number or address.
       </p>
 
       <h2>{t('privacy.h.choices')}</h2>

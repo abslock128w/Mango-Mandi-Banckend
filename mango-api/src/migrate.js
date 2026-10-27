@@ -3,6 +3,11 @@
 // session lock, so on Neon this runs on the direct (unpooled) connection: on
 // Vercel it is the API's build step (npm run vercel-build), and a failed
 // migration fails the build, so that version never goes live.
+//
+// Each applied file's sha256 is kept in schema_migrations.checksum (added by
+// 048). A file that changed after it was applied stops the run before anything
+// else is applied: what the database holds would no longer match the file.
+import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
@@ -71,6 +76,26 @@ export async function checkUtf8(client) {
   }
 }
 
+/**
+ * The sha256 of a migration file. Windows line endings count as Unix ones, so a
+ * checkout with git's autocrlf on is not taken for an edit.
+ */
+export const migrationChecksum = (sql) => createHash('sha256').update(sql.replace(/\r\n/g, '\n')).digest('hex')
+
+const hasChecksumColumn = async (client) =>
+  (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'schema_migrations' AND column_name = 'checksum'`)).rowCount > 0
+
+/** Throws when a file in `dir` was applied with other content than it has now. */
+function checkApplied(applied, sums) {
+  const changed = [...sums].filter(([file, sum]) => applied.get(file) && applied.get(file) !== sum).map(([file]) => file)
+  if (!changed.length) return
+  throw new Error(
+    `Migration ${changed.join(', ')} changed after it was applied to this database: refusing to start. ` +
+      'Put the file back as it was and make the change in a new migration file. If the edit is harmless (a comment) and intended, ' +
+      `clear its record so it is taken again: UPDATE schema_migrations SET checksum = NULL WHERE version = '${changed[0]}';`,
+  )
+}
+
 export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TIMEOUT, attempts = LOCK_ATTEMPTS, retryMs = LOCK_RETRY_MS } = {}) {
   const client = await pool.connect()
   try {
@@ -79,18 +104,28 @@ export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TI
     await checkDatabaseEnvironment(client, deployEnv, { claim: true })
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
-    const done = new Set((await client.query('SELECT version FROM schema_migrations')).rows.map((r) => r.version))
+    let withSums = await hasChecksumColumn(client)
+    const applied = new Map((await client.query(`SELECT version, ${withSums ? 'checksum' : 'NULL AS checksum'} FROM schema_migrations`)).rows.map((r) => [r.version, r.checksum]))
     const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort()
+    const texts = new Map()
+    for (const file of files) texts.set(file, await readFile(path.join(dir, file), 'utf8'))
+    const sums = new Map(files.map((f) => [f, migrationChecksum(texts.get(f))]))
+    checkApplied(applied, sums)
     for (const file of files) {
-      if (done.has(file)) continue
-      const sql = await readFile(path.join(dir, file), 'utf8')
+      if (applied.has(file)) continue
+      const sql = texts.get(file)
       for (let attempt = 1; ; attempt++) {
         try {
           await client.query('BEGIN')
           await client.query(`SELECT set_config('lock_timeout', $1, true)`, [lockTimeout])
           await client.query(sql)
-          await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file])
+          // The file that adds the column (048) is recorded with its checksum too.
+          const sum = withSums || (await hasChecksumColumn(client)) ? sums.get(file) : null
+          if (sum) await client.query('INSERT INTO schema_migrations (version, checksum) VALUES ($1, $2)', [file, sum])
+          else await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file])
           await client.query('COMMIT')
+          withSums ||= Boolean(sum)
+          applied.set(file, sum)
           logger.info({ file }, 'migration applied')
           break
         } catch (err) {
@@ -104,6 +139,15 @@ export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TI
           }
           const hint = err.code === LOCK_NOT_AVAILABLE ? ` (a table it changes stayed locked for over ${lockTimeout}, ${attempts} times: look for a long transaction in pg_stat_activity)` : ''
           throw new Error(`Migration ${file} failed: ${err.message}${hint}`)
+        }
+      }
+    }
+    // Files applied before checksums were kept (earlier, or earlier in this run), or whose record was
+    // cleared, are recorded as they are now.
+    if (withSums) {
+      for (const file of files) {
+        if (applied.has(file) && !applied.get(file)) {
+          await client.query('UPDATE schema_migrations SET checksum = $2 WHERE version = $1 AND checksum IS NULL', [file, sums.get(file)])
         }
       }
     }

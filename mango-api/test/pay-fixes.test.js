@@ -516,6 +516,20 @@ describe('PAY-B12: disputes are recorded; the old webhook secret works during a 
     assert.equal(att.body.disputes.length, 0)
   })
 
+  test('a dispute status we do not know is kept as open (the status check never fails the webhook)', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
+    const o = await paidOrder('pay_X2')
+    const event = (kind, status) => ({
+      event: kind,
+      payload: { payment: { entity: { id: 'pay_X2' } }, dispute: { entity: { id: 'disp_2', payment_id: 'pay_X2', ...(status ? { status } : {}) } } },
+    })
+    assert.equal((await hook(event('payment.dispute.created', 'pre_arbitration'))).body.result, 'dispute_recorded')
+    assert.deepEqual((await query(`SELECT status, order_id FROM payment_disputes WHERE dispute_id = 'disp_2'`)).rows[0], { status: 'open', order_id: o.orderId })
+    // With no status on the entity, the event's last word is used, as before.
+    assert.equal((await hook(event('payment.dispute.action_required'))).body.result, 'dispute_recorded')
+    assert.equal((await query(`SELECT status FROM payment_disputes WHERE dispute_id = 'disp_2'`)).rows[0].status, 'action_required')
+  })
+
   test('RAZORPAY_WEBHOOK_SECRET_PREVIOUS is accepted only while set', async () => {
     const event = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_old', order_id: 'order_none', amount: 1 } } } }
     assert.equal((await hook(event, { secret: 'whsec_old' })).status, 400)

@@ -237,15 +237,16 @@ describe('SEC-9: claim photo links', () => {
     const before = env.BLOB_READ_WRITE_TOKEN
     try {
       env.BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_AbC123_secretpart'
-      assert.equal(isOwnPhotoUrl('https://abc123.public.blob.vercel-storage.com/claims/x.jpg'), true)
       assert.equal(isOwnPhotoUrl('https://abc123.private.blob.vercel-storage.com/claims/x.jpg'), true)
-      assert.equal(isOwnPhotoUrl('https://other.public.blob.vercel-storage.com/x.jpg'), false)
-      assert.equal(isOwnPhotoUrl('https://abc123.public.blob.vercel-storage.com.evil.example/x.jpg'), false)
-      assert.equal(isOwnPhotoUrl('http://abc123.public.blob.vercel-storage.com/x.jpg'), false)
-      assert.equal(isOwnPhotoUrl('https://user@abc123.public.blob.vercel-storage.com/x.jpg'), false)
+      // Our photos are private blobs: the store's public host holds nothing of ours.
+      assert.equal(isOwnPhotoUrl('https://abc123.public.blob.vercel-storage.com/claims/x.jpg'), false)
+      assert.equal(isOwnPhotoUrl('https://other.private.blob.vercel-storage.com/x.jpg'), false)
+      assert.equal(isOwnPhotoUrl('https://abc123.private.blob.vercel-storage.com.evil.example/x.jpg'), false)
+      assert.equal(isOwnPhotoUrl('http://abc123.private.blob.vercel-storage.com/x.jpg'), false)
+      assert.equal(isOwnPhotoUrl('https://user@abc123.private.blob.vercel-storage.com/x.jpg'), false)
       assert.equal(isOwnPhotoUrl('https://evil.example/login'), false)
       env.BLOB_READ_WRITE_TOKEN = ''
-      assert.equal(isOwnPhotoUrl('https://abc123.public.blob.vercel-storage.com/claims/x.jpg'), false)
+      assert.equal(isOwnPhotoUrl('https://abc123.private.blob.vercel-storage.com/claims/x.jpg'), false)
     } finally {
       env.BLOB_READ_WRITE_TOKEN = before
     }
