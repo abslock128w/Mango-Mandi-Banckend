@@ -167,4 +167,16 @@ describe('production preflight', () => {
     const preview = checkProduction({ ...staging, SENTRY_DSN: '' }, { vercel: true, target: 'preview' })
     assert.ok(!preview.errors.some((e) => e.includes('SENTRY_DSN')))
   })
+
+  it('bills are kept long enough for tax law: under 72 months is refused, under 96 warns', () => {
+    const at = (months) => checkProduction({ ...good, BILL_RETENTION_MONTHS: months })
+    const short = at(60)
+    assert.deepEqual(short.errors, [short.errors.find((e) => e.startsWith('BILL_RETENTION_MONTHS is 60: GST law needs bills kept at least 72 months'))])
+    assert.ok(!short.warnings.some((w) => w.includes('BILL_RETENTION_MONTHS')))
+    assert.ok(checkProduction({ ...staging, BILL_RETENTION_MONTHS: 60 }, { vercel: true, target: 'preview' }).errors.some((e) => e.startsWith('BILL_RETENTION_MONTHS is 60')))
+    assert.deepEqual(at(72).errors, [])
+    assert.deepEqual(at(80), { errors: [], warnings: [at(80).warnings.find((w) => w.startsWith('BILL_RETENTION_MONTHS is 80: a bill from early in a financial year'))] })
+    // The default, or longer, is fine.
+    for (const months of [96, 120, undefined]) assert.deepEqual(at(months), { errors: [], warnings: [] }, String(months))
+  })
 })

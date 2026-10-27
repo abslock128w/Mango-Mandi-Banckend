@@ -8,6 +8,13 @@ import { pushProblems } from './push-checks.js'
 
 export const DEV_JWT = 'dev-only-change-me-0123456789abcdef0123456789'
 
+/**
+ * BILL_RETENTION_MONTHS in production: never under 72 (the GST minimum, counted from a later
+ * date than the bill's), and 96 to cover both GST and income tax for every bill (docs/trust.md).
+ */
+export const BILL_RETENTION_MIN_MONTHS = 72
+export const BILL_RETENTION_SAFE_MONTHS = 96
+
 /** A Neon endpoint without its -pooler suffix, so the pooled and direct URLs compare equal. */
 export function dbHost(url) {
   try {
@@ -112,6 +119,17 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.STAFF_STEP_UP === false) warnings.push('STAFF_STEP_UP is false: staff account changes no longer ask the manager to confirm it is them (money and pricing changes still ask)')
   if (env.STAFF_AUDIT_TRAIL === false) warnings.push('STAFF_AUDIT_TRAIL is false: staff changes are audited after the answer, best effort, and views of customer details are not recorded')
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
+  // Tax law needs bills, with the buyer's name and address, kept for years (docs/trust.md).
+  const billMonths = env.BILL_RETENTION_MONTHS
+  if (billMonths != null && billMonths < BILL_RETENTION_MIN_MONTHS) {
+    errors.push(
+      `BILL_RETENTION_MONTHS is ${billMonths}: GST law needs bills kept at least ${BILL_RETENTION_MIN_MONTHS} months from the annual return's due date. Leave it unset (${BILL_RETENTION_SAFE_MONTHS}) unless the CA says otherwise`,
+    )
+  } else if (billMonths != null && billMonths < BILL_RETENTION_SAFE_MONTHS) {
+    warnings.push(
+      `BILL_RETENTION_MONTHS is ${billMonths}: a bill from early in a financial year would lose the buyer's name and address before the GST and income-tax periods end (up to ${BILL_RETENTION_SAFE_MONTHS} months after the bill date). Keep ${BILL_RETENTION_SAFE_MONTHS} unless the CA says otherwise`,
+    )
+  }
   // Bills, customer profiles and exports (trust-config.js): the seller printed on bills must be set.
   const trustCheck = checkTrustProduction(readTrustConfig({ ...process.env, ...env, NODE_ENV: 'production' }))
   errors.push(...trustCheck.errors)

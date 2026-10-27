@@ -33,7 +33,7 @@ import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
-import { anonymiseOldOrders, pruneNotifications } from './retention.js'
+import { anonymiseOldOrders, pruneNotifications, removeOldBillBuyers } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
@@ -407,8 +407,13 @@ async function steps(forceAll) {
   }
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
+  // Bills keep theirs for BILL_RETENTION_MONTHS after the bill date (tax law), then lose the buyer's name and address.
   if (forceAll || t - (last.retention ?? 0) > DAILY_MS) {
-    out.anonymised = await step('retention', () => anonymiseOldOrders())
+    out.anonymised = await step('retention', async () => {
+      const orders = await anonymiseOldOrders()
+      out.billBuyersRemoved = await removeOldBillBuyers()
+      return orders
+    })
     // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
     out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
   }

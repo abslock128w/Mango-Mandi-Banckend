@@ -270,8 +270,14 @@ const schema = z.object({
   // Once set, never remove or change it without first re-enrolling staff: sealed secrets need it.
   TOTP_ENCRYPTION_KEY: z.string().default(''),
   // SEC-05: customer details on finished orders (name, phone, address, gift details, delivery GPS)
-  // are removed this many months after the delivery date. Amounts and tax fields stay.
+  // are removed this many months after the delivery date. Amounts and tax fields stay, and the
+  // order's bill keeps everything printed on it (BILL_RETENTION_MONTHS).
   PII_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(12),
+  // Bills keep everything printed on them, the buyer's name and delivery address included, this
+  // many months after the bill date; then the name and address come off. Tax law needs bills kept
+  // for years (docs/trust.md, "How long bills are kept"): the client's CA must confirm the period.
+  // Production refuses less than 72 (preflight.js).
+  BILL_RETENTION_MONTHS: z.coerce.number().int().min(12).max(240).default(96),
   // Staff Google sign-in only for accounts of this Google Workspace domain (the token's hd claim).
   // Unset: any verified Google account whose email is a staff email.
   STAFF_GOOGLE_HD: z.string().default(''),
