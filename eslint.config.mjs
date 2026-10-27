@@ -20,7 +20,7 @@ export default [
   // .claude/ holds agents' worktree copies of this repo.
   { ignores: ['**/node_modules/**', 'dist/**', 'playwright-report*/**', 'test-results*/**', '.claude/**'] },
   {
-    files: ['src/**/*.{ts,tsx}', 'customer-app/src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'customer-app/src/**/*.{ts,tsx}', 'shared/**/*.{ts,tsx}'],
     languageOptions: { parser: tsParser, ecmaVersion: 'latest', sourceType: 'module' },
     plugins: { 'react-hooks': reactHooks, '@typescript-eslint': tsPlugin },
     linterOptions: { reportUnusedDisableDirectives: 'error' },
