@@ -30,6 +30,22 @@ export const metrics = {
   dbRetries: new client.Counter({ name: 'mango_db_retries_total', help: 'Transactions retried after a deadlock or serialization failure', labelNames: ['code'], registers: [registry] }),
   otpBudgetUsed: new client.Gauge({ name: 'mango_otp_sends_today', help: 'Login codes sent today (IST) against the daily budget', registers: [registry] }),
   maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
+  dbPoolBusy: new client.Counter({ name: 'mango_db_pool_busy_total', help: 'Queries that found no free database connection in time (answered 503 BUSY)', registers: [registry] }),
+  dbSlowQueries: new client.Counter({ name: 'mango_db_slow_queries_total', help: 'Queries slower than DB_SLOW_QUERY_MS', registers: [registry] }),
+}
+
+/** Gauges of the database pool, read when /metrics is scraped: connections open, idle, and requests waiting for one. */
+export function watchPool(pool) {
+  const states = { total: () => pool.totalCount, idle: () => pool.idleCount, waiting: () => pool.waitingCount }
+  return new client.Gauge({
+    name: 'mango_db_pool_connections',
+    help: 'Database pool: total connections, idle ones, and queries waiting for one',
+    labelNames: ['state'],
+    registers: [registry],
+    collect() {
+      for (const [state, read] of Object.entries(states)) this.set({ state }, read())
+    },
+  })
 }
 
 export function httpMetrics(req, res, next) {

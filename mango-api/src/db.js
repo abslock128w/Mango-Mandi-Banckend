@@ -2,7 +2,7 @@ import { attachDatabasePool } from '@vercel/functions'
 import pg from 'pg'
 import { env, onVercel } from './env.js'
 import { logger } from './logger.js'
-import { metrics } from './metrics.js'
+import { metrics, watchPool } from './metrics.js'
 import { reportProblem } from './sentry.js'
 
 // DATE columns come back as plain "YYYY-MM-DD" strings, not JS Dates in local time.
@@ -50,8 +50,59 @@ export const isDbUnavailable = (err) => {
 if (onVercel) attachDatabasePool(pool)
 
 pool.on('error', (err) => logger.error({ err }, 'idle pg client error'))
+watchPool(pool)
 
-export const query = (text, params) => pool.query(text, params)
+/** Counts a pool BUSY timeout (no free connection in time) on its way to the caller. */
+const countBusy = (err) => {
+  if (isPoolTimeout(err)) metrics.dbPoolBusy.inc()
+  throw err
+}
+
+/**
+ * Logs a query slower than DB_SLOW_QUERY_MS: its duration and the first 80 characters of
+ * its SQL only. Never the parameters, which hold phones, addresses and codes.
+ */
+export function logIfSlow(sql, ms, slowMs = env.DB_SLOW_QUERY_MS) {
+  if (!slowMs || ms < slowMs || typeof sql !== 'string') return false
+  metrics.dbSlowQueries.inc()
+  logger.warn({ ms: Math.round(ms), sql: sql.replace(/\s+/g, ' ').trim().slice(0, 80) }, 'slow query')
+  return true
+}
+
+/**
+ * Times the queries a transaction runs on its client (promise calls only: pg's own callback
+ * calls, as pool.query makes, finish in the socket's async context, where the log line would
+ * name the wrong request). Pool queries are timed by query() below instead.
+ */
+function timeQueries(client) {
+  const run = client.query
+  client.query = function (config, ...rest) {
+    const sql = typeof config === 'string' ? config : config?.text
+    const start = performance.now()
+    const p = run.call(this, config, ...rest)
+    if (env.DB_SLOW_QUERY_MS && typeof sql === 'string' && typeof p?.then === 'function') {
+      const done = () => logIfSlow(sql, performance.now() - start)
+      p.then(done, done)
+    }
+    return p
+  }
+}
+pool.on('connect', timeQueries)
+
+/** One statement on any free connection. Its time, for the slow-query log, includes any wait for that connection. */
+export function query(text, params) {
+  const start = performance.now()
+  return pool.query(text, params).then(
+    (r) => {
+      logIfSlow(text, performance.now() - start)
+      return r
+    },
+    (err) => {
+      if (!isPoolTimeout(err)) logIfSlow(text, performance.now() - start)
+      return countBusy(err)
+    },
+  )
+}
 
 /** Deadlock and serialization failures: safe to run the whole transaction again. */
 const RETRYABLE = new Set(['40P01', '40001'])
@@ -113,7 +164,7 @@ export function afterCommit(c, fn) {
 }
 
 async function txOnce(fn) {
-  const client = await pool.connect()
+  const client = await pool.connect().catch(countBusy)
   try {
     await client.query('BEGIN')
     afterCommitFns.set(client, [])
