@@ -428,7 +428,9 @@ retirement, audit) run first. Hourly it rebalances only the open orders that are
 risk and runs the ledger audit, which checks `on_hand` against the ledger and
 `held`/`committed` against the order allocations; once a day (or right after a rules
 change) it rebalances every open order. Drift is logged and exported as
-`mango_ledger_drift_lines`.
+`mango_ledger_drift_lines`. With `WAREHOUSE_V2` on, the same hourly audit runs the box
+check for each active warehouse (labelled boxes against `on_hand` and the packed units);
+a mismatch alerts at most hourly and shows on Needs attention.
 
 Transactions that hit a deadlock or serialization failure are retried twice with
 jitter (`tx` in `src/db.js`), and slot capacity is locked per delivery date, so
