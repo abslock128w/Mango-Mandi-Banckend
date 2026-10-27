@@ -27,6 +27,8 @@ const schema = z.object({
   DB_POOL_MAX: z.coerce.number().int().positive().default(onVercel ? 5 : 10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  // A query slower than this is logged (duration and the start of its SQL, never its values); 0 turns it off.
+  DB_SLOW_QUERY_MS: z.coerce.number().int().min(0).default(500),
   JWT_SECRET: z.string().default(DEV_JWT),
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
   CUSTOMER_ORIGIN: z.string().default('http://localhost:5174'),

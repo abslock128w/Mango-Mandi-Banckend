@@ -44,12 +44,47 @@ limit loses its lease after 65 seconds, so the next minute's run goes ahead.
 ## What records each run
 
 - `maintenance_runs`: one row per step with the time it last succeeded
-  (`last_ok_at`) or failed (`last_err_at`, `last_error`). The row `tick` is
+  (`last_ok_at`) or failed (`last_err_at`, `last_error`), how long its last
+  try took (`last_duration_ms`) and how many times in a row it has failed
+  (`fail_count`, back to 0 on a success). The row `tick` is
   written at the end of every run that held the lease; a skipped run writes
   nothing, so it never hides a stuck job. These are latest-only, not a history.
-- The history is the request log: one `GET /internal/maintenance 200` line per
-  run (Vercel → Logs), and the Sentry cron monitor's check-ins.
-- The panel's Needs attention card shows the last run and failing steps.
+- The history is the log: one `GET /internal/maintenance 200` line per
+  run (Vercel → Logs), one `maintenance run` line with that run's counts
+  (orders expired, messages sent, refunds sent, failed steps, and so on), and
+  the Sentry cron monitor's check-ins. Every line a step writes carries
+  `step`, so one search finds what a step did.
+- The panel's Needs attention card shows the last run and failing steps, with
+  failures in a row and how long the last try took.
+
+## Background work
+
+There is no general jobs table. Each kind of work is found from the business
+rows themselves: an unsent message is a `notifications` row still `PENDING`, a
+refund due is an order with `refund_requested_at` set and no `refunded_at`, an
+expired hold is an unpaid order past its hold. A second queue would be a second
+source of truth that could disagree with the order. So each step reads the state,
+does the work in a short transaction, and the next minute's run picks up
+whatever is left. Every step is safe to run twice.
+
+| Work | How work is claimed | Retries | Finished when | Where staff see it | Alert |
+|------|---------------------|---------|---------------|--------------------|-------|
+| WhatsApp messages (`notifications`, step `notifications`) | Written in the same transaction as the order change (an outbox; a rolled-back change sends nothing; one row per event and kind). Due rows are claimed with `FOR UPDATE SKIP LOCKED` and pushed 5 minutes ahead | 1, 5, 15, 60, 180 minutes; skipped after 24 hours | `SENT`, `FAILED` or `SKIPPED` | Needs attention, "WhatsApp messages not delivered" (Send again) | Sentry "WhatsApp messages are overdue" or "failing"; Docker: `WhatsAppMessagesFailing` |
+| Browser notifications (`push_messages`, step `push`, `WEB_PUSH`) | As for WhatsApp: same transaction, same claim | 1, 5, 15 minutes; skipped after 24 hours | `SENT`, `FAILED` or `SKIPPED` | Needs attention, "Browser notifications not delivered" (failed, or 15 minutes overdue) | Sentry "Browser notifications are overdue" or "failing" |
+| Refunds (step `refunds`, also `duplicate-payments`) | An order or preorder with `refund_requested_at` and no `refunded_at`. A 2-minute lease (`refund_attempted_at`) stops two workers sending the same refund | On later runs (`src/payments.js` sets the limits) | `refunded_at` set; `refund-checks` then asks Razorpay how it ended | Needs attention, "Refunds not sent" | Sentry "Refunds are overdue" (30 minutes); a failing step |
+| Webhook replay | Stored Razorpay webhook events not yet processed (`src/payments.js`, "webhook replay") | On later runs | Processed, or listed as a webhook problem | Needs attention, "Webhook problems" | Sentry "Razorpay payments could not be matched"; Docker: `WebhooksFailing` |
+| Bills catch-up (step `bills`, `BILLS_ENABLED`) | Paid orders with no bill, and bills whose order was cancelled or anonymised. One transaction per order, order locked first | Every run until issued | A bill row with its number | Needs attention, the `bills` step failing | A failing step |
+| Hold sweep (step `sweep`) | Unpaid orders past `hold_expires_at`, each cancelled in its own transaction with `SKIP LOCKED`. Checkout also expires them on the spot | Every run | `CANCELLED`, stock back on sale | Nothing to do; `mango_holds_expired_total` counts them | A failing step |
+| Payment reconcile (steps `reconcile`, `payment-recon`) | Orders still `PAYMENT_PENDING` with a Razorpay order, asked about by polling; daily, every payment Razorpay captured in 3 days is matched | Every run; cancelled orders for a day with a 15-minute back-off | Paid, or left to the sweep | Needs attention, "Webhook problems" for payments that match nothing | Sentry "Payments were confirmed by polling" (webhooks not arriving) |
+| Subscriptions (step `subscriptions`, `SUBSCRIPTIONS`) | Running subscriptions with a cycle due, each in its own transaction with `SKIP LOCKED`; the unique cycle row makes a repeat harmless | Every run | Cycle set up and its message queued, or `MISSED` | The subscriptions pages | A failing step |
+| Preorders (step `preorders`) | Unpaid holds past their time, waitlist spots that opened, booked preorders whose week came (`SKIP LOCKED`) | Every run | `CONVERTED`, `CANCELLED` or moved a week | Needs attention, "Preorders for a manager" | A failing step |
+| Retention (steps `retention`, `funnel-retention`) | Orders finished over `PII_RETENTION_MONTHS` ago, a bounded batch a day | The next day's pass | Details removed | Nothing to do | A failing step |
+
+"A failing step" means: Needs attention lists the step with its error, failures
+in a row and the last try's duration; Sentry gets the error at most hourly;
+on Docker `MaintenanceStepFailing` fires. Every run also checks the outboxes
+and refunds for work piling up (`checkHealth` in `src/maintenance.js`), since a
+step can succeed every minute while doing nothing.
 
 ## Monitoring (required before launch)
 

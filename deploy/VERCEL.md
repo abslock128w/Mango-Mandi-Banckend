@@ -253,7 +253,10 @@ Production refuses to start without `SENTRY_DSN`.
   ledger. Set a Sentry alert rule on these warnings, not only on errors. (The
   Prometheus rules in `ops/alerts.yml` are for the Docker path; nothing reads them
   on Vercel.)
-- **Vercel → Logs** for request logs; **Neon → Monitoring** for database load.
+- **Vercel → Logs** for request logs; **Neon → Monitoring** for database load. Search
+  a customer's `X-Request-Id` (`req_…`) to see everything that request did; each
+  maintenance run writes one `maintenance run` line with its counts, and slow
+  queries show as `slow query` (deploy/RUNBOOKS.md, "Observability").
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
 

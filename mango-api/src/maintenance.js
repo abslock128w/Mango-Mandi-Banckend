@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import { outOfTime, withBudget, withSlice } from './budget.js'
 import { query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
+import { withLogContext } from './log-context.js'
 import { logger } from './logger.js'
 import { expireIdleOperations } from './warehouse/ops.js'
 import { boxCheck } from './warehouse/reports.js'
@@ -27,7 +28,7 @@ import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
-import { prunePushMessages, sendDuePush } from './push.js'
+import { prunePushMessages, pushOn, sendDuePush } from './push.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
@@ -86,13 +87,17 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
     metrics.maintenanceSkips.inc({ step: name })
     return null
   }
+  const started = Date.now()
   try {
-    const out = await (sliceMs ? withSlice(sliceMs, fn) : fn())
+    // Every log line the step writes names it (log-context.js).
+    const out = await withLogContext({ step: name }, () => (sliceMs ? withSlice(sliceMs, fn) : fn()))
     // A step that stopped early (out of time) isn't marked done, so it runs again next time.
     if (out?.partial) return out
+    // How long it took, and the run of failures (fail_count) ends.
     await query(
-      `INSERT INTO maintenance_runs (step, last_ok_at) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET last_ok_at = $2`,
-      [name, now()],
+      `INSERT INTO maintenance_runs (step, last_ok_at, last_duration_ms, fail_count) VALUES ($1, $2, $3, 0)
+       ON CONFLICT (step) DO UPDATE SET last_ok_at = $2, last_duration_ms = $3, fail_count = 0`,
+      [name, now(), Date.now() - started],
     ).catch(() => {})
     return out
   } catch (err) {
@@ -114,10 +119,11 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
       const lastErr = prev.rows[0]?.last_err_at
       if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
     }
+    // fail_count: failures in a row since the step last succeeded.
     await query(
-      `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
-       ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
-      [name, now(), String(err?.message ?? err).slice(0, 500)],
+      `INSERT INTO maintenance_runs (step, last_err_at, last_error, last_duration_ms, fail_count) VALUES ($1, $2, $3, $4, 1)
+       ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3, last_duration_ms = $4, fail_count = maintenance_runs.fail_count + 1`,
+      [name, now(), String(err?.message ?? err).slice(0, 500), Date.now() - started],
     ).catch(() => {})
     return null
   }
@@ -306,8 +312,11 @@ async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
     const checkIn = cronCheckIn('in_progress')
     failedSteps = new Set()
     try {
+      const started = Date.now()
       const out = await steps(forceAll)
       out.failed = [...failedSteps]
+      // One line per run with its counts: on Vercel there is no /metrics, so this is where they show.
+      logger.info({ run: runCounts(out), ms: Date.now() - started }, 'maintenance run')
       // A run where a step failed is an error run, so Sentry's monitor alerts on it.
       cronCheckIn(failedSteps.size ? 'error' : 'ok', checkIn)
       return out
@@ -319,6 +328,27 @@ async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
       await releaseLease('maintenance', holder).catch((err) => logger.warn({ err }, 'could not release the maintenance lease'))
     }
   })
+}
+
+/** A run's results cut to counts for its summary log line: lists become their length, nested objects keep their numbers. */
+export function runCounts(out) {
+  const flat = (v, deep) => {
+    if (v == null || typeof v === 'number' || typeof v === 'boolean') return v
+    if (Array.isArray(v)) return v.length
+    if (!deep || typeof v !== 'object') return undefined
+    const o = {}
+    for (const [k, x] of Object.entries(v)) {
+      const f = flat(x, false)
+      if (f !== undefined) o[k] = f
+    }
+    return o
+  }
+  const o = {}
+  for (const [k, v] of Object.entries(out)) {
+    const f = k === 'failed' ? v : flat(v, true)
+    if (f !== undefined) o[k] = f
+  }
+  return o
 }
 
 async function steps(forceAll) {
@@ -409,7 +439,10 @@ export async function checkHealth(out = {}, at = now()) {
                 AND NOT ($5 AND ${disputeHolds('duplicate_payments.payment_id')})) AS refunds,
             (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'razorpay' AND created_at > $3 AND resolved_at IS NULL) AS webhooks,
             (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > $4) AS failed,
-            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done`,
+            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status = 'PENDING' AND next_attempt_at < $1) AS pushes,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status = 'FAILED' AND created_at > $4) AS push_failed,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS push_done`,
     [
       new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS),
       env.REFUND_SAFETY_CHECKS,
@@ -422,6 +455,11 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
   if ((env.OPS_ALERTS && h.failed >= 3) || (h.done >= 20 && h.failed / h.done > 0.05)) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  // Browser notifications (WEB_PUSH), watched the same way as WhatsApp messages.
+  if (pushOn() && h.pushes > 0) problems.push(['push-overdue', 'Browser notifications are overdue: the maintenance run is not sending them', { overdue: h.pushes }])
+  if ((env.OPS_ALERTS && h.push_failed >= 3) || (h.push_done >= 20 && h.push_failed / h.push_done > 0.05)) {
+    problems.push(['push-failing', 'Browser notifications failing: check the VAPID keys and WEB_PUSH_PROVIDER', { failed: h.push_failed, done: h.push_done }])
+  }
   // INV-G: a paid order past its date (or out for delivery too long) is a customer waiting with nobody told.
   const late = await overdueOrders({ query }, at)
   if (late.length) {

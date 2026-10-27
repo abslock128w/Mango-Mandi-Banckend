@@ -286,6 +286,7 @@ preview password.)
 | `DB_POOL_MAX` (connections per Vercel instance) | **5** (the default on Vercel; leave it unset) | `src/env.js:16` |
 | `DB_CONNECT_TIMEOUT_MS` (wait for a free connection, then answer 503 "busy, retry") | **5000** (default) | `src/env.js:18`, `src/db.js:28` |
 | idle connection release on Vercel | 5 s (fixed) | `src/db.js:25` |
+| `DB_SLOW_QUERY_MS` (log a query slower than this, without its values) | **500** (default) | `src/env.js`, `src/db.js` |
 | Neon compute size | start at the smallest that keeps **autoscaling max ≥ 1 CU** in season; Neon's `max_connections` grows with compute size. Check Neon's connection table for your size | Neon → Branch `main` → Compute |
 | Neon pooler | on (the `-pooler` host); it accepts thousands of client connections and shares a smaller number of server connections | Neon |
 

@@ -742,7 +742,22 @@ export interface Analytics {
 
 /** Problems nobody would otherwise notice: the background loop, failed sends, stuck refunds, bad webhooks. */
 export interface Attention {
-  loop: { lastRunAt: string | null; stale: boolean; failingSteps: { step: string; since: string; error: string | null }[] }
+  /** failCount: failures in a row; lastDurationMs: how long the last try took (both absent from older servers). */
+  loop: {
+    lastRunAt: string | null
+    stale: boolean
+    failingSteps: { step: string; since: string; error: string | null; failCount?: number | null; lastDurationMs?: number | null }[]
+  }
+  /** Browser notifications given up on (FAILED), or overdue and not yet sent (PENDING); absent from older servers. */
+  failedPushes?: {
+    id: string
+    kind: string
+    status: 'FAILED' | 'PENDING'
+    error: string | null
+    attempts: number
+    createdAt: string
+    order: { id: string; number: string } | null
+  }[]
   /** The Docker server's nightly backup; null (or absent) where none is expected, as on Vercel. */
   backup?: { lastOkAt: string | null; stale: boolean } | null
   failedMessages: {

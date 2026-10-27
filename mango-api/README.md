@@ -591,7 +591,9 @@ screen.
 - **Connections.** `DB_POOL_MAX` sets each instance's pool (default 5 on Vercel, 10
   elsewhere) and `DB_CONNECT_TIMEOUT_MS` how long a request waits for a connection before
   answering 503 BUSY (default 5000). On Vercel, keep instances × `DB_POOL_MAX` under the
-  Neon pooler's limit.
+  Neon pooler's limit. Each BUSY answer counts in `mango_db_pool_busy_total`, and a query
+  slower than `DB_SLOW_QUERY_MS` (default 500; 0 turns it off) is logged as `slow query`
+  with its time and the start of its SQL, never its values.
 
 ### Writing a migration
 

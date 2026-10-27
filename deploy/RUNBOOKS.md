@@ -24,6 +24,39 @@ Golden rules:
   down what you ran in the incident note.
 - Never paste a secret into chat, a ticket or the repo.
 
+## Observability: what you can look at
+
+**Request id.** Every API answer has an `X-Request-Id` header (`req_…`), and an
+error answer has the same id as `requestId` in its body. Ask a customer or staff
+member for it (the shop and panel show it on an error), then search the logs
+for it: every line written while handling that request carries `reqId`, and
+`orderId` once the request has locked an order. Lines written by the
+maintenance job carry `step` instead.
+
+**What is logged** (JSON, one line each; Vercel → Logs, or `docker compose logs api`):
+- one `request` line per request: method, path, status, time taken;
+- one `maintenance run` line per run with its counts (holds expired, messages
+  and pushes sent, refunds sent, at-risk orders, failed steps) and its time;
+  on Vercel this is where those counts show, since `/metrics` is off there;
+- `slow query` for any database query over `DB_SLOW_QUERY_MS` (default 500):
+  its time and the first 80 characters of its SQL, never its values;
+- warnings and errors, with error messages scrubbed as for Sentry.
+Personal details never go to the logs: phones, addresses, emails, names, UPI
+ids, GSTINs, codes, tokens and the Razorpay signature are removed at every depth
+of a logged object (`src/logger.js`); a top-level phone or email is logged
+masked only.
+
+**Metrics** (Docker path only, `GET /metrics` with `METRICS_TOKEN`): request
+times by route and status, orders confirmed, holds expired, messages sent and
+failed, webhook errors, maintenance errors and skips, database retries, pool
+BUSY timeouts (`mango_db_pool_busy_total`), slow queries, and the pool's open,
+idle and waiting connections (`mango_db_pool_connections`). Alert rules are in
+`ops/alerts.yml`: loop stopped, step failing, WhatsApp failing, webhooks
+failing, login codes on fallback, ledger drift, 5xx rate and ratio, p95 over
+1.5 s, pool busy and queries waiting for a connection. On Vercel the same
+ground is covered by Sentry and the uptime monitor ("Where alerts come from"
+above).
+
 ---
 
 ## Every Needs attention item: who owns it and the way back
@@ -284,7 +317,12 @@ Owner:
 ## Failed notifications
 
 Notice: "WhatsApp message not delivered" items, Sentry "WhatsApp messages failing"
-or "WhatsApp messages are overdue".
+or "WhatsApp messages are overdue". Browser notifications (`WEB_PUSH`) show as
+"Browser notification not delivered" or "overdue", with Sentry "Browser
+notifications are failing" or "overdue": check the VAPID keys
+(`npm run preflight`) and, when overdue, the scheduler. They retry at 1, 5 and
+15 minutes and have no Send again; the WhatsApp message for the same step is
+the one that matters.
 Messages retry at 1, 5, 15, 60 and 180 minutes and are skipped after 24 hours
 (an old update is no longer news, `src/notify.js`).
 Owner:
