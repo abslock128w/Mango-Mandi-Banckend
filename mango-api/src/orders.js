@@ -451,6 +451,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
     return { order: o, result: 'cancelled' }
   }
   if (outcome === 'failed') {
+    // Counted even when the order has moved on: a failure rate is about the gateway, not the order.
+    afterCommit(c, () => metrics.paymentsFailed.inc())
     if (o.status !== 'PAYMENT_PENDING') return { order: o, result: 'ignored' }
     await addEvent(c, o.id, o.status, o.status, actor, 'A payment attempt failed; the customer can try again until the hold ends')
     return { order: o, result: 'attempt_failed' }
@@ -871,10 +873,13 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
 /**
  * INV-E: after a missed delivery, packed boxes that would be past the age cap
  * on the retry date are swapped for younger stock of the same SKU and stage:
- * the fresh boxes are taken and packed for the retry, and the old ones go back
- * on the shelf when the rider returns them (too old to sell, they retire with
- * their batch). All or nothing. Returns { result: 'ok' } when nothing is too
- * old, { result: 'repacked', boxes }, or { result: 'stuck' } when there is no
+ * the fresh boxes are taken and packed for the retry, and the old ones are
+ * booked back on the shelf at once, in this same transaction (restock), not
+ * when the rider brings them back. The books count them as in the warehouse
+ * from the missed delivery on; too old to sell, they retire with their batch.
+ * Only boxes without labels are swapped here (labelled boxes go back by scan).
+ * All or nothing. Returns { result: 'ok' } when nothing is too old,
+ * { result: 'repacked', boxes }, or { result: 'stuck' } when there is no
  * younger stock (nothing changes; the order goes at-risk for a manager).
  */
 async function repackForRetry(c, o, date, actor) {
