@@ -142,6 +142,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # The old release's bill, gift and label tests read their PDFs with poppler too.
+      - name: Install the PDF renderer for the old release's PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Old API's tests on the new migrations
         working-directory: mango-api
         run: ./scripts/n-minus-1.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
