@@ -155,6 +155,7 @@ describe('PAY-B2: a refund sent again carries a new receipt', () => {
       const r = await hook(refundFailed('rfnd_1', 'pay_R1'))
       assert.equal(r.body.result, 'refund_failed')
       assert.equal((await order(o.orderId)).refund_id, null)
+      at(3 * MIN) // a failed refund is sent again after its back-off (2 minutes after the first attempt)
       assert.equal(await processDueRefunds(), 1)
       const row = await order(o.orderId)
       assert.deepEqual([row.refund_id, row.refund_status, row.payment_status], ['rfnd_2', 'pending', 'REFUNDED'])
@@ -181,6 +182,7 @@ describe('PAY-B2: a refund sent again carries a new receipt', () => {
       assert.equal((await preorder(p.id)).refund_id, 'rfnd_1')
       desk.refunds[0].status = 'failed'
       assert.equal((await hook(refundFailed('rfnd_1', 'pay_P1'))).body.result, 'refund_failed')
+      at(3 * MIN) // past the back-off
       await processDueRefunds()
       assert.equal((await preorder(p.id)).refund_id, 'rfnd_2')
       assert.deepEqual(desk.receipts, [`${p.number}-r1`, `${p.number}-r2`])
@@ -199,6 +201,7 @@ describe('PAY-B2: a refund sent again carries a new receipt', () => {
       assert.equal(await refundDuplicatePayments(), 1)
       desk.refunds[0].status = 'failed'
       await hook(refundFailed('rfnd_1', 'pay_D1'))
+      at(3 * MIN) // past the back-off
       assert.equal(await refundDuplicatePayments(), 1)
       const d = (await query(`SELECT * FROM duplicate_payments WHERE payment_id = 'pay_D1'`)).rows[0]
       assert.equal(d.refund_id, 'rfnd_2')

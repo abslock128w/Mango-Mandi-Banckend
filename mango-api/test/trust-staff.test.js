@@ -3,7 +3,7 @@
 // every search, view and reveal in staff_audit before anything is shown.
 // Exports: managers only, date range capped, cells made formula-safe,
 // streamed in pages, audited with the row count.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { exportPaging, EXPORT_KINDS } from '../src/admin/exports.js'
@@ -44,7 +44,7 @@ const idOf = async (token) => (await api.get('/v1/me', { token })).body.id
 const audits = async (action) => (await query('SELECT * FROM staff_audit WHERE action = $1 ORDER BY created_at, id', [action])).rows
 
 async function markDelivered(orderId) {
-  await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
+  await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
   await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [newId('evt'), orderId, now()])
 }
 

@@ -17,7 +17,7 @@ import { logger } from './logger.js'
 import { enqueuePreorder } from './notify.js'
 import { cancelOrder, createOrder, customerCancel, LAZY_SWEEP_GATEWAY_GRACE_MS, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
-import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundReceipt } from './payments.js'
+import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundAttemptFailed, refundReceipt } from './payments.js'
 import { findProduct, sellable } from './products.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
@@ -302,9 +302,15 @@ export async function staffCancelPreorder(c, id, actor, reason) {
 export async function refundPreorder(id) {
   const p = await claimRefund('preorders', id)
   if (!p) return null
-  const refundId = await gatewayRefund({
-    paymentId: p.payment_id, amount: p.paid_amount ?? p.total, receipt: refundReceipt(p.number, p.refund_attempts), notes: { preorderId: p.id },
-  })
+  let refundId
+  try {
+    refundId = await gatewayRefund({
+      paymentId: p.payment_id, amount: p.paid_amount ?? p.total, receipt: refundReceipt(p.number, p.refund_attempts), notes: { preorderId: p.id },
+    })
+  } catch (err) {
+    await refundAttemptFailed('preorders', p.id, p.refund_attempts, err)
+    throw err
+  }
   if (!refundId) return null
   return tx(async (c) => {
     const r = await c.query(

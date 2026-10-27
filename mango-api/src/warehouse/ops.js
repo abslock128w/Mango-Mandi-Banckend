@@ -479,7 +479,7 @@ const HANDLERS = {
       newDeltas(), { skipStock: true },
     )
     if (o.status === 'CONFIRMED') {
-      assertTransition('CONFIRMED', 'PROCESSING')
+      assertTransition(o.status, 'PROCESSING')
       await c.query(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [o.id])
       await addEvent(c, o.id, 'CONFIRMED', 'PROCESSING', who.actor, 'Picking started in the warehouse')
     }
@@ -550,6 +550,7 @@ async function unpickBox(c, o, boxId, who, why, event) {
   if (box.order_id !== o.id || !['picked', 'packed'].includes(box.lifecycle)) reject('CONFLICT_RETRY_EXHAUSTED', 'This box just changed. Scan it again.')
   if (o.status === 'PACKED') {
     // The order is open for packing again; it goes through pack (and its finalize) once more.
+    assertTransition(o.status, 'PROCESSING')
     await c.query(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [o.id])
     await addEvent(c, o.id, 'PACKED', 'PROCESSING', who.actor, `Reopened in the warehouse: box ${formatBoxCode(box.code)} taken off (${why})`)
   }
@@ -656,6 +657,7 @@ export async function finalizeOperation(c, opId, who, body = {}) {
       await changeBox(c, b, { lifecycle: 'packed', location_id: packing?.id ?? b.location_id }, { type: 'PACKED', actor: who.actor, operationId: op.id, orderId: o.id }, deltas, { skipStock: true })
     }
     if (o.status === 'CONFIRMED') {
+      assertTransition(o.status, 'PROCESSING')
       await c.query(`UPDATE orders SET status = 'PROCESSING' WHERE id = $1`, [o.id])
       await addEvent(c, o.id, 'CONFIRMED', 'PROCESSING', who.actor, 'Packing started in the warehouse')
     }

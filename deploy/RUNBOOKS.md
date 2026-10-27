@@ -68,7 +68,7 @@ above).
 | Item (as the panel shows it) | Raised by | Owner | Way back |
 |---|---|---|---|
 | **The background loop has stopped** | no `tick` in `maintenance_runs` for 5 min (`reports.js:86`, `LOOP_STALE_MS`) | Owner | [Scheduler stopped](#scheduler-stopped). The panel names both: the scheduler on Vercel, restarting the API on the Docker server |
-| **<step> is failing** since ... | a step's `last_err_at` is newer than its `last_ok_at` (`reports.js` `failingSteps`; `maintenance.js` `step()`) | Owner | Read the error shown; Vercel → Logs, search `maintenance step failed` and the step name. Fix the cause (below by step); the item clears on the step's next success. `refunds`/`duplicate-payments`/`refund-checks`/`reconcile`: [Stuck refunds](#stuck-or-failed-refunds) and Razorpay keys. `notifications`: [Failed notifications](#failed-notifications). `audit`: [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). `preorders`, `rebalance-*`, `sweep`, `retire`, `cleanup`, `retention`, `config`: a bug or the database; Sentry has the stack |
+| **<step> is failing** since ... | a step's `last_err_at` is newer than its `last_ok_at` (`reports.js` `failingSteps`; `maintenance.js` `step()`) | Owner | Read the error shown; Vercel → Logs, search `maintenance step failed` and the step name. Fix the cause (below by step); the item clears on the step's next success. `refunds`/`duplicate-payments`/`refund-checks`/`reconcile`: [Stuck refunds](#stuck-or-failed-refunds) and Razorpay keys. `webhook-replay`: [Webhooks failing](#webhooks-failing-500). `notifications`: [Failed notifications](#failed-notifications). `audit`: [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). `preorders`, `rebalance-*`, `sweep`, `retire`, `cleanup`, `retention`, `config`: a bug or the database; Sentry has the stack |
 | **No backup in the last 26 hours** | `backupStatus` (`maintenance.js`), when `BACKUP_HEARTBEAT_EXPECTED=true` or a backup was ever recorded | Owner | GitHub → Actions → **Backup** → the last run. Red at "Check the backup is set up": secrets missing. Red later: open the log. No run at all: GitHub paused the schedule (60 days without repository activity): click **Enable workflow**, then **Run workflow**. The item clears when a run's heartbeat step succeeds. (Docker server: `docker compose logs backup`; the panel names both) |
 | **Refund not sent** for N, asked for at ... | a refund requested 30 min ago and not sent (`reports.js:108-125`) | Manager watches, Owner fixes | [Stuck refunds](#stuck-or-failed-refunds). Razorpay can never send it: Manager → **Paid back another way** on the item |
 | **Refund held** for N (with `REFUND_SAFETY_CHECKS`) | a refund whose payment has a chargeback not won (`payments.js` `disputeHolds`; the item names the dispute and its status) | Owner answers the dispute; Manager settles | Open chargeback: answer it in Razorpay ([Dispute](#dispute-chargeback)); there is no settle button and the API refuses one (409 `DISPUTE_OPEN`). Won: the refund goes out on its own. Lost or closed: the bank already gave the money back; Manager → **Paid back another way** on the item, with the dispute id (filled in) as the reference |
@@ -199,17 +199,23 @@ Notice: Webhook problem with an error message (not "order we don't have"), Sentr
 error `webhook processing failed`. The webhook answered 500, so Razorpay retries
 it. Owner: read the Sentry stack; usually the database (see [Downtime](#downtime-or-database-outage)).
 After the fix, Razorpay's retries and the reconcile step catch up; check the
-affected orders in the panel.
+affected orders in the panel. Every signed webhook is also stored before it is
+processed (`webhook_events`), and the `webhook-replay` step runs one again 5
+minutes after it failed, up to 5 times. One that still fails is listed as
+"A stored Razorpay event ... still failed after 5 replays ... It needs a
+manager": fix the cause, then check the order (or booking) it names; the
+event's body is in `webhook_events` for 30 days (docs/order-states.md).
 
 ---
 
 ## Stuck or failed refunds
 
 A refund is requested (customer cancel before PACKED, a manager cancel, an
-automatic one above), then sent by the API right away and retried by the
-`refunds` step every minute. Every attempt is leased and Razorpay is asked first
-whether a refund already exists, so a retry never pays twice
-(`src/payments.js` `refundOrder`, `gatewayRefund`).
+automatic one above), then sent by the API right away. One that fails is sent
+again by the `refunds` step after 2, 4, 8, 16, 32 and then 60 minutes, at most 8
+attempts in all. Every attempt is leased and Razorpay is asked first whether a
+refund already exists, so a retry never pays twice (`src/payments.js`
+`refundOrder`, `gatewayRefund`).
 
 **"Refund not sent" (requested, not sent after 30 min)**: Owner
 1. Needs attention → Background jobs: is `Sending refunds` failing? The error says why.
@@ -225,6 +231,13 @@ processed. Razorpay dashboard → Refunds → the refund id (order page). Proces
 there: the webhook was lost; the next `refund-checks` run records it. Failed there:
 `refund.failed` resets it and it is sent again. Stuck at the bank: contact
 Razorpay support with the refund id.
+
+**"Refund failed: needs a manager"**: Razorpay refused all 8 attempts, so the
+refund is no longer sent on its own (`refund_status` `failed`, `refund_gave_up_at`
+set). A Manager: Razorpay dashboard → the payment, read why the refunds failed,
+then pay the customer back another way and record it as below. If Razorpay does
+show a refund for the payment, **Paid back another way** says so and refuses; the
+next run then records that refund (do not pay again).
 
 **A refund that can never go through** (account closed, bank refused for good): pay
 the customer back another way (bank transfer, UPI), then a Manager clicks **Paid back

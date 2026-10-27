@@ -1,5 +1,5 @@
 // Remediation Stage 2 (P1) regression tests, one block per audit finding.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { addDays, setNow, todayIST } from '../src/clock.js'
@@ -63,7 +63,7 @@ describe('packers see boxes, not people (SEC-02)', () => {
     assert.ok(full.body.deliveryAddress)
 
     // A delivered order is gone for the packer.
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.id])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.id])
     assert.equal((await api.get(`/admin/v1/orders/${o.id}`, { token: packer })).status, 404)
     const after = await api.get(`/admin/v1/manifest?date=${o.date}`, { token: packer })
     assert.equal(after.body.runs.flatMap((r) => r.stops.flatMap((s) => s.orders)).length, 0)
@@ -183,7 +183,7 @@ describe('refund outcomes are checked, not assumed (PAY-02)', () => {
   test('Needs attention lists a refund Razorpay has not confirmed after 5 days', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const o = await paidOrder()
-    await query(
+    await forceOrderState(
       `UPDATE orders SET status = 'CANCELLED', refund_requested_at = $2, refunded_at = $2, refund_id = 'rfnd_old', refund_status = 'pending' WHERE id = $1`,
       [o.id, new Date(Date.parse(T0) - 6 * 86_400_000)],
     )

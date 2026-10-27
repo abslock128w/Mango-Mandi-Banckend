@@ -2,7 +2,7 @@
 // (FUNNEL_ANALYTICS) and the managers' evening WhatsApp summary
 // (MANAGER_DAILY_SUMMARY). Messages go through stub senders, never to Meta or
 // a push service.
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -82,7 +82,7 @@ async function deliverForReal(orderId) {
 
 /** Shortcut for tests that only need the end state. */
 async function markDelivered(orderId) {
-  await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
+  await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
   await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [
     newId('evt'), orderId, now(),
   ])

@@ -1,6 +1,6 @@
 // The shop's payment paths: reopening checkout from another device (FE-1) and
 // retrying after the gateway failed to start a payment (FE-2).
-import { closeAll, adminToken, checkout, client, customerToken, line, makeBatch, resetDb, startServer } from './helpers.js'
+import { closeAll, adminToken, checkout, client, customerToken, forceOrderState, line, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { addDays, todayIST } from '../src/clock.js'
@@ -58,7 +58,7 @@ describe('reopening checkout (FE-1)', () => {
     assert.equal((await api.get(`/v1/orders/${c.body.orderId}`, { token: other.accessToken })).status, 404)
 
     // Once paid there is nothing to reopen.
-    await query(`UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED' WHERE id = $1`, [c.body.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED' WHERE id = $1`, [c.body.orderId])
     assert.equal((await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })).body.razorpayKeyId, null)
   })
 })

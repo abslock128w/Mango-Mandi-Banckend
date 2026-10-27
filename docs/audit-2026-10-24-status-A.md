@@ -73,7 +73,7 @@ recount), listed under "Review follow-ups" below.
 | Env var | Turns on | Findings |
 |---|---|---|
 | `REFUND_SAFETY_CHECKS` | refunds wait while a chargeback is open; "Paid back another way" refused while Razorpay can't be checked | PAY-05, PAY-06 |
-| `PAYMENT_DAILY_RECON` | the once-a-day check of Razorpay's captured payments (in production it does nothing without Razorpay keys; locally it reads the dev stand-in gateway) | PAY-08 |
+| `PAYMENT_DAILY_RECON` | the once-a-day check of Razorpay's captured payments (in production it does nothing without Razorpay keys; locally it reads the dev stand-in gateway). Unset, it is now on in production and off elsewhere (docs/order-states.md) | PAY-08 |
 | `ORDER_RULE_CHECKS` | reschedules never overfill a slot; only a manager cancels a replacement; chat re-checks the pincode | INV-01, INV-07, INV-10 |
 | `STOCK_INTAKE_CHECKS` | batch intake idempotency key and manager approval above a size; late trucks stop selling to new orders | INV-02, INV-08 |
 | `BATCH_INTAKE_MANAGER_BOXES` | the size (boxes) above which a non-manager needs a manager; default 1000, 1-100000 | INV-02 |

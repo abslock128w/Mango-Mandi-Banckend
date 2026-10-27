@@ -10,6 +10,7 @@ import { env, isProd } from './env.js'
 import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
+import { metrics } from './metrics.js'
 import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
 import { findPreorderId, processPreorderPayment, refundPreorder } from './preorders.js'
@@ -284,12 +285,31 @@ export function razorpayIds(event, eventId) {
 
 /**
  * Handles one verified webhook body. The dedupe row is written in the same
- * transaction, so a processing error rolls it back and Razorpay's retry runs.
+ * transaction, so a processing error rolls it back and Razorpay's retry (or
+ * the replay of the stored event, webhook-events.js) runs it again.
+ * `intakeId`: the stored event (webhook_events), marked processed in that same
+ * transaction, or just after for an event with nothing to write.
  */
-export async function handleWebhook(event, eventId) {
+export async function handleWebhook(event, eventId, { intakeId = null } = {}) {
+  let marked = false
+  const mark = async (c) => {
+    if (!intakeId) return
+    await markWebhookEvent(c, intakeId)
+    marked = true
+  }
+  const out = await routeWebhook(event, eventId, mark)
+  if (intakeId && !marked) await markWebhookEvent({ query }, intakeId)
+  return out
+}
+
+/** Marks a stored webhook event (webhook_events) processed, in the caller's transaction `c`. */
+export const markWebhookEvent = (c, id) =>
+  c.query('UPDATE webhook_events SET processed_at = $2, last_error = NULL WHERE id = $1 AND processed_at IS NULL', [id, now()])
+
+async function routeWebhook(event, eventId, mark) {
   const kind = event?.event
-  if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId)
-  if (typeof kind === 'string' && kind.startsWith('payment.dispute.')) return handleDisputeEvent(event, eventId)
+  if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId, mark)
+  if (typeof kind === 'string' && kind.startsWith('payment.dispute.')) return handleDisputeEvent(event, eventId, mark)
   if (kind === 'payment.authorized') {
     // PAY-B1: the capture call can take seconds; Razorpay gets its 200 first.
     // The payment.captured webhook (or the reconcile loop) confirms the order.
@@ -302,6 +322,7 @@ export async function handleWebhook(event, eventId) {
   const dedupeKey = eventId || `${kind}:${entity.id ?? link?.id}`
   return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
     // MULTI_GIFT: one Razorpay order pays for a whole gift order.
@@ -402,7 +423,7 @@ export const DISPUTE_STATUSES = ['open', 'created', 'under_review', 'action_requ
  * payment_id, amount, currency, reason_code, respond_by, status) are not yet
  * checked against a recorded payload (PAY-B8), so every one is optional.
  */
-async function handleDisputeEvent(event, eventId) {
+async function handleDisputeEvent(event, eventId, mark) {
   const kind = event.event
   const d = event.payload?.dispute?.entity ?? {}
   const pay = event.payload?.payment?.entity ?? {}
@@ -415,6 +436,7 @@ async function handleDisputeEvent(event, eventId) {
   const dedupeKey = eventId || `${kind}:${disputeId}`
   return tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const o = paymentId ? (await c.query('SELECT id, status FROM orders WHERE payment_id = $1', [paymentId])).rows[0] : null
     const p = paymentId && !o ? (await c.query('SELECT id FROM preorders WHERE payment_id = $1', [paymentId])).rows[0] : null
@@ -473,13 +495,14 @@ async function captureAuthorized(entity) {
  * later fails, the record is reopened so the maintenance loop sends a new one,
  * and it shows in Needs attention.
  */
-async function handleRefundEvent(event, eventId) {
+async function handleRefundEvent(event, eventId, mark) {
   const r = event.payload?.refund?.entity ?? {}
   if (!r.id) return { ignored: true }
   const dedupeKey = eventId || `${event.event}:${r.id}`
   const failed = event.event === 'refund.failed'
   return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const hit = await applyRefundOutcome(c, r.id, failed)
     if (failed) {
@@ -499,33 +522,42 @@ async function handleRefundEvent(event, eventId) {
 
 /**
  * Records how a refund ended at Razorpay on whichever row holds it. A failed
- * refund reopens the row, so the maintenance loop sends a new one. Returns
- * how many rows matched.
+ * refund reopens the row, so the maintenance loop sends a new one after its
+ * back-off; one that has used up its attempts (REFUND_MAX_ATTEMPTS) is left
+ * 'failed' for a manager instead. Returns how many rows matched.
  */
 async function applyRefundOutcome(c, refundId, failed) {
   let hit = 0
   for (const table of ['orders', 'preorders']) {
-    const { rows } = await c.query(`SELECT id, status FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [refundId])
+    const { rows } = await c.query(`SELECT id, status, refund_attempts FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [refundId])
     for (const row of rows) {
       hit++
       if (!failed) {
         await c.query(`UPDATE ${table} SET refund_status = 'processed', refund_checked_at = $2 WHERE id = $1`, [row.id, now()])
         continue
       }
+      metrics.refundFailures.inc({ kind: table })
       await c.query(
         `UPDATE ${table} SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, refund_attempted_at = NULL,
                 payment_status = 'SUCCEEDED', refund_checked_at = $2 WHERE id = $1`,
         [row.id, now()],
       )
-      if (table === 'orders') await addEvent(c, row.id, row.status, row.status, SYSTEM, `Refund ${refundId} failed at Razorpay; sending it again`)
+      const spent = row.refund_attempts >= REFUND_MAX_ATTEMPTS
+      if (table === 'orders' && !spent) await addEvent(c, row.id, row.status, row.status, SYSTEM, `Refund ${refundId} failed at Razorpay; sending it again`)
+      if (spent) await giveUpRefund(table, row.id, row.refund_attempts, `refund ${refundId} failed at Razorpay`, c)
     }
   }
   const d = await c.query(
     failed
-      ? `UPDATE duplicate_payments SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, attempted_at = NULL, refund_checked_at = $2 WHERE refund_id = $1`
-      : `UPDATE duplicate_payments SET refund_status = 'processed', refund_checked_at = $2 WHERE refund_id = $1`,
+      ? `UPDATE duplicate_payments SET refund_status = 'failed', refunded_at = NULL, refund_id = NULL, attempted_at = NULL, refund_checked_at = $2
+          WHERE refund_id = $1 RETURNING payment_id, refund_attempts`
+      : `UPDATE duplicate_payments SET refund_status = 'processed', refund_checked_at = $2 WHERE refund_id = $1 RETURNING payment_id, refund_attempts`,
     [refundId, now()],
   )
+  for (const r of failed ? d.rows : []) {
+    metrics.refundFailures.inc({ kind: 'duplicate_payments' })
+    if (r.refund_attempts >= REFUND_MAX_ATTEMPTS) await giveUpRefund('duplicate_payments', r.payment_id, r.refund_attempts, `refund ${refundId} failed at Razorpay`, c)
+  }
   return hit + d.rowCount
 }
 
@@ -708,23 +740,100 @@ export async function reconcileOrderNow(orderId, { minAgeMs = 0, throttleMs = 10
  */
 export const REFUND_LEASE_MS = 2 * 60_000
 
+/** Refund attempts before a refund is left for a manager: refund_status 'failed', refund_gave_up_at set, never reopened on its own. */
+export const REFUND_MAX_ATTEMPTS = 8
+/** Minutes after attempt `n` before the next one may start: 2, 4, 8, 16, 32, then 60. */
+export const refundBackoffMinutes = (n) => Math.min(2 ** Math.max(1, n), 60)
+/** The same in SQL, for the attempt number in `col`. */
+const backoffSql = (col) => `LEAST(power(2, GREATEST(${col}, 1)), 60) * interval '1 minute'`
+
 /**
- * Takes the refund for one order or preorder for the next two minutes, or
- * returns null when it is done, not due, or another worker holds it. Only the
- * holder calls Razorpay, so the cancel request, the webhook and the
- * maintenance loop (on any instance) can't send the same refund twice.
+ * Takes the refund for one order or preorder, or returns null when it is
+ * done, not due yet (backing off after a failure), given up on, or another
+ * worker holds it. The attempt is counted and the next one scheduled
+ * (refund_next_attempt_at, at least the two-minute lease) before Razorpay is
+ * called. Only the holder calls Razorpay, so the cancel request, the webhook
+ * and the maintenance loop (on any instance) can't send the same refund twice.
  */
 export async function claimRefund(table, id, at = now()) {
   if (table !== 'orders' && table !== 'preorders') throw new Error(`no refunds on ${table}`)
   const { rows } = await query(
-    `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1
-      WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL
+    `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1,
+            refund_next_attempt_at = $2::timestamptz + ${backoffSql('refund_attempts + 1')}
+      WHERE id = $1 AND refund_requested_at IS NOT NULL AND refunded_at IS NULL AND refund_gave_up_at IS NULL
         AND (refund_attempted_at IS NULL OR refund_attempted_at < $3)
+        AND (refund_next_attempt_at IS NULL OR refund_next_attempt_at <= $2)
         AND NOT ($4 AND ${disputeHolds(table === 'orders' ? ORDER_PAYMENT_ID : `${table}.payment_id`)})
       RETURNING *`,
     [id, at, new Date(at.getTime() - REFUND_LEASE_MS), env.REFUND_SAFETY_CHECKS],
   )
   return rows[0] ?? null
+}
+
+const REFUND_KEY = { orders: 'id', preorders: 'id', duplicate_payments: 'payment_id' }
+
+/**
+ * A refund attempt failed at Razorpay (an error before any refund was made).
+ * Counted, and the refund waits for its next attempt (claimRefund set when).
+ * The attempt that reaches REFUND_MAX_ATTEMPTS is the last: the refund is left
+ * 'failed' for a manager (Needs attention, "needs a manager"), who can still
+ * record it as paid back another way. Returns true when it gave up. Never throws.
+ */
+export async function refundAttemptFailed(table, key, attempts, err) {
+  metrics.refundFailures.inc({ kind: table })
+  if (attempts < REFUND_MAX_ATTEMPTS) return false
+  try {
+    return await giveUpRefund(table, key, attempts, err?.message)
+  } catch (e) {
+    logger.error({ err: e, table, key }, 'could not mark a refund as needing a manager; the next run tries again')
+    return false
+  }
+}
+
+/** Marks one refund given up on (in `c`, or on its own). Returns true when this call did it. */
+function giveUpRefund(table, key, attempts, why, c = null) {
+  const run = async (c) => {
+    const { rows } = await c.query(
+      `UPDATE ${table} SET refund_gave_up_at = $2, refund_status = 'failed' WHERE ${REFUND_KEY[table]} = $1 AND refunded_at IS NULL AND refund_gave_up_at IS NULL RETURNING *`,
+      [key, now()],
+    )
+    if (!rows.length) return false
+    const r = rows[0]
+    const what = table === 'duplicate_payments' ? `The refund of second payment ${r.payment_id}` : 'The refund'
+    const note = `${what} failed ${attempts} times and is not sent again on its own: a manager settles it from Needs attention`
+    const orderId = table === 'orders' ? r.id : table === 'duplicate_payments' ? r.order_id : null
+    if (orderId) {
+      const { rows: o } = await c.query('SELECT status FROM orders WHERE id = $1', [orderId])
+      await addEvent(c, orderId, o[0].status, o[0].status, SYSTEM, note)
+    }
+    const preorderId = table === 'preorders' ? r.id : table === 'duplicate_payments' ? r.preorder_id : null
+    if (preorderId) {
+      const { rows: p } = await c.query('SELECT status FROM preorders WHERE id = $1', [preorderId])
+      await c.query('INSERT INTO preorder_events (id, preorder_id, status, reason, actor, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
+        newId('pev'), preorderId, p[0].status, note, SYSTEM.id, now(),
+      ])
+    }
+    logger.error({ table, key, attempts, why }, 'refund given up after its retries; a manager settles it')
+    return true
+  }
+  return c ? run(c) : tx(run)
+}
+
+/**
+ * Refunds whose last attempt never came back (an instance that died mid-call)
+ * and that have used up their attempts: given up on like a failed last attempt.
+ */
+async function giveUpSpentRefunds(at = now()) {
+  for (const table of ['orders', 'preorders', 'duplicate_payments']) {
+    const requested = table === 'duplicate_payments' ? 'found_at' : 'refund_requested_at'
+    const { rows } = await query(
+      `SELECT ${REFUND_KEY[table]} AS key, refund_attempts FROM ${table}
+        WHERE ${requested} IS NOT NULL AND refunded_at IS NULL AND refund_gave_up_at IS NULL
+          AND refund_attempts >= $1 AND refund_next_attempt_at < $2 LIMIT 20`,
+      [REFUND_MAX_ATTEMPTS, at],
+    )
+    for (const r of rows) await giveUpRefund(table, r.key, r.refund_attempts, 'no answer from the last attempt')
+  }
 }
 
 /**
@@ -810,10 +919,16 @@ export async function refundOrder(orderId) {
   if (!o) return null
   // A gift order's delivery (MULTI_GIFT) was paid by its parent's payment: it gets back its own amount only.
   const giftPayment = o.gift_order_id ? ((await query('SELECT payment_id FROM gift_orders WHERE id = $1', [o.gift_order_id])).rows[0]?.payment_id ?? null) : null
-  const refundId = await gatewayRefund({
-    paymentId: o.payment_id ?? giftPayment, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
-    shared: Boolean(o.gift_order_id),
-  })
+  let refundId
+  try {
+    refundId = await gatewayRefund({
+      paymentId: o.payment_id ?? giftPayment, amount: o.payment_amount ?? o.total, receipt: refundReceipt(o.number, o.refund_attempts), notes: { orderId: o.id },
+      shared: Boolean(o.gift_order_id),
+    })
+  } catch (err) {
+    await refundAttemptFailed('orders', o.id, o.refund_attempts, err)
+    throw err
+  }
   if (!refundId) return null
   try {
     return await tx(async (c) => {
@@ -838,18 +953,21 @@ export async function refundOrder(orderId) {
  * holds (PAY-06) are left out of the pick, so held ones never fill the batch
  * and keep the rest waiting; claimRefund checks again.
  */
-export async function processDueRefunds() {
+export async function processDueRefunds(at = now()) {
   const safety = env.REFUND_SAFETY_CHECKS
+  await giveUpSpentRefunds(at)
+  // Given up, or backing off after a failure: left out of the pick too, so they never fill the batch.
+  const due = `refund_gave_up_at IS NULL AND (refund_next_attempt_at IS NULL OR refund_next_attempt_at <= $2)`
   const { rows } = await query(
-    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds(ORDER_PAYMENT_ID)})
+    `SELECT id FROM orders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND ${due} AND NOT ($1 AND ${disputeHolds(ORDER_PAYMENT_ID)})
       ORDER BY refund_requested_at LIMIT 50`,
-    [safety],
+    [safety, at],
   )
   let n = 0
   const pre = await query(
-    `SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND NOT ($1 AND ${disputeHolds('preorders.payment_id')})
+    `SELECT id FROM preorders WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND ${due} AND NOT ($1 AND ${disputeHolds('preorders.payment_id')})
       ORDER BY refund_requested_at LIMIT 50`,
-    [safety],
+    [safety, at],
   )
   for (const p of pre.rows) {
     if (!canStartCall(GATEWAY_CALL_MS)) return n
@@ -879,9 +997,11 @@ export async function processDueRefunds() {
  */
 export async function refundDuplicatePayments(at = now()) {
   const { rows } = await query(
-    `UPDATE duplicate_payments SET attempted_at = $1, refund_attempts = refund_attempts + 1
+    `UPDATE duplicate_payments SET attempted_at = $1, refund_attempts = refund_attempts + 1,
+            refund_next_attempt_at = $1::timestamptz + ${backoffSql('refund_attempts + 1')}
       WHERE payment_id IN (SELECT payment_id FROM duplicate_payments
-                            WHERE refunded_at IS NULL AND (attempted_at IS NULL OR attempted_at < $2)
+                            WHERE refunded_at IS NULL AND refund_gave_up_at IS NULL AND (attempted_at IS NULL OR attempted_at < $2)
+                              AND (refund_next_attempt_at IS NULL OR refund_next_attempt_at <= $1)
                               AND NOT ($3 AND ${disputeHolds('duplicate_payments.payment_id')})
                             ORDER BY found_at LIMIT 20 FOR UPDATE SKIP LOCKED)
       RETURNING *`,
@@ -891,10 +1011,16 @@ export async function refundDuplicatePayments(at = now()) {
   for (const d of rows) {
     if (!canStartCall(GATEWAY_CALL_MS)) break // leased rows are retried after the lease
     try {
-      const refundId = await gatewayRefund({
-        paymentId: d.payment_id, amount: d.amount ?? undefined, receipt: refundReceipt(`dup-${d.payment_id}`, d.refund_attempts),
-        notes: { reason: 'duplicate payment', ...(d.order_id ? { orderId: d.order_id } : { preorderId: d.preorder_id }) },
-      })
+      let refundId
+      try {
+        refundId = await gatewayRefund({
+          paymentId: d.payment_id, amount: d.amount ?? undefined, receipt: refundReceipt(`dup-${d.payment_id}`, d.refund_attempts),
+          notes: { reason: 'duplicate payment', ...(d.order_id ? { orderId: d.order_id } : { preorderId: d.preorder_id }) },
+        })
+      } catch (err) {
+        await refundAttemptFailed('duplicate_payments', d.payment_id, d.refund_attempts, err)
+        throw err
+      }
       if (!refundId) continue
       await tx(async (c) => {
         await c.query(`UPDATE duplicate_payments SET refund_id = $2, refunded_at = $3, refund_status = 'pending', last_error = NULL WHERE payment_id = $1`, [d.payment_id, refundId, now()])

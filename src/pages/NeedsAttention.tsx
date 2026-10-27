@@ -9,6 +9,7 @@ import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToa
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
+  'webhook-replay': 'Replaying stored webhooks',
   refunds: 'Sending refunds',
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
@@ -270,10 +271,16 @@ export default function NeedsAttention() {
             bank has already given the customer the money back. Record it as paid back another way, with the dispute id as the
             reference, so it is not refunded twice.
           </>
+        ) : r.state === 'needs_manager' ? (
+          <>
+            <strong>Refund failed: needs a manager</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number},
+            asked for at {dateTime(r.requestedAt)}. Razorpay refused it {r.attempts ?? 'several'} times, so it is not sent again on its own.
+            Check the payment in the Razorpay dashboard, pay the customer back another way, and record it here.
+          </>
         ) : (
           <>
             <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
-            for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+            for at {dateTime(r.requestedAt)}. It is tried again, waiting longer after each failure (up to an hour); check Razorpay if this stays.
           </>
         )}
         {manager && (r.state ?? 'unsent') !== 'unconfirmed' && !disputeOpen(r) ? (

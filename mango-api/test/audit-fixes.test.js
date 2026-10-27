@@ -163,6 +163,7 @@ describe('refunds follow what Razorpay reports', () => {
     assert.equal(reopened.refund_status, 'failed')
     assert.equal(reopened.payment_status, 'SUCCEEDED')
 
+    later(3 * 60_000) // a failed refund is sent again after its back-off (2 minutes after the first attempt)
     assert.equal(await processDueRefunds(), 1)
     const again = await order(o.orderId)
     assert.ok(again.refunded_at)

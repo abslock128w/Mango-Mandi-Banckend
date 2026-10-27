@@ -3,7 +3,7 @@
 // idempotency keys, delivery proof, gift codes, claim limits, the operator
 // allowlist, maintenance time slices and account deletion with money owed.
 import sharp from 'sharp'
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { OPERATOR_ROUTES, roleAllows } from '../src/access.js'
@@ -86,7 +86,7 @@ describe('manager refunds for orders we cannot deliver', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const o = await paidOrder(cust)
-    await query(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 3 WHERE id = $1`, [o.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERY_FAILED', delivery_failures = 3 WHERE id = $1`, [o.orderId])
     assert.equal((await cancel(o.orderId, { reason: 'Three missed deliveries', refund: true })).status < 300, true)
     assert.equal((await order(o.orderId)).payment_status, 'REFUNDED')
   })
@@ -153,7 +153,7 @@ describe('accounts with money still owed', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const o = await paidOrder(cust)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.orderId])
     await query(`INSERT INTO duplicate_payments (payment_id, order_id, amount, found_at) VALUES ('pay_twice', $1, 100, $2)`, [o.orderId, now()])
     const r = await api.del('/v1/me', { token: cust.accessToken })
     assert.equal(r.status, 409)
@@ -294,7 +294,7 @@ describe('delivery proof', () => {
 describe('claims', () => {
   async function deliveredOrder(cust, method = 'code') {
     const o = await paidOrder(cust)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [o.orderId])
     await query(
       `INSERT INTO delivery_attempts (id, order_id, outcome, method, actor, created_at) VALUES ($1, $2, 'DELIVERED', $3, 'rider', $4)`,
       [newId('dat'), o.orderId, method, now()],

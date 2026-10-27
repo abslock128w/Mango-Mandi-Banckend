@@ -1,5 +1,5 @@
 // Security and privacy fixes from the 23 Oct audit (SEC-01 to SEC-13).
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -159,12 +159,12 @@ describe('SEC-05: retention, export and erasure by request', () => {
     const old = await paid('k1')
     const recent = await paid('k2')
     const owed = await paid('k3')
-    await query(
+    await forceOrderState(
       `UPDATE orders SET status = 'DELIVERED', delivery_date = '2025-09-01', gift_recipient_name = 'Asha', gift_recipient_phone = '+919811122233', gift_message = 'Happy Diwali'
         WHERE id = ANY($1)`,
       [[old.body.orderId, owed.body.orderId]],
     )
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [recent.body.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [recent.body.orderId])
     await query(`UPDATE orders SET refund_requested_at = now() WHERE id = $1`, [owed.body.orderId])
     await query(
       `INSERT INTO delivery_attempts (id, order_id, outcome, method, received_by, lat, lng, actor, created_at)

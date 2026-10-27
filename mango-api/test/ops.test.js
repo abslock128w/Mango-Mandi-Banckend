@@ -1,7 +1,7 @@
 // Staff operations (docs/ops.md): the stock forecast (STOCK_FORECAST), farm and
 // purchase records with margins (PURCHASE_RECORDS) and the panel's feature
 // switches (PANEL_FEATURE_SWITCHES). Every date is fixed with the clock helper.
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
@@ -51,7 +51,7 @@ let orderSeq = 0
 async function insertOrder({ date, sku, stage = 'RIPE', qty, status = 'DELIVERED', unitPrice = 189_900, discount = 0, replacementFor = null, stock = null }) {
   const id = newId('ord')
   const subtotal = unitPrice * qty
-  await query(
+  await forceOrderState(
     `INSERT INTO orders (id, number, status, delivery_date, placed_at, subtotal, total, discount, replacement_for) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [id, `ORD-T${++orderSeq}`, status, date, now(), subtotal, subtotal - discount, discount, replacementFor],
   )

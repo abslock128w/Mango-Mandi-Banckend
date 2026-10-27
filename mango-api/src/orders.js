@@ -46,13 +46,16 @@ export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO
  * Every status change an order can make, in one place. Staff moves follow
  * TRANSITIONS (setOrderStatus); a payment confirms a pending order, or one
  * whose hold ran out (a late payment); a cancel takes anything not yet
- * delivered. assertTransition guards each write, so no path can skip a step.
+ * delivered; the warehouse reopens a packed order when a box comes off it
+ * (PACKED to PROCESSING). assertTransition guards each write, so no path can
+ * skip a step, and the database refuses any other change too (migration 045,
+ * table order_status_transitions, kept equal to this map by a test).
  */
 export const ORDER_TRANSITIONS = Object.freeze({
   PAYMENT_PENDING: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['PROCESSING', 'CANCELLED'],
   PROCESSING: ['PACKED', 'CANCELLED'],
-  PACKED: ['SHIPPED', 'CANCELLED'],
+  PACKED: ['SHIPPED', 'CANCELLED', 'PROCESSING'],
   SHIPPED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
   OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED', 'CANCELLED'],
   DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'RTO', 'CANCELLED'],
@@ -64,10 +67,15 @@ export const ORDER_TRANSITIONS = Object.freeze({
 /**
  * The moves staff make with a status change (setOrderStatus), derived from
  * ORDER_TRANSITIONS (INV-I): everything except cancelling (its own endpoint,
- * cancelOrder) and confirming (only a payment confirms an order).
+ * cancelOrder), confirming (only a payment confirms an order) and reopening a
+ * packed order (only the warehouse does that, by taking a box off it).
  */
 export const STAFF_TRANSITIONS = Object.freeze(
-  Object.fromEntries(Object.entries(ORDER_TRANSITIONS).map(([from, tos]) => [from, tos.filter((to) => to !== 'CANCELLED' && to !== 'CONFIRMED')])),
+  Object.fromEntries(
+    Object.entries(ORDER_TRANSITIONS).map(([from, tos]) => [
+      from, tos.filter((to) => to !== 'CANCELLED' && to !== 'CONFIRMED' && !(from === 'PACKED' && to === 'PROCESSING')),
+    ]),
+  ),
 )
 const TRANSITIONS = STAFF_TRANSITIONS
 
@@ -446,6 +454,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
     return { order: o, result: 'cancelled' }
   }
   if (outcome === 'failed') {
+    // Counted even when the order has moved on: a failure rate is about the gateway, not the order.
+    afterCommit(c, () => metrics.paymentsFailed.inc())
     if (o.status !== 'PAYMENT_PENDING') return { order: o, result: 'ignored' }
     await addEvent(c, o.id, o.status, o.status, actor, 'A payment attempt failed; the customer can try again until the hold ends')
     return { order: o, result: 'attempt_failed' }
@@ -866,10 +876,13 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
 /**
  * INV-E: after a missed delivery, packed boxes that would be past the age cap
  * on the retry date are swapped for younger stock of the same SKU and stage:
- * the fresh boxes are taken and packed for the retry, and the old ones go back
- * on the shelf when the rider returns them (too old to sell, they retire with
- * their batch). All or nothing. Returns { result: 'ok' } when nothing is too
- * old, { result: 'repacked', boxes }, or { result: 'stuck' } when there is no
+ * the fresh boxes are taken and packed for the retry, and the old ones are
+ * booked back on the shelf at once, in this same transaction (restock), not
+ * when the rider brings them back. The books count them as in the warehouse
+ * from the missed delivery on; too old to sell, they retire with their batch.
+ * Only boxes without labels are swapped here (labelled boxes go back by scan).
+ * All or nothing. Returns { result: 'ok' } when nothing is too old,
+ * { result: 'repacked', boxes }, or { result: 'stuck' } when there is no
  * younger stock (nothing changes; the order goes at-risk for a manager).
  */
 async function repackForRetry(c, o, date, actor) {

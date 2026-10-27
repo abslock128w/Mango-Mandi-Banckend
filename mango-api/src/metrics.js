@@ -32,6 +32,15 @@ export const metrics = {
   maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
   dbPoolBusy: new client.Counter({ name: 'mango_db_pool_busy_total', help: 'Queries that found no free database connection in time (answered 503 BUSY)', registers: [registry] }),
   dbSlowQueries: new client.Counter({ name: 'mango_db_slow_queries_total', help: 'Queries slower than DB_SLOW_QUERY_MS', registers: [registry] }),
+  paymentsFailed: new client.Counter({ name: 'mango_payments_failed_total', help: 'Failed payment attempts reported by the gateway', registers: [registry] }),
+  refundFailures: new client.Counter({ name: 'mango_refund_failures_total', help: 'Refund attempts that failed (sent again later, or left for a manager)', labelNames: ['kind'], registers: [registry] }),
+  webhookLag: new client.Histogram({
+    name: 'mango_webhook_lag_seconds',
+    help: 'Seconds from when the sender says a webhook event happened to when it arrived',
+    labelNames: ['provider'],
+    buckets: [1, 5, 15, 60, 300, 900, 3600, 21_600, 86_400],
+    registers: [registry],
+  }),
 }
 
 /** Gauges of the database pool, read when /metrics is scraped: connections open, idle, and requests waiting for one. */

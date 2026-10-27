@@ -1,7 +1,7 @@
 // Phase 5: public photos at thumbnail widths (?w=) and how long they may be cached.
 // ?w= takes one of PHOTO_WIDTHS; any other value is refused with 400 INVALID_WIDTH
 // (no silent fallback, so caches never hold a full-size photo under a thumbnail URL).
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import sharp from 'sharp'
@@ -114,7 +114,7 @@ describe('review photos at thumbnail widths', () => {
     const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
     await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [
       newId('evt'), c.body.orderId, now(),
     ])

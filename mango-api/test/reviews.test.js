@@ -3,7 +3,7 @@
 // totals, photos (type, size, metadata, never public before approval), the
 // role matrix, account deletion, the low-rating follow-up and the review
 // request message.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import sharp from 'sharp'
@@ -77,7 +77,7 @@ async function idOf(cust) {
 }
 
 async function markDelivered(orderId) {
-  await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
+  await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
   await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [
     newId('evt'), orderId, now(),
   ])

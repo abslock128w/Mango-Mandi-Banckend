@@ -17,8 +17,9 @@ import { withLogContext } from './log-context.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
 import { recordWebhookFailure } from './payments.js'
 import { handleWhatsAppWebhook } from './chat.js'
-import { handleWebhook, razorpayIds, verifySignature } from './payments.js'
+import { handleWebhook, markWebhookEvent, razorpayIds, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
+import { noteWebhookEventFailure, storeWebhookEvent, webhookLag } from './webhook-events.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
 import { refreshSwitches } from './feature-switches.js'
@@ -172,10 +173,20 @@ export function createApp() {
     } catch {
       return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Body is not JSON', requestId: req.id } })
     }
+    const eventId = req.get('x-razorpay-event-id') ?? null
+    let intake = null
     try {
-      const result = await handleWebhook(event, req.get('x-razorpay-event-id'))
-      // One line per webhook tying our request id to Razorpay's ids (sandbox evidence, support).
-      logger.info({ reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')), result: result?.result ?? (result?.duplicate ? 'duplicate' : result?.ignored ? 'ignored' : null) }, 'razorpay webhook')
+      // Stored as received, in its own short insert, before any processing: if processing fails or
+      // this instance dies, maintenance replays it (webhook-events.js).
+      intake = await storeWebhookEvent('razorpay', raw, {
+        eventId, createdAt: Number.isFinite(event?.created_at) ? new Date(event.created_at * 1000) : null,
+      })
+      const result = await handleWebhook(event, eventId, { intakeId: intake.id })
+      // One line per webhook tying our request id to Razorpay's ids (sandbox evidence, support), and how late it came.
+      logger.info({
+        reqId: req.id, ...razorpayIds(event, eventId), result: result?.result ?? (result?.duplicate ? 'duplicate' : result?.ignored ? 'ignored' : null),
+        lagSeconds: webhookLag('razorpay', event?.created_at),
+      }, 'razorpay webhook')
       res.json({ ok: true, ...result })
     } catch (err) {
       // LOAD-1: no free connection is a busy minute, not a failed payment: Razorpay retries the 503.
@@ -183,9 +194,10 @@ export function createApp() {
         logger.warn({ reqId: req.id, path: req.path }, 'database busy')
         return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id, ...retryAfter(2) } })
       }
-      logger.error({ err, reqId: req.id, ...razorpayIds(event, req.get('x-razorpay-event-id')) }, 'webhook processing failed')
+      await noteWebhookEventFailure(intake?.id, err)
+      logger.error({ err, reqId: req.id, ...razorpayIds(event, eventId) }, 'webhook processing failed')
       metrics.webhookErrors.inc({ source: 'razorpay' })
-      await recordWebhookFailure('razorpay', err.message, req.get('x-razorpay-event-id') ?? event?.event ?? null)
+      await recordWebhookFailure('razorpay', err.message, eventId ?? event?.event ?? null)
       res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
     }
   })
@@ -211,9 +223,15 @@ export function createApp() {
     } catch {
       return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Body is not JSON', requestId: req.id } })
     }
+    let intake = null
     try {
-      res.json({ ok: true, handled: await handleWhatsAppWebhook(body) })
+      intake = await storeWebhookEvent('whatsapp', raw)
+      const handled = await handleWhatsAppWebhook(body)
+      // Each message is its own transaction (deduplicated by its id), so the event is marked done after them.
+      await markWebhookEvent({ query }, intake.id)
+      res.json({ ok: true, handled })
     } catch (err) {
+      await noteWebhookEventFailure(intake?.id, err)
       logger.error({ err, reqId: req.id }, 'WhatsApp webhook processing failed')
       metrics.webhookErrors.inc({ source: 'whatsapp' })
       await recordWebhookFailure('whatsapp', err.message, body?.entry?.[0]?.id ?? null)
