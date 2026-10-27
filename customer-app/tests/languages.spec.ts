@@ -218,14 +218,15 @@ test('a signed-in customer’s choice is saved to their account and follows them
   }
 })
 
-test('with the switch off the shop is English only and offers no choice', async ({ page }) => {
+test('with the switch off the shop is English only and offers no choice', async ({ page, request }) => {
   // The API's policy says off (as it does while SHOP_LANGUAGES is unset); a choice left on the
-  // device from before is not used.
-  await page.route(/\/v1\/policy(\?|$)/, async (route) => {
-    const res = await route.fetch()
-    const body = (await res.json()) as { features?: Record<string, unknown> }
-    await route.fulfill({ status: res.status(), headers: res.headers(), body: JSON.stringify({ ...body, features: { ...(body.features ?? {}), languages: false } }) })
-  })
+  // device from before is not used. The real policy is read once up front: a response fetched
+  // inside the route can be thrown away when the page navigates mid-request.
+  const real = await request.get(`${API}/v1/policy`)
+  expect(real.ok()).toBe(true)
+  const body = (await real.json()) as { features?: Record<string, unknown> }
+  const off = JSON.stringify({ ...body, features: { ...(body.features ?? {}), languages: false } })
+  await page.route(/\/v1\/policy(\?|$)/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: off }))
   await page.addInitScript(() => {
     try {
       localStorage.setItem('mm.lang', 'hi')
