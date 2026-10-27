@@ -28,8 +28,8 @@ The API runs in Singapore (`sin1`), next to the database.
   are the same as in [README.md](README.md#what-you-need-first); start them now,
   they take weeks.
 - [ ] **A Google OAuth client** for "Sign in with Google" (step 4).
-- [ ] **Sentry** (free tier is fine) for error alerts: one project for the API, and
-  `mandimangoes-shop` and `mandimangoes-panel` for errors in browsers (see
+- [ ] **Sentry** (free tier is fine) for error alerts: one project for the API (`mandimangoes-api`),
+  and `mandimangoes-shop` and `mandimangoes-panel` for errors in browsers (see
   [Error reports from the shop and the panel](#error-reports-from-the-shop-and-the-panel)).
 
 ## 1. Neon
@@ -263,7 +263,7 @@ is told: [docs/alerts.md](../docs/alerts.md). Leave `OPS_ALERTS` unset (on in
 production); preflight warns if it is `false`.
 
 **Sentry** (production refuses to start without `SENTRY_DSN`):
-1. **Alerts → Create Alert → Issues**, project `mandi-api`, environment
+1. **Alerts → Create Alert → Issues**, project `mandimangoes-api`, environment
    `production`. When: a new issue is created, or an issue changes from resolved
    to unresolved. If: the event's level is **warning or above** (so the job's
    warnings count, not only errors). Then: send a notification to the on-call
@@ -291,8 +291,8 @@ checks, phone calls and SMS):
    call is not taken for spam. Test the call and the SMS once before launch.
 
 - The same Sentry rule covers new errors from the API, and the warning when login
-  codes reach 80% of the day's budget. Make the same rule in the `mandi-shop` and
-  `mandi-admin` projects for errors in customers' and staff browsers, once those
+  codes reach 80% of the day's budget. Make the same rule in the `mandimangoes-shop`
+  and `mandimangoes-panel` projects for errors in customers' and staff browsers, once those
   projects are set up ([Error reports](#error-reports-from-the-shop-and-the-panel)).
 - **Vercel → Logs** for request logs; **Neon → Monitoring** for database load. Search
   a customer's `X-Request-Id` (`req_…`) to see everything that request did; each
