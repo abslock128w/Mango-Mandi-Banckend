@@ -13,6 +13,7 @@ import { devRoutesOn, env, errorDetailsOn, onVercel } from './env.js'
 import { HttpError } from './errors.js'
 import { clientErrorOf, EXPOSED_HEADERS, routeMethods } from './http-contract.js'
 import { logger } from './logger.js'
+import { withLogContext } from './log-context.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
 import { recordWebhookFailure } from './payments.js'
 import { handleWhatsAppWebhook } from './chat.js'
@@ -84,7 +85,8 @@ export function createApp() {
   app.use((req, res, next) => {
     req.id = `req_${randomUUID().slice(0, 10)}`
     res.setHeader('X-Request-Id', req.id)
-    next()
+    // Every log line while handling this request carries its id (log-context.js).
+    withLogContext({ reqId: req.id }, next)
   })
   app.use(httpMetrics)
   // SEC-03: no client of ours (shop, panel, Razorpay, Meta) compresses request bodies, so

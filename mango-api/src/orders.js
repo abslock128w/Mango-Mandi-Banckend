@@ -16,6 +16,7 @@ import {
   allocate, bySku, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, lockLines, pack, release, restock, sellableAs,
 } from './inventory.js'
 import { issueBillWithPayment, markBillCancelled } from './bills.js'
+import { addLogContext } from './log-context.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
 import { enqueue, enqueueForEvent } from './notify.js'
@@ -95,6 +96,8 @@ export async function addEvent(c, orderId, from, to, actor, reason = null) {
 export async function lockOrder(c, orderId) {
   const { rows } = await c.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId])
   if (!rows.length) throw notFound('Order not found')
+  // Later log lines in this request or maintenance step name the order (log-context.js).
+  addLogContext({ orderId })
   return rows[0]
 }
 
