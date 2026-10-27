@@ -53,14 +53,27 @@ export const templateFor = (kind) =>
   // The managers' evening summary (docs/growth.md) has its own full template name, without the prefix.
   kind === 'MANAGER_DAILY_SUMMARY' ? env.MANAGER_SUMMARY_TEMPLATE : templateName(kind === 'GIFT_OUT_FOR_DELIVERY' ? 'OUT_FOR_DELIVERY' : kind)
 
-/** Queues a preorder message (booked, spot open, moved, refunded). */
+/**
+ * The event a preorder message belongs to, the same however often it is queued, so a retried
+ * step (a link sent again, a job run twice) adds no second message: booked and refunded
+ * happen once per preorder, a spot opens once per promotion (payment_started_at) and a
+ * move once per week moved (moved_count).
+ */
+const preorderEvent = (p, kind) => {
+  if (kind === 'PREORDER_SPOT_OPEN') return `${p.id}:spot:${p.payment_started_at ? new Date(p.payment_started_at).getTime() : 0}`
+  if (kind === 'PREORDER_MOVED') return `${p.id}:moved:${p.moved_count}`
+  return p.id
+}
+
+/** Queues a preorder message (booked, spot open, moved, refunded). Queuing the same one again is a no-op. */
 export async function enqueuePreorder(c, preorderId, kind) {
-  const { rows } = await c.query('SELECT phone FROM preorders WHERE id = $1', [preorderId])
+  const { rows } = await c.query('SELECT id, phone, payment_started_at, moved_count FROM preorders WHERE id = $1', [preorderId])
   if (!rows[0]?.phone) return
   const at = now()
   await c.query(
-    `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-    [newId('ntf'), preorderId, newId('pev'), kind, rows[0].phone, at],
+    `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, $4, $5, $6, $6)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('ntf'), preorderId, preorderEvent(rows[0], kind), kind, rows[0].phone, at],
   )
 }
 
@@ -118,12 +131,13 @@ export async function enqueueForEvent(c, orderId, eventId, from, to) {
   }
 }
 
-/** Queues a back-in-stock message for an alert. */
+/** Queues a back-in-stock message for an alert: one per alert (the alert id is the event), however often it is queued. */
 export async function enqueueAlert(c, alertId, phone) {
   const at = now()
   await c.query(
-    `INSERT INTO notifications (id, stock_alert_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, 'BACK_IN_STOCK', $4, $5, $5)`,
-    [newId('ntf'), alertId, newId('aev'), phone, at],
+    `INSERT INTO notifications (id, stock_alert_id, event_id, kind, phone, next_attempt_at, created_at) VALUES ($1, $2, $3, 'BACK_IN_STOCK', $4, $5, $5)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('ntf'), alertId, alertId, phone, at],
   )
 }
 
