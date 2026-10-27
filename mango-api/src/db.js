@@ -75,11 +75,13 @@ export function logIfSlow(sql, ms, slowMs = env.DB_SLOW_QUERY_MS) {
  * name the wrong request). Pool queries are timed by query() below instead.
  */
 function timeQueries(client) {
-  const run = client.query
+  const proto = Object.getPrototypeOf(client)
   client.query = function (config, ...rest) {
     const sql = typeof config === 'string' ? config : config?.text
     const start = performance.now()
-    const p = run.call(this, config, ...rest)
+    // Looked up on every call, so anything that wraps pg.Client's query later (error
+    // tracing, a test counting statements) still sees the queries of clients already open.
+    const p = proto.query.call(this, config, ...rest)
     if (env.DB_SLOW_QUERY_MS && typeof sql === 'string' && typeof p?.then === 'function') {
       const done = () => logIfSlow(sql, performance.now() - start)
       p.then(done, done)
