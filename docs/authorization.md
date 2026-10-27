@@ -65,6 +65,14 @@ delivered fruit is settled with a replacement.
   window signs that person out everywhere.
 - A sign-in lasts at most `STAFF_SESSION_MAX_DAYS` (7) for staff and `CUSTOMER_SESSION_MAX_DAYS` (90) for customers,
   however often it is refreshed. The refresh token carries the time the sign-in began, and each rotation keeps it.
+- Removing a staff member, changing their role or password, or resetting their two-step sign-in ends their access at
+  once, on every device. Each change raises `admin_users.session_version` and revokes their refresh tokens in the
+  same transaction, and every staff request checks the access token's version against the row (`requireAdmin` in
+  `mango-api/src/auth.js`). A server that answered for them in the last 5 seconds may serve one more request from its
+  short cache; after that the token is refused with "Your access has changed. Please sign in again." So a removed
+  packer or rider can no longer see customer addresses. Test: "a role change, a new password or removal stops the
+  old access token at once" in `mango-api/test/security-fixes.test.js`.
+- A manager can also sign every staff member out at once (Staff page, "Sign everyone out"; it always asks the manager to confirm it is them).
 
 ## Rate limits
 
