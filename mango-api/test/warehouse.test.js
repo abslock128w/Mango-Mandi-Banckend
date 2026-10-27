@@ -342,6 +342,23 @@ describe('orders', () => {
     await booksBalance()
   })
 
+  test('unpicking a box off a packed order reopens it (PACKED to PROCESSING), a move the order map allows', async () => {
+    const { boxes } = await stockedLot({ count: 3 })
+    const o = await paidOrder(1)
+    const pick = await startOp('pick', { orderId: o.id })
+    await scan(pick.id, [payload(boxes[0].label_token)])
+    const pk = await startOp('pack', { orderId: o.id })
+    await scan(pk.id, [payload(boxes[0].label_token)])
+    ok(await api.post(`${W}/operations/${pk.id}/finalize`, {}, { token: manager }))
+    assert.equal((await orderRow(o.id)).status, 'PACKED')
+    const un = await startOp('unpick', { orderId: o.id, reason: 'Bruise found before dispatch' })
+    assert.equal((await scan(un.id, [payload(boxes[0].label_token)]))[0].result, 'accepted')
+    assert.equal((await orderRow(o.id)).status, 'PROCESSING')
+    const ev = (await query(`SELECT from_status, status, reason FROM order_events WHERE order_id = $1 ORDER BY created_at DESC, id DESC LIMIT 5`, [o.id])).rows
+    assert.ok(ev.some((e) => e.from_status === 'PACKED' && e.status === 'PROCESSING' && /Reopened in the warehouse/.test(e.reason)))
+    await booksBalance()
+  })
+
   test('a QC failure of promised stock flags the youngest order at risk, and the books still balance', async () => {
     const { lot, boxes } = await stockedLot({ count: 2 })
     const o = await paidOrder(2)

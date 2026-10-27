@@ -222,23 +222,44 @@ describe('order status changes come from one map', () => {
     assert.throws(() => assertTransition('DELIVERED', 'CANCELLED'), /cannot go from DELIVERED to CANCELLED/)
     assert.throws(() => assertTransition('PACKED', 'DELIVERED'))
     assert.doesNotThrow(() => assertTransition('CANCELLED', 'CONFIRMED'))
+    // The warehouse reopens a packed order when a box comes off it; staff can't make that move by hand.
+    assert.doesNotThrow(() => assertTransition('PACKED', 'PROCESSING'))
+    const { STAFF_TRANSITIONS } = await import('../src/orders.js')
+    assert.ok(!STAFF_TRANSITIONS.PACKED.includes('PROCESSING'))
   })
 
-  test('no file outside orders.js writes an order status, and each write there is guarded', async () => {
+  test('only orders.js and the warehouse write an order status, and each write is guarded', async () => {
     const { readdir, readFile } = await import('node:fs/promises')
     const dir = new URL('../src/', import.meta.url)
-    for (const f of (await readdir(dir)).filter((x) => x.endsWith('.js'))) {
+    // Every file under src/, warehouse code included. Any SET clause that names status counts.
+    const files = (await readdir(dir, { recursive: true })).filter((x) => x.endsWith('.js')).map((x) => x.split('\\').join('/'))
+    const write = /UPDATE\s+orders\s+SET\s(?:(?!\bWHERE\b)[^`;])*?(?<!\w)status\s*=/gi
+    // The writers allowed, with how many writes each has: the order engine, and the warehouse (picking and
+    // packing start an order, taking a box off a packed order reopens it).
+    const allowed = { 'orders.js': 3, 'warehouse/ops.js': 3 }
+    const seen = {}
+    assert.ok(files.includes('warehouse/ops.js'))
+    for (const f of files) {
       const src = await readFile(new URL(f, dir), 'utf8')
-      const writes = [...src.matchAll(/UPDATE orders SET status\b/g)]
-      if (f !== 'orders.js') assert.equal(writes.length, 0, `${f} writes orders.status directly`)
-      else {
-        for (const w of writes) {
-          const before = src.slice(Math.max(0, w.index - 400), w.index)
-          assert.match(before, /assertTransition\(/, `unguarded status write at offset ${w.index}`)
-        }
-        assert.equal(writes.length, 3)
+      const writes = [...src.matchAll(write)]
+      if (!(f in allowed)) {
+        assert.equal(writes.length, 0, `${f} writes orders.status directly`)
+        continue
+      }
+      seen[f] = writes.length
+      for (const w of writes) {
+        const before = src.slice(Math.max(0, w.index - 400), w.index)
+        assert.match(before, /assertTransition\(/, `unguarded status write in ${f} at offset ${w.index}`)
       }
     }
+    assert.deepEqual(seen, allowed)
+  })
+
+  test('the status-write scan catches writes that set other columns first, and ignores WHERE clauses', () => {
+    const write = /UPDATE\s+orders\s+SET\s(?:(?!\bWHERE\b)[^`;])*?(?<!\w)status\s*=/gi
+    assert.equal([..."UPDATE orders SET at_risk = FALSE, status = 'X' WHERE id = $1".matchAll(write)].length, 1)
+    assert.equal([..."UPDATE orders SET payment_status = 'REFUNDED' WHERE id = $1".matchAll(write)].length, 0)
+    assert.equal([..."UPDATE orders SET rider_id = $2 WHERE delivery_date = $1 AND status = ANY($3)".matchAll(write)].length, 0)
   })
 })
 

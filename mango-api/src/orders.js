@@ -45,13 +45,16 @@ export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO
  * Every status change an order can make, in one place. Staff moves follow
  * TRANSITIONS (setOrderStatus); a payment confirms a pending order, or one
  * whose hold ran out (a late payment); a cancel takes anything not yet
- * delivered. assertTransition guards each write, so no path can skip a step.
+ * delivered; the warehouse reopens a packed order when a box comes off it
+ * (PACKED to PROCESSING). assertTransition guards each write, so no path can
+ * skip a step, and the database refuses any other change too (migration 045,
+ * table order_status_transitions, kept equal to this map by a test).
  */
 export const ORDER_TRANSITIONS = Object.freeze({
   PAYMENT_PENDING: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['PROCESSING', 'CANCELLED'],
   PROCESSING: ['PACKED', 'CANCELLED'],
-  PACKED: ['SHIPPED', 'CANCELLED'],
+  PACKED: ['SHIPPED', 'CANCELLED', 'PROCESSING'],
   SHIPPED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
   OUT_FOR_DELIVERY: ['DELIVERED', 'DELIVERY_FAILED', 'CANCELLED'],
   DELIVERY_FAILED: ['OUT_FOR_DELIVERY', 'RTO', 'CANCELLED'],
@@ -63,10 +66,15 @@ export const ORDER_TRANSITIONS = Object.freeze({
 /**
  * The moves staff make with a status change (setOrderStatus), derived from
  * ORDER_TRANSITIONS (INV-I): everything except cancelling (its own endpoint,
- * cancelOrder) and confirming (only a payment confirms an order).
+ * cancelOrder), confirming (only a payment confirms an order) and reopening a
+ * packed order (only the warehouse does that, by taking a box off it).
  */
 export const STAFF_TRANSITIONS = Object.freeze(
-  Object.fromEntries(Object.entries(ORDER_TRANSITIONS).map(([from, tos]) => [from, tos.filter((to) => to !== 'CANCELLED' && to !== 'CONFIRMED')])),
+  Object.fromEntries(
+    Object.entries(ORDER_TRANSITIONS).map(([from, tos]) => [
+      from, tos.filter((to) => to !== 'CANCELLED' && to !== 'CONFIRMED' && !(from === 'PACKED' && to === 'PROCESSING')),
+    ]),
+  ),
 )
 const TRANSITIONS = STAFF_TRANSITIONS
 
