@@ -30,6 +30,15 @@ export const metrics = {
   dbRetries: new client.Counter({ name: 'mango_db_retries_total', help: 'Transactions retried after a deadlock or serialization failure', labelNames: ['code'], registers: [registry] }),
   otpBudgetUsed: new client.Gauge({ name: 'mango_otp_sends_today', help: 'Login codes sent today (IST) against the daily budget', registers: [registry] }),
   maintenanceErrors: new client.Counter({ name: 'mango_maintenance_errors_total', help: 'Failed maintenance steps', labelNames: ['step'], registers: [registry] }),
+  paymentsFailed: new client.Counter({ name: 'mango_payments_failed_total', help: 'Failed payment attempts reported by the gateway', registers: [registry] }),
+  refundFailures: new client.Counter({ name: 'mango_refund_failures_total', help: 'Refund attempts that failed (sent again later, or left for a manager)', labelNames: ['kind'], registers: [registry] }),
+  webhookLag: new client.Histogram({
+    name: 'mango_webhook_lag_seconds',
+    help: 'Seconds from when the sender says a webhook event happened to when it arrived',
+    labelNames: ['provider'],
+    buckets: [1, 5, 15, 60, 300, 900, 3600, 21_600, 86_400],
+    registers: [registry],
+  }),
 }
 
 export function httpMetrics(req, res, next) {

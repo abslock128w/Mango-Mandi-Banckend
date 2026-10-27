@@ -284,12 +284,31 @@ export function razorpayIds(event, eventId) {
 
 /**
  * Handles one verified webhook body. The dedupe row is written in the same
- * transaction, so a processing error rolls it back and Razorpay's retry runs.
+ * transaction, so a processing error rolls it back and Razorpay's retry (or
+ * the replay of the stored event, webhook-events.js) runs it again.
+ * `intakeId`: the stored event (webhook_events), marked processed in that same
+ * transaction, or just after for an event with nothing to write.
  */
-export async function handleWebhook(event, eventId) {
+export async function handleWebhook(event, eventId, { intakeId = null } = {}) {
+  let marked = false
+  const mark = async (c) => {
+    if (!intakeId) return
+    await markWebhookEvent(c, intakeId)
+    marked = true
+  }
+  const out = await routeWebhook(event, eventId, mark)
+  if (intakeId && !marked) await markWebhookEvent({ query }, intakeId)
+  return out
+}
+
+/** Marks a stored webhook event (webhook_events) processed, in the caller's transaction `c`. */
+export const markWebhookEvent = (c, id) =>
+  c.query('UPDATE webhook_events SET processed_at = $2, last_error = NULL WHERE id = $1 AND processed_at IS NULL', [id, now()])
+
+async function routeWebhook(event, eventId, mark) {
   const kind = event?.event
-  if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId)
-  if (typeof kind === 'string' && kind.startsWith('payment.dispute.')) return handleDisputeEvent(event, eventId)
+  if (kind === 'refund.processed' || kind === 'refund.failed') return handleRefundEvent(event, eventId, mark)
+  if (typeof kind === 'string' && kind.startsWith('payment.dispute.')) return handleDisputeEvent(event, eventId, mark)
   if (kind === 'payment.authorized') {
     // PAY-B1: the capture call can take seconds; Razorpay gets its 200 first.
     // The payment.captured webhook (or the reconcile loop) confirms the order.
@@ -302,6 +321,7 @@ export async function handleWebhook(event, eventId) {
   const dedupeKey = eventId || `${kind}:${entity.id ?? link?.id}`
   return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const orderId = await findOrderId(c, entity, link)
     // MULTI_GIFT: one Razorpay order pays for a whole gift order.
@@ -400,7 +420,7 @@ const DISPUTE_DONE = ['won', 'lost', 'closed']
  * payment_id, amount, currency, reason_code, respond_by, status) are not yet
  * checked against a recorded payload (PAY-B8), so every one is optional.
  */
-async function handleDisputeEvent(event, eventId) {
+async function handleDisputeEvent(event, eventId, mark) {
   const kind = event.event
   const d = event.payload?.dispute?.entity ?? {}
   const pay = event.payload?.payment?.entity ?? {}
@@ -413,6 +433,7 @@ async function handleDisputeEvent(event, eventId) {
   const dedupeKey = eventId || `${kind}:${disputeId}`
   return tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const o = paymentId ? (await c.query('SELECT id, status FROM orders WHERE payment_id = $1', [paymentId])).rows[0] : null
     const p = paymentId && !o ? (await c.query('SELECT id FROM preorders WHERE payment_id = $1', [paymentId])).rows[0] : null
@@ -468,13 +489,14 @@ async function captureAuthorized(entity) {
  * later fails, the record is reopened so the maintenance loop sends a new one,
  * and it shows in Needs attention.
  */
-async function handleRefundEvent(event, eventId) {
+async function handleRefundEvent(event, eventId, mark) {
   const r = event.payload?.refund?.entity ?? {}
   if (!r.id) return { ignored: true }
   const dedupeKey = eventId || `${event.event}:${r.id}`
   const failed = event.event === 'refund.failed'
   return await tx(async (c) => {
     const ins = await c.query('INSERT INTO processed_webhooks (dedupe_key, created_at) VALUES ($1, $2) ON CONFLICT DO NOTHING', [dedupeKey, now()])
+    await mark(c)
     if (!ins.rowCount) return { duplicate: true }
     const hit = await applyRefundOutcome(c, r.id, failed)
     if (failed) {

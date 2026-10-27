@@ -41,6 +41,7 @@ import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
 import { runSubscriptionJobs } from './subscriptions.js'
+import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -144,6 +145,8 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM quotes WHERE expires_at < $1', [at])
   await query('DELETE FROM idempotency_keys WHERE created_at < $1', [new Date(at.getTime() - 7 * day)])
   await query('DELETE FROM processed_webhooks WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
+  // Stored webhook bodies: 30 days (WhatsApp 7), bounded per run.
+  await pruneWebhookEvents(at)
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
   // Payment problems stay until a manager resolves them: often the only record of customer money (DB-04).
   await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND (resolved_at IS NOT NULL OR source <> 'razorpay')`, [
@@ -316,6 +319,8 @@ async function steps(forceAll) {
   // a slow outside service can't starve the rest. The cheap database steps
   // (sweep, retire, audit) run early, so they always get their turn.
   out.reconciled = await step('reconcile', () => reconcilePendingPayments(), { sliceMs: SLICE.reconcile })
+  // Webhooks stored but not processed 5 minutes on (a failure, an instance that died) run again, before the sweep.
+  out.webhooksReplayed = await step('webhook-replay', () => replayWebhookEvents(), { sliceMs: SLICE.reconcile })
   out.expired = await step('sweep', () => sweepExpiredHoldsEach())
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.retired = await step('retire', retireBatches)

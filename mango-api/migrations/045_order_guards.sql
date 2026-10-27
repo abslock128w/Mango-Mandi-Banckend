@@ -70,3 +70,31 @@ $$;
 CREATE OR REPLACE TRIGGER orders_status_guard
   BEFORE INSERT OR UPDATE OF status ON orders
   FOR EACH ROW EXECUTE FUNCTION orders_status_guard();
+
+-- ---------------------------------------------------------------- part 2: webhook intake
+
+-- A signed webhook as received, stored in its own insert before it is
+-- processed (src/webhook-events.js). processed_at is set in the processing
+-- transaction. Maintenance replays rows still unprocessed after 5 minutes
+-- (attempts counts the replays) and gives up after 5, listing the event in
+-- Needs attention. Rows are deleted after 30 days (WhatsApp after 7, as
+-- wa_inbound). The old dedupe (processed_webhooks, wa_inbound) stays.
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id               TEXT PRIMARY KEY,
+  provider         TEXT NOT NULL CHECK (provider IN ('razorpay', 'whatsapp')),
+  -- Razorpay's x-razorpay-event-id, or 'sha256:<hash of the body>' without one.
+  dedupe_key       TEXT NOT NULL,
+  event_id         TEXT,
+  body             BYTEA NOT NULL,
+  -- When the sender says it happened (Razorpay's created_at); the lag metric is measured from it.
+  event_created_at TIMESTAMPTZ,
+  received_at      TIMESTAMPTZ NOT NULL,
+  processed_at     TIMESTAMPTZ,
+  attempts         INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  last_attempt_at  TIMESTAMPTZ NOT NULL,
+  last_error       TEXT,
+  gave_up_at       TIMESTAMPTZ,
+  UNIQUE (provider, dedupe_key)
+);
+CREATE INDEX IF NOT EXISTS webhook_events_unprocessed ON webhook_events (received_at) WHERE processed_at IS NULL AND gave_up_at IS NULL;
+CREATE INDEX IF NOT EXISTS webhook_events_received ON webhook_events (provider, received_at);
