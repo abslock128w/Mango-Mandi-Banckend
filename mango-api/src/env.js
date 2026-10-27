@@ -204,6 +204,9 @@ const schema = z.object({
   PROVIDER_CHECKS: flag(),
   // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire.
   OPS_ALERTS: flag(),
+  // With OPS_ALERTS (docs/alerts.md): an answer slower than this many ms counts as slow; 0 counts none.
+  // File downloads, photo uploads and the maintenance run are never counted.
+  SLOW_REQUEST_MS: z.coerce.number().int().min(0).default(2000),
   // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
   DELIVERY_CHECKS: flag(),
   // SEC-07: adding staff, changing a role or password, two-step resets and removals ask

@@ -162,6 +162,8 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
   await query('DELETE FROM rate_limits WHERE reset_at < $1', [new Date(at.getTime() - HOURLY_MS)])
   await query('DELETE FROM job_leases WHERE expires_at < $1', [new Date(at.getTime() - day)])
+  // Per-minute alert counters (ops-counters.js): checkHealth reads the last 10 minutes.
+  await query('DELETE FROM ops_counters WHERE bucket < $1', [new Date(at.getTime() - 7 * day)])
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
