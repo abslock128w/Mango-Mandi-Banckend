@@ -230,6 +230,9 @@ const schema = z.object({
   // budget are what stop SMS pumping.
   OTP_IP_LIMIT: z.coerce.number().int().positive().optional(),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
+  // The longest a sign-in lasts, however often it is refreshed: then the person signs in again.
+  STAFF_SESSION_MAX_DAYS: z.coerce.number().positive().max(90).default(7),
+  CUSTOMER_SESSION_MAX_DAYS: z.coerce.number().positive().max(365).default(90),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   // While rotating the webhook secret: the old one, so Razorpay's retries of older events still verify. Remove it a day later.
   RAZORPAY_WEBHOOK_SECRET_PREVIOUS: z.string().default(''),

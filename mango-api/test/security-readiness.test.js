@@ -10,7 +10,7 @@
 //   - the audit trails name who did it and why;
 //   - a database restore followed by ops/reapply-deletions.js leaves no
 //     deleted account behind.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHmac } from 'node:crypto'
@@ -20,7 +20,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import sharp from 'sharp'
 import { createApp } from '../src/app.js'
 import { forgetCustomer } from '../src/auth.js'
-import { addDays, now, todayIST } from '../src/clock.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { env } from '../src/env.js'
@@ -464,6 +464,64 @@ describe('staff sessions', () => {
     // The two-step and Google sign-in steps share the same count.
     assert.equal((await api.post('/admin/v1/auth/two-step', { ticket: 'x'.repeat(30), code: '123456' })).status, 429)
     assert.equal((await api.post('/admin/v1/auth/google', { credential: 'x'.repeat(30) })).status, 429)
+  })
+})
+
+describe('a sign-in ends after a fixed time, however often it is refreshed', () => {
+  const DAY = 86_400_000
+  const at = (ms) => setNow(new Date(Date.parse(T0) + ms).toISOString())
+  const expiresAt = async (userType) =>
+    (await query('SELECT expires_at FROM refresh_sessions WHERE user_type = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [userType])).rows[0].expires_at
+  /** Within a minute: the test's own requests move the clock on by a few seconds. */
+  const close = (d, want) => assert.ok(Math.abs(d.getTime() - want) < 60_000, `${d.toISOString()} is not ${new Date(want).toISOString()}`)
+
+  test('staff: refreshed every day, refused after 7 days (STAFF_SESSION_MAX_DAYS)', async () => {
+    const login = await api.post('/admin/v1/auth/login', { email: 'ops@mandimangoes.test', password: 'operator123' })
+    let cookie = cookieOf(login)
+    const refresh = async () => {
+      const r = await api.post('/admin/v1/auth/refresh', undefined, { headers: { Cookie: cookie } })
+      if (r.status === 200) cookie = cookieOf(r)
+      return r
+    }
+    for (let day = 1; day <= 6; day++) {
+      at(day * DAY)
+      assert.equal((await refresh()).status, 200, `day ${day}`)
+    }
+    // Each rotation keeps the sign-in's start: the last one lasts to day 7, not day 13.
+    close(await expiresAt('admin'), Date.parse(T0) + 7 * DAY)
+    at(7 * DAY + 60_000)
+    const late = await refresh()
+    assert.equal(late.status, 401)
+    assert.equal(late.body.error.code, 'INVALID_TOKEN')
+  })
+
+  test('customers: 90 days (CUSTOMER_SESSION_MAX_DAYS), and the cap can be set', async () => {
+    let { refreshToken } = await customerToken(api)
+    const refresh = async () => {
+      const r = await api.post('/v1/auth/token/refresh', { refreshToken })
+      if (r.status === 200) refreshToken = r.body.refreshToken
+      return r
+    }
+    for (const day of [29, 58, 87]) {
+      at(day * DAY)
+      assert.equal((await refresh()).status, 200, `day ${day}`)
+    }
+    close(await expiresAt('customer'), Date.parse(T0) + 90 * DAY)
+    at(90 * DAY + 60_000)
+    assert.equal((await refresh()).status, 401)
+
+    at(0)
+    const before = env.CUSTOMER_SESSION_MAX_DAYS
+    env.CUSTOMER_SESSION_MAX_DAYS = 2
+    try {
+      ;({ refreshToken } = await customerToken(api))
+      at(DAY)
+      assert.equal((await refresh()).status, 200)
+      at(2 * DAY + 60_000)
+      assert.equal((await refresh()).status, 401)
+    } finally {
+      env.CUSTOMER_SESSION_MAX_DAYS = before
+    }
   })
 })
 

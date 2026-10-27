@@ -3,6 +3,11 @@
 // Re-presenting a rotated token inside a short grace window (two tabs
 // refreshing at once) is allowed; after it, the reuse is treated as theft and
 // every session of that user is revoked.
+//
+// A refresh token carries the time its sign-in began (`ses`, seconds), copied
+// to each rotation. Refreshing stops once a sign-in is older than
+// STAFF_SESSION_MAX_DAYS (7) or CUSTOMER_SESSION_MAX_DAYS (90): a stolen
+// refresh token, kept fresh by rotating it, still ends then.
 import { randomUUID } from 'node:crypto'
 import jwt from 'jsonwebtoken'
 import { now } from './clock.js'
@@ -15,17 +20,29 @@ import { sharedLimiter } from './ratelimit.js'
 export const ACCESS_TTL_S = 15 * 60
 const REFRESH_TTL_S = { admin: 7 * 86_400, customer: 30 * 86_400 }
 
+/** The longest one sign-in lasts, refreshes included, in seconds. */
+export const sessionMaxS = (userType) => Math.round((userType === 'admin' ? env.STAFF_SESSION_MAX_DAYS : env.CUSTOMER_SESSION_MAX_DAYS) * 86_400)
+
 export const signAccess = (claims) => jwt.sign(claims, env.JWT_SECRET, { expiresIn: ACCESS_TTL_S, algorithm: 'HS256' })
 
-export async function issueRefresh(userId, userType, c = { query }) {
+/**
+ * A new refresh token. `startedAt` (seconds): when the sign-in began, carried
+ * through every rotation; a new sign-in starts now. The token never outlives
+ * the sign-in's cap.
+ */
+export async function issueRefresh(userId, userType, c = { query }, { startedAt } = {}) {
   const jti = randomUUID()
-  const expiresAt = new Date(now().getTime() + REFRESH_TTL_S[userType] * 1000)
+  const at = now().getTime()
+  const ses = startedAt ?? Math.floor(at / 1000)
+  const expiresAt = new Date(Math.min(at + REFRESH_TTL_S[userType] * 1000, (ses + sessionMaxS(userType)) * 1000))
+  const ttl = Math.ceil((expiresAt.getTime() - at) / 1000)
+  if (ttl <= 0) throw invalid()
   await c.query('INSERT INTO refresh_sessions (jti, user_id, user_type, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)', [
     jti, userId, userType, expiresAt, now(),
   ])
-  const token = jwt.sign({ sub: userId, typ: `${userType}_refresh` }, env.JWT_SECRET, {
+  const token = jwt.sign({ sub: userId, typ: `${userType}_refresh`, ses }, env.JWT_SECRET, {
     jwtid: jti,
-    expiresIn: REFRESH_TTL_S[userType],
+    expiresIn: ttl,
     algorithm: 'HS256',
   })
   return { token, jti, expiresAt }
@@ -49,9 +66,12 @@ export async function rotateRefresh(token, userType) {
     const { rows } = await c.query('SELECT * FROM refresh_sessions WHERE jti = $1 FOR UPDATE', [claims.jti])
     const s = rows[0]
     if (!s || s.user_type !== userType || s.expires_at <= now()) throw invalid()
+    // A token from before the cap has no `ses`: its sign-in counts from this session row.
+    const startedAt = Number.isInteger(claims.ses) ? claims.ses : Math.floor(s.created_at.getTime() / 1000)
+    if (now().getTime() / 1000 - startedAt >= sessionMaxS(userType)) throw invalid()
     if (s.revoked_at) {
       const inGrace = s.replaced_by && now().getTime() - s.revoked_at.getTime() <= env.REFRESH_REUSE_GRACE_MS
-      if (inGrace) return { userId: s.user_id, refresh: userType === 'customer' ? await issueRefresh(s.user_id, userType, c) : null }
+      if (inGrace) return { userId: s.user_id, refresh: userType === 'customer' ? await issueRefresh(s.user_id, userType, c, { startedAt }) : null }
       if (s.replaced_by) {
         logger.warn({ userId: s.user_id, userType }, 'refresh token reuse detected; revoking all sessions')
         await c.query(
@@ -62,7 +82,7 @@ export async function rotateRefresh(token, userType) {
       // Commit the revocation before refusing.
       return { reuse: true }
     }
-    const next = await issueRefresh(s.user_id, userType, c)
+    const next = await issueRefresh(s.user_id, userType, c, { startedAt })
     await c.query('UPDATE refresh_sessions SET revoked_at = $2, replaced_by = $3 WHERE jti = $1', [s.jti, now(), next.jti])
     return { userId: s.user_id, refresh: next }
   }).then((r) => {
