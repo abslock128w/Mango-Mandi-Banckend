@@ -2,7 +2,10 @@
 
 Operations tool for MandiMangoes staff: receive stock, run quality control, move
 orders through fulfilment, handle claims with replacements, and manage delivery areas.
-There are no refunds: a problem with a delivered order is settled by a replacement.
+A problem with a delivered order is settled by a replacement, never a refund. Money goes
+back, always in full, only when a customer cancels a paid order before packing or a
+manager cancels one we cannot deliver (plus automatic refunds of second or wrong-amount
+payments). There are no partial refunds. See [docs/order-states.md](docs/order-states.md).
 
 - **App:** React + TypeScript + Vite single-page app (`mango-admin/`)
 - **Backend:** talks only to `mango-api` under `/admin/v1`
@@ -133,13 +136,24 @@ the dialog suggests deactivating instead).
 ## 5. Business rules the panel enforces
 
 ### Order status flow
+Every status, every allowed move and who makes it, payment and refund states,
+preorders, gift orders, and every path that puts money right (hold expiry, late
+payments, second payments, failed refunds, disputes, lost webhooks) are in
+**[docs/order-states.md](docs/order-states.md)**, generated from the API's order map.
+In short:
 ```
-PAYMENT_PENDING ─(payment)─▶ CONFIRMED ─▶ PROCESSING ─▶ PACKED ─▶ SHIPPED ─▶ OUT_FOR_DELIVERY ─▶ DELIVERED
+PAYMENT_PENDING ─(payment)─▶ CONFIRMED ─▶ PROCESSING ⇄ PACKED ─▶ SHIPPED ─▶ OUT_FOR_DELIVERY ─▶ DELIVERED
                                                                                      │
                                                       RETURNED(RTO) ◀─ DELIVERY_FAILED ◀┘ (or Retry)
-Cancel: allowed from PAYMENT_PENDING through OUT_FOR_DELIVERY (not after).
 ```
-`RTO` is shown as **"Returned."** The panel never offers an invalid transition.
+- The customer can cancel until the order is packed (a paid order is refunded in full).
+- A manager can cancel a paid order until it is delivered, with a full refund; that
+  includes failed and returned deliveries. Staff can cancel an unpaid order up to out for delivery.
+- PACKED goes back to PROCESSING only when the warehouse takes a box off the order.
+- A payment that lands after the hold ran out confirms the cancelled order after all.
+
+`RTO` is shown as **"Returned."** The panel never offers an invalid transition, and the
+database refuses one too.
 
 ### Batch status
 Forward only; `Condemned` can be set from any non-final state and triggers

@@ -2,10 +2,12 @@
 // ORDER_TRANSITIONS does not allow, and its table of moves stays equal to the map.
 import { checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { query, tx } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { ORDER_TRANSITIONS } from '../src/orders.js'
+import { DOC, orderStatesBlock, withBlock } from '../scripts/order-states.mjs'
 
 let srv
 let api
@@ -41,6 +43,12 @@ describe('order status guard in the database (migration 045)', () => {
     // Every status the orders table allows has an entry in the map.
     const check = (await query(`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'orders'::regclass AND conname = 'orders_status_check'`)).rows[0].def
     for (const s of check.match(/'([A-Z_]+)'/g).map((x) => x.slice(1, -1))) assert.ok(s in ORDER_TRANSITIONS, s)
+  })
+
+  test('docs/order-states.md shows exactly ORDER_TRANSITIONS (run node scripts/order-states.mjs after a change)', async () => {
+    const doc = await readFile(DOC, 'utf8')
+    assert.equal(withBlock(doc, orderStatesBlock(ORDER_TRANSITIONS)), doc)
+    assert.throws(() => orderStatesBlock({ ...ORDER_TRANSITIONS, RTO: ['CANCELLED', 'DELIVERED'] }), /No description for RTO -> DELIVERED/)
   })
 
   test('an UPDATE that skips a step raises check_violation; allowed moves and same-status writes pass', async () => {

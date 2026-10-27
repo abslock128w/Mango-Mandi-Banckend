@@ -321,11 +321,12 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   // PAY-08: once a day, every payment Razorpay captured in the last 3 days is
-  // matched to an order or booking, or listed in Needs attention.
+  // matched to an order or booking, or listed in Needs attention. Unset: on in
+  // production (the backstop for a lost webhook), off elsewhere; false turns it off.
   PAYMENT_DAILY_RECON: z
     .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   // INV-01, INV-07, INV-10: a reschedule never overfills a delivery slot, only a
   // manager cancels a free replacement, and a chat order re-checks its pincode.
   ORDER_RULE_CHECKS: z
@@ -374,6 +375,7 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   process.exit(1)
 }
 env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
+env.PAYMENT_DAILY_RECON ??= isProd
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

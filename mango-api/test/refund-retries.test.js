@@ -2,10 +2,13 @@
 // up to 60 minutes, and after REFUND_MAX_ATTEMPTS it is left 'failed' for a
 // manager (Needs attention, "needs a manager"), never reopened on its own.
 // Orders, preorders and second payments alike. Razorpay is never called: a
-// fetch stub stands in for it.
+// fetch stub stands in for it. Also: PAYMENT_DAILY_RECON is on by default in production.
 import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
 import { after, before, beforeEach, describe, test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
@@ -245,5 +248,25 @@ describe('refund retries back off, then stop for a manager', () => {
     } finally {
       gw.restore()
     }
+  })
+})
+
+describe('PAYMENT_DAILY_RECON defaults', () => {
+  const run = (vars) =>
+    promisify(execFile)(process.execPath, ['--input-type=module', '-e', "const { env } = await import('./src/env.js'); console.log(String(env.PAYMENT_DAILY_RECON))"], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: { PATH: process.env.PATH, DATABASE_URL: 'postgres://nobody@localhost:5432/none_test', ...vars },
+    }).then((r) => r.stdout.trim())
+
+  test('on in production unless set to false; off in development unless set', async () => {
+    // PREFLIGHT=1 only stops env.js refusing to start for the missing production settings.
+    assert.equal(await run({ NODE_ENV: 'production', PREFLIGHT: '1' }), 'true')
+    assert.equal(await run({ NODE_ENV: 'production', PREFLIGHT: '1', PAYMENT_DAILY_RECON: 'false' }), 'false')
+    assert.equal(await run({ NODE_ENV: 'development' }), 'false')
+    assert.equal(await run({ NODE_ENV: 'development', PAYMENT_DAILY_RECON: 'true' }), 'true')
+  })
+
+  test('tests run with it off unless a test turns it on', () => {
+    assert.equal(env.PAYMENT_DAILY_RECON, false)
   })
 })
