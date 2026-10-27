@@ -312,15 +312,17 @@ below override both.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
   a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
   shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
-  ripener). Nothing older than 7 days on its delivery date is sold, and batches retire
-  at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
+  ripener). Nothing older than 7 days on its delivery date is sold (fewer when the
+  product has a shorter `shelf_life_days`), and batches retire at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
   sells only for dates after its arrival, at 85% of its count.
 - **Delivery dates.** Order before 18:00 IST for next-day delivery, after it for the day
   after. Closed days and per-day box limits come from the delivery calendar. Customers
   can book up to 5 days ahead.
 - **Holds and FEFO.** Checkout holds stock for 10 minutes, oldest batch first, with a
   conditional `UPDATE` so two buyers can never take the same box. A database `CHECK`
-  backs it up. Payment turns the hold into a commitment.
+  backs it up. Payment turns the hold into a commitment. How the counters, ledger
+  events, hold expiry, returns and lock order fit together:
+  [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
 - **Rebalancing, never cancelling.** After QC, a status change, a condemned batch and
   hourly, every open order is re-checked. Stock that no longer fits is swapped to another
   batch with the same SKU and stage. What can't be swapped flags the order **at risk**
