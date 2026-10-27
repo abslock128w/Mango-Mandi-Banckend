@@ -215,6 +215,7 @@ and fix calmly.
 | Code only | **Instant Rollback** (below) | Seconds. No build runs, so no migration runs. |
 | A feature behind a switch | **Switch it off**: panel → **Settings → Features** (with `PANEL_FEATURE_SWITCHES` on), or set the variable to `false` and Redeploy | Nothing else changes. Data it wrote stays. |
 | An additive migration | **It stays.** Roll the code back; the old release runs on the new schema | Proven by CI's N-1 check (the old release's tests on the new migrations). |
+| Rolling back past 045 and 046 (the order and audit guards) | **They stay.** The old release runs on them | Its status moves are all in the order map. Its CSV export cannot add the row count to its audit row any more; the export still works and the API logs "could not record the export row count". |
 | A contract migration (`-- contract:`: drops, renames or narrows) | **Forward fix only** | What it dropped is gone; a restore is the only other way, and costs far more. Ship a fix. |
 | Refunds sent, WhatsApp or SMS messages sent, bill numbers issued | **Cannot be undone.** Forward fix | Money left through Razorpay, the customer has read the message, and a GST bill number is never reused: correct with a new bill or a message, never by changing the old one. |
 | Wrong data (a price, a reschedule on the wrong day) | **Roll forward**: correct the rows or ship a fix ([below](#data-went-wrong-not-code)) | Loses nothing. |

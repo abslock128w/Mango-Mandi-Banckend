@@ -54,7 +54,9 @@ delivered fruit is settled with a replacement.
   product.
 - The table is append-only (migration 046). A row cannot be deleted, the table cannot be truncated, and a row cannot
   be edited. The one exception is the privacy scrub (`src/privacy.js`), which may only take keys out of `detail`
-  when an account is deleted or old orders are anonymised.
+  when an account is deleted or old orders are anonymised. For a supervised repair, a role that owns the table can
+  lift the guard for one transaction with `SET LOCAL mango.staff_audit_override = 'on'`. The app's `mango_app` login
+  does not own it, so the setting does nothing for the app.
 - A CSV export writes `EXPORT <kind>` before the file starts and `export.finished` with the row count after it.
 
 ## Sessions
