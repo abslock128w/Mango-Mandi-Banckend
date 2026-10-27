@@ -201,7 +201,7 @@ describe('P0-4: each webhook is logged with our request id and Razorpay’s ids'
       assert.equal(lines.length, 3)
       assert.deepEqual(
         { ...lines[0] },
-        { reqId: r1.headers.get('x-request-id'), razorpayEvent: 'payment.captured', razorpayEventId: 'evt_A1', paymentId: 'pay_EV1', razorpayOrderId: c.body.razorpayOrderId, paymentLinkId: undefined, refundId: undefined, result: 'confirmed' },
+        { reqId: r1.headers.get('x-request-id'), razorpayEvent: 'payment.captured', razorpayEventId: 'evt_A1', paymentId: 'pay_EV1', razorpayOrderId: c.body.razorpayOrderId, paymentLinkId: undefined, refundId: undefined, result: 'confirmed', lagSeconds: null },
       )
       assert.equal(lines[1].reqId, r2.headers.get('x-request-id'))
       assert.equal(lines[1].result, 'duplicate')

@@ -665,18 +665,20 @@ describe('4. a refund times out or Razorpay is down: no blind second refund, one
       assert.equal((await api.post(`/v1/orders/${o.orderId}/cancel`, {}, { token: o.cust.accessToken })).status, 204)
       assert.equal((await order(o.orderId)).refund_id, null)
       mode = 'network'
-      at(3 * MIN) // past the lease
+      at(3 * MIN) // past the lease and the first back-off (2 minutes)
       assert.equal(await processDueRefunds(), 0)
       assert.equal((await order(o.orderId)).refund_id, null)
       mode = 'ok'
       at(6 * MIN)
+      assert.equal(await processDueRefunds(), 0, 'the second back-off (4 minutes) is not over')
+      at(8 * MIN)
       // Two instances retry at once (maintenance on one, a webhook's refund on another).
       await Promise.all([processDueRefunds(), processDueRefunds(), processDueRefunds()])
       const row = await order(o.orderId)
       assert.deepEqual([row.status, row.payment_status, row.refund_id], ['CANCELLED', 'REFUNDED', 'rfnd_1'])
       assert.equal(desk.refunds.length, 1)
       assert.equal(desk.refunds[0].amount, o.total)
-      at(10 * MIN)
+      at(20 * MIN)
       assert.equal(await processDueRefunds(), 0)
       assert.equal(desk.refunds.length, 1)
       await assertDatabaseValid({ gateway: { captured: ['pay_R2'], refunds: desk.refunds } })

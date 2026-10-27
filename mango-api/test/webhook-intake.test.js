@@ -9,6 +9,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
+import { logger } from '../src/logger.js'
 import { registry } from '../src/metrics.js'
 import { pruneWebhookEvents, replayWebhookEvents, WEBHOOK_MAX_REPLAYS, webhookLag } from '../src/webhook-events.js'
 
@@ -70,7 +71,8 @@ async function breakConfirm(times = Infinity) {
 describe('webhook intake (migration 045)', () => {
   test('a webhook is stored as received and marked processed by its own transaction', async () => {
     const o = await pendingOrder()
-    const r = await send(captured(o, 'pay_wh1'), 'evt_wh1')
+    const event = captured(o, 'pay_wh1')
+    const r = await send(event, 'evt_wh1')
     assert.equal(r.status, 200, JSON.stringify(r.body))
     const [e] = await stored()
     assert.equal(e.provider, 'razorpay')
@@ -78,7 +80,7 @@ describe('webhook intake (migration 045)', () => {
     assert.equal(e.event_id, 'evt_wh1')
     assert.ok(e.processed_at)
     assert.equal(e.attempts, 0)
-    assert.deepEqual(JSON.parse(e.body.toString('utf8')), captured(o, 'pay_wh1'))
+    assert.equal(e.body.toString('utf8'), JSON.stringify(event), 'the body exactly as received')
     assert.equal((await order(o.orderId)).status, 'CONFIRMED')
   })
 
@@ -180,13 +182,30 @@ describe('webhook intake (migration 045)', () => {
     assert.ok(e.processed_at)
   })
 
-  test('webhook lag is measured from the event time and observed in a histogram', async () => {
+  test('webhook lag is measured from the event time, logged on the webhook line and observed in a histogram', async () => {
     const before = await registry.getSingleMetric('mango_webhook_lag_seconds').get()
     const count = (m) => m.values.find((v) => v.metricName === 'mango_webhook_lag_seconds_count' && v.labels.provider === 'razorpay')?.value ?? 0
     const at = new Date(Date.parse(T0))
     assert.equal(webhookLag('razorpay', at.getTime() / 1000 - 90, at), 90)
     assert.equal(webhookLag('razorpay', undefined, at), null)
     assert.equal(count(await registry.getSingleMetric('mango_webhook_lag_seconds').get()), count(before) + 1)
+
+    const o = await pendingOrder()
+    const lines = []
+    const info = logger.info
+    logger.info = function (obj, msg) {
+      if (msg === 'razorpay webhook') lines.push(obj)
+      return info.apply(this, arguments)
+    }
+    const createdAt = Math.floor(now().getTime() / 1000) - 120
+    try {
+      assert.equal((await send({ ...captured(o, 'pay_wh6'), created_at: createdAt }, 'evt_wh6')).status, 200)
+    } finally {
+      logger.info = info
+    }
+    assert.equal(lines.length, 1)
+    assert.ok(lines[0].lagSeconds >= 120 && lines[0].lagSeconds < 130, String(lines[0].lagSeconds))
+    assert.equal((await stored())[0].event_created_at.getTime(), createdAt * 1000)
   })
 
   test('stored events are deleted after 30 days, WhatsApp ones after 7', async () => {
