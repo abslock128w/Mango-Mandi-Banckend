@@ -439,7 +439,10 @@ instance shares them. One address may ask for 5 codes an hour and 10 a day for a
 most 16 codes a day from all addresses, and each code allows 3 tries (at most 48 guesses a
 day at one number). A refused request never replaces the code already sent. Token refresh
 has its own limit, counted per person rather than per address, so customers sharing a
-carrier-NAT address don't sign each other out. The shop has a
+carrier-NAT address don't sign each other out. A sign-in lasts at most 7 days for staff and
+90 days for customers, however often it is refreshed (`STAFF_SESSION_MAX_DAYS`,
+`CUSTOMER_SESSION_MAX_DAYS`). Checkout quotes, confirms and cancels are limited per signed-in
+customer (`CUSTOMER_ACTION_LIMIT`, 20 a minute each). The shop has a
 daily budget (`OTP_DAILY_LIMIT`, Sentry warns at 80%) after which codes pause until
 midnight IST. Numbers with no account may use only `OTP_NEW_NUMBER_SHARE` of it (60%),
 so a bot flooding new numbers can't lock existing customers out. With
@@ -533,7 +536,11 @@ diff is reviewed with the change.
 Every successful staff change (any non-GET admin request) and every sign-in is written to
 `staff_audit`: who, their role, the route, what it was done to, and the request body with
 passwords and tokens removed. Read it at `GET /admin/v1/audit` or on the panel's Staff
-screen.
+screen. The table is append-only (migration 046): rows are never edited or deleted, except
+that the privacy scrub removes personal keys. Refunds, prices, promo codes, the shop rules
+and batch costs ask the manager to confirm it is them. The whole picture is in
+[docs/authorization.md](../docs/authorization.md), and every route with its roles is in the
+generated [docs/authorization-matrix.md](../docs/authorization-matrix.md).
 
 ## Operations
 
