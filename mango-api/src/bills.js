@@ -375,7 +375,7 @@ export async function issueGiftBill(c, giftOrderId, at = now()) {
 
 /** issueGiftBill on the payment path, under a savepoint: a bill problem never undoes the payment (issueMissingBills retries). */
 export async function issueGiftBillWithPayment(c, giftOrderId) {
-  if (!trust.bills) return null
+  if (!isOn('BILLS_ENABLED')) return null
   await c.query('SAVEPOINT issue_gift_bill')
   try {
     const bill = await issueGiftBill(c, giftOrderId)

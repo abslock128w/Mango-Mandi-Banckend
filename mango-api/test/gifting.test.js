@@ -19,6 +19,7 @@ import { recipientsTemplate } from '../src/gift-routes.js'
 import { shareDiscount } from '../src/gifts.js'
 import { loadProducts } from '../src/products.js'
 import { setTrustConfig } from '../src/trust-config.js'
+import { forgetSwitches, refreshSwitches } from '../src/feature-switches.js'
 
 let srv
 let api
@@ -357,6 +358,30 @@ describe('payment', () => {
     assert.equal((await query('SELECT cancelled_at FROM bills')).rows[0].cancelled_at, null)
     assert.equal((await api.post(`/v1/gifts/${c.giftOrderId}/cancel`, {}, { token: cust.accessToken })).status, 204)
     assert.notEqual((await query('SELECT cancelled_at FROM bills')).rows[0].cancelled_at, null)
+  })
+})
+
+describe('bills follow the panel switch', () => {
+  afterEach(() => {
+    env.PANEL_FEATURE_SWITCHES = false
+    forgetSwitches()
+  })
+
+  test('Bills turned off on the panel: no bill, no business details, and the bill link is gone', async () => {
+    env.PANEL_FEATURE_SWITCHES = true
+    await query(`INSERT INTO feature_switches (key, enabled, updated_by, updated_at) VALUES ('BILLS_ENABLED', FALSE, 'test', now())`)
+    await refreshSwitches({ force: true })
+    await stock()
+    const cust = await customerToken(api)
+    const q = await quote(cust.accessToken, people(2))
+    assert.equal(q.status, 200, JSON.stringify(q.body))
+    assert.equal(q.body.bills, false)
+    const refused = await confirm(cust.accessToken, q.body.quoteId, { name: 'Buyer', business: { name: 'Tata Gifts Pvt Ltd', gstin: BUYER_GSTIN } })
+    assert.equal(refused.status, 400)
+    assert.equal(refused.body.error.code, 'BILLS_OFF')
+    const { c } = await paid(2, { cust })
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 0)
+    assert.equal((await api.get(`/v1/gifts/${c.giftOrderId}/bill`, { token: cust.accessToken })).status, 404)
   })
 })
 
