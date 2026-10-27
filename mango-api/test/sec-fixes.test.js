@@ -203,8 +203,8 @@ describe('SEC-05: retention, export and erasure by request', () => {
         placed.push(o.body.orderId)
       }
       const [old, recent, disputed] = placed
-      await query(`UPDATE orders SET status = 'DELIVERED', delivery_date = '2025-09-01' WHERE id = ANY($1)`, [[old, disputed]])
-      await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [recent])
+      await forceOrderState(`UPDATE orders SET status = 'DELIVERED', delivery_date = '2025-09-01' WHERE id = ANY($1)`, [[old, disputed]])
+      await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [recent])
       const photo = (id, orderId, { bytes = null, blob = null }) =>
         query(`INSERT INTO delivery_photos (id, order_id, mime, bytes, blob_path, taken_by, created_at) VALUES ($1, $2, 'image/jpeg', $3, $4, 'rider', now())`, [id, orderId, bytes, blob])
       await photo('dph_blob', old, { blob: 'delivery/dph_blob.jpg' })

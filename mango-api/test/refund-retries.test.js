@@ -134,7 +134,7 @@ describe('refund retries back off, then stop for a manager', () => {
       // The manager's way out still works.
       const settle = await api.post(
         `/admin/v1/refunds/${o.orderId}/paid-another-way`,
-        { type: 'order', reference: 'NEFT UTR 4455', reason: 'bank refused the card refund' },
+        { type: 'order', reference: 'NEFT UTR 4455', reason: 'bank refused the card refund', confirmCode: 'manager123' },
         { token: manager },
       )
       assert.equal(settle.status, 200, JSON.stringify(settle.body))
