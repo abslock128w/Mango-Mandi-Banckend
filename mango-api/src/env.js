@@ -202,8 +202,10 @@ const schema = z.object({
   // INT-04, INT-09, INT-10, INT-11, INT-12, INT-13, INT-14, INT-18: provider calls and messages
   // (stale messages skipped, Meta error codes, login codes, Blob timeouts and sweeps, chat retries).
   PROVIDER_CHECKS: flag(),
-  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire.
-  OPS_ALERTS: flag(),
+  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire, and the
+  // Vercel checks for every ops/alerts.yml rule (docs/alerts.md). Unset: on in production,
+  // off elsewhere; false turns it off (preflight warns).
+  OPS_ALERTS: optionalFlag(),
   // With OPS_ALERTS (docs/alerts.md): an answer slower than this many ms counts as slow; 0 counts none.
   // File downloads, photo uploads and the maintenance run are never counted.
   SLOW_REQUEST_MS: z.coerce.number().int().min(0).default(2000),
@@ -398,14 +400,16 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   process.exit(1)
 }
 /**
- * Staff safeguards that are strict by default in production while the local demo keeps
- * working without them. A value written in the environment always wins (preflight warns
- * when production turns one off).
+ * Safeguards that are strict by default in production while the local demo keeps
+ * working without them: the staff ones, and OPS_ALERTS (the alerts that page someone).
+ * A value written in the environment always wins (preflight warns when production
+ * turns one off).
  */
 export function strictDefaults(e, prod) {
   e.STAFF_TWO_STEP ??= prod ? 'all' : 'optional'
   e.STAFF_STEP_UP ??= prod
   e.STAFF_AUDIT_TRAIL ??= prod
+  e.OPS_ALERTS ??= prod
   return e
 }
 strictDefaults(env, isProd)

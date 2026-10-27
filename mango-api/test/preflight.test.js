@@ -105,15 +105,18 @@ describe('production preflight', () => {
     assert.deepEqual(checkProduction({ ...good, STAFF_TWO_STEP: 'all' }).warnings, [])
   })
 
-  it('step-up, the audit trail and two-step are on by default in production only, and can still be turned off', () => {
-    assert.deepEqual(strictDefaults({}, true), { STAFF_TWO_STEP: 'all', STAFF_STEP_UP: true, STAFF_AUDIT_TRAIL: true })
-    assert.deepEqual(strictDefaults({}, false), { STAFF_TWO_STEP: 'optional', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false })
-    assert.deepEqual(strictDefaults({ STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false }, true), { STAFF_TWO_STEP: 'all', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false })
+  it('step-up, the audit trail, two-step and the ops alerts are on by default in production only, and can still be turned off', () => {
+    assert.deepEqual(strictDefaults({}, true), { STAFF_TWO_STEP: 'all', STAFF_STEP_UP: true, STAFF_AUDIT_TRAIL: true, OPS_ALERTS: true })
+    assert.deepEqual(strictDefaults({}, false), { STAFF_TWO_STEP: 'optional', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false })
+    assert.deepEqual(strictDefaults({ STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false }, true), {
+      STAFF_TWO_STEP: 'all', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false,
+    })
     assert.deepEqual(strictDefaults({ STAFF_STEP_UP: true }, false).STAFF_STEP_UP, true)
+    assert.equal(strictDefaults({ OPS_ALERTS: true }, false).OPS_ALERTS, true)
   })
 
-  it('warns when step-up or the audit trail is turned off in production', () => {
-    for (const key of ['STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL']) {
+  it('warns when step-up, the audit trail or the ops alerts are turned off in production', () => {
+    for (const key of ['STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL', 'OPS_ALERTS']) {
       const { errors, warnings } = checkProduction({ ...good, [key]: false })
       assert.deepEqual(errors, [])
       assert.equal(warnings.length, 1)

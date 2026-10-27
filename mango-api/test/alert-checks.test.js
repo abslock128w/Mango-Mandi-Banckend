@@ -1,9 +1,11 @@
 // Alerts that fire on Vercel (docs/alerts.md). Nothing reads ops/alerts.yml
 // there, so every rule in it must have a check the maintenance job runs from the
 // database (src/alert-checks.js), and each checkHealth key in that list must
-// really be raised and reported to Sentry.
+// really be raised and reported to Sentry. OPS_ALERTS, which turns these on, is
+// on by default in production.
 import { checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -194,3 +196,20 @@ describe('the Vercel checks from the database', () => {
   })
 })
 
+describe('OPS_ALERTS default', () => {
+  const opsAlerts = (extra) => {
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', "const { env } = await import('./src/env.js'); console.log(JSON.stringify(env.OPS_ALERTS))"], {
+      cwd: apiDir, encoding: 'utf8', env: { PATH: process.env.PATH, PREFLIGHT: '1', ...extra },
+    })
+    assert.equal(r.status, 0, r.stderr)
+    return JSON.parse(r.stdout.trim())
+  }
+
+  test('on in production unless written false; off elsewhere unless written true', () => {
+    assert.equal(opsAlerts({ NODE_ENV: 'production' }), true)
+    assert.equal(opsAlerts({ NODE_ENV: 'production', OPS_ALERTS: 'false' }), false)
+    assert.equal(opsAlerts({ NODE_ENV: 'production', OPS_ALERTS: '' }), true, 'empty means unset')
+    assert.equal(opsAlerts({ NODE_ENV: 'development' }), false)
+    assert.equal(opsAlerts({ NODE_ENV: 'development', OPS_ALERTS: 'true' }), true)
+  })
+})
