@@ -318,7 +318,14 @@ router.post(
     let checkNote = ''
     try {
       const live = await liveGatewayRefunds(row.payment_id)
-      if (live.length) throw conflict(`Razorpay already shows refund ${live[0].id} for this payment. The next run records it; don't pay again.`, 'RAZORPAY_HAS_REFUND')
+      if (live.length) {
+        // A refund given up on after its retries may still have reached Razorpay (sent, then not saved):
+        // one more attempt finds that refund and records it, without paying again.
+        if (row.refund_gave_up_at) {
+          await query(`UPDATE ${t.table} SET refund_gave_up_at = NULL, refund_next_attempt_at = NULL WHERE ${t.key} = $1 AND refunded_at IS NULL`, [req.params.id])
+        }
+        throw conflict(`Razorpay already shows refund ${live[0].id} for this payment. The next run records it; don't pay again.`, 'RAZORPAY_HAS_REFUND')
+      }
     } catch (err) {
       if (err instanceof HttpError) throw err
       logger.warn({ err, id: req.params.id }, 'could not check Razorpay before recording a refund paid another way')

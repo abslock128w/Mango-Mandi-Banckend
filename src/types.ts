@@ -760,7 +760,8 @@ export interface Attention {
   /**
    * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
    * second payment too. state 'unsent': still retrying (a manager may record it paid back another way);
-   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06).
+   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06); 'needs_manager':
+   * failed too many times (attempts) and no longer retried on its own.
    */
   stuckRefunds: {
     type: 'order' | 'preorder' | 'payment'
@@ -768,7 +769,9 @@ export interface Attention {
     number: string
     requestedAt: string
     paymentId?: string | null
-    state?: 'unsent' | 'unconfirmed' | 'held'
+    state?: 'unsent' | 'unconfirmed' | 'held' | 'needs_manager'
+    /** Refund attempts made so far. */
+    attempts?: number
     /** On a held refund: the chargeback holding it. Open until the bank decides; once lost or closed it is settled as paid back. */
     dispute?: { id: string; status: string } | null
   }[]

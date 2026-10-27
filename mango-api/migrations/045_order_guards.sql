@@ -98,3 +98,16 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 );
 CREATE INDEX IF NOT EXISTS webhook_events_unprocessed ON webhook_events (received_at) WHERE processed_at IS NULL AND gave_up_at IS NULL;
 CREATE INDEX IF NOT EXISTS webhook_events_received ON webhook_events (provider, received_at);
+
+-- ---------------------------------------------------------------- part 3: refund retries
+
+-- A refund that fails is sent again after 2, 4, 8, 16, 32 and then 60 minutes
+-- (refund_next_attempt_at). After 8 attempts it stops: refund_status 'failed'
+-- with refund_gave_up_at set, never reopened on its own, and shown in Needs
+-- attention as needing a manager (src/payments.js, REFUND_MAX_ATTEMPTS).
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_next_attempt_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS refund_gave_up_at TIMESTAMPTZ;
+ALTER TABLE preorders ADD COLUMN IF NOT EXISTS refund_next_attempt_at TIMESTAMPTZ;
+ALTER TABLE preorders ADD COLUMN IF NOT EXISTS refund_gave_up_at TIMESTAMPTZ;
+ALTER TABLE duplicate_payments ADD COLUMN IF NOT EXISTS refund_next_attempt_at TIMESTAMPTZ;
+ALTER TABLE duplicate_payments ADD COLUMN IF NOT EXISTS refund_gave_up_at TIMESTAMPTZ;

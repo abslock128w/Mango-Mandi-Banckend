@@ -122,6 +122,26 @@ test('a refund that can never go through: Paid back another way needs a referenc
     .toEqual({ type: 'payment', reference: 'UPI 998877', reason: 'paid back by UPI' })
 })
 
+test('a refund given up after its retries says it needs a manager, and can still be paid back another way', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = {
+    ...state.attention,
+    stuckRefunds: [{ type: 'order', id: 'o5', number: 'ORD-1050', requestedAt: '2026-10-15T00:00:00Z', paymentId: null, state: 'needs_manager', attempts: 8 }],
+  }
+  await page.goto('/')
+  const refunds = card(page).locator('.attention-group', { hasText: 'Refunds not sent' })
+  await expect(refunds).toContainText('Refund failed: needs a manager')
+  await expect(refunds).toContainText('Razorpay refused it 8 times, so it is not sent again on its own')
+  await refunds.getByRole('button', { name: 'Paid back another way for ORD-1050' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Paid back another way: ORD-1050' })
+  await dialog.getByLabel('Reference of your payment').fill('NEFT UTR 555')
+  await dialog.getByLabel("Why Razorpay can't refund it").fill('bank refused the refund')
+  await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await expect
+    .poll(() => state.calls.find((c) => c.path === '/refunds/o5/paid-another-way')?.body)
+    .toEqual({ type: 'order', reference: 'NEFT UTR 555', reason: 'bank refused the refund' })
+})
+
 test('operators see the items but none of the manager buttons', async ({ page }) => {
   const state = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   withProblems(state)
