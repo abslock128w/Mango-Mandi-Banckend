@@ -312,15 +312,17 @@ below override both.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
   a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
   shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
-  ripener). Nothing older than 7 days on its delivery date is sold, and batches retire
-  at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
+  ripener). Nothing older than 7 days on its delivery date is sold (fewer when the
+  product has a shorter `shelf_life_days`), and batches retire at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
   sells only for dates after its arrival, at 85% of its count.
 - **Delivery dates.** Order before 18:00 IST for next-day delivery, after it for the day
   after. Closed days and per-day box limits come from the delivery calendar. Customers
   can book up to 5 days ahead.
 - **Holds and FEFO.** Checkout holds stock for 10 minutes, oldest batch first, with a
   conditional `UPDATE` so two buyers can never take the same box. A database `CHECK`
-  backs it up. Payment turns the hold into a commitment.
+  backs it up. Payment turns the hold into a commitment. How the counters, ledger
+  events, hold expiry, returns and lock order fit together:
+  [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
 - **Rebalancing, never cancelling.** After QC, a status change, a condemned batch and
   hourly, every open order is re-checked. Stock that no longer fits is swapped to another
   batch with the same SKU and stage. What can't be swapped flags the order **at risk**
@@ -426,7 +428,9 @@ retirement, audit) run first. Hourly it rebalances only the open orders that are
 risk and runs the ledger audit, which checks `on_hand` against the ledger and
 `held`/`committed` against the order allocations; once a day (or right after a rules
 change) it rebalances every open order. Drift is logged and exported as
-`mango_ledger_drift_lines`.
+`mango_ledger_drift_lines`. With `WAREHOUSE_V2` on, the same hourly audit runs the box
+check for each active warehouse (labelled boxes against `on_hand` and the packed units);
+a mismatch alerts at most hourly and shows on Needs attention.
 
 Transactions that hit a deadlock or serialization failure are retried twice with
 jitter (`tx` in `src/db.js`), and slot capacity is locked per delivery date, so

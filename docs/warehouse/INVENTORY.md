@@ -3,6 +3,8 @@
 The shop sells from `batch_lines` counters (`on_hand`, `held`, `committed`,
 `reserve_buffer`) and the append-only `batch_ledger`. Box tracking does not
 replace them; it makes them follow the boxes.
+What each counter means, which ledger event moves it and what the audit
+checks: [STOCK.md](STOCK.md).
 
 ## The invariant
 
@@ -57,4 +59,6 @@ Products with tracking off work exactly as before.
 tracked line; picked/packed/dispatched boxes against packed units per order
 and line; boxes in states their order cannot have; lot counts against their
 boxes; and the existing ledger audit. Every API test story ends by asserting
-it is clean.
+it is clean. The hourly maintenance audit runs the same check for each active
+warehouse (without the ledger part, which it checks on its own), pages at most
+hourly when it is not clean, and lists the warehouse on Needs attention.

@@ -794,6 +794,15 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Warehouses whose labelled boxes disagree with the stock counters (the hourly box check; WAREHOUSE_V2 only). */
+  boxMismatches?: {
+    warehouseId: string
+    name: string
+    stockMismatches: number
+    orderUnitMismatches: number
+    impossibleStates: number
+    lotCountMismatches: number
+  }[]
   /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
   preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
   /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */

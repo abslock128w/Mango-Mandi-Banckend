@@ -22,6 +22,7 @@ import { query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
 import { logger } from './logger.js'
 import { expireIdleOperations } from './warehouse/ops.js'
+import { boxCheck } from './warehouse/reports.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
@@ -239,6 +240,16 @@ export async function runAudit(at = now()) {
     if (at.getTime() - last >= HOURLY_MS) {
       reportProblem('Preorder capacity counters disagree with the bookings: check the weeks before opening more', { weeks: weeks.length, sample: weeks.slice(0, 5) })
       await markRun('alert-preorder-capacity')
+    }
+  }
+  // Labelled boxes against the counters, per active warehouse (warehouse/reports.js boxCheck, docs/warehouse/STOCK.md).
+  const boxes = env.WAREHOUSE_V2 ? await tx((c) => boxCheck(c)) : []
+  if (boxes.length) {
+    logger.error({ warehouses: boxes }, 'box check: labelled boxes disagree with the stock counters')
+    const last = (await lastRuns())['alert-box-check'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Labelled boxes disagree with the stock counters: open Warehouse reports and reconcile before selling more', { warehouses: boxes })
+      await markRun('alert-box-check')
     }
   }
   return drift

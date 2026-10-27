@@ -139,6 +139,7 @@ export default function NeedsAttention() {
   const photos = (a.photoDeliveries ?? []).filter((d) => d.method !== 'staff')
   const noProof = (a.photoDeliveries ?? []).filter((d) => d.method === 'staff')
   const drift = a.ledgerDrift ?? []
+  const boxMismatches = a.boxMismatches ?? []
   const overdue = a.overdueOrders ?? []
   const retries = a.retryDecisions ?? []
   const preorders = a.preorderDecisions ?? []
@@ -324,6 +325,21 @@ export default function NeedsAttention() {
         ) : null}
       </li>
     )),
+      ...boxMismatches.map((w) => (
+        <li key={`boxes-${w.warehouseId}`}>
+          <strong>Labelled boxes disagree with the stock counts</strong> in {w.name}
+          <span className="muted">
+            {' '}
+            ({[
+              w.stockMismatches && `${w.stockMismatches} stock ${w.stockMismatches === 1 ? 'line' : 'lines'}`,
+              w.orderUnitMismatches && `${w.orderUnitMismatches} ${w.orderUnitMismatches === 1 ? 'order' : 'orders'}`,
+              w.impossibleStates && `${w.impossibleStates} ${w.impossibleStates === 1 ? 'box' : 'boxes'} in a wrong state`,
+              w.lotCountMismatches && `${w.lotCountMismatches} ${w.lotCountMismatches === 1 ? 'lot' : 'lots'}`,
+            ].filter(Boolean).join(', ')})
+          </span>
+          . Open <Link to="/warehouse/reports">Warehouse reports</Link> and fix the counts before selling more.
+        </li>
+      )),
     ] },
     { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
       <li key={`returned-${r.id}`}>

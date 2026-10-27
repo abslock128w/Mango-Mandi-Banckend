@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Proves a backup can be restored: loads it into a scratch database, checks the
 # schema is current, the key tables have rows, and the stock counters agree
-# with the ledger and the orders, then drops the scratch database. Run it
-# weekly and after every schema change.
+# with the ledger, the orders and the labelled boxes, then drops the scratch
+# database. Run it weekly and after every schema change.
 #   ADMIN_URL=postgres://user:pass@host:5432/postgres ./ops/restore-check.sh backups/mango-....dump
 # An encrypted dump (.gpg) is decrypted first; the private key must be in the
 # local GPG keyring. KEEP_SCRATCH=1 leaves the scratch database for a look.
@@ -44,7 +44,16 @@ held=$(q "SELECT COUNT(*) FROM batch_lines l WHERE l.held <> COALESCE((SELECT SU
 # The reserve buffer too, as the app's own audit (src/inventory.js auditLedger) checks it.
 buffer=$(q "SELECT COUNT(*) FROM batch_lines l WHERE l.reserve_buffer <> COALESCE((SELECT SUM(delta) FROM batch_ledger g
              WHERE g.batch_id = l.batch_id AND g.sku = l.sku AND g.event_type = 'ADJUST_BUFFER'), 0)")
-if [ "$drift" != "0" ] || [ "$held" != "0" ] || [ "$buffer" != "0" ]; then
-  echo "FAILED: $drift on-hand, $held held/committed and $buffer reserve-buffer lines disagree with their sources"; exit 1
+# Labelled boxes (WAREHOUSE_V2): a tracked line's on-hand must equal its boxes
+# that can be sold off the shelf, as the box check (src/warehouse/reports.js
+# reconciliation) counts them. A dump from before the warehouse tables has none.
+boxes=0
+if [ "$(q "SELECT to_regprocedure('box_shelf_sellable(uuid)') IS NOT NULL")" = "t" ]; then
+  boxes=$(q "SELECT COUNT(*) FROM batch_lines l JOIN products p ON p.sku = l.sku JOIN batches bt ON bt.id = l.batch_id
+              WHERE p.box_tracking_enabled AND bt.status NOT IN ('EXHAUSTED','CONDEMNED')
+                AND l.on_hand <> (SELECT COUNT(*) FROM boxes b WHERE b.line_id = l.id AND box_shelf_sellable(b.id))")
+fi
+if [ "$drift" != "0" ] || [ "$held" != "0" ] || [ "$buffer" != "0" ] || [ "$boxes" != "0" ]; then
+  echo "FAILED: $drift on-hand, $held held/committed, $buffer reserve-buffer and $boxes labelled-box lines disagree with their sources"; exit 1
 fi
 echo "restore check passed: restore $((restored - start))s, checks $(( $(date +%s) - restored ))s"

@@ -226,6 +226,13 @@ Owner:
    with **Adjust stock** in the panel (with a reason), so it is in the ledger.
 5. The item clears at once (Needs attention re-checks on each load); Sentry's hourly audit stops alerting.
 
+**Labelled boxes disagree with the stock counts** (`WAREHOUSE_V2`): the hourly
+audit also compares each tracked line's on hand with its sellable boxes, and the
+boxes on orders with their packed units. Open **Warehouse reports**: the
+reconciliation lists each line, order, box and lot that is off. Find the boxes
+(scan them, or run a stocktake of that place) before selling more from that line.
+See [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
+
 ---
 
 ## Downtime or database outage

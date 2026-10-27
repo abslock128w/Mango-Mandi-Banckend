@@ -13,7 +13,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound, StockError } from
 import { env } from './env.js'
 import { newId } from './ids.js'
 import {
-  allocate, bySku, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, lockLines, pack, release, restock, sellableAs,
+  allocate, bySku, commitHeld, LAZY_SWEEP_GATEWAY_GRACE_MS, ledger, lineInfo, lockLines, pack, release, restock, saleLimitDays, sellableAs,
 } from './inventory.js'
 import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { logger } from './logger.js'
@@ -302,8 +302,8 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   for (const row of await stockRows(c, o.id, ['packed'])) {
     const info = await lineInfo(c, row.line_id)
     if (info.status === 'CONDEMNED') problems.push(`packed ${row.sku} is from condemned batch ${row.batch_id}`)
-    else if (diffDays(o.delivery_date, info.plucked_on) > cfg.maxSellableAge) {
-      problems.push(`packed ${row.sku} from batch ${row.batch_id} is past the ${cfg.maxSellableAge}-day limit on ${o.delivery_date}`)
+    else if (diffDays(o.delivery_date, info.plucked_on) > saleLimitDays(row.sku, cfg)) {
+      problems.push(`packed ${row.sku} from batch ${row.batch_id} is past the ${saleLimitDays(row.sku, cfg)}-day limit on ${o.delivery_date}`)
     }
   }
 
@@ -874,7 +874,7 @@ async function repackForRetry(c, o, date, actor) {
   const old = []
   for (const row of await stockRows(c, o.id, ['packed'])) {
     const info = await lineInfo(c, row.line_id)
-    if (diffDays(date, info.plucked_on) > cfg.maxSellableAge) old.push(row)
+    if (diffDays(date, info.plucked_on) > saleLimitDays(row.sku, cfg)) old.push(row)
   }
   if (!old.length) return { result: 'ok' }
   // Labelled boxes are swapped by scan, not here: a manager decides (as when no younger stock is free).
