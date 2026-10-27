@@ -2,7 +2,7 @@
 // same run, and record a heartbeat so a missed backup shows in Needs attention.
 // ops/backup.sh runs for real here, with pg_dump and psql replaced by stubs
 // (no Docker, no database dump) and a throwaway GPG key.
-import { adminToken, client, closeAll, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, client, closeAll, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -354,5 +354,53 @@ describe('the GitHub backup workflow records a heartbeat (Vercel)', () => {
     assert.match(none.stderr, /HEARTBEAT_DATABASE_URL/)
     const bad = spawnSync('bash', [HEARTBEAT, 'maybe'], { encoding: 'utf8', env: { PATH: process.env.PATH, HEARTBEAT_DATABASE_URL: 'postgres://x@db.invalid/x' } })
     assert.equal(bad.status, 2)
+  })
+})
+
+// ops/restore-check.sh runs for real against this test database: the stub psql
+// sends the scratch database's checks here and only logs CREATE and DROP
+// DATABASE, and the stub pg_restore restores nothing (the data is already here).
+describe('ops/restore-check.sh', () => {
+  const CHECK = resolve(import.meta.dirname, '../ops/restore-check.sh')
+  let bin
+  before(async () => {
+    bin = join(root, 'restore-bin')
+    execFileSync('mkdir', ['-p', bin])
+    const real = execFileSync('bash', ['-c', 'command -v psql'], { encoding: 'utf8' }).trim()
+    writeFileSync(join(bin, 'psql'), `#!/usr/bin/env bash
+case "$1" in *mango_restore_check_*) shift; exec "${real}" "$TEST_DB" "$@" ;; esac
+echo "ARGS $*" >> "$PSQL_LOG"
+`)
+    writeFileSync(join(bin, 'pg_restore'), '#!/usr/bin/env bash\nexit 0\n')
+    chmodSync(join(bin, 'psql'), 0o755)
+    chmodSync(join(bin, 'pg_restore'), 0o755)
+  })
+  beforeEach(() => resetDb())
+
+  const check = () => {
+    const log = join(root, `restore-${++run}.log`)
+    writeFileSync(log, '')
+    const r = spawnSync('bash', [CHECK, join(root, 'any.dump')], {
+      encoding: 'utf8',
+      env: { PATH: `${bin}:${process.env.PATH}`, HOME: root, ADMIN_URL: 'postgres://mango@db.invalid:5432/postgres', TEST_DB: process.env.DATABASE_URL, PSQL_LOG: log },
+    })
+    return { code: r.status, out: r.stdout + r.stderr, admin: readFileSync(log, 'utf8') }
+  }
+
+  test('books that balance pass, and the scratch database is created and dropped', async () => {
+    await makeBatch({ age: 3, lines: { 'ALP-3': 4 } })
+    const r = check()
+    assert.equal(r.code, 0, r.out)
+    assert.match(r.out, /restore check passed/)
+    assert.match(r.admin, /CREATE DATABASE mango_restore_check_\d+/)
+    assert.match(r.admin, /DROP DATABASE IF EXISTS mango_restore_check_\d+/)
+  })
+
+  test('a box-tracked line whose on-hand is not its sellable labelled boxes fails the check', async () => {
+    await makeBatch({ age: 3, lines: { 'ALP-3': 4 } })
+    await query("UPDATE products SET box_tracking_enabled = TRUE, nominal_weight_g = 3000 WHERE sku = 'ALP-3'")
+    const r = check()
+    assert.equal(r.code, 1, r.out)
+    assert.match(r.out, /FAILED: 0 on-hand, 0 held\/committed, 0 reserve-buffer and 1 labelled-box lines disagree/)
   })
 })
