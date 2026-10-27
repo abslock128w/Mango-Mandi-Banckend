@@ -238,7 +238,7 @@ describe('the migration runner', () => {
 
   test('the new keys refuse bad rows', async () => {
     const at = now()
-    await query(`INSERT INTO orders (id, number, status, delivery_date, placed_at, subtotal, total) VALUES ('ord_keys', 'ORD-KEYS', 'DELIVERED', '2026-10-16', $1, 100, 100)`, [at])
+    await query(`INSERT INTO orders (id, number, status, delivery_date, placed_at, subtotal, total) VALUES ('ord_keys', 'ORD-KEYS', 'CONFIRMED', '2026-10-16', $1, 100, 100)`, [at])
     const dispute = (id, extra) => query(
       `INSERT INTO payment_disputes (dispute_id, payment_id, order_id, preorder_id, status, last_event, created_at, updated_at) VALUES ($1, 'pay_k', $2, $3, $4, 'payment.dispute.created', $5, $5)`,
       [id, extra.orderId ?? null, extra.preorderId ?? null, extra.status ?? 'open', at],
