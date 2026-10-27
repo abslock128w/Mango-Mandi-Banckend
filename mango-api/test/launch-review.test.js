@@ -356,7 +356,9 @@ describe('staff access', () => {
         for (const method of Object.keys(layer.route.methods)) {
           seen++
           const m = method.toUpperCase()
-          const listed = OPERATOR_ROUTES.some((r) => r.method === m && r.re.test(layer.route.path.replace(/:\w+/g, 'x')))
+          // Each parameter filled in its own format (access.js PARAM_FORMATS): dates and pincodes are checked as such.
+          const path = layer.route.path.replace(/:(\w+)/g, (_p, name) => (name === 'date' || name === 'weekStart' ? '2026-01-05' : name === 'pincode' ? '560034' : 'x'))
+          const listed = OPERATOR_ROUTES.some((r) => r.method === m && r.re.test(path))
           if (listed === managerOnly) unclassified.push(`${m} ${layer.route.path} (${managerOnly ? 'manager-only but listed for operators' : 'not listed'})`)
         }
       }

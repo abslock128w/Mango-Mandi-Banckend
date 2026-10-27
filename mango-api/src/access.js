@@ -27,7 +27,18 @@ export const roleAllows = (role, method, path) => role === 'MANAGER' || (LIMITED
  */
 export const PACKER_STATUSES = ['PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 
-const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:\w+/g, '[^/]+')}$`) })
+/**
+ * What a path parameter may look like. An id is our own (prefix_hex, a box code, an SKU):
+ * letters, digits, _ and -, nothing else, so an allowlisted route can't be stretched to a
+ * path the role was never given (an encoded slash, dots, a second segment).
+ */
+const PARAM_FORMATS = {
+  pincode: '\\d{6}',
+  date: '\\d{4}-\\d{2}-\\d{2}',
+  weekStart: '\\d{4}-\\d{2}-\\d{2}',
+}
+export const ID_SEGMENT = '[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
+const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, (_m, name) => PARAM_FORMATS[name] ?? ID_SEGMENT)}$`) })
 
 const COMMON = [
   route('GET', '/auth/me'),
