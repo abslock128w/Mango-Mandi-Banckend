@@ -140,6 +140,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `API_RATE_LIMIT` | `3000` | | requests per 15 minutes from one address before 429. Mobile carriers put many customers behind one address, so keep it high; it only stops floods |
 | `OTP_IP_LIMIT` | leave unset (`200`) | | login-code requests per 15 minutes from one address. High on purpose, for the same carrier-NAT reason: Turnstile, the per-number caps (5 an hour, 16 a day) and `OTP_DAILY_LIMIT` are what stop SMS pumping. Lower it only if Sentry shows one address pumping codes |
 | `METRICS_TOKEN` | not needed | | `/metrics` answers 404 on Vercel; it and `ops/alerts.yml` are for the Docker path only |
+| `BILL_RETENTION_MONTHS` | leave unset (`96`) | leave unset | months a bill keeps the buyer's name and address after its date (tax law, [docs/trust.md](../docs/trust.md#how-long-bills-are-kept)); the CA confirms it. Production refuses under 72 and warns under 96 |
 | `BACKUP_HEARTBEAT_EXPECTED` | `true` once the backup workflow records its heartbeat (see [Backups](#backups-and-restore-drill)) | | Needs attention and Sentry warn when no backup has succeeded for 26 hours |
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
