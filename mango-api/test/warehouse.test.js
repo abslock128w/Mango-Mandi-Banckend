@@ -494,4 +494,15 @@ describe('controls', () => {
     assert.equal(r.status, 200)
     assert.match(r.body, /"'=HYPERLINK\(""http:\/\/x""\)"/)
   })
+
+  test('each CSV export is written to the staff audit, like the managers\' exports', async () => {
+    assert.equal((await api.raw('GET', `${W}/export/events?from=2026-10-01&to=2026-10-15`, { token: manager })).status, 200)
+    assert.equal((await api.raw('GET', `${W}/export/boxes`, { token: manager })).status, 200)
+    const { rows } = await query(`SELECT action, target, email, detail FROM staff_audit WHERE action LIKE 'EXPORT warehouse-%' ORDER BY created_at, id`)
+    assert.deepEqual(rows.map((x) => [x.action, x.target, x.email]), [
+      ['EXPORT warehouse-events', 'warehouse-events', 'manager@mandimangoes.test'],
+      ['EXPORT warehouse-boxes', 'warehouse-boxes', 'manager@mandimangoes.test'],
+    ])
+    assert.deepEqual(rows[0].detail, { warehouseId: 'wh_main', from: '2026-10-01', to: '2026-10-15' })
+  })
 })

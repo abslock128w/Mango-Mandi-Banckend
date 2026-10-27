@@ -200,7 +200,7 @@ export function seed() {
       { code: 'DIWALI10', kind: 'PERCENT', value: 10, maxDiscount: 30000, minSubtotal: 100000, startsOn: null, endsOn: '2026-11-05', maxUses: null, perCustomer: 1, firstOrderOnly: false, active: true, description: 'Diwali offer', uses: 4, discountGiven: 52000, createdBy: 'manager@mandimangoes.test', createdAt: '2026-10-10T05:00:00Z' },
     ] as Promo[],
     claims: [
-      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.public.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, rejectionReason: null, createdAt: '2026-10-14T07:00:00Z' },
+      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.private.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, rejectionReason: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
     reviews: [

@@ -26,7 +26,8 @@ a box, lot or location in another warehouse is a 404.
   for a second approver (over 10 boxes or 20 kg).
 - `GET /warehouse/export/:report` is CSV (`boxes`, `events` with `from`/`to`
   dates, `lots`, `reconciliation`). Cells are quoted and a leading
-  `= + - @` tab or CR is prefixed with `'`.
+  `= + - @` tab or CR is prefixed with `'`. Each download is written to
+  `staff_audit` first (`EXPORT warehouse-<report>`, with the warehouse and dates).
 - `GET /warehouse/trace/*` and recalls include customer name and phone only
   for roles with `recall.view_customers` (managers).
 - `/auth/me` includes `warehouse: { enabled, permissions }` for the panel.

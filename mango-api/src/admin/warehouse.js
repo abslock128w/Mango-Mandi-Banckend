@@ -12,6 +12,7 @@ import { env } from '../env.js'
 import { asyncHandler, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { loadProducts } from '../products.js'
+import { auditNow } from '../staff-audit.js'
 import {
   addManualHold, boxEvents, boxIn, boxView, createLocation, decideWriteOff, listLocations, listWriteOffs, LOCATION_TYPES, measureBox, putAwayLot, qcLot,
   reissueLabel, releaseManualHold, reprintBox, requestWriteOff, resolveCode, restockReturned, updateLocation, WRITE_OFF_LIMIT, WRITE_OFF_REASONS,
@@ -442,6 +443,8 @@ get('/warehouse/export/:report', async (req, res) => {
   const report = parse(z.enum(EXPORTS), req.params.report)
   const from = req.query.from ? parse(day, req.query.from) : null
   const to = req.query.to ? parse(day, req.query.to) : null
+  // Audited before the file is made, like the managers' exports (admin/exports.js): staff_audit shows who took which report.
+  await auditNow(req, `EXPORT warehouse-${report}`, { target: `warehouse-${report}`, detail: { warehouseId: req.wh.warehouseId, ...(from ? { from } : {}), ...(to ? { to } : {}) } })
   const body = await exportReport({ query }, report, { from, to }, req.wh)
   res.set('Content-Type', 'text/csv; charset=utf-8')
   res.set('Content-Disposition', `attachment; filename="warehouse-${report}.csv"`)
