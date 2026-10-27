@@ -121,10 +121,15 @@ const schema = z.object({
   // Growth (docs/growth.md). Each is off unless set, so each can be rolled back on its own.
   // REFERRALS: each customer's referral code and share link on the Account page; a new customer
   // enters a friend's code once, and both get a one-time promo code once the friend's first order
-  // is delivered. Needs the Meta template mandi_referral_reward before it is turned on.
+  // is paid (withdrawn again, if still unused, when that order is cancelled or refunded).
+  // Needs the Meta template mandi_referral_reward before it is turned on.
   REFERRALS: flag(),
-  // The thank-you each side gets (a flat amount off a later order of regular boxes), and the
-  // smallest first order (regular boxes, before any discount) that earns it. Rupees.
+  // The thank-you each side gets, off a later order of regular boxes: PERCENT (REFERRAL_REWARD_PERCENT,
+  // optionally capped at REFERRAL_REWARD_MAX_RUPEES) or FLAT (REFERRAL_REWARD_RUPEES). Then the
+  // smallest first order (regular boxes, before any discount) that earns it, in rupees.
+  REFERRAL_REWARD_KIND: z.enum(['PERCENT', 'FLAT']).default('PERCENT'),
+  REFERRAL_REWARD_PERCENT: z.coerce.number().int().min(1).max(90).default(10),
+  REFERRAL_REWARD_MAX_RUPEES: z.coerce.number().int().min(1).max(100_000).optional(),
   REFERRAL_REWARD_RUPEES: z.coerce.number().int().min(1).max(5000).default(100),
   REFERRAL_MIN_ORDER_RUPEES: z.coerce.number().int().min(1).max(100_000).default(499),
   // Thank-yous one referrer may get in a calendar month (IST); friends past it still get theirs.

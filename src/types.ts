@@ -1076,11 +1076,19 @@ export interface Referral {
   friend: ReferralPerson
   /** The friend's first paid order, once there is one. */
   order: { id: string; number: string } | null
-  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; amount: number; used: boolean }[]
+  /** value is a percent for PERCENT, paise for FLAT; maxDiscount is a paise cap or null. */
+  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; kind: 'PERCENT' | 'FLAT'; value: number; maxDiscount: number | null; withdrawn: boolean; used: boolean }[]
 }
 export interface ReferralList {
   counts: Record<ReferralStatus, number>
-  rules: { rewardRupees: number; minOrderRupees: number; maxPerMonth: number }
+  rules: {
+    rewardKind: 'PERCENT' | 'FLAT'
+    rewardPercent: number | null
+    rewardMaxRupees: number | null
+    rewardRupees: number | null
+    minOrderRupees: number
+    maxPerMonth: number
+  }
   items: Referral[]
 }
 

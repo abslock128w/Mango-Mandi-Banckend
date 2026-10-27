@@ -151,12 +151,13 @@ test('a friend arrives by the invite link, adds the code at checkout and pays; t
   // The friend's Account page: the code is used, and no second one can be entered.
   await page.goto('/account')
   const card = page.getByRole('region', { name: 'Refer a friend' })
-  await expect(card.getByTestId('referral-entered')).toContainText('once your first order is delivered')
+  // The reward comes at payment, on the next maintenance tick, so either text is right here.
+  await expect(card.getByTestId('referral-entered')).toContainText(/as soon as your first order is paid|your thank-you code is below/)
   await expect(card.getByRole('button', { name: 'Use code' })).toHaveCount(0)
 
-  // The manager sees the referral waiting for delivery, and today's funnel has a paid browser.
+  // The manager sees the referral (waiting, or already rewarded), and today's funnel has a paid browser.
   const auth = { headers: { Authorization: `Bearer ${await managerToken(request)}` } }
-  const list = (await (await request.get(`${API}/admin/v1/referrals?status=PENDING`, auth)).json()) as { items: { code: string; friend: { name: string; phone: string } }[] }
+  const list = (await (await request.get(`${API}/admin/v1/referrals`, auth)).json()) as { items: { code: string; friend: { name: string; phone: string } }[] }
   const row = list.items.find((x) => x.code === code)
   expect(row?.friend.name).toBe('Nisha Rao')
   expect(row?.friend.phone).toContain('••••')

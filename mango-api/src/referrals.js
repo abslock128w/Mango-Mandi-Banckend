@@ -2,10 +2,12 @@
 //
 // Every signed-in customer with a mobile number has one stable referral code
 // and a share link. A new customer (nothing paid yet) may enter one friend's
-// code, once. When that new customer's first paid order is delivered, both
-// people get a one-time promo code through the ordinary promo system
-// (promos.js): a flat amount off a later order of regular boxes, usable only by
-// them. Every check is made here, on the server:
+// code, once. As soon as that new customer's first order is paid, both people
+// get a one-time promo code through the ordinary promo system (promos.js):
+// by default 10% off their next order of regular boxes (REFERRAL_REWARD_KIND,
+// _PERCENT, _MAX_RUPEES; or a flat REFERRAL_REWARD_RUPEES), usable only by
+// them. If that first order is later cancelled or refunded, the codes not used
+// yet are withdrawn. Every check is made here, on the server:
 //   - no self-referral: not the same account, phone or delivery address, and
 //     not two accounts referring each other;
 //   - one referral per new customer (referrals.friend_id is UNIQUE);
@@ -14,7 +16,8 @@
 //     and referral_rewards is UNIQUE (referral_id, role), so a retried or
 //     overlapping run gives nothing twice;
 //   - a first order that was cancelled or refunded, or smaller than
-//     REFERRAL_MIN_ORDER_RUPEES of regular boxes, earns nothing.
+//     REFERRAL_MIN_ORDER_RUPEES of regular boxes, earns nothing (and takes
+//     back unused codes it already earned).
 // The maintenance loop settles referrals (settleReferrals); nothing here
 // touches stock, payments or order status.
 import { randomInt } from 'node:crypto'
@@ -37,6 +40,19 @@ export const REWARD_DAYS = 90
 const SETTLE_BATCH = 200
 
 export const rewardPaise = () => env.REFERRAL_REWARD_RUPEES * 100
+/** The thank-you as the promo system stores it: { kind, value, maxDiscount } (value is a percent or paise). */
+export const rewardTerms = () =>
+  env.REFERRAL_REWARD_KIND === 'FLAT'
+    ? { kind: 'FLAT', value: rewardPaise(), maxDiscount: null }
+    : { kind: 'PERCENT', value: env.REFERRAL_REWARD_PERCENT, maxDiscount: env.REFERRAL_REWARD_MAX_RUPEES ? env.REFERRAL_REWARD_MAX_RUPEES * 100 : null }
+/** The reward rules the shop and panel show. */
+export const rewardRules = () => ({
+  rewardKind: env.REFERRAL_REWARD_KIND,
+  rewardPercent: env.REFERRAL_REWARD_KIND === 'PERCENT' ? env.REFERRAL_REWARD_PERCENT : null,
+  rewardMaxRupees: env.REFERRAL_REWARD_KIND === 'PERCENT' ? (env.REFERRAL_REWARD_MAX_RUPEES ?? null) : null,
+  rewardRupees: env.REFERRAL_REWARD_KIND === 'FLAT' ? env.REFERRAL_REWARD_RUPEES : null,
+  minOrderRupees: env.REFERRAL_MIN_ORDER_RUPEES,
+})
 export const minOrderPaise = () => env.REFERRAL_MIN_ORDER_RUPEES * 100
 
 export const normaliseReferralCode = (s) => String(s ?? '').trim().toUpperCase().replace(/[\s-]/g, '')
@@ -44,6 +60,7 @@ export const normaliseReferralCode = (s) => String(s ?? '').trim().toUpperCase()
 /** Why a referral ended without a reward, in words for the customer and staff. */
 export const VOID_REASONS = {
   ORDER_CANCELLED: 'The first order was cancelled or refunded',
+  ORDER_CANCELLED_AFTER_REWARD: 'The first order was cancelled or refunded, so unused thank-you codes were withdrawn',
   ORDER_TOO_SMALL: 'The first order was smaller than the minimum',
   SAME_PHONE: 'The order went to the referrer’s own number',
   SAME_ADDRESS: 'The order went to the referrer’s own address',
@@ -145,7 +162,7 @@ export async function referralView(c, customerId) {
       [customerId],
     ),
     c.query(
-      `SELECT rr.promo_code, rr.amount, rr.role, rr.created_at, p.ends_on, p.min_subtotal, p.active,
+      `SELECT rr.promo_code, rr.amount, rr.role, rr.created_at, p.kind, p.value, p.max_discount, p.ends_on, p.min_subtotal, p.active, rr.withdrawn_at,
               EXISTS (SELECT 1 FROM promo_redemptions r JOIN orders o ON o.id = r.order_id WHERE r.code = rr.promo_code AND o.status <> 'CANCELLED') AS used
          FROM referral_rewards rr JOIN promo_codes p ON p.code = rr.promo_code
         WHERE rr.customer_id = $1 ORDER BY rr.created_at DESC`,
@@ -156,15 +173,15 @@ export async function referralView(c, customerId) {
   return {
     code,
     shareUrl: code ? shareUrl(code) : null,
-    rewardRupees: env.REFERRAL_REWARD_RUPEES,
-    minOrderRupees: env.REFERRAL_MIN_ORDER_RUPEES,
+    ...rewardRules(),
     // A new customer with a number who hasn't entered a code yet.
     canEnterCode: hasPhone && !e && (await isNewCustomer(c, customerId)),
     entered: e ? { status: e.status, reason: e.void_reason ? (VOID_REASONS[e.void_reason] ?? e.void_reason) : null, at: e.created_at } : null,
     friends: friends.rows[0],
     rewards: rewards.rows.map((r) => ({
-      code: r.promo_code, amount: r.amount, minSubtotal: r.min_subtotal, endsOn: r.ends_on, for: r.role === 'FRIEND' ? 'your first order' : 'a friend',
-      state: r.used ? 'USED' : !r.active || (r.ends_on && r.ends_on < todayIST()) ? 'EXPIRED' : 'READY',
+      code: r.promo_code, kind: r.kind, percent: r.kind === 'PERCENT' ? r.value : null, amount: r.kind === 'FLAT' ? r.value : null, maxDiscount: r.max_discount,
+      minSubtotal: r.min_subtotal, endsOn: r.ends_on, for: r.role === 'FRIEND' ? 'your first order' : 'a friend',
+      state: r.used ? 'USED' : r.withdrawn_at ? 'WITHDRAWN' : !r.active || (r.ends_on && r.ends_on < todayIST()) ? 'EXPIRED' : 'READY',
     })),
   }
 }
@@ -172,10 +189,12 @@ export async function referralView(c, customerId) {
 // ---------------------------------------------------------------- settling
 
 /**
- * Settles referrals whose new customer's first paid order has ended (delivered,
- * cancelled or refunded), or where an account was deleted. Run by the
+ * Settles referrals whose new customer has paid for a first order (or whose
+ * first order was cancelled or refunded), or where an account was deleted; then
+ * withdraws unused thank-you codes whose first order was cancelled or refunded
+ * after the reward. Run by the
  * maintenance loop every minute; safe to run twice at once or again after a
- * failure. Returns { rewarded, voided }.
+ * failure. Returns { rewarded, voided } (withdrawn counts as voided).
  */
 export async function settleReferrals(at = now()) {
   if (!isOn('REFERRALS')) return { rewarded: 0, voided: 0 }
@@ -183,7 +202,7 @@ export async function settleReferrals(at = now()) {
     `SELECT r.id FROM referrals r
       WHERE r.status = 'PENDING' AND (
         EXISTS (SELECT 1 FROM orders o WHERE o.customer_id = r.friend_id AND o.replacement_for IS NULL
-                   AND o.payment_status IN ('SUCCEEDED', 'REFUNDED') AND (o.status IN ('DELIVERED', 'CANCELLED') OR o.payment_status = 'REFUNDED' OR o.refund_requested_at IS NOT NULL))
+                   AND o.payment_status IN ('SUCCEEDED', 'REFUNDED'))
         OR EXISTS (SELECT 1 FROM customers cu WHERE cu.id IN (r.friend_id, r.referrer_id) AND cu.deleted_at IS NOT NULL))
       ORDER BY r.created_at LIMIT $1`,
     [SETTLE_BATCH],
@@ -195,7 +214,42 @@ export async function settleReferrals(at = now()) {
     if (r === 'REWARDED') out.rewarded++
     if (r === 'VOID') out.voided++
   }
+  // Rewarded, then the first order was cancelled or refunded: take back what was not used yet.
+  const { rows: undone } = await query(
+    `SELECT r.id FROM referrals r JOIN orders o ON o.id = r.order_id
+      WHERE r.status = 'REWARDED' AND (o.status = 'CANCELLED' OR o.payment_status = 'REFUNDED' OR o.refund_requested_at IS NOT NULL)
+      ORDER BY r.settled_at LIMIT $1`,
+    [SETTLE_BATCH],
+  )
+  for (const { id } of undone) {
+    if (outOfTime(2_000)) break
+    if ((await tx((c) => withdrawOne(c, id, at))) === 'VOID') out.voided++
+  }
   return out
+}
+
+/**
+ * A rewarded referral whose first order was then cancelled or refunded: its thank-you codes that
+ * nobody has used on a live order are switched off and marked withdrawn; a code already used stays
+ * used (nothing is charged back). The referral ends as VOID. Locked, so it happens once.
+ */
+export async function withdrawOne(c, id, at = now()) {
+  const { rows } = await c.query('SELECT * FROM referrals WHERE id = $1 FOR UPDATE', [id])
+  const r = rows[0]
+  if (!r || r.status !== 'REWARDED' || !r.order_id) return null
+  const { rows: o } = await c.query('SELECT status, payment_status, refund_requested_at FROM orders WHERE id = $1', [r.order_id])
+  if (!o[0] || !(o[0].status === 'CANCELLED' || o[0].payment_status === 'REFUNDED' || o[0].refund_requested_at)) return null
+  const { rows: gone } = await c.query(
+    `UPDATE referral_rewards rr SET withdrawn_at = $2
+      WHERE rr.referral_id = $1 AND rr.withdrawn_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM promo_redemptions pr JOIN orders po ON po.id = pr.order_id WHERE pr.code = rr.promo_code AND po.status <> 'CANCELLED')
+      RETURNING rr.promo_code`,
+    [r.id, at],
+  )
+  if (gone.length) await c.query('UPDATE promo_codes SET active = FALSE WHERE code = ANY($1)', [gone.map((g) => g.promo_code)])
+  await c.query(`UPDATE referrals SET status = 'VOID', void_reason = 'ORDER_CANCELLED_AFTER_REWARD', settled_at = $2 WHERE id = $1`, [r.id, at])
+  logger.info({ referralId: r.id, withdrawn: gone.length }, 'referral thank-you codes withdrawn after the first order was cancelled')
+  return 'VOID'
 }
 
 async function voidReferral(c, r, reason, at, orderId = null) {
@@ -222,10 +276,6 @@ export async function settleOne(c, id, at = now()) {
   const o = first[0]
   if (!o) return null
   if (o.status === 'CANCELLED' || o.payment_status === 'REFUNDED' || o.refund_requested_at) return voidReferral(c, r, 'ORDER_CANCELLED', at, o.id)
-  if (o.status !== 'DELIVERED') {
-    if (r.order_id !== o.id) await c.query('UPDATE referrals SET order_id = $2 WHERE id = $1', [r.id, o.id])
-    return null
-  }
   // Regular boxes only, before any discount: bulk deals carry their own price (as for promo codes).
   const { rows: sub } = await c.query('SELECT COALESCE(SUM(line_price), 0)::int AS n FROM order_items WHERE order_id = $1 AND listing_id IS NULL', [o.id])
   if (sub[0].n < minOrderPaise()) return voidReferral(c, r, 'ORDER_TOO_SMALL', at, o.id)
@@ -250,14 +300,14 @@ export async function settleOne(c, id, at = now()) {
 
 /** Makes one one-time promo code for `who` and queues the message saying so. Exactly once per referral and side. */
 async function giveReward(c, r, role, who, at) {
-  const amount = rewardPaise()
+  const terms = rewardTerms()
   let code = null
   for (let i = 0; i < 6 && !code; i++) {
     const { rows } = await c.query(
-      `INSERT INTO promo_codes (code, kind, value, min_subtotal, ends_on, max_uses, per_customer, first_order_only, active, description,
+      `INSERT INTO promo_codes (code, kind, value, max_discount, min_subtotal, ends_on, max_uses, per_customer, first_order_only, active, description,
                                 created_by, created_at, owner_customer_id)
-       VALUES ($1, 'FLAT', $2, $3, $4, 1, 1, FALSE, TRUE, $5, 'referrals', $6, $7) ON CONFLICT (code) DO NOTHING RETURNING code`,
-      [`TY${randomCode(8)}`, amount, minOrderPaise(), addDays(todayIST(at), REWARD_DAYS), 'Referral thank-you', at, who.id],
+       VALUES ($1, $2, $3, $4, $5, $6, 1, 1, FALSE, TRUE, $7, 'referrals', $8, $9) ON CONFLICT (code) DO NOTHING RETURNING code`,
+      [`TY${randomCode(8)}`, terms.kind, terms.value, terms.maxDiscount, minOrderPaise(), addDays(todayIST(at), REWARD_DAYS), 'Referral thank-you', at, who.id],
     )
     code = rows[0]?.code ?? null
   }
@@ -266,7 +316,7 @@ async function giveReward(c, r, role, who, at) {
   const { rows } = await c.query(
     `INSERT INTO referral_rewards (id, referral_id, role, customer_id, promo_code, amount, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (referral_id, role) DO NOTHING RETURNING id`,
-    [rewardId, r.id, role, who.id, code, amount, at],
+    [rewardId, r.id, role, who.id, code, terms.value, at],
   )
   if (!rows.length) {
     // Already given (cannot happen under the row lock, but never twice): the spare code goes.
@@ -291,9 +341,9 @@ const maskPhone = (p) => (p ? `${p.slice(0, -6)}••••${p.slice(-2)}` : nu
 export async function listReferrals({ status = null, limit = 200 } = {}) {
   const { rows } = await query(
     `SELECT r.*, rf.name AS referrer_name, rf.phone AS referrer_phone, fr.name AS friend_name, fr.phone AS friend_phone, o.number AS order_number,
-            (SELECT json_agg(json_build_object('role', rr.role, 'code', rr.promo_code, 'amount', rr.amount,
+            (SELECT json_agg(json_build_object('role', rr.role, 'code', rr.promo_code, 'kind', rp.kind, 'value', rp.value, 'maxDiscount', rp.max_discount, 'withdrawn', rr.withdrawn_at IS NOT NULL,
                      'used', EXISTS (SELECT 1 FROM promo_redemptions pr JOIN orders po ON po.id = pr.order_id WHERE pr.code = rr.promo_code AND po.status <> 'CANCELLED'))
-                     ORDER BY rr.role) FROM referral_rewards rr WHERE rr.referral_id = r.id) AS rewards
+                     ORDER BY rr.role) FROM referral_rewards rr JOIN promo_codes rp ON rp.code = rr.promo_code WHERE rr.referral_id = r.id) AS rewards
        FROM referrals r JOIN customers rf ON rf.id = r.referrer_id JOIN customers fr ON fr.id = r.friend_id
        LEFT JOIN orders o ON o.id = r.order_id
       WHERE ($1::text IS NULL OR r.status = $1) ORDER BY r.created_at DESC LIMIT $2`,
@@ -302,7 +352,7 @@ export async function listReferrals({ status = null, limit = 200 } = {}) {
   const { rows: counts } = await query(`SELECT status, COUNT(*)::int AS n FROM referrals GROUP BY status`)
   return {
     counts: { PENDING: 0, REWARDED: 0, VOID: 0, ...Object.fromEntries(counts.map((x) => [x.status, x.n])) },
-    rules: { rewardRupees: env.REFERRAL_REWARD_RUPEES, minOrderRupees: env.REFERRAL_MIN_ORDER_RUPEES, maxPerMonth: env.REFERRAL_MAX_PER_MONTH },
+    rules: { ...rewardRules(), maxPerMonth: env.REFERRAL_MAX_PER_MONTH },
     items: rows.map((r) => ({
       id: r.id, code: r.code, status: r.status, reason: r.void_reason ? (VOID_REASONS[r.void_reason] ?? r.void_reason) : null,
       referrerCapped: r.referrer_capped, createdAt: r.created_at, settledAt: r.settled_at,

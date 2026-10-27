@@ -105,13 +105,29 @@ export interface ReferralView {
   /** Null until the account has a phone number. */
   code: string | null
   shareUrl: string | null
-  rewardRupees: number
+  /** PERCENT: rewardPercent off (capped at rewardMaxRupees when set). FLAT: rewardRupees off. */
+  rewardKind: 'PERCENT' | 'FLAT'
+  rewardPercent: number | null
+  rewardMaxRupees: number | null
+  rewardRupees: number | null
   minOrderRupees: number
   /** A new customer who has not entered a code yet. */
   canEnterCode: boolean
   entered: { status: 'PENDING' | 'REWARDED' | 'VOID'; reason: string | null; at: string } | null
   friends: { pending: number; rewarded: number }
-  rewards: { code: string; amount: number; minSubtotal: number; endsOn: string | null; for: string; state: 'READY' | 'USED' | 'EXPIRED' }[]
+  rewards: {
+    code: string
+    kind: 'PERCENT' | 'FLAT'
+    percent: number | null
+    /** Paise, for FLAT only. */
+    amount: number | null
+    /** Paise cap for PERCENT, or null. */
+    maxDiscount: number | null
+    minSubtotal: number
+    endsOn: string | null
+    for: string
+    state: 'READY' | 'USED' | 'WITHDRAWN' | 'EXPIRED'
+  }[]
 }
 /** A hearted box (GET /v1/me/favourites). */
 export interface Favourite {

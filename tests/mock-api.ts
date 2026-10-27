@@ -295,8 +295,8 @@ function growthSeed() {
         referrer: { id: 'cus1', name: 'Meera Iyer', phone: '+919876••••10' }, friend: { id: 'cus7', name: 'Kavya Rao', phone: '+919000••••01' },
         order: { id: 'o1', number: 'ORD-1044' },
         rewards: [
-          { role: 'FRIEND' as const, code: 'TYAB12CD34', amount: 10000, used: false },
-          { role: 'REFERRER' as const, code: 'TYEF56GH78', amount: 10000, used: true },
+          { role: 'FRIEND' as const, code: 'TYAB12CD34', kind: 'PERCENT' as const, value: 10, maxDiscount: null, withdrawn: false, used: false },
+          { role: 'REFERRER' as const, code: 'TYEF56GH78', kind: 'PERCENT' as const, value: 10, maxDiscount: null, withdrawn: false, used: true },
         ],
       },
       {
@@ -623,7 +623,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       const all = state.growth.referrals
       const counts = { PENDING: 0, REWARDED: 0, VOID: 0 }
       for (const r of all) counts[r.status]++
-      return json(route, 200, { counts, rules: { rewardRupees: 100, minOrderRupees: 499, maxPerMonth: 10 }, items: status ? all.filter((r) => r.status === status) : all })
+      return json(route, 200, { counts, rules: { rewardKind: 'PERCENT', rewardPercent: 10, rewardMaxRupees: null, rewardRupees: null, minOrderRupees: 499, maxPerMonth: 10 }, items: status ? all.filter((r) => r.status === status) : all })
     }
     if (path === '/analytics/funnel') {
       const gate = growthGate('funnelAnalytics')
