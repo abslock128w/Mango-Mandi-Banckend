@@ -33,7 +33,7 @@ import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
-import { anonymiseOldOrders, pruneNotifications, removeOldBillBuyers } from './retention.js'
+import { anonymiseOldOrders, monthsBefore, pruneNotifications, removeOldBillBuyers } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
@@ -156,8 +156,12 @@ export async function cleanupExpired(at = now()) {
   await pruneWebhookEvents(at)
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
   // Payment problems stay until a manager resolves them: often the only record of customer money (DB-04).
-  await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND (resolved_at IS NOT NULL OR source <> 'razorpay')`, [
-    new Date(at.getTime() - 30 * day),
+  // Once resolved, a Razorpay one is still the record of a payment or refund that matched nothing and of
+  // what was done about it, so it is kept for BILL_RETENTION_MONTHS like the bills (docs/trust.md).
+  // WhatsApp ones go after 30 days.
+  await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND source <> 'razorpay'`, [new Date(at.getTime() - 30 * day)])
+  await query(`DELETE FROM webhook_failures WHERE source = 'razorpay' AND resolved_at IS NOT NULL AND created_at < $1`, [
+    new Date(`${monthsBefore(todayIST(at), env.BILL_RETENTION_MONTHS)}T00:00:00+05:30`),
   ])
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
   await query('DELETE FROM rate_limits WHERE reset_at < $1', [new Date(at.getTime() - HOURLY_MS)])
