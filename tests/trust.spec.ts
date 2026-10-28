@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, screenLoaded, test } from './fixtures'
 import { mockApi, type MockState } from './mock-api'
 import type { CustomerProfile, Role } from '../src/types'
 
@@ -143,6 +143,7 @@ test('a manager’s export card checks the range before anything is sent', async
 test('a packer has no customer search and no profile link; with the features off nobody does', async ({ page }, info) => {
   await staff(page, 'PACKER')
   await page.goto('/')
+  await screenLoaded(page)
   await expect(page.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await page.goto('/customers')
   await expect(page.getByRole('heading', { name: 'Find a customer' })).toHaveCount(0)
@@ -153,6 +154,7 @@ test('a packer has no customer search and no profile link; with the features off
   await expect(off.getByRole('heading', { name: /ORD-1042/ })).toBeVisible()
   await expect(off.getByRole('link', { name: 'Customer profile' })).toHaveCount(0)
   await expect(off.getByRole('region', { name: 'Bill' })).toHaveCount(0)
+  await screenLoaded(off)
   await off.goto('/orders')
   await expect(off.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
   const nav = off.getByRole('navigation', { name: 'Main' })

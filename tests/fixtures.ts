@@ -28,6 +28,9 @@ type Page = import('@playwright/test').Page
 /** The main navigation. Its links are behind Menu on a phone and inside group dropdowns on a desktop. */
 export const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main' })
 
+/** The main navigation even while it is hidden (behind the closed Menu on a phone). */
+const mainNavAnyState = (page: Page) => page.getByRole('navigation', { name: 'Main', includeHidden: true })
+
 /**
  * Opens whatever holds the nav link `name`: the Menu below 900px, or the link's group dropdown
  * on a desktop (a group with one link is a plain link and needs nothing). Returns the link.
@@ -53,9 +56,21 @@ export async function openNavTo(page: Page, name: string) {
   return link
 }
 
+/**
+ * Waits until the screen has loaded: signed in (the main nav is there), the screen's code is in
+ * and nothing on it says Loading. Use it before a check that something is absent, which would
+ * otherwise pass on a page that has not drawn yet, and before going to another address: Safari
+ * (WebKit) fails the requests and code still loading on the page being left while that page's
+ * script still runs, which logs errors (and can flash the sign-in page as it goes).
+ */
+export async function screenLoaded(page: Page) {
+  await expect(mainNavAnyState(page)).toBeAttached()
+  await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0)
+}
+
 /** A nav link whether or not its menu is open: use for checks that a role never gets a screen. */
 export const navLinkAnyState = (page: Page, name: string) =>
-  mainNav(page).getByRole('link', { name, exact: true, includeHidden: true })
+  mainNavAnyState(page).getByRole('link', { name, exact: true, includeHidden: true })
 
 /** The account button in the top bar (named "<email> · <role>"); opens its menu. */
 export async function openAccount(page: Page) {

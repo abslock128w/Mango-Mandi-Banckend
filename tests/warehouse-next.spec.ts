@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { Page } from '@playwright/test'
-import { expect, navLinkAnyState, openNavTo, test } from './fixtures'
+import { expect, navLinkAnyState, openNavTo, screenLoaded, test } from './fixtures'
 import { mockApi, type Role } from './mock-api'
 import { mockWarehouse } from './warehouse-mock'
 
@@ -64,6 +64,8 @@ test('with stocktake and repack off, their links, scan types and pages are gone'
 test('a packer gets neither stocktake nor repack; QC staff neither', async ({ page }) => {
   await signIn(page, 'PACKER')
   await page.goto('/warehouse/scan')
+  await screenLoaded(page)
+  await expect(page.getByLabel('What are you doing?').locator('option').first()).toBeAttached()
   await expect(page.getByLabel('What are you doing?').locator('option')).not.toContainText(['Stocktake'])
   await expect(navLinkAnyState(page, 'Stocktake')).toHaveCount(0)
   await expect(navLinkAnyState(page, 'Repack')).toHaveCount(0)
