@@ -12,14 +12,19 @@ export const test = base.extend<{ consoleErrors: string[] }>({
     async ({ page }, use, testInfo) => {
       const errors: string[] = []
       const webkit = testInfo.project.use.browserName === 'webkit' || testInfo.project.name === 'iphone'
+      const cancelledInWebkit = (text: string) => webkit && text.includes('due to access control checks')
       page.on('console', (msg) => {
         if (msg.type() !== 'error') return
         const text = msg.text()
         if (/Failed to load resource: the server responded with a status of 4\d\d/.test(text)) return
-        if (webkit && /due to access control checks\.?$/.test(text)) return
+        if (cancelledInWebkit(text)) return
         errors.push(text)
       })
-      page.on('pageerror', (err) => errors.push(err.message))
+      // WebKit can also raise it as an unhandled page error from the cancelled fetch.
+      page.on('pageerror', (err) => {
+        if (cancelledInWebkit(err.message)) return
+        errors.push(err.message)
+      })
       await use(errors)
       expect(errors, 'console errors').toEqual([])
     },
