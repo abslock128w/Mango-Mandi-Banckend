@@ -1,12 +1,18 @@
 import { test as base, expect } from '@playwright/test'
 
-// Every test fails if the page logs a console error or throws. The one
-// exception is the browser's own "Failed to load resource" line for 4xx
-// responses a test deliberately mocks (e.g. a 401 from /auth/refresh).
+// Every test fails if the page logs a console error or throws. The exceptions
+// are the browser's own "Failed to load resource" line for 4xx responses a test
+// deliberately mocks (e.g. a 401 from /auth/refresh), and WebKit's line for a
+// request the browser cancelled because the test moved to another page
+// ("Fetch API cannot load <url> due to access control checks").
 export const test = base.extend<{ consoleErrors: string[] }>({
   consoleErrors: [
     async ({ page }, use) => {
       const errors: string[] = []
+      const cancelled = new Set<string>()
+      page.on('requestfailed', (req) => {
+        if (/cancel|access control/i.test(req.failure()?.errorText ?? '')) cancelled.add(req.url().replace(/^https?:\/\//, ''))
+      })
       page.on('console', (msg) => {
         if (msg.type() !== 'error') return
         const text = msg.text()
@@ -15,7 +21,11 @@ export const test = base.extend<{ consoleErrors: string[] }>({
       })
       page.on('pageerror', (err) => errors.push(err.message))
       await use(errors)
-      expect(errors, 'console errors').toEqual([])
+      const cancelledFetch = (e: string) => {
+        const url = /cannot load (?:https?:\/)?\/?(\S+) due to access control checks/.exec(e)?.[1]
+        return url !== undefined && cancelled.has(url)
+      }
+      expect(errors.filter((e) => !cancelledFetch(e)), 'console errors').toEqual([])
     },
     { auto: true },
   ],
