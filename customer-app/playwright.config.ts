@@ -30,7 +30,8 @@ export default defineConfig({
     // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary. In WebKit, page.route never
     // sees requests from a page the shop's service worker controls, so the worker is blocked here;
     // app-feel.spec.ts, which tests the worker itself, allows it again.
-    ...(webkit ? [{ name: 'iphone', use: { ...devices['iPhone 13'], launchOptions: {}, serviceWorkers: 'block' as const } }] : []),
+    // WebKit on a CI runner takes about 2.5 times as long as Chromium for the same journey, so it gets 60s.
+    ...(webkit ? [{ name: 'iphone', timeout: 60_000, use: { ...devices['iPhone 13'], launchOptions: {}, serviceWorkers: 'block' as const } }] : []),
   ],
   webServer: [
     {

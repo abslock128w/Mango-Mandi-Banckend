@@ -251,6 +251,10 @@ jobs:
       # NFR-15: the whole shop again on Safari on an iPhone (WebKit), after the Chromium run so the
       # specs' one-per-project customers and boxes never meet a run going side by side.
       - run: npx playwright install --with-deps webkit
+      # The Chromium run has used up much of the demo stock for the next few days; top it up on this
+      # throwaway database so the iPhone run books the same boxes. Running short (STOCK_INSUFFICIENT) is
+      # covered by the API tests.
+      - run: psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE batch_lines SET on_hand = on_hand + 500'
       - name: Customer app journey on an iPhone (WebKit) against the real API
         working-directory: customer-app
         run: npx playwright test --project=iphone
