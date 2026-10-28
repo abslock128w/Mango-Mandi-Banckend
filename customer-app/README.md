@@ -46,6 +46,11 @@ succeeds** and **Payment fails** buttons that use the API's test payment route.
 
 ```bash
 cd customer-app && npx playwright test   # needs mango-api running in development mode
+
+# Safari on an iPhone (WebKit, NFR-15), as CI runs it after the Chromium projects.
+# PW_WEBKIT=1 adds the `iphone` project; without it the run is Chromium only.
+npx playwright install --with-deps webkit   # once
+cd customer-app && PW_WEBKIT=1 npx playwright test --project=iphone
 ```
 
 One journey runs on phone and desktop widths: an unserved pincode, picking boxes,

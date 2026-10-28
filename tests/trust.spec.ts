@@ -156,8 +156,8 @@ test('a packer has no customer search and no profile link; with the features off
   await off.goto('/orders')
   await expect(off.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
   const nav = off.getByRole('navigation', { name: 'Main' })
-  // The Customers group on desktop; the Menu on a phone.
-  await (info.project.name === 'phone' ? off.getByRole('button', { name: 'Menu' }) : nav.getByRole('button', { name: 'Customers' })).click()
+  // The Customers group on desktop; the Menu on a phone (Android or iPhone).
+  await (info.project.name !== 'desktop' ? off.getByRole('button', { name: 'Menu' }) : nav.getByRole('button', { name: 'Customers' })).click()
   await expect(nav.getByRole('link', { name: 'Reviews', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await off.close()
