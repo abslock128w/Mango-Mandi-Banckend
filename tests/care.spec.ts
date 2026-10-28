@@ -225,6 +225,8 @@ test('an operator answers a help request: inbox, filters, the thread, a reply, r
 
   await page.getByRole('button', { name: 'Mark resolved' }).click()
   await expect(page).toHaveURL(/\/help-desk$/)
+  // Let the inbox finish loading: leaving mid-request is logged as an error in WebKit.
+  await expect(page.getByTestId('help-counts')).toBeVisible()
   await page.goto('/help-desk/hlp_1')
   await expect(page.getByText('Resolved', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Reopen' }).click()
