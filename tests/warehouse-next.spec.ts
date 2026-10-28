@@ -323,7 +323,7 @@ interface CamOpts {
 }
 
 /**
- * A stand-in camera and QR reader: getUserMedia returns a canvas stream whose
+ * A stand-in camera and QR reader: getUserMedia returns a stream whose
  * track counts stop() calls, and BarcodeDetector reads codes the test queues
  * in window.__cam.codes (one per frame) plus every code in window.__cam.inView
  * (in every frame, like labels held in front of the camera).
@@ -355,26 +355,35 @@ async function fakeCamera(page: Page, opts: CamOpts = {}) {
     // getUserMedia still answered (the stub was not in place when the page asked).
     const md = {} as Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>
     Object.defineProperty(Navigator.prototype, 'mediaDevices', { configurable: true, get: () => md })
+    const fakeStreams = new WeakSet<object>()
+    const ours = (el: HTMLMediaElement) => el.srcObject !== null && fakeStreams.has(el.srcObject as object)
+    const play = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      return ours(this) ? Promise.resolve() : play.call(this)
+    }
+    const ready = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'readyState')!
+    Object.defineProperty(HTMLMediaElement.prototype, 'readyState', {
+      configurable: true,
+      get(this: HTMLMediaElement) {
+        return ours(this) ? 4 : ready.get!.call(this)
+      },
+    })
     md.getUserMedia = async (constraints?: MediaStreamConstraints) => {
       w.__cam.constraints.push(constraints)
       if (o.deny) throw new DOMException('Refused', o.deny)
       if (o.hold) await gate
-      const canvas = document.createElement('canvas')
-      canvas.width = 320
-      canvas.height = 240
-      const ctx = canvas.getContext('2d')!
-      let n = 0
-      window.setInterval(() => {
-        ctx.fillStyle = n++ % 2 ? '#222' : '#333'
-        ctx.fillRect(0, 0, 320, 240)
-      }, 50)
-      const stream = canvas.captureStream(20)
-      const track = stream.getVideoTracks()[0]
-      const stop = track.stop.bind(track)
-      track.stop = () => {
-        w.__cam.stopped++
-        stop()
-      }
+      // A stream of our own: a canvas stream does not reliably start or report frames in WebKit,
+      // so the video element is told it is playing whenever its source is one of these.
+      const track = {
+        kind: 'video',
+        stop: () => {
+          w.__cam.stopped++
+        },
+      } as unknown as MediaStreamTrack
+      const stream = new MediaStream()
+      stream.getVideoTracks = () => [track]
+      stream.getTracks = () => [track]
+      fakeStreams.add(stream)
       track.getCapabilities = () => (o.torch ? { torch: true } : {}) as MediaTrackCapabilities
       track.applyConstraints = async (c?: MediaTrackConstraints) => {
         w.__cam.torch.push(Boolean((c?.advanced?.[0] as { torch?: boolean } | undefined)?.torch))
