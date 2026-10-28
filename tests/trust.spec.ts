@@ -150,7 +150,11 @@ test('a packer has no customer search and no profile link; with the features off
   await screenLoaded(page)
   await expect(page.getByRole('heading', { name: 'Find a customer' })).toHaveCount(0)
 
-  const off = await page.context().newPage()
+  // Close the packer's page first, so nothing on it is still loading when the test
+  // ends: Safari logs a cancelled page load as an error.
+  const context = page.context()
+  await page.close()
+  const off = await context.newPage()
   await staff(off, 'MANAGER', false)
   await off.goto('/orders/o1')
   await expect(off.getByRole('heading', { name: /ORD-1042/ })).toBeVisible()
