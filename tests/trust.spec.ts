@@ -146,6 +146,8 @@ test('a packer has no customer search and no profile link; with the features off
   await screenLoaded(page)
   await expect(page.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await page.goto('/customers')
+  // Let the page finish loading first; Safari cancels a half-loaded page's code when the next one opens.
+  await screenLoaded(page)
   await expect(page.getByRole('heading', { name: 'Find a customer' })).toHaveCount(0)
 
   const off = await page.context().newPage()
