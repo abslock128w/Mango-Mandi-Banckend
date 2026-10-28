@@ -143,6 +143,9 @@ test('a manager’s export card checks the range before anything is sent', async
 test('a packer has no customer search and no profile link; with the features off nobody does', async ({ page }, info) => {
   await staff(page, 'PACKER')
   await page.goto('/')
+  // '/' sends a packer on to the pack list; let that screen load before leaving it, or
+  // Safari logs its cancelled import as an error.
+  await expect(page).toHaveURL(/\/pack-list/)
   await screenLoaded(page)
   await expect(page.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await page.goto('/customers')
