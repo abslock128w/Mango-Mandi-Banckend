@@ -115,7 +115,7 @@ test('a customer asks about an order, the Help desk replies, and the thread show
   await expect(page.getByText(/^MandiMangoes ·/)).toBeVisible()
   await page.getByLabel('Write a reply').fill('Perfect, thank you!')
   await page.getByRole('button', { name: 'Send reply' }).click()
-  await expect(page.getByText('Perfect, thank you!')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Messages' }).getByText('Perfect, thank you!')).toBeVisible()
   await expect(page.locator('.pill')).toHaveText('Open')
 
   await page.getByRole('link', { name: '← Your questions' }).click()

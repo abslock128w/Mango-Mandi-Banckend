@@ -49,6 +49,8 @@ test('a business sends boxes to many from one CSV, pays once, cancels one recipi
 
   // Signed in, a box in the cart, at checkout: the gift part offers Send to many.
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate(
     ([item, date]) => {
       localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date }))
