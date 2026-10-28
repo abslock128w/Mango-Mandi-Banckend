@@ -27,8 +27,10 @@ export default defineConfig({
   projects: [
     { name: 'phone', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
-    // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary.
-    ...(webkit ? [{ name: 'iphone', use: { ...devices['iPhone 13'], launchOptions: {} } }] : []),
+    // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary. In WebKit, page.route never
+    // sees requests from a page the shop's service worker controls, so the worker is blocked here;
+    // app-feel.spec.ts, which tests the worker itself, allows it again.
+    ...(webkit ? [{ name: 'iphone', use: { ...devices['iPhone 13'], launchOptions: {}, serviceWorkers: 'block' as const } }] : []),
   ],
   webServer: [
     {

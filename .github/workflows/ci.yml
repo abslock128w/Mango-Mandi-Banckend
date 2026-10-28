@@ -258,6 +258,9 @@ jobs:
           CI: 'true'
           PW_WEBKIT: '1'
           VITE_API_URL: http://localhost:3000
+      # What each failing page showed (its accessibility snapshot), since this job keeps no report.
+      - if: failure()
+        run: for f in $(find test-results-shop -name error-context.md 2>/dev/null); do echo "== $f"; head -80 "$f"; done
       - if: failure()
         run: cat api.log
 

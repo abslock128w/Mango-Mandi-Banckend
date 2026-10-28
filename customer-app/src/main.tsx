@@ -10,6 +10,8 @@ import { ErrorBoundary } from './ui'
 import { startErrorReports } from '../../shared/error-reports/index.ts'
 // Signing out ends this browser's order notifications (WEB_PUSH).
 import './push'
+// Keyboard focus never hides under the sticky bars (Safari ignores scroll-padding for it).
+import './focus-clear'
 import '../../design/tokens.css'
 import './styles.css'
 
