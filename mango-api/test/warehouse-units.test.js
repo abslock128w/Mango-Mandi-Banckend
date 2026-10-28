@@ -153,7 +153,8 @@ describe('label PDFs', () => {
   test('labels carry no price, customer or internal id', () => {
     const l = boxLabel(box(1), 'L2610-ALP3-7K')
     const text = [l.big, ...l.lines].join(' ')
-    assert.doesNotMatch(text, /₹|Rs|price|order|phone|ord_|bl_|bat_/i)
+    // Rs only as a word: a random box code such as SNSQ-RSDG-P holds the letters RS.
+    assert.doesNotMatch(text, /₹|\bRs\.?\b|price|order|phone|ord_|bl_|bat_/i)
     assert.match(text, /Alphonso 3kg Box/)
     assert.match(text, /Batch L2610-ALP3-7K/)
     assert.match(text, /Best by 22 Oct 26/)
