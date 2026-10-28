@@ -54,12 +54,15 @@ test.describe('with a DSN', () => {
   test('an error before the SDK loads is held, then sent once and scrubbed', async ({ page }) => {
     const envelopes = await fakeSentry(page)
     await mockApi(page, { signedIn: true })
-    await page.addInitScript(() => {
-      window.addEventListener('DOMContentLoaded', () =>
-        setTimeout(() => {
-          throw new Error('Early failure for +91 98765 43210 (asha.rao@example.com), OTP 482913')
-        }),
-      )
+    // The failing code is in the page itself, like a bug in the app's own script. Not an init
+    // script: WebKit runs those as a script of its own, and an error thrown from one reached no
+    // report there (as with another origin's script, which has no error object to report).
+    await page.route((url) => url.origin === site!.url && url.pathname === '/orders', async (route) => {
+      const res = await route.fetch()
+      const early = `<script>window.addEventListener('DOMContentLoaded', () => setTimeout(() => {
+        throw new Error('Early failure for +91 98765 43210 (asha.rao@example.com), OTP 482913')
+      }))</script>`
+      await route.fulfill({ response: res, body: (await res.text()).replace('<head>', `<head>${early}`) })
     })
     await page.goto(`${site!.url}/orders?q=9876543210#notes`)
     const event = await exactlyOneEnvelope(envelopes)
@@ -77,6 +80,10 @@ test.describe('with a DSN', () => {
     const envelopes = await fakeSentry(page)
     await mockApi(page, { signedIn: true })
     await page.goto(`${site!.url}/orders`)
+    // The SDK loads once the page is idle (a second after load where requestIdleCallback is
+    // missing, as in Safari); what happens before that leaves no breadcrumbs, and the checks
+    // below need them.
+    await sdkStarted(page)
     await page.getByLabel('Search by order number, phone, name or address').fill('9876543210')
     await expect(page).toHaveURL(/q=9876543210/)
     await page.getByRole('link', { name: 'ORD-1042' }).first().click()
@@ -86,7 +93,6 @@ test.describe('with a DSN', () => {
       console.info('Opened the order for 12 Marine Drive')
       console.warn('Slow answer for 9876543210')
     })
-    await sdkStarted(page)
     await throwInPage(page, 'Could not reach +91 98765 43210 or asha.rao@example.com')
 
     const event = await exactlyOneEnvelope(envelopes)
