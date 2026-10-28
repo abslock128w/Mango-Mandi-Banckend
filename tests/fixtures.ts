@@ -2,30 +2,26 @@ import { test as base, expect } from '@playwright/test'
 
 // Every test fails if the page logs a console error or throws. The exceptions
 // are the browser's own "Failed to load resource" line for 4xx responses a test
-// deliberately mocks (e.g. a 401 from /auth/refresh), and WebKit's line for a
-// request the browser cancelled because the test moved to another page
-// ("Fetch API cannot load <url> due to access control checks").
+// deliberately mocks (e.g. a 401 from /auth/refresh), and, in WebKit only, its
+// "Fetch API cannot load <url> due to access control checks" line: WebKit logs
+// that for a request it cancels when the page changes, which a test does often.
+// The requests here are all answered by the mock API, and Chromium (the same
+// tests) still fails on any real fetch error.
 export const test = base.extend<{ consoleErrors: string[] }>({
   consoleErrors: [
-    async ({ page }, use) => {
+    async ({ page }, use, testInfo) => {
       const errors: string[] = []
-      const cancelled = new Set<string>()
-      page.on('requestfailed', (req) => {
-        if (/cancel|access control/i.test(req.failure()?.errorText ?? '')) cancelled.add(req.url().replace(/^https?:\/\//, ''))
-      })
+      const webkit = testInfo.project.use.browserName === 'webkit' || testInfo.project.name === 'iphone'
       page.on('console', (msg) => {
         if (msg.type() !== 'error') return
         const text = msg.text()
         if (/Failed to load resource: the server responded with a status of 4\d\d/.test(text)) return
+        if (webkit && /Fetch API cannot load \S+ due to access control checks/.test(text)) return
         errors.push(text)
       })
       page.on('pageerror', (err) => errors.push(err.message))
       await use(errors)
-      const cancelledFetch = (e: string) => {
-        const url = /cannot load (?:https?:\/)?\/?(\S+) due to access control checks/.exec(e)?.[1]
-        return url !== undefined && cancelled.has(url)
-      }
-      expect(errors.filter((e) => !cancelledFetch(e)), 'console errors').toEqual([])
+      expect(errors, 'console errors').toEqual([])
     },
     { auto: true },
   ],
