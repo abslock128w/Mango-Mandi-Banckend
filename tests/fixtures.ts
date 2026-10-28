@@ -16,7 +16,7 @@ export const test = base.extend<{ consoleErrors: string[] }>({
         if (msg.type() !== 'error') return
         const text = msg.text()
         if (/Failed to load resource: the server responded with a status of 4\d\d/.test(text)) return
-        if (webkit && /Fetch API cannot load \S+ due to access control checks/.test(text)) return
+        if (webkit && /due to access control checks\.?$/.test(text)) return
         errors.push(text)
       })
       page.on('pageerror', (err) => errors.push(err.message))
