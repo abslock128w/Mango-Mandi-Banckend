@@ -7,7 +7,7 @@ import { query, tx } from './db.js'
 import { deployEnv, env, isProd } from './env.js'
 import { newId } from './ids.js'
 import { ledger } from './inventory.js'
-import { logger } from './logger.js'
+import { logger, maskEmail } from './logger.js'
 
 // Fresh mangoes: HSN 0804 50, nil GST. Prices are GST-inclusive paise.
 const ALPHONSO = 'Alphonso (Hapus): saffron flesh, rich and sweet, with almost no fibre.'
@@ -69,7 +69,7 @@ export async function seed() {
       await query(`INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, 'MANAGER')`, [
         newId('adm'), email.toLowerCase(), await bcrypt.hash(password, 12),
       ])
-      logger.info({ email }, 'bootstrap manager created')
+      logger.info({ email: maskEmail(email) }, 'bootstrap manager created')
     }
   }
 

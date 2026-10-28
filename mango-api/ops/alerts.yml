@@ -1,13 +1,17 @@
 # Prometheus alert rules for mango-api. DOCKER PATH ONLY (deploy/README.md):
-# a long-running server where Prometheus can scrape GET /metrics on every
-# instance (protect it with METRICS_TOKEN). Route these to the on-call phone.
+# a long-running server where Prometheus scrapes GET /metrics on every
+# instance (protect it with METRICS_TOKEN) and Alertmanager routes these to
+# the on-call phone.
 #
-# On Vercel nothing evaluates this file: /metrics answers 404 there and each
-# function instance is short-lived. The Vercel path alerts through Sentry
-# instead (deploy/VERCEL.md, "Watch it"): the maintenance cron monitor, the
-# uptime monitor on /ready, and reportProblem/reportError from the job, which
-# covers the same ground (failing steps, overdue messages and refunds,
-# webhook failures, ledger drift, missed backups).
+# On Vercel nothing reads this file: /metrics answers 404 there and each
+# function instance is short-lived. There the checker is the maintenance job
+# itself, every minute, from shared state in Postgres (checkHealth, with
+# OPS_ALERTS, on by default in production), and the tools that tell people are
+# Sentry (an alert rule on its warnings, and the Cron monitor "maintenance")
+# and Better Stack Uptime on /ready (phone call and SMS).
+# src/alert-checks.js names the Vercel check for every rule below, and
+# test/alert-checks.test.js fails when a rule here has none. Add a rule here,
+# add its entry there. The full table: docs/alerts.md.
 groups:
   - name: mango-api
     rules:
@@ -57,3 +61,33 @@ groups:
         labels: { severity: page }
         annotations:
           summary: mango-api is returning server errors
+
+      - alert: ApiErrorRatio
+        # More than 2% of requests answered 5xx (a quiet hour's few errors stay under ApiErrors' rate).
+        expr: sum(rate(http_request_duration_seconds_count{status=~"5.."}[10m])) / sum(rate(http_request_duration_seconds_count[10m])) > 0.02
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: More than 2% of mango-api requests are failing with a server error
+
+      - alert: ApiSlow
+        # p95 latency over 1.5 seconds for 10 minutes (slow queries are logged as "slow query").
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{route!="unmatched"}[5m]))) > 1.5
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: mango-api p95 response time is over 1.5 seconds
+
+      - alert: DatabasePoolBusy
+        # Requests answered 503 BUSY because no database connection was free in time.
+        expr: increase(mango_db_pool_busy_total[10m]) > 5
+        labels: { severity: page }
+        annotations:
+          summary: The database pool is exhausted; customers are getting "busy, retry" (check slow queries and DB_POOL_MAX)
+
+      - alert: DatabasePoolWaiting
+        expr: max(mango_db_pool_connections{state="waiting"}) > 0
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: Queries have been waiting for a database connection for 5 minutes

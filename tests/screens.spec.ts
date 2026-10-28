@@ -1,5 +1,5 @@
 import { expect, test, navLinkAnyState, openNavTo } from './fixtures'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // Backend-free walk through every screen against the mocked API.
 
@@ -199,6 +199,11 @@ test('Order detail: mark packed waits for allocation; cancelling a paid order re
   await dialog.getByLabel('Reason').fill('Truck came short')
   await confirm.click()
   await expect.poll(() => api.calls.find((c) => c.path === '/orders/o1/cancel')?.body).toEqual({ reason: 'Truck came short', refund: true })
+  // The refund moves money, so the manager confirms it is them and the same cancel is sent again.
+  await confirmItsMe(page)
+  await expect
+    .poll(() => api.calls.filter((c) => c.path === '/orders/o1/cancel').at(-1)?.body)
+    .toEqual({ reason: 'Truck came short', refund: true, confirmCode: 'manager123' })
 })
 
 test('only managers can cancel a paid order', async ({ page }) => {
@@ -355,9 +360,12 @@ test('Planning: coverage gaps, closing a day, and manager-only rules', async ({ 
   const rules = page.getByRole('dialog', { name: 'Edit selling rules' })
   await rules.getByLabel('Order cutoff (hour, IST)').fill('17')
   await rules.getByRole('button', { name: 'Save as new version' }).click()
+  // The rules apply to every order: the manager confirms it is them (STEP_UP_ROUTES).
+  await confirmItsMe(page)
   await expect(rules).toHaveCount(0)
   await expect(page.getByText('Version 4', { exact: true })).toBeVisible()
-  expect((api.calls.find((c) => c.method === 'PUT' && c.path === '/config')?.body as { rules: { cutoffHourIST: number } }).rules.cutoffHourIST).toBe(17)
+  const saved = api.calls.filter((c) => c.method === 'PUT' && c.path === '/config').at(-1)?.body as { rules: { cutoffHourIST: number }; confirmCode: string }
+  expect([saved.rules.cutoffHourIST, saved.confirmCode]).toEqual([17, 'manager123'])
 })
 
 test('Preorders: weekly capacity, bookings by state, and setting capacity', async ({ page }) => {

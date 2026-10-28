@@ -29,6 +29,42 @@ const json = (route: Route, status: number, body?: unknown) =>
     body: body === undefined ? '' : JSON.stringify(body),
   })
 
+/** The demo manager's password: the mock's answer to "Confirm it's you" (step-up). */
+export const MANAGER_PASSWORD = 'manager123'
+
+/**
+ * The API's STEP_UP_ROUTES that always ask (mango-api/src/admin/step-up.js): refunds, prices,
+ * promo codes, bulk deal tiers, the shop rules, batch costs and signing every staff member out.
+ * A manager's request without `confirmCode` answers 403 REAUTH_REQUIRED, a wrong one REAUTH_FAILED.
+ */
+function asksStepUp(state: MockState, method: string, path: string, body: unknown): boolean {
+  const b = (body ?? {}) as Record<string, unknown>
+  if (method === 'POST' && /^\/orders\/[^/]+\/cancel$/.test(path)) return b.refund === true
+  if (method === 'POST' && /^\/preorders\/[^/]+\/cancel$/.test(path)) return state.preorders.find((x) => x.id === path.split('/')[2])?.paymentStatus === 'SUCCEEDED'
+  // As on the server, a request that fails its own checks is refused first (no reference: 400, not a confirmation).
+  if (method === 'POST' && /^\/refunds\/[^/]+\/paid-another-way$/.test(path)) return String(b.reference ?? '').length >= 3
+  if (method === 'POST' && /^\/(webhook-failures\/[^/]+\/refund|staff\/sign-out-all)$/.test(path)) return true
+  if (method === 'POST' && ['/products', '/promos', '/bulk-listings'].includes(path)) return true
+  if (method === 'PUT' && path === '/config') return true
+  if (/^\/batches\/[^/]+\/purchases(\/[^/]+)?$/.test(path)) return method === 'POST' || method === 'PATCH'
+  if (method === 'PATCH' && /^\/promos\/[^/]+$/.test(path)) return true
+  if (method === 'PATCH' && /^\/bulk-listings\/[^/]+$/.test(path)) return ['tiers', 'minQty', 'qtyStep', 'maxQty'].some((k) => k in b)
+  const product = /^\/products\/([^/]+)$/.exec(path)
+  if (product && method === 'DELETE') return true
+  if (product && method === 'PATCH') {
+    const p = state.products.find((x) => x.sku === decodeURIComponent(product[1]))
+    return Boolean(p) && (['price', 'gstRate', 'hsnCode'] as const).some((k) => k in b && b[k] !== p?.[k])
+  }
+  return false
+}
+
+/** Answers the "Confirm it's you" dialog with the manager's password. */
+export async function confirmItsMe(page: Page, password = MANAGER_PASSWORD) {
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" })
+  await confirm.getByLabel('Your password').fill(password)
+  await confirm.getByRole('button', { name: 'Confirm' }).click()
+}
+
 const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
 
 function review(p: Partial<Review> & { id: string; rating: number }): Review {
@@ -149,7 +185,7 @@ export function seed() {
       ],
       payment: { status: 'SUCCEEDED', method: 'card', amount: 129900 },
     },
-    attention: { loop: { lastRunAt: '2026-10-15T04:29:00Z', stale: false, failingSteps: [] }, failedMessages: [], stuckRefunds: [], webhookFailures: [] } as Attention,
+    attention: { loop: { lastRunAt: '2026-10-15T04:29:00Z', stale: false, failingSteps: [] }, failedMessages: [], failedPushes: [], stuckRefunds: [], webhookFailures: [] } as Attention,
     analytics: {"from": "2026-09-28", "to": "2026-10-18", "weeks": [{"weekStart": "2026-09-28", "orders": 0, "boxes": 0, "revenue": 0, "replacements": 0, "delivered": 0, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 0, "wasted": 0, "condemned": 0, "atRisk": 0, "claims": 0, "claimsReplaced": 0, "wastageRate": null, "atRiskRate": null}, {"weekStart": "2026-10-05", "orders": 12, "boxes": 20, "revenue": 1800000, "replacements": 0, "delivered": 12, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 40, "wasted": 4, "condemned": 4, "atRisk": 1, "claims": 0, "claimsReplaced": 0, "wastageRate": 0.1, "atRiskRate": 0.083}, {"weekStart": "2026-10-12", "orders": 30, "boxes": 52, "revenue": 4680000, "replacements": 0, "delivered": 30, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 60, "wasted": 6, "condemned": 6, "atRisk": 3, "claims": 0, "claimsReplaced": 0, "wastageRate": 0.1, "atRiskRate": 0.1}], "bySku": [{"sku": "ALP-3", "productName": "Alphonso 3kg Box", "boxes": 72, "revenue": 6480000, "received": 100, "wasted": 10, "wastageRate": 0.1}], "totals": {"orders": 42, "boxes": 72, "revenue": 6480000, "replacements": 0, "delivered": 42, "deliveryFailed": 0, "customerCancels": 0, "refunded": 0, "received": 100, "wasted": 10, "condemned": 10, "atRisk": 4, "claims": 1, "claimsReplaced": 1, "wastageRate": 0.1, "atRiskRate": 0.095}},
     manifest: {
       date: '2026-10-16',
@@ -200,7 +236,7 @@ export function seed() {
       { code: 'DIWALI10', kind: 'PERCENT', value: 10, maxDiscount: 30000, minSubtotal: 100000, startsOn: null, endsOn: '2026-11-05', maxUses: null, perCustomer: 1, firstOrderOnly: false, active: true, description: 'Diwali offer', uses: 4, discountGiven: 52000, createdBy: 'manager@mandimangoes.test', createdAt: '2026-10-10T05:00:00Z' },
     ] as Promo[],
     claims: [
-      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.public.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, rejectionReason: null, createdAt: '2026-10-14T07:00:00Z' },
+      { id: 'c1', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'DAMAGED', description: 'Two mangoes were crushed.', affectedItems: ['ALP-3'], photoUrl: 'https://abc123.private.blob.vercel-storage.com/claims/p.jpg', photos: [{ id: 'cph1' }], status: 'SUBMITTED', resolution: null, rejectionReason: null, createdAt: '2026-10-14T07:00:00Z' },
       { id: 'c2', orderId: 'o2', orderNumber: 'ORD-1043', orderTotal: 129900, customerPhone: '9123456780', issueType: 'WRONG_ITEM', description: 'Got Kesar instead of Alphonso.', affectedItems: ['ALP-3'], photoUrl: null, status: 'UNDER_REVIEW', resolution: null, createdAt: '2026-10-14T07:30:00Z' },
     ],
     reviews: [
@@ -295,8 +331,8 @@ function growthSeed() {
         referrer: { id: 'cus1', name: 'Meera Iyer', phone: '+919876••••10' }, friend: { id: 'cus7', name: 'Kavya Rao', phone: '+919000••••01' },
         order: { id: 'o1', number: 'ORD-1044' },
         rewards: [
-          { role: 'FRIEND' as const, code: 'TYAB12CD34', amount: 10000, used: false },
-          { role: 'REFERRER' as const, code: 'TYEF56GH78', amount: 10000, used: true },
+          { role: 'FRIEND' as const, code: 'TYAB12CD34', kind: 'PERCENT' as const, value: 10, maxDiscount: null, withdrawn: false, used: false },
+          { role: 'REFERRER' as const, code: 'TYEF56GH78', kind: 'PERCENT' as const, value: 10, maxDiscount: null, withdrawn: false, used: true },
         ],
       },
       {
@@ -399,6 +435,14 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return route.fulfill({ status: 204 })
     }
     if (state.twoStep.required && !state.twoStep.enabled) return json(route, 403, { error: { code: 'TWO_STEP_SETUP_REQUIRED', message: 'Set up two-step sign-in first', requestId: 'req_s' } })
+    if (state.role === 'MANAGER' && asksStepUp(state, method, path, body)) {
+      const given = (body as { confirmCode?: unknown } | null)?.confirmCode
+      if (!given) return json(route, 403, { error: { code: 'REAUTH_REQUIRED', message: 'Enter your password to confirm.', method: 'password', requestId: 'req_r' } })
+      if (given !== MANAGER_PASSWORD) return json(route, 403, { error: { code: 'REAUTH_FAILED', message: 'That password is not right.', method: 'password', requestId: 'req_r' } })
+      // Recorded in calls with the confirmation; the handlers below see the change itself.
+      const { confirmCode: _confirmed, ...change } = body as Record<string, unknown>
+      body = change
+    }
     if (path === '/staff/sign-out-all') {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
       return json(route, 200, { signedOut: state.staff.length - 1, keptMe: (body as { keepMe?: boolean })?.keepMe !== false })
@@ -623,7 +667,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       const all = state.growth.referrals
       const counts = { PENDING: 0, REWARDED: 0, VOID: 0 }
       for (const r of all) counts[r.status]++
-      return json(route, 200, { counts, rules: { rewardRupees: 100, minOrderRupees: 499, maxPerMonth: 10 }, items: status ? all.filter((r) => r.status === status) : all })
+      return json(route, 200, { counts, rules: { rewardKind: 'PERCENT', rewardPercent: 10, rewardMaxRupees: null, rewardRupees: null, minOrderRupees: 499, maxPerMonth: 10 }, items: status ? all.filter((r) => r.status === status) : all })
     }
     if (path === '/analytics/funnel') {
       const gate = growthGate('funnelAnalytics')

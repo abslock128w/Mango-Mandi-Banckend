@@ -99,11 +99,62 @@ The buyer's name and delivery address are copied into `bill.buyer_name` and `bil
 The database trigger `bills_keep_issued` refuses any UPDATE or DELETE of an issued bill. A statement trigger, `bills_no_truncate`, refuses `TRUNCATE` of `bills` and of `bill_counters` (row triggers do not fire on TRUNCATE, and `TRUNCATE orders CASCADE` would otherwise wipe every bill). The allowed changes are:
 
 - **Marking it cancelled, once** (`cancelled_at`, `cancel_reason`). A cancelled order (a customer's own cancel before packing, or a manager cancelling an undeliverable order) keeps its bill and number. The PDF then reads *"CANCELLED on <date>: the order was cancelled by the buyer."* or *"… cancelled by the shop."*, then *"This bill stays on record with its number."* Only those two fixed wordings are ever stored or printed (`BILL_CANCELLED_BY`). The reason a manager types stays on the order's history in the panel and never reaches a bill, because the customer downloads it.
-- **Removing the consumer's name and address** (`buyer_removed_at`). This happens on account deletion (`privacy.js`) and after `PII_RETENTION_MONTHS` (`retention.js`). The number, date, lines, amounts and any business name and GSTIN stay for the books.
+- **Removing the consumer's name and address** (`buyer_removed_at`). This happens only once the bill is older than `BILL_RETENTION_MONTHS` (default 96, 8 years from the bill date; `removeOldBillBuyers` in `retention.js`). The 12-month order retention and account deletion do not touch bills (see [How long bills are kept](#how-long-bills-are-kept)). The number, date, lines, amounts and any business name and GSTIN stay for good.
 
 The snapshot holds no delivery day and the PDF prints none: the day can still move after payment (a reschedule before packing), and the bill never changes.
 
-**Catching up (`reconcileBills`, part of the maintenance step `bills`).** A release without bills code (for example a rollback running on this schema) can cancel an order, delete an account or run retention without touching the bills. Each maintenance run therefore marks cancelled every bill whose order is `CANCELLED` (by the buyer when `customer_cancelled_at` is set, otherwise by the shop, dated by the order's last cancel event), and removes the buyer's name and address from every bill whose order has `pii_removed_at` set or whose customer is deleted. It is idempotent and logs a warning with the counts when it changes anything.
+**Catching up (`reconcileBills`, part of the maintenance step `bills`).** A release without bills code (for example a rollback running on this schema) can cancel an order without touching its bill. Each maintenance run therefore marks cancelled every bill whose order is `CANCELLED` (by the buyer when `customer_cancelled_at` is set, otherwise by the shop, dated by the order's last cancel event). It is idempotent and logs a warning with the count when it changes anything. It no longer removes the buyer from the bill of an anonymised order or a deleted account: the bill keeps them for `BILL_RETENTION_MONTHS`.
+
+### How long bills are kept
+
+**The rule.** A bill keeps everything printed on it, including the buyer's name and delivery address, for `BILL_RETENTION_MONTHS` after the bill date. The default is 96 months (8 years). After that, the daily `retention` step removes the name and address (data minimisation), up to 5,000 bills a day. The PDF then says *"Customer's name and address removed (privacy)"*. The number, date, lines, amounts and any business name and GSTIN stay.
+
+**Why 8 years.**
+
+- **GST.** CGST Act section 36, with CGST Rules rule 56, requires accounts and records, including invoices and bills of supply, to be kept for 72 months from the due date of the annual return for the year. The annual return is due on 31 December after the financial year ends. So a bill dated 1 April must be kept for about 93 months.
+- **Income tax.** Income-tax Rules rule 6F requires books of account and their documents to be kept for 6 years from the end of the relevant assessment year. For a bill dated 1 April that is just under 96 months. Rule 6F is written for listed professions, so the CA should say which income-tax period applies to this business.
+- 8 years from the bill date covers both, for every bill in the year.
+- If there is an appeal, audit, investigation or reassessment for a year, the law can require records to be kept longer. Raise `BILL_RETENTION_MONTHS` before the bills of that year reach it.
+
+> **The owner must confirm this period with the client's CA before launch.** The CA should also confirm the matching rule under the Income-tax Act, 2025, which replaces the 1961 Act from April 2026.
+
+**The setting.** `BILL_RETENTION_MONTHS` (default 96, allowed 12 to 240). In production, preflight refuses a value under 72 and warns under 96. Outside production a lower value is allowed, for trying it out.
+
+**Why the 12-month cleanup can stay.** Customer details still leave orders `PII_RETENTION_MONTHS` (default 12) after delivery, and at once when the account is deleted. That is safe because nothing printed on a bill, or in a reprint or export, is read from the columns they clear:
+
+- The PDF is drawn only from the bill row: its snapshot, `buyer_name` and `buyer_address`, copied when the bill was issued. This covers the shop's download, the panel's download (managers and operators) and the gift order bill.
+- The CSV exports (orders, order lines, bulk orders, payments, refunds) never carry a name, phone or address. They read the bill number, the pincode, and the business name and GSTIN, which no cleanup clears.
+- Payment and refund ids, amounts and dates stay on the order, booking, gift order and second-payment rows, and the order's history (`order_events`). No code deletes those rows.
+
+**What every cleanup removes.** Each row says whether the cleanup removes anything printed on a bill, or a payment or refund record the books need (payment id, amount, date, refund id and date).
+
+| Cleanup | When | What goes | On a bill, or a money record? |
+| --- | --- | --- | --- |
+| `cleanup` step: login codes (`otps`) | 1 hour after they expire | The code | No |
+| `cleanup`: checkout quotes | When they expire | The quote | No. The bill is made from the order |
+| `cleanup`: idempotency keys | 7 days | The saved answer to a repeated request | No |
+| `cleanup`: `processed_webhooks` | 30 days | Webhook ids already seen | No |
+| `cleanup`: stored webhook bodies (`webhook_events`) | 30 days (WhatsApp 7) | The raw body | No. A processed payment or refund is already on the order, booking or second-payment row. One that keeps failing becomes a webhook problem first |
+| `cleanup`: WhatsApp messages received (`wa_inbound`) | 7 days | The message | No |
+| `cleanup`: webhook problems (`webhook_failures`) | WhatsApp: 30 days. Razorpay: never while open; once resolved, `BILL_RETENTION_MONTHS` | The problem and how it was resolved | Razorpay ones, yes: a payment or refund that matched nothing. **Changed:** kept as long as bills (was 30 days after resolving) |
+| `cleanup`: sign-in sessions, rate limits, job leases | 1 hour to 1 day after they end | The row | No |
+| `cleanup`: photos uploaded but never sent with a claim or review | 1 day | The photo | No |
+| `cleanup`: WhatsApp messages sent (`notifications`) | 180 days | The message row | No |
+| `cleanup`: browser notifications (`push_messages`) | 30 days | The message row | No |
+| `retention` step: old orders (`anonymiseOldOrders`) | `PII_RETENTION_MONTHS` after delivery | The order's name, phone, address, gift recipient and message | No. The bill has its own copy. **Changed:** the bill is no longer touched |
+| `retention`: delivery attempts and staff audit | Same | Who took the box, the rider's note and location | No |
+| `retention`: photos (`removeOldPhotos`) | Same (problem reports once settled) | Delivery photos, problem-report photos and links | No |
+| `retention`: old bills (`removeOldBillBuyers`, new) | `BILL_RETENTION_MONTHS` after the bill date | The bill's buyer name and address | Yes, after the legal period only |
+| `funnel-retention` step | 90 days | Shop visit counts per browser | No |
+| `bills` step (`reconcileBills`) | Every run | Nothing: marks bills of cancelled orders cancelled | No. **Changed:** no longer removes the buyer |
+| Account deletion (`eraseCustomer`, also `ops/erase-customer.js` and `ops/reapply-deletions.js`): orders | At once | The orders' name, phone, address, gift recipient and message | No. **Changed:** the bills are no longer touched |
+| Account deletion: the account, addresses, bookings, subscriptions | At once | Name, phone, email, Google link, saved addresses, booking and subscription name and address | No. A booking has no bill (its order does); payment and refund fields stay |
+| Account deletion: claims, reviews, ratings, help requests | At once | What the customer wrote, and their photos | No |
+| Account deletion: carts, quotes, favourites, alerts, browser notifications, chat sessions, sign-in sessions, codes, rate limits | At once | The rows | No |
+
+No code deletes orders, order lines, order history, bills, bill counters, gift orders, bookings, second payments (`duplicate_payments`) or payment disputes. Triggers refuse deleting or truncating bills and their counters (migration 035).
+
+**Rolling back.** The release before this change still removes the buyer from bills on account deletion and after 12 months. If production is rolled back to it, bills changed while it runs cannot be put back.
 
 ### Business details at checkout
 
@@ -178,7 +229,7 @@ An invalid GSTIN is answered `400 VALIDATION_ERROR` with a message saying what i
 - **Streaming.** The file is written while it is read, 1,000 rows per keyset page on `(sort_at, sort_id)`. A big export never sits in memory, and rows cannot be skipped or repeated between pages.
 - **Formula injection.** Every cell goes through the warehouse `csvCell`. A value starting with `=`, `+`, `-`, `@`, tab or CR is prefixed with `'`, and every cell is quoted.
 - **No phone numbers or addresses.** Customers appear by `customer_id`; their profile has the rest, behind the audit.
-- **Audit.** `EXPORT <kind>` is written before the first byte. When the stream ends it is updated with the row count and whether it finished.
+- **Audit.** `EXPORT <kind>` is written before the first byte. When the stream ends, a second row `export.finished` records the row count and whether it finished, with the first row's id in `exportAudit`. The audit table is append-only, so the first row is never edited.
 - **Panel.** Each page has a "Download as CSV" card:
   - Orders: orders, order lines;
   - Claims;

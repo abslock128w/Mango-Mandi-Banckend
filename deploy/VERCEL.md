@@ -17,16 +17,20 @@ The API runs in Singapore (`sin1`), next to the database.
 
 ## What you need first
 
-- [ ] **An every-minute scheduler** for the maintenance job: Vercel Pro, or on
-  Hobby a free external pinger such as cron-job.org. See [SCHEDULER.md](SCHEDULER.md).
-  Without it, payment checks, refund retries and WhatsApp messages stall.
+- [ ] **Vercel Pro** for production, with its every-minute cron for the maintenance
+  job ([SCHEDULER.md](SCHEDULER.md)). Vercel's Hobby plan is for non-commercial use,
+  and a free pinger promises nothing, so Hobby with a pinger is for staging and demos
+  only. Without the every-minute job, payment checks, refund retries and WhatsApp
+  messages stall. Dated plan for this and every other item: [GO-LIVE.md](GO-LIVE.md).
 - [ ] **Neon** account (the Launch plan is enough to start).
 - [ ] **A domain**, e.g. `mandimangoes.in`, with access to its DNS.
 - [ ] **Razorpay live account** with KYC done. Jio DLT and Meta WhatsApp approval
   are the same as in [README.md](README.md#what-you-need-first); start them now,
   they take weeks.
 - [ ] **A Google OAuth client** for "Sign in with Google" (step 4).
-- [ ] **Sentry** project (free tier is fine) for error alerts.
+- [ ] **Sentry** (free tier is fine) for error alerts: one project for the API (`mandimangoes-api`),
+  and `mandimangoes-shop` and `mandimangoes-panel` for errors in browsers (see
+  [Error reports from the shop and the panel](#error-reports-from-the-shop-and-the-panel)).
 
 ## 1. Neon
 
@@ -98,6 +102,10 @@ For each row in the table above: **Add New → Project**, import this GitHub
 repository, set the **Root Directory**, and leave the build settings as detected.
 Then add the domain under **Settings → Domains** and the DNS record Vercel shows.
 
+All three run on **Node.js 24**. `mandi-api` and `mandi-admin` take it from their
+`package.json` (`engines`); `mandi-shop` has no `package.json` of its own, so set it
+under **Settings → Build and Deployment → Node.js Version → 24.x**.
+
 Put the shop and the panel on the same domain as the API (`mandimangoes.in`,
 `ops.mandimangoes.in`, `api.mandimangoes.in`). The sign-in cookie then works with
 the default `COOKIE_SAMESITE=lax`.
@@ -115,6 +123,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `DATABASE_URL` | Neon `main`, pooled, `mango_app` | Neon `staging`, pooled | |
 | `DATABASE_URL_UNPOOLED` | Neon `main`, direct, owner | Neon `staging`, direct | migrations only |
 | `JWT_SECRET` | random, 64 hex | a different random | |
+| `TOTP_ENCRYPTION_KEY` | random, `openssl rand -base64 32` | a different random | Encrypts staff two-step secrets at rest. Keep it once set; after first setting it, run `node --env-file=.env ops/seal-two-step.js` |
 | `CRON_SECRET` | random, 32+ chars | random | Vercel sends it to the maintenance job |
 | `CUSTOMER_ORIGIN` | `https://mandimangoes.in,https://www.mandimangoes.in` | the shop preview URL | comma-separated |
 | `ADMIN_ORIGIN` | `https://ops.mandimangoes.in` | the panel preview URL | |
@@ -139,16 +148,22 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `API_RATE_LIMIT` | `3000` | | requests per 15 minutes from one address before 429. Mobile carriers put many customers behind one address, so keep it high; it only stops floods |
 | `OTP_IP_LIMIT` | leave unset (`200`) | | login-code requests per 15 minutes from one address. High on purpose, for the same carrier-NAT reason: Turnstile, the per-number caps (5 an hour, 16 a day) and `OTP_DAILY_LIMIT` are what stop SMS pumping. Lower it only if Sentry shows one address pumping codes |
 | `METRICS_TOKEN` | not needed | | `/metrics` answers 404 on Vercel; it and `ops/alerts.yml` are for the Docker path only |
+| `BILL_RETENTION_MONTHS` | leave unset (`96`) | leave unset | months a bill keeps the buyer's name and address after its date (tax law, [docs/trust.md](../docs/trust.md#how-long-bills-are-kept)); the CA confirms it. Production refuses under 72 and warns under 96 |
+| `OPS_ALERTS` | leave unset (on) | leave unset (on too: previews run as production; the Sentry alert rule only pages for `production`) | the maintenance job's alert checks ([docs/alerts.md](../docs/alerts.md)); `false` turns them off and preflight warns |
+| `SLOW_REQUEST_MS`, `ALERT_API_ERRORS`, `ALERT_SLOW_REQUESTS`, `ALERT_DB_BUSY` | leave unset (2000, 10, 20, 5) | | when an answer counts as slow, and how many errors, slow answers and BUSY answers in 10 minutes raise a warning |
 | `BACKUP_HEARTBEAT_EXPECTED` | `true` once the backup workflow records its heartbeat (see [Backups](#backups-and-restore-drill)) | | Needs attention and Sentry warn when no backup has succeeded for 26 hours |
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
 
 ### `mandi-shop` and `mandi-admin`
 
-| Variable | Production | Preview |
-|----------|-----------|---------|
-| `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL |
+| Variable | Production | Preview | Notes |
+|----------|-----------|---------|-------|
+| `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL | |
 | `VITE_SUPPORT_WHATSAPP` (`mandi-shop` only) | the shop's help WhatsApp number, country code and number, digits only (91 and the 10-digit number) | the same, or a team number | **required**: a production build of the shop fails without it, so every page has a help contact (footer, order page, /help, /terms) |
+| `VITE_SENTRY_DSN` | the DSN of `mandimangoes-shop` (on `mandi-shop`) or `mandimangoes-panel` (on `mandi-admin`) | the same | errors in browsers go to Sentry. Unset: no reports, and no Sentry code in the build |
+| `VITE_SENTRY_ENVIRONMENT` | leave unset (`production`) | leave unset (`preview`) | the environment tag; Vercel's own environment when unset. Reports are also tagged with the git commit being built (`VERCEL_GIT_COMMIT_SHA`, which Vercel provides while "Automatically expose System Environment Variables" is on, the default) |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | optional: an organization auth token (Sentry → Settings → Developer Settings → Organization Tokens; mark it **Sensitive** in Vercel), the organization slug, and `mandimangoes-shop` or `mandimangoes-panel` | the same, or leave unset | readable stack traces. With all three, the build uploads its source maps to that project and deletes them before the site is served. Unset, nothing changes. A failed upload only warns; the deploy goes on |
 
 ### Check before the first real deploy
 
@@ -178,7 +193,8 @@ start when one of the hard errors is present.
 On `mandi-api`: **Storage → Create → Blob**, choose private access, and connect it
 to the project. Vercel adds `BLOB_READ_WRITE_TOKEN` for you. Delivery and claim
 photos then go there. Production won't start without it, so photos never end up
-in the database; previews may keep them there.
+in the database; previews may keep them there. The photos have no copy anywhere
+else (see [Backups and restore drill](#backups-and-restore-drill)).
 
 ## 6. Deploy
 
@@ -232,47 +248,119 @@ Then point the webhooks at the API:
 
 | Alert | Goes to (name, phone) | Backup person |
 |-------|-----------------------|---------------|
-| Uptime monitor on `/ready` (SMS/phone) | _fill in_ | _fill in_ |
-| Sentry: new errors, cron monitor `maintenance`, refund failures | _fill in_ | _fill in_ |
+| Better Stack Uptime on `/ready` (phone call and SMS, by the on-call rota) | _fill in_ | _fill in_ |
+| Sentry: the alert rule below (e-mail and Sentry app push), Cron monitor `maintenance` | _fill in_ | _fill in_ |
 | Panel "Needs attention" (checked every morning) | _fill in_ | _fill in_ |
 
-Production refuses to start without `SENTRY_DSN`.
+**What checks the alerts on Vercel.** The maintenance job itself. Every minute it
+reads shared state from Postgres and sends a Sentry warning for each problem, at
+most hourly each: failing steps, overdue messages and refunds, webhook failures,
+API errors, slow answers and a busy database pool (counted per minute in the
+database), ledger drift, a missed backup. Two tools then tell people: **Sentry**
+and **Better Stack Uptime**. `ops/alerts.yml` is for the Docker path only:
+nothing reads it, or `/metrics`, on Vercel. Every alert, what checks it and who
+is told: [docs/alerts.md](../docs/alerts.md). Leave `OPS_ALERTS` unset (on in
+production); preflight warns if it is `false`.
 
-- **Uptime monitor** (Better Stack, UptimeRobot, or Vercel's own): check
-  `https://api.mandimangoes.in/ready` every minute and alert by SMS. It fails when the
-  database is down or the maintenance job has not run for a few minutes.
-- **Sentry cron monitor.** The maintenance job checks in with Sentry on every run, and
-  the first run creates the monitor `maintenance`. In Sentry → **Crons**, open it and
-  turn on an alert for missed and failed check-ins. Together with the uptime monitor,
-  someone hears about a stopped job even if nobody opens the panel.
-- **Sentry** e-mails you on new errors from the API, and warns when login codes reach
-  80% of the day's budget. The maintenance job also sends a Sentry warning (at most
-  hourly each) for overdue messages or refunds, failing webhooks, a missed backup
-  (with `BACKUP_HEARTBEAT_EXPECTED=true`) and stock counters that disagree with the
-  ledger. Set a Sentry alert rule on these warnings, not only on errors. (The
-  Prometheus rules in `ops/alerts.yml` are for the Docker path; nothing reads them
-  on Vercel.)
-- **Vercel → Logs** for request logs; **Neon → Monitoring** for database load.
+**Sentry** (production refuses to start without `SENTRY_DSN`):
+1. **Alerts → Create Alert → Issues**, project `mandimangoes-api`, environment
+   `production`. When: a new issue is created, or an issue changes from resolved
+   to unresolved. If: the event's level is **warning or above** (so the job's
+   warnings count, not only errors). Then: send a notification to the on-call
+   people (a Sentry team with the names above). That is an e-mail, and a push on
+   their phones once each person signs in to the Sentry app and allows issue alert
+   notifications. Name it "On call: production problems".
+2. **Crons → `maintenance`** (the first run creates the monitor; it expects a
+   check-in every minute, with 3 minutes' grace). Turn on its alert for missed and
+   failed check-ins, to the same people. A run with a failed step checks in as
+   failed.
+3. After fixing a problem, mark its Sentry issue **Resolved**. If the problem
+   comes back, the job's next warning reopens it and the rule alerts again.
+   While it lasts, the job repeats the warning hourly (it shows on the issue).
+
+**Better Stack Uptime** (betterstack.com; check that the plan includes 1-minute
+checks, phone calls and SMS):
+1. **Uptime → Monitors → Create monitor**: alert when the URL becomes
+   unavailable, URL `https://api.mandimangoes.in/ready`, checked **every minute**.
+   `/ready` answers 503 when the database is down or the maintenance job has not
+   finished a run for 4 minutes, and nothing at all when the API is down.
+2. On-call: **Who's on-call** (on-call calendar) with the rota from the table
+   above. Escalation: **call and SMS** the person on call at once; if nobody
+   acknowledges within 5 minutes, call the backup person.
+3. Each person installs the Better Stack app or saves its calling number, so the
+   call is not taken for spam. Test the call and the SMS once before launch.
+
+- The same Sentry rule covers new errors from the API, and the warning when login
+  codes reach 80% of the day's budget. Make the same rule in the `mandimangoes-shop`
+  and `mandimangoes-panel` projects for errors in customers' and staff browsers, once those
+  projects are set up ([Error reports](#error-reports-from-the-shop-and-the-panel)).
+- **Vercel → Logs** for request logs; **Neon → Monitoring** for database load. Search
+  a customer's `X-Request-Id` (`req_…`) to see everything that request did; each
+  maintenance run writes one `maintenance run` line with its counts, and slow
+  queries show as `slow query` (deploy/RUNBOOKS.md, "Observability").
+
+### Error reports from the shop and the panel
+
+The shop and the panel report errors that happen in customers' and staff browsers to
+their own Sentry projects, `mandimangoes-shop` and `mandimangoes-panel`, when the build
+has `VITE_SENTRY_DSN` (step 3). The code is in `shared/error-reports/`.
+
+- **What is sent:** errors nothing caught, promise rejections nothing handled, and
+  screens that crashed (the error boundary's "This screen hit a problem" in the panel,
+  "Something went wrong" in the shop). Each is tagged `app` (`shop` or `panel`), the
+  environment and the release (the git commit). With it come the last steps before
+  the error: page changes and API calls (method, path and status), clicks (which
+  element, never its text), and console warnings and errors.
+- **What is never sent:** phone numbers, e-mail addresses, codes, tokens, Razorpay
+  keys and ids (all masked), anything after `?` or `#` in a URL (search words, tokens),
+  request bodies, cookies, the person or their IP address, and text on the page, so no
+  names or addresses. There is no Session Replay and no performance tracing.
+- **Speed:** the first download grows by less than 1 KB (a small loader that holds
+  early errors). The Sentry code (about 34 KB gzipped) loads once the page is idle,
+  and only in a build with a DSN.
+- **Each of the two Sentry projects, before launch:** Settings → Security & Privacy:
+  turn on **Prevent Storing of IP Addresses**, **Data Scrubber** and **Use Default
+  Scrubbers**. In General Settings, under Client Security, set **Allowed Domains** to
+  the app's own domains (`mandimangoes.in` and `www.mandimangoes.in` for the shop,
+  `ops.mandimangoes.in` for the panel) so other websites cannot send with the DSN. Add an
+  alert rule for new issues to the same people as the API's.
+- **Readable stack traces** are optional (`SENTRY_AUTH_TOKEN` in step 3). Without them
+  the stack shows the minified code, which still names the page's file.
+- The Content-Security-Policy already allows Sentry's ingest hosts
+  (`*.ingest.sentry.io`, `.us.` and `.de.`), so nothing else changes on Vercel.
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
 
 ## Backups and restore drill
 
-- **What you can lose (RPO).** Neon keeps every change for its history window, so
-  `main` can go back to any second inside it. The window is **1 day by default on paid
-  plans** (6 hours on Free); step 1.5 sets it to 7 days, the Launch plan's maximum
-  (longer on Scale). Check it under Neon → **Settings** before trusting a restore. The
-  nightly off-Neon copy (below) covers older mistakes and Neon itself being down, but
-  anything after the last copy is lost in that case: up to a day.
-- **How long it takes (RTO): aim for an hour**, from deciding to restore to the shop
-  taking orders again. Time the drill and write the real number down.
+- **What you can lose (RPO): under a minute** for a point inside Neon's 7-day history
+  window, **up to 24 hours** from the nightly off-site copy. Neon keeps every change
+  for its history window, so `main` can go back to any second inside it. The window is
+  **1 day by default on paid plans** (6 hours on Free); step 1.5 sets it to 7 days, the
+  Launch plan's maximum (longer on Scale). Check it under Neon → **Settings** before
+  trusting a restore. The nightly off-Neon copy (below) covers older mistakes and Neon
+  itself being down, but anything after the last copy is lost in that case.
+- **How long it takes (RTO): target 1 hour**, from deciding to restore to the shop
+  taking orders again. **Not measured yet**: the owner must run the drill and write
+  the real time in [RESTORE-DRILL.md](RESTORE-DRILL.md)'s log.
 - **Drill** before launch and monthly in season: make a branch of `main` at a time a
   few minutes ago, then run `DRILL_URL=<its connection string> ./mango-api/ops/restore-drill.sh`.
   It checks the schema, row counts and that the stock books balance. Delete the
-  branch afterwards; it holds customer data.
+  branch afterwards; it holds customer data. Steps: [RESTORE-DRILL.md](RESTORE-DRILL.md).
+- **Photos have no backup of their own** (an owner decision, not yet taken). Delivery,
+  claim, review, product and deal photos are kept only in Vercel Blob (rows hold the
+  path; neither Neon's history nor the nightly copy has the images). A deleted Blob
+  store, or a photo deleted by mistake, cannot be brought back. The owner decides
+  whether that is acceptable or a scheduled copy of the store is needed.
 - **Nightly encrypted copy off Neon.** The GitHub Actions workflow
   [`backup.yml`](../.github/workflows/backup.yml) runs `ops/backup.sh` at 03:00 IST,
-  encrypts the dump with your GPG public key and keeps it 30 days. Set it up once:
+  encrypts the dump with your GPG public key and keeps it 30 days.
+  **Where the copies live:** in the repository's GitHub Actions artifact storage
+  (GitHub → Actions → **Backup** → a run → **Artifacts**), on GitHub's servers, apart
+  from Neon and Vercel. Once the repository is in the client's GitHub organisation
+  (deploy/GO-LIVE.md, item 2) the copies belong to the client. Only the holder of the
+  GPG private key can read them. A copy is a few megabytes; check the Actions storage
+  used under the organisation's **Settings → Billing** once a month. Set it up once:
   1. Make a read-only Neon role and copy its **direct** connection string. Tables
      that later migrations add must be readable too, or the first new table stops
      every backup with "permission denied":
@@ -321,7 +409,7 @@ Production refuses to start without `SENTRY_DSN`.
 `mango-api/ops/load/shop.js` is a [k6](https://k6.io) script. Run the browse
 scenario against staging, and the checkout spike (50 buyers at once) against a
 local copy, before the season opens. The top of the file has the commands and
-the pass marks.
+the pass marks; [LOAD-TEST.md](LOAD-TEST.md) covers all five scenarios.
 
 ## Go-live checks
 
@@ -329,7 +417,12 @@ the pass marks.
 - [ ] Razorpay test webhooks sent to the staging API confirm orders: pay a test order in
       the staging shop, then in Razorpay → **Webhooks** check the delivery shows 200.
 - [ ] The k6 browse scenario passes against staging (`ops/load/shop.js`).
-- [ ] The Sentry cron monitor and the uptime monitor on `/ready` are set up and alert someone.
+- [ ] The Sentry alert rule (level warning or above), the Sentry cron monitor alert and the
+      Better Stack Uptime monitor on `/ready` are set up ("Watch it"), and each has reached a
+      named person once in a test.
+- [ ] `OPS_ALERTS` is unset or `true` on production (preflight warns when it is `false`).
+- [ ] `VITE_SENTRY_DSN` is set on `mandi-shop` and `mandi-admin`, and both browser projects
+      store no IP addresses and scrub data ([Error reports](#error-reports-from-the-shop-and-the-panel)).
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).
       Set on: _date_.
 - [ ] `mango_app` has `jit = off` and no UPDATE, DELETE or TRUNCATE on `batch_ledger`
@@ -366,8 +459,10 @@ API refunds in these cases, because the payment bought nothing:
 
 Every refund is leased and looked up at Razorpay before it is sent, so it is never
 paid twice; each new attempt carries a new receipt (`<number>-r<attempt>`).
-Refunds are sent after the webhook is answered and retried every minute by the
-maintenance job; one stuck for 30 minutes shows in Needs attention.
+Refunds are sent after the webhook is answered; one that fails is sent again by
+the maintenance job after 2, 4, 8, 16, 32 and then 60 minutes, 8 attempts at most,
+then left for a manager ("Refund failed: needs a manager"). One stuck for 30
+minutes shows in Needs attention (docs/order-states.md).
 
 ## Rolling back
 
@@ -382,11 +477,12 @@ maintenance job; one stuck for 30 minutes shows in Needs attention.
   when the data can't be repaired, and then always do all of this:
   1. Neon → **Branches → main → Restore** to a time before the problem. Neon keeps the
      state just before the restore as a backup branch; don't delete it yet.
-     Straight away, before the shop takes an order, move the order and booking numbers
-     past every number handed out before the restore, so none is used twice (customer
-     messages, Razorpay receipts):
+     Straight away, before the shop takes an order, move the order, booking, gift,
+     subscription, help request and bill numbers past every number handed out before
+     the restore, so none is used twice (customer messages, Razorpay receipts, GST bills):
      `node --env-file=.env ops/bump-sequences.js --old-url <backup branch URL>`
-     (no backup branch, as after restoring an off-Neon copy: `--margin 1000`).
+     (no backup branch, as after restoring an off-Neon copy: `--margin 1000`; this
+     leaves a gap in this year's bill numbers, so note the restore in the bill register).
   2. Bring back the payments taken since the restore point (applied as the webhook
      would; lost orders are listed in Needs attention):
      `node --env-file=.env ops/replay-payments.js --from <restore point>`.

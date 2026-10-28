@@ -106,11 +106,18 @@ export async function loadConfig() {
   return live
 }
 
-/** Saves a new version. `rules` must already be validated. */
-export async function saveConfig(rules, actor) {
+/**
+ * Saves a new version. `rules` must already be validated. `inTx(c, before)` runs in the
+ * same transaction with the rules it replaces (the staff audit row, admin/planning.js).
+ */
+export async function saveConfig(rules, actor, { inTx } = {}) {
   const version = await tx(async (c) => {
     await c.query('LOCK TABLE app_config IN EXCLUSIVE MODE')
     const { rows } = await c.query('SELECT COALESCE(MAX(version), 0) + 1 AS v FROM app_config')
+    if (inTx) {
+      const { rows: was } = await c.query('SELECT value FROM app_config ORDER BY version DESC LIMIT 1')
+      await inTx(c, was[0]?.value ?? null)
+    }
     await c.query('INSERT INTO app_config (version, value, changed_by) VALUES ($1, $2, $3)', [rows[0].v, rules, actor])
     return rows[0].v
   })

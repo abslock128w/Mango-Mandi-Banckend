@@ -3,8 +3,8 @@
 Three parts, each behind its own switch, each **off by default**:
 
 - **Refer a friend** (`REFERRALS`): every signed-in customer has a code and an
-  invite link. When a new customer's first order is delivered, both get a
-  one-time thank-you promo code.
+  invite link. When a new customer pays for their first order, both get a
+  one-time thank-you promo code (10% off the next order of boxes by default).
 - **Shop funnel** (`FUNNEL_ANALYTICS`): anonymous counts of how many browsers
   visit, look at a box, add to the cart, start checkout and pay. Managers read
   them on the panel's Analytics page.
@@ -21,7 +21,10 @@ and is safe with every switch off.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `REFERRALS` | `false` | Refer a friend: Account card, checkout entry, `/invite/CODE`, rewards, the panel's Referrals section |
-| `REFERRAL_REWARD_RUPEES` | `100` | Each thank-you code's value, in rupees |
+| `REFERRAL_REWARD_KIND` | `PERCENT` | `PERCENT` (a share of the regular boxes) or `FLAT` (a fixed amount) |
+| `REFERRAL_REWARD_PERCENT` | `10` | With `PERCENT`: the percent off, 1 to 90 |
+| `REFERRAL_REWARD_MAX_RUPEES` | empty | With `PERCENT`: an optional cap in rupees on each code's discount (empty = no cap) |
+| `REFERRAL_REWARD_RUPEES` | `100` | With `FLAT`: each thank-you code's value, in rupees |
 | `REFERRAL_MIN_ORDER_RUPEES` | `499` | The friend's first order must be at least this (regular boxes, before discount). It is also the thank-you code's minimum order |
 | `REFERRAL_MAX_PER_MONTH` | `10` | Most thank-you codes one referrer can earn in an IST calendar month |
 | `FUNNEL_ANALYTICS` | `false` | The shop sends its funnel steps; the API counts "paid"; the panel shows the funnel |
@@ -69,9 +72,16 @@ Entering a code (`POST /v1/me/referral/apply`) is refused with:
 
 Settling (the maintenance loop's `referrals` step, every minute):
 
-- The friend's **first paid order** decides the referral. Once that order is
-  **delivered**, the referral is rewarded. If it is cancelled or refunded the
-  referral ends without a reward (`VOID`), and a later order does not revive it.
+- The friend's **first paid order** decides the referral. As soon as it is
+  **paid**, the referral is rewarded (no wait for delivery). If it is
+  cancelled or refunded before that, the referral ends without a reward
+  (`VOID`), and a later order does not revive it.
+- **Cancelled after the reward**: if that first order is later cancelled,
+  refunded or has a refund requested, the referral turns `VOID`
+  (`ORDER_CANCELLED_AFTER_REWARD`) and both thank-you codes that have not been
+  used yet are withdrawn (`referral_rewards.withdrawn_at`, promo made
+  inactive). A code already used on a live order stays used. Nothing is sent
+  for a withdrawn code; a queued WhatsApp for it is skipped.
 - It also ends without a reward when the first order's regular boxes (before
   discount; bulk deals do not count) come to less than
   `REFERRAL_MIN_ORDER_RUPEES`, when the order or a gift went to the referrer's
@@ -88,7 +98,8 @@ Settling (the maintenance loop's `referrals` step, every minute):
 ### The thank-you codes
 
 Made through `promo_codes` (`src/promos.js`), so every promo rule applies:
-flat `REFERRAL_REWARD_RUPEES` off **regular boxes only** (never bulk deals),
+`REFERRAL_REWARD_PERCENT`% (or, with `FLAT`, `REFERRAL_REWARD_RUPEES`) off
+**regular boxes only** (never bulk deals),
 on orders of at least `REFERRAL_MIN_ORDER_RUPEES`, one use, valid 90 days,
 code `TY` + 8 characters. Each code belongs to one customer
 (`promo_codes.owner_customer_id`): anyone else gets "PROMO_INVALID". These
@@ -105,7 +116,7 @@ notifications are on, a push that opens the Account page.
 **Promos → Refer a friend** (managers only): the rules in words, counts
 (waiting, rewarded, without a reward), and every referral with the referrer and
 friend (name and masked phone), the code, the friend's first order, the status
-and reason, and the thank-you codes with whether each was used. Filter by
+and reason, and the thank-you codes with whether each was used or withdrawn. Filter by
 status. API: `GET /admin/v1/referrals?status=PENDING|REWARDED|VOID`.
 
 ## Shop funnel

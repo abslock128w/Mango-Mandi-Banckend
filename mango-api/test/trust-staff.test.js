@@ -3,7 +3,7 @@
 // every search, view and reveal in staff_audit before anything is shown.
 // Exports: managers only, date range capped, cells made formula-safe,
 // streamed in pages, audited with the row count.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { exportPaging, EXPORT_KINDS } from '../src/admin/exports.js'
@@ -44,7 +44,7 @@ const idOf = async (token) => (await api.get('/v1/me', { token })).body.id
 const audits = async (action) => (await query('SELECT * FROM staff_audit WHERE action = $1 ORDER BY created_at, id', [action])).rows
 
 async function markDelivered(orderId) {
-  await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
+  await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
   await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [newId('evt'), orderId, now()])
 }
 
@@ -205,7 +205,7 @@ describe('CSV exports', () => {
   test('every kind downloads for a manager, with a header, and is audited with its row count', async () => {
     const h = await history()
     // A manager cancels the second paid order: a refund (the only kinds there are).
-    assert.equal((await api.post(`/admin/v1/orders/${h.paid[1]}/cancel`, { reason: 'Cannot deliver to this pincode', refund: true }, { token: manager })).status, 204)
+    assert.equal((await api.post(`/admin/v1/orders/${h.paid[1]}/cancel`, { reason: 'Cannot deliver to this pincode', refund: true, confirmCode: 'manager123' }, { token: manager })).status, 204)
     const want = { orders: 3, 'order-lines': 3, claims: 1, reviews: 1, 'bulk-orders': 0, payments: 2, refunds: 1 }
     assert.deepEqual(Object.keys(want).sort(), [...EXPORT_KINDS].sort())
     for (const kind of EXPORT_KINDS) {
@@ -219,7 +219,10 @@ describe('CSV exports', () => {
     }
     const rows = await audits('EXPORT orders')
     assert.equal(rows.length, 1)
-    assert.deepEqual(rows[0].detail, { from: '2026-10-01', to: '2026-10-31', by: 'placed', rows: 3, complete: true })
+    assert.deepEqual(rows[0].detail, { from: '2026-10-01', to: '2026-10-31', by: 'placed' })
+    // The audit trail is append-only: the row count is a second row pointing at the first.
+    const finished = (await audits('export.finished')).filter((f) => f.target === 'orders')
+    assert.deepEqual(finished.map((f) => f.detail), [{ exportAudit: rows[0].id, rows: 3, complete: true }])
 
     const orders = (await exportCsv('orders', RANGE)).rows
     const head = orders[0]
@@ -272,7 +275,7 @@ describe('CSV exports', () => {
     assert.equal(new Set(numbers).size, 7)
     const placedAt = r.rows.slice(1).map((row) => row[1])
     assert.deepEqual(placedAt, [...placedAt].sort())
-    assert.equal((await audits('EXPORT orders'))[0].detail.rows, 7)
+    assert.equal((await audits('export.finished'))[0].detail.rows, 7)
   })
 
   test('a payment that lands days after the order was placed is in the export for the day it was paid', async () => {

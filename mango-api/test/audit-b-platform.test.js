@@ -74,6 +74,29 @@ describe('PLT-10: after a restore no order number is handed out twice', () => {
     assert.equal(again.order_seq, Number(fresh.slice(4)) + 1001)
     assert.match(await text('deploy/VERCEL.md'), /ops\/bump-sequences\.js --old-url <backup branch URL>/)
   })
+
+  test('gift, subscription and help numbers and the bill counter move past the restore point too', async () => {
+    // Before the restore: numbers handed out on each counter, and two bills this year.
+    for (const seq of ['gift_order_seq', 'subscription_seq', 'help_ticket_seq']) await query(`SELECT setval($1::regclass, 1500, true)`, [seq])
+    await query(`INSERT INTO bill_counters (fy, last_no) VALUES ('2026-27', 42) ON CONFLICT (fy) DO UPDATE SET last_no = 42`)
+    const before = await tx((c) => highWater(c))
+    assert.equal(before.gift_order_seq, 1500)
+    assert.equal(before.help_ticket_seq, 1500)
+    assert.ok(before.bills['2026-27'] >= 42)
+    // The restore puts every counter back.
+    for (const seq of ['gift_order_seq', 'subscription_seq', 'help_ticket_seq']) await query(`SELECT setval($1::regclass, 1001, false)`, [seq])
+    await query(`UPDATE bill_counters SET last_no = 3 WHERE fy = '2026-27'`)
+    const next = await tx((c) => bumpSequences(c, before))
+    assert.equal(next.gift_order_seq, 1501)
+    assert.equal(next.subscription_seq, 1501)
+    assert.equal(next.help_ticket_seq, 1501)
+    assert.equal(next.bills['2026-27'], before.bills['2026-27'] + 1)
+    assert.equal((await query(`SELECT 'HLP-' || nextval('help_ticket_seq') AS n`)).rows[0].n, 'HLP-1501')
+    assert.equal((await query(`SELECT last_no FROM bill_counters WHERE fy = '2026-27'`)).rows[0].last_no, before.bills['2026-27'])
+    // Never backwards: an older "seen" cannot lower a counter.
+    const again = await tx((c) => bumpSequences(c, { bills: { '2026-27': 1 } }))
+    assert.equal(again.bills['2026-27'], before.bills['2026-27'] + 1)
+  })
 })
 
 describe('PLT-12: docs agree with the code', () => {
@@ -87,10 +110,16 @@ describe('PLT-12: docs agree with the code', () => {
 
 describe('PLT-16: CI hardening', () => {
   test('CI reads only; a fork never deploys; the Node major is pinned', async () => {
-    assert.match(await text('.github/workflows/ci.yml'), /\npermissions:\n {2}contents: read\n/)
+    const ci = await text('.github/workflows/ci.yml')
+    assert.match(ci, /\npermissions:\n {2}contents: read\n/)
     assert.match(await text('.github/workflows/deploy.yml'), /github\.event\.workflow_run\.head_repository\.full_name == github\.repository/)
-    const pkg = JSON.parse(await text('mango-api/package.json'))
-    assert.match(pkg.engines.node, /<23$/)
+    // Node 24 (LTS until April 2028): production, CI and the Docker images all run the same major.
+    for (const file of ['mango-api/package.json', 'package.json']) {
+      assert.equal(JSON.parse(await text(file)).engines.node, '>=24.11 <25', file)
+    }
+    assert.deepEqual([...new Set([...ci.matchAll(/node-version: (\S+)/g)].map((m) => m[1]))], ['24'])
+    assert.match(await text('mango-api/Dockerfile'), /^FROM node:24-alpine$/m)
+    assert.match(await text('deploy/web.Dockerfile'), /^FROM node:24-alpine /m)
   })
 })
 

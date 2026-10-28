@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures'
-import { mockApi, type MockState } from './mock-api'
+import { confirmItsMe, mockApi, type MockState } from './mock-api'
 
 // Recovery paths for what Needs attention raises: each item a manager can act
 // on has a button, a reason, and leaves the list once done. Operators see the
@@ -72,7 +72,11 @@ test('webhook problems: Mark resolved with a note, and Refund this payment only 
   const refund = page.getByRole('dialog', { name: 'Refund payment pay_STRAY?' })
   await refund.getByLabel('Why it bought nothing').fill('checked Razorpay: no order')
   await refund.getByRole('button', { name: 'Refund in full' }).click()
-  await expect.poll(() => state.calls.find((c) => c.path === '/webhook-failures/whf1/refund')?.body).toEqual({ reason: 'checked Razorpay: no order' })
+  // Money moves: the manager confirms it is them first (STEP_UP_ROUTES).
+  await confirmItsMe(page)
+  await expect
+    .poll(() => state.calls.filter((c) => c.path === '/webhook-failures/whf1/refund').map((c) => c.body))
+    .toEqual([{ reason: 'checked Razorpay: no order' }, { reason: 'checked Razorpay: no order', confirmCode: 'manager123' }])
 
   await expect(hooks.getByRole('button', { name: /Mark resolved/ })).toHaveCount(1) // the refunded one left the list
   await hooks.getByRole('button', { name: /Mark resolved/ }).click()
@@ -108,18 +112,40 @@ test('a refund that can never go through: Paid back another way needs a referenc
   await expect(dialog).toContainText('Give the reference of the payment you made')
   await dialog.getByLabel('Reference of your payment').fill('NEFT UTR 123456')
   await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await confirmItsMe(page)
   await expect
     .poll(() => state.calls.filter((c) => c.path === '/refunds/o2/paid-another-way').at(-1)?.body)
-    .toEqual({ type: 'order', reference: 'NEFT UTR 123456', reason: 'card account closed' })
+    .toEqual({ type: 'order', reference: 'NEFT UTR 123456', reason: 'card account closed', confirmCode: 'manager123' })
 
   await refunds.getByRole('button', { name: 'Paid back another way for ORD-1042 (second payment)' }).click()
   dialog = page.getByRole('dialog', { name: /Paid back another way: ORD-1042/ })
   await dialog.getByLabel('Reference of your payment').fill('UPI 998877')
   await dialog.getByLabel("Why Razorpay can't refund it").fill('paid back by UPI')
   await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await confirmItsMe(page)
   await expect
-    .poll(() => state.calls.find((c) => c.path === '/refunds/pay_SECOND/paid-another-way')?.body)
-    .toEqual({ type: 'payment', reference: 'UPI 998877', reason: 'paid back by UPI' })
+    .poll(() => state.calls.filter((c) => c.path === '/refunds/pay_SECOND/paid-another-way').at(-1)?.body)
+    .toEqual({ type: 'payment', reference: 'UPI 998877', reason: 'paid back by UPI', confirmCode: 'manager123' })
+})
+
+test('a refund given up after its retries says it needs a manager, and can still be paid back another way', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = {
+    ...state.attention,
+    stuckRefunds: [{ type: 'order', id: 'o5', number: 'ORD-1050', requestedAt: '2026-10-15T00:00:00Z', paymentId: null, state: 'needs_manager', attempts: 8 }],
+  }
+  await page.goto('/')
+  const refunds = card(page).locator('.attention-group', { hasText: 'Refunds not sent' })
+  await expect(refunds).toContainText('Refund failed: needs a manager')
+  await expect(refunds).toContainText('Razorpay refused it 8 times, so it is not sent again on its own')
+  await refunds.getByRole('button', { name: 'Paid back another way for ORD-1050' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Paid back another way: ORD-1050' })
+  await dialog.getByLabel('Reference of your payment').fill('NEFT UTR 555')
+  await dialog.getByLabel("Why Razorpay can't refund it").fill('bank refused the refund')
+  await dialog.getByRole('button', { name: 'Record as paid back' }).click()
+  await expect
+    .poll(() => state.calls.find((c) => c.path === '/refunds/o5/paid-another-way')?.body)
+    .toEqual({ type: 'order', reference: 'NEFT UTR 555', reason: 'bank refused the refund' })
 })
 
 test('operators see the items but none of the manager buttons', async ({ page }) => {
@@ -140,6 +166,21 @@ test('Staff: a manager signs out all staff with a reason, keeping their own sess
   await expect(dialog.getByLabel('Keep me signed in on this device')).toBeChecked()
   await dialog.getByLabel('Why').fill('a laptop was stolen')
   await dialog.getByRole('button', { name: 'Sign everyone out' }).click()
-  await expect.poll(() => state.calls.find((c) => c.path === '/staff/sign-out-all')?.body).toEqual({ reason: 'a laptop was stolen', keepMe: true })
+  await confirmItsMe(page)
+  await expect
+    .poll(() => state.calls.filter((c) => c.path === '/staff/sign-out-all').at(-1)?.body)
+    .toEqual({ reason: 'a laptop was stolen', keepMe: true, confirmCode: 'manager123' })
   await expect(page.getByText('3 people signed out')).toBeVisible()
+})
+
+test('box check: a warehouse whose labelled boxes disagree with the counts is listed with a link to its reports', async ({ page }) => {
+  const state = await mockApi(page, { signedIn: true })
+  state.attention = {
+    ...state.attention,
+    boxMismatches: [{ warehouseId: 'wh_main', name: 'Main warehouse', stockMismatches: 2, orderUnitMismatches: 0, impossibleStates: 1, lotCountMismatches: 0 }],
+  }
+  await page.goto('/')
+  const item = card(page).getByRole('listitem').filter({ hasText: 'Labelled boxes disagree with the stock counts' })
+  await expect(item).toContainText('in Main warehouse (2 stock lines, 1 box in a wrong state)')
+  await expect(item.getByRole('link', { name: 'Warehouse reports' })).toHaveAttribute('href', '/warehouse/reports')
 })

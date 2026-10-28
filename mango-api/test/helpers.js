@@ -4,7 +4,7 @@ import { createApp } from '../src/app.js'
 import { drainBackground } from '../src/background.js'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
 import { loadConfig } from '../src/config.js'
-import { pool, query } from '../src/db.js'
+import { pool, query, tx } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 import { runMigrations } from '../src/migrate.js'
@@ -33,6 +33,18 @@ export async function startServer() {
 }
 
 export const closeAll = () => pool.end()
+
+/**
+ * Test setup only: one statement run with the database's order status guard
+ * (migration 045) lifted for its own transaction, for a test that puts an
+ * order straight into a state (delivered, cancelled, failed) instead of
+ * walking it there. The app never does this; see docs/order-states.md.
+ */
+export const forceOrderState = (text, params) =>
+  tx(async (c) => {
+    await c.query(`SET LOCAL mango.order_status_override = 'on'`)
+    return c.query(text, params)
+  })
 
 export function client(base) {
   const call = async (method, path, { body, token, headers = {}, raw } = {}) => {

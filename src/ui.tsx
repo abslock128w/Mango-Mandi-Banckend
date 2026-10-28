@@ -28,6 +28,7 @@ import {
 } from './format'
 import { MANAGER_ONLY_HINT } from './permissions'
 import type { BatchStatus, ClaimStatus, OrderStatus } from './types'
+import { reportError } from '../shared/error-reports/index.ts'
 
 // ---------- Badges ----------
 
@@ -689,6 +690,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   componentDidCatch(error: Error, info: ReactErrorInfo) {
     // Surface for developers; no customer data is in component stacks.
     console.warn('Screen crashed', error, info.componentStack)
+    // And to Sentry when it is set up (shared/error-reports); the innermost boundary reports.
+    reportError(error, info.componentStack)
   }
 
   render() {

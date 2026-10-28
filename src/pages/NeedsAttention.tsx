@@ -4,11 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api'
 import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
 import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
+  'webhook-replay': 'Replaying stored webhooks',
   refunds: 'Sending refunds',
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
@@ -38,6 +40,9 @@ const STEP_LABEL: Record<string, string> = {
   rebalance: 'Re-checking an order',
   health: 'Health check',
 }
+
+/** "under a second", "8.2 s", "12 s": how long a step's last try took. */
+const seconds = (ms: number) => (ms < 1000 ? 'under a second' : `${ms < 10_000 ? (ms / 1000).toFixed(1) : Math.round(ms / 1000)} s`)
 
 /** Why a message was dropped unsent, in staff words (INT-06). */
 function skippedWhy(error: string): string {
@@ -77,14 +82,17 @@ export default function NeedsAttention() {
     setAct(null)
     queryClient.invalidateQueries({ queryKey: ['attention'] })
   }
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const recover = useMutation({
     mutationFn: async ({ a, reason, reference }: { a: Exclude<Act, { kind: 'repair' }>; reason: string; reference?: string }) => {
       if (a.kind === 'resolve') return api.resolveWebhookFailure(a.hook.id, reason)
-      if (a.kind === 'refund-payment') return api.refundUnmatchedPayment(a.hook.id, reason)
+      if (a.kind === 'refund-payment') return stepUp.run((code) => api.refundUnmatchedPayment(a.hook.id, reason, code))
       if (a.kind === 'keep') return api.keepPreorder(a.preorder.id, reason)
       if (a.kind === 'recount') return api.recountPreorderCapacity(a.week.weekStart, a.week.sku, { reserved: a.week.reserved, booked: a.week.booked }, reason)
       const r = a.refund
-      return r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason)
+      return stepUp.run((code) =>
+        r.paymentId ? api.refundPaidAnotherWay('payment', r.paymentId, reference ?? '', reason, code) : api.refundPaidAnotherWay(r.type, r.id, reference ?? '', reason, code),
+      )
     },
     onSuccess: (_r, { a }) =>
       done(
@@ -139,6 +147,7 @@ export default function NeedsAttention() {
   const photos = (a.photoDeliveries ?? []).filter((d) => d.method !== 'staff')
   const noProof = (a.photoDeliveries ?? []).filter((d) => d.method === 'staff')
   const drift = a.ledgerDrift ?? []
+  const boxMismatches = a.boxMismatches ?? []
   const overdue = a.overdueOrders ?? []
   const retries = a.retryDecisions ?? []
   const preorders = a.preorderDecisions ?? []
@@ -193,6 +202,9 @@ export default function NeedsAttention() {
         ...a.loop.failingSteps.map((s) => (
           <li key={s.step}>
             <strong>{STEP_LABEL[s.step] ?? s.step} is failing</strong> since {dateTime(s.since)}
+            {s.failCount
+              ? ` (failed ${s.failCount === 1 ? 'once' : `${s.failCount} times in a row`}${s.lastDurationMs != null ? `, the last try took ${seconds(s.lastDurationMs)}` : ''})`
+              : null}
             {s.error ? <span className="muted">: {s.error}</span> : null}
           </li>
         )),
@@ -263,10 +275,16 @@ export default function NeedsAttention() {
             bank has already given the customer the money back. Record it as paid back another way, with the dispute id as the
             reference, so it is not refunded twice.
           </>
+        ) : r.state === 'needs_manager' ? (
+          <>
+            <strong>Refund failed: needs a manager</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number},
+            asked for at {dateTime(r.requestedAt)}. Razorpay refused it {r.attempts ?? 'several'} times, so it is not sent again on its own.
+            Check the payment in the Razorpay dashboard, pay the customer back another way, and record it here.
+          </>
         ) : (
           <>
             <strong>Refund not sent</strong> for {r.type === 'order' ? <Link to={`/orders/${r.id}`}>{r.number}</Link> : r.number}, asked
-            for at {dateTime(r.requestedAt)}. It retries every minute; check Razorpay if this stays.
+            for at {dateTime(r.requestedAt)}. It is tried again, waiting longer after each failure (up to an hour); check Razorpay if this stays.
           </>
         )}
         {manager && (r.state ?? 'unsent') !== 'unconfirmed' && !disputeOpen(r) ? (
@@ -324,6 +342,21 @@ export default function NeedsAttention() {
         ) : null}
       </li>
     )),
+      ...boxMismatches.map((w) => (
+        <li key={`boxes-${w.warehouseId}`}>
+          <strong>Labelled boxes disagree with the stock counts</strong> in {w.name}
+          <span className="muted">
+            {' '}
+            ({[
+              w.stockMismatches && `${w.stockMismatches} stock ${w.stockMismatches === 1 ? 'line' : 'lines'}`,
+              w.orderUnitMismatches && `${w.orderUnitMismatches} ${w.orderUnitMismatches === 1 ? 'order' : 'orders'}`,
+              w.impossibleStates && `${w.impossibleStates} ${w.impossibleStates === 1 ? 'box' : 'boxes'} in a wrong state`,
+              w.lotCountMismatches && `${w.lotCountMismatches} ${w.lotCountMismatches === 1 ? 'lot' : 'lots'}`,
+            ].filter(Boolean).join(', ')})
+          </span>
+          . Open <Link to="/warehouse/reports">Warehouse reports</Link> and fix the counts before selling more.
+        </li>
+      )),
     ] },
     { key: 'returned', title: 'Returned boxes to book', items: returned.map((r) => (
       <li key={`returned-${r.id}`}>
@@ -358,6 +391,14 @@ export default function NeedsAttention() {
         <button type="button" className="btn btn-small" disabled={retry.isPending} onClick={() => retry.mutate(m.id)}>
           Send again<span className="sr-only"> for {m.order?.number ?? m.preorderNumber ?? 'this customer'}</span>
         </button>
+      </li>
+    )) },
+    { key: 'push', title: 'Browser notifications not delivered', items: (a.failedPushes ?? []).map((m) => (
+      <li key={m.id}>
+        <strong>{m.status === 'PENDING' ? 'Browser notification overdue' : 'Browser notification not delivered'}</strong> ({(NOTIFICATION_LABEL[m.kind as NotificationKind] ?? humanize(m.kind)).toLowerCase()})
+        {m.order ? <> for <Link to={`/orders/${m.order.id}`}>{m.order.number}</Link></> : null}
+        {m.status === 'PENDING' ? '. The background run is not sending them' : ` after ${m.attempts} tries`}
+        {m.error ? <span className="muted">: {m.error}</span> : null}
       </li>
     )) },
     { key: 'reviews', title: 'Low ratings', items: low.length > 0 ? [
@@ -412,6 +453,7 @@ export default function NeedsAttention() {
         <RecoveryDialog act={act} pending={recover.isPending} error={recover.error} onClose={() => setAct(null)} onSave={(reason, reference) => recover.mutate({ a: act, reason, reference })} />
       )}
       {doubting && <DoubtDialog d={doubting} pending={check.isPending} error={check.error} onClose={() => setDoubting(null)} onSave={(note) => check.mutate({ d: doubting, ok: false, note })} />}
+      {stepUp.dialog}
     </section>
   )
 }

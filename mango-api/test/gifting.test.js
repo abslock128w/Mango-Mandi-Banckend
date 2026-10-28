@@ -19,6 +19,7 @@ import { recipientsTemplate } from '../src/gift-routes.js'
 import { shareDiscount } from '../src/gifts.js'
 import { loadProducts } from '../src/products.js'
 import { setTrustConfig } from '../src/trust-config.js'
+import { forgetSwitches, refreshSwitches } from '../src/feature-switches.js'
 
 let srv
 let api
@@ -244,7 +245,7 @@ describe('checkout', () => {
   test('a promo applies under the usual rules, shared over the recipients, used once', async () => {
     await stock()
     const manager = await adminToken(api)
-    const pr = await api.post('/admin/v1/promos', { code: 'GIFT10', kind: 'PERCENT', value: 10, perCustomer: 1 }, { token: manager })
+    const pr = await api.post('/admin/v1/promos', { code: 'GIFT10', kind: 'PERCENT', value: 10, perCustomer: 1, confirmCode: 'manager123' }, { token: manager })
     assert.ok([200, 201].includes(pr.status), JSON.stringify(pr.body))
     const { c, q, cust } = await placed(3, { extra: { promoCode: 'GIFT10' } })
     assert.equal(q.discount, Math.floor((3 * BOX * 10) / 100))
@@ -360,6 +361,30 @@ describe('payment', () => {
   })
 })
 
+describe('bills follow the panel switch', () => {
+  afterEach(() => {
+    env.PANEL_FEATURE_SWITCHES = false
+    forgetSwitches()
+  })
+
+  test('Bills turned off on the panel: no bill, no business details, and the bill link is gone', async () => {
+    env.PANEL_FEATURE_SWITCHES = true
+    await query(`INSERT INTO feature_switches (key, enabled, updated_by, updated_at) VALUES ('BILLS_ENABLED', FALSE, 'test', now())`)
+    await refreshSwitches({ force: true })
+    await stock()
+    const cust = await customerToken(api)
+    const q = await quote(cust.accessToken, people(2))
+    assert.equal(q.status, 200, JSON.stringify(q.body))
+    assert.equal(q.body.bills, false)
+    const refused = await confirm(cust.accessToken, q.body.quoteId, { name: 'Buyer', business: { name: 'Tata Gifts Pvt Ltd', gstin: BUYER_GSTIN } })
+    assert.equal(refused.status, 400)
+    assert.equal(refused.body.error.code, 'BILLS_OFF')
+    const { c } = await paid(2, { cust })
+    assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 0)
+    assert.equal((await api.get(`/v1/gifts/${c.giftOrderId}/bill`, { token: cust.accessToken })).status, 404)
+  })
+})
+
 describe('cancelling', () => {
   test('before paying, the whole order is cancelled and every hold released; one recipient alone cannot be', async () => {
     await stock()
@@ -384,7 +409,7 @@ describe('cancelling', () => {
   test("one recipient's cancel refunds only that recipient's amount, before packing only", async () => {
     await stock()
     const manager = await adminToken(api)
-    await api.post('/admin/v1/promos', { code: 'TEAM5', kind: 'PERCENT', value: 5, perCustomer: 1 }, { token: manager })
+    await api.post('/admin/v1/promos', { code: 'TEAM5', kind: 'PERCENT', value: 5, perCustomer: 1, confirmCode: 'manager123' }, { token: manager })
     const { c, cust } = await placed(3, { over: { qty: 1 }, extra: { promoCode: 'TEAM5' } })
     // Razorpay with keys, so the refund amounts are what was really sent.
     const realFetch = globalThis.fetch

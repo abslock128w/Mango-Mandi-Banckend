@@ -1,4 +1,5 @@
-// After a database restore: moves the order and booking number sequences past
+// After a database restore: moves the order, booking, gift, subscription and
+// help request number sequences, and the bill number counters, past
 // every number the database had handed out before the restore, so no number
 // is used twice (PLT-10, 24 Oct 2026 audit).
 //
@@ -36,7 +37,9 @@ if (values['old-url']) {
 }
 try {
   const next = await tx((c) => bumpSequences(c, seen, { margin }))
-  for (const [seq, n] of Object.entries(next)) console.log(`${seq}: the next number is ${n}`)
+  const { bills = {}, ...seqs } = next
+  for (const [seq, n] of Object.entries(seqs)) console.log(`${seq}: the next number is ${n}`)
+  for (const [fy, n] of Object.entries(bills)) console.log(`bills ${fy}: the next bill number is ${n}`)
 } finally {
   await closePool()
 }

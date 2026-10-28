@@ -8,12 +8,19 @@ says how you notice, who acts, and the exact way back. Paths like
 logins; usually also the developer on call), **Manager** (panel role MANAGER),
 **Operator** (panel role OPERATOR; managers can do everything operators can).
 
-**Where alerts come from** (deploy/VERCEL.md "Watch it"): the uptime monitor on
-`/ready`, Sentry (errors, the `maintenance` cron monitor, and the warnings the
+**Where alerts come from** (deploy/VERCEL.md "Watch it"; every alert, what
+checks it and who is told: [docs/alerts.md](../docs/alerts.md)): **Better Stack
+Uptime** on `/ready` (phone call and SMS), **Sentry** (the API's errors, errors in
+the shop and the panel, the `maintenance` cron monitor, and the warnings the
 maintenance job sends at most hourly, `src/maintenance.js` `checkHealth` and
 `runAudit`), and the panel's **Needs attention** card on Today
 (`GET /admin/v1/attention`, `src/admin/reports.js:96`; shown by
-`src/pages/NeedsAttention.tsx`).
+`src/pages/NeedsAttention.tsx`). On Vercel the maintenance job is the alert
+checker: nothing reads `ops/alerts.yml` there.
+
+**An outside service down** (Razorpay, Meta, Jio, Google, Neon, Vercel, Blob,
+Sentry): [OUTAGES.md](OUTAGES.md) says what customers see and what the system
+does by itself, and links the runbook here.
 
 Golden rules:
 - **Money goes back only** when a customer cancels before PACKED, or a manager
@@ -24,6 +31,42 @@ Golden rules:
   down what you ran in the incident note.
 - Never paste a secret into chat, a ticket or the repo.
 
+## Observability: what you can look at
+
+**Request id.** Every API answer has an `X-Request-Id` header (`req_…`), and an
+error answer has the same id as `requestId` in its body. Ask a customer or staff
+member for it (the shop and panel show it on an error), then search the logs
+for it: every line written while handling that request carries `reqId`, and
+`orderId` once the request has locked an order. Lines written by the
+maintenance job carry `step` instead.
+
+**What is logged** (JSON, one line each; Vercel → Logs, or `docker compose logs api`):
+- one `request` line per request: method, path, status, time taken;
+- one `maintenance run` line per run with its counts (holds expired, messages
+  and pushes sent, refunds sent, at-risk orders, failed steps) and its time;
+  on Vercel this is where those counts show, since `/metrics` is off there;
+- `slow query` for any database query over `DB_SLOW_QUERY_MS` (default 500):
+  its time and the first 80 characters of its SQL, never its values;
+- warnings and errors, with error messages scrubbed as for Sentry.
+Personal details never go to the logs: phones, addresses, emails, names, UPI
+ids, GSTINs, codes, tokens and the Razorpay signature are removed at every depth
+of a logged object (`src/logger.js`); a top-level phone or email is logged
+masked only.
+
+**Metrics** (Docker path only, `GET /metrics` with `METRICS_TOKEN`): request
+times by route and status, orders confirmed, holds expired, messages sent and
+failed, webhook errors, maintenance errors and skips, database retries, pool
+BUSY timeouts (`mango_db_pool_busy_total`), slow queries, and the pool's open,
+idle and waiting connections (`mango_db_pool_connections`). Alert rules are in
+`ops/alerts.yml`: loop stopped, step failing, WhatsApp failing, webhooks
+failing, login codes on fallback, ledger drift, 5xx rate and ratio, p95 over
+1.5 s, pool busy and queries waiting for a connection. On Vercel nothing reads
+them: the maintenance job checks the same ground from the database every
+minute (API errors, slow answers and pool BUSY from the per-minute
+`ops_counters`, with `OPS_ALERTS`) and warns through Sentry; Better Stack on
+`/ready` and the Sentry cron monitor catch the job stopping
+([docs/alerts.md](../docs/alerts.md)).
+
 ---
 
 ## Every Needs attention item: who owns it and the way back
@@ -31,7 +74,7 @@ Golden rules:
 | Item (as the panel shows it) | Raised by | Owner | Way back |
 |---|---|---|---|
 | **The background loop has stopped** | no `tick` in `maintenance_runs` for 5 min (`reports.js:86`, `LOOP_STALE_MS`) | Owner | [Scheduler stopped](#scheduler-stopped). The panel names both: the scheduler on Vercel, restarting the API on the Docker server |
-| **<step> is failing** since ... | a step's `last_err_at` is newer than its `last_ok_at` (`reports.js` `failingSteps`; `maintenance.js` `step()`) | Owner | Read the error shown; Vercel → Logs, search `maintenance step failed` and the step name. Fix the cause (below by step); the item clears on the step's next success. `refunds`/`duplicate-payments`/`refund-checks`/`reconcile`: [Stuck refunds](#stuck-or-failed-refunds) and Razorpay keys. `notifications`: [Failed notifications](#failed-notifications). `audit`: [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). `preorders`, `rebalance-*`, `sweep`, `retire`, `cleanup`, `retention`, `config`: a bug or the database; Sentry has the stack |
+| **<step> is failing** since ... | a step's `last_err_at` is newer than its `last_ok_at` (`reports.js` `failingSteps`; `maintenance.js` `step()`) | Owner | Read the error shown; Vercel → Logs, search `maintenance step failed` and the step name. Fix the cause (below by step); the item clears on the step's next success. `refunds`/`duplicate-payments`/`refund-checks`/`reconcile`: [Stuck refunds](#stuck-or-failed-refunds) and Razorpay keys. `webhook-replay`: [Webhooks failing](#webhooks-failing-500). `notifications`: [Failed notifications](#failed-notifications). `audit`: [Stock discrepancy](#stock-discrepancy-ledger-audit-drift). `preorders`, `rebalance-*`, `sweep`, `retire`, `cleanup`, `retention`, `config`: a bug or the database; Sentry has the stack |
 | **No backup in the last 26 hours** | `backupStatus` (`maintenance.js`), when `BACKUP_HEARTBEAT_EXPECTED=true` or a backup was ever recorded | Owner | GitHub → Actions → **Backup** → the last run. Red at "Check the backup is set up": secrets missing. Red later: open the log. No run at all: GitHub paused the schedule (60 days without repository activity): click **Enable workflow**, then **Run workflow**. The item clears when a run's heartbeat step succeeds. (Docker server: `docker compose logs backup`; the panel names both) |
 | **Refund not sent** for N, asked for at ... | a refund requested 30 min ago and not sent (`reports.js:108-125`) | Manager watches, Owner fixes | [Stuck refunds](#stuck-or-failed-refunds). Razorpay can never send it: Manager → **Paid back another way** on the item |
 | **Refund held** for N (with `REFUND_SAFETY_CHECKS`) | a refund whose payment has a chargeback not won (`payments.js` `disputeHolds`; the item names the dispute and its status) | Owner answers the dispute; Manager settles | Open chargeback: answer it in Razorpay ([Dispute](#dispute-chargeback)); there is no settle button and the API refuses one (409 `DISPUTE_OPEN`). Won: the refund goes out on its own. Lost or closed: the bank already gave the money back; Manager → **Paid back another way** on the item, with the dispute id (filled in) as the reference |
@@ -63,7 +106,12 @@ Sentry warnings with no panel item of their own:
 | No backup in the last 26 hours | Owner | the backup item above |
 | Stock counters disagree with the ledger | Owner | [Stock discrepancy](#stock-discrepancy-ledger-audit-drift) |
 | Login codes reached 80% of the day's budget | Owner | look for one number or address pumping codes (Vercel logs); raise `OTP_DAILY_LIMIT` only if it is real demand |
-| Cron monitor `maintenance`: missed or failed check-in | Owner | [Scheduler stopped](#scheduler-stopped) |
+| Cron monitor `maintenance`: missed or failed check-in | Owner | [Scheduler stopped](#scheduler-stopped); a failed check-in means a step failed: [A maintenance step keeps failing](#a-maintenance-step-keeps-failing) |
+| Maintenance steps have failed 3 times in a row (`OPS_ALERTS`) | Owner | [A maintenance step keeps failing](#a-maintenance-step-keeps-failing) |
+| The API is answering with server errors (5xx) (`OPS_ALERTS`, over `ALERT_API_ERRORS` in 10 minutes) | Owner | [API errors or slow answers](#api-errors-or-slow-answers) |
+| API answers are slow (`OPS_ALERTS`, over `ALERT_SLOW_REQUESTS` in 10 minutes) | Owner | [API errors or slow answers](#api-errors-or-slow-answers) |
+| The database pool is exhausted (`OPS_ALERTS`, over `ALERT_DB_BUSY` BUSY answers in 10 minutes) | Owner | [Downtime or database outage](#downtime-or-database-outage), step 3 |
+| Better Stack: `/ready` down (call and SMS) | Owner | [Downtime or database outage](#downtime-or-database-outage); `maintenanceAgeSeconds` over 240: [Scheduler stopped](#scheduler-stopped) |
 
 ### Problems the code raised with no recovery path (closed 23 Oct)
 
@@ -162,17 +210,23 @@ Notice: Webhook problem with an error message (not "order we don't have"), Sentr
 error `webhook processing failed`. The webhook answered 500, so Razorpay retries
 it. Owner: read the Sentry stack; usually the database (see [Downtime](#downtime-or-database-outage)).
 After the fix, Razorpay's retries and the reconcile step catch up; check the
-affected orders in the panel.
+affected orders in the panel. Every signed webhook is also stored before it is
+processed (`webhook_events`), and the `webhook-replay` step runs one again 5
+minutes after it failed, up to 5 times. One that still fails is listed as
+"A stored Razorpay event ... still failed after 5 replays ... It needs a
+manager": fix the cause, then check the order (or booking) it names; the
+event's body is in `webhook_events` for 30 days (docs/order-states.md).
 
 ---
 
 ## Stuck or failed refunds
 
 A refund is requested (customer cancel before PACKED, a manager cancel, an
-automatic one above), then sent by the API right away and retried by the
-`refunds` step every minute. Every attempt is leased and Razorpay is asked first
-whether a refund already exists, so a retry never pays twice
-(`src/payments.js` `refundOrder`, `gatewayRefund`).
+automatic one above), then sent by the API right away. One that fails is sent
+again by the `refunds` step after 2, 4, 8, 16, 32 and then 60 minutes, at most 8
+attempts in all. Every attempt is leased and Razorpay is asked first whether a
+refund already exists, so a retry never pays twice (`src/payments.js`
+`refundOrder`, `gatewayRefund`).
 
 **"Refund not sent" (requested, not sent after 30 min)**: Owner
 1. Needs attention → Background jobs: is `Sending refunds` failing? The error says why.
@@ -188,6 +242,13 @@ processed. Razorpay dashboard → Refunds → the refund id (order page). Proces
 there: the webhook was lost; the next `refund-checks` run records it. Failed there:
 `refund.failed` resets it and it is sent again. Stuck at the bank: contact
 Razorpay support with the refund id.
+
+**"Refund failed: needs a manager"**: Razorpay refused all 8 attempts, so the
+refund is no longer sent on its own (`refund_status` `failed`, `refund_gave_up_at`
+set). A Manager: Razorpay dashboard → the payment, read why the refunds failed,
+then pay the customer back another way and record it as below. If Razorpay does
+show a refund for the payment, **Paid back another way** says so and refuses; the
+next run then records that refund (do not pay again).
 
 **A refund that can never go through** (account closed, bank refused for good): pay
 the customer back another way (bank transfer, UPI), then a Manager clicks **Paid back
@@ -226,12 +287,21 @@ Owner:
    with **Adjust stock** in the panel (with a reason), so it is in the ledger.
 5. The item clears at once (Needs attention re-checks on each load); Sentry's hourly audit stops alerting.
 
+**Labelled boxes disagree with the stock counts** (`WAREHOUSE_V2`): the hourly
+audit also compares each tracked line's on hand with its sellable boxes, and the
+boxes on orders with their packed units. Open **Warehouse reports**: the
+reconciliation lists each line, order, box and lot that is off. Find the boxes
+(scan them, or run a stocktake of that place) before selling more from that line.
+See [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
+
 ---
 
 ## Downtime or database outage
 
-Notice: the uptime monitor on `/ready` (503), customers reporting errors, Sentry
-"database unavailable" (reported at most once a minute, `src/app.js`).
+Notice: Better Stack's call or SMS for `/ready` (503), customers reporting errors,
+Sentry "database unavailable" (reported at most once a minute, `src/app.js`), or
+Sentry "The database pool is exhausted" (more than `ALERT_DB_BUSY` BUSY answers
+in 10 minutes).
 What customers see: the API answers 503 "We are having trouble right now. Please
 try again in a minute." (`UNAVAILABLE`, Retry-After 5) or "We are very busy"
 (`BUSY`, pool timeout). Nothing is half-written: each change is one transaction.
@@ -252,18 +322,48 @@ Owner:
    `reconcile` step. Check Needs attention, and the Razorpay webhook deliveries for
    the outage window.
 6. If data was lost (Neon lost the branch, which is unlikely), restore: VERCEL.md
-   "Rolling back" and the readiness notes' RESTORE-DRILL.md.
+   "Rolling back", and practise it with [RESTORE-DRILL.md](RESTORE-DRILL.md).
+
+## API errors or slow answers
+
+Notice: Sentry "The API is answering with server errors (5xx)" or "API answers
+are slow" (the maintenance job, at most hourly; docs/alerts.md), Sentry error
+events, customers or staff reporting errors.
+Owner:
+1. Sentry → Issues, newest first: the errors behind the 5xx answers, each with
+   its request id. Search that id in Vercel → Logs.
+2. The warning's details say how many of the errors were 503s for the database
+   (`busy`, `unavailable`). Most of them: [Downtime or database outage](#downtime-or-database-outage).
+3. Slow answers: Vercel → Logs, `slow query` lines (which SQL took the time),
+   and Neon → Monitoring (CPU, connections). A cold Neon compute makes a few
+   first answers slow; that alone stays under the threshold.
+4. Started with a deploy: roll back (RELEASE.md step 5).
+5. An outside service slow or down (Razorpay, Meta, Jio): [OUTAGES.md](OUTAGES.md).
+The warning stops once the last 10 minutes are back under the thresholds.
+
+## A maintenance step keeps failing
+
+Notice: Sentry "Maintenance steps have failed 3 times in a row" (its details
+name the steps), Sentry errors `maintenance step failed`, failed check-ins on
+the cron monitor, Needs attention "<step> is failing".
+Owner: read the error on the Needs attention item, then follow the "<step> is
+failing" row in the table above for that step. Vercel → Logs, search
+`maintenance step failed` and the step name. The warning stops when the step
+next succeeds (its `fail_count` goes back to 0).
 
 ## Scheduler stopped
 
-Notice: `/ready` 503 with `maintenanceAgeSeconds` over 300, Needs attention "The
-background loop has stopped", Sentry cron monitor missed check-ins.
+Notice: Better Stack's call or SMS (`/ready` 503 with `maintenanceAgeSeconds`
+over 240), Needs attention "The background loop has stopped", Sentry cron
+monitor missed check-ins.
 Effect: payment checks, refund retries, WhatsApp messages and the stock audit
 wait. Checkout still works (it releases expired holds itself, SCHEDULER.md).
 Owner:
 1. Vercel → `mandi-api` → Logs, path `/internal/maintenance`:
-   - **no requests**: the pinger stopped (cron-job.org: is the job enabled, did it
-     send a failure e-mail?) or, on Pro, `vercel.json`'s cron is not `* * * * *`;
+   - **no requests**: in production (Vercel Pro), `mango-api/vercel.json`'s cron is
+     not `* * * * *`, or Vercel → `mandi-api` → Settings → **Cron Jobs** shows it
+     turned off; on staging (Hobby), the pinger stopped (cron-job.org: is the job
+     enabled, did it send a failure e-mail?);
    - **401**: `CRON_SECRET` differs between Vercel and the pinger (after a rotation);
    - **500**: the run fails: Sentry has the error; a step failing does not stop the
      tick, so a 500 means the run itself (often the database);
@@ -277,7 +377,12 @@ Owner:
 ## Failed notifications
 
 Notice: "WhatsApp message not delivered" items, Sentry "WhatsApp messages failing"
-or "WhatsApp messages are overdue".
+or "WhatsApp messages are overdue". Browser notifications (`WEB_PUSH`) show as
+"Browser notification not delivered" or "overdue", with Sentry "Browser
+notifications are failing" or "overdue": check the VAPID keys
+(`npm run preflight`) and, when overdue, the scheduler. They retry at 1, 5 and
+15 minutes and have no Send again; the WhatsApp message for the same step is
+the one that matters.
 Messages retry at 1, 5, 15, 60 and 180 minutes and are skipped after 24 hours
 (an old update is no longer news, `src/notify.js`).
 Owner:
@@ -331,6 +436,13 @@ Do the rotation first, investigate after. Each change on Vercel needs a
 **Redeploy** of the current production deployment to take effect
 (Vercel → Deployments → Current → Redeploy; it rebuilds the same commit; the
 migration step finds nothing to do).
+
+### `TOTP_ENCRYPTION_KEY`
+Encrypts staff two-step secrets in the database. It cannot simply be swapped:
+secrets sealed with the old key stop opening. If it leaks, set a new key,
+Redeploy, then have a manager reset two-step for every staff member (Staff page)
+so each one enrols again. A leaked key alone is not enough to sign in; it also
+needs a copy of the database.
 
 ### `JWT_SECRET`
 Signs every access and refresh token (staff and customers) and, unless

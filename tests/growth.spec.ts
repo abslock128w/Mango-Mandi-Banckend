@@ -16,8 +16,8 @@ test('a manager sees referrals on the Promos page and filters them', async ({ pa
 
   const rewarded = section.getByRole('row', { name: /Kavya Rao/ })
   await expect(rewarded).toContainText('Rewarded')
-  await expect(rewarded).toContainText('Friend: TYAB12CD34 ₹100.00 · not used')
-  await expect(rewarded).toContainText('Referrer: TYEF56GH78 ₹100.00 · used')
+  await expect(rewarded).toContainText('Friend: TYAB12CD34 10% · not used')
+  await expect(rewarded).toContainText('Referrer: TYEF56GH78 10% · used')
   await expect(rewarded.getByRole('link', { name: 'ORD-1044' })).toHaveAttribute('href', '/orders/o1')
   // Masked phones only.
   await expect(rewarded).toContainText('+919000••••01')
@@ -25,7 +25,7 @@ test('a manager sees referrals on the Promos page and filters them', async ({ pa
 
   await section.getByLabel('Show').selectOption('PENDING')
   await expect(section.getByRole('row', { name: /Kavya Rao/ })).toHaveCount(0)
-  await expect(section.getByRole('row', { name: /Ravi Kumar/ })).toContainText('Waiting for delivery')
+  await expect(section.getByRole('row', { name: /Ravi Kumar/ })).toContainText('Waiting for payment')
   expect(api.calls.some((c) => c.path === '/referrals' && c.method === 'GET')).toBe(true)
 })
 

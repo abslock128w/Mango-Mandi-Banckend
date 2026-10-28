@@ -1,6 +1,6 @@
 // Quick wins: the ripeness guide after ordering, back-in-stock alerts, the
 // opt-in reorder reminder and the public trace page behind a box's QR code.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { addDays, setNow } from '../src/clock.js'
@@ -104,7 +104,7 @@ describe('reorder reminder', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
     await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
     return c.body
   }
   // 11:00 IST, seven days after delivery.

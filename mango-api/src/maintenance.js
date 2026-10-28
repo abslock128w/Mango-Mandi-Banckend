@@ -20,18 +20,20 @@ import { randomUUID } from 'node:crypto'
 import { outOfTime, withBudget, withSlice } from './budget.js'
 import { query, tx } from './db.js'
 import { auditLedger } from './inventory.js'
+import { withLogContext } from './log-context.js'
 import { logger } from './logger.js'
 import { expireIdleOperations } from './warehouse/ops.js'
+import { boxCheck } from './warehouse/reports.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
 import { sendDueNotifications } from './notify.js'
-import { prunePushMessages, sendDuePush } from './push.js'
+import { prunePushMessages, pushOn, sendDuePush } from './push.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
-import { anonymiseOldOrders, pruneNotifications } from './retention.js'
+import { anonymiseOldOrders, monthsBefore, pruneNotifications, removeOldBillBuyers } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
@@ -41,6 +43,8 @@ import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
 import { runSubscriptionJobs } from './subscriptions.js'
+import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
+import { counterProblems, stepProblems } from './alert-checks.js'
 
 /** The run's time budget, under Vercel's 60-second limit. */
 export const RUN_BUDGET_MS = 45_000
@@ -85,13 +89,17 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
     metrics.maintenanceSkips.inc({ step: name })
     return null
   }
+  const started = Date.now()
   try {
-    const out = await (sliceMs ? withSlice(sliceMs, fn) : fn())
+    // Every log line the step writes names it (log-context.js).
+    const out = await withLogContext({ step: name }, () => (sliceMs ? withSlice(sliceMs, fn) : fn()))
     // A step that stopped early (out of time) isn't marked done, so it runs again next time.
     if (out?.partial) return out
+    // How long it took, and the run of failures (fail_count) ends.
     await query(
-      `INSERT INTO maintenance_runs (step, last_ok_at) VALUES ($1, $2) ON CONFLICT (step) DO UPDATE SET last_ok_at = $2`,
-      [name, now()],
+      `INSERT INTO maintenance_runs (step, last_ok_at, last_duration_ms, fail_count) VALUES ($1, $2, $3, 0)
+       ON CONFLICT (step) DO UPDATE SET last_ok_at = $2, last_duration_ms = $3, fail_count = 0`,
+      [name, now(), Date.now() - started],
     ).catch(() => {})
     return out
   } catch (err) {
@@ -113,10 +121,11 @@ async function step(name, fn, { minMs = STEP_MIN_MS, sliceMs = null } = {}) {
       const lastErr = prev.rows[0]?.last_err_at
       if (!lastErr || now().getTime() - lastErr.getTime() > HOURLY_MS) reportError(err, { maintenanceStep: name })
     }
+    // fail_count: failures in a row since the step last succeeded.
     await query(
-      `INSERT INTO maintenance_runs (step, last_err_at, last_error) VALUES ($1, $2, $3)
-       ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3`,
-      [name, now(), String(err?.message ?? err).slice(0, 500)],
+      `INSERT INTO maintenance_runs (step, last_err_at, last_error, last_duration_ms, fail_count) VALUES ($1, $2, $3, $4, 1)
+       ON CONFLICT (step) DO UPDATE SET last_err_at = $2, last_error = $3, last_duration_ms = $4, fail_count = maintenance_runs.fail_count + 1`,
+      [name, now(), String(err?.message ?? err).slice(0, 500), Date.now() - started],
     ).catch(() => {})
     return null
   }
@@ -144,14 +153,22 @@ export async function cleanupExpired(at = now()) {
   await query('DELETE FROM quotes WHERE expires_at < $1', [at])
   await query('DELETE FROM idempotency_keys WHERE created_at < $1', [new Date(at.getTime() - 7 * day)])
   await query('DELETE FROM processed_webhooks WHERE created_at < $1', [new Date(at.getTime() - 30 * day)])
+  // Stored webhook bodies: 30 days (WhatsApp 7), bounded per run.
+  await pruneWebhookEvents(at)
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
   // Payment problems stay until a manager resolves them: often the only record of customer money (DB-04).
-  await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND (resolved_at IS NOT NULL OR source <> 'razorpay')`, [
-    new Date(at.getTime() - 30 * day),
+  // Once resolved, a Razorpay one is still the record of a payment or refund that matched nothing and of
+  // what was done about it, so it is kept for BILL_RETENTION_MONTHS like the bills (docs/trust.md).
+  // WhatsApp ones go after 30 days.
+  await query(`DELETE FROM webhook_failures WHERE created_at < $1 AND source <> 'razorpay'`, [new Date(at.getTime() - 30 * day)])
+  await query(`DELETE FROM webhook_failures WHERE source = 'razorpay' AND resolved_at IS NOT NULL AND created_at < $1`, [
+    new Date(`${monthsBefore(todayIST(at), env.BILL_RETENTION_MONTHS)}T00:00:00+05:30`),
   ])
   await query('DELETE FROM refresh_sessions WHERE expires_at < $1', [new Date(at.getTime() - day)])
   await query('DELETE FROM rate_limits WHERE reset_at < $1', [new Date(at.getTime() - HOURLY_MS)])
   await query('DELETE FROM job_leases WHERE expires_at < $1', [new Date(at.getTime() - day)])
+  // Per-minute alert counters (ops-counters.js): checkHealth reads the last 10 minutes.
+  await query('DELETE FROM ops_counters WHERE bucket < $1', [new Date(at.getTime() - 7 * day)])
   // Claim photos uploaded but never sent with a claim.
   const loose = await query('DELETE FROM claim_photos WHERE claim_id IS NULL AND created_at < $1 RETURNING blob_path', [new Date(at.getTime() - day)])
   for (const row of loose.rows) await dropPhoto(row)
@@ -241,6 +258,16 @@ export async function runAudit(at = now()) {
       await markRun('alert-preorder-capacity')
     }
   }
+  // Labelled boxes against the counters, per active warehouse (warehouse/reports.js boxCheck, docs/warehouse/STOCK.md).
+  const boxes = env.WAREHOUSE_V2 ? await tx((c) => boxCheck(c)) : []
+  if (boxes.length) {
+    logger.error({ warehouses: boxes }, 'box check: labelled boxes disagree with the stock counters')
+    const last = (await lastRuns())['alert-box-check'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Labelled boxes disagree with the stock counters: open Warehouse reports and reconcile before selling more', { warehouses: boxes })
+      await markRun('alert-box-check')
+    }
+  }
   return drift
 }
 
@@ -295,8 +322,11 @@ async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
     const checkIn = cronCheckIn('in_progress')
     failedSteps = new Set()
     try {
+      const started = Date.now()
       const out = await steps(forceAll)
       out.failed = [...failedSteps]
+      // One line per run with its counts: on Vercel there is no /metrics, so this is where they show.
+      logger.info({ run: runCounts(out), ms: Date.now() - started }, 'maintenance run')
       // A run where a step failed is an error run, so Sentry's monitor alerts on it.
       cronCheckIn(failedSteps.size ? 'error' : 'ok', checkIn)
       return out
@@ -310,12 +340,35 @@ async function runOnce({ forceAll = false, budgetMs = RUN_BUDGET_MS } = {}) {
   })
 }
 
+/** A run's results cut to counts for its summary log line: lists become their length, nested objects keep their numbers. */
+export function runCounts(out) {
+  const flat = (v, deep) => {
+    if (v == null || typeof v === 'number' || typeof v === 'boolean') return v
+    if (Array.isArray(v)) return v.length
+    if (!deep || typeof v !== 'object') return undefined
+    const o = {}
+    for (const [k, x] of Object.entries(v)) {
+      const f = flat(x, false)
+      if (f !== undefined) o[k] = f
+    }
+    return o
+  }
+  const o = {}
+  for (const [k, v] of Object.entries(out)) {
+    const f = k === 'failed' ? v : flat(v, true)
+    if (f !== undefined) o[k] = f
+  }
+  return o
+}
+
 async function steps(forceAll) {
   const out = {}
   // Each step that calls out (Razorpay, WhatsApp) gets a slice of the run, so
   // a slow outside service can't starve the rest. The cheap database steps
   // (sweep, retire, audit) run early, so they always get their turn.
   out.reconciled = await step('reconcile', () => reconcilePendingPayments(), { sliceMs: SLICE.reconcile })
+  // Webhooks stored but not processed 5 minutes on (a failure, an instance that died) run again, before the sweep.
+  out.webhooksReplayed = await step('webhook-replay', () => replayWebhookEvents(), { sliceMs: SLICE.reconcile })
   out.expired = await step('sweep', () => sweepExpiredHoldsEach())
   if (out.expired) metrics.holdsExpired.inc(out.expired)
   out.retired = await step('retire', retireBatches)
@@ -361,8 +414,13 @@ async function steps(forceAll) {
   }
   await step('cleanup', () => cleanupExpired())
   // SEC-05: customer details leave orders finished over PII_RETENTION_MONTHS ago (bounded per run).
+  // Bills keep theirs for BILL_RETENTION_MONTHS after the bill date (tax law), then lose the buyer's name and address.
   if (forceAll || t - (last.retention ?? 0) > DAILY_MS) {
-    out.anonymised = await step('retention', () => anonymiseOldOrders())
+    out.anonymised = await step('retention', async () => {
+      const orders = await anonymiseOldOrders()
+      out.billBuyersRemoved = await removeOldBillBuyers()
+      return orders
+    })
     // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
     out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
   }
@@ -388,6 +446,9 @@ async function steps(forceAll) {
  * should have done: the loop can be alive and every step "ok" while doing
  * nothing, which is exactly what a tick check can't see. Also flags payments
  * found only by polling, which means Razorpay's webhooks aren't arriving.
+ * With OPS_ALERTS it is also the Vercel checker for the ops/alerts.yml rules
+ * (alert-checks.js, docs/alerts.md): steps failing in a row, and API errors,
+ * slow answers and a busy pool from the shared ops_counters.
  */
 export async function checkHealth(out = {}, at = now()) {
   const { rows } = await query(
@@ -398,7 +459,10 @@ export async function checkHealth(out = {}, at = now()) {
                 AND NOT ($5 AND ${disputeHolds('duplicate_payments.payment_id')})) AS refunds,
             (SELECT COUNT(*)::int FROM webhook_failures WHERE source = 'razorpay' AND created_at > $3 AND resolved_at IS NULL) AS webhooks,
             (SELECT COUNT(*)::int FROM notifications WHERE status = 'FAILED' AND created_at > $4) AS failed,
-            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done`,
+            (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status = 'PENDING' AND next_attempt_at < $1) AS pushes,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status = 'FAILED' AND created_at > $4) AS push_failed,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS push_done`,
     [
       new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS),
       env.REFUND_SAFETY_CHECKS,
@@ -411,6 +475,11 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
   if ((env.OPS_ALERTS && h.failed >= 3) || (h.done >= 20 && h.failed / h.done > 0.05)) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  // Browser notifications (WEB_PUSH), watched the same way as WhatsApp messages.
+  if (pushOn() && h.pushes > 0) problems.push(['push-overdue', 'Browser notifications are overdue: the maintenance run is not sending them', { overdue: h.pushes }])
+  if ((env.OPS_ALERTS && h.push_failed >= 3) || (h.push_done >= 20 && h.push_failed / h.push_done > 0.05)) {
+    problems.push(['push-failing', 'Browser notifications failing: check the VAPID keys and WEB_PUSH_PROVIDER', { failed: h.push_failed, done: h.push_done }])
+  }
   // INV-G: a paid order past its date (or out for delivery too long) is a customer waiting with nobody told.
   const late = await overdueOrders({ query }, at)
   if (late.length) {
@@ -420,7 +489,7 @@ export async function checkHealth(out = {}, at = now()) {
   if (backup?.stale) {
     problems.push(['backup', 'No backup in the last 26 hours: check the Backup workflow in GitHub Actions, or the Docker backup service (docker compose logs backup)', { lastBackupAt: backup.lastOkAt }])
   }
-  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)))
+  if (env.OPS_ALERTS) problems.push(...(await opsProblems(at)), ...(await stepProblems(at)), ...(await counterProblems(at)))
   const last = await lastRuns()
   for (const [key, message, extra] of problems) {
     const name = `alert-${key}`

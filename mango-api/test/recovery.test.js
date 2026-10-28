@@ -191,7 +191,7 @@ describe('a live captured payment that matches no order: a manager refunds it', 
       const path = `/admin/v1/webhook-failures/${w.id}/refund`
       assert.equal((await api.post(path, { reason: 'bought nothing' }, { token: ops })).status, 403)
       assert.equal((await api.post(path, {}, { token: manager })).status, 400)
-      const r = await api.post(path, { reason: 'checked in Razorpay: bought nothing' }, { token: manager })
+      const r = await api.post(path, { reason: 'checked in Razorpay: bought nothing', confirmCode: 'manager123' }, { token: manager })
       assert.equal(r.status, 200, JSON.stringify(r.body))
       await drainBackground()
       const d = (await query(`SELECT * FROM duplicate_payments WHERE payment_id = 'pay_STRAY2'`)).rows[0]
@@ -284,7 +284,7 @@ describe('a refund that can never go through: Paid back another way', () => {
     try {
       assert.equal((await api.post(`/v1/orders/${o.orderId}/cancel`, {}, { token: o.cust.accessToken })).status, 204)
       const path = `/admin/v1/refunds/${o.orderId}/paid-another-way`
-      const body = { type: 'order', reference: 'NEFT UTR 1234567890', reason: 'card account closed; paid by bank transfer' }
+      const body = { type: 'order', reference: 'NEFT UTR 1234567890', reason: 'card account closed; paid by bank transfer', confirmCode: 'manager123' }
       const early = await api.post(path, body, { token: manager })
       assert.equal(early.body.error.code, 'REFUND_NOT_STUCK', 'Razorpay gets its 30 minutes first')
 
@@ -337,7 +337,7 @@ describe('a refund that can never go through: Paid back another way', () => {
     at(40 * MIN)
     const stuck = (await attention()).stuckRefunds.find((r) => r.paymentId === 'pay_SECOND')
     assert.match(stuck.number, /\(second payment\)/)
-    const r = await api.post('/admin/v1/refunds/pay_SECOND/paid-another-way', { type: 'payment', reference: 'UPI 998877', reason: 'paid back by UPI' }, { token: manager })
+    const r = await api.post('/admin/v1/refunds/pay_SECOND/paid-another-way', { type: 'payment', reference: 'UPI 998877', reason: 'paid back by UPI', confirmCode: 'manager123' }, { token: manager })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     const d = (await query(`SELECT * FROM duplicate_payments WHERE payment_id = 'pay_SECOND'`)).rows[0]
     assert.deepEqual([d.refund_status, d.refund_id], ['manual', 'manual:UPI 998877'])
@@ -354,7 +354,7 @@ describe('Sign out all staff', () => {
     assert.equal((await api.get('/admin/v1/auth/me', { token: ops })).status, 200)
     assert.equal((await api.post('/admin/v1/staff/sign-out-all', { reason: 'laptop stolen' }, { token: ops })).status, 403)
     assert.equal((await api.post('/admin/v1/staff/sign-out-all', {}, { token: manager })).status, 400)
-    const r = await api.post('/admin/v1/staff/sign-out-all', { reason: 'laptop stolen' }, { token: manager })
+    const r = await api.post('/admin/v1/staff/sign-out-all', { reason: 'laptop stolen', confirmCode: 'manager123' }, { token: manager })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.ok(r.body.signedOut >= 2)
     assert.equal((await api.get('/admin/v1/auth/me', { token: ops })).status, 401)
@@ -366,7 +366,7 @@ describe('Sign out all staff', () => {
     const audit = await auditRows('POST /staff/sign-out-all')
     assert.deepEqual([audit.length, audit[0].detail.reason, audit[0].detail.keepMe], [1, 'laptop stolen', true])
 
-    const all = await api.post('/admin/v1/staff/sign-out-all', { reason: 'rotate everything', keepMe: false }, { token: manager })
+    const all = await api.post('/admin/v1/staff/sign-out-all', { reason: 'rotate everything', keepMe: false, confirmCode: 'manager123' }, { token: manager })
     assert.equal(all.status, 200)
     assert.equal((await api.get('/admin/v1/auth/me', { token: manager })).status, 401)
     assert.equal((await query(`SELECT count(*)::int AS n FROM refresh_sessions WHERE user_type = 'admin' AND revoked_at IS NULL`)).rows[0].n, 0)

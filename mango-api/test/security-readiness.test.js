@@ -10,7 +10,7 @@
 //   - the audit trails name who did it and why;
 //   - a database restore followed by ops/reapply-deletions.js leaves no
 //     deleted account behind.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHmac } from 'node:crypto'
@@ -20,8 +20,8 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import sharp from 'sharp'
 import { createApp } from '../src/app.js'
 import { forgetCustomer } from '../src/auth.js'
-import { addDays, now, todayIST } from '../src/clock.js'
-import { query } from '../src/db.js'
+import { addDays, now, setNow, todayIST } from '../src/clock.js'
+import { query, tx } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { env } from '../src/env.js'
 import { DEV_CHECKOUT_SECRET } from '../src/payments.js'
@@ -250,7 +250,7 @@ describe('customer to customer', () => {
 
     // B has a delivered order of their own, to aim A's photo ids at.
     const bOrder = await paid(b)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [bOrder.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [bOrder.orderId])
     await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [newId('evt'), bOrder.orderId, now()])
     const bItem = (await query('SELECT id FROM order_items WHERE order_id = $1', [bOrder.orderId])).rows[0].id
 
@@ -467,6 +467,86 @@ describe('staff sessions', () => {
   })
 })
 
+describe('a sign-in ends after a fixed time, however often it is refreshed', () => {
+  const DAY = 86_400_000
+  const at = (ms) => setNow(new Date(Date.parse(T0) + ms).toISOString())
+  const expiresAt = async (userType) =>
+    (await query('SELECT expires_at FROM refresh_sessions WHERE user_type = $1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1', [userType])).rows[0].expires_at
+  /** Within a minute: the test's own requests move the clock on by a few seconds. */
+  const close = (d, want) => assert.ok(Math.abs(d.getTime() - want) < 60_000, `${d.toISOString()} is not ${new Date(want).toISOString()}`)
+
+  test('staff: refreshed every day, refused after 7 days (STAFF_SESSION_MAX_DAYS)', async () => {
+    const login = await api.post('/admin/v1/auth/login', { email: 'ops@mandimangoes.test', password: 'operator123' })
+    let cookie = cookieOf(login)
+    const refresh = async () => {
+      const r = await api.post('/admin/v1/auth/refresh', undefined, { headers: { Cookie: cookie } })
+      if (r.status === 200) cookie = cookieOf(r)
+      return r
+    }
+    for (let day = 1; day <= 6; day++) {
+      at(day * DAY)
+      assert.equal((await refresh()).status, 200, `day ${day}`)
+    }
+    // Each rotation keeps the sign-in's start: the last one lasts to day 7, not day 13.
+    close(await expiresAt('admin'), Date.parse(T0) + 7 * DAY)
+    at(7 * DAY + 60_000)
+    const late = await refresh()
+    assert.equal(late.status, 401)
+    assert.equal(late.body.error.code, 'INVALID_TOKEN')
+  })
+
+  test('customers: 90 days (CUSTOMER_SESSION_MAX_DAYS), and the cap can be set', async () => {
+    let { refreshToken } = await customerToken(api)
+    const refresh = async () => {
+      const r = await api.post('/v1/auth/token/refresh', { refreshToken })
+      if (r.status === 200) refreshToken = r.body.refreshToken
+      return r
+    }
+    for (const day of [29, 58, 87]) {
+      at(day * DAY)
+      assert.equal((await refresh()).status, 200, `day ${day}`)
+    }
+    close(await expiresAt('customer'), Date.parse(T0) + 90 * DAY)
+    at(90 * DAY + 60_000)
+    assert.equal((await refresh()).status, 401)
+
+    at(0)
+    const before = env.CUSTOMER_SESSION_MAX_DAYS
+    env.CUSTOMER_SESSION_MAX_DAYS = 2
+    try {
+      ;({ refreshToken } = await customerToken(api))
+      at(DAY)
+      assert.equal((await refresh()).status, 200)
+      at(2 * DAY + 60_000)
+      assert.equal((await refresh()).status, 401)
+    } finally {
+      env.CUSTOMER_SESSION_MAX_DAYS = before
+    }
+  })
+})
+
+describe('per-customer limits on checkout and cancel', () => {
+  test('a customer gets 20 quotes a minute (CUSTOMER_ACTION_LIMIT), counted per account, not per address', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const a = await customerToken(api)
+    const b = await customerToken(api)
+    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
+    const quote = (c) => api.post('/v1/checkout/quote', { pincode: '560034' }, { token: c.accessToken })
+    enforceLimitsInTests(true)
+    for (let i = 0; i < env.CUSTOMER_ACTION_LIMIT; i++) assert.equal((await quote(a)).status, 200, `quote ${i + 1}`)
+    const limited = await quote(a)
+    assert.equal(limited.status, 429)
+    assert.equal(limited.body.error.code, 'RATE_LIMITED')
+    assert.equal((await quote(b)).status, 200, 'another account on the same address is not affected')
+    // Confirm and cancel have their own count.
+    const cancel = await api.post('/v1/orders/ord_none/cancel', {}, { token: a.accessToken })
+    assert.equal(cancel.status, 404)
+    // A minute later the count starts again.
+    setNow(new Date(now().getTime() + 61_000).toISOString())
+    assert.equal((await quote(a)).status, 200)
+  })
+})
+
 // ---------------------------------------------------------------- audit trails
 
 describe('audit trails name who and why', () => {
@@ -482,7 +562,12 @@ describe('audit trails name who and why', () => {
 
     const cust = await customerToken(api)
     const refunded = await paid(cust)
-    assert.equal((await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true }, { token: manager })).status, 204)
+    // Money moves, so the manager confirms with their password (STEP_UP_ROUTES).
+    const asked = await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true }, { token: manager })
+    assert.equal(asked.status, 403)
+    assert.equal(asked.body.error.code, 'REAUTH_REQUIRED')
+    assert.equal((await query('SELECT status FROM orders WHERE id = $1', [refunded.orderId])).rows[0].status, 'CONFIRMED', 'nothing changed without the confirmation')
+    assert.equal((await api.post(`/admin/v1/orders/${refunded.orderId}/cancel`, { reason: 'van broke down', refund: true, confirmCode: 'manager123' }, { token: manager })).status, 204)
     const ev = (await query(`SELECT actor, reason FROM order_events WHERE order_id = $1 AND status = 'CANCELLED'`, [refunded.orderId])).rows[0]
     assert.equal(ev.actor, 'manager@mandimangoes.test')
     assert.match(ev.reason, /full refund: van broke down/)
@@ -507,6 +592,8 @@ describe('audit trails name who and why', () => {
     }
     const role = rows.find((r) => r.action === 'PATCH /staff/:id')
     assert.deepEqual([role.email, role.role, role.target, role.detail.role, role.detail.password], ['manager@mandimangoes.test', 'MANAGER', add.body.id, 'OPERATOR', '[removed]'])
+    // The role it replaced, written in the change's own transaction; never a password or its hash.
+    assert.deepEqual(role.detail.before, { role: 'PACKER' })
     const cancel = rows.find((r) => r.action === 'POST /orders/:id/cancel')
     assert.deepEqual([cancel.email, cancel.target, cancel.detail.reason, cancel.detail.refund], ['manager@mandimangoes.test', refunded.orderId, 'van broke down', true])
     const stock = rows.find((r) => r.action === 'PATCH /batches/:id/lines/:lineId')
@@ -533,22 +620,88 @@ describe('audit trails name who and why', () => {
     assert.equal(Number(att.lat), 12.935)
     assert.equal(att.received_by, 'Security guard')
 
-    // Rows written before this fix carry them: deleting the account takes them out.
-    await query(`UPDATE staff_audit SET detail = detail || '{"lat": 12.9, "lng": 77.6, "receivedBy": "Priya"}'::jsonb WHERE target = $1`, [o.orderId])
+    // Rows written before this fix carry them: deleting the account takes them out. The audit
+    // trail is append-only (migration 046), so such a row is written as it was then, not edited in.
+    const legacy = async (id, orderId, detail) =>
+      query(`INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at) VALUES ($1, NULL, 'rider@mandimangoes.test', 'RIDER', 'POST /orders/:id/delivery (old)', $2, $3, now())`, [id, orderId, detail])
+    const legacyDetail = async (id) => (await query('SELECT detail FROM staff_audit WHERE id = $1', [id])).rows[0].detail
+    await legacy('aud_legacy_1', o.orderId, { outcome: 'DELIVERED', lat: 12.9, lng: 77.6, receivedBy: 'Priya', note: 'Left with Priya at flat 4B' })
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
-    const after = await auditRow()
+    const after = await legacyDetail('aud_legacy_1')
     for (const k of ['lat', 'lng', 'receivedBy', 'note']) assert.ok(!(k in after), `${k} left in the audit row`)
     assert.equal(after.outcome, 'DELIVERED', 'the rest of the row stays')
+    for (const k of ['lat', 'lng', 'receivedBy', 'note']) assert.ok(!(k in (await auditRow())), `${k} left in the new audit row`)
 
     // The 12-month retention pass does the same for live accounts.
     const other = await customerToken(api)
     const old = await deliveredWithPhoto(other, { note: 'Gate 2, ask for Ravi' })
     await auditRow()
-    await query(`UPDATE staff_audit SET detail = detail || '{"lat": 1, "receivedBy": "Ravi"}'::jsonb WHERE target = $1`, [old.orderId])
+    await legacy('aud_legacy_2', old.orderId, { outcome: 'DELIVERED', lat: 1, receivedBy: 'Ravi', note: 'Gate 2, ask for Ravi' })
     await query(`UPDATE orders SET delivery_date = '2025-01-10' WHERE id = $1`, [old.orderId])
     assert.equal(await anonymiseOldOrders(), 1)
-    const kept = (await query(`SELECT detail FROM staff_audit WHERE action = 'POST /orders/:id/delivery' AND target = $1`, [old.orderId])).rows[0].detail
+    const kept = await legacyDetail('aud_legacy_2')
     for (const k of ['lat', 'receivedBy', 'note']) assert.ok(!(k in kept), `${k} left after retention`)
+    assert.equal(kept.outcome, 'DELIVERED')
+  })
+})
+
+describe('the staff audit trail is append-only (migration 046)', () => {
+  test('a row cannot be deleted, edited or truncated; the privacy scrub may only take keys out of detail', async () => {
+    await query(
+      `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at)
+       VALUES ('aud_guard_1', 'adm_x', 'manager@mandimangoes.test', 'MANAGER', 'PATCH /staff/:id', 'adm_y', '{"role": "OPERATOR", "note": "x", "before": {"role": "PACKER"}}', now())`,
+    )
+    const refused = /append-only/
+    await assert.rejects(query(`DELETE FROM staff_audit WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query('TRUNCATE staff_audit'), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET email = 'someone@else.test' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET action = 'GET /orders' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET created_at = now() - interval '1 year' WHERE id = 'aud_guard_1'`), refused)
+    await assert.rejects(query(`UPDATE staff_audit SET detail = detail || '{"role": "MANAGER"}' WHERE id = 'aud_guard_1'`), refused, 'changing a value')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = detail || '{"extra": 1}' WHERE id = 'aud_guard_1'`), refused, 'adding a key')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = '{"role": "OPERATOR", "note": "x", "before": {}}' WHERE id = 'aud_guard_1'`), refused, 'emptying a nested value')
+    await assert.rejects(query(`UPDATE staff_audit SET detail = NULL WHERE id = 'aud_guard_1'`), refused)
+    // What privacy.js does: keys out, nothing else.
+    await query(`UPDATE staff_audit SET detail = detail - 'note' WHERE id = 'aud_guard_1'`)
+    const row = (await query(`SELECT * FROM staff_audit WHERE id = 'aud_guard_1'`)).rows[0]
+    assert.deepEqual(row.detail, { role: 'OPERATOR', before: { role: 'PACKER' } })
+    assert.equal(row.email, 'manager@mandimangoes.test')
+  })
+
+  test('only the table owner can lift the guard, and only with mango.staff_audit_override', async () => {
+    await query(
+      `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, created_at)
+       VALUES ('aud_guard_2', 'adm_x', 'manager@mandimangoes.test', 'MANAGER', 'PATCH /staff/:id', 'adm_y', '{"role": "OPERATOR"}', now())`,
+    )
+    const refused = /append-only/
+    // A role that does not own the table, like the app's mango_app login: the setting does nothing.
+    const probe = 'mango_audit_probe'
+    await query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${probe}') THEN CREATE ROLE ${probe} NOLOGIN; END IF; END $$`)
+    await query(`GRANT USAGE ON SCHEMA public TO ${probe}`)
+    await query(`GRANT SELECT, UPDATE, DELETE ON staff_audit TO ${probe}`)
+    try {
+      await assert.rejects(
+        tx(async (c) => {
+          await c.query(`SET LOCAL ROLE ${probe}`)
+          await c.query(`SET LOCAL mango.staff_audit_override = 'on'`)
+          await c.query(`DELETE FROM staff_audit WHERE id = 'aud_guard_2'`)
+        }),
+        refused,
+      )
+      // The owner without the setting: still refused.
+      await assert.rejects(query(`DELETE FROM staff_audit WHERE id = 'aud_guard_2'`), refused)
+      // The owner with it, for one transaction only.
+      await tx(async (c) => {
+        await c.query(`SET LOCAL mango.staff_audit_override = 'on'`)
+        await c.query(`UPDATE staff_audit SET detail = '{"role": "PACKER"}' WHERE id = 'aud_guard_2'`)
+      })
+      assert.deepEqual((await query(`SELECT detail FROM staff_audit WHERE id = 'aud_guard_2'`)).rows[0].detail, { role: 'PACKER' })
+      await assert.rejects(query(`UPDATE staff_audit SET detail = '{"role": "QC"}' WHERE id = 'aud_guard_2'`), refused, 'the next transaction is guarded again')
+    } finally {
+      await query(`REVOKE ALL ON staff_audit FROM ${probe}`)
+      await query(`REVOKE USAGE ON SCHEMA public FROM ${probe}`)
+      await query(`DROP ROLE IF EXISTS ${probe}`)
+    }
   })
 })
 
@@ -562,7 +715,7 @@ describe('a database restore does not bring a deleted account back', () => {
     const a = await customerToken(api, '9876511101')
     const b = await customerToken(api, '9876511102')
     const order = await paid(a)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [order.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [order.orderId])
     // The pre-restore database, as Neon keeps it as a backup branch: only what the script reads.
     await query('DROP SCHEMA IF EXISTS pre_restore CASCADE')
     await query('CREATE SCHEMA pre_restore')

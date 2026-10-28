@@ -1,4 +1,4 @@
-// Payment storms (LOAD-TEST.md, scenario C).
+// Payment storms (deploy/LOAD-TEST.md, scenario C).
 //
 //   storm    Razorpay redelivering payment.captured: each order's event sent
 //            10 times at once (same event id), 3 more times without an id,

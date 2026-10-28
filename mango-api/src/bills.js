@@ -18,7 +18,10 @@
 // counter row (April to March) that the paying transaction locks, so numbers
 // are gapless, never shared and never reused. Everything printed is copied
 // into the bill at that moment, so later edits never change it. A cancelled or
-// refunded order keeps its bill, marked cancelled.
+// refunded order keeps its bill, marked cancelled. Tax law needs bills kept as
+// issued for years: the buyer's name and address stay on the bill for
+// BILL_RETENTION_MONTHS after the bill date, also when the order's own copy is
+// removed or the account is deleted (retention.js removeOldBillBuyers).
 import { now, todayIST } from './clock.js'
 import { query, tx } from './db.js'
 import { newId } from './ids.js'
@@ -375,7 +378,7 @@ export async function issueGiftBill(c, giftOrderId, at = now()) {
 
 /** issueGiftBill on the payment path, under a savepoint: a bill problem never undoes the payment (issueMissingBills retries). */
 export async function issueGiftBillWithPayment(c, giftOrderId) {
-  if (!trust.bills) return null
+  if (!isOn('BILLS_ENABLED')) return null
   await c.query('SAVEPOINT issue_gift_bill')
   try {
     const bill = await issueGiftBill(c, giftOrderId)
@@ -417,15 +420,15 @@ export async function markGiftBillIfAllCancelled(c, giftOrderId, by, at = now())
 }
 
 /**
- * Catches bills up with what happened to their orders outside this code: a
- * cancel, an account deletion or a retention run done by a release without
- * bills (for example while rolled back on this schema). Marks cancelled the
- * bills of cancelled orders, and removes the consumer's name and address from
- * bills whose order has had its details removed or whose customer deleted
- * their account. Idempotent; part of the maintenance step `bills`.
+ * Catches bills up with a cancel done outside this code, by a release without
+ * bills (for example while rolled back on this schema): marks cancelled the
+ * bills of cancelled orders. An account deletion or a retention run leaves
+ * bills as they are (they keep the buyer for BILL_RETENTION_MONTHS), so there
+ * is nothing to catch up for those. Idempotent; part of the maintenance step
+ * `bills`.
  */
 export async function reconcileBills(at = now()) {
-  if (!isOn('BILLS_ENABLED')) return { cancelled: 0, buyersRemoved: 0 }
+  if (!isOn('BILLS_ENABLED')) return { cancelled: 0 }
   const cancelled = await query(
     `UPDATE bills b
         SET cancelled_at = COALESCE((SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'CANCELLED'), $1),
@@ -444,29 +447,8 @@ export async function reconcileBills(at = now()) {
     [at, BILL_CANCELLED_BY.BUYER, BILL_CANCELLED_BY.SHOP],
   )
   cancelled.rowCount += gifts.rowCount
-  const removed = await query(
-    `UPDATE bills b SET buyer_name = NULL, buyer_address = NULL, buyer_removed_at = $1
-       FROM orders o LEFT JOIN customers cu ON cu.id = o.customer_id
-      WHERE o.id = b.order_id AND b.buyer_removed_at IS NULL AND (o.pii_removed_at IS NOT NULL OR cu.deleted_at IS NOT NULL)`,
-    [at],
-  )
-  if (cancelled.rowCount || removed.rowCount) logger.warn({ cancelled: cancelled.rowCount, buyersRemoved: removed.rowCount }, 'bills caught up with their orders')
-  return { cancelled: cancelled.rowCount, buyersRemoved: removed.rowCount }
-}
-
-/**
- * Privacy: the consumer's name and address come off their bills (account
- * deletion, or PII_RETENTION_MONTHS after delivery). The number, date, lines,
- * amounts and any business name and GSTIN stay for the books. `orders` is a
- * SELECT of order ids with its parameters.
- */
-export async function removeBillBuyers(c, orders, params, at = now()) {
-  const n = params.length + 1
-  await c.query(
-    `UPDATE bills SET buyer_name = NULL, buyer_address = NULL, buyer_removed_at = $${n}
-      WHERE order_id IN (${orders}) AND buyer_removed_at IS NULL`,
-    [...params, at],
-  )
+  if (cancelled.rowCount) logger.warn({ cancelled: cancelled.rowCount }, 'bills caught up with their orders')
+  return { cancelled: cancelled.rowCount }
 }
 
 /** What the shop and the panel show about a bill. */

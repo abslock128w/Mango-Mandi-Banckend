@@ -37,14 +37,21 @@ production data. The result is evidence for the launch checklist.
 | R6 | Re-send one `payment.captured` from the webhook log 3 times | Order confirmed once; one ORDER_CONFIRMED message |
 | R7 | WhatsApp chat order, pay the link in test mode | Order CONFIRMED via `payment_link.paid` |
 | R8 | Delayed payment: order, open Checkout, wait until the order page says the hold ran out (11 minutes), then finish paying if Razorpay still lets you | The late payment is matched: order CONFIRMED (on its date, or moved to the next day with stock, or flagged at risk), never refunded and never charged twice |
-| R9 | Only if test mode can make a refund fail: repeat R4 with that refund | `refund.failed` arrives (our result `refund_failed`); the order's history says a new refund will be sent; the next maintenance run sends it and `check` shows the second refund |
+| R9 | Only if test mode can make a refund fail: repeat R4 with that refund | `refund.failed` arrives (our result `refund_failed`); the order's history says a new refund will be sent; a maintenance run at least 2 minutes after the first refund sends it and `check` shows the second refund. (Failed refunds back off 2, 4, 8 ... up to 60 minutes; after 8 attempts Needs attention shows "Refund failed: needs a manager", docs/order-states.md) |
 | R10 | WhatsApp chat order: let the payment link pass its expiry (`expire_by`, the hold), then try to pay it | Razorpay refuses the payment; the order is CANCELLED by the hold sweep and nothing is charged |
 | R11 | UPI test handle that fails first and succeeds later for the same payment (if test mode offers one) | `payment.failed` then `payment.captured`: the order is confirmed once (late payment rules: same date, next date with stock, or at risk); never refunded |
 | R12 | Pay an order, cancel it as the customer, and raise a dispute on the payment in test mode before the refund goes (with `REFUND_SAFETY_CHECKS=true`) | `payment.dispute.created` arrives; Needs attention shows the refund as **held** while the dispute is open; no refund goes out; after `payment.dispute.won` the next maintenance run sends it once. Also note whether Razorpay itself allows a refund on a disputed payment |
 | R13 | Rotate the webhook secret as `deploy/README.md` says (new secret in `RAZORPAY_WEBHOOK_SECRET`, old one in `RAZORPAY_WEBHOOK_SECRET_PREVIOUS`), then re-send an older event from the dashboard | Both old and new events are accepted and applied once; after `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` is removed, an event signed with the old secret is refused. Note how long Razorpay keeps signing retries with the old secret |
 | R14 | Only if `WHATSAPP_PAYMENT_CONFIG` is set: pay a chat order with WhatsApp Pay | Write down Meta's `transaction.id` and Razorpay's `pay_` id: they must be the same, and Needs attention must show no "refundable" row for it (audit PAY-07). If they differ, keep WhatsApp Pay off |
 | R15 | WhatsApp chat order: tap "Pay" twice quickly | Both replies carry the same link; the extra link Razorpay created is shown as cancelled in the dashboard (audit PAY-03) |
-| R16 | With `PAYMENT_DAILY_RECON=true`: pause the webhook, pay an order, wait until the next day's maintenance run (or run it by hand) | The daily check of Razorpay's payments confirms the order (or books the preorder); a payment that matches nothing is listed once in Needs attention |
+| R16 | With `PAYMENT_DAILY_RECON` on (unset is on in production; set it to `true` on staging): pause the webhook, pay an order, wait until the next day's maintenance run (or run it by hand) | The daily check of Razorpay's payments confirms the order (or books the preorder); a payment that matches nothing is listed once in Needs attention |
+
+**`PAYMENT_DAILY_RECON`** is the once-a-day check behind R16: the maintenance run
+asks Razorpay for every payment captured in the last 3 days and applies any we
+have no record of (as its webhook would have), or lists it once in Needs
+attention for a manager to refund. It catches a lost webhook on a payment the
+shorter checks no longer look at. Keep it on in production: unset, it is on
+there (`mango-api/src/env.js`); only `PAYMENT_DAILY_RECON=false` turns it off.
 
 Scenario map for the launch gate: success = R1 and R7, failure = R2, delayed
 payment = R5 (webhook late) and R8 (payment late), duplicate webhook = R6,

@@ -39,6 +39,9 @@ export function useStepUp(why = STAFF_CHANGE_WHY): { run: <T>(call: (confirmCode
 
 const STAFF_CHANGE_WHY = "Changes to staff accounts need you to confirm who you are, so a session left open can't be used to add or take over an account."
 
+/** Refunds, prices, promo codes, shop rules and costs always ask (the server's STEP_UP_ROUTES). */
+export const MONEY_CHANGE_WHY = "Refunds, prices, promo codes, shop rules and costs need you to confirm who you are, so a session left open can't be used to move money."
+
 function StepUpDialog({ ask, why }: { ask: Ask; why: string }) {
   const [value, setValue] = useState('')
   const [formError, setFormError] = useState<string | null>(null)

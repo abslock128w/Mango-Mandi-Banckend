@@ -85,10 +85,22 @@ export function ReferralCard() {
   const t = useT()
   if (!on) return null
 
+  /** "10%", "10% (up to ₹150)" or "₹100", from the rules or one reward. */
+  function off(percent: number | null, maxPaise: number | null, flatPaise: number | null): string {
+    if (percent == null) return rupees(flatPaise ?? 0)
+    return maxPaise ? t('ref.percentUpTo', { percent, max: rupees(maxPaise) }) : `${percent}%`
+  }
+  const offText = (v: ReferralView) =>
+    v.rewardKind === 'PERCENT'
+      ? off(v.rewardPercent, v.rewardMaxRupees ? v.rewardMaxRupees * 100 : null, null)
+      : off(null, null, (v.rewardRupees ?? 0) * 100)
+  const rewardText = (r: ReferralView['rewards'][number]) =>
+    r.kind === 'PERCENT' ? off(r.percent, r.maxDiscount, null) : off(null, null, r.amount)
+
   async function share(v: ReferralView) {
     if (!v.shareUrl) return
     setShareError(null)
-    const text = t('ref.shareText', { amount: rupees(v.rewardRupees * 100), code: v.code ?? '' })
+    const text = t('ref.shareText', { amount: offText(v), code: v.code ?? '' })
     try {
       if (navigator.share) {
         await navigator.share({ title: 'MandiMangoes', text, url: v.shareUrl })
@@ -113,7 +125,7 @@ export function ReferralCard() {
       ) : (
         <>
           <p className="small">
-            {t('ref.how', { min: rupees(q.data.minOrderRupees * 100), amount: rupees(q.data.rewardRupees * 100) })}
+            {t('ref.how', { min: rupees(q.data.minOrderRupees * 100), amount: offText(q.data) })}
           </p>
           {q.data.code ? (
             <>
@@ -160,9 +172,9 @@ export function ReferralCard() {
                   <li key={r.code}>
                     <strong>{r.code}</strong>:{' '}
                     {r.endsOn
-                      ? t('ref.rewardUntil', { amount: rupees(r.amount), min: rupees(r.minSubtotal), day: day(r.endsOn), for: r.for })
-                      : t('ref.reward', { amount: rupees(r.amount), min: rupees(r.minSubtotal), for: r.for })}{' '}
-                    <span className="muted">{r.state === 'READY' ? t('ref.ready') : r.state === 'USED' ? t('ref.used') : t('ref.expired')}</span>
+                      ? t('ref.rewardUntil', { amount: rewardText(r), min: rupees(r.minSubtotal), day: day(r.endsOn), for: r.for })
+                      : t('ref.reward', { amount: rewardText(r), min: rupees(r.minSubtotal), for: r.for })}{' '}
+                    <span className="muted">{r.state === 'READY' ? t('ref.ready') : r.state === 'USED' ? t('ref.used') : r.state === 'WITHDRAWN' ? t('ref.withdrawn') : t('ref.expired')}</span>
                   </li>
                 ))}
               </ul>

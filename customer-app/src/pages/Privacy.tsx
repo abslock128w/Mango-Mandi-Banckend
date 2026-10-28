@@ -18,6 +18,7 @@ export default function Privacy() {
         <li>Your mobile number, and your name and email if you sign in with Google.</li>
         <li>Delivery addresses and pincodes you give us.</li>
         <li>Your orders, bookings, payments (Razorpay gives us a payment reference, never your card or UPI details) and refunds.</li>
+        <li>The bill for each paid order, with your name and delivery address on it, and a business name and GSTIN if you gave them.</li>
         <li>Problem reports and the photos you add to them, and the rider's photo of a delivery when nobody could give the delivery code.</li>
         <li>WhatsApp messages you send us when you order in the chat.</li>
       </ul>
@@ -25,7 +26,7 @@ export default function Privacy() {
       <h2>{t('privacy.h.why')}</h2>
       <p lang={en}>
         To take and deliver your orders, send you sign-in codes and order updates by SMS and WhatsApp, refund cancelled orders, replace damaged
-        boxes, and keep our accounts as the law requires. We don't sell your details or use them for advertising.
+        boxes, and keep our accounts and bills as tax law requires. We don't sell your details or use them for advertising.
       </p>
 
       <h2>{t('privacy.h.who')}</h2>
@@ -42,7 +43,14 @@ export default function Privacy() {
       <h2>{t('privacy.h.howLong')}</h2>
       <p lang={en}>
         While you have an account. Sign-in codes are cleared within hours, and photos added to a report that was never sent are cleared after a
-        day. Order amounts are kept for our accounts after you delete your account, without your name, number or address.
+        day. 12 months after an order is delivered or cancelled, we remove your name, number and address from the order, and delete the
+        rider's delivery photo and the photos on any problem report about it (once the report is settled). Order amounts, payments and refunds
+        are kept for our accounts, also after you delete your account, without your name, number or address.
+      </p>
+      <p lang={en}>
+        Bills are different. Tax law requires us to keep every bill as it was issued, so your bill keeps your name and delivery address for 8
+        years from its date, even after the 12 months above and even if you delete your account. After 8 years we remove your name and address
+        from the bill; its number, items and amounts stay.
       </p>
 
       <h2>{t('privacy.h.choices')}</h2>

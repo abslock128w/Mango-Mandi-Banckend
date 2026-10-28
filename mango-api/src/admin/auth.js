@@ -10,6 +10,7 @@ import { audit } from '../access.js'
 import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from '../auth.js'
 import { now } from '../clock.js'
 import { hashRecovery, newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from '../totp.js'
+import { needsSealing, openSecret, sealSecret } from '../secret-box.js'
 import { query, tx } from '../db.js'
 import { env } from '../env.js'
 import { asyncHandler, badRequest, conflict, HttpError, parse, unauthorized } from '../errors.js'
@@ -129,10 +130,14 @@ signIn.post(
         return { error: new HttpError(429, 'TWO_STEP_LOCKED', 'Too many wrong codes. Try again in 15 minutes, or ask a manager to reset your two-step sign-in.') }
       }
       let ok = false
-      const step = verifyCode(user.totp_secret, b.code.replace(/\s/g, ''), at.getTime(), user.totp_last_step)
+      const step = verifyCode(openSecret(user.id, user.totp_secret), b.code.replace(/\s/g, ''), at.getTime(), user.totp_last_step)
       if (step != null) {
         ok = true
         await c.query('UPDATE admin_users SET totp_last_step = $2 WHERE id = $1', [user.id, step])
+        // A secret stored before TOTP_ENCRYPTION_KEY was set is sealed now.
+        if (needsSealing(user.totp_secret)) {
+          await c.query('UPDATE admin_users SET totp_secret = $2 WHERE id = $1', [user.id, sealSecret(user.id, user.totp_secret)])
+        }
       } else if (/^[a-z0-9]{4}-?[a-z0-9]{4}$/i.test(b.code)) {
         const used = await c.query('UPDATE staff_recovery_codes SET used_at = $3 WHERE admin_id = $1 AND code_hash = $2 AND used_at IS NULL', [
           user.id, hashRecovery(b.code.includes('-') ? b.code : `${b.code.slice(0, 4)}-${b.code.slice(4)}`), at,
@@ -274,7 +279,7 @@ me.post(
       }
     }
     const secret = newSecret()
-    const r = await query('UPDATE admin_users SET totp_pending = $2 WHERE id = $1 AND totp_enabled_at IS NULL', [req.admin.id, secret])
+    const r = await query('UPDATE admin_users SET totp_pending = $2 WHERE id = $1 AND totp_enabled_at IS NULL', [req.admin.id, sealSecret(req.admin.id, secret)])
     if (!r.rowCount) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
     res.json({ secret, otpauthUrl: otpauthUrl(req.admin.email, secret) })
   }),
@@ -291,7 +296,7 @@ me.post(
       const u = rows[0]
       if (u.totp_enabled_at) throw conflict('Two-step sign-in is already on', 'TWO_STEP_ON')
       if (!u.totp_pending) throw badRequest('Start the set-up again', 'NO_SETUP')
-      const step = verifyCode(u.totp_pending, code, now().getTime())
+      const step = verifyCode(openSecret(u.id, u.totp_pending), code, now().getTime())
       if (step == null) throw new HttpError(422, 'WRONG_CODE', 'That code is not right. Check the time on your phone and try the newest code.')
       const at = now()
       await c.query(
@@ -316,7 +321,7 @@ me.post(
     await tx(async (c) => {
       const { rows } = await c.query('SELECT totp_secret, totp_enabled_at, totp_last_step FROM admin_users WHERE id = $1 FOR UPDATE', [req.admin.id])
       if (!rows[0].totp_enabled_at) throw conflict('Two-step sign-in is already off', 'TWO_STEP_OFF')
-      if (verifyCode(rows[0].totp_secret, code, now().getTime(), rows[0].totp_last_step) == null) throw new HttpError(422, 'WRONG_CODE', 'That code is not right.')
+      if (verifyCode(openSecret(req.admin.id, rows[0].totp_secret), code, now().getTime(), rows[0].totp_last_step) == null) throw new HttpError(422, 'WRONG_CODE', 'That code is not right.')
       await clearTwoStep(c, req.admin.id)
     })
     res.status(204).end()

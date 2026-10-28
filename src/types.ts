@@ -742,7 +742,22 @@ export interface Analytics {
 
 /** Problems nobody would otherwise notice: the background loop, failed sends, stuck refunds, bad webhooks. */
 export interface Attention {
-  loop: { lastRunAt: string | null; stale: boolean; failingSteps: { step: string; since: string; error: string | null }[] }
+  /** failCount: failures in a row; lastDurationMs: how long the last try took (both absent from older servers). */
+  loop: {
+    lastRunAt: string | null
+    stale: boolean
+    failingSteps: { step: string; since: string; error: string | null; failCount?: number | null; lastDurationMs?: number | null }[]
+  }
+  /** Browser notifications given up on (FAILED), or overdue and not yet sent (PENDING); absent from older servers. */
+  failedPushes?: {
+    id: string
+    kind: string
+    status: 'FAILED' | 'PENDING'
+    error: string | null
+    attempts: number
+    createdAt: string
+    order: { id: string; number: string } | null
+  }[]
   /** The Docker server's nightly backup; null (or absent) where none is expected, as on Vercel. */
   backup?: { lastOkAt: string | null; stale: boolean } | null
   failedMessages: {
@@ -760,7 +775,8 @@ export interface Attention {
   /**
    * type 'payment': a payment that matched no order (id is its payment id). paymentId is set for a
    * second payment too. state 'unsent': still retrying (a manager may record it paid back another way);
-   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06).
+   * 'held': not sent while a chargeback on the payment is open or was lost (PAY-06); 'needs_manager':
+   * failed too many times (attempts) and no longer retried on its own.
    */
   stuckRefunds: {
     type: 'order' | 'preorder' | 'payment'
@@ -768,7 +784,9 @@ export interface Attention {
     number: string
     requestedAt: string
     paymentId?: string | null
-    state?: 'unsent' | 'unconfirmed' | 'held'
+    state?: 'unsent' | 'unconfirmed' | 'held' | 'needs_manager'
+    /** Refund attempts made so far. */
+    attempts?: number
     /** On a held refund: the chargeback holding it. Open until the bank decides; once lost or closed it is settled as paid back. */
     dispute?: { id: string; status: string } | null
   }[]
@@ -794,6 +812,15 @@ export interface Attention {
   photoDeliveries?: PhotoDelivery[]
   /** Stock lines whose counters disagree with the ledger: [counter, source] pairs. */
   ledgerDrift?: LedgerDrift[]
+  /** Warehouses whose labelled boxes disagree with the stock counters (the hourly box check; WAREHOUSE_V2 only). */
+  boxMismatches?: {
+    warehouseId: string
+    name: string
+    stockMismatches: number
+    orderUnitMismatches: number
+    impossibleStates: number
+    lotCountMismatches: number
+  }[]
   /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
   preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
   /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */
@@ -1076,11 +1103,19 @@ export interface Referral {
   friend: ReferralPerson
   /** The friend's first paid order, once there is one. */
   order: { id: string; number: string } | null
-  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; amount: number; used: boolean }[]
+  /** value is a percent for PERCENT, paise for FLAT; maxDiscount is a paise cap or null. */
+  rewards: { role: 'REFERRER' | 'FRIEND'; code: string; kind: 'PERCENT' | 'FLAT'; value: number; maxDiscount: number | null; withdrawn: boolean; used: boolean }[]
 }
 export interface ReferralList {
   counts: Record<ReferralStatus, number>
-  rules: { rewardRupees: number; minOrderRupees: number; maxPerMonth: number }
+  rules: {
+    rewardKind: 'PERCENT' | 'FLAT'
+    rewardPercent: number | null
+    rewardMaxRupees: number | null
+    rewardRupees: number | null
+    minOrderRupees: number
+    maxPerMonth: number
+  }
   items: Referral[]
 }
 

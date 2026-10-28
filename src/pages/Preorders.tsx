@@ -5,6 +5,7 @@ import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate, rupees, type Tone } from '../format'
 import { can } from '../permissions'
 import { useSession } from '../session'
+import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Preorder, PreorderStatus } from '../types'
 import { Badge, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, PhoneLink, QueryError, ReasonDialog, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
@@ -290,8 +291,10 @@ function CancelPreorderDialog({ preorder, onClose }: { preorder: Preorder; onClo
   const toast = useToast()
   const queryClient = useQueryClient()
   const paid = preorder.paymentStatus === 'SUCCEEDED'
+  // A paid booking is refunded: the manager confirms it is them (the server's STEP_UP_ROUTES).
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
   const cancel = useMutation({
-    mutationFn: (reason: string) => api.cancelPreorder(preorder.id, reason),
+    mutationFn: (reason: string) => stepUp.run((code) => api.cancelPreorder(preorder.id, reason, code)),
     onSuccess: (r) => {
       toast.success(r.refunded ? `${preorder.number} cancelled; ${rupees(preorder.total)} is being refunded` : `${preorder.number} cancelled`)
       void queryClient.invalidateQueries({ queryKey: ['preorders'] })
@@ -300,23 +303,26 @@ function CancelPreorderDialog({ preorder, onClose }: { preorder: Preorder; onClo
     },
   })
   return (
-    <ReasonDialog
-      title={`Cancel preorder ${preorder.number}?`}
-      confirmLabel={paid ? 'Cancel and refund' : 'Cancel booking'}
-      cancelLabel="Keep booking"
-      busyLabel="Cancelling…"
-      hint="At least 3 characters. Saved on the booking's history."
-      busy={cancel.isPending}
-      error={cancel.error}
-      onClose={onClose}
-      onSubmit={(reason) => cancel.mutate(reason)}
-    >
-      <p>
-        {paid
-          ? `The customer paid ${rupees(preorder.total)}. It goes back to them in full. Use this when we can't fill the booking (crop failure, the season ending).`
-          : 'The booking has not been paid, so there is nothing to refund.'}{' '}
-        The boxes go back into the week's capacity.
-      </p>
-    </ReasonDialog>
+    <>
+      <ReasonDialog
+        title={`Cancel preorder ${preorder.number}?`}
+        confirmLabel={paid ? 'Cancel and refund' : 'Cancel booking'}
+        cancelLabel="Keep booking"
+        busyLabel="Cancelling…"
+        hint="At least 3 characters. Saved on the booking's history."
+        busy={cancel.isPending}
+        error={cancel.error}
+        onClose={onClose}
+        onSubmit={(reason) => cancel.mutate(reason)}
+      >
+        <p>
+          {paid
+            ? `The customer paid ${rupees(preorder.total)}. It goes back to them in full. Use this when we can't fill the booking (crop failure, the season ending).`
+            : 'The booking has not been paid, so there is nothing to refund.'}{' '}
+          The boxes go back into the week's capacity.
+        </p>
+      </ReasonDialog>
+      {stepUp.dialog}
+    </>
   )
 }

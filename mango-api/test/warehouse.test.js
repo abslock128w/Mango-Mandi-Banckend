@@ -313,7 +313,7 @@ describe('orders', () => {
     const pick = await startOp('pick', { orderId: o.id })
     await scan(pick.id, [payload(boxes[0].label_token), payload(boxes[1].label_token)])
     assert.equal((await lineOf(lot.lineId)).on_hand, 1)
-    const cancel = await api.post(`/admin/v1/orders/${o.id}/cancel`, { reason: 'customer asked', refund: true }, { token: manager })
+    const cancel = await api.post(`/admin/v1/orders/${o.id}/cancel`, { reason: 'customer asked', refund: true, confirmCode: 'manager123' }, { token: manager })
     assert.equal(cancel.status, 204, JSON.stringify(cancel.body))
     const b0 = await box(boxes[0].id)
     assert.equal(b0.lifecycle, 'in_stock')
@@ -339,6 +339,23 @@ describe('orders', () => {
     assert.equal((await box(boxes[0].id)).lifecycle, 'in_stock')
     const l = await lineOf(lot.lineId)
     assert.deepEqual([l.on_hand, l.committed], [2, 1])
+    await booksBalance()
+  })
+
+  test('unpicking a box off a packed order reopens it (PACKED to PROCESSING), a move the order map allows', async () => {
+    const { boxes } = await stockedLot({ count: 3 })
+    const o = await paidOrder(1)
+    const pick = await startOp('pick', { orderId: o.id })
+    await scan(pick.id, [payload(boxes[0].label_token)])
+    const pk = await startOp('pack', { orderId: o.id })
+    await scan(pk.id, [payload(boxes[0].label_token)])
+    ok(await api.post(`${W}/operations/${pk.id}/finalize`, {}, { token: manager }))
+    assert.equal((await orderRow(o.id)).status, 'PACKED')
+    const un = await startOp('unpick', { orderId: o.id, reason: 'Bruise found before dispatch' })
+    assert.equal((await scan(un.id, [payload(boxes[0].label_token)]))[0].result, 'accepted')
+    assert.equal((await orderRow(o.id)).status, 'PROCESSING')
+    const ev = (await query(`SELECT from_status, status, reason FROM order_events WHERE order_id = $1 ORDER BY created_at DESC, id DESC LIMIT 5`, [o.id])).rows
+    assert.ok(ev.some((e) => e.from_status === 'PACKED' && e.status === 'PROCESSING' && /Reopened in the warehouse/.test(e.reason)))
     await booksBalance()
   })
 
@@ -493,5 +510,16 @@ describe('controls', () => {
     const r = await api.raw('GET', `${W}/export/lots`, { token: manager })
     assert.equal(r.status, 200)
     assert.match(r.body, /"'=HYPERLINK\(""http:\/\/x""\)"/)
+  })
+
+  test('each CSV export is written to the staff audit, like the managers\' exports', async () => {
+    assert.equal((await api.raw('GET', `${W}/export/events?from=2026-10-01&to=2026-10-15`, { token: manager })).status, 200)
+    assert.equal((await api.raw('GET', `${W}/export/boxes`, { token: manager })).status, 200)
+    const { rows } = await query(`SELECT action, target, email, detail FROM staff_audit WHERE action LIKE 'EXPORT warehouse-%' ORDER BY created_at, id`)
+    assert.deepEqual(rows.map((x) => [x.action, x.target, x.email]), [
+      ['EXPORT warehouse-events', 'warehouse-events', 'manager@mandimangoes.test'],
+      ['EXPORT warehouse-boxes', 'warehouse-boxes', 'manager@mandimangoes.test'],
+    ])
+    assert.deepEqual(rows[0].detail, { warehouseId: 'wh_main', from: '2026-10-01', to: '2026-10-15' })
   })
 })

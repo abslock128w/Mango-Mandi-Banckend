@@ -4,7 +4,7 @@ The MandiMangoes backend: the `/admin/v1` API the Mango Ops panel uses, the `/v1
 storefront API, Razorpay payments, and the engine that decides which boxes can be sold
 as raw, semi-ripe or ripe on each delivery date.
 
-Node 22, Express 4, PostgreSQL 16. One process, one database; stock holds, payment
+Node 24 (LTS, supported until 30 April 2028), Express 4, PostgreSQL 16. One process, one database; stock holds, payment
 confirmation and allocation all commit in the same Postgres transaction.
 
 ## Run it locally
@@ -312,15 +312,17 @@ below override both.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
   a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
   shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
-  ripener). Nothing older than 7 days on its delivery date is sold, and batches retire
-  at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
+  ripener). Nothing older than 7 days on its delivery date is sold (fewer when the
+  product has a shorter `shelf_life_days`), and batches retire at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
   sells only for dates after its arrival, at 85% of its count.
 - **Delivery dates.** Order before 18:00 IST for next-day delivery, after it for the day
   after. Closed days and per-day box limits come from the delivery calendar. Customers
   can book up to 5 days ahead.
 - **Holds and FEFO.** Checkout holds stock for 10 minutes, oldest batch first, with a
   conditional `UPDATE` so two buyers can never take the same box. A database `CHECK`
-  backs it up. Payment turns the hold into a commitment.
+  backs it up. Payment turns the hold into a commitment. How the counters, ledger
+  events, hold expiry, returns and lock order fit together:
+  [docs/warehouse/STOCK.md](../docs/warehouse/STOCK.md).
 - **Rebalancing, never cancelling.** After QC, a status change, a condemned batch and
   hourly, every open order is re-checked. Stock that no longer fits is swapped to another
   batch with the same SKU and stage. What can't be swapped flags the order **at risk**
@@ -343,8 +345,9 @@ below override both.
   closes when the hold ends.
 - **Customer cancels** are allowed until the order is packed. A paid order is refunded
   in full: the refund is requested in the cancel transaction, sent to Razorpay right
-  after, and retried by the maintenance loop until it lands (it checks for an existing
-  refund first, so retries never pay twice). A payment that arrives after the customer
+  after, and retried by the maintenance loop with a growing wait (2 minutes up to an
+  hour, 8 attempts, then a manager settles it; it checks for an existing refund first,
+  so retries never pay twice). Every state and money path: docs/order-states.md. A payment that arrives after the customer
   cancelled is refunded too, and a replayed payment can't revive the order. Staff can
   cancel an unpaid order up to out-for-delivery; a paid one needs a manager and is
   refunded in full. A payment that lands after a staff cancel is refunded, not
@@ -426,7 +429,9 @@ retirement, audit) run first. Hourly it rebalances only the open orders that are
 risk and runs the ledger audit, which checks `on_hand` against the ledger and
 `held`/`committed` against the order allocations; once a day (or right after a rules
 change) it rebalances every open order. Drift is logged and exported as
-`mango_ledger_drift_lines`.
+`mango_ledger_drift_lines`. With `WAREHOUSE_V2` on, the same hourly audit runs the box
+check for each active warehouse (labelled boxes against `on_hand` and the packed units);
+a mismatch alerts at most hourly and shows on Needs attention.
 
 Transactions that hit a deadlock or serialization failure are retried twice with
 jitter (`tx` in `src/db.js`), and slot capacity is locked per delivery date, so
@@ -439,7 +444,10 @@ instance shares them. One address may ask for 5 codes an hour and 10 a day for a
 most 16 codes a day from all addresses, and each code allows 3 tries (at most 48 guesses a
 day at one number). A refused request never replaces the code already sent. Token refresh
 has its own limit, counted per person rather than per address, so customers sharing a
-carrier-NAT address don't sign each other out. The shop has a
+carrier-NAT address don't sign each other out. A sign-in lasts at most 7 days for staff and
+90 days for customers, however often it is refreshed (`STAFF_SESSION_MAX_DAYS`,
+`CUSTOMER_SESSION_MAX_DAYS`). Checkout quotes, confirms and cancels are limited per signed-in
+customer (`CUSTOMER_ACTION_LIMIT`, 20 a minute each). The shop has a
 daily budget (`OTP_DAILY_LIMIT`, Sentry warns at 80%) after which codes pause until
 midnight IST. Numbers with no account may use only `OTP_NEW_NUMBER_SHARE` of it (60%),
 so a bot flooding new numbers can't lock existing customers out. With
@@ -533,7 +541,11 @@ diff is reviewed with the change.
 Every successful staff change (any non-GET admin request) and every sign-in is written to
 `staff_audit`: who, their role, the route, what it was done to, and the request body with
 passwords and tokens removed. Read it at `GET /admin/v1/audit` or on the panel's Staff
-screen.
+screen. The table is append-only (migration 046): rows are never edited or deleted, except
+that the privacy scrub removes personal keys. Refunds, prices, promo codes, the shop rules
+and batch costs ask the manager to confirm it is them. The whole picture is in
+[docs/authorization.md](../docs/authorization.md), and every route with its roles is in the
+generated [docs/authorization-matrix.md](../docs/authorization-matrix.md).
 
 ## Operations
 
@@ -542,15 +554,24 @@ screen.
   Send again button), a refund has been stuck for 30 minutes, or a webhook was rejected.
   It reads `GET /admin/v1/attention`. Each loop step's last success and error are kept in
   `maintenance_runs`; rejected webhooks are kept in `webhook_failures` for 30 days.
-- **Alerts.** On Vercel, alerts go through Sentry: the maintenance job's cron monitor, an
-  uptime monitor on `/ready`, and a Sentry message (at most hourly each) for overdue
-  messages or refunds, failing webhooks, a missed backup and ledger drift (see
-  [deploy/VERCEL.md, Watch it](../deploy/VERCEL.md#8-watch-it)).
+- **Alerts** ([docs/alerts.md](../docs/alerts.md) has every alert, what checks it and who
+  is told). On Vercel the maintenance job is the alert checker: every minute it reads
+  shared state from Postgres and sends a Sentry warning (at most hourly each) for overdue
+  messages or refunds, failing webhooks, steps failing 3 times in a row, a missed backup,
+  ledger drift, and, from the per-minute `ops_counters` table (migration 050,
+  `src/ops-counters.js`), API errors, slow answers and a busy database pool. Sentry's alert
+  rule and its cron monitor `maintenance`, and Better Stack Uptime on `/ready` (phone call
+  and SMS), tell the on-call people
+  ([deploy/VERCEL.md, Watch it](../deploy/VERCEL.md#8-watch-it)). `OPS_ALERTS` turns the
+  newer checks on; unset, it is on in production and off elsewhere. `SLOW_REQUEST_MS` and
+  `ALERT_API_ERRORS`, `ALERT_SLOW_REQUESTS`, `ALERT_DB_BUSY` set the thresholds.
   **Docker path only:** [`ops/alerts.yml`](ops/alerts.yml) holds Prometheus alert rules for
   the loop stopping, failing steps, failing WhatsApp sends, webhook errors, login codes on
-  fallback, ledger drift and API errors. Scrape `/metrics` with `METRICS_TOKEN` as a bearer
-  token and route the alerts to the phone of whoever is on call. `/metrics` answers 404 on
-  Vercel, so neither the metrics nor these rules apply there.
+  fallback, ledger drift, API errors and slowness, and the database pool. Scrape `/metrics`
+  with `METRICS_TOKEN` as a bearer token and route the alerts to the phone of whoever is on
+  call. `/metrics` answers 404 on Vercel, so neither the metrics nor these rules apply
+  there; [`src/alert-checks.js`](src/alert-checks.js) names the Vercel check for each rule,
+  and a test fails when a rule has none.
 - **Backups.** [`ops/backup.sh`](ops/backup.sh) writes a `pg_dump` custom-format file,
   encrypted to a GPG public key (`BACKUP_GPG_PUBLIC_KEY_FILE` or `BACKUP_GPG_RECIPIENT`;
   with neither it refuses), and keeps 14 days (`RETAIN_DAYS`). `BACKUP_UPLOAD_CMD` copies
@@ -576,8 +597,19 @@ screen.
   ([`src/retention.js`](src/retention.js)), up to 5,000 a run. Once a day, orders delivered,
   cancelled or returned more than `PII_RETENTION_MONTHS` (default 12) months ago lose the
   customer's name, phone, address and gift details, and their delivery attempts lose who took
-  the box and the rider's location; amounts, items and tax fields stay for the books. Orders
-  with money still owed back wait until it is paid.
+  the box and the rider's location; amounts, items, tax fields, payment and refund ids stay
+  for the books. Orders with money still owed back wait until it is paid. The same run deletes
+  those orders' photos: the rider's delivery photos, and the photos on their problem reports
+  once the report is resolved (from Vercel Blob and from the row). The shop's privacy notice
+  states the 12 months: change it there too if you change `PII_RETENTION_MONTHS`.
+- **Bills are kept longer.** Neither that run nor account deletion touches bills: tax law
+  needs them kept as issued. A bill keeps the buyer's name and delivery address for
+  `BILL_RETENTION_MONTHS` (default 96, 8 years from the bill date); then the same daily run
+  removes them, up to 5,000 bills a day. Resolved Razorpay webhook problems are kept as long.
+  Production refuses a value under 72 and warns under 96. **The client's CA must confirm the
+  period** ([docs/trust.md](../docs/trust.md#how-long-bills-are-kept) has the law and a table
+  of what every cleanup removes). The privacy notice and the account page say 8 years: change
+  them too if you change it.
 - **Erasure and export.** Customers delete their account in the shop (`DELETE /v1/me`) and
   download what we hold about them (`GET /v1/me/export`, JSON). For a deletion request that
   arrives by email or WhatsApp, check it comes from the number's owner, then run
@@ -587,7 +619,9 @@ screen.
 - **Connections.** `DB_POOL_MAX` sets each instance's pool (default 5 on Vercel, 10
   elsewhere) and `DB_CONNECT_TIMEOUT_MS` how long a request waits for a connection before
   answering 503 BUSY (default 5000). On Vercel, keep instances × `DB_POOL_MAX` under the
-  Neon pooler's limit.
+  Neon pooler's limit. Each BUSY answer counts in `mango_db_pool_busy_total`, and a query
+  slower than `DB_SLOW_QUERY_MS` (default 500; 0 turns it off) is logged as `slow query`
+  with its time and the start of its SQL, never its values.
 
 ### Writing a migration
 
@@ -599,7 +633,15 @@ half-applied. Look for a long transaction in `pg_stat_activity` and deploy again
 Keep the locks short:
 
 - **Add, then remove a release later.** Drops, renames and narrowing need a
-  `-- contract:` line.
+  `-- contract:` line. From file 048 on that includes dropping a constraint, index,
+  function, trigger, type or view, unless the same file makes it again under the
+  same name (widening a CHECK, below).
+- **No `BEGIN`, `COMMIT` or `CONCURRENTLY` in a file.** Each file already runs in one
+  transaction; the test refuses a file that ends it early.
+- **Never edit a file that has run.** Each applied file's sha256 is kept in
+  `schema_migrations.checksum` (048), and the runner refuses to start when an applied
+  file has changed, naming it. Make the change in a new file. For a harmless edit
+  (a comment), clear the record as the error says: the next run records the file again.
 - **New CHECK or FOREIGN KEY on an existing table: `NOT VALID`.** A plain
   `ADD CONSTRAINT` reads the whole table while nothing else can touch it. Add it
   `NOT VALID` (new rows are checked from then on) and

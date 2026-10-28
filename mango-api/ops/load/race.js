@@ -1,4 +1,4 @@
-// Many customers racing for the last boxes (LOAD-TEST.md, scenario B).
+// Many customers racing for the last boxes (deploy/LOAD-TEST.md, scenario B).
 //
 // setup() signs in CUSTOMERS customers; then all of them, at the same moment,
 // put SKU/STAGE in the cart, quote and confirm, and the winners pay. Exactly

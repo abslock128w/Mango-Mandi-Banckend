@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from './fixtures'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // Staff side of the 23 Oct UX audit: a claim rejection needs a reason the customer sees
 // (UX-4 / ADM-3), a price change is confirmed with the old and new price and an optional
@@ -76,9 +76,11 @@ test('a price change shows the old and new price, takes a reason, and can go bac
   await edit.getByRole('button', { name: 'Save' }).click()
   await confirm.getByLabel('Reason (optional)').fill('Mandi rate went up')
   await confirm.getByRole('button', { name: 'Change price' }).click()
+  // Then the manager confirms it is them (STEP_UP_ROUTES).
+  await confirmItsMe(page)
   await expect(confirm).toHaveCount(0)
-  const patch = api.calls.find((c) => c.method === 'PATCH' && c.path === '/products/ALP-3')?.body
-  expect(patch).toMatchObject({ price: 199900, reason: 'Mandi rate went up' })
+  const patch = api.calls.filter((c) => c.method === 'PATCH' && c.path === '/products/ALP-3').at(-1)?.body
+  expect(patch).toMatchObject({ price: 199900, reason: 'Mandi rate went up', confirmCode: 'manager123' })
 })
 
 test('managers fill in what is in the box; an unchanged price saves without asking', async ({ page }) => {

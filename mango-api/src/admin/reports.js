@@ -14,7 +14,9 @@ import { backupStatus } from '../maintenance.js'
 import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
+import { pushOn } from '../push.js'
 import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
+import { boxCheck } from '../warehouse/reports.js'
 
 export const router = express.Router()
 
@@ -111,8 +113,8 @@ router.get(
  */
 export function attentionCount(a) {
   const lists = [
-    a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.preorderCapacityDrift,
-    a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.disputes, a.webhookFailures,
+    a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.boxMismatches, a.preorderCapacityDrift,
+    a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.failedPushes, a.disputes, a.webhookFailures,
   ]
   return (a.loop.stale ? 1 : 0) + (a.backup?.stale ? 1 : 0) + (a.lowRatings.length ? 1 : 0) + lists.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0)
 }
@@ -120,7 +122,7 @@ export function attentionCount(a) {
 /** Everything the Needs attention view lists (GET /attention; the managers' daily summary counts it). */
 export async function attentionReport(at = now()) {
   const week = new Date(at.getTime() - 7 * 86_400_000)
-  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks] = await Promise.all([
+  const [runs, failed, refunds, hooks, calls, photos, lowRatings, drift, backup, overdue, preorderCalls, returned, stuckRetries, disputes, preorderDrift, lateTrucks, boxes, pushes] = await Promise.all([
     query('SELECT * FROM maintenance_runs ORDER BY step'),
     query(
       `SELECT n.id, n.kind, n.status, n.phone, n.last_error, n.created_at, n.attempts, o.id AS order_id, o.number AS order_number, p.number AS preorder_number
@@ -132,33 +134,34 @@ export async function attentionReport(at = now()) {
     ),
     query(
       `SELECT 'order' AS type, id, number, refund_requested_at, NULL AS payment_id,
-              CASE WHEN $3 AND ${disputeHolds('orders.payment_id')} THEN 'held' ELSE 'unsent' END AS state,
-              CASE WHEN $3 THEN ${disputeOf('orders.payment_id')} END AS dispute
+              CASE WHEN refund_gave_up_at IS NOT NULL THEN 'needs_manager' WHEN $3 AND ${disputeHolds('orders.payment_id')} THEN 'held' ELSE 'unsent' END AS state,
+              CASE WHEN $3 THEN ${disputeOf('orders.payment_id')} END AS dispute, refund_attempts AS attempts
          FROM orders WHERE refund_requested_at < $1 AND refunded_at IS NULL
        UNION ALL
-       SELECT 'preorder', id, number, refund_requested_at, NULL, CASE WHEN $3 AND ${disputeHolds('preorders.payment_id')} THEN 'held' ELSE 'unsent' END,
-              CASE WHEN $3 THEN ${disputeOf('preorders.payment_id')} END
+       SELECT 'preorder', id, number, refund_requested_at, NULL,
+              CASE WHEN refund_gave_up_at IS NOT NULL THEN 'needs_manager' WHEN $3 AND ${disputeHolds('preorders.payment_id')} THEN 'held' ELSE 'unsent' END,
+              CASE WHEN $3 THEN ${disputeOf('preorders.payment_id')} END, refund_attempts
          FROM preorders WHERE refund_requested_at < $1 AND refunded_at IS NULL
        UNION ALL
        -- A second payment, or a payment that matched no order (type 'payment', its id as the id).
        SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
               COALESCE(d.order_id, d.preorder_id, d.payment_id),
               COALESCE(o.number || ' (second payment)', p.number || ' (second payment)', d.payment_id || ' (payment with no order)'), d.found_at, d.payment_id,
-              CASE WHEN $3 AND ${disputeHolds('d.payment_id')} THEN 'held' ELSE 'unsent' END,
-              CASE WHEN $3 THEN ${disputeOf('d.payment_id')} END
+              CASE WHEN d.refund_gave_up_at IS NOT NULL THEN 'needs_manager' WHEN $3 AND ${disputeHolds('d.payment_id')} THEN 'held' ELSE 'unsent' END,
+              CASE WHEN $3 THEN ${disputeOf('d.payment_id')} END, d.refund_attempts
          FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
         WHERE d.found_at < $1 AND d.refunded_at IS NULL
        UNION ALL
        -- PAY-02: sent, but Razorpay hasn't said it went through after 5 days.
-       SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL FROM orders
+       SELECT 'order', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL, refund_attempts FROM orders
         WHERE refund_status = 'pending' AND refunded_at < $2
        UNION ALL
-       SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL FROM preorders
+       SELECT 'preorder', id, number || ' (sent, not confirmed by Razorpay)', refund_requested_at, NULL, 'unconfirmed', NULL, refund_attempts FROM preorders
         WHERE refund_status = 'pending' AND refunded_at < $2
        UNION ALL
        SELECT CASE WHEN d.order_id IS NOT NULL THEN 'order' WHEN d.preorder_id IS NOT NULL THEN 'preorder' ELSE 'payment' END,
               COALESCE(d.order_id, d.preorder_id, d.payment_id), d.payment_id || ' (refund sent, not confirmed by Razorpay)',
-              d.found_at, d.payment_id, 'unconfirmed', NULL
+              d.found_at, d.payment_id, 'unconfirmed', NULL, d.refund_attempts
          FROM duplicate_payments d WHERE d.refund_status = 'pending' AND d.refunded_at < $2
        ORDER BY refund_requested_at LIMIT 50`,
       [new Date(at.getTime() - REFUND_STUCK_MS), new Date(at.getTime() - 5 * 86_400_000), env.REFUND_SAFETY_CHECKS],
@@ -210,6 +213,16 @@ export async function attentionReport(at = now()) {
     // INV-06, INV-08: preorder capacity counters that drifted, and trucks late to arrive.
     preorderCapacityDrift({ query }, 50),
     lateArrivals({ query }, at),
+    // Labelled boxes that disagree with the counters, per warehouse (the hourly box check, docs/warehouse/STOCK.md).
+    env.WAREHOUSE_V2 ? boxCheck({ query }) : [],
+    // Browser notifications (WEB_PUSH) given up on, or still waiting 15 minutes past their time (the push step is not running).
+    query(
+      `SELECT m.id, m.kind, m.status, m.last_error, m.attempts, m.created_at, m.next_attempt_at, o.id AS order_id, o.number AS order_number
+         FROM push_messages m LEFT JOIN orders o ON o.id = m.order_id
+        WHERE ((m.status = 'FAILED' AND m.created_at >= $1) OR ($3 AND m.status = 'PENDING' AND m.next_attempt_at < $2))
+        ORDER BY m.created_at DESC LIMIT 50`,
+      [week, new Date(at.getTime() - 15 * 60_000), pushOn()],
+    ),
   ])
   const tick = runs.rows.find((r) => r.step === 'tick')
   return {
@@ -218,18 +231,25 @@ export async function attentionReport(at = now()) {
       stale: !tick?.last_ok_at || at - tick.last_ok_at > LOOP_STALE_MS,
       failingSteps: runs.rows
         .filter((r) => r.last_err_at && (!r.last_ok_at || r.last_err_at > r.last_ok_at))
-        .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error })),
+        // failCount: failures in a row; lastDurationMs: how long the last attempt took (both null before migration 047 ran).
+        .map((r) => ({ step: r.step, since: r.last_err_at, error: r.last_error, failCount: r.fail_count ?? null, lastDurationMs: r.last_duration_ms ?? null })),
     },
     backup,
     failedMessages: failed.rows.map((n) => ({
       id: n.id, kind: n.kind, status: n.status, phone: maskPhone(n.phone), error: n.last_error, attempts: n.attempts, createdAt: n.created_at,
       order: n.order_id ? { id: n.order_id, number: n.order_number } : null, preorderNumber: n.preorder_number,
     })),
+    // status 'PENDING': overdue, not yet sent; 'FAILED': given up on after retries.
+    failedPushes: pushes.rows.map((m) => ({
+      id: m.id, kind: m.kind, status: m.status, error: m.last_error, attempts: m.attempts, createdAt: m.created_at,
+      order: m.order_id ? { id: m.order_id, number: m.order_number } : null,
+    })),
     // state 'unsent': still retrying (a manager may record it as paid back another way); 'unconfirmed': sent, Razorpay silent;
     // 'held': not sent while a chargeback on the payment is open or was lost (PAY-06, REFUND_SAFETY_CHECKS), with the dispute
-    // that holds it ({ id, status }: open until the bank decides; a lost one is settled as paid back another way).
+    // that holds it ({ id, status }: open until the bank decides; a lost one is settled as paid back another way);
+    // 'needs_manager': failed REFUND_MAX_ATTEMPTS times and no longer retried (settled as paid back another way).
     stuckRefunds: refunds.rows.map((r) => ({
-      type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state,
+      type: r.type, id: r.id, number: r.number, requestedAt: r.refund_requested_at, paymentId: r.payment_id, state: r.state, attempts: r.attempts ?? 0,
       ...(r.state === 'held' ? { dispute: r.dispute } : {}),
     })),
     // Missed too many times: someone calls the customer, then sends it out again from the order page.
@@ -246,6 +266,7 @@ export async function attentionReport(at = now()) {
       order: d.order_id ? { id: d.order_id, number: d.order_number } : null, preorderNumber: d.preorder_number,
     })),
     ledgerDrift: drift.slice(0, 50),
+    boxMismatches: boxes.map(({ sample: _sample, ...w }) => w),
     preorderCapacityDrift: preorderDrift,
     // sellingPaused: STOCK_INTAKE_CHECKS is on, so their stock no longer sells to new orders.
     lateArrivals: lateTrucks.map((b) => ({ ...b, sellingPaused: env.STOCK_INTAKE_CHECKS })),

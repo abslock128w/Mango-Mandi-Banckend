@@ -1,7 +1,7 @@
 // Ops and performance fixes from the audit: migration lock timeouts, /ready
 // with no maintenance run, notification pruning, one stock read for the
 // catalogue, and the claims list without a query per claim.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -144,7 +144,7 @@ describe('admin lists', () => {
     for (let i = 0; i < 4; i++) {
       const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
       assert.equal(c.status, 201, JSON.stringify(c.body))
-      await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
+      await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
       orders.push(c.body.orderId)
     }
     const customerId = (await query('SELECT customer_id FROM orders WHERE id = $1', [orders[0]])).rows[0].customer_id

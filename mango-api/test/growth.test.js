@@ -2,7 +2,7 @@
 // (FUNNEL_ANALYTICS) and the managers' evening WhatsApp summary
 // (MANAGER_DAILY_SUMMARY). Messages go through stub senders, never to Meta or
 // a push service.
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -17,7 +17,7 @@ import { sendManagerSummaries } from '../src/manager-summary.js'
 import { sendDueNotifications } from '../src/notify.js'
 import { sendDuePush, usePushSender } from '../src/push.js'
 import { enforceLimitsInTests } from '../src/ratelimit.js'
-import { settleOne, settleReferrals } from '../src/referrals.js'
+import { settleOne, settleReferrals, withdrawOne } from '../src/referrals.js'
 import { attentionCount, attentionReport } from '../src/admin/reports.js'
 import { b64url, generateKeyPair } from '../src/webpush.js'
 
@@ -26,7 +26,7 @@ let api
 let admin
 
 const FLAGS = [
-  'REFERRALS', 'REFERRAL_REWARD_RUPEES', 'REFERRAL_MIN_ORDER_RUPEES', 'REFERRAL_MAX_PER_MONTH', 'FUNNEL_ANALYTICS', 'MANAGER_DAILY_SUMMARY',
+  'REFERRALS', 'REFERRAL_REWARD_KIND', 'REFERRAL_REWARD_PERCENT', 'REFERRAL_REWARD_MAX_RUPEES', 'REFERRAL_REWARD_RUPEES', 'REFERRAL_MIN_ORDER_RUPEES', 'REFERRAL_MAX_PER_MONTH', 'FUNNEL_ANALYTICS', 'MANAGER_DAILY_SUMMARY',
   'MANAGER_SUMMARY_TIME', 'MANAGER_SUMMARY_TEMPLATE', 'WEB_PUSH', 'WEB_PUSH_PROVIDER', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT',
 ]
 const saved = Object.fromEntries(FLAGS.map((k) => [k, env[k]]))
@@ -82,7 +82,7 @@ async function deliverForReal(orderId) {
 
 /** Shortcut for tests that only need the end state. */
 async function markDelivered(orderId) {
-  await query(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
+  await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [orderId])
   await query(`INSERT INTO order_events (id, order_id, from_status, status, actor, created_at) VALUES ($1, $2, 'OUT_FOR_DELIVERY', 'DELIVERED', 'test', $3)`, [
     newId('evt'), orderId, now(),
   ])
@@ -131,7 +131,11 @@ describe('refer a friend', () => {
     assert.equal(first.status, 200)
     assert.match(first.body.code, /^[A-Z0-9]{8}$/)
     assert.equal(first.body.shareUrl, `${env.CUSTOMER_ORIGIN.split(',')[0]}/invite/${first.body.code}`)
-    assert.equal(first.body.rewardRupees, 100)
+    // The thank-you is 10% off by default, with no cap unless one is set.
+    assert.equal(first.body.rewardKind, 'PERCENT')
+    assert.equal(first.body.rewardPercent, 10)
+    assert.equal(first.body.rewardMaxRupees, null)
+    assert.equal(first.body.rewardRupees, null)
     assert.equal(first.body.minOrderRupees, 499)
     assert.equal(first.body.canEnterCode, true)
     assert.equal((await api.get('/v1/me/referral', { token: a.accessToken })).body.code, first.body.code, 'the same code every time')
@@ -139,7 +143,7 @@ describe('refer a friend', () => {
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM referral_codes')).rows[0].n, 2)
   })
 
-  test("the whole path: the friend's first order is delivered, both get a one-time code exactly once, by WhatsApp and push", async () => {
+  test("the whole path: once the friend's first order is paid, both get a one-time 10% code exactly once, by WhatsApp and push", async () => {
     await stock()
     const { referrer, friend, code, referrerId, friendId } = await referredPair()
     const view = (await api.get('/v1/me/referral', { token: friend.accessToken })).body
@@ -155,27 +159,29 @@ describe('refer a friend', () => {
     ])
 
     const o = await place(friend.accessToken)
-    assert.equal((await pay(o.body.orderId)).body.result, 'confirmed')
-    // Paid but not delivered yet: nothing.
+    // Placed but not paid yet: nothing.
     assert.deepEqual(await settleReferrals(), { rewarded: 0, voided: 0 })
     assert.equal((await referral(friendId)).status, 'PENDING')
-
-    await deliverForReal(o.body.orderId)
-    // A retried or overlapping job: two runs at once and one more after. One reward per side, ever.
+    assert.equal((await pay(o.body.orderId)).body.result, 'confirmed')
+    // Paid: the reward does not wait for delivery. A retried or overlapping job: two runs at once and one more after. One reward per side, ever.
     const [x, y] = await Promise.all([settleReferrals(), settleReferrals()])
     assert.equal(x.rewarded + y.rewarded, 1)
     assert.equal((await settleReferrals()).rewarded, 0)
     const r = await referral(friendId)
     assert.equal(await tx((c) => settleOne(c, r.id)), null, 'a settled referral is left alone')
+    // Delivery later changes nothing: the reward was given once, at payment.
+    await deliverForReal(o.body.orderId)
+    assert.deepEqual(await settleReferrals(), { rewarded: 0, voided: 0 })
     assert.equal(r.status, 'REWARDED')
     assert.equal(r.order_id, o.body.orderId)
     const given = await rewards()
-    assert.deepEqual(given.map((g) => [g.role, g.customer_id, g.amount]), [['FRIEND', friendId, 10_000], ['REFERRER', referrerId, 10_000]])
+    assert.deepEqual(given.map((g) => [g.role, g.customer_id, g.amount]), [['FRIEND', friendId, 10], ['REFERRER', referrerId, 10]])
     const promos = (await query('SELECT * FROM promo_codes WHERE code = ANY($1) ORDER BY code', [given.map((g) => g.promo_code)])).rows
     assert.equal(promos.length, 2)
     for (const p of promos) {
-      assert.equal(p.kind, 'FLAT')
-      assert.equal(p.value, 10_000)
+      assert.equal(p.kind, 'PERCENT')
+      assert.equal(p.value, 10)
+      assert.equal(p.max_discount, null)
       assert.equal(p.min_subtotal, 49_900)
       assert.equal(p.max_uses, 1)
       assert.equal(p.per_customer, 1)
@@ -194,7 +200,7 @@ describe('refer a friend', () => {
     const toFriend = thanks.find((m) => m.params[2] === friendCode)
     assert.ok(toFriend, JSON.stringify(thanks))
     assert.equal(toFriend.phone, friend.customer?.phone ?? (await query('SELECT phone FROM customers WHERE id = $1', [friendId])).rows[0].phone)
-    assert.equal(toFriend.params[1], 'Rs 100')
+    assert.equal(toFriend.params[1], '10%')
     assert.equal(toFriend.params[4], 'Rs 499')
     await sendDueNotifications({ sender: async (m) => (sent.push(m), 'wamid.again') })
     assert.equal(sent.filter((m) => m.template === 'mandi_referral_reward').length, 2, 'never sent twice')
@@ -212,6 +218,8 @@ describe('refer a friend', () => {
     assert.deepEqual(mine.friends, { pending: 0, rewarded: 1 })
     assert.equal(mine.rewards.length, 1)
     assert.equal(mine.rewards[0].state, 'READY')
+    assert.equal(mine.rewards[0].kind, 'PERCENT')
+    assert.equal(mine.rewards[0].percent, 10)
     assert.equal((await api.get('/v1/me/referral', { token: friend.accessToken })).body.entered.status, 'REWARDED')
 
     // The managers' view lists it, phones masked.
@@ -247,11 +255,11 @@ describe('refer a friend', () => {
     // Someone else's code: not valid for them.
     assert.equal((await place(stranger.accessToken, { promoCode: friendReward.promo_code })).body.error.code, 'PROMO_INVALID')
     assert.equal((await place(friend.accessToken, { promoCode: referrerReward.promo_code })).body.error.code, 'PROMO_INVALID')
-    // Its owner: ₹100 off a regular box.
+    // Its owner: 10% off a regular box on their next order.
     await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 0 }, { token: friend.accessToken })
     const used = await place(friend.accessToken, { promoCode: friendReward.promo_code })
-    assert.equal(used.quote.discount, 10_000)
-    assert.equal(used.quote.total, 189_900 - 10_000)
+    assert.equal(used.quote.discount, 18_990)
+    assert.equal(used.quote.total, 189_900 - 18_990)
     await pay(used.body.orderId)
     // Once only (one use in all, and one per customer).
     assert.equal((await place(friend.accessToken, { promoCode: friendReward.promo_code })).body.error.code, 'PROMO_USED_UP')
@@ -268,7 +276,7 @@ describe('refer a friend', () => {
       sku: 'BAD-3', title: 'Badami for offices', description: 'Badami in 3 kg boxes, for offices and events, packed together.',
       origin: 'Karnataka', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 119_900 }],
     }
-    const l = await api.post('/admin/v1/bulk-listings', draft, { token: admin })
+    const l = await api.post('/admin/v1/bulk-listings', { ...draft, confirmCode: 'manager123' }, { token: admin })
     assert.equal(l.status, 201, JSON.stringify(l.body))
     assert.equal((await api.raw('POST', `/admin/v1/bulk-listings/${l.body.id}/photos`, { raw: jpeg, token: admin, headers: { 'Content-Type': 'image/jpeg' } })).status, 201)
     assert.equal((await api.post(`/admin/v1/bulk-listings/${l.body.id}/publish`, {}, { token: admin })).status, 200)
@@ -401,6 +409,67 @@ describe('refer a friend', () => {
     await markDelivered(small.body.orderId)
     await settleReferrals()
     assert.equal((await referral(second.friendId)).void_reason, 'ORDER_TOO_SMALL')
+  })
+
+  test('a first order cancelled after the reward: unused codes are withdrawn, a used one stays used, and nothing is sent', async () => {
+    await stock()
+    const { referrer, friend, friendId } = await referredPair()
+    const o = await place(friend.accessToken)
+    await pay(o.body.orderId)
+    assert.deepEqual(await settleReferrals(), { rewarded: 1, voided: 0 })
+    const [friendReward, referrerReward] = await rewards()
+    // The referrer spends theirs straight away; the friend has not used theirs.
+    const spent = await place(referrer.accessToken, { promoCode: referrerReward.promo_code, address: REFERRER_ADDRESS })
+    await pay(spent.body.orderId)
+    // Now the friend cancels the first order (before packing: refunded in full).
+    assert.equal((await api.post(`/v1/orders/${o.body.orderId}/cancel`, undefined, { token: friend.accessToken })).status, 204)
+    // Two runs at once: withdrawn once.
+    const [x, y] = await Promise.all([settleReferrals(), settleReferrals()])
+    assert.equal(x.voided + y.voided, 1)
+    const r = await referral(friendId)
+    assert.equal(r.status, 'VOID')
+    assert.equal(r.void_reason, 'ORDER_CANCELLED_AFTER_REWARD')
+    assert.equal(await tx((c) => withdrawOne(c, r.id)), null, 'a withdrawn referral is left alone')
+    const after = Object.fromEntries((await rewards()).map((g) => [g.role, g]))
+    assert.ok(after.FRIEND.withdrawn_at, 'the unused code is withdrawn')
+    assert.equal(after.REFERRER.withdrawn_at, null, 'a code already used stays used')
+    assert.equal((await query('SELECT active FROM promo_codes WHERE code = $1', [friendReward.promo_code])).rows[0].active, false)
+    assert.equal((await place(friend.accessToken, { promoCode: friendReward.promo_code })).body.error.code, 'PROMO_INVALID')
+    assert.equal((await api.get('/v1/me/referral', { token: friend.accessToken })).body.rewards[0].state, 'WITHDRAWN')
+    assert.equal((await api.get('/v1/me/referral', { token: referrer.accessToken })).body.rewards[0].state, 'USED')
+    // The friend's thank-you WhatsApp, still queued, is not sent; the referrer's still is.
+    const sent = []
+    await sendDueNotifications({ sender: async (m) => (sent.push(m), `wamid.${sent.length}`) })
+    const thanks = sent.filter((m) => m.template === 'mandi_referral_reward')
+    assert.deepEqual(thanks.map((m) => m.params[2]), [referrerReward.promo_code])
+  })
+
+  test('the reward can be a capped percent, or a flat amount', async () => {
+    await stock()
+    Object.assign(env, { REFERRAL_REWARD_KIND: 'PERCENT', REFERRAL_REWARD_PERCENT: 15, REFERRAL_REWARD_MAX_RUPEES: 150 })
+    const a = await referredPair()
+    assert.equal((await api.get('/v1/me/referral', { token: a.friend.accessToken })).body.rewardMaxRupees, 150)
+    await pay((await place(a.friend.accessToken)).body.orderId)
+    await settleReferrals()
+    const capped = (await query('SELECT kind, value, max_discount FROM promo_codes p JOIN referral_rewards rr ON rr.promo_code = p.code WHERE rr.customer_id = $1', [a.friendId])).rows[0]
+    assert.deepEqual(capped, { kind: 'PERCENT', value: 15, max_discount: 15_000 })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 0 }, { token: a.friend.accessToken })
+    const code = (await rewards()).find((g) => g.role === 'FRIEND').promo_code
+    assert.equal((await place(a.friend.accessToken, { promoCode: code })).quote.discount, 15_000, '15% of Rs 1,899 is Rs 284, capped at Rs 150')
+
+    Object.assign(env, { REFERRAL_REWARD_KIND: 'FLAT', REFERRAL_REWARD_RUPEES: 100 })
+    const b = await referredPair()
+    const view = (await api.get('/v1/me/referral', { token: b.friend.accessToken })).body
+    assert.equal(view.rewardKind, 'FLAT')
+    assert.equal(view.rewardRupees, 100)
+    assert.equal(view.rewardPercent, null)
+    await pay((await place(b.friend.accessToken, { address: '7, Rose Apartments, HSR Layout, Bengaluru' })).body.orderId)
+    await settleReferrals()
+    const flat = (await query('SELECT kind, value FROM promo_codes p JOIN referral_rewards rr ON rr.promo_code = p.code WHERE rr.customer_id = $1', [b.friendId])).rows[0]
+    assert.deepEqual(flat, { kind: 'FLAT', value: 10_000 })
+    const sent = []
+    await sendDueNotifications({ sender: async (m) => (sent.push(m), `wamid.${sent.length}`) })
+    assert.ok(sent.some((m) => m.template === 'mandi_referral_reward' && m.params[1] === 'Rs 100'))
   })
 
   test('a referrer gets at most REFERRAL_MAX_PER_MONTH thank-yous a month; their friends still get theirs', async () => {

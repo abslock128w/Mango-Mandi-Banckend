@@ -1,4 +1,4 @@
-// Failure conditions (LOAD-TEST.md, scenario E). MODE picks one:
+// Failure conditions (deploy/LOAD-TEST.md, scenario E). MODE picks one:
 //
 //   pool         far more traffic than the pool has connections (start the API
 //                with DB_POOL_MAX=2): requests must end in 200 or a quick

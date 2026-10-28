@@ -1,7 +1,7 @@
 // 24 Oct 2026 audit, payments leftovers (docs/audit-2026-10-24-status-A.md).
 // Each test failed on the code before its fix. Razorpay is never called: a
 // fetch stub stands in for its API and records every call.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
@@ -127,14 +127,14 @@ describe('PAY-05: "paid back another way" while Razorpay cannot be checked', () 
   async function stuckRefund() {
     const { order } = await paidOrder()
     // Cancelled and refunded at Razorpay, but the save failed: Razorpay may hold a refund we don't.
-    await query(
+    await forceOrderState(
       `UPDATE orders SET status = 'CANCELLED', payment_id = 'pay_m1', customer_cancelled_at = $2, refund_requested_at = $2 WHERE id = $1`,
       [order.orderId, new Date(now().getTime() - 40 * MIN)],
     )
     return order
   }
   const settle = (orderId) =>
-    api.post(`/admin/v1/refunds/${orderId}/paid-another-way`, { type: 'order', reference: 'UTR998877', reason: 'paid by bank transfer' }, { token: manager })
+    api.post(`/admin/v1/refunds/${orderId}/paid-another-way`, { type: 'order', reference: 'UTR998877', reason: 'paid by bank transfer', confirmCode: 'manager123' }, { token: manager })
 
   test('with REFUND_SAFETY_CHECKS it is refused and nothing is written', async () => {
     env.REFUND_SAFETY_CHECKS = true
@@ -234,6 +234,8 @@ describe('PAY-06: refunds while a chargeback is open', () => {
         [old],
       )
       await c.query('ALTER TABLE held_src DROP COLUMN g')
+      // Inserted straight as cancelled: past the order status guard for this transaction only (migration 045).
+      await c.query(`SET LOCAL mango.order_status_override = 'on'`)
       await c.query('INSERT INTO orders SELECT * FROM held_src')
       await c.query(
         `INSERT INTO payment_disputes (dispute_id, payment_id, order_id, status, last_event, created_at, updated_at)
@@ -242,7 +244,7 @@ describe('PAY-06: refunds while a chargeback is open', () => {
       )
     })
     // The undisputed one: cancelled, its first refund attempt lost (only the request is recorded).
-    await query(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = $2, refund_requested_at = $2 WHERE id = $1`, [order.orderId, now()])
+    await forceOrderState(`UPDATE orders SET status = 'CANCELLED', customer_cancelled_at = $2, refund_requested_at = $2 WHERE id = $1`, [order.orderId, now()])
     later(31 * MIN)
     assert.equal(await processDueRefunds(), 1)
     const o = await ord(order.orderId)
@@ -260,7 +262,7 @@ describe('PAY-06: refunds while a chargeback is open', () => {
     await drainBackground()
     later(31 * MIN)
     const settle = () =>
-      api.post(`/admin/v1/refunds/${order.orderId}/paid-another-way`, { type: 'order', reference: 'disp_auda', reason: 'the bank returned it' }, { token: manager })
+      api.post(`/admin/v1/refunds/${order.orderId}/paid-another-way`, { type: 'order', reference: 'disp_auda', reason: 'the bank returned it', confirmCode: 'manager123' }, { token: manager })
     const r = await settle()
     assert.equal(r.status, 409, JSON.stringify(r.body))
     assert.equal(r.body.error.code, 'DISPUTE_OPEN')

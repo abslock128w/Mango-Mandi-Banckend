@@ -163,6 +163,7 @@ describe('refunds follow what Razorpay reports', () => {
     assert.equal(reopened.refund_status, 'failed')
     assert.equal(reopened.payment_status, 'SUCCEEDED')
 
+    later(3 * 60_000) // a failed refund is sent again after its back-off (2 minutes after the first attempt)
     assert.equal(await processDueRefunds(), 1)
     const again = await order(o.orderId)
     assert.ok(again.refunded_at)
@@ -230,7 +231,7 @@ describe('WhatsApp sends are recorded truthfully', () => {
 describe('limited promo codes', () => {
   test('a checkout swept for non-payment keeps its use for half an hour, since a late payment revives it', async () => {
     const admin = await adminToken(api)
-    assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1 }, { token: admin })).status, 201)
+    assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1, confirmCode: 'manager123' }, { token: admin })).status, 201)
     const a = await customerToken(api)
     await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: a.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: a.accessToken })

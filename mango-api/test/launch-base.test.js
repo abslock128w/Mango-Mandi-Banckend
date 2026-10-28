@@ -93,13 +93,22 @@ describe('DB-04 and PAY-04: payment problems stay until a manager resolves them'
     assert.equal((await query(`SELECT count(*)::int AS n FROM webhook_failures WHERE payment_id = 'pay_orphan'`)).rows[0].n, 1)
   })
 
-  test('once resolved it is cleaned up after 30 days; old WhatsApp failures are too', async () => {
+  // Until the bill retention change this removed a resolved Razorpay problem after 30 days too. It is a record of
+  // money (a payment or refund that matched nothing, and what was done about it), so it now stays as long as bills.
+  test('once resolved it is kept for BILL_RETENTION_MONTHS (96), then cleaned up; WhatsApp failures go after 30 days', async () => {
     await orphan()
     await query(`UPDATE webhook_failures SET resolved_at = $1, resolved_by = 'test' WHERE payment_id = 'pay_orphan'`, [now()])
     await query(`INSERT INTO webhook_failures (id, source, reason, created_at) VALUES ('whf_wa', 'whatsapp', 'bad payload', $1)`, [now()])
+    const left = async () => (await query(`SELECT source FROM webhook_failures ORDER BY source`)).rows.map((r) => r.source)
     later(31 * DAY)
     await cleanupExpired()
-    assert.equal((await query(`SELECT count(*)::int AS n FROM webhook_failures`)).rows[0].n, 0)
+    assert.deepEqual(await left(), ['razorpay'])
+    later(95 * 30 * DAY) // about 7 years 10 months on
+    await cleanupExpired()
+    assert.deepEqual(await left(), ['razorpay'])
+    later(120 * DAY) // past 96 months
+    await cleanupExpired()
+    assert.deepEqual(await left(), [])
   })
 
   test('a duplicate-payment refund Razorpay never confirmed shows as unconfirmed', async () => {
@@ -138,7 +147,7 @@ describe('PLT-01: rules saved by a newer release still load', () => {
     assert.equal('someFutureRule' in live.rules, false)
     assert.equal(live.rules.holdMinutes, DEFAULT_RULES.holdMinutes)
     assert.equal((await api.get('/v1/products')).status, 200)
-    const save = await api.put('/admin/v1/config', { rules: newer }, { token: manager })
+    const save = await api.put('/admin/v1/config', { rules: newer, confirmCode: 'manager123' }, { token: manager })
     assert.equal(save.status, 400)
   })
 

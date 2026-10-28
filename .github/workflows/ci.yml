@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       # SEC-12: no high or critical advisory in what the shop and panel ship.
@@ -73,7 +73,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: mango-api/package-lock.json
       - run: npm ci
@@ -141,7 +141,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
+      # The old release's bill, gift and label tests read their PDFs with poppler too.
+      - name: Install the PDF renderer for the old release's PDF tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - name: Old API's tests on the new migrations
         working-directory: mango-api
         run: ./scripts/n-minus-1.sh "${{ github.event.pull_request.base.sha || github.event.before }}"
@@ -165,7 +168,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: |
             package-lock.json
@@ -216,6 +219,9 @@ jobs:
           # for this job only (the defaults are checked in mango-api/test/ops-platform.test.js).
           API_RATE_LIMIT: '20000'
           OTP_IP_LIMIT: '2000'
+          # Specs reuse a customer across quick quote and confirm retries; the default (20 a minute) is checked in
+          # mango-api/test/security-readiness.test.js.
+          CUSTOMER_ACTION_LIMIT: '600'
           # The shop in Hindi and Kannada (docs/languages.md), on so customer-app/tests/languages.spec.ts runs.
           SHOP_LANGUAGES: 'true'
       - run: npx playwright install --with-deps chromium

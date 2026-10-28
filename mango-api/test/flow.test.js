@@ -478,7 +478,7 @@ describe('ops tools', () => {
     assert.equal(bad.status, 400)
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
     assert.equal((await api.put('/admin/v1/config', { rules: { ...cfg.rules, cutoffHourIST: 17 } }, { token: ops })).status, 403)
-    const saved = await api.put('/admin/v1/config', { rules: { ...cfg.rules, cutoffHourIST: 17 } }, { token: admin })
+    const saved = await api.put('/admin/v1/config', { rules: { ...cfg.rules, cutoffHourIST: 17 }, confirmCode: 'manager123' }, { token: admin })
     assert.equal(saved.body.version, 2)
     await noDrift()
   })

@@ -8,6 +8,7 @@ import { query, tx } from '../db.js'
 import { asyncHandler, conflict, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { allProducts, findProduct, loadProducts } from '../products.js'
+import { stepUp, withoutConfirm } from './step-up.js'
 
 export const router = express.Router()
 
@@ -44,6 +45,8 @@ router.post(
       }),
       req.body,
     )
+    if ((await query('SELECT 1 FROM products WHERE sku = $1', [b.sku])).rowCount) throw conflict('A product with that SKU already exists', 'PRODUCT_EXISTS')
+    await stepUp(req, { always: true }) // a new price goes on sale (STEP_UP_ROUTES)
     const { rows } = await query(
       `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description, sort_order, created_at, fruits_per_box, fruit_weight_g)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (sku) DO NOTHING RETURNING sku`,
@@ -68,7 +71,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const fields = Object.fromEntries(Object.entries(productFields).map(([k, v]) => [k, v.optional()]))
     // ADM-2: an optional reason, kept in the staff activity with the values before the change.
-    const b = parse(z.object({ ...fields, active: z.boolean().optional(), reason: z.string().trim().max(300).optional() }).strict(), req.body)
+    const b = parse(z.object({ ...fields, active: z.boolean().optional(), reason: z.string().trim().max(300).optional() }).strict(), withoutConfirm(req.body))
     const sku = req.params.sku
     await tx(async (c) => {
       const { rows } = await c.query('SELECT * FROM products WHERE sku = $1 FOR UPDATE', [sku])
@@ -77,6 +80,10 @@ router.patch(
         const used = await c.query('SELECT 1 FROM batch_lines WHERE sku = $1 LIMIT 1', [sku])
         if (used.rows.length) throw conflict('The variety cannot change once a batch holds this product. Add a new product instead.', 'VARIETY_LOCKED')
       }
+      // What a customer pays, and what the bill says about tax, changes: the manager confirms it is them (STEP_UP_ROUTES).
+      const p = rows[0]
+      const pricing = (b.price !== undefined && b.price !== p.price) || (b.gstRate !== undefined && b.gstRate !== Number(p.gst_rate)) || (b.hsnCode !== undefined && b.hsnCode !== p.hsn_code)
+      if (pricing) await stepUp(req, { always: true })
       const cols = {
         name: 'name', variety: 'variety', boxSize: 'box_size', price: 'price', gstRate: 'gst_rate', hsnCode: 'hsn_code', description: 'description', sortOrder: 'sort_order', active: 'active',
         fruitsPerBox: 'fruits_per_box', fruitWeightG: 'fruit_weight_g',
@@ -115,6 +122,7 @@ router.delete(
     const outcome = await tx(async (c) => {
       const { rows } = await c.query('SELECT 1 FROM products WHERE sku = $1 FOR UPDATE', [sku])
       if (!rows.length) throw notFound('No product with that SKU')
+      await stepUp(req, { always: true }) // STEP_UP_ROUTES
       const { rows: used } = await c.query(
         `SELECT EXISTS (SELECT 1 FROM batch_lines WHERE sku = $1) OR EXISTS (SELECT 1 FROM order_items WHERE sku = $1)
              OR EXISTS (SELECT 1 FROM preorders WHERE sku = $1) OR EXISTS (SELECT 1 FROM preorder_capacity WHERE sku = $1)

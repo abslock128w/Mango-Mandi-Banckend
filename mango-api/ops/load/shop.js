@@ -1,4 +1,4 @@
-// Peak-evening load on the shop and the panel (LOAD-TEST.md, scenario A).
+// Peak-evening load on the shop and the panel (deploy/LOAD-TEST.md, scenario A).
 //
 //   browse    customers checking a pincode, the catalogue and delivery days
 //   checkout  sign in, add a box, quote, confirm, then pay (Razorpay's

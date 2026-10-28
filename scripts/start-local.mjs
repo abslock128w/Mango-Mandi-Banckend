@@ -221,6 +221,8 @@ export function markInstalled(dir) {
 async function main() {
   const major = Number(process.versions.node.split('.')[0])
   if (major < 22) throw new Error(`Node 22 or newer is needed (this is ${process.versions.node})`)
+  // Production runs Node 24. Node 22 still runs the demo; npm prints an "unsupported engine" note for it.
+  if (major < 24) say(`This computer has Node ${process.versions.node}. MandiMangoes runs on Node 24; it works here, but install the current LTS from nodejs.org when you can.`)
 
   // An older window still running would keep serving old pages (often a blank screen) on these ports.
   for (const port of [3000, 5173, 5174, DB_PORT]) {

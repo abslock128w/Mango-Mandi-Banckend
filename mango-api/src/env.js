@@ -13,6 +13,13 @@ const flag = () =>
     .default('false')
     .transform((v) => v === 'true')
 
+/** An on/off setting whose default depends on where it runs: undefined unless set (see the ??= below the schema). */
+const optionalFlag = () =>
+  z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true'))
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -27,6 +34,8 @@ const schema = z.object({
   DB_POOL_MAX: z.coerce.number().int().positive().default(onVercel ? 5 : 10),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  // A query slower than this is logged (duration and the start of its SQL, never its values); 0 turns it off.
+  DB_SLOW_QUERY_MS: z.coerce.number().int().min(0).default(500),
   JWT_SECRET: z.string().default(DEV_JWT),
   ADMIN_ORIGIN: z.string().default('http://localhost:5173'),
   CUSTOMER_ORIGIN: z.string().default('http://localhost:5174'),
@@ -121,10 +130,15 @@ const schema = z.object({
   // Growth (docs/growth.md). Each is off unless set, so each can be rolled back on its own.
   // REFERRALS: each customer's referral code and share link on the Account page; a new customer
   // enters a friend's code once, and both get a one-time promo code once the friend's first order
-  // is delivered. Needs the Meta template mandi_referral_reward before it is turned on.
+  // is paid (withdrawn again, if still unused, when that order is cancelled or refunded).
+  // Needs the Meta template mandi_referral_reward before it is turned on.
   REFERRALS: flag(),
-  // The thank-you each side gets (a flat amount off a later order of regular boxes), and the
-  // smallest first order (regular boxes, before any discount) that earns it. Rupees.
+  // The thank-you each side gets, off a later order of regular boxes: PERCENT (REFERRAL_REWARD_PERCENT,
+  // optionally capped at REFERRAL_REWARD_MAX_RUPEES) or FLAT (REFERRAL_REWARD_RUPEES). Then the
+  // smallest first order (regular boxes, before any discount) that earns it, in rupees.
+  REFERRAL_REWARD_KIND: z.enum(['PERCENT', 'FLAT']).default('PERCENT'),
+  REFERRAL_REWARD_PERCENT: z.coerce.number().int().min(1).max(90).default(10),
+  REFERRAL_REWARD_MAX_RUPEES: z.coerce.number().int().min(1).max(100_000).optional(),
   REFERRAL_REWARD_RUPEES: z.coerce.number().int().min(1).max(5000).default(100),
   REFERRAL_MIN_ORDER_RUPEES: z.coerce.number().int().min(1).max(100_000).default(499),
   // Thank-yous one referrer may get in a calendar month (IST); friends past it still get theirs.
@@ -188,16 +202,27 @@ const schema = z.object({
   // INT-04, INT-09, INT-10, INT-11, INT-12, INT-13, INT-14, INT-18: provider calls and messages
   // (stale messages skipped, Meta error codes, login codes, Blob timeouts and sweeps, chat retries).
   PROVIDER_CHECKS: flag(),
-  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire.
-  OPS_ALERTS: flag(),
+  // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire, and the
+  // Vercel checks for every ops/alerts.yml rule (docs/alerts.md). Unset: on in production,
+  // off elsewhere; false turns it off (preflight warns).
+  OPS_ALERTS: optionalFlag(),
+  // With OPS_ALERTS (docs/alerts.md): an answer slower than this many ms counts as slow; 0 counts none.
+  // File downloads, photo uploads and the maintenance run are never counted.
+  SLOW_REQUEST_MS: z.coerce.number().int().min(0).default(2000),
+  // checkHealth warns when, in the last 10 minutes, there were more than this many server errors
+  // (5xx), slow answers, or 503 BUSY answers for want of a database connection.
+  ALERT_API_ERRORS: z.coerce.number().int().min(0).default(10),
+  ALERT_SLOW_REQUESTS: z.coerce.number().int().min(0).default(20),
+  ALERT_DB_BUSY: z.coerce.number().int().min(0).default(5),
   // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
   DELIVERY_CHECKS: flag(),
   // SEC-07: adding staff, changing a role or password, two-step resets and removals ask
-  // the manager for their own two-step code (or password) again.
-  STAFF_STEP_UP: flag(),
+  // the manager for their own two-step code (or password) again. Unset: on in production,
+  // off elsewhere. Money and pricing changes always ask (admin/step-up.js STEP_UP_ROUTES).
+  STAFF_STEP_UP: optionalFlag(),
   // SEC-08: staff changes are audited in their own transaction, opening customer details
-  // is audited, and refused attempts are logged.
-  STAFF_AUDIT_TRAIL: flag(),
+  // is audited, and refused attempts are logged. Unset: on in production, off elsewhere.
+  STAFF_AUDIT_TRAIL: optionalFlag(),
   // Two-step sign-in for staff: required for managers, everyone, or nobody (each person can still turn it on).
   STAFF_TWO_STEP: z.enum(['managers', 'all', 'optional']).optional(),
   // Login codes sent per day across the shop before sending pauses (SMS pumping guard).
@@ -217,6 +242,11 @@ const schema = z.object({
   // budget are what stop SMS pumping.
   OTP_IP_LIMIT: z.coerce.number().int().positive().optional(),
   REFRESH_REUSE_GRACE_MS: z.coerce.number().int().min(0).default(10_000),
+  // The longest a sign-in lasts, however often it is refreshed: then the person signs in again.
+  STAFF_SESSION_MAX_DAYS: z.coerce.number().positive().max(90).default(7),
+  CUSTOMER_SESSION_MAX_DAYS: z.coerce.number().positive().max(365).default(90),
+  // Checkout quotes, order confirms and cancels per signed-in customer per minute (customer.js).
+  CUSTOMER_ACTION_LIMIT: z.coerce.number().int().positive().default(20),
   RAZORPAY_WEBHOOK_SECRET: z.string().default('whsec_dev'),
   // While rotating the webhook secret: the old one, so Razorpay's retries of older events still verify. Remove it a day later.
   RAZORPAY_WEBHOOK_SECRET_PREVIOUS: z.string().default(''),
@@ -245,9 +275,19 @@ const schema = z.object({
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
   OTP_PEPPER: z.string().default(''),
+  // TD-09: encrypts staff two-step (TOTP) secrets at rest, 32 bytes base64 (openssl rand -base64 32).
+  // Keep it apart from JWT_SECRET and the database. Unset: secrets are stored as before.
+  // Once set, never remove or change it without first re-enrolling staff: sealed secrets need it.
+  TOTP_ENCRYPTION_KEY: z.string().default(''),
   // SEC-05: customer details on finished orders (name, phone, address, gift details, delivery GPS)
-  // are removed this many months after the delivery date. Amounts and tax fields stay.
+  // are removed this many months after the delivery date. Amounts and tax fields stay, and the
+  // order's bill keeps everything printed on it (BILL_RETENTION_MONTHS).
   PII_RETENTION_MONTHS: z.coerce.number().int().min(1).max(120).default(12),
+  // Bills keep everything printed on them, the buyer's name and delivery address included, this
+  // many months after the bill date; then the name and address come off. Tax law needs bills kept
+  // for years (docs/trust.md, "How long bills are kept"): the client's CA must confirm the period.
+  // Production refuses less than 72 (preflight.js).
+  BILL_RETENTION_MONTHS: z.coerce.number().int().min(12).max(240).default(96),
   // Staff Google sign-in only for accounts of this Google Workspace domain (the token's hd claim).
   // Unset: any verified Google account whose email is a staff email.
   STAFF_GOOGLE_HD: z.string().default(''),
@@ -312,11 +352,12 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   // PAY-08: once a day, every payment Razorpay captured in the last 3 days is
-  // matched to an order or booking, or listed in Needs attention.
+  // matched to an order or booking, or listed in Needs attention. Unset: on in
+  // production (the backstop for a lost webhook), off elsewhere; false turns it off.
   PAYMENT_DAILY_RECON: z
     .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   // INV-01, INV-07, INV-10: a reschedule never overfills a delivery slot, only a
   // manager cancels a free replacement, and a chat order re-checks its pincode.
   ORDER_RULE_CHECKS: z
@@ -364,7 +405,22 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   console.error('Refusing to start: on Vercel NODE_ENV must be production, previews too (see deploy/VERCEL.md)')
   process.exit(1)
 }
-env.STAFF_TWO_STEP ??= isProd ? 'all' : 'optional'
+/**
+ * Safeguards that are strict by default in production while the local demo keeps
+ * working without them: the staff ones, and OPS_ALERTS (the alerts that page someone).
+ * A value written in the environment always wins (preflight warns when production
+ * turns one off).
+ */
+export function strictDefaults(e, prod) {
+  e.STAFF_TWO_STEP ??= prod ? 'all' : 'optional'
+  e.STAFF_STEP_UP ??= prod
+  e.STAFF_AUDIT_TRAIL ??= prod
+  e.OPS_ALERTS ??= prod
+  return e
+}
+strictDefaults(env, isProd)
+// PAY-08: the daily match with Razorpay is on in production unless set to false.
+env.PAYMENT_DAILY_RECON ??= isProd
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

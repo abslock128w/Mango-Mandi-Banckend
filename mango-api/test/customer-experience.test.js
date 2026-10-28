@@ -1,7 +1,7 @@
 // Shop improvements: product descriptions and "back on" dates in the
 // catalogue, saved addresses, customers moving their own delivery day, and
 // ratings after delivery.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { query } from '../src/db.js'
@@ -149,7 +149,7 @@ describe('ratings', () => {
 
     const b = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { key: 'second' })
     await pay(b.body.orderId)
-    await query(`UPDATE orders SET status = 'DELIVERED' WHERE id IN ($1, $2)`, [a.body.orderId, b.body.orderId])
+    await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id IN ($1, $2)`, [a.body.orderId, b.body.orderId])
     assert.equal((await put(a.body.orderId, { stars: 6 })).status, 400)
     assert.equal((await put(a.body.orderId, { stars: 5, comment: 'Perfectly ripe' })).status, 204)
     assert.equal((await put(b.body.orderId, { stars: 3 })).status, 204)

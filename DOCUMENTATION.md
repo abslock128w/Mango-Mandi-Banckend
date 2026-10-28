@@ -2,7 +2,10 @@
 
 Operations tool for MandiMangoes staff: receive stock, run quality control, move
 orders through fulfilment, handle claims with replacements, and manage delivery areas.
-There are no refunds: a problem with a delivered order is settled by a replacement.
+A problem with a delivered order is settled by a replacement, never a refund. Money goes
+back, always in full, only when a customer cancels a paid order before packing or a
+manager cancels one we cannot deliver (plus automatic refunds of second or wrong-amount
+payments). There are no partial refunds. See [docs/order-states.md](docs/order-states.md).
 
 - **App:** React + TypeScript + Vite single-page app (`mango-admin/`)
 - **Backend:** talks only to `mango-api` under `/admin/v1`
@@ -133,13 +136,24 @@ the dialog suggests deactivating instead).
 ## 5. Business rules the panel enforces
 
 ### Order status flow
+Every status, every allowed move and who makes it, payment and refund states,
+preorders, gift orders, and every path that puts money right (hold expiry, late
+payments, second payments, failed refunds, disputes, lost webhooks) are in
+**[docs/order-states.md](docs/order-states.md)**, generated from the API's order map.
+In short:
 ```
-PAYMENT_PENDING ─(payment)─▶ CONFIRMED ─▶ PROCESSING ─▶ PACKED ─▶ SHIPPED ─▶ OUT_FOR_DELIVERY ─▶ DELIVERED
+PAYMENT_PENDING ─(payment)─▶ CONFIRMED ─▶ PROCESSING ⇄ PACKED ─▶ SHIPPED ─▶ OUT_FOR_DELIVERY ─▶ DELIVERED
                                                                                      │
                                                       RETURNED(RTO) ◀─ DELIVERY_FAILED ◀┘ (or Retry)
-Cancel: allowed from PAYMENT_PENDING through OUT_FOR_DELIVERY (not after).
 ```
-`RTO` is shown as **"Returned."** The panel never offers an invalid transition.
+- The customer can cancel until the order is packed (a paid order is refunded in full).
+- A manager can cancel a paid order until it is delivered, with a full refund; that
+  includes failed and returned deliveries. Staff can cancel an unpaid order up to out for delivery.
+- PACKED goes back to PROCESSING only when the warehouse takes a box off the order.
+- A payment that lands after the hold ran out confirms the cancelled order after all.
+
+`RTO` is shown as **"Returned."** The panel never offers an invalid transition, and the
+database refuses one too.
 
 ### Batch status
 Forward only; `Condemned` can be set from any non-final state and triggers
@@ -159,13 +173,17 @@ open a dialog that names the consequence before it runs.
 - **Offline** → a banner appears until the connection returns.
 - **A request failed** → a Retry button, not a dead screen.
 - **A screen crashes** → an error card with Reload; the nav survives.
+- **Any crash or uncaught error** → reported to Sentry when the build sets
+  `VITE_SENTRY_DSN`, without customers' phone numbers, addresses or search words
+  (deploy/VERCEL.md, "Error reports from the shop and the panel").
 - Unknown URLs show a Not-found page.
 
 ## 7. Security
 
 - Access token kept in memory only — never stored, never logged.
 - Refresh token in an httpOnly cookie set by the backend.
-- No customer data in URLs or logs beyond order numbers.
+- No customer data in URLs or logs beyond order numbers. Error reports to Sentry mask
+  phone numbers, e-mails and codes, drop query strings, and carry no text from the page.
 - All API text is rendered as plain text; the app ships no third-party scripts.
 - Use HTTPS in production and set the API's `ADMIN_ORIGIN` to the panel's host.
 - Riders see only the stops given to them. Managers and operators give stops (one, or a whole

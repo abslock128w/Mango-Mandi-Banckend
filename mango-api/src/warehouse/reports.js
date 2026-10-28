@@ -184,7 +184,7 @@ export async function exceptions(c, warehouseId) {
  * impossible state, every lot's counts match its boxes, and the ledger
  * audit balances.
  */
-export async function reconciliation(c, warehouseId) {
+export async function reconciliation(c, warehouseId, { ledger = true } = {}) {
   const q = async (sql, params = []) => (await c.query(sql, params)).rows
   const [lines, units, states, lots, ledgerDrift] = await Promise.all([
     q(`SELECT l.id, l.batch_id, l.sku, l.on_hand,
@@ -212,7 +212,7 @@ export async function reconciliation(c, warehouseId) {
          JOIN (SELECT lot_id, count(*)::int AS generated, count(*) FILTER (WHERE verification IS NOT NULL)::int AS verified,
                       count(*) FILTER (WHERE lifecycle = 'voided')::int AS voided FROM boxes GROUP BY lot_id) x ON x.lot_id = l.id
         WHERE l.warehouse_id = $1 AND (l.generated_count <> x.generated OR l.verified_count <> x.verified OR l.voided_count <> x.voided)`, [warehouseId]),
-    auditLedger(c),
+    ledger ? auditLedger(c) : [],
   ])
   const stock = lines.filter((l) => l.on_hand !== l.sellable_boxes)
   const report = {
@@ -226,6 +226,26 @@ export async function reconciliation(c, warehouseId) {
     ledgerDrift,
   }
   return report
+}
+
+/**
+ * The scheduled box check (maintenance runAudit, hourly) and Needs attention:
+ * reconciliation() for every active warehouse, one entry per warehouse that is
+ * not clean, with how many problems of each kind. The ledger part is left out:
+ * the ledger audit reports drift on its own, so it is not counted twice.
+ */
+export async function boxCheck(c) {
+  const { rows } = await c.query('SELECT id, name FROM warehouses WHERE active ORDER BY id')
+  const out = []
+  for (const w of rows) {
+    const r = await reconciliation(c, w.id, { ledger: false })
+    if (r.clean) continue
+    out.push({
+      warehouseId: w.id, name: w.name, stockMismatches: r.stockMismatches.length, orderUnitMismatches: r.orderUnitMismatches.length,
+      impossibleStates: r.impossibleStates.length, lotCountMismatches: r.lotCountMismatches.length, sample: r.stockMismatches.slice(0, 5),
+    })
+  }
+  return out
 }
 
 // ---------------------------------------------------------------- trace

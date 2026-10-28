@@ -10,7 +10,6 @@ import { query } from '../db.js'
 import { asyncHandler, notFound, parse } from '../errors.js'
 import { giftStatus } from '../gifts.js'
 import { productName } from '../products.js'
-import { trust } from '../trust-config.js'
 import { isOn } from '../feature-switches.js'
 
 export const router = express.Router()
@@ -76,7 +75,7 @@ router.get(
     const { rows } = await query('SELECT * FROM gift_orders WHERE id = $1', [req.params.id])
     if (!rows.length) throw notFound('Gift order not found')
     const [view] = await withChildren(rows)
-    const bill = trust.bills ? (await query('SELECT * FROM bills WHERE gift_order_id = $1', [rows[0].id])).rows[0] : null
+    const bill = isOn('BILLS_ENABLED') ? (await query('SELECT * FROM bills WHERE gift_order_id = $1', [rows[0].id])).rows[0] : null
     // The bill downloads from its first delivery's bill route (GET /orders/:id/bill, audited).
     res.json({ ...view, payment: { status: rows[0].payment_status, method: rows[0].payment_method, amount: rows[0].payment_amount, id: rows[0].payment_id }, bill: billView(bill ?? null), billOrderId: bill?.order_id ?? null })
   }),

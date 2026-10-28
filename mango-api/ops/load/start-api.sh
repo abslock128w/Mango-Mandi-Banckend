@@ -9,7 +9,7 @@
 #
 # The database must already be migrated and seeded (staff logins, demo
 # stock): production never seeds demo data, so seed it once in development
-# first (see LOAD-TEST.md).
+# first (see deploy/LOAD-TEST.md).
 set -eu
 cd "$(dirname "$0")/../.."
 STUB=${STUB_URL:-http://127.0.0.1:3145}

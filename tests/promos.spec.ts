@@ -1,5 +1,5 @@
 import { expect, test, navLinkAnyState } from './fixtures'
-import { mockApi } from './mock-api'
+import { confirmItsMe, mockApi } from './mock-api'
 
 // Promo codes (manager only) and gift orders on the order page, pack list and rider run.
 
@@ -21,14 +21,21 @@ test('a manager makes a promo code and turns one off', async ({ page }) => {
   await dialog.getByLabel('Rupees off').fill('200')
   await dialog.getByLabel("Only on a customer's first order").check()
   await dialog.getByRole('button', { name: 'Make code' }).click()
+  // A discount: the manager confirms it is them (STEP_UP_ROUTES). A wrong password says so and changes nothing.
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" })
+  await confirmItsMe(page, 'wrong-one')
+  await expect(confirm.getByRole('alert')).toHaveText('That password is not right.')
+  await confirmItsMe(page)
   await expect(dialog).toHaveCount(0)
   await expect(page.getByRole('row', { name: /SORRY200/ })).toContainText('₹200.00 off')
-  const post = api.calls.find((c) => c.method === 'POST' && c.path === '/promos')
-  expect(post?.body).toMatchObject({ code: 'SORRY200', kind: 'FLAT', value: 20000, firstOrderOnly: true })
+  const posts = api.calls.filter((c) => c.method === 'POST' && c.path === '/promos')
+  expect(posts.map((c) => (c.body as { confirmCode?: string }).confirmCode)).toEqual([undefined, 'wrong-one', 'manager123'])
+  expect(posts[2].body).toMatchObject({ code: 'SORRY200', kind: 'FLAT', value: 20000, firstOrderOnly: true })
 
   await page.getByRole('button', { name: 'Turn off DIWALI10' }).click()
+  await confirmItsMe(page)
   await expect(page.getByRole('row', { name: /DIWALI10/ })).toContainText('Off')
-  expect(api.calls.some((c) => c.method === 'PATCH' && c.path === '/promos/DIWALI10')).toBe(true)
+  expect(api.calls.filter((c) => c.method === 'PATCH' && c.path === '/promos/DIWALI10').at(-1)?.body).toEqual({ active: false, confirmCode: 'manager123' })
 })
 
 test('promo codes are a manager-only screen', async ({ page }) => {

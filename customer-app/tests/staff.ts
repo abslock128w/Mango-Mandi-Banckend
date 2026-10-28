@@ -17,3 +17,9 @@ export async function managerToken(request: APIRequestContext): Promise<string> 
   cached = { token: ((await r.json()) as { accessToken: string }).accessToken, at: Date.now() }
   return cached.token
 }
+
+/**
+ * Money and pricing changes (promo codes, bulk deal tiers, prices) ask the manager to confirm
+ * it is them (the API's STEP_UP_ROUTES): the demo manager's password, sent with the change.
+ */
+export const MANAGER_CONFIRM = { confirmCode: 'manager123' }

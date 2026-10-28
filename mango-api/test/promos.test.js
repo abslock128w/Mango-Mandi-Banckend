@@ -27,7 +27,7 @@ const quote = async (token, promoCode, qty = 1) => {
   await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty }, { token })
   return api.post('/v1/checkout/quote', { pincode: '560034', promoCode }, { token })
 }
-const addPromo = (body) => api.post('/admin/v1/promos', body, { token: admin })
+const addPromo = (body) => api.post('/admin/v1/promos', { ...body, confirmCode: 'manager123' }, { token: admin })
 
 describe('promo codes', () => {
   test('a percentage code with a cap, once per customer, freed again by a cancel', async () => {
@@ -62,7 +62,7 @@ describe('promo codes', () => {
 
     const list = (await api.get('/admin/v1/promos', { token: admin })).body
     assert.equal(list[0].uses, 0)
-    assert.equal((await api.patch('/admin/v1/promos/welcome10', { active: false }, { token: admin })).body.active, false)
+    assert.equal((await api.patch('/admin/v1/promos/welcome10', { active: false, confirmCode: 'manager123' }, { token: admin })).body.active, false)
     assert.equal((await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'WELCOME10' }, { token: t })).body.error.code, 'PROMO_INVALID')
   })
 

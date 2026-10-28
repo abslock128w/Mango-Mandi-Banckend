@@ -32,7 +32,14 @@ on the *new* schema. That is why:
   the old release's whole API suite on the new migrations. This is the **N-1 check**;
 - each migration file runs in one transaction with a 5 s lock timeout, tried 3
   times (`src/migrate.js`, `MIGRATION_LOCK_TIMEOUT`). A file that fails is rolled
-  back completely; the files before it stay applied.
+  back completely; the files before it stay applied. The migration test refuses
+  a file that controls its own transaction (`BEGIN`, `COMMIT`) or uses
+  `CONCURRENTLY`. From 048 on, dropping a constraint, index, function, trigger,
+  type or view needs a `-- contract:` line too, unless the same file makes it
+  again under the same name;
+- each applied file's sha256 is kept (`schema_migrations.checksum`, from 048). A
+  file edited after it ran on a database stops the build there, naming the file,
+  before any newer file runs.
 
 ## 0. Before you start
 
@@ -45,11 +52,54 @@ on the *new* schema. That is why:
       same release can be live for minutes against the old API.
 - [ ] If the pull request has a migration: read it. Only adds? Any `ALTER TABLE` on
       a big table has a `-- locks:` note saying what it locks and for how long?
+- [ ] If a migration has `VALIDATE CONSTRAINT` (049 does): run it on a branch copy of
+      production first (below). Staging is a copy from when it was made, so it can
+      pass there and still fail on production's older rows.
 - [ ] Nobody is in the middle of packing or dispatch, if the change touches orders,
       stock or the panel. Mornings before 8:00 IST are quiet.
 - [ ] You know the current production deployment (Vercel → `mandi-api` →
       Deployments → the one marked **Current**). Write its URL down: it is your
       rollback target.
+
+### Before a release that validates constraints
+
+A check or key added `NOT VALID` guards new rows only. `VALIDATE CONSTRAINT` then
+reads every old row, and **one old row that breaks it fails the migration, so the
+whole deploy** (the old version keeps serving; nothing is half-done). Find such
+rows before you merge:
+
+1. Neon → Branches → **Create branch** from `main`, now (call it `validate-check`).
+   Copy its **direct** connection string, logged in as the owner.
+2. On your computer, at the release commit, in `mango-api/`:
+   `DATABASE_URL=<that URL> DATABASE_URL_UNPOOLED=<that URL> VERCEL_ENV=production node src/migrate.js`
+   (`VERCEL_ENV=production` because the copy carries production's stamp).
+3. It ends without an error: nothing to do. It fails at a `VALIDATE` file: run this
+   in the Neon SQL editor **on the branch**. It names each check that is not yet
+   validated with its count of bad rows, then lists rows whose key points at nothing:
+
+   ```sql
+   DO $$
+   DECLARE c record; n bigint;
+   BEGIN
+     FOR c IN SELECT conrelid::regclass AS tbl, conname, pg_get_constraintdef(oid) AS def
+                FROM pg_constraint WHERE contype = 'c' AND NOT convalidated AND connamespace = 'public'::regnamespace LOOP
+       EXECUTE format('SELECT count(*) FROM %s WHERE NOT (%s)', c.tbl, regexp_replace(c.def, '^CHECK \((.*)\)( NOT VALID)?$', '\1')) INTO n;
+       RAISE NOTICE '% on %: % bad rows', c.conname, c.tbl, n;
+     END LOOP;
+   END $$;
+   SELECT 'payment_disputes.order_id' AS key, dispute_id AS id FROM payment_disputes d WHERE order_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.id = d.order_id)
+   UNION ALL SELECT 'payment_disputes.preorder_id', dispute_id FROM payment_disputes d WHERE preorder_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM preorders p WHERE p.id = d.preorder_id)
+   UNION ALL SELECT 'order_items.listing_id', id FROM order_items i WHERE listing_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM bulk_listings l WHERE l.id = i.listing_id);
+   ```
+
+   To see the rows of one check: `SELECT * FROM <table> WHERE NOT (<the condition in its CHECK>);`
+4. Decide what each bad row should hold, and put the `UPDATE` that corrects it at
+   the top of the failing file in the pull request. Changing that file is fine
+   because it has not run on production. It has run on `staging` (the preview
+   build), which now refuses the changed file: clear its record there with
+   `UPDATE schema_migrations SET checksum = NULL WHERE version = '<file>';` and
+   redeploy the preview. Repeat from step 1 on a new branch.
+5. Delete the branch: it holds customer data.
 
 ## 1. Staging first (the pull request's preview)
 
@@ -144,19 +194,32 @@ Then, by hand (5 minutes):
 
 | What | How | Good looks like |
 |------|-----|-----------------|
-| Scheduler | Vercel → `mandi-api` → Logs, filter `/internal/maintenance` | a `200` every minute (Pro cron or the external pinger, deploy/SCHEDULER.md); never `401` |
+| Scheduler | Vercel → `mandi-api` → Logs, filter `/internal/maintenance` | a `200` every minute (Vercel Pro cron in production; the pinger only on staging, deploy/SCHEDULER.md); never `401` |
 | Sentry cron monitor | Sentry → Crons → `maintenance` | check-ins every minute, status OK |
 | Webhooks | Razorpay → Webhooks → the production webhook → recent deliveries | 200s after the deploy time (if any payment happened); none `4xx` |
 | WhatsApp webhook | Meta app → WhatsApp → Configuration | callback verified (green) |
 | DB connections | Neon → `main` → Monitoring → Connections | below the compute's limit, no climb after the deploy |
 | Notification worker | panel → Today → Needs attention | no "Sending WhatsApp updates is failing", no growing "WhatsApp messages not delivered" |
-| Errors | Sentry → Issues, last 30 minutes | nothing new from this release |
+| Errors | Sentry → Issues in the API, `mandimangoes-shop` and `mandimangoes-panel` projects, last 30 minutes | nothing new from this release |
 | A real path | open the shop on a phone, add a box to the cart, reach the payment step (do not pay); open the panel's Today page | works, looks right |
 
 If any of these fail and you can't fix it in 10 minutes, **roll back** (step 5)
 and fix calmly.
 
 ## 5. Rolling back
+
+### What can be undone
+
+| What went wrong | Way back | Notes |
+|---|---|---|
+| Code only | **Instant Rollback** (below) | Seconds. No build runs, so no migration runs. |
+| A feature behind a switch | **Switch it off**: panel → **Settings → Features** (with `PANEL_FEATURE_SWITCHES` on), or set the variable to `false` and Redeploy | Nothing else changes. Data it wrote stays. |
+| An additive migration | **It stays.** Roll the code back; the old release runs on the new schema | Proven by CI's N-1 check (the old release's tests on the new migrations). |
+| Rolling back past 045 and 046 (the order and audit guards) | **They stay.** The old release runs on them | Its status moves are all in the order map. Its CSV export cannot add the row count to its audit row any more; the export still works and the API logs "could not record the export row count". |
+| A contract migration (`-- contract:`: drops, renames or narrows) | **Forward fix only** | What it dropped is gone; a restore is the only other way, and costs far more. Ship a fix. |
+| Refunds sent, WhatsApp or SMS messages sent, bill numbers issued | **Cannot be undone.** Forward fix | Money left through Razorpay, the customer has read the message, and a GST bill number is never reused: correct with a new bill or a message, never by changing the old one. |
+| Wrong data (a price, a reschedule on the wrong day) | **Roll forward**: correct the rows or ship a fix ([below](#data-went-wrong-not-code)) | Loses nothing. |
+| Data that cannot be repaired | **Restore**, the last resort, then always `ops/bump-sequences.js`, `ops/replay-payments.js` and `ops/reapply-deletions.js` | Everything since the restore point is lost while Razorpay keeps the money. Steps: VERCEL.md "Rolling back"; practise with [RESTORE-DRILL.md](RESTORE-DRILL.md). |
 
 ### Code: Vercel Instant Rollback (seconds)
 
@@ -212,7 +275,11 @@ code is still serving. Then:
    lacks). Do not edit the failed file if it ran anywhere; write a new migration
    that works, merge, deploy. If the failed file never ran anywhere (it failed
    everywhere), fixing it in place is fine.
-3. Never "fix" production by hand in the SQL editor to make a migration pass
+3. `Migration <file> changed after it was applied to this database`: someone
+   edited a file that already ran. Put it back as it was (`git log -p -- <file>`)
+   and make the change in a new file. Only for a harmless edit (a comment), clear
+   its record instead, as the message says, and redeploy.
+4. Never "fix" production by hand in the SQL editor to make a migration pass
    without writing the same change as a migration.
 
 ### Data went wrong (not code)
@@ -286,6 +353,7 @@ preview password.)
 | `DB_POOL_MAX` (connections per Vercel instance) | **5** (the default on Vercel; leave it unset) | `src/env.js:16` |
 | `DB_CONNECT_TIMEOUT_MS` (wait for a free connection, then answer 503 "busy, retry") | **5000** (default) | `src/env.js:18`, `src/db.js:28` |
 | idle connection release on Vercel | 5 s (fixed) | `src/db.js:25` |
+| `DB_SLOW_QUERY_MS` (log a query slower than this, without its values) | **500** (default) | `src/env.js`, `src/db.js` |
 | Neon compute size | start at the smallest that keeps **autoscaling max ≥ 1 CU** in season; Neon's `max_connections` grows with compute size. Check Neon's connection table for your size | Neon → Branch `main` → Compute |
 | Neon pooler | on (the `-pooler` host); it accepts thousands of client connections and shares a smaller number of server connections | Neon |
 
@@ -300,7 +368,7 @@ rather than `DB_POOL_MAX`.
 |------|---------|-------|----------------|
 | `mango_app` | `statement_timeout` | **10s** | the same as the code's `DB_STATEMENT_TIMEOUT_MS` default (10 000 ms, `src/env.js:17`), which the code sets itself only on a direct URL (`src/db.js:23`); a request or a maintenance step never needs longer, and the maintenance run's budget is 45 s inside Vercel's 60 s limit |
 | `mango_app` | `idle_in_transaction_session_timeout` | **30s** | the code never sets it; a Vercel function frozen or killed mid-transaction would otherwise hold its stock row locks until the connection dies |
-| `mango_app` | `lock_timeout` | **5s** | below the statement timeout, so a request stuck behind a locked stock or order row gives up early with a retryable 503 BUSY instead of holding a connection for 10 s (LOAD-3 in LOAD-TEST.md) |
+| `mango_app` | `lock_timeout` | **5s** | below the statement timeout, so a request stuck behind a locked stock or order row gives up early with a retryable 503 BUSY instead of holding a connection for 10 s (LOAD-3 in [LOAD-TEST.md](LOAD-TEST.md)) |
 | owner (migrations) | `statement_timeout` | **60s** | migrations on real data; each file also has a 5 s **lock** timeout (`MIGRATION_LOCK_TIMEOUT`, tried 3 times) so it never queues behind traffic for long |
 | read-only backup role | `statement_timeout` | **0** (none) or `15min` | `pg_dump` runs one long transaction |
 
@@ -320,5 +388,5 @@ values over `DATABASE_URL` and **fails** when either is unset on a pooled URL
 
 Neon → Project settings → History retention (restore window): **7 days** (the
 Launch plan's maximum; 1 day is the paid-plan default). This is what makes a
-restore to "a minute before the mistake" possible; see RESTORE-DRILL.md in the
-readiness notes and VERCEL.md "Backups and restore drill".
+restore to "a minute before the mistake" possible; see [RESTORE-DRILL.md](RESTORE-DRILL.md)
+and VERCEL.md "Backups and restore drill".

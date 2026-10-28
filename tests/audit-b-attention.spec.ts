@@ -99,3 +99,32 @@ test('without the API flag a missed delivery offers no move', async ({ page }) =
   await expect(page.getByRole('button', { name: 'Retry delivery' })).toBeVisible()
   await expect(page.getByRole('button', { name: /^Move (retry|delivery) date$/ })).toHaveCount(0)
 })
+
+test('a failing step says how many times in a row and how long its last try took; failed and overdue browser notifications are listed', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  api.attention = {
+    ...api.attention,
+    loop: {
+      lastRunAt: '2026-10-15T04:29:00Z',
+      stale: false,
+      failingSteps: [
+        { step: 'refunds', since: '2026-10-15T04:00:00Z', error: 'Razorpay 503', failCount: 4, lastDurationMs: 8200 },
+        { step: 'push', since: '2026-10-15T04:20:00Z', error: null, failCount: 1, lastDurationMs: 30 },
+      ],
+    },
+    failedPushes: [
+      { id: 'psh1', kind: 'OUT_FOR_DELIVERY', status: 'FAILED', error: 'fcm.googleapis.com: 500', attempts: 3, createdAt: '2026-10-15T03:00:00Z', order: { id: 'o1', number: 'ORD-1042' } },
+      { id: 'psh2', kind: 'ORDER_CONFIRMED', status: 'PENDING', error: null, attempts: 0, createdAt: '2026-10-15T03:30:00Z', order: { id: 'o2', number: 'ORD-1043' } },
+    ],
+  }
+  await page.goto('/today')
+  const card = page.getByRole('region', { name: 'Needs attention' })
+  await expect(card).toContainText('Sending refunds is failing')
+  await expect(card).toContainText('failed 4 times in a row, the last try took 8.2 s')
+  await expect(card).toContainText('failed once, the last try took under a second')
+  const failed = card.getByRole('listitem').filter({ hasText: 'ORD-1042' })
+  await expect(failed).toContainText('Browser notification not delivered')
+  await expect(failed).toContainText('after 3 tries')
+  await expect(failed).toContainText('fcm.googleapis.com: 500')
+  await expect(card.getByRole('listitem').filter({ hasText: 'ORD-1043' })).toContainText('Browser notification overdue')
+})

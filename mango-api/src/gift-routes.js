@@ -31,7 +31,6 @@ import { findProduct, sellable, shopProducts } from './products.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { hit } from './ratelimit.js'
 import { STAGES } from './stage.js'
-import { trust } from './trust-config.js'
 import { csvCell } from './warehouse/reports.js'
 import { isOn } from './feature-switches.js'
 // Function declarations and lazily read constants only: customer.js imports this file.
@@ -156,7 +155,7 @@ customerGifts.post(
       const expiresAt = new Date(now().getTime() + cfg.quoteMinutes * 60_000)
       const quoteId = newId('quo')
       await c.query('INSERT INTO quotes (id, customer_id, data, expires_at) VALUES ($1, $2, $3, $4)', [quoteId, req.customer.id, data, expiresAt])
-      return { quoteId, ...data, expiresAt, holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), bills: trust.bills }
+      return { quoteId, ...data, expiresAt, holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), bills: isOn('BILLS_ENABLED') }
     })
     res.json(quote)
   }),
@@ -195,7 +194,7 @@ customerGifts.post(
       z.object({ quoteId: z.string().min(1).max(64), name: z.string().trim().max(80).optional(), business: businessSchema.optional().nullable() }).strict(),
       req.body,
     )
-    if (b.business && !trust.bills) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
+    if (b.business && !isOn('BILLS_ENABLED')) throw badRequest('Business details for a bill are not taken at the moment', 'BILLS_OFF')
     const key = `${req.customer.id}:gift:${rawKey}`
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'gift_orders')
@@ -264,7 +263,7 @@ async function giftView(c, g) {
   const kids = await giftChildren(c, g.id)
   const [items, bill, expired] = await Promise.all([
     c.query('SELECT order_id, sku, stage, quantity, unit_price, line_price FROM order_items WHERE order_id = ANY($1)', [kids.map((k) => k.id)]),
-    trust.bills ? c.query('SELECT * FROM bills WHERE gift_order_id = $1', [g.id]) : { rows: [] },
+    isOn('BILLS_ENABLED') ? c.query('SELECT * FROM bills WHERE gift_order_id = $1', [g.id]) : { rows: [] },
     c.query(`SELECT 1 FROM order_events WHERE order_id = ANY($1) AND status = 'CANCELLED' AND reason = $2 LIMIT 1`, [kids.map((k) => k.id), HOLD_EXPIRED_REASON]),
   ])
   const slot = g.slot_id ? (await c.query('SELECT * FROM delivery_slots WHERE id = $1', [g.slot_id])).rows[0] : null
@@ -371,7 +370,7 @@ customerGifts.post(
 customerGifts.get(
   '/gifts/:id/bill',
   asyncHandler(async (req, res) => {
-    if (!trust.bills) throw notFound('Not found')
+    if (!isOn('BILLS_ENABLED')) throw notFound('Not found')
     const g = await ownGift({ query }, req)
     const { rows } = await query('SELECT * FROM bills WHERE gift_order_id = $1', [g.id])
     if (!rows.length) throw new HttpError(404, 'BILL_NOT_ISSUED', 'This gift order has no bill yet: it is made once the order is paid.')

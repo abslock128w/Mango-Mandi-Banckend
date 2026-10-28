@@ -305,7 +305,7 @@ describe('INV-F: boxes on orders cancelled after dispatch', () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const { id } = await packedOrder(2)
     await dispatch(id)
-    const c = await api.post(`/admin/v1/orders/${id}/cancel`, { reason: 'customer moved away', refund: true }, { token: admin })
+    const c = await api.post(`/admin/v1/orders/${id}/cancel`, { reason: 'customer moved away', refund: true, confirmCode: 'manager123' }, { token: admin })
     assert.equal(c.status, 204, JSON.stringify(c.body))
     return { id, b }
   }

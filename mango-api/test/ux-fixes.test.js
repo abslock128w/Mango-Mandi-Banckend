@@ -82,7 +82,7 @@ describe('UX-5 and box contents: prices before a pincode', () => {
     // Cleared again with null; nonsense is refused.
     assert.equal((await api.patch('/admin/v1/products/ALP-3', { fruitsPerBox: null }, { token: admin })).body.fruitsPerBox, null)
     assert.equal((await api.patch('/admin/v1/products/ALP-3', { fruitWeightG: 5 }, { token: admin })).status, 400)
-    const added = await api.post('/admin/v1/products', { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', price: 149_900, fruitsPerBox: 14 }, { token: admin })
+    const added = await api.post('/admin/v1/products', { sku: 'KES-3', name: 'Kesar 3kg Box', variety: 'Kesar', price: 149_900, fruitsPerBox: 14, confirmCode: 'manager123' }, { token: admin })
     assert.equal(added.status, 201)
     assert.equal(added.body.fruitsPerBox, 14)
     assert.equal(added.body.fruitWeightG, null)
@@ -205,7 +205,7 @@ describe('ADM-1: order search by name and address', () => {
 
 describe('ADM-2: price changes keep the old price and a reason', () => {
   test('the staff activity row holds the value before, the reason, and is written once', async () => {
-    const r = await api.patch('/admin/v1/products/ALP-3', { price: 199_900, reason: 'Mandi rate went up' }, { token: admin })
+    const r = await api.patch('/admin/v1/products/ALP-3', { price: 199_900, reason: 'Mandi rate went up', confirmCode: 'manager123' }, { token: admin })
     assert.equal(r.status, 200)
     assert.equal(r.body.price, 199_900)
     const { rows } = await query(`SELECT * FROM staff_audit WHERE action = 'PATCH /products/:sku' AND target = 'ALP-3'`)

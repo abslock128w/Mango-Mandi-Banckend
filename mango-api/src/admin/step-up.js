@@ -10,6 +10,12 @@
 //
 // Routes call `stepUp(req)` after they have checked the request, so a one-time
 // code is never spent on a change that is then refused for a typo.
+//
+// Money and pricing changes always ask, whatever STAFF_STEP_UP says
+// (`stepUp(req, { always: true })`): a refund, a price, a discount or a cost is
+// exactly what a stolen session would be used for. STEP_UP_ROUTES (admin/policy.js) is
+// the one list of every route that asks; test/step-up-routes.test.js calls each one
+// and docs/authorization-matrix.md is generated from it.
 import bcrypt from 'bcryptjs'
 import { now } from '../clock.js'
 import { query, tx } from '../db.js'
@@ -18,6 +24,17 @@ import { HttpError } from '../errors.js'
 import { logger } from '../logger.js'
 import { hit } from '../ratelimit.js'
 import { verifyCode } from '../totp.js'
+import { openSecret } from '../secret-box.js'
+
+export { STEP_UP_ROUTES } from './policy.js'
+
+
+/** The body without `confirmCode`, for routes whose schema refuses unknown fields. */
+export function withoutConfirm(body) {
+  if (!body || typeof body !== 'object' || !('confirmCode' in body)) return body
+  const { confirmCode: _c, ...rest } = body
+  return rest
+}
 
 /** Wrong confirmations allowed per manager in STEP_UP_WINDOW_MS before they must wait. */
 export const STEP_UP_TRIES = 5
@@ -44,7 +61,7 @@ function confirmed(adminId, given) {
     const u = rows[0]
     if (!u) return { method: 'password', ok: false }
     if (u.totp_enabled_at) {
-      const step = verifyCode(u.totp_secret, given.replace(/\s/g, ''), now().getTime(), u.totp_last_step)
+      const step = verifyCode(openSecret(adminId, u.totp_secret), given.replace(/\s/g, ''), now().getTime(), u.totp_last_step)
       if (step != null) await c.query('UPDATE admin_users SET totp_last_step = $2 WHERE id = $1', [adminId, step])
       return { method: 'code', ok: step != null }
     }
