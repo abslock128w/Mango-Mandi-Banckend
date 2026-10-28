@@ -350,7 +350,11 @@ async function fakeCamera(page: Page, opts: CamOpts = {}) {
         }
       }
     }
-    const md = navigator.mediaDevices
+    // A stand-in for navigator.mediaDevices as a whole, from a getter on Navigator.prototype.
+    // Replacing methods on the browser's own object is not enough in WebKit: there the real
+    // getUserMedia still answered (the stub was not in place when the page asked).
+    const md = {} as Pick<MediaDevices, 'getUserMedia' | 'enumerateDevices'>
+    Object.defineProperty(Navigator.prototype, 'mediaDevices', { configurable: true, get: () => md })
     md.getUserMedia = async (constraints?: MediaStreamConstraints) => {
       w.__cam.constraints.push(constraints)
       if (o.deny) throw new DOMException('Refused', o.deny)
