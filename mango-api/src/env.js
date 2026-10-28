@@ -193,15 +193,16 @@ const schema = z.object({
   // Minutes an open scan session may sit idle before it expires.
   WAREHOUSE_OP_IDLE_MINUTES: z.coerce.number().int().min(5).max(24 * 60).default(30),
   // Fixes from the 24 Oct 2026 audit, security, integrations and platform part
-  // (docs/audit-2026-10-24-status-B.md). Each is off unless set to true, so
-  // turning one off is the rollback.
+  // (docs/audit-2026-10-24-status-B.md). Unset, each is on in production and off
+  // elsewhere (strictDefaults below); false turns one off (the rollback, and
+  // preflight warns).
   // SEC-02, SEC-09: framework errors caused by the request answer 4xx (not 500 and a
   // Sentry event), a wrong method 405 with Allow, 503 bodies carry retryAfterSeconds, and
   // the shop and panel may read Retry-After and X-Request-Id across origins.
-  API_HARDENING: flag(),
+  API_HARDENING: optionalFlag(),
   // INT-04, INT-09, INT-10, INT-11, INT-12, INT-13, INT-14, INT-18: provider calls and messages
   // (stale messages skipped, Meta error codes, login codes, Blob timeouts and sweeps, chat retries).
-  PROVIDER_CHECKS: flag(),
+  PROVIDER_CHECKS: optionalFlag(),
   // INT-03, INT-06, INT-07, INT-08: alerts that today go quiet or never fire, and the
   // Vercel checks for every ops/alerts.yml rule (docs/alerts.md). Unset: on in production,
   // off elsewhere; false turns it off (preflight warns).
@@ -215,7 +216,7 @@ const schema = z.object({
   ALERT_SLOW_REQUESTS: z.coerce.number().int().min(0).default(20),
   ALERT_DB_BUSY: z.coerce.number().int().min(0).default(5),
   // SEC-06, PLT-06, PLT-07, PLT-08, PLT-09: dispatch dates, replacement and retry promises.
-  DELIVERY_CHECKS: flag(),
+  DELIVERY_CHECKS: optionalFlag(),
   // SEC-07: adding staff, changing a role or password, two-step resets and removals ask
   // the manager for their own two-step code (or password) again. Unset: on in production,
   // off elsewhere. Money and pricing changes always ask (admin/step-up.js STEP_UP_ROUTES).
@@ -343,14 +344,12 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   // Fixes from the 24 Oct 2026 audit that change what staff, customers or the
-  // background run may do (docs/audit-2026-10-24-status-A.md). Each is off
-  // unless set to true, so turning one off is the rollback.
+  // background run may do (docs/audit-2026-10-24-status-A.md). Unset, each is
+  // on in production and off elsewhere (strictDefaults below); false turns one
+  // off (the rollback, and preflight warns).
   // PAY-05, PAY-06: "paid back another way" is refused while Razorpay can't be
   // checked, and no refund goes out automatically while a chargeback is open.
-  REFUND_SAFETY_CHECKS: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+  REFUND_SAFETY_CHECKS: optionalFlag(),
   // PAY-08: once a day, every payment Razorpay captured in the last 3 days is
   // matched to an order or booking, or listed in Needs attention. Unset: on in
   // production (the backstop for a lost webhook), off elsewhere; false turns it off.
@@ -360,17 +359,11 @@ const schema = z.object({
     .transform((v) => (v === undefined ? undefined : v === 'true')),
   // INV-01, INV-07, INV-10: a reschedule never overfills a delivery slot, only a
   // manager cancels a free replacement, and a chat order re-checks its pincode.
-  ORDER_RULE_CHECKS: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+  ORDER_RULE_CHECKS: optionalFlag(),
   // INV-02, INV-08: a batch intake sent twice (same Idempotency-Key) makes one
   // batch, a big intake needs a manager, and stock still in transit after its
   // arrival date stops selling to new orders.
-  STOCK_INTAKE_CHECKS: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+  STOCK_INTAKE_CHECKS: optionalFlag(),
   // With STOCK_INTAKE_CHECKS: the most boxes a non-manager may bring in with one batch.
   BATCH_INTAKE_MANAGER_BOXES: z.coerce.number().int().min(1).max(100_000).default(1000),
   // Staff operations (docs/ops.md). Each is off unless set to true.
@@ -406,16 +399,22 @@ if (onVercel && !isProd && process.env.VERCEL_ENV !== 'development') {
   process.exit(1)
 }
 /**
- * Safeguards that are strict by default in production while the local demo keeps
- * working without them: the staff ones, and OPS_ALERTS (the alerts that page someone).
- * A value written in the environment always wins (preflight warns when production
- * turns one off).
+ * Safeguards on by default in production and off elsewhere, so the local demo and the
+ * tests keep working without them unless they turn one on: the staff ones, the ops
+ * alerts, and the tested fixes from the 24 Oct 2026 audit.
+ */
+export const STRICT_SWITCHES = [
+  'STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL', 'OPS_ALERTS', 'API_HARDENING', 'PROVIDER_CHECKS', 'DELIVERY_CHECKS',
+  'REFUND_SAFETY_CHECKS', 'ORDER_RULE_CHECKS', 'STOCK_INTAKE_CHECKS',
+]
+
+/**
+ * Production defaults for STAFF_TWO_STEP and STRICT_SWITCHES. A value written in the
+ * environment always wins (preflight warns when production turns one off).
  */
 export function strictDefaults(e, prod) {
   e.STAFF_TWO_STEP ??= prod ? 'all' : 'optional'
-  e.STAFF_STEP_UP ??= prod
-  e.STAFF_AUDIT_TRAIL ??= prod
-  e.OPS_ALERTS ??= prod
+  for (const key of STRICT_SWITCHES) e[key] ??= prod
   return e
 }
 strictDefaults(env, isProd)

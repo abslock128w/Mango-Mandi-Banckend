@@ -27,6 +27,16 @@ const sameHost = (a, b) => Boolean(a && b) && dbHost(`postgres://${a.replace(/^[
 
 const origins = (v) => String(v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
 
+/** What production loses while one of the audit fixes is written false (docs/audit-b-fixes.md, docs/audit-2026-10-24-status-A.md). */
+export const AUDIT_FIXES_OFF = {
+  API_HARDENING: 'malformed requests answer 500 and reach Sentry, a wrong method answers 404, and a stop does not wait for a maintenance run in progress',
+  PROVIDER_CHECKS: 'stale messages still go out, a failed login-code send replaces the working code, undelivered WhatsApp login codes are not counted, and Blob calls have no time limit',
+  DELIVERY_CHECKS: "orders can go out for delivery before their day, and a missed delivery's retry or a replacement can promise a date with no room or no stock",
+  REFUND_SAFETY_CHECKS: 'refunds go out while a chargeback is open, and "Paid back another way" is accepted while Razorpay cannot be checked (either can pay a customer twice)',
+  ORDER_RULE_CHECKS: 'reschedules can overfill a delivery slot, any staff member can cancel a free replacement, and chat orders do not re-check the pincode',
+  STOCK_INTAKE_CHECKS: 'a batch intake sent twice makes two batches, a very large intake needs no manager, and stock from a late truck keeps selling',
+}
+
 export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), target = process.env.VERCEL_ENV || 'production' } = {}) {
   const errors = []
   const warnings = []
@@ -122,6 +132,8 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.OPS_ALERTS === false) {
     warnings.push('OPS_ALERTS is false: nobody is warned about API errors, slow answers, a busy database pool, steps failing 3 runs in a row or messages dropped unsent (docs/alerts.md)')
   }
+  // The audit fixes, on unless written false (env.js STRICT_SWITCHES).
+  for (const [key, off] of Object.entries(AUDIT_FIXES_OFF)) if (env[key] === false) warnings.push(`${key} is false: ${off}`)
   if (!env.TRUST_PROXY) warnings.push('TRUST_PROXY is 0: behind a proxy, rate limits see every customer as one address (set 1 behind Caddy)')
   // Tax law needs bills, with the buyer's name and address, kept for years (docs/trust.md).
   const billMonths = env.BILL_RETENTION_MONTHS
