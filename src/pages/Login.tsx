@@ -49,49 +49,69 @@ export default function Login() {
 
   return (
     <main className="login-wrap">
-      <div className="card login-card">
-        <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="112" height="112" alt="MandiMangoes" className="login-logo" />
-        <h1>Mango Ops</h1>
-        {ticket ? (
-          <CodeStep
-            ticket={ticket}
-            onDone={done}
-            onRestart={() => {
-              setTicket(null)
-              setPassword('')
-            }}
-          />
-        ) : (
-          <>
-            {params.get('reason') === 'expired' && (
-              <div className="notice notice-warn" role="status">
-                Your session has ended. Please sign in again.
-              </div>
-            )}
-            <GoogleSignIn onSignedIn={afterFirstStep} onError={setError} />
-            <form onSubmit={onSubmit} noValidate>
-              <div className="field">
-                <label htmlFor="email">Work email</label>
-                <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </div>
-              <div className="field">
-                <label htmlFor="password">Password</label>
-                <input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                />
-              </div>
-              <FormError error={error} />
-              <button type="submit" className="btn btn-primary" disabled={busy || !email.trim() || !password}>
-                {busy ? 'Signing in…' : 'Sign in'}
-              </button>
-            </form>
-          </>
-        )}
+      <div className="login-hero">
+        <div className="login-hero-brand">
+          <img src="/brand/mark-96.webp" width="40" height="40" alt="" />
+          <span>MandiMangoes</span>
+        </div>
+        <div className="login-hero-body">
+          <h2>Every box, from the orchard to the door.</h2>
+          <p>Orders, ripening stock, packing and deliveries for the MandiMangoes team, in one place.</p>
+          <ul className="login-points" aria-label="What Mango Ops covers">
+            <li>Ripeness-aware stock</li>
+            <li>Pack lists and rider runs</li>
+            <li>Claims and reviews</li>
+          </ul>
+        </div>
+        <p className="login-hero-foot">For MandiMangoes staff only.</p>
+      </div>
+      <div className="login-panel">
+        <div className="card login-card">
+          <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="56" height="56" alt="MandiMangoes" className="login-logo" />
+          <h1>Mango Ops</h1>
+          <p className="login-sub">Sign in with your work account.</p>
+          {ticket ? (
+            <CodeStep
+              ticket={ticket}
+              onDone={done}
+              onRestart={() => {
+                setTicket(null)
+                setPassword('')
+              }}
+            />
+          ) : (
+            <>
+              {params.get('reason') === 'expired' && (
+                <div className="notice notice-warn" role="status">
+                  Your session has ended. Please sign in again.
+                </div>
+              )}
+              <GoogleSignIn onSignedIn={afterFirstStep} onError={setError} />
+              <form onSubmit={onSubmit} noValidate>
+                <div className="field">
+                  <label htmlFor="email">Work email</label>
+                  <input id="email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                </div>
+                <div className="field">
+                  <label htmlFor="password">Password</label>
+                  <input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <FormError error={error} />
+                <button type="submit" className="btn btn-primary" disabled={busy || !email.trim() || !password}>
+                  {busy ? 'Signing in…' : 'Sign in'}
+                </button>
+              </form>
+            </>
+          )}
+          <p className="login-foot">Trouble signing in? Ask a manager to reset your access.</p>
+        </div>
       </div>
     </main>
   )

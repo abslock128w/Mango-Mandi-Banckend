@@ -1,0 +1,53 @@
+import Link from "next/link";
+
+/** The privacy notice (India's Digital Personal Data Protection Act, 2023). Have it checked by a lawyer before launch. */
+export function PrivacyContent() {
+  return (
+    <>
+      <h2>What we keep</h2>
+      <ul>
+        <li>Your mobile number, and your name and email if you sign in with Google.</li>
+        <li>Delivery addresses and pincodes you give us.</li>
+        <li>Your orders, bookings, payments (Razorpay gives us a payment reference, never your card or UPI details) and refunds.</li>
+        <li>The bill for each paid order, with your name and delivery address on it, and a business name and GSTIN if you gave them.</li>
+        <li>Problem reports and the photos you add to them, and the rider&apos;s photo of a delivery when nobody could give the delivery code.</li>
+        <li>WhatsApp messages you send us when you order in the chat.</li>
+      </ul>
+
+      <h2>Why</h2>
+      <p>
+        To take and deliver your orders, send you sign-in codes and order updates by SMS and WhatsApp, refund cancelled orders, replace damaged boxes, and keep our accounts
+        and bills as tax law requires. We don&apos;t sell your details or use them for advertising.
+      </p>
+
+      <h2>Who else sees it</h2>
+      <ul>
+        <li>Razorpay, to take payments and send refunds.</li>
+        <li>Meta (WhatsApp) and Jio, to send messages and sign-in codes to your number.</li>
+        <li>Google, if you choose to sign in with Google.</li>
+        <li>Our riders, who see your name, number and address for the day&apos;s deliveries.</li>
+      </ul>
+
+      <h2>Where it is stored</h2>
+      <p>Our servers and database are in Singapore (Vercel and Neon, on Amazon Web Services).</p>
+
+      <h2>How long</h2>
+      <p>
+        While you have an account. Sign-in codes are cleared within hours, and photos added to a report that was never sent are cleared after a day. 12 months after an
+        order is delivered or cancelled, we remove your name, number and address from the order, and delete the rider&apos;s delivery photo and the photos on any problem
+        report about it (once the report is settled). Order amounts, payments and refunds are kept for our accounts, also after you delete your account, without your name,
+        number or address.
+      </p>
+      <p>
+        Bills are different. Tax law requires us to keep every bill as it was issued, so your bill keeps your name and delivery address for 8 years from its date, even after
+        the 12 months above and even if you delete your account. After 8 years we remove your name and address from the bill; its number, items and amounts stay.
+      </p>
+
+      <h2>Your choices</h2>
+      <p>
+        You can see your details, download a copy of them and delete your account yourself on the <Link href="/account">Account</Link> page. For anything else, such as
+        correcting an order&apos;s details, message us on WhatsApp.
+      </p>
+    </>
+  );
+}

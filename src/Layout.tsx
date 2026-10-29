@@ -1,109 +1,52 @@
-import { Suspense, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { ChevronDown, ChevronsLeft, ChevronsRight, KeyRound, LogOut, Menu as MenuIcon, Search, X } from 'lucide-react'
 import { api } from './api'
-import { ROLE_LABEL, canSee, homeFor, type Screen } from './permissions'
+import { ROLE_LABEL, homeFor } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
-import type { Me } from './types'
-import { WH_LINKS, whLinkAllowed } from './warehouse/access'
+import { isHere, navGroups, primaryLinks, type NavItem } from './nav'
 
-type NavItem = [to: string, label: string, screen: Screen]
+// The palette is code nobody needs for the first paint: fetched the first time it opens.
+const CommandPalette = lazy(() => import('./CommandPalette'))
 
-/**
- * The navigation in five groups. Each role still sees exactly the screens canSee allows;
- * a group with no allowed screen is left out, and a group with one is a plain link.
- */
-const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
-  { id: 'today', label: 'Today', links: [['/today', 'Today', 'today']] },
-  {
-    id: 'fulfilment',
-    label: 'Fulfilment',
-    links: [
-      ['/orders', 'Orders', 'orders'],
-      ['/pack-list', 'Pack list', 'packList'],
-      ['/deliveries', 'Deliveries', 'deliveries'],
-    ],
-  },
-  {
-    id: 'stock',
-    label: 'Stock',
-    links: [
-      ['/batches', 'Batches', 'batches'],
-      ['/planning', 'Planning', 'planning'],
-      ['/preorders', 'Preorders', 'preorders'],
-      ['/farms', 'Farms', 'farms'],
-    ],
-  },
-  {
-    id: 'customers',
-    label: 'Customers',
-    links: [
-      ['/customers', 'Find a customer', 'customers'],
-      ['/whatsapp', 'WhatsApp', 'whatsapp'],
-      ['/help-desk', 'Help desk', 'helpDesk'],
-      ['/subscriptions', 'Subscriptions', 'subscriptions'],
-      ['/claims', 'Claims', 'claims'],
-      ['/reviews', 'Reviews', 'reviews'],
-      ['/pincodes', 'Pincodes', 'pincodes'],
-    ],
-  },
-  {
-    id: 'admin',
-    label: 'Admin',
-    links: [
-      ['/analytics', 'Analytics', 'analytics'],
-      ['/products', 'Products', 'products'],
-      ['/bulk-deals', 'Bulk Deals', 'bulkDeals'],
-      ['/promos', 'Promos', 'promos'],
-      ['/staff', 'Staff', 'staff'],
-      ['/settings', 'Settings', 'settings'],
-    ],
-  },
-]
+/** Which disclosure is open: the phone Menu sheet or the account menu. */
+type Open = null | 'menu' | 'account'
 
-/** Screens that exist only while the API has their switch on (/auth/me features). */
-function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
-  if (screen === 'customers') return !!me?.features?.customerProfiles
-  if (screen === 'farms') return !!me?.features?.purchaseRecords
-  if (screen === 'settings') return !!me?.features?.panelSwitches
-  if (screen === 'helpDesk') return !!me?.features?.helpDesk
-  if (screen === 'subscriptions') return !!me?.features?.subscriptions
-  return true
+const COLLAPSED_KEY = 'mango-ops.sidebar'
+
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === 'collapsed'
+  } catch {
+    return false
+  }
 }
 
-/** Which disclosure is open: the phone Menu, the account menu, or one desktop group. */
-type Open = null | 'menu' | 'account' | `group-${string}`
-
-const navLinkClass = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? ' active' : ''}`
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
 /**
- * The top bar. Below 900px: the name, a Menu button and the account button in one 56px row;
- * the menu opens under it. From 900px: the groups on one row, each a small dropdown.
- * Every menu is a disclosure: aria-expanded on its button, focus moves to its first link,
- * Escape closes it and returns focus, and it closes when focus or a click leaves it.
+ * The shell. From 900px: a top bar across the page (name, search, account) and a grouped sidebar
+ * that collapses to icons. Below 900px: the same top bar and a bottom tab bar with the role's most
+ * used screens and Menu, which opens every other screen in a sheet. Every menu is a disclosure:
+ * aria-expanded on its button, focus moves to its first link, Escape closes it and returns focus,
+ * and it closes when focus or a click leaves it. Ctrl/Cmd+K opens the command palette.
  */
 export default function Layout() {
   const { me } = useSession()
   const location = useLocation()
   const [open, setOpen] = useState<Open>(null)
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const [palette, setPalette] = useState(false)
   const mainRef = useRef<HTMLElement>(null)
   // Set when a disclosure opens from its button, so the effect below moves focus into it.
   const focusInto = useRef(false)
 
-  const shown: { id: string; label: string; links: [to: string, label: string][] }[] = GROUPS.map((g) => ({
-    ...g,
-    // Customer profiles only exist while the API has them switched on (/auth/me features).
-    // Farms and Settings only while their switches are on (docs/ops.md), and so do the Help desk and
-    // Subscriptions (docs/care.md).
-    links: g.links.filter(([, , screen]) => canSee(me?.role, screen) && switchedOn(me, screen)).map(([to, label]): [string, string] => [to, label]),
-  }))
-  // The box-tracked warehouse: its group only exists while /auth/me says it is on.
-  if (me?.warehouse?.enabled) {
-    const links = WH_LINKS.filter(([, , perm]) => whLinkAllowed(me, perm)).map(([to, label]): [string, string] => [to, label])
-    shown.splice(3, 0, { id: 'warehouse', label: 'Warehouse', links })
-  }
-  const groups = shown.filter((g) => g.links.length > 0)
+  const groups = navGroups(me)
+  const primary = primaryLinks(groups)
+  const primaryTo = new Set(primary.map((l) => l.to))
   const twoStepOff = !!me?.twoStep && !me.twoStep.enabled
+  const here = groups.flatMap((g) => g.links.map((l) => ({ group: g.label, link: l }))).find((x) => isHere(x.link.to, location.pathname))
 
   // A new page closes whatever was open.
   useEffect(() => setOpen(null), [location.pathname])
@@ -114,7 +57,9 @@ export default function Layout() {
     if (focusInto.current) {
       focusInto.current = false
       const panel = document.getElementById(panelId(open))
-      panel?.querySelector<HTMLElement>('a, button')?.focus()
+      // The first link that shows (the sheet leaves out what the tab bar already has).
+      const first = Array.from(panel?.querySelectorAll<HTMLElement>('a, button') ?? []).find((el) => el.getClientRects().length > 0)
+      first?.focus()
     }
     function leave(e: Event) {
       if (wrapper && e.target instanceof Node && !wrapper.contains(e.target)) setOpen(null)
@@ -127,9 +72,32 @@ export default function Layout() {
     }
   }, [open])
 
+  // Ctrl/Cmd+K anywhere opens the palette (a second press closes it).
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setOpen(null)
+        setPalette((p) => !p)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
   function toggle(id: Exclude<Open, null>) {
     focusInto.current = open !== id
     setOpen(open === id ? null : id)
+  }
+
+  function toggleCollapsed() {
+    const next = !collapsed
+    setCollapsed(next)
+    try {
+      window.localStorage.setItem(COLLAPSED_KEY, next ? 'collapsed' : 'expanded')
+    } catch {
+      // A private window without storage: the choice lasts until reload.
+    }
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -153,105 +121,131 @@ export default function Layout() {
     mainRef.current?.scrollIntoView()
   }
 
+  const link = (l: NavItem, extra = '') => (
+    <NavLink
+      to={l.to}
+      end={l.to === '/warehouse'}
+      className={({ isActive }) => `nav-link${isActive || isHere(l.to, location.pathname) ? ' active' : ''}${extra}`}
+      title={collapsed ? l.label : undefined}
+    >
+      <l.icon className="nav-icon" aria-hidden="true" strokeWidth={1.75} />
+      <span className="nav-text">{l.label}</span>
+    </NavLink>
+  )
+
   return (
-    <div className="app">
-      <header className="app-header" onKeyDown={onKeyDown} onClick={onNavClick}>
-        <a href="#main" className="skip-link" onClick={skipToContent}>
-          Skip to content
-        </a>
-        <div className="app-bar" data-disclosure="menu">
+    <div className={`app${collapsed ? ' is-collapsed' : ''}`} onKeyDown={onKeyDown} onClick={onNavClick}>
+      <a href="#main" className="skip-link" onClick={skipToContent}>
+        Skip to content
+      </a>
+      <header className="app-header">
+        <div className="app-bar">
           <NavLink to={homeFor(me?.role)} className="brand">
-            <img src="/brand/mark-96.webp" width="32" height="32" alt="" className="brand-mark" />
+            <img src="/brand/mark-96.webp" width="28" height="28" alt="" className="brand-mark" />
             <span className="brand-text">Mango Ops</span>
           </NavLink>
-          <button
-            type="button"
-            className="menu-btn"
-            aria-expanded={open === 'menu'}
-            aria-controls={panelId('menu')}
-            onClick={() => toggle('menu')}
-          >
-            <span className="menu-icon" aria-hidden="true" />
-            Menu
+          {here && (
+            <p className="crumbs" aria-hidden="true">
+              <span>{here.group}</span>
+              <span className="crumb-sep">/</span>
+              <span className="crumb-here">{here.link.label}</span>
+            </p>
+          )}
+          <button type="button" className="search-btn" onClick={() => setPalette(true)} aria-haspopup="dialog" aria-keyshortcuts={isMac ? 'Meta+K' : 'Control+K'}>
+            <Search className="search-icon" aria-hidden="true" strokeWidth={2} />
+            <span className="search-text">Search</span>
+            <kbd className="kbd" aria-hidden="true">
+              {isMac ? '⌘' : 'Ctrl'} K
+            </kbd>
           </button>
-          <nav id={panelId('menu')} aria-label="Main" className={`app-nav${open === 'menu' ? ' open' : ''}`}>
-            <ul className="nav-groups">
-              {groups.map((g) => {
-                if (g.links.length === 1) {
-                  const [to, label] = g.links[0]
-                  return (
-                    <li key={g.id} className="nav-group nav-group-single">
-                      <NavLink to={to} className={navLinkClass}>
-                        {label}
-                      </NavLink>
-                    </li>
-                  )
-                }
-                const id: Open = `group-${g.id}`
-                const here = g.links.some(([to]) => location.pathname === to || location.pathname.startsWith(`${to}/`))
-                return (
-                  <li
-                    key={g.id}
-                    className={`nav-group${open === id ? ' open' : ''}${here ? ' here' : ''}`}
-                    data-disclosure={id}
-                  >
-                    <button
-                      type="button"
-                      className="nav-group-btn"
-                      aria-expanded={open === id}
-                      aria-controls={panelId(id)}
-                      onClick={() => toggle(id)}
-                    >
-                      {g.label}
-                      <span className="chevron" aria-hidden="true" />
-                    </button>
-                    <span className="nav-group-label" id={`${panelId(id)}-label`}>
-                      {g.label}
-                    </span>
-                    <ul id={panelId(id)} className="nav-group-list" aria-labelledby={`${panelId(id)}-label`}>
-                      {g.links.map(([to, label]) => (
-                        <li key={to}>
-                          <NavLink to={to} className={navLinkClass}>
-                            {label}
-                          </NavLink>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                )
-              })}
-            </ul>
-          </nav>
           <div className={`account${open === 'account' ? ' open' : ''}`} data-disclosure="account">
-            <button
-              type="button"
-              className="account-btn"
-              aria-expanded={open === 'account'}
-              aria-controls={panelId('account')}
-              onClick={() => toggle('account')}
-            >
-              <span className="account-email">{me?.email} · </span>
-              {me ? ROLE_LABEL[me.role] : 'Account'}
+            <button type="button" className="account-btn" aria-expanded={open === 'account'} aria-controls={panelId('account')} onClick={() => toggle('account')}>
+              <span className="avatar" aria-hidden="true">
+                {(me?.email ?? '?').charAt(0).toUpperCase()}
+              </span>
+              <span className="account-label">
+                <span className="account-email">{me?.email} · </span>
+                {me ? ROLE_LABEL[me.role] : 'Account'}
+              </span>
               {twoStepOff && (
                 <>
                   <span className="dot-warn" aria-hidden="true" />
                   <span className="sr-only"> (two-step sign-in is off)</span>
                 </>
               )}
-              <span className="chevron" aria-hidden="true" />
+              <ChevronDown className="chevron" aria-hidden="true" strokeWidth={2} />
             </button>
             <div id={panelId('account')} className="account-menu">
-              {me && <p className="account-who">{me.email}</p>}
-              <NavLink to="/two-step" className={navLinkClass}>
+              {me && (
+                <div className="account-who">
+                  <span className="avatar avatar-lg" aria-hidden="true">
+                    {me.email.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="account-who-text">
+                    <span className="account-who-email">{me.email}</span>
+                    <span className="account-who-role">{ROLE_LABEL[me.role]}</span>
+                  </span>
+                </div>
+              )}
+              <NavLink to="/two-step" className={({ isActive }) => `menu-item${isActive ? ' active' : ''}`}>
+                <KeyRound aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
                 Two-step sign-in{twoStepOff ? ' (off)' : ''}
               </NavLink>
-              <button type="button" className="btn btn-small" onClick={() => void api.logout()}>
+              <button type="button" className="menu-item" onClick={() => void api.logout()}>
+                <LogOut aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
                 Sign out
               </button>
             </div>
           </div>
         </div>
       </header>
+
+      <nav id="main-nav" aria-label="Main" className={`sidebar${open === 'menu' ? ' open' : ''}`} data-disclosure="menu">
+        <div id={panelId('menu')} className="nav-sheet">
+          <ul className="nav-groups">
+            {groups.map((g) => {
+              const labelId = `nav-${g.id}-label`
+              const onlyPrimary = g.links.every((l) => primaryTo.has(l.to))
+              return (
+                <li key={g.id} className={`nav-group${onlyPrimary ? ' only-primary' : ''}`}>
+                  <span className="nav-group-label" id={labelId}>
+                    {g.label}
+                  </span>
+                  <ul className="nav-group-list" aria-labelledby={labelId}>
+                    {g.links.map((l) => (
+                      <li key={l.to} className={primaryTo.has(l.to) ? 'is-primary' : undefined}>
+                        {link(l)}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              )
+            })}
+          </ul>
+          {primary.length === groups.flatMap((g) => g.links).length && <p className="sheet-empty">Every screen you use is in the bar below.</p>}
+        </div>
+        <div className="sidebar-foot">
+          <button type="button" className="collapse-btn" onClick={toggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            {collapsed ? <ChevronsRight aria-hidden="true" strokeWidth={1.75} /> : <ChevronsLeft aria-hidden="true" strokeWidth={1.75} />}
+            <span className="nav-text" aria-hidden="true">
+              Collapse
+            </span>
+          </button>
+        </div>
+        <ul className="tabbar">
+          {primary.map((l) => (
+            <li key={l.to}>{link(l, ' tab')}</li>
+          ))}
+          <li>
+            <button type="button" className="tab menu-btn" aria-expanded={open === 'menu'} aria-controls={panelId('menu')} onClick={() => toggle('menu')}>
+              {open === 'menu' ? <X className="nav-icon" aria-hidden="true" strokeWidth={1.75} /> : <MenuIcon className="nav-icon" aria-hidden="true" strokeWidth={1.75} />}
+              <span className="nav-text">Menu</span>
+            </button>
+          </li>
+        </ul>
+      </nav>
+      {open === 'menu' && <div className="sheet-backdrop" aria-hidden="true" />}
+
       <main className="content" id="main" tabIndex={-1} ref={mainRef}>
         {/* Keyed by path so a crash on one screen clears when you navigate away. */}
         <ErrorBoundary key={location.pathname}>
@@ -260,10 +254,16 @@ export default function Layout() {
           </Suspense>
         </ErrorBoundary>
       </main>
+
+      {palette && (
+        <Suspense fallback={null}>
+          <CommandPalette groups={groups} onClose={() => setPalette(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }
 
 function panelId(open: Exclude<Open, null>) {
-  return open === 'menu' ? 'main-nav' : `${open}-menu`
+  return open === 'menu' ? 'nav-sheet' : `${open}-menu`
 }

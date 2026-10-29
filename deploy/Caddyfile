@@ -24,10 +24,11 @@
 	file_server
 }
 
+# The shop is a Next.js server (deploy/shop.Dockerfile); it sends its own CSP and frame headers.
 {$SHOP_DOMAIN} {
 	import security
-	root * /srv/shop
-	import spa
+	encode zstd gzip
+	reverse_proxy shop:3001
 }
 
 www.{$SHOP_DOMAIN} {

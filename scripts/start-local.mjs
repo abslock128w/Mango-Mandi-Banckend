@@ -85,10 +85,11 @@ export function localPlan(argv, wifiIps = []) {
     // Shared: login codes stay out of the API's answers and are printed here instead.
     ...(shared ? { OTP_CODE_IN_RESPONSE: 'false', LOG_OTP_CODES: 'true', SMS_PROVIDER: 'log' } : {}),
   }
-  // Shared, the shop calls its own address and Vite passes /v1 (never /v1/dev) to the API, so
+  // Shared, the shop calls its own address and Next.js passes /v1 (never /v1/dev) to the API, so
   // phones need only port 5174. On this computer alone it calls the API directly.
-  const shopEnv = shared ? { VITE_API_URL: '', SHOP_API_PROXY: API } : { VITE_API_URL: API }
-  const shopCmd = `npx vite --config customer-app/vite.config.ts --port 5174 --strictPort --force${wifi.length ? ' --host 0.0.0.0' : ''}`
+  const shopEnv = shared ? { NEXT_PUBLIC_API_URL: '', SHOP_API_PROXY: API } : { NEXT_PUBLIC_API_URL: API }
+  // The shop is a Next.js app with its own packages in customer-app/ (started from there).
+  const shopCmd = `npx next dev --port 5174${wifi.length ? ' --hostname 0.0.0.0' : ''}`
   return { link, shared, wifi, api, shopEnv, shopCmd }
 }
 
@@ -232,9 +233,14 @@ async function main() {
   }
 
   if (installNeeded(root)) {
-    say('Installing the shop and staff panel (first run or after an update, a few minutes)')
+    say('Installing the staff panel (first run or after an update, a few minutes)')
     await run('npm ci --no-audit --no-fund --loglevel=error', root)
     markInstalled(root)
+  }
+  if (installNeeded(path.join(root, 'customer-app'))) {
+    say('Installing the shop (first run or after an update)')
+    await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'customer-app'))
+    markInstalled(path.join(root, 'customer-app'))
   }
   if (installNeeded(path.join(root, 'mango-api'))) {
     say('Installing the API (first run or after an update)')
@@ -273,7 +279,7 @@ async function main() {
 
   say('Starting the shop and the staff panel')
   start('npx vite --port 5173 --strictPort --force', root, { VITE_API_URL: API }, true)
-  start(PLAN.shopCmd, root, PLAN.shopEnv, true)
+  start(PLAN.shopCmd, path.join(root, 'customer-app'), PLAN.shopEnv, true)
   await waitFor(SHOP)
   await waitFor(PANEL)
   const phoneLink = PHONE ? await startPhoneLink() : null
