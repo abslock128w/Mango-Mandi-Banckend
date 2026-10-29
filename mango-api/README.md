@@ -53,6 +53,10 @@ with `OTP_NOT_SENT`.
 
 ## WhatsApp order updates
 
+The whole WhatsApp integration (inbox, consent, templates, webhooks, retries, set-up and the
+one-day activation) is described in [docs/whatsapp/](../docs/whatsapp/README.md). This section
+is the short version.
+
 Each order step queues a WhatsApp message in the `notifications` table, in the same
 transaction as the step, so an update is never lost or sent for a change that rolled
 back. The maintenance loop sends them, retrying after 1, 5, 15, 60 and 180 minutes, then
