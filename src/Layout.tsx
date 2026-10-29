@@ -1,11 +1,12 @@
 import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { ChevronDown, ChevronsLeft, ChevronsRight, KeyRound, LogOut, Menu as MenuIcon, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronsLeft, ChevronsRight, KeyRound, LogOut, Menu as MenuIcon, Moon, Search, Sun, X } from 'lucide-react'
 import { api } from './api'
 import { ROLE_LABEL, homeFor } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
 import { isHere, navGroups, primaryLinks, type NavItem } from './nav'
+import { applyTheme, readTheme, shownTheme } from './theme'
 
 // The palette is code nobody needs for the first paint: fetched the first time it opens.
 const CommandPalette = lazy(() => import('./CommandPalette'))
@@ -158,6 +159,7 @@ export default function Layout() {
               {isMac ? '⌘' : 'Ctrl'} K
             </kbd>
           </button>
+          <ThemeSwitch />
           <div className={`account${open === 'account' ? ' open' : ''}`} data-disclosure="account">
             <button type="button" className="account-btn" aria-expanded={open === 'account'} aria-controls={panelId('account')} onClick={() => toggle('account')}>
               <span className="avatar" aria-hidden="true">
@@ -266,4 +268,30 @@ export default function Layout() {
 
 function panelId(open: Exclude<Open, null>) {
   return open === 'menu' ? 'nav-sheet' : `${open}-menu`
+}
+
+/** Light or dark for this browser; the first press switches away from what the computer shows. */
+function ThemeSwitch() {
+  const [shown, setShown] = useState(() => shownTheme(readTheme()))
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const sync = () => setShown(shownTheme(readTheme()))
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  const next = shown === 'dark' ? 'light' : 'dark'
+  return (
+    <button
+      type="button"
+      className="theme-btn"
+      aria-label={`Switch to ${next} theme`}
+      title={`Switch to ${next} theme`}
+      onClick={() => {
+        applyTheme(next)
+        setShown(next)
+      }}
+    >
+      {shown === 'dark' ? <Sun aria-hidden="true" strokeWidth={2} /> : <Moon aria-hidden="true" strokeWidth={2} />}
+    </button>
+  )
 }

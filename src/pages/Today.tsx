@@ -119,7 +119,7 @@ export default function Today() {
           {tiles.map((t) => {
             const urgent = t.urgent && t.count > 0
             return (
-              <Link key={t.to} className={`tile tone-${t.tone}${urgent ? ` tile-${t.urgent}` : ''}`} to={t.to}>
+              <Link key={t.to} className={`tile tone-${t.tone}${urgent ? ` tile-${t.urgent}` : ''}`} data-zero={t.count === 0 || undefined} to={t.to}>
                 <div className="count">{t.count}</div>
                 <div className="label">{t.label}</div>
                 {/* The flag line is always there, empty when calm, so a tile keeps its height. */}

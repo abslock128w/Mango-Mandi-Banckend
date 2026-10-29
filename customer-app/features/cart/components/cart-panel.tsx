@@ -58,7 +58,7 @@ function CartLineRow({ line }: { line: CartLine }) {
         <Image src={line.image} alt="" fill sizes="70px" className="object-cover" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-12 font-medium text-ink">{line.name} Mango</p>
+        <p className="line-clamp-2 text-12 font-medium text-ink">{/box/i.test(line.name) ? line.name : `${line.name} Mango`}</p>
         <div className="mt-1 flex items-center gap-1.5">
           <RipenessChip stage={line.ripeness} />
           <span className="text-12 text-muted">{line.size} kg box</span>

@@ -416,10 +416,25 @@ export function ProductDetail({ product, sel, scope, mode }: { product: Product;
     <div className="space-y-4">
       <div>
         <p className="text-12 text-muted">{v.origin}</p>
-        <h1 className="mt-0.5 font-display text-21 font-extrabold text-ink lg:text-24">{`${product.name} Mango`}</h1>
+        <h1 className="mt-0.5 font-display text-21 font-extrabold text-ink lg:text-24">{v.contents ? product.name : `${product.name} Mango`}</h1>
         <p className="mt-1 text-13 text-muted">{v.flavour}</p>
       </div>
       <PriceBlock sel={sel} product={product} />
+      {v.contents && (
+        <section aria-labelledby="inside-h" className="rounded-12 border-[0.5px] border-line bg-surface p-3">
+          <h2 id="inside-h" className="text-15 font-bold text-ink">
+            What&apos;s inside
+          </h2>
+          <ul className="mt-2 grid grid-cols-2 gap-2">
+            {v.contents.map((c) => (
+              <li key={c.name} className="rounded-8 bg-chip px-2.5 py-2">
+                <p className="text-13 font-semibold text-ink">{c.name}</p>
+                <p className="text-11 text-muted">{c.share}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <RipenessExplainer product={product} sel={sel} />
       <BoxChips product={product} sel={sel} />
       <BulkLink />

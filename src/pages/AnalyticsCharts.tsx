@@ -23,7 +23,12 @@ function usePalette() {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const on = () => setP(read())
     mq.addEventListener('change', on)
-    return () => mq.removeEventListener('change', on)
+    // The panel's own theme switch (src/theme.ts).
+    window.addEventListener('mm:theme', on)
+    return () => {
+      mq.removeEventListener('change', on)
+      window.removeEventListener('mm:theme', on)
+    }
   }, [])
   return p
 }

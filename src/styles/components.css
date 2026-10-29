@@ -198,12 +198,18 @@
   background: var(--color-staff-strong);
 }
 @media (prefers-color-scheme: dark) {
-  .btn-primary:hover:not(:disabled),
-  .btn-primary:active:not(:disabled) {
+  :root:not([data-theme='light']) .btn-primary:hover:not(:disabled),
+  :root:not([data-theme='light']) .btn-primary:active:not(:disabled) {
     background: var(--color-staff);
     border-color: var(--color-staff);
     filter: brightness(1.1);
   }
+}
+:root[data-theme='dark'] .btn-primary:hover:not(:disabled),
+:root[data-theme='dark'] .btn-primary:active:not(:disabled) {
+  background: var(--color-staff);
+  border-color: var(--color-staff);
+  filter: brightness(1.1);
 }
 .btn-danger {
   background: var(--red-600);
@@ -215,9 +221,12 @@
   filter: brightness(0.92);
 }
 @media (prefers-color-scheme: dark) {
-  .btn-danger {
+  :root:not([data-theme='light']) .btn-danger {
     color: #3b0a0a;
   }
+}
+:root[data-theme='dark'] .btn-danger {
+  color: #3b0a0a;
 }
 /* Smaller in table rows on a desktop; a full tap target on touch screens. */
 .btn-small {

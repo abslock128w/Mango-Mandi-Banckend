@@ -43,7 +43,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const unavailable = sku.stock <= 0;
   const few = !unavailable && sku.stock <= 5;
   const href = productHref(product.id, scope, stage);
-  const name = `${product.name} Mango`;
+  const name = product.variety.contents ? product.name : `${product.name} Mango`;
 
   return (
     <article

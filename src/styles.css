@@ -1,11 +1,12 @@
 /*
  * Mango Ops styles, in layers: base (tokens' panel names, elements, utilities), the shell (top bar,
  * sidebar, tab bar, command palette), shared components, data visuals and dashboards, page-specific
- * styles, then print. design/tokens.css is imported before this file (main.tsx).
+ * styles, the Orchard look on top (theme.css), then print. design/tokens.css is imported before this file (main.tsx).
  */
 @import './styles/base.css';
 @import './styles/shell.css';
 @import './styles/components.css';
 @import './styles/viz.css';
 @import './styles/pages.css';
+@import './styles/theme.css';
 @import './styles/print.css';

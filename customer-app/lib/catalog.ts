@@ -70,6 +70,7 @@ export function buildProducts(rows: (CatalogueItem | ProductDto)[]): Product[] {
         popularity: info.popularity,
         photos: apiPhoto ? [apiPhoto, info.photos[1], info.photos[2]] : info.photos,
         tags: info.tags,
+        contents: info.contents,
       },
       skus,
       stages: STAGES,

@@ -26,6 +26,8 @@ export interface Variety {
   popularity: number;
   photos: [string, string, string];
   tags: string[];
+  /** A box of several varieties (the Mixed Box): what is inside. */
+  contents?: { name: string; share: string }[];
 }
 
 /** One sellable line: an API SKU (box) at one ripeness stage for the chosen delivery day. */
