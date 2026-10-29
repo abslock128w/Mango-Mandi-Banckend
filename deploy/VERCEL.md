@@ -150,6 +150,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `METRICS_TOKEN` | not needed | | `/metrics` answers 404 on Vercel; it and `ops/alerts.yml` are for the Docker path only |
 | `BILL_RETENTION_MONTHS` | leave unset (`96`) | leave unset | months a bill keeps the buyer's name and address after its date (tax law, [docs/trust.md](../docs/trust.md#how-long-bills-are-kept)); the CA confirms it. Production refuses under 72 and warns under 96 |
 | `OPS_ALERTS` | leave unset (on) | leave unset (on too: previews run as production; the Sentry alert rule only pages for `production`) | the maintenance job's alert checks ([docs/alerts.md](../docs/alerts.md)); `false` turns them off and preflight warns |
+| `STAFF_STEP_UP`, `STAFF_AUDIT_TRAIL`, `API_HARDENING`, `PROVIDER_CHECKS`, `DELIVERY_CHECKS`, `REFUND_SAFETY_CHECKS`, `ORDER_RULE_CHECKS`, `STOCK_INTAKE_CHECKS` | leave unset (on) | leave unset (on) | the safeguards from the audits and the authorization review ([docs/audit-b-fixes.md](../docs/audit-b-fixes.md), [docs/audit-2026-10-24-status-A.md](../docs/audit-2026-10-24-status-A.md)). `false` turns one off, the rollback, and preflight warns |
 | `SLOW_REQUEST_MS`, `ALERT_API_ERRORS`, `ALERT_SLOW_REQUESTS`, `ALERT_DB_BUSY` | leave unset (2000, 10, 20, 5) | | when an answer counts as slow, and how many errors, slow answers and BUSY answers in 10 minutes raise a warning |
 | `BACKUP_HEARTBEAT_EXPECTED` | `true` once the backup workflow records its heartbeat (see [Backups](#backups-and-restore-drill)) | | Needs attention and Sentry warn when no backup has succeeded for 26 hours |
 
@@ -420,7 +421,8 @@ the pass marks; [LOAD-TEST.md](LOAD-TEST.md) covers all five scenarios.
 - [ ] The Sentry alert rule (level warning or above), the Sentry cron monitor alert and the
       Better Stack Uptime monitor on `/ready` are set up ("Watch it"), and each has reached a
       named person once in a test.
-- [ ] `OPS_ALERTS` is unset or `true` on production (preflight warns when it is `false`).
+- [ ] `OPS_ALERTS` and the safeguards in the API table (`STAFF_STEP_UP` to `STOCK_INTAKE_CHECKS`) are unset
+      or `true` on production (preflight warns when one is `false`).
 - [ ] `VITE_SENTRY_DSN` is set on `mandi-shop` and `mandi-admin`, and both browser projects
       store no IP addresses and scrub data ([Error reports](#error-reports-from-the-shop-and-the-panel)).
 - [ ] Neon's history (restore) window is set to 7 days, not the 1-day default (step 1.5).

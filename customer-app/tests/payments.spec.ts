@@ -136,6 +136,8 @@ async function pickSlot(page: Page) {
 async function toReview(page: Page, request: APIRequestContext, phone: string) {
   const { item, date } = await inStock(request)
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate(
     ([item, date]) => {
       localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date }))
@@ -255,6 +257,8 @@ test('FE-7 and FE-8: changed prices are shown, a box no longer sold is named and
   const phone = newPhone('7', info.project.name)
   const { item } = await inStock(request)
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate((item) => {
     // A day long gone, a price seen weeks ago, and a box we stopped selling.
     localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date: '2020-01-01' }))
@@ -282,11 +286,14 @@ test('FE-7 and FE-8: changed prices are shown, a box no longer sold is named and
 test('FE-3: a busy API does not sign the customer out; a refused refresh does', async ({ page, request, consoleErrors }, info) => {
   const phone = newPhone('6', info.project.name)
   await signIn(page, phone, '/account')
+  // Each reload waits for the Account page itself: Safari logs a page left mid-load as an error.
+  await expect(page.getByRole('heading', { name: 'Your account', level: 1 })).toBeVisible()
   await page.route(`${API}/v1/auth/token/refresh`, (route) =>
     route.fulfill({ status: 503, json: { error: { code: 'BUSY', message: 'Busy, try again shortly' } } }),
   )
   await page.reload()
   await expect(page.getByRole('link', { name: 'Account', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your account', level: 1 })).toBeVisible()
   expect(await page.evaluate(() => localStorage.getItem('mm.profile'))).not.toBeNull()
 
   await page.unroute(`${API}/v1/auth/token/refresh`)

@@ -1,0 +1,53 @@
+// The one list of automated WhatsApp messages (docs/whatsapp/TEMPLATES.md is
+// written from it by scripts/whatsapp-templates-doc.mjs). Each kind is sent as
+// one Meta template, <WHATSAPP_TEMPLATE_PREFIX><kind> unless `template` says
+// otherwise, whose body variables are filled in order by notify.js paramsFor.
+//
+// consent says who may receive it (src/wa/consent.js):
+//   updates    about the customer's own order, booking, claim or request: sent
+//              unless the number sent STOP;
+//   requested  the person asked for exactly this message (a back-in-stock alert,
+//              a waitlist, a referral reward, a manager's summary): as updates;
+//   marketing  promotional: only with the customer's own opt-in (the shop's
+//              "Remind me to order again" setting, or WhatsApp START OFFERS), and
+//              never after STOP or STOP OFFERS.
+// category is what we ask Meta for; Meta decides the final category.
+
+/** @typedef {{ kind: string, template?: string, category: 'UTILITY'|'MARKETING'|'AUTHENTICATION', consent: 'updates'|'requested'|'marketing', params: string[], example: string[], trigger: string, flag?: string, button?: 'order-link'|'order-link-flag', fallback: string }} Automation */
+
+const ORDER_FALLBACK = 'Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.'
+
+/** @type {Automation[]} */
+export const AUTOMATIONS = [
+  { kind: 'ORDER_CONFIRMED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'delivery date', 'slot'], example: ['Asha', 'ORD-1093', 'Fri, 16 Oct', '7 AM to 11 AM'], trigger: 'A verified payment (Razorpay or Meta payment webhook, or the reconcile) moves the order to CONFIRMED. This is also the payment confirmation.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'REPLACEMENT_CONFIRMED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'delivery date', 'slot'], example: ['Asha', 'ORD-1094', 'Sat, 17 Oct', '7 AM to 11 AM'], trigger: 'Staff approve a claim and the free replacement order is CONFIRMED.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'RIPENESS_GUIDE', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'when each box is ready', 'storage tip'], example: ['Asha', 'ORD-1093', 'Alphonso 3kg Box (raw): ready around Mon, 19 Oct', 'Keep them in a paper bag at room temperature.'], trigger: 'A minute after ORDER_CONFIRMED, only when a box arrives raw or semi-ripe.', fallback: ORDER_FALLBACK },
+  { kind: 'DATE_MOVED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'new date', 'slot'], example: ['Asha', 'ORD-1093', 'Sat, 17 Oct', '7 AM to 11 AM'], trigger: 'Staff move the order (one or a whole day), the customer moves it, or a late payment lands on the next date with stock.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'OUT_FOR_DELIVERY', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'slot', 'delivery code'], example: ['Asha', 'ORD-1093', '7 AM to 11 AM', '4821'], trigger: 'Dispatch moves the order to OUT_FOR_DELIVERY.', button: 'order-link-flag', fallback: 'Not sent: the delivery code is also on the order page in the shop.' },
+  { kind: 'GIFT_OUT_FOR_DELIVERY', template: 'OUT_FOR_DELIVERY', category: 'UTILITY', consent: 'updates', params: ['recipient name', 'order number', 'slot', 'delivery code'], example: ['Ravi', 'ORD-1095', '7 AM to 11 AM', '4821'], trigger: 'A gift order goes OUT_FOR_DELIVERY: the recipient gets the code too.', button: 'order-link-flag', fallback: 'Not sent: the buyer has the code on the order page.' },
+  { kind: 'DELIVERED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number'], example: ['Asha', 'ORD-1093'], trigger: 'The rider marks the order DELIVERED (code, photo or manager override).', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'DELIVERY_FAILED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'retry date'], example: ['Asha', 'ORD-1093', 'Sat, 17 Oct'], trigger: 'The rider reports DELIVERY_FAILED; it retries on the next delivery.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'CANCELLED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number'], example: ['Asha', 'ORD-1093'], trigger: 'A confirmed order is cancelled (unpaid holds send nothing).', fallback: ORDER_FALLBACK },
+  { kind: 'REFUNDED', category: 'UTILITY', consent: 'updates', params: ['name', 'order or booking number', 'amount'], example: ['Asha', 'ORD-1093', 'Rs 1,899'], trigger: 'Razorpay accepts a refund we started (customer cancel before packing, or a manager cancel we cannot deliver). The wording must say the refund has been started.', fallback: ORDER_FALLBACK },
+  { kind: 'PREORDER_BOOKED', category: 'UTILITY', consent: 'updates', params: ['name', 'booking number', 'boxes', 'week'], example: ['Asha', 'PRE-1001', '2 × Alphonso 3kg Box', 'the week of Mon, 1 Mar'], trigger: 'A booking ahead is paid.', fallback: ORDER_FALLBACK },
+  { kind: 'PREORDER_SPOT_OPEN', category: 'UTILITY', consent: 'requested', params: ['name', 'boxes', 'week', 'payment link'], example: ['Asha', '2 × Alphonso 3kg Box', 'the week of Mon, 1 Mar', 'https://rzp.io/i/abc'], trigger: 'A waitlisted booking gets a spot and a payment link.', fallback: 'Not sent: the booking page in the shop shows the payment link.' },
+  { kind: 'PREORDER_MOVED', category: 'UTILITY', consent: 'updates', params: ['name', 'booking number', 'boxes', 'new week'], example: ['Asha', 'PRE-1001', '2 × Alphonso 3kg Box', 'the week of Mon, 8 Mar'], trigger: 'A week passed without stock, so the booking moved a week.', fallback: ORDER_FALLBACK },
+  { kind: 'BACK_IN_STOCK', category: 'UTILITY', consent: 'requested', params: ['name', 'box', 'first day', 'shop link'], example: ['Asha', 'Alphonso 3kg Box (ripe)', 'Fri, 16 Oct', 'https://mandimangoes.in'], trigger: 'A box the customer asked about ("Tell me when it is back") is in stock again.', fallback: 'Not sent: the alert is marked done; the shop shows the box.' },
+  { kind: 'REORDER_REMINDER', category: 'MARKETING', consent: 'marketing', params: ['name', 'box they had', 'shop link'], example: ['Asha', 'Alphonso 3kg Box', 'https://mandimangoes.in'], trigger: 'A week after delivery, for customers who turned reminders on, 10 AM to 7 PM, not if they ordered since.', fallback: 'Not sent.' },
+  { kind: 'REVIEW_REQUEST', category: 'MARKETING', consent: 'updates', params: ['name', 'order number'], example: ['Asha', 'ORD-1093'], trigger: 'About a day after delivery, once per order, if nothing on it is reviewed yet.', flag: 'WHATSAPP_REVIEW_REQUESTS', fallback: 'Not sent: the order page asks for a review.' },
+  { kind: 'CLAIM_RECEIVED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number'], example: ['Asha', 'ORD-1093'], trigger: 'A customer reports a problem with a delivered order.', flag: 'WHATSAPP_CLAIM_UPDATES', button: 'order-link', fallback: ORDER_FALLBACK },
+  { kind: 'CLAIM_REJECTED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'reason'], example: ['Asha', 'ORD-1093', 'The photo shows the box was opened before delivery.'], trigger: 'Staff reject a claim (a replacement sends REPLACEMENT_CONFIRMED instead).', flag: 'WHATSAPP_CLAIM_UPDATES', button: 'order-link', fallback: ORDER_FALLBACK },
+  { kind: 'REFERRAL_REWARD', category: 'MARKETING', consent: 'requested', params: ['name', 'reward', 'code', 'valid until', 'minimum order'], example: ['Asha', '10%', 'THANKS-7K2', 'Sun, 30 Nov', 'Rs 999'], trigger: "A friend's first order is paid; both get the reward code (REFERRALS).", fallback: 'Not sent: the code is on the Account page.' },
+  { kind: 'HELP_REPLY', category: 'UTILITY', consent: 'updates', params: ['name', 'request number', 'link'], example: ['Asha', 'HLP-12', 'https://mandimangoes.in/help/requests/hlp_1'], trigger: 'Staff reply to a help request (HELP_CENTRE).', flag: 'WHATSAPP_CARE_UPDATES', fallback: 'Not sent: the reply is on the help request page.' },
+  { kind: 'SUBSCRIPTION_DUE', category: 'UTILITY', consent: 'updates', params: ['name', 'box', 'date', 'link'], example: ['Asha', '2 × Alphonso 3kg Box', 'Sat, 17 Oct', 'https://mandimangoes.in/account/subscriptions/sub_1'], trigger: "A subscription's next box is set up and waits for payment (SUBSCRIPTIONS).", flag: 'WHATSAPP_CARE_UPDATES', fallback: 'Not sent: the subscription page shows the payment.' },
+  { kind: 'MANAGER_DAILY_SUMMARY', category: 'UTILITY', consent: 'requested', params: ['the day', 'orders', 'revenue', 'boxes delivered', 'boxes failed', 'new claims', 'unhappy ratings', 'needs attention'], example: ['Thu, 16 Oct', '42', 'Rs 98,430', '61', '1', '2', '0', '3'], trigger: 'Each evening, to managers who turned the summary on (MANAGER_DAILY_SUMMARY). Its full template name is MANAGER_SUMMARY_TEMPLATE.', fallback: 'Not sent: the Daily summary page shows the same numbers.' },
+]
+
+/** The authentication template for login codes (sms.js), outside the outbox. */
+export const LOGIN_CODE = { kind: 'LOGIN_CODE', category: 'AUTHENTICATION', consent: 'requested', params: ['code'], trigger: 'A customer asks for a login code and WhatsApp is chosen, or SMS fails.' }
+
+export const AUTOMATION_KINDS = AUTOMATIONS.map((a) => a.kind)
+const BY_KIND = new Map(AUTOMATIONS.map((a) => [a.kind, a]))
+
+/** The registry entry for a kind, or null. */
+export const automationFor = (kind) => BY_KIND.get(kind) ?? null

@@ -106,6 +106,18 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM quotes WHERE customer_id = $1', [me.id])
   await c.query('DELETE FROM wa_sessions WHERE customer_id = $1', [me.id])
+  // WhatsApp (docs/whatsapp/SECURITY.md): the conversation and every message in it go. A STOP is kept
+  // against the number alone (no name, no link to the account), so the deleted customer is never
+  // messaged again; any other consent record goes.
+  await c.query('DELETE FROM wa_conversations WHERE customer_id = $1 OR phone = $2', [me.id, me.phone ?? ''])
+  await c.query(
+    `DELETE FROM wa_consent_events WHERE (customer_id = $1 OR phone = $2)
+        AND phone NOT IN (SELECT phone FROM wa_consent WHERE updates = 'STOPPED' OR marketing = 'OPTED_OUT')`,
+    [me.id, me.phone ?? ''],
+  )
+  await c.query(`DELETE FROM wa_consent WHERE (customer_id = $1 OR phone = $2) AND updates = 'ALLOWED' AND marketing <> 'OPTED_OUT'`, [me.id, me.phone ?? ''])
+  await c.query('UPDATE wa_consent SET customer_id = NULL WHERE customer_id = $1', [me.id])
+  await c.query('UPDATE wa_consent_events SET customer_id = NULL WHERE customer_id = $1', [me.id])
   // Browser notifications and hearted boxes (docs/app-feel.md): nothing of them is kept.
   await c.query('DELETE FROM push_subscriptions WHERE customer_id = $1', [me.id])
   await c.query("UPDATE push_messages SET status = 'SKIPPED', last_error = 'account deleted' WHERE customer_id = $1 AND status = 'PENDING'", [me.id])

@@ -31,6 +31,7 @@ const AREAS = [
   ['Reports', ['summary', 'analytics', 'attention', 'daily-summary', 'exports']],
   ['Recovery', ['webhook-failures', 'refunds', 'notifications']],
   ['Warehouse', ['warehouse']],
+  ['WhatsApp', ['whatsapp']],
 ]
 const areaOf = (route) => {
   const segment = route.split(' ')[1].split('/')[1]

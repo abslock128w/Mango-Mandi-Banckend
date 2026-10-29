@@ -14,7 +14,7 @@ import { env } from './env.js'
 import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
-import { logger, maskPhone } from './logger.js'
+import { logger } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { applyCapture, cancelPaymentLink, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
@@ -22,6 +22,9 @@ import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreor
 import { findProduct, sellable, shopProducts } from './products.js'
 import { STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
+import { consentKeyword, setConsent } from './wa/consent.js'
+import { CHAT_RETRY_MS, ensureConversation, handOffToStaff, queueMessage, recordInbound, recordMessageStatus, sendMessages } from './wa/conversations.js'
+import { handleAccountChange } from './wa/events.js'
 import { reportProblem } from './sentry.js'
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
@@ -37,7 +40,7 @@ const MAX_QTY = 20
 
 const text = (t) => ({ type: 'text', text: t })
 const buttons = (t, bs) => ({ type: 'buttons', text: t, buttons: bs.map(([id, title]) => ({ id, title })) })
-const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do? Send *help* any time to learn how it works.', [
+const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do? Send *help* any time to learn how it works, or *agent* to talk to a person.', [
   ['ORDER', 'Order mangoes'],
   ['BOOK', 'Book ahead'],
   ['ORDERS', 'My orders'],
@@ -453,6 +456,89 @@ async function bookStep(c, s, cust, id, said) {
   }
 }
 
+// ---------------------------------------------------------------- typed requests
+
+/** "talk to a person": the bot hands the conversation to staff. */
+const HUMAN = /^(agent|human|person|staff|support|customer (care|support)|call me)$|\b(talk|speak|chat)\s+(to|with)\s+(a|an|the|your)?\s*(person|human|someone|somebody|agent|staff|team|executive|representative)\b/
+/** Requests answered from the customer's own records (states that expect a tap, not typed text). */
+const TYPED_INTENTS = [
+  ['ORDERS', /\b(where('?s| is)? my (order|box|mangoes)|order status|status of my order|track( my)? order|my orders?)\b/],
+  ['PAYMENT', /\b(payment|paid|money (was )?(cut|deducted|debited))\b/],
+  ['REFUND', /\brefund/],
+  ['DELIVERY', /\b(delivery (time|times|slot|slots|days?|charge)|when (do|will) you deliver|do you deliver|delivery)\b/],
+  ['CANCEL', /\bcancel\b/],
+  ['CATALOGUE', /\b(price|prices|rate|rates|catalogue|catalog|what do you have|varieties|available|in stock)\b/],
+]
+const TAP_STATES = new Set(['IDLE', 'PICK', 'CART', 'SLOT', 'CONFIRM', 'AWAITING_PAYMENT', 'PRE_WEEK', 'PRE_CONFIRM', 'PRE_AWAITING'])
+/** An order or booking number typed in a message: ORD-1093, PRE-1001. */
+const NUMBER = /\b(ORD|PRE)-?(\d{3,})\b/i
+
+/** One order of this customer's, by the number they typed. Never another customer's: the phone is the identity. */
+async function orderByNumber(c, s, said) {
+  const m = NUMBER.exec(said)
+  if (!m) return null
+  const number = `${m[1].toUpperCase()}-${m[2]}`
+  const table = m[1].toUpperCase() === 'PRE' ? 'preorders' : 'orders'
+  const { rows } = await c.query(`SELECT * FROM ${table} WHERE number = $1 AND customer_id = $2`, [number, s.customerId])
+  if (!rows.length) {
+    return [buttons(`I can't find ${number} on this WhatsApp number. Orders show here only for the number they were placed with.`, [['ORDERS', 'My orders'], ['MENU', 'Menu']])]
+  }
+  const o = rows[0]
+  if (table === 'preorders') return [buttons(`*${o.number}*: ${PRE_WORDS[o.status] ?? o.status}\n${o.qty} × ${findProduct(o.sku)?.name ?? o.sku} for ${weekWords(o.week_start)} · ${rupees(o.total)}`, [['ORDERS', 'My orders'], ['MENU', 'Menu']])]
+  const refund = o.refunded_at ? '\nRefund: sent to your account.' : o.refund_requested_at ? '\nRefund: started, usually 5 to 7 working days.' : ''
+  const pay = { SUCCEEDED: 'paid', INITIATED: 'waiting for payment', FAILED: 'payment failed', CANCELLED: 'not paid', REFUNDED: 'refunded' }[o.payment_status] ?? String(o.payment_status ?? '').toLowerCase()
+  return [buttons(`*${o.number}*: ${STATUS_WORDS[o.status] ?? o.status}\nDelivery ${dateWords(o.delivery_date)} · ${rupees(o.total)} · ${pay}${refund}`, [['ORDERS', 'My orders'], ['MENU', 'Menu']])]
+}
+
+/** Payment and refund status of the customer's recent orders, from the records (never guessed). */
+async function moneyStatus(c, s, kind) {
+  const { rows } = await c.query(
+    `SELECT number, status, payment_status, total, refund_requested_at, refunded_at FROM orders
+      WHERE customer_id = $1 AND NOT (status = 'CANCELLED' AND payment_status IN ('INITIATED', 'CANCELLED', 'FAILED'))
+      ORDER BY placed_at DESC LIMIT 3`,
+    [s.customerId],
+  )
+  if (!rows.length) return [buttons("You don't have any orders on this number yet.", [['ORDER', 'Order mangoes'], ['MENU', 'Menu']])]
+  const lines = rows.map((o) => {
+    if (kind === 'REFUND') {
+      const r = o.refunded_at ? 'refund sent to your account' : o.refund_requested_at ? 'refund started, usually 5 to 7 working days' : 'no refund on this order'
+      return `*${o.number}*: ${r}`
+    }
+    const p = o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED' ? `paid ${rupees(o.total)}` : o.status === 'PAYMENT_PENDING' ? 'waiting for payment' : 'not paid'
+    return `*${o.number}*: ${p}`
+  })
+  const head = kind === 'REFUND' ? 'Refunds on your recent orders:' : 'Payments on your recent orders:'
+  const tail = kind === 'REFUND' ? '\n\nPaid orders you cancel before packing are refunded in full. Send *agent* if something looks wrong.' : '\n\nIf money left your account but an order says not paid, send *agent* and we will check it with the bank.'
+  return [buttons(`${head}\n${lines.join('\n')}${tail}`, [['ORDERS', 'My orders'], ['MENU', 'Menu']])]
+}
+
+function deliveryInfo() {
+  const cfg = getConfig()
+  return [buttons(
+    `We deliver fresh mangoes from the next day. Order before ${timeWords(`${cfg.cutoffHourIST}:00`)} for next-day delivery, and pick a delivery time at checkout. Tap *Order mangoes* and send your pincode to see if we deliver there.`,
+    [['ORDER', 'Order mangoes'], ['MENU', 'Menu']],
+  )]
+}
+
+/** Typed questions answered from the database. Null when the message is none of them. */
+async function typedIntent(c, s, said) {
+  const lower = said.toLowerCase()
+  if (!lower || !TAP_STATES.has(s.state ?? 'IDLE')) return null
+  const byNumber = await orderByNumber(c, s, said)
+  if (byNumber) return byNumber
+  const hit = TYPED_INTENTS.find(([, re]) => re.test(lower))?.[0]
+  if (hit === 'ORDERS' || hit === 'CANCEL') return myOrders(c, s)
+  if (hit === 'PAYMENT' || hit === 'REFUND') return moneyStatus(c, s, hit)
+  if (hit === 'DELIVERY') return deliveryInfo()
+  if (hit === 'CATALOGUE' && s.state === 'IDLE') {
+    s.state = 'PINCODE'
+    s.data = { pincode: s.data.pincode, cart: [] }
+    const ask = 'Our boxes and prices depend on the delivery day and your area. Which pincode should we deliver to? Send the 6 digits.'
+    return [s.data.pincode ? buttons(ask, [[`pin:${s.data.pincode}`, `Use ${s.data.pincode}`]]) : text(ask)]
+  }
+  return null
+}
+
 /** One customer message → the new conversation state and the replies. */
 async function step(c, s, cust, input) {
   const id = input.id ?? null
@@ -468,9 +554,10 @@ async function step(c, s, cust, input) {
   if (id === 'HELP' || lower === 'help') {
     return { replies: [buttons(
       `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can also book a box for a later week at today's price with *Book ahead*. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
-      [['ORDER', 'Order mangoes'], ['ORDERS', 'My orders']],
+      [['ORDER', 'Order mangoes'], ['ORDERS', 'My orders'], ['HUMAN', 'Talk to us']],
     )] }
   }
+  if (id === 'HUMAN' || HUMAN.test(lower)) return { replies: [], handoff: 'customer asked for a person' }
   if (id === 'ORDERS' || ['my orders', 'orders', 'track', 'status'].includes(lower)) return { replies: await myOrders(c, s) }
   if (id?.startsWith('cancel:')) {
     const { rows } = await c.query('SELECT number FROM orders WHERE id = $1 AND customer_id = $2', [id.slice(7), s.customerId])
@@ -490,6 +577,10 @@ async function step(c, s, cust, input) {
   if (s.state?.startsWith('PRE_')) {
     const replies = await bookStep(c, s, cust, id, said)
     if (replies) return { replies }
+  }
+  if (!id) {
+    const answered = await typedIntent(c, s, said)
+    if (answered) return { replies: answered }
   }
   if (id === 'ORDER' || lower === 'order') {
     s.state = 'PINCODE'
@@ -596,16 +687,41 @@ async function paymentReplies(orderId) {
   return [{ type: 'link', text: `Order ${o.number} is booked: ${rupees(o.total)}. ${hold}\n${url}`, button: `Pay ${rupees(o.total)}`, url }]
 }
 
+const CONSENT_REPLIES = {
+  'all:OPT_OUT': "You won't get order updates or offers from MandiMangoes on WhatsApp any more. We will still answer when you write to us, and login codes you ask for still come here. Send *START* to get order updates again.",
+  'marketing:OPT_OUT': 'Done: no more offers or reminders from MandiMangoes. You will still get updates about your own orders. Send *START OFFERS* if you change your mind.',
+  'updates:OPT_IN': 'You will get updates about your orders on WhatsApp again. Offers and reminders stay off unless you turn them on (send *START OFFERS*).',
+  'marketing:OPT_IN': 'Done: we may send you offers and order-again reminders now and then. Send *STOP OFFERS* any time to stop them.',
+}
+const HANDOFF_REPLY = 'Thanks, a person from our team will reply here. We answer between 9 AM and 8 PM. Our order updates keep coming as usual.'
+/** What a customer sent that only a person can read: the bot hands over. */
+const MEDIA_TYPES = new Set(['image', 'document', 'audio', 'video', 'sticker', 'location', 'contacts'])
+
 /**
  * Handles one inbound WhatsApp message. Returns the replies to send (already
  * sent when `send` is given). Duplicate deliveries of a message return [].
+ *
+ * In one transaction: the message is recorded (Meta's id is unique, so a
+ * redelivery stops here), consent keywords are applied, and the chat step
+ * runs and queues its replies. The replies are sent after commit, in order.
+ * While staff hold the conversation the bot stays quiet.
  */
-export async function handleInbound({ waId, name = null, messageId, input }, { send = chatMessenger } = {}) {
-  const phone = phoneFromWaId(waId)
-  if (!phone) {
-    const replies = [text('Sorry, we can only take orders from Indian mobile numbers for now.')]
-    if (waId) await deliver(send, `+${waId}`, replies)
-    return replies
+export async function handleInbound({ waId, name = null, messageId, input, type = 'text', media = null, correlationId = null }, { send = chatMessenger } = {}) {
+  const indian = phoneFromWaId(waId)
+  const phone = indian ?? (/^[1-9]\d{6,14}$/.test(String(waId ?? '')) ? `+${waId}` : null)
+  if (!phone) return []
+  const body = input?.text || input?.title || (media?.caption ?? null)
+  if (!indian) {
+    // Only Indian numbers can order; the message is still recorded (once) and answered (once).
+    const queued = await tx(async (c) => {
+      const conv = await ensureConversation(c, phone)
+      if (!(await recordInbound(c, conv, { providerId: messageId, type, body, media, correlationId }))) return null
+      const reply = text('Sorry, we can only take orders from Indian mobile numbers for now.')
+      return { reply, id: await queueMessage(c, conv, reply, { correlationId }) }
+    })
+    if (!queued) return []
+    await sendMessages([queued.id], send, { inTurnRetry: env.PROVIDER_CHECKS })
+    return [queued.reply]
   }
   const turn = await tx(async (c) => {
     const ins = await c.query('INSERT INTO wa_inbound (message_id, phone, received_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [messageId, phone, now()])
@@ -615,6 +731,30 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
        ON CONFLICT (phone) DO UPDATE SET name = COALESCE(customers.name, EXCLUDED.name) RETURNING id, name`,
       [newId('cus'), phone, name?.trim().slice(0, 80) || null, now()],
     )).rows[0]
+    let conv = await ensureConversation(c, phone, cust.id)
+    if (!(await recordInbound(c, conv, { providerId: messageId, type, body, media, correlationId }))) return null
+    const queue = async (replies) => {
+      const ids = []
+      for (const r of replies) ids.push(await queueMessage(c, conv, r, { correlationId }))
+      return ids
+    }
+
+    // STOP and START work in every state, also while staff hold the conversation.
+    const kw = type === 'text' || type === 'button' ? consentKeyword(input?.text) : null
+    if (kw) {
+      await setConsent(c, { phone, customerId: cust.id, scope: kw.scope, action: kw.action, source: 'whatsapp_keyword', evidence: messageId })
+      const replies = [text(CONSENT_REPLIES[`${kw.scope}:${kw.action}`])]
+      return { replies, ids: await queue(replies), phone, customerId: cust.id }
+    }
+    // A person holds the conversation: the bot neither answers nor moves the chat on.
+    if (conv.mode === 'STAFF') return { replies: [], ids: [], phone, customerId: cust.id }
+    // A photo, voice note or document is for a person (a damaged box, a question).
+    if (MEDIA_TYPES.has(type)) {
+      conv = await handOffToStaff(c, conv, `customer sent ${type === 'image' ? 'a photo' : `a ${type}`}`)
+      const replies = [text(HANDOFF_REPLY)]
+      return { replies, ids: await queue(replies), phone, customerId: cust.id }
+    }
+
     await c.query(
       `INSERT INTO wa_sessions (phone, customer_id, updated_at) VALUES ($1, $2, $3) ON CONFLICT (phone) DO NOTHING`,
       [phone, cust.id, now()],
@@ -623,23 +763,36 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
     const s = { phone, customerId: cust.id, state: row.state, data: row.data ?? {} }
     const stale = now().getTime() - row.updated_at.getTime() > SESSION_IDLE_MS
     if (stale && s.state !== 'AWAITING_PAYMENT') s.state = 'IDLE'
-    const out = await step(c, s, cust, input)
+    const out = await step(c, s, cust, input ?? {})
+    if (out.handoff) {
+      conv = await handOffToStaff(c, conv, out.handoff)
+      out.replies = [text(HANDOFF_REPLY)]
+    }
     if (out.after?.pay) s.state = 'AWAITING_PAYMENT'
     if (out.after?.prepay) s.state = 'PRE_AWAITING'
     await c.query('UPDATE wa_sessions SET state = $2, data = $3, updated_at = $4 WHERE phone = $1', [phone, s.state, s.data, now()])
-    return { ...out, phone, customerId: cust.id }
+    return { ...out, ids: await queue(out.replies), phone, customerId: cust.id }
   })
   if (!turn) return []
   const replies = [...turn.replies]
+  const ids = [...turn.ids]
+  const later = async (more) => {
+    replies.push(...more)
+    await tx(async (c) => {
+      const conv = await ensureConversation(c, phone, turn.customerId)
+      for (const r of more) ids.push(await queueMessage(c, conv, r, { correlationId }))
+    })
+  }
   if (turn.after?.pay) {
     try {
-      replies.push(...(await paymentReplies(turn.after.pay)))
+      const pay = await paymentReplies(turn.after.pay)
       await query(`UPDATE wa_sessions SET data = data - 'cart' - 'address' - 'slotId' WHERE phone = $1`, [phone])
+      await later(pay)
     } catch (err) {
       logger.error({ err, orderId: turn.after.pay }, 'could not start the chat payment')
       await tx((c) => processPayment(c, { orderId: turn.after.pay, outcome: 'abandoned' }, SYSTEM))
       await query(`UPDATE wa_sessions SET state = 'CONFIRM', data = data - 'orderId' WHERE phone = $1`, [phone])
-      replies.push(buttons("Sorry, we couldn't start the payment. Please try again.", [['PAY', 'Try again'], ['MENU', 'Menu']]))
+      await later([buttons("Sorry, we couldn't start the payment. Please try again.", [['PAY', 'Try again'], ['MENU', 'Menu']])])
     }
   }
   if (turn.after?.prepay) {
@@ -647,81 +800,111 @@ export async function handleInbound({ waId, name = null, messageId, input }, { s
       const p = await ensurePaymentLink(turn.after.prepay)
       if (p?.payment_link_url) {
         const hold = `Pay within ${getConfig().holdMinutes} minutes to keep your spot.`
-        replies.push({ type: 'link', text: `Booking ${p.number} is held: ${rupees(p.total)}. ${hold}\n${p.payment_link_url}`, button: `Pay ${rupees(p.total)}`, url: p.payment_link_url })
+        await later([{ type: 'link', text: `Booking ${p.number} is held: ${rupees(p.total)}. ${hold}\n${p.payment_link_url}`, button: `Pay ${rupees(p.total)}`, url: p.payment_link_url }])
       } else {
-        replies.push(text('This booking is no longer waiting for payment. Send *my orders* to see it.'))
+        await later([text('This booking is no longer waiting for payment. Send *my orders* to see it.')])
       }
     } catch (err) {
       logger.error({ err, preorderId: turn.after.prepay }, 'could not start the booking payment')
       await tx((c) => cancelPreorder(c, turn.after.prepay, turn.customerId, SYSTEM))
       await query(`UPDATE wa_sessions SET state = 'IDLE', data = data - 'preorderId' WHERE phone = $1`, [phone])
-      replies.push(buttons("Sorry, we couldn't start the payment. Please book again.", [['BOOK', 'Book again'], ['MENU', 'Menu']]))
+      await later([buttons("Sorry, we couldn't start the payment. Please book again.", [['BOOK', 'Book again'], ['MENU', 'Menu']])])
     }
   }
   if (turn.after?.refund) {
-    const send = turn.after.refundKind === 'preorder' ? refundPreorder : refundOrder
-    await send(turn.after.refund).catch((err) => logger.error({ err, id: turn.after.refund }, 'refund failed; maintenance will retry'))
+    const refund = turn.after.refundKind === 'preorder' ? refundPreorder : refundOrder
+    await refund(turn.after.refund).catch((err) => logger.error({ err, id: turn.after.refund }, 'refund failed; maintenance will retry'))
   }
-  await deliver(send, phone, replies)
+  // INT-12 (24 Oct audit, PROVIDER_CHECKS): one quick retry for a reply that failed for a passing reason.
+  // What still fails stays queued, and maintenance tries again within the window (wa/conversations.js).
+  await sendMessages(ids, send, { inTurnRetry: env.PROVIDER_CHECKS })
   return replies
 }
 
-/** INT-12: the pause before the one retry of a chat reply that failed for a passing reason. */
-export const CHAT_RETRY_MS = 1_500
+export { CHAT_RETRY_MS }
 
-/** A failure worth one more try: Meta busy or rate limited, or no answer in time. */
-const retryable = (err) => Boolean(err?.retryable) || err?.name === 'TimeoutError' || err?.name === 'AbortError'
-
-async function deliver(send, phone, replies) {
-  for (const r of replies) {
-    try {
-      await send(phone, r)
-    } catch (err) {
-      let last = err
-      // INT-12 (24 Oct audit, PROVIDER_CHECKS): Meta's redelivery of the customer's message is
-      // deduplicated, so a reply lost here (a payment link, say) was lost for good. One retry.
-      if (env.PROVIDER_CHECKS && retryable(err)) {
-        logger.warn({ err, phone: maskPhone(phone) }, 'WhatsApp chat reply failed; trying once more')
-        await new Promise((res) => {
-          setTimeout(res, CHAT_RETRY_MS)
-        })
-        try {
-          await send(phone, r)
-          continue
-        } catch (again) {
-          last = again
-        }
-      }
-      logger.error({ err: last, phone: maskPhone(phone) }, 'WhatsApp chat reply failed')
-    }
-  }
-}
+/** Inbound types recorded for staff but not answered by the bot. */
+const QUIET_TYPES = new Set(['reaction', 'unsupported', 'system', 'unknown', 'ephemeral'])
 
 /** What an inbound Cloud API message means to the chat: a tapped option or typed text. */
 export function inputOf(msg) {
   if (msg.type === 'text') return { text: msg.text?.body ?? '' }
-  if (msg.type === 'interactive') return { id: msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id ?? null }
+  if (msg.type === 'interactive') {
+    const r = msg.interactive?.button_reply ?? msg.interactive?.list_reply ?? null
+    return { id: r?.id ?? null, title: r?.title ?? null }
+  }
   if (msg.type === 'button') return { id: msg.button?.payload ?? null, text: msg.button?.text ?? '' }
-  return { text: '' }
+  // The customer opened the chat from a link or an ad: the same as saying hi.
+  if (msg.type === 'request_welcome') return { text: 'hi' }
+  if (msg.type === 'location') return { text: [msg.location?.name, msg.location?.address].filter(Boolean).join(', ') }
+  return { text: msg[msg.type]?.caption ?? '' }
 }
+
+const MEDIA_FIELDS = ['image', 'document', 'audio', 'video', 'sticker']
+const MAX_CAPTION = 1024
+
+/** The media a message carries, as kept (Meta's id and what it says about the file; never a URL). */
+export function mediaOf(msg) {
+  if (MEDIA_FIELDS.includes(msg.type)) {
+    const m = msg[msg.type] ?? {}
+    if (typeof m.id !== 'string' || !/^[\w.-]{1,128}$/.test(m.id)) return null
+    return {
+      id: m.id,
+      mime: typeof m.mime_type === 'string' ? m.mime_type.slice(0, 100) : null,
+      sha256: typeof m.sha256 === 'string' ? m.sha256.slice(0, 100) : null,
+      filename: typeof m.filename === 'string' ? m.filename.slice(0, 200) : null,
+      caption: typeof m.caption === 'string' ? m.caption.slice(0, MAX_CAPTION) : null,
+      voice: Boolean(m.voice),
+    }
+  }
+  if (msg.type === 'location') {
+    const l = msg.location ?? {}
+    const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : null)
+    return { latitude: num(l.latitude), longitude: num(l.longitude), name: l.name ? String(l.name).slice(0, 200) : null, address: l.address ? String(l.address).slice(0, 300) : null }
+  }
+  if (msg.type === 'contacts') return { contacts: Array.isArray(msg.contacts) ? msg.contacts.length : 0 }
+  return null
+}
+
+/** Meta's message types, as stored (anything else is kept as 'unknown'). */
+const typeOf = (msg) => (typeof msg.type === 'string' && /^[a-z_]{1,30}$/.test(msg.type) ? msg.type : 'unknown')
 
 /**
  * Handles a verified Cloud API webhook body: customer messages go to the chat,
- * and Payments-on-WhatsApp status updates confirm orders as Razorpay's webhook does.
+ * statuses update the messages we sent, Payments-on-WhatsApp statuses confirm
+ * orders as Razorpay's webhook does, and account, number-quality and template
+ * events are recorded (wa/events.js). Anything else is ignored.
+ * `correlationId` ties every message recorded to the stored webhook event.
  */
 export async function handleWhatsAppWebhook(body, opts = {}) {
+  if (body?.object && body.object !== 'whatsapp_business_account') return 0
   let handled = 0
-  for (const entry of body?.entry ?? []) {
-    for (const change of entry.changes ?? []) {
-      const v = change.value ?? {}
-      const names = new Map((v.contacts ?? []).map((ct) => [ct.wa_id, ct.profile?.name ?? null]))
-      for (const msg of v.messages ?? []) {
-        await handleInbound({ waId: msg.from, name: names.get(msg.from) ?? null, messageId: msg.id, input: inputOf(msg) }, opts)
+  for (const entry of Array.isArray(body?.entry) ? body.entry : []) {
+    for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
+      if (change?.field && change.field !== 'messages') {
+        handled += await handleAccountChange(entry, change)
+        continue
+      }
+      const v = change?.value ?? {}
+      // A webhook for another of our numbers (a test number, say) is not for this chat.
+      if (env.WHATSAPP_PHONE_NUMBER_ID && v.metadata?.phone_number_id && String(v.metadata.phone_number_id) !== String(env.WHATSAPP_PHONE_NUMBER_ID)) continue
+      const names = new Map((Array.isArray(v.contacts) ? v.contacts : []).map((ct) => [ct?.wa_id, ct?.profile?.name ?? null]))
+      for (const msg of Array.isArray(v.messages) ? v.messages : []) {
+        if (typeof msg?.id !== 'string' || typeof msg?.from !== 'string') continue
+        const type = typeOf(msg)
+        if (QUIET_TYPES.has(type)) {
+          handled += await recordOnly(msg, type, opts.correlationId)
+          continue
+        }
+        await handleInbound({ waId: msg.from, name: names.get(msg.from) ?? null, messageId: msg.id, input: inputOf(msg), type, media: mediaOf(msg), correlationId: opts.correlationId ?? null }, opts)
         handled++
       }
-      for (const st of v.statuses ?? []) {
-        if (st.type !== 'payment') {
-          handled += await recordDeliveryStatus(st)
+      for (const st of Array.isArray(v.statuses) ? v.statuses : []) {
+        if (st?.type !== 'payment') {
+          // Order updates (notifications) and every message in its conversation (wa_messages).
+          const updates = await recordDeliveryStatus(st)
+          const messages = await recordMessageStatus(st)
+          handled += updates || messages
           continue
         }
         if (st.type === 'payment' && st.status === 'captured' && st.payment?.reference_id) {
@@ -747,4 +930,15 @@ export async function handleWhatsAppWebhook(body, opts = {}) {
     }
   }
   return handled
+}
+
+/** A reaction or an unsupported message: recorded in its conversation (once), not answered. */
+function recordOnly(msg, type, correlationId = null) {
+  const phone = phoneFromWaId(msg.from) ?? (/^[1-9]\d{6,14}$/.test(msg.from) ? `+${msg.from}` : null)
+  if (!phone) return Promise.resolve(0)
+  const body = type === 'reaction' ? (typeof msg.reaction?.emoji === 'string' ? msg.reaction.emoji.slice(0, 20) : null) : null
+  return tx(async (c) => {
+    const conv = await ensureConversation(c, phone)
+    return (await recordInbound(c, conv, { providerId: msg.id, type, body, correlationId })) ? 1 : 0
+  })
 }

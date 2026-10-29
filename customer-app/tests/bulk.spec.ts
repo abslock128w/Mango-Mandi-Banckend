@@ -71,6 +71,8 @@ test('buy a bulk deal: tiers, add to cart, check out and pay', async ({ page, re
   await publishDeal(request, token, box, title)
 
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate(() => localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date: null })))
   await page.getByRole('navigation', { name: 'Main' }).first().getByRole('link', { name: 'Bulk Deals' }).first().click()
   await expect(page.getByRole('heading', { name: 'Bulk Deals', level: 1 })).toBeVisible()
@@ -129,6 +131,8 @@ test('a price change and a deal taken down while in the cart', async ({ page, re
   const auth = { Authorization: `Bearer ${token}` }
 
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate(() => localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date: null })))
   await page.goto(`/bulk/${id}`)
   await page.getByRole('button', { name: /^Add 2 boxes/ }).click()

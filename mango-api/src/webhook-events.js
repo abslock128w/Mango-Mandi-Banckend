@@ -66,9 +66,32 @@ async function processStored(e) {
   const body = JSON.parse(Buffer.from(e.body).toString('utf8'))
   if (e.provider === 'razorpay') return handleWebhook(body, e.event_id, { intakeId: e.id })
   // WhatsApp: each message has its own transaction and dedupe (wa_inbound), so the event is marked after.
-  const handled = await handleWhatsAppWebhook(body)
+  const handled = await handleWhatsAppWebhook(body, { correlationId: e.id })
   await markWebhookEvent({ query }, e.id)
   return { handled }
+}
+
+/** How long the WhatsApp webhook works before answering Meta "accepted" and finishing in the background. */
+export const WHATSAPP_WEBHOOK_ANSWER_MS = 2_000
+
+/**
+ * Processes a stored WhatsApp event (the webhook route, right after storing it). Marks it
+ * done, or records why it failed (the maintenance replay tries again). Returns how many
+ * messages and statuses it handled; throws on failure.
+ */
+export async function processWhatsAppEvent(id, body, { reqId = null } = {}) {
+  try {
+    const handled = await handleWhatsAppWebhook(body, { correlationId: id })
+    // Each message is its own transaction (deduplicated by its id), so the event is marked done after them.
+    await markWebhookEvent({ query }, id)
+    return handled
+  } catch (err) {
+    await noteWebhookEventFailure(id, err)
+    logger.error({ err, reqId, webhookEventId: id }, 'WhatsApp webhook processing failed')
+    metrics.webhookErrors.inc({ source: 'whatsapp' })
+    await recordWebhookFailure('whatsapp', err.message, body?.entry?.[0]?.id ?? null).catch(() => {})
+    throw err
+  }
 }
 
 /**

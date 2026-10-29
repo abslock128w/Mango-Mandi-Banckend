@@ -96,7 +96,9 @@ test.describe('with a DSN', () => {
     expect(event.exception?.values?.[0]?.value).toBe('Could not save [Filtered] for [Filtered]')
     expect(event.request?.url).toBe(`${site!.url}/account`)
     const crumbs = event.breadcrumbs ?? []
-    expect(crumbs.some((b) => b.category === 'ui.click' && /button\.link-btn\[type="button"\]$/.test(b.message ?? ''))).toBe(true)
+    // The click is kept as the button's selector, never its label (WebKit may add more to the selector).
+    const clicks = crumbs.filter((b) => b.category === 'ui.click').map((b) => b.message ?? '')
+    expect(clicks.some((m) => /button\.link-btn/.test(m)), `click breadcrumbs: ${JSON.stringify(clicks)}`).toBe(true)
     expect(crumbs.some((b) => b.category === 'fetch' && b.data?.method === 'DELETE' && String(b.data?.url).endsWith('/v1/me/addresses/a1'))).toBe(true)
   })
 

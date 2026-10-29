@@ -11,6 +11,8 @@ import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToa
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
   'webhook-replay': 'Replaying stored webhooks',
+  'whatsapp-messages': 'Sending WhatsApp chat replies',
+  'whatsapp-templates': 'Reading WhatsApp templates from Meta',
   refunds: 'Sending refunds',
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',

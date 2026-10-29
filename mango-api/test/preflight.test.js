@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { strictDefaults } from '../src/env.js'
-import { checkProduction, DEV_JWT } from '../src/preflight.js'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+import { env, STRICT_SWITCHES, strictDefaults } from '../src/env.js'
+import { AUDIT_FIXES_OFF, checkProduction, DEV_JWT } from '../src/preflight.js'
 
 const good = {
   JWT_SECRET: 'a'.repeat(64),
@@ -16,8 +19,9 @@ const good = {
   ADMIN_ORIGIN: 'https://admin.mandimangoes.in',
   CUSTOMER_ORIGIN: 'https://mandimangoes.in,https://www.mandimangoes.in',
   WHATSAPP_PROVIDER: 'meta',
-  WHATSAPP_VERIFY_TOKEN: 'v',
-  WHATSAPP_APP_SECRET: 'a',
+  WHATSAPP_VERIFY_TOKEN: 'v'.repeat(24),
+  WHATSAPP_APP_SECRET: 'a'.repeat(32),
+  WHATSAPP_BUSINESS_ACCOUNT_ID: '1234567890',
   TRUST_PROXY: 1,
   GOOGLE_CLIENT_ID: 'web.apps.googleusercontent.com',
   SENTRY_DSN: 'https://k@o1.ingest.sentry.io/1',
@@ -105,24 +109,53 @@ describe('production preflight', () => {
     assert.deepEqual(checkProduction({ ...good, STAFF_TWO_STEP: 'all' }).warnings, [])
   })
 
-  it('step-up, the audit trail, two-step and the ops alerts are on by default in production only, and can still be turned off', () => {
-    assert.deepEqual(strictDefaults({}, true), { STAFF_TWO_STEP: 'all', STAFF_STEP_UP: true, STAFF_AUDIT_TRAIL: true, OPS_ALERTS: true })
-    assert.deepEqual(strictDefaults({}, false), { STAFF_TWO_STEP: 'optional', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false })
-    assert.deepEqual(strictDefaults({ STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false }, true), {
-      STAFF_TWO_STEP: 'all', STAFF_STEP_UP: false, STAFF_AUDIT_TRAIL: false, OPS_ALERTS: false,
-    })
+  it('step-up, the audit trail, two-step, the ops alerts and the audit fixes are on by default in production only, and can still be turned off', () => {
+    const SIX = ['API_HARDENING', 'PROVIDER_CHECKS', 'DELIVERY_CHECKS', 'REFUND_SAFETY_CHECKS', 'ORDER_RULE_CHECKS', 'STOCK_INTAKE_CHECKS']
+    const all = (v) => Object.fromEntries(['STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL', 'OPS_ALERTS', ...SIX].map((k) => [k, v]))
+    assert.deepEqual(STRICT_SWITCHES.toSorted(), Object.keys(all(true)).toSorted())
+    assert.deepEqual(strictDefaults({}, true), { STAFF_TWO_STEP: 'all', ...all(true) })
+    assert.deepEqual(strictDefaults({}, false), { STAFF_TWO_STEP: 'optional', ...all(false) })
+    assert.deepEqual(strictDefaults(all(false), true), { STAFF_TWO_STEP: 'all', ...all(false) })
     assert.deepEqual(strictDefaults({ STAFF_STEP_UP: true }, false).STAFF_STEP_UP, true)
     assert.equal(strictDefaults({ OPS_ALERTS: true }, false).OPS_ALERTS, true)
+    for (const key of SIX) {
+      assert.equal(strictDefaults({ [key]: false }, true)[key], false, key)
+      assert.equal(strictDefaults({ [key]: true }, false)[key], true, key)
+    }
   })
 
-  it('warns when step-up, the audit trail or the ops alerts are turned off in production', () => {
-    for (const key of ['STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL', 'OPS_ALERTS']) {
+  it('warns when step-up, the audit trail, the ops alerts or an audit fix is turned off in production', () => {
+    assert.deepEqual(Object.keys(AUDIT_FIXES_OFF).toSorted(), STRICT_SWITCHES.filter((k) => !['STAFF_STEP_UP', 'STAFF_AUDIT_TRAIL', 'OPS_ALERTS'].includes(k)).toSorted())
+    for (const key of STRICT_SWITCHES) {
       const { errors, warnings } = checkProduction({ ...good, [key]: false })
       assert.deepEqual(errors, [])
       assert.equal(warnings.length, 1)
       assert.ok(warnings[0].startsWith(`${key} is false`), warnings[0])
       assert.deepEqual(checkProduction({ ...good, [key]: true }).warnings, [])
     }
+  })
+
+  // env.js itself, as each kind of deployment reads it (PREFLIGHT=1 only stops it refusing to start
+  // for the missing production settings).
+  const read = (vars) =>
+    promisify(execFile)(process.execPath, ['--input-type=module', '-e', `const { env } = await import('./src/env.js'); console.log(JSON.stringify(${JSON.stringify(STRICT_SWITCHES)}.map((k) => env[k])))`], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: { PATH: process.env.PATH, DATABASE_URL: 'postgres://nobody@localhost:5432/none_test', ...vars },
+    }).then((r) => JSON.parse(r.stdout))
+
+  it('env.js: every safeguard on in production unless written false; off in development unless written true', async () => {
+    const n = STRICT_SWITCHES.length
+    assert.deepEqual(await read({ NODE_ENV: 'production', PREFLIGHT: '1' }), Array(n).fill(true))
+    assert.deepEqual(await read({ NODE_ENV: 'production', PREFLIGHT: '1', API_HARDENING: '' }), Array(n).fill(true), 'empty means unset')
+    const offs = Object.fromEntries(STRICT_SWITCHES.map((k) => [k, 'false']))
+    assert.deepEqual(await read({ NODE_ENV: 'production', PREFLIGHT: '1', ...offs }), Array(n).fill(false))
+    assert.deepEqual(await read({ NODE_ENV: 'development' }), Array(n).fill(false))
+    const ons = Object.fromEntries(STRICT_SWITCHES.map((k) => [k, 'true']))
+    assert.deepEqual(await read({ NODE_ENV: 'development', ...ons }), Array(n).fill(true))
+  })
+
+  it('the tests run with them off unless a test turns one on', () => {
+    for (const key of STRICT_SWITCHES) assert.equal(env[key], false, key)
   })
 
   it('production must use the production database, and previews must not', () => {
@@ -181,5 +214,16 @@ describe('production preflight', () => {
     assert.deepEqual(at(80), { errors: [], warnings: [at(80).warnings.find((w) => w.startsWith('BILL_RETENTION_MONTHS is 80: a bill from early in a financial year'))] })
     // The default, or longer, is fine.
     for (const months of [96, 120, undefined]) assert.deepEqual(at(months), { errors: [], warnings: [] }, String(months))
+  })
+})
+
+describe('WhatsApp settings (docs/whatsapp/CONFIGURATION.md)', () => {
+  it('warns about a short app secret or verify token and a missing business account id', () => {
+    const w = (over) => checkProduction({ ...good, ...over }, { vercel: false }).warnings
+    assert.match(w({ WHATSAPP_APP_SECRET: 'short' }).join('\n'), /WHATSAPP_APP_SECRET is too short/)
+    assert.match(w({ WHATSAPP_VERIFY_TOKEN: 'abc' }).join('\n'), /WHATSAPP_VERIFY_TOKEN is short/)
+    assert.match(w({ WHATSAPP_BUSINESS_ACCOUNT_ID: '' }).join('\n'), /WHATSAPP_BUSINESS_ACCOUNT_ID is unset/)
+    // Nothing of this when WhatsApp is not on Meta.
+    assert.doesNotMatch(w({ WHATSAPP_PROVIDER: 'log', WHATSAPP_BUSINESS_ACCOUNT_ID: '' }).join('\n'), /BUSINESS_ACCOUNT_ID/)
   })
 })

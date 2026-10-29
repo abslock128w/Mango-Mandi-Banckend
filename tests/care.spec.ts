@@ -218,13 +218,15 @@ test('an operator answers a help request: inbox, filters, the thread, a reply, r
   await expect(send).toBeDisabled()
   await page.getByLabel('Reply to the customer').fill('Yes, we can bring it between 6 and 8 pm.')
   await send.click()
-  await expect(page.getByText('Yes, we can bring it between 6 and 8 pm.')).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Messages' }).getByText('Yes, we can bring it between 6 and 8 pm.')).toBeVisible()
   await expect(page.getByText('Waiting for customer')).toBeVisible()
   expect(help.calls.find((c) => c.method === 'POST' && c.path.endsWith('/reply'))?.body).toEqual({ message: 'Yes, we can bring it between 6 and 8 pm.' })
   await scan(page)
 
   await page.getByRole('button', { name: 'Mark resolved' }).click()
   await expect(page).toHaveURL(/\/help-desk$/)
+  // Let the inbox finish loading: leaving mid-request is logged as an error in WebKit.
+  await expect(page.getByTestId('help-counts')).toBeVisible()
   await page.goto('/help-desk/hlp_1')
   await expect(page.getByText('Resolved', { exact: true }).first()).toBeVisible()
   await page.getByRole('button', { name: 'Reopen' }).click()

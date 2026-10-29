@@ -28,6 +28,9 @@ async function noA11yViolations(page: Page) {
 const noSidewaysScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
 
 /** A new phone number per test and project, so parallel projects never share a customer. */
+// The service worker is what this spec tests: allowed on every project, the iPhone one included.
+test.use({ serviceWorkers: 'allow' })
+
 const phoneFor = (prefix: string, project: string) => `${prefix}${String(Date.now()).slice(-8)}${project === 'phone' ? 1 : 2}`
 
 async function signInOnPage(page: Page, phone: string) {
@@ -261,6 +264,8 @@ async function fakePushService(page: Page) {
           return true
         },
       })
+      // Safari outside a Home Screen app has no notifications to fake.
+      if (!('Notification' in window) || !('PushManager' in window)) return
       Object.defineProperty(Notification, 'permission', { get: () => 'granted', configurable: true })
       Notification.requestPermission = async () => 'granted'
       PushManager.prototype.subscribe = async function (opts?: PushSubscriptionOptionsInit) {
@@ -288,6 +293,14 @@ test('notifications are turned on only from the Account page, and off there or b
   await page.goto('/sign-in?next=/account')
   await signInOnPage(page, phone)
   const card = page.getByRole('region', { name: 'Order updates in this browser' })
+  if (!(await page.evaluate(() => 'Notification' in window && 'PushManager' in window))) {
+    // Safari on an iPhone, outside a Home Screen app: no button, and how to get them instead.
+    await expect(card).toContainText('add MandiMangoes to your Home Screen first')
+    await expect(card.getByRole('button', { name: 'Turn on notifications' })).toHaveCount(0)
+    expect(asked).toBe(0)
+    await noA11yViolations(page)
+    return
+  }
   await expect(card.getByRole('status')).toHaveText('Off in this browser.')
   expect(asked).toBe(0)
   await noA11yViolations(page)

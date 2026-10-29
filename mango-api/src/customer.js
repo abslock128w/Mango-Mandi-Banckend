@@ -40,6 +40,7 @@ import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
 import { languages } from './language-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
+import { setConsent } from './wa/consent.js'
 import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
 import { movePushSubscriptions, pushPublicKey } from './push.js'
@@ -487,12 +488,21 @@ router.get('/me', asyncHandler(async (req, res) => {
 /** Settings the customer controls: for now, the WhatsApp reminder a week after delivery. */
 router.patch('/me', asyncHandler(async (req, res) => {
   const b = parse(z.object({ remindersOptIn: z.boolean() }).strict(), req.body ?? {})
-  const { rows } = await query(
-    'UPDATE customers SET reminders_opt_in = $2 WHERE id = $1 AND deleted_at IS NULL RETURNING id, phone, name, email, reminders_opt_in',
-    [req.customer.id, b.remindersOptIn],
-  )
-  if (!rows.length) throw notFound('Customer not found')
-  res.json(meView(rows[0]))
+  // The change is also WhatsApp promotional consent, with the request id as evidence (docs/whatsapp/CONSENT.md).
+  const row = await tx(async (c) => {
+    const { rows } = await c.query(
+      `UPDATE customers SET reminders_opt_in = $2 WHERE id = $1 AND deleted_at IS NULL
+        RETURNING id, phone, name, email, reminders_opt_in, (SELECT reminders_opt_in FROM customers WHERE id = $1) AS was`,
+      [req.customer.id, b.remindersOptIn],
+    )
+    if (!rows.length) throw notFound('Customer not found')
+    const cu = rows[0]
+    if (cu.was !== b.remindersOptIn && /^\+[1-9][0-9]{6,14}$/.test(cu.phone ?? '')) {
+      await setConsent(c, { phone: cu.phone, customerId: cu.id, scope: 'marketing', action: b.remindersOptIn ? 'OPT_IN' : 'OPT_OUT', source: 'shop_account', evidence: req.id ? `request ${req.id}` : null })
+    }
+    return cu
+  })
+  res.json(meView(row))
 }))
 
 // ---------------------------------------------------------------- back-in-stock alerts

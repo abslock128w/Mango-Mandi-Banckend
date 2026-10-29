@@ -10,7 +10,7 @@ What was built, the flags and the rollout order: [audit-b-fixes.md](audit-b-fixe
 - **needs owner**: a decision, an account or an outside setting that code can't make.
 - **not worth fixing**: the reason is given.
 
-Flag names in brackets: the fix is off until that env flag is `true` (all default `false`).
+Flag names in brackets: the env flag that turns the fix on. Unset, each is on in production and off elsewhere; `false` turns it off (preflight warns).
 
 ## Security (security.md)
 

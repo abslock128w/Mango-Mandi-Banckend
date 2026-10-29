@@ -37,6 +37,13 @@ import type {
   Promo,
   NewPromo,
   HelpInbox,
+  WaConversationDetail,
+  WaFailures,
+  WaInbox,
+  WaInboxView,
+  WaOverview,
+  WaConnectionCheck,
+  WaTemplateReport,
   HelpRequestDetail,
   HelpStatus,
   HelpTopic,
@@ -487,6 +494,29 @@ export const api = {
   replyHelpRequest: (requestId: string, message: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reply`, { message }),
   resolveHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/resolve`),
   reopenHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reopen`),
+  // WhatsApp (docs/whatsapp/OPERATIONS.md): the inbox for managers and operators; set-up and health for managers.
+  waInbox: (view: WaInboxView = 'waiting', page = 1) => request<WaInbox>('GET', `/whatsapp/conversations${qs({ view, page: page > 1 ? page : undefined })}`),
+  waConversation: (conversationId: string) => request<WaConversationDetail>('GET', `/whatsapp/conversations/${id(conversationId)}`),
+  waReply: (conversationId: string, text: string) => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/reply`, { text }),
+  waTakeOver: (conversationId: string) => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/take-over`),
+  waHandBack: (conversationId: string) => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/hand-back`),
+  waClose: (conversationId: string) => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/close`),
+  waAssign: (conversationId: string, adminId: string | null) => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/assign`, { adminId }),
+  /** Staff only record an opt-out the customer asked for; opting in is the customer's own act. */
+  waOptOut: (conversationId: string, scope: 'all' | 'marketing') => request<WaConversationDetail>('POST', `/whatsapp/conversations/${id(conversationId)}/opt-out`, { scope }),
+  waRetryMessage: (messageId: string) => request<{ queued: string }>('POST', `/whatsapp/messages/${id(messageId)}/retry`),
+  /** A customer's photo or file as an object URL: the API fetches it from Meta, so no Meta address reaches the browser. */
+  async waMediaUrl(messageId: string): Promise<string> {
+    const res = await send('GET', `/whatsapp/media/${id(messageId)}`)
+    return URL.createObjectURL(await res.blob())
+  },
+  waOverview: () => request<WaOverview>('GET', '/whatsapp/overview'),
+  waCheck: () => request<WaConnectionCheck>('POST', '/whatsapp/check'),
+  waSyncTemplates: () => request<WaTemplateReport>('POST', '/whatsapp/templates/sync'),
+  waSetAutomation: (kind: string, enabled: boolean, confirmCode?: string) =>
+    request<WaTemplateReport>('PUT', `/whatsapp/automations/${id(kind)}`, { enabled, ...confirmBody(confirmCode) }),
+  waFailures: () => request<WaFailures>('GET', '/whatsapp/failures'),
+  waReplayEvent: (eventId: string) => request<{ ok: boolean; error: string | null }>('POST', `/whatsapp/events/${id(eventId)}/replay`),
   subscriptions: (status: 'ACTIVE' | 'PAUSED' | 'CANCELLED' | null = null) => request<SubscriptionList>('GET', `/subscriptions${qs({ status: status ?? undefined })}`),
   /** Pause or cancel needs a reason (5+ characters); it is kept in the activity log. */
   pauseSubscription: (subscriptionId: string, reason: string) => request<void>('POST', `/subscriptions/${id(subscriptionId)}/pause`, { reason }),

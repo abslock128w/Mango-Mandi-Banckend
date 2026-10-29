@@ -8,6 +8,10 @@ import { defineConfig, devices } from '@playwright/test'
 const port = Number(process.env.SHOP_PORT ?? 5174)
 const panelPort = Number(process.env.PANEL_PORT ?? 5173)
 
+// NFR-15: Safari on an iPhone (WebKit). Only with PW_WEBKIT=1, which CI sets after
+// `npx playwright install --with-deps webkit`; without it the run is Chromium only, as before.
+const webkit = process.env.PW_WEBKIT === '1'
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -23,6 +27,11 @@ export default defineConfig({
   projects: [
     { name: 'phone', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+    // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary. In WebKit, page.route never
+    // sees requests from a page the shop's service worker controls, so the worker is blocked here;
+    // app-feel.spec.ts, which tests the worker itself, allows it again.
+    // WebKit on a CI runner takes about 2.5 times as long as Chromium for the same journey, so it gets 60s.
+    ...(webkit ? [{ name: 'iphone', timeout: 60_000, use: { ...devices['iPhone 13'], launchOptions: {}, serviceWorkers: 'block' as const } }] : []),
   ],
   webServer: [
     {

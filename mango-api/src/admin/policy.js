@@ -25,6 +25,7 @@ export const STEP_UP_ROUTES = [
   { route: 'POST /batches/:id/purchases', always: true, when: 'Recording what a batch cost' },
   { route: 'PATCH /batches/:id/purchases/:purchaseId', always: true, when: 'Changing what a batch cost' },
   { route: 'PUT /settings/switches/:key', always: true, when: 'Turning a feature on or off' },
+  { route: 'PUT /whatsapp/automations/:kind', always: false, when: 'Turning an automated WhatsApp message on or off' },
   { route: 'POST /staff', always: false, when: 'Adding staff' },
   { route: 'PATCH /staff/:id', always: false, when: 'Changing a role or password' },
   { route: 'POST /staff/:id/two-step/reset', always: false, when: 'Resetting someone\'s two-step sign-in' },
@@ -39,5 +40,8 @@ export const STEP_UP_ROUTES = [
  * search. Customer profiles, reveals, bills and exports record every look on their own
  * (staff-audit.js auditNow, docs/trust.md).
  */
-export const READ_AUDITED_ROUTES = ['GET /orders/:id', 'GET /manifest', 'GET /claims', 'GET /orders/:id/delivery-photos/:photoId', 'GET /claims/:id/photos/:photoId']
+export const READ_AUDITED_ROUTES = [
+  'GET /orders/:id', 'GET /manifest', 'GET /claims', 'GET /orders/:id/delivery-photos/:photoId', 'GET /claims/:id/photos/:photoId',
+  'GET /whatsapp/conversations/:id', 'GET /whatsapp/media/:id',
+]
 export const ALWAYS_AUDITED_READS = ['GET /customers/:id', 'GET /orders/:id/bill', 'GET /exports/:kind']

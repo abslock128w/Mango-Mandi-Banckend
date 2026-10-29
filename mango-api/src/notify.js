@@ -13,7 +13,9 @@ import { productName } from './products.js'
 import { enqueueLinkPush, enqueueOrderPush } from './push.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
-import { templateName, whatsappSender } from './whatsapp.js'
+import { sendOutcome, templateName, whatsappSender } from './whatsapp.js'
+import { refusal } from './wa/consent.js'
+import { jitter, recordTemplateSent } from './wa/conversations.js'
 
 const RETRY_MINUTES = [1, 5, 15, 60, 180]
 const MAX_AGE_MS = 24 * 3_600_000 // an update older than a day is no longer news
@@ -286,8 +288,12 @@ async function sendBatch(sender, limit, at) {
             rc.deleted_at AS reward_customer_deleted_at, rr.withdrawn_at AS reward_withdrawn_at,
             ms.params AS summary_params, ma.role AS summary_role, ma.daily_summary_opt_in AS summary_opt_in, ma.daily_summary_phone AS summary_phone,
             ht.number AS help_number, sb.id AS sub_id, sb.sku AS sub_sku, sb.qty AS sub_qty, sy.delivery_date AS cycle_date, sy.status AS cycle_status,
-            sb.status AS subscription_status
+            sb.status AS subscription_status,
+            COALESCE(o.customer_id, p.customer_id) AS target_customer_id,
+            (SELECT cu.reminders_opt_in FROM customers cu WHERE cu.id = o.customer_id) AS reminders_opt_in,
+            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
+       LEFT JOIN wa_consent wc ON wc.phone = n.phone LEFT JOIN wa_automations wau ON wau.kind = n.kind
        LEFT JOIN delivery_slots s ON s.id = o.slot_id
        LEFT JOIN stock_alerts a ON a.id = n.stock_alert_id LEFT JOIN customers ac ON ac.id = a.customer_id
        LEFT JOIN referral_rewards rr ON rr.id = n.referral_reward_id LEFT JOIN customers rc ON rc.id = rr.customer_id
@@ -299,6 +305,10 @@ async function sendBatch(sender, limit, at) {
       WHERE n.id = ANY($1) ORDER BY n.created_at`,
     [claimed.rows.map((r) => r.id)],
   )
+  // Meta's last word on each template (empty until the first template sync): a paused or
+  // rejected template is not used, and its messages wait as SKIPPED with the reason.
+  const templates = new Map((await query('SELECT name, status, body_params FROM wa_templates WHERE language = $1', [env.WHATSAPP_LANGUAGE])).rows.map((t) => [t.name, t]))
+  for (const n of rows) n.templates = templates
   let sent = 0
   // A few at a time: a dispatch burst queues hundreds of delivery codes, and one
   // by one at Meta's latency they would arrive late.
@@ -372,29 +382,59 @@ async function sendOne(n, sender, at) {
     await mark(n.id, { status: 'SKIPPED', last_error: stale })
     return false
   }
+  // docs/whatsapp/CONSENT.md and AUTOMATIONS: a manager's switch, the customer's STOP, and
+  // promotional messages only with an opt-in. Checked at send time, so a STOP sent after the
+  // message was queued still counts.
+  const gate = sendGate(n)
+  if (gate) {
+    await mark(n.id, { status: 'SKIPPED', last_error: gate })
+    return false
+  }
+  const params = paramsFor(n)
+  const known = n.templates?.get(templateFor(n.kind))
+  if (known && known.status !== 'APPROVED') {
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} is ${known.status} at Meta, not approved` })
+    return false
+  }
+  if (known && known.body_params != null && known.body_params !== params.length) {
+    // Meta would refuse it (wrong number of variables): stop before calling, with the reason.
+    await mark(n.id, { status: 'FAILED', last_error: `template ${templateFor(n.kind)} takes ${known.body_params} variables, this message has ${params.length}` })
+    metrics.notificationsFailed.inc({ kind: n.kind })
+    return false
+  }
   if (!sender) {
     if (isProd) {
       logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
       await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
       return false
     }
-    logger.info({ phone: maskPhone(n.phone), kind: n.kind, params: paramsFor(n), orderLink: orderLinkFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
+    logger.info({ phone: maskPhone(n.phone), kind: n.kind, params, orderLink: orderLinkFor(n) }, `WhatsApp ${templateFor(n.kind)}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
+    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: null, notificationId: n.id })
     return true
   }
   let providerId
   try {
-    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params: paramsFor(n), urlParam: orderLinkFor(n) })
+    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params, urlParam: orderLinkFor(n) })
   } catch (err) {
     const attempts = n.attempts + 1
+    const outcome = sendOutcome(err)
+    logger.warn({ err, orderId: n.order_id, kind: n.kind, attempts, outcome }, 'WhatsApp update failed')
+    if (outcome === 'unknown') {
+      // No answer in time: Meta may have sent it. Not resent automatically (two delivery codes,
+      // two "confirmed" messages); a delivered or read status that comes later can't be matched
+      // without Meta's id, so staff decide on the WhatsApp page (Send again).
+      await mark(n.id, { status: 'FAILED', delivery_status: 'unknown', attempts, last_error: `UNKNOWN: ${String(err.message).slice(0, 380)}. WhatsApp may have delivered it; not resent automatically` })
+      metrics.notificationsFailed.inc({ kind: n.kind })
+      return false
+    }
     // Meta refusing the request itself (bad number, unknown or paused template) won't change on a retry.
-    const wait = err?.permanent ? null : RETRY_MINUTES.at(attempts - 1)
-    logger.warn({ err, orderId: n.order_id, kind: n.kind, attempts }, 'WhatsApp update failed')
+    const wait = err?.permanent || outcome === 'permanent' ? null : RETRY_MINUTES.at(attempts - 1)
     if (wait == null) {
       await mark(n.id, { status: 'FAILED', attempts, last_error: String(err.message).slice(0, 500) })
       metrics.notificationsFailed.inc({ kind: n.kind })
     } else {
-      await mark(n.id, { attempts, last_error: String(err.message).slice(0, 500), next_attempt_at: new Date(at.getTime() + wait * 60_000) })
+      await mark(n.id, { attempts, last_error: String(err.message).slice(0, 500), next_attempt_at: new Date(at.getTime() + jitter(wait * 60_000)) })
     }
     return false
   }
@@ -403,7 +443,17 @@ async function sendOne(n, sender, at) {
   const fields = { status: 'SENT', sent_at: at, provider_id: providerId ?? null, attempts: n.attempts + 1, last_error: null }
   await mark(n.id, fields).catch(() => mark(n.id, fields)).catch((err) => logger.error({ err, id: n.id }, 'message sent but not recorded'))
   metrics.notificationsSent.inc({ kind: n.kind })
+  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
   return true
+}
+
+/** How an order update reads in its conversation (no delivery code: staff never need it there). */
+const updateSummary = (n) => `Update sent: ${n.kind.toLowerCase().replaceAll('_', ' ')}${n.number ? ` (${n.number})` : ''}`
+
+/** Why a queued message may not go now (switch, consent), or null. */
+function sendGate(n) {
+  if (n.automation_enabled === false) return 'turned off on the WhatsApp page'
+  return refusal(n.kind, { updates: n.consent_updates ?? 'ALLOWED', marketing: n.consent_marketing ?? 'NONE' }, { optIn: n.kind === 'REORDER_REMINDER' && Boolean(n.reminders_opt_in) })
 }
 
 /**

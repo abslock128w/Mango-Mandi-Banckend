@@ -45,6 +45,14 @@ jobs:
         run: npx playwright test
         env:
           CI: 'true'
+      # NFR-15: Safari on an iPhone. PW_WEBKIT=1 adds the iphone project (WebKit,
+      # devices['iPhone 13']) to the config; every panel spec runs on it once more.
+      - run: npx playwright install --with-deps webkit
+      - name: Panel specs on an iPhone (WebKit, mocked API)
+        run: npx playwright test --project=iphone
+        env:
+          CI: 'true'
+          PW_WEBKIT: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -240,6 +248,23 @@ jobs:
         env:
           CI: 'true'
           VITE_API_URL: http://localhost:3000
+      # NFR-15: the whole shop again on Safari on an iPhone (WebKit), after the Chromium run so the
+      # specs' one-per-project customers and boxes never meet a run going side by side.
+      - run: npx playwright install --with-deps webkit
+      # The Chromium run has used up much of the demo stock for the next few days; top it up on this
+      # throwaway database so the iPhone run books the same boxes. Running short (STOCK_INSUFFICIENT) is
+      # covered by the API tests.
+      - run: psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE batch_lines SET on_hand = on_hand + 500'
+      - name: Customer app journey on an iPhone (WebKit) against the real API
+        working-directory: customer-app
+        run: npx playwright test --project=iphone
+        env:
+          CI: 'true'
+          PW_WEBKIT: '1'
+          VITE_API_URL: http://localhost:3000
+      # What each failing page showed (its accessibility snapshot), since this job keeps no report.
+      - if: failure()
+        run: for f in $(find test-results-shop -name error-context.md 2>/dev/null); do echo "== $f"; head -80 "$f"; done
       - if: failure()
         run: cat api.log
 

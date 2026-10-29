@@ -7,6 +7,10 @@ import { defineConfig, devices } from '@playwright/test'
 // PANEL_PORT moves the dev server off 5173 (for example when another one runs there).
 const port = Number(process.env.PANEL_PORT ?? 5173)
 
+// NFR-15: Safari on an iPhone (WebKit). Only with PW_WEBKIT=1, which CI sets after
+// `npx playwright install --with-deps webkit`; without it the run is Chromium only, as before.
+const webkit = process.env.PW_WEBKIT === '1'
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -29,6 +33,8 @@ export default defineConfig({
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } },
     },
+    // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary.
+    ...(webkit ? [{ name: 'iphone', use: { ...devices['iPhone 13'], launchOptions: {} } }] : []),
   ],
   webServer: {
     command: `npm run dev -- --port ${port} --strictPort`,

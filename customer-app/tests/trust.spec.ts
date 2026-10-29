@@ -54,6 +54,8 @@ test('a business pays, downloads its bill; a manager downloads it, opens the pro
   const item = cat.items.find((i: { qty: number }) => i.qty > 0)
   expect(item, 'something in stock').toBeTruthy()
   await page.goto('/')
+  // The shop saves its own empty choices once it has rendered; wait for that, then set ours.
+  await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible()
   await page.evaluate(
     ([item, date]) => {
       localStorage.setItem('mm.where', JSON.stringify({ pincode: '560034', date }))

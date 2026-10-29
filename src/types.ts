@@ -1419,3 +1419,126 @@ export interface SubscriptionList {
   items: StaffSubscription[]
   counts: Record<'ACTIVE' | 'PAUSED' | 'CANCELLED', number>
 }
+
+// ---------------------------------------------------------------- WhatsApp (docs/whatsapp/OPERATIONS.md)
+
+export type WaMode = 'BOT' | 'STAFF'
+export type WaConversationStatus = 'OPEN' | 'WAITING' | 'CLOSED'
+export type WaMessageStatus = 'RECEIVED' | 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'UNKNOWN'
+export type WaInboxView = 'waiting' | 'mine' | 'staff' | 'all'
+
+/** A conversation in the inbox: the phone shows only its last 4 digits. */
+export interface WaConversation {
+  id: string
+  phone: string | null
+  customer: { id: string; name: string | null } | null
+  mode: WaMode
+  status: WaConversationStatus
+  assignedTo: { id: string; email: string | null } | null
+  handoffReason: string | null
+  waitingSince: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
+  /** Free-form replies are allowed until this time (24 hours after the customer's last message). */
+  windowOpenUntil: string | null
+  windowOpen: boolean
+  unread: number
+  updatedAt: string
+  preview: string | null
+}
+
+export interface WaInbox {
+  conversations: WaConversation[]
+  counts: { waiting: number; staff: number; mine: number }
+}
+
+export interface WaMessage {
+  id: string
+  direction: 'IN' | 'OUT'
+  type: string
+  body: string | null
+  template: string | null
+  author: { kind: 'customer' | 'bot' | 'system' } | { kind: 'staff'; id: string; email: string | null }
+  status: WaMessageStatus
+  error: string | null
+  createdAt: string
+  statusAt: string | null
+  media: { kind: string; mime: string | null; filename: string | null; caption: string | null; location: { name: string | null; address: string | null } | null; canOpen: boolean } | null
+}
+
+export interface WaConversationDetail {
+  conversation: WaConversation
+  messages: WaMessage[]
+  consent: { updates: 'ALLOWED' | 'STOPPED'; marketing: 'NONE' | 'OPTED_IN' | 'OPTED_OUT' }
+  recentOrders: { id: string; number: string; status: OrderStatus; deliveryDate: string; total: number }[]
+}
+
+export type WaAutomationState = 'OFF' | 'FLAG_OFF' | 'NOT_CHECKED' | 'AWAITING_TEMPLATE' | 'AWAITING_APPROVAL' | 'VARIABLES_MISMATCH' | 'READY'
+
+export interface WaAutomation {
+  kind: string
+  template: string
+  category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION'
+  consent: 'updates' | 'requested' | 'marketing'
+  params: string[]
+  example: string[] | null
+  trigger: string
+  flag: string | null
+  enabled: boolean
+  state: WaAutomationState
+  meta: { status: string; category: string | null; bodyParams: number | null; urlButton: boolean | null; reason: string | null } | null
+}
+
+export interface WaTemplateReport {
+  language: string
+  synced: boolean
+  lastSyncedAt: string | null
+  automations: WaAutomation[]
+}
+
+export interface WaReadinessItem {
+  key: string
+  label: string
+  ok: boolean
+  detail: string
+  required: boolean
+}
+
+export interface WaConnectionCheck {
+  at: string
+  configured: boolean
+  ok: boolean
+  phone: { ok: boolean; problem?: string; number?: string | null; name?: string | null; quality?: string | null; limit?: string | null; nameStatus?: string | null; status?: string | null; message?: string | null } | null
+  subscription: { ok: boolean; problem?: string; apps?: string[]; message?: string | null } | null
+}
+
+export interface WaOverview {
+  readiness: { complete: boolean; missing: string[]; items: WaReadinessItem[]; environment: string }
+  lastCheck: (WaConnectionCheck & { by?: string | null }) | null
+  metrics: {
+    inbound: number
+    replies: number
+    updates_sent: number
+    updates_delivered: number
+    updates_read: number
+    updates_failed: number
+    updates_skipped: number
+    messages_failed: number
+    messages_queued: number
+    waiting: number
+    oldest_waiting: string | null
+    stopped: number
+    last_webhook_at: string | null
+    webhooks_unprocessed: number
+    webhooks_given_up: number
+  }
+  health: { field: string; event: string | null; detail: Record<string, unknown>; at: string }[]
+  templates: WaTemplateReport
+  webhookUrl: string | null
+}
+
+export interface WaFailures {
+  updates: { id: string; kind: string; number: string | null; phone: string | null; unknown: boolean; error: string | null; attempts: number; createdAt: string }[]
+  messages: { id: string; conversationId: string; type: string; status: WaMessageStatus; error: string | null; attempts: number; phone: string | null; createdAt: string }[]
+  events: { id: string; receivedAt: string; attempts: number; error: string | null; gaveUp: boolean }[]
+}

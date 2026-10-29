@@ -16,10 +16,9 @@ import { logger } from './logger.js'
 import { withLogContext } from './log-context.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
 import { recordWebhookFailure } from './payments.js'
-import { handleWhatsAppWebhook } from './chat.js'
-import { handleWebhook, markWebhookEvent, razorpayIds, verifySignature } from './payments.js'
+import { handleWebhook, razorpayIds, verifySignature } from './payments.js'
 import { verifyMetaSignature } from './whatsapp.js'
-import { noteWebhookEventFailure, storeWebhookEvent, webhookLag } from './webhook-events.js'
+import { noteWebhookEventFailure, processWhatsAppEvent, storeWebhookEvent, WHATSAPP_WEBHOOK_ANSWER_MS, webhookLag } from './webhook-events.js'
 import { lastTickAgeSeconds, runMaintenance } from './maintenance.js'
 import { loadProducts } from './products.js'
 import { refreshSwitches } from './feature-switches.js'
@@ -231,18 +230,31 @@ export function createApp() {
     }
     let intake = null
     try {
+      // Stored first, in its own insert: from here the event survives this instance (maintenance replays it).
       intake = await storeWebhookEvent('whatsapp', raw)
-      const handled = await handleWhatsAppWebhook(body)
-      // Each message is its own transaction (deduplicated by its id), so the event is marked done after them.
-      await markWebhookEvent({ query }, intake.id)
-      res.json({ ok: true, handled })
     } catch (err) {
-      await noteWebhookEventFailure(intake?.id, err)
-      logger.error({ err, reqId: req.id }, 'WhatsApp webhook processing failed')
+      if (isPoolTimeout(err) || err?.code === '53300') return res.status(503).set('Retry-After', '2').json({ error: { code: 'BUSY', message: 'Busy, retry shortly', requestId: req.id, ...retryAfter(2) } })
+      logger.error({ err, reqId: req.id }, 'WhatsApp webhook could not be stored')
       metrics.webhookErrors.inc({ source: 'whatsapp' })
-      await recordWebhookFailure('whatsapp', err.message, body?.entry?.[0]?.id ?? null)
-      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
+      return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
     }
+    // docs/whatsapp/WEBHOOKS.md: Meta wants a quick 200. Most events are done well within
+    // WHATSAPP_WEBHOOK_ANSWER_MS; a slower one (Meta slow to take our replies) is answered
+    // "accepted" at that point and finishes in the background, or in the maintenance replay.
+    const work = processWhatsAppEvent(intake.id, body, { reqId: req.id })
+    let timer
+    const late = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), WHATSAPP_WEBHOOK_ANSWER_MS)
+      timer.unref?.()
+    })
+    const done = await Promise.race([work.then((r) => ({ r }), (err) => ({ err })), late])
+    clearTimeout(timer)
+    if (!done) {
+      background(work.catch(() => {}))
+      return res.json({ ok: true, accepted: true })
+    }
+    if (done.err) return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error', requestId: req.id } })
+    res.json({ ok: true, handled: done.r })
   })
 
   app.use(express.json({ limit: '100kb', inflate: false }))

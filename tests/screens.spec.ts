@@ -1,4 +1,4 @@
-import { expect, test, navLinkAnyState, openNavTo } from './fixtures'
+import { expect, test, navLinkAnyState, openNavTo, screenLoaded } from './fixtures'
 import { confirmItsMe, mockApi } from './mock-api'
 
 // Backend-free walk through every screen against the mocked API.
@@ -625,6 +625,7 @@ test('Staff: a manager adds a packer, changes a role and reads the activity log'
 test('Staff is a manager-only screen', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/today')
+  await screenLoaded(page)
   await expect(navLinkAnyState(page, 'Staff')).toHaveCount(0)
   await page.goto('/staff')
   await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()

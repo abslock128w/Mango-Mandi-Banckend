@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures'
+import { expect, screenLoaded, test } from './fixtures'
 import { mockApi, type MockState } from './mock-api'
 import type { CustomerProfile, Role } from '../src/types'
 
@@ -143,21 +143,32 @@ test('a manager’s export card checks the range before anything is sent', async
 test('a packer has no customer search and no profile link; with the features off nobody does', async ({ page }, info) => {
   await staff(page, 'PACKER')
   await page.goto('/')
+  // '/' sends a packer on to the pack list; let that screen load before leaving it, or
+  // Safari logs its cancelled import as an error.
+  await expect(page).toHaveURL(/\/pack-list/)
+  await screenLoaded(page)
   await expect(page.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await page.goto('/customers')
+  // Let the page finish loading first; Safari cancels a half-loaded page's code when the next one opens.
+  await screenLoaded(page)
   await expect(page.getByRole('heading', { name: 'Find a customer' })).toHaveCount(0)
 
-  const off = await page.context().newPage()
+  // Close the packer's page first, so nothing on it is still loading when the test
+  // ends: Safari logs a cancelled page load as an error.
+  const context = page.context()
+  await page.close()
+  const off = await context.newPage()
   await staff(off, 'MANAGER', false)
   await off.goto('/orders/o1')
   await expect(off.getByRole('heading', { name: /ORD-1042/ })).toBeVisible()
   await expect(off.getByRole('link', { name: 'Customer profile' })).toHaveCount(0)
   await expect(off.getByRole('region', { name: 'Bill' })).toHaveCount(0)
+  await screenLoaded(off)
   await off.goto('/orders')
   await expect(off.getByRole('region', { name: 'Download as CSV' })).toHaveCount(0)
   const nav = off.getByRole('navigation', { name: 'Main' })
-  // The Customers group on desktop; the Menu on a phone.
-  await (info.project.name === 'phone' ? off.getByRole('button', { name: 'Menu' }) : nav.getByRole('button', { name: 'Customers' })).click()
+  // The Customers group on desktop; the Menu on a phone (Android or iPhone).
+  await (info.project.name !== 'desktop' ? off.getByRole('button', { name: 'Menu' }) : nav.getByRole('button', { name: 'Customers' })).click()
   await expect(nav.getByRole('link', { name: 'Reviews', exact: true })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Find a customer' })).toHaveCount(0)
   await off.close()

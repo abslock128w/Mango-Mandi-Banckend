@@ -287,7 +287,7 @@ router.post(
   '/notifications/:id/retry',
   asyncHandler(async (req, res) => {
     const r = await query(
-      `UPDATE notifications SET status = 'PENDING', attempts = 0, last_error = NULL, next_attempt_at = $2, created_at = $2
+      `UPDATE notifications SET status = 'PENDING', attempts = 0, last_error = NULL, delivery_status = NULL, next_attempt_at = $2, created_at = $2
         WHERE id = $1 AND status IN ('FAILED', 'SKIPPED') RETURNING id`,
       [req.params.id, now()],
     )

@@ -68,7 +68,7 @@ recount), listed under "Review follow-ups" below.
 
 ## What was built
 
-### Flags (all default `false`: the previous behaviour)
+### Flags (unset: on in production, off elsewhere)
 
 | Env var | Turns on | Findings |
 |---|---|---|
@@ -78,8 +78,10 @@ recount), listed under "Review follow-ups" below.
 | `STOCK_INTAKE_CHECKS` | batch intake idempotency key and manager approval above a size; late trucks stop selling to new orders | INV-02, INV-08 |
 | `BATCH_INTAKE_MANAGER_BOXES` | the size (boxes) above which a non-manager needs a manager; default 1000, 1-100000 | INV-02 |
 
-They are in `mango-api/src/env.js` and `mango-api/.env.example`. For the local demo
-turn all four on. In production, `REFUND_SAFETY_CHECKS` can be turned off for a moment
+They are in `mango-api/src/env.js` and `mango-api/.env.example`. Left unset, each is on
+in production and off elsewhere (since the client review; `PAYMENT_DAILY_RECON` already
+was); `false` turns one off, and preflight warns about it. For the local demo turn all
+four on. In production, `REFUND_SAFETY_CHECKS` can be turned off for a moment
 if Razorpay is unreachable for good and a manual refund must be recorded.
 
 Not behind a flag (they change no rule a person sees, only fix a wrong answer or a

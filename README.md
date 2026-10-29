@@ -108,6 +108,11 @@ PANEL_PORT=5310 npx playwright test
 # Using an already-installed Chromium instead of Playwright's download:
 PW_CHROMIUM_PATH=/path/to/chrome npm run test:e2e
 
+# Safari on an iPhone (WebKit, NFR-15): PW_WEBKIT=1 adds the `iphone` project
+# (devices['iPhone 13']). Off unless set, so a plain run stays Chromium only. CI sets it.
+npx playwright install --with-deps webkit   # once
+PW_WEBKIT=1 npx playwright test --project=iphone
+
 # Full day-in-the-life script against a local mango-api with demo data
 # (start it first: cd mango-api && COOKIE_SECURE=false ENABLE_DEV_ROUTES=true npm start):
 E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 VITE_API_URL=http://localhost:3000 \

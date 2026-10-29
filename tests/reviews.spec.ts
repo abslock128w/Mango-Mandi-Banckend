@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, navLinkAnyState, openNavTo } from './fixtures'
+import { expect, test, navLinkAnyState, openNavTo, screenLoaded } from './fixtures'
 import { mockApi } from './mock-api'
 
 // Reviews: the moderation queue, the detail drawer (photos, reasons, the
@@ -81,6 +81,8 @@ test('QC sees ripeness insights only; packers and riders do not see Reviews', as
 
   await mockApi(page, { signedIn: true, role: 'PACKER' })
   await page.goto('/pack-list')
+  await expect(page.getByRole('heading', { name: 'Pack list', level: 1 })).toBeVisible()
+  await screenLoaded(page)
   await expect(navLinkAnyState(page, 'Reviews')).toHaveCount(0)
   await page.goto('/reviews')
   await expect(page.getByRole('heading', { name: 'Not available for your role' })).toBeVisible()

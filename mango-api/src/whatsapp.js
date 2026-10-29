@@ -19,6 +19,44 @@ import { logger, maskPhone } from './logger.js'
  */
 export const META_TEMPORARY_CODES = new Set([1, 2, 4, 80007, 130429, 131000, 131016, 131048, 131056, 131057, 133004])
 
+/** Network errors raised before the request reached Meta: nothing was sent, so a retry is safe. */
+const NEVER_CONNECTED = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT'])
+
+/**
+ * What a failed send means (docs/whatsapp/RELIABILITY.md):
+ *   'permanent'  Meta answered and refused it (bad number, unknown template): a retry won't help;
+ *   'retry'      Meta answered "not now" (rate limit, busy), or the request never reached Meta
+ *                (connection refused, DNS, or an error raised before the request was made);
+ *   'unknown'    no answer in time, or the connection broke mid-way: Meta may have sent it, so it
+ *                is not resent automatically (a second copy is worse than a late one).
+ */
+export function sendOutcome(err) {
+  if (err?.outcome) return err.outcome
+  if (err?.name === 'TimeoutError' || err?.name === 'AbortError') return 'unknown'
+  const code = err?.cause?.code ?? err?.code
+  if (err?.name === 'TypeError' && NEVER_CONNECTED.has(code)) return 'retry'
+  if (NEVER_CONNECTED.has(code)) return 'retry'
+  if (err?.status) return err.permanent ? 'permanent' : 'retry'
+  // fetch's own failure after connecting (reset, socket closed): the request may have reached Meta.
+  if (err?.name === 'TypeError') return 'unknown'
+  // Any other error was raised by our code, not on the wire: nothing reached Meta.
+  return 'retry'
+}
+
+/** An error for a Cloud API answer that was not a success. */
+function metaError(res, body) {
+  const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+  err.status = res.status
+  err.metaCode = body?.error?.code ?? null
+  err.metaSubcode = body?.error?.error_subcode ?? null
+  // 4xx other than rate limits and auth (which ops can fix) won't succeed on a retry.
+  err.permanent = res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
+  // INT-09: Meta sends several temporary errors (throughput, pair and spam rate limits) as HTTP 400.
+  if (META_TEMPORARY_CODES.has(Number(err.metaCode))) err.permanent = false
+  err.outcome = err.permanent ? 'permanent' : 'retry'
+  return err
+}
+
 /** A sender for the Cloud API. Resolves to the provider's message id. */
 export function metaSender(opts, fetchImpl = fetch) {
   const url = `https://graph.facebook.com/${opts.apiVersion}/${encodeURIComponent(opts.phoneNumberId)}/messages`
@@ -44,17 +82,17 @@ export function metaSender(opts, fetchImpl = fetch) {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
-      err.metaCode = body?.error?.code ?? null
-      // 4xx other than rate limits and auth (which ops can fix) won't succeed on a retry.
-      err.permanent = res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
-      // INT-09: Meta sends several temporary errors (throughput, pair and spam rate limits) as HTTP 400.
-      if (env.PROVIDER_CHECKS && META_TEMPORARY_CODES.has(Number(err.metaCode))) err.permanent = false
+      const err = metaError(res, body)
+      // INT-09 is part of PROVIDER_CHECKS: without it, every 4xx is final as before.
+      if (!env.PROVIDER_CHECKS && res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)) {
+        err.permanent = true
+        err.outcome = 'permanent'
+      }
       throw err
     }
     const id = body?.messages?.[0]?.id
     // A 200 without a message id is not an accepted message: retry it.
-    if (!id) throw new Error('WhatsApp answered without a message id')
+    if (!id) throw Object.assign(new Error('WhatsApp answered without a message id'), { outcome: 'retry' })
     return id
   }
 }
@@ -168,9 +206,10 @@ export function metaMessenger(opts, fetchImpl = fetch) {
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) {
-      const err = new Error(`WhatsApp ${res.status}: ${body?.error?.message ?? 'request failed'}`)
+      const err = metaError(res, body)
       // INT-12: worth one more try (chat.js deliver): Meta busy or rate limited.
       err.retryable = res.status >= 500 || res.status === 429 || META_TEMPORARY_CODES.has(Number(body?.error?.code))
+      err.outcome = err.retryable ? 'retry' : 'permanent'
       throw err
     }
     return body?.messages?.[0]?.id ?? null
