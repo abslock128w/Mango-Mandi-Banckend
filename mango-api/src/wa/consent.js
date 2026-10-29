@@ -75,6 +75,9 @@ export function refusal(kind, consent, { optIn = false } = {}) {
   const a = automationFor(kind)
   const cls = a?.consent ?? 'updates'
   if (consent.updates === 'STOPPED') return 'customer sent STOP on WhatsApp'
+  // STOP OFFERS also stops what we ask Meta to bill as marketing (a review request, a referral
+  // thank-you), even though those need no opt-in of their own.
+  if (a?.category === 'MARKETING' && consent.marketing === 'OPTED_OUT') return 'customer opted out of promotional messages'
   if (cls !== 'marketing') return null
   if (consent.marketing === 'OPTED_OUT') return 'customer opted out of promotional messages'
   if (consent.marketing === 'OPTED_IN' || optIn) return null

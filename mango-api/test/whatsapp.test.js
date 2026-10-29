@@ -15,7 +15,7 @@ import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 import { auditLedger } from '../src/inventory.js'
 import { checkHealth } from '../src/maintenance.js'
-import { enqueue, sendDueNotifications, templateFor } from '../src/notify.js'
+import { enqueue, orderLinkFor, paramsFor, sendDueNotifications, templateFor } from '../src/notify.js'
 import { consentKeyword, refusal } from '../src/wa/consent.js'
 import { jitter, MESSAGE_RETRY_MINUTES, recordMessageStatus, replyType, sendDueMessages, WINDOW_MS, windowOpen } from '../src/wa/conversations.js'
 import { bodyParams, graphProblem, readiness, syncTemplates, useMetaFetchForTests } from '../src/wa/meta-admin.js'
@@ -135,6 +135,36 @@ describe('WhatsApp rules', () => {
     assert.equal(refusal('REORDER_REMINDER', { updates: 'ALLOWED', marketing: 'OPTED_IN' }), null)
     // An opt-out wins over the shop setting.
     assert.match(refusal('REORDER_REMINDER', { updates: 'ALLOWED', marketing: 'OPTED_OUT' }, { optIn: true }), /opted out/)
+  })
+
+  test('each kind fills exactly the variables its registry entry names; order-link buttons match', () => {
+    const n = {
+      customer_name: 'Asha', number: 'ORD-1', delivery_date: '2026-10-16', starts_at: '07:00', ends_at: '11:00', delivery_code: '1234', gift_recipient_name: 'Ravi',
+      items: [{ sku: 'ALP-3', stage: 'RAW' }], alert_sku: 'ALP-3', alert_stage: 'RIPE', alert_date: '2026-10-16', last_product: 'ALP-3', total: 100, payment_amount: 100,
+      pre_qty: 1, pre_sku: 'ALP-3', week_start: '2026-10-19', payment_link_url: 'https://rzp.io/i/x', reward_kind: 'PERCENT', reward_amount: 10, reward_code: 'C', reward_ends_on: '2026-11-30',
+      reward_min: 100, summary_params: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], help_number: 'HLP-1', help_ticket_id: 'hlp_1', sub_qty: 1, sub_sku: 'ALP-3', cycle_date: '2026-10-17', sub_id: 'sub_1',
+      claim_reason: 'x', order_id: 'ord_1',
+    }
+    const saved = env.WHATSAPP_ORDER_LINKS
+    try {
+      for (const a of AUTOMATIONS) {
+        assert.equal(paramsFor({ ...n, kind: a.kind }).length, a.params.length, a.kind)
+        env.WHATSAPP_ORDER_LINKS = false
+        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), a.button === 'order-link', `${a.kind} without the flag`)
+        env.WHATSAPP_ORDER_LINKS = true
+        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), Boolean(a.button), `${a.kind} with the flag`)
+      }
+    } finally {
+      env.WHATSAPP_ORDER_LINKS = saved
+    }
+  })
+
+  test('STOP OFFERS also stops messages Meta bills as marketing', () => {
+    const out = { updates: 'ALLOWED', marketing: 'OPTED_OUT' }
+    assert.match(refusal('REVIEW_REQUEST', out), /opted out/)
+    assert.match(refusal('REFERRAL_REWARD', out), /opted out/)
+    assert.equal(refusal('REVIEW_REQUEST', { updates: 'ALLOWED', marketing: 'NONE' }), null)
+    assert.equal(refusal('ORDER_CONFIRMED', out), null)
   })
 
   test('every notification kind has one registry entry with a template, category, consent class and variables', () => {
