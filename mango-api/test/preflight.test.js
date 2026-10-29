@@ -19,8 +19,9 @@ const good = {
   ADMIN_ORIGIN: 'https://admin.mandimangoes.in',
   CUSTOMER_ORIGIN: 'https://mandimangoes.in,https://www.mandimangoes.in',
   WHATSAPP_PROVIDER: 'meta',
-  WHATSAPP_VERIFY_TOKEN: 'v',
-  WHATSAPP_APP_SECRET: 'a',
+  WHATSAPP_VERIFY_TOKEN: 'v'.repeat(24),
+  WHATSAPP_APP_SECRET: 'a'.repeat(32),
+  WHATSAPP_BUSINESS_ACCOUNT_ID: '1234567890',
   TRUST_PROXY: 1,
   GOOGLE_CLIENT_ID: 'web.apps.googleusercontent.com',
   SENTRY_DSN: 'https://k@o1.ingest.sentry.io/1',
@@ -213,5 +214,16 @@ describe('production preflight', () => {
     assert.deepEqual(at(80), { errors: [], warnings: [at(80).warnings.find((w) => w.startsWith('BILL_RETENTION_MONTHS is 80: a bill from early in a financial year'))] })
     // The default, or longer, is fine.
     for (const months of [96, 120, undefined]) assert.deepEqual(at(months), { errors: [], warnings: [] }, String(months))
+  })
+})
+
+describe('WhatsApp settings (docs/whatsapp/CONFIGURATION.md)', () => {
+  it('warns about a short app secret or verify token and a missing business account id', () => {
+    const w = (over) => checkProduction({ ...good, ...over }, { vercel: false }).warnings
+    assert.match(w({ WHATSAPP_APP_SECRET: 'short' }).join('\n'), /WHATSAPP_APP_SECRET is too short/)
+    assert.match(w({ WHATSAPP_VERIFY_TOKEN: 'abc' }).join('\n'), /WHATSAPP_VERIFY_TOKEN is short/)
+    assert.match(w({ WHATSAPP_BUSINESS_ACCOUNT_ID: '' }).join('\n'), /WHATSAPP_BUSINESS_ACCOUNT_ID is unset/)
+    // Nothing of this when WhatsApp is not on Meta.
+    assert.doesNotMatch(w({ WHATSAPP_PROVIDER: 'log', WHATSAPP_BUSINESS_ACCOUNT_ID: '' }).join('\n'), /BUSINESS_ACCOUNT_ID/)
   })
 })

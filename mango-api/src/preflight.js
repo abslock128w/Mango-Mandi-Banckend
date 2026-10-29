@@ -88,6 +88,13 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
     warnings.push('WHATSAPP_PROVIDER is not meta: no order updates, no WhatsApp login fallback, no ordering in the chat')
   } else if (!env.WHATSAPP_VERIFY_TOKEN || !env.WHATSAPP_APP_SECRET) {
     warnings.push('WHATSAPP_VERIFY_TOKEN or WHATSAPP_APP_SECRET is unset: ordering in the WhatsApp chat is off')
+  } else {
+    // docs/whatsapp/CONFIGURATION.md: Meta's app secret is 32 characters; the verify token is ours to choose.
+    if (env.WHATSAPP_APP_SECRET.length < 16) warnings.push('WHATSAPP_APP_SECRET is too short to be a Meta app secret: copy it from the Meta app dashboard (App settings > Basic)')
+    if (env.WHATSAPP_VERIFY_TOKEN.length < 16) warnings.push('WHATSAPP_VERIFY_TOKEN is short: use 16 or more random characters')
+  }
+  if (env.WHATSAPP_PROVIDER === 'meta' && !env.WHATSAPP_BUSINESS_ACCOUNT_ID) {
+    warnings.push('WHATSAPP_BUSINESS_ACCOUNT_ID is unset: the daily template sync and the webhook subscription check are off (messages still send)')
   }
   if (vercel) {
     // Production and previews must each know which database is production, so a
