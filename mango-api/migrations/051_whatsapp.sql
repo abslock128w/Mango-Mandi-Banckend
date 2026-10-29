@@ -97,7 +97,7 @@ CREATE INDEX wa_consent_events_phone_idx ON wa_consent_events (phone, created_at
 -- message_template_status_update webhook). Empty until the first sync: the
 -- sender then trusts the names and Meta's own answer.
 CREATE TABLE wa_templates (
-  name          TEXT NOT NULL CHECK (name ~ '^[a-z0-9_]{1,512}$'),
+  name          TEXT NOT NULL CHECK (name ~ '^[a-z0-9_]+$' AND length(name) <= 512),
   language      TEXT NOT NULL CHECK (length(language) <= 20),
   status        TEXT NOT NULL CHECK (length(status) <= 40),
   category      TEXT CHECK (category IS NULL OR length(category) <= 40),

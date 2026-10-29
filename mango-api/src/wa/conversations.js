@@ -108,7 +108,8 @@ async function claim(id, at) {
 }
 
 async function markSent(m, providerId, at) {
-  const fields = [m.id, providerId, at, m.attempts + 1]
+  // 'log': the local log-only messenger, which sends nothing and has no Meta id.
+  const fields = [m.id, providerId && providerId !== 'log' ? String(providerId).slice(0, 200) : null, at, m.attempts + 1]
   const sql = `UPDATE wa_messages SET status = 'SENT', provider_id = $2, status_at = $3, attempts = $4, payload = NULL, error = NULL, next_attempt_at = NULL WHERE id = $1`
   // Sent: record it outside the send's error handling, so a database hiccup here never sends a second copy.
   await query(sql, fields).catch(() => query(sql, fields)).catch((err) => logger.error({ err, id: m.id }, 'WhatsApp message sent but not recorded'))
@@ -274,10 +275,10 @@ export async function assign(c, id, adminId) {
   return rows[0]
 }
 
-/** Staff give the conversation back to the bot; the chat starts again at the menu. */
+/** Staff give the conversation back to the bot (and to nobody); the chat starts again at the menu. */
 export async function handBack(c, id) {
   const { rows } = await c.query(
-    `UPDATE wa_conversations SET mode = 'BOT', status = 'OPEN', waiting_since = NULL, handoff_reason = NULL, unread = 0, updated_at = $2
+    `UPDATE wa_conversations SET mode = 'BOT', status = 'OPEN', assigned_admin_id = NULL, waiting_since = NULL, handoff_reason = NULL, unread = 0, updated_at = $2
       WHERE id = $1 RETURNING *`,
     [id, now()],
   )
@@ -290,7 +291,7 @@ export async function handBack(c, id) {
 /** Staff close the conversation: back to the bot, nothing waiting. */
 export async function closeConversation(c, id) {
   const { rows } = await c.query(
-    `UPDATE wa_conversations SET mode = 'BOT', status = 'CLOSED', waiting_since = NULL, unread = 0, updated_at = $2 WHERE id = $1 RETURNING *`,
+    `UPDATE wa_conversations SET mode = 'BOT', status = 'CLOSED', assigned_admin_id = NULL, waiting_since = NULL, handoff_reason = NULL, unread = 0, updated_at = $2 WHERE id = $1 RETURNING *`,
     [id, now()],
   )
   if (!rows.length) throw new HttpError(404, 'NOT_FOUND', 'Conversation not found')

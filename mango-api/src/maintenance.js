@@ -27,6 +27,10 @@ import { boxCheck } from './warehouse/reports.js'
 import { metrics } from './metrics.js'
 import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
+import { sendDueMessages } from './wa/conversations.js'
+import { pruneWhatsApp } from './wa/retention.js'
+import { syncTemplates } from './wa/meta-admin.js'
+import { chatMessenger } from './whatsapp.js'
 import { sendDueNotifications } from './notify.js'
 import { prunePushMessages, pushOn, sendDuePush } from './push.js'
 import { sendReorderReminders, sendStockAlerts } from './engagement.js'
@@ -156,6 +160,7 @@ export async function cleanupExpired(at = now()) {
   // Stored webhook bodies: 30 days (WhatsApp 7), bounded per run.
   await pruneWebhookEvents(at)
   await query('DELETE FROM wa_inbound WHERE received_at < $1', [new Date(at.getTime() - 7 * day)])
+  await pruneWhatsApp(at)
   // Payment problems stay until a manager resolves them: often the only record of customer money (DB-04).
   // Once resolved, a Razorpay one is still the record of a payment or refund that matched nothing and of
   // what was done about it, so it is kept for BILL_RETENTION_MONTHS like the bills (docs/trust.md).
@@ -399,6 +404,12 @@ async function steps(forceAll) {
   // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
   if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
+  // Chat and staff replies decided but not sent (an instance died, or a retry is due): docs/whatsapp/RELIABILITY.md.
+  out.chatSent = await step('whatsapp-messages', () => sendDueMessages(chatMessenger), { sliceMs: SLICE.notifications })
+  // Template status from Meta, once a day when the account id is set (the WhatsApp page can sync at any time).
+  if (env.WHATSAPP_PROVIDER === 'meta' && env.WHATSAPP_BUSINESS_ACCOUNT_ID && (forceAll || t - (last['whatsapp-templates'] ?? 0) > DAILY_MS)) {
+    out.templates = await step('whatsapp-templates', async () => (await syncTemplates()).automations.length, { sliceMs: SLICE.notifications })
+  }
   // Browser notifications for the same order steps (WEB_PUSH, push.js).
   if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
@@ -462,10 +473,12 @@ export async function checkHealth(out = {}, at = now()) {
             (SELECT COUNT(*)::int FROM notifications WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS done,
             (SELECT COUNT(*)::int FROM push_messages WHERE status = 'PENDING' AND next_attempt_at < $1) AS pushes,
             (SELECT COUNT(*)::int FROM push_messages WHERE status = 'FAILED' AND created_at > $4) AS push_failed,
-            (SELECT COUNT(*)::int FROM push_messages WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS push_done`,
+            (SELECT COUNT(*)::int FROM push_messages WHERE status IN ('SENT', 'FAILED') AND created_at > $4) AS push_done,
+            (SELECT COUNT(*)::int FROM wa_conversations WHERE status = 'WAITING' AND waiting_since < $6) AS wa_waiting,
+            (SELECT COUNT(*)::int FROM wa_messages WHERE direction = 'OUT' AND status = 'QUEUED' AND next_attempt_at < $1) AS wa_overdue`,
     [
       new Date(at.getTime() - 15 * 60_000), new Date(at.getTime() - 30 * 60_000), new Date(at.getTime() - HOURLY_MS), new Date(at.getTime() - DAILY_MS),
-      env.REFUND_SAFETY_CHECKS,
+      env.REFUND_SAFETY_CHECKS, new Date(at.getTime() - 4 * HOURLY_MS),
     ],
   )
   const h = rows[0]
@@ -475,6 +488,9 @@ export async function checkHealth(out = {}, at = now()) {
   if (h.webhooks >= 3) problems.push(['webhooks', 'Razorpay payments could not be matched or were rejected: see Needs attention', { lastHour: h.webhooks }])
   if (out.reconciled > 0) problems.push(['polled', 'Payments were confirmed by polling: Razorpay webhooks may not be arriving', { reconciled: out.reconciled }])
   if ((env.OPS_ALERTS && h.failed >= 3) || (h.done >= 20 && h.failed / h.done > 0.05)) problems.push(['failing', 'WhatsApp messages failing: check the Meta token, template status and number quality', { failed: h.failed, done: h.done }])
+  // A customer asked for a person on WhatsApp and nobody has answered for 4 hours.
+  if (h.wa_waiting > 0) problems.push(['whatsapp-waiting', 'Customers on WhatsApp are waiting for a person: see the WhatsApp page', { waiting: h.wa_waiting }])
+  if (h.wa_overdue > 0) problems.push(['whatsapp-chat-overdue', 'WhatsApp chat replies are overdue: the maintenance run is not sending them', { overdue: h.wa_overdue }])
   // Browser notifications (WEB_PUSH), watched the same way as WhatsApp messages.
   if (pushOn() && h.pushes > 0) problems.push(['push-overdue', 'Browser notifications are overdue: the maintenance run is not sending them', { overdue: h.pushes }])
   if ((env.OPS_ALERTS && h.push_failed >= 3) || (h.push_done >= 20 && h.push_failed / h.push_done > 0.05)) {

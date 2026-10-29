@@ -331,6 +331,16 @@ const schema = z.object({
   // Payments on WhatsApp: the Razorpay payment configuration name from WhatsApp Manager.
   // Unset: chat orders get a Razorpay payment link instead.
   WHATSAPP_PAYMENT_CONFIG: z.string().default(''),
+  // docs/whatsapp/CONFIGURATION.md. The WhatsApp Business Account id: needed only for the
+  // template sync and the connection check on the panel's WhatsApp page (the number's own
+  // id, WHATSAPP_PHONE_NUMBER_ID, is what messages are sent from).
+  WHATSAPP_BUSINESS_ACCOUNT_ID: z.string().regex(/^\d*$/, 'digits only (the WABA id from WhatsApp Manager)').default(''),
+  // The public address Meta posts the webhook to, shown on the WhatsApp page for setup.
+  WHATSAPP_WEBHOOK_URL: z.string().url().or(z.literal('')).default(''),
+  // Largest customer photo or document staff may open from a chat (Meta allows up to 100 MB).
+  WHATSAPP_MEDIA_MAX_BYTES: z.coerce.number().int().min(100_000).max(100_000_000).default(16_000_000),
+  // Words of WhatsApp messages are kept this many days, then cleared (the record of each stays 180 days).
+  WHATSAPP_MESSAGE_RETENTION_DAYS: z.coerce.number().int().min(7).max(365).default(90),
   SEED_DEMO_DATA: z
     .enum(['true', 'false'])
     .default('true')

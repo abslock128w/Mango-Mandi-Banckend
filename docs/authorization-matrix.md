@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-200 routes; 22 ask for step-up.
+216 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -278,3 +278,24 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /warehouse/write-offs` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /warehouse/write-offs/:id/approve` | ✓ |  |  |  |  |  | Each change |
 | `POST /warehouse/write-offs/:id/reject` | ✓ |  |  |  |  |  | Each change |
+
+## WhatsApp
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `PUT /whatsapp/automations/:kind` | ✓ |  |  |  |  | With STAFF_STEP_UP: turning an automated WhatsApp message on or off | Each change |
+| `POST /whatsapp/check` | ✓ |  |  |  |  |  | Each change |
+| `GET /whatsapp/conversations` | ✓ | ✓ |  |  |  |  |  |
+| `GET /whatsapp/conversations/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /whatsapp/conversations/:id/assign` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/conversations/:id/close` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/conversations/:id/hand-back` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/conversations/:id/opt-out` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/conversations/:id/reply` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/conversations/:id/take-over` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /whatsapp/events/:id/replay` | ✓ |  |  |  |  |  | Each change |
+| `GET /whatsapp/failures` | ✓ |  |  |  |  |  |  |
+| `GET /whatsapp/media/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /whatsapp/messages/:id/retry` | ✓ | ✓ |  |  |  |  | Each change |
+| `GET /whatsapp/overview` | ✓ |  |  |  |  |  |  |
+| `POST /whatsapp/templates/sync` | ✓ |  |  |  |  |  | Each change |
