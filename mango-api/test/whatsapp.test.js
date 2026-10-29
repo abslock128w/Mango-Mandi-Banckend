@@ -192,7 +192,9 @@ describe('WhatsApp rules', () => {
     assert.equal(sendOutcome(timeout()), 'unknown')
     assert.equal(sendOutcome(Object.assign(new Error('aborted'), { name: 'AbortError' })), 'unknown')
     assert.equal(sendOutcome(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })), 'unknown')
-    assert.equal(sendOutcome(new Error('something odd')), 'unknown')
+    assert.equal(sendOutcome(new TypeError('fetch failed')), 'unknown')
+    // Raised by our own code, not on the wire: nothing reached Meta, so a retry is safe.
+    assert.equal(sendOutcome(new Error('something odd')), 'retry')
   })
 
   test('the signature is an HMAC of the exact body with the app secret', () => {

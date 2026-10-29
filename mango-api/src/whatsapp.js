@@ -25,7 +25,8 @@ const NEVER_CONNECTED = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ENET
 /**
  * What a failed send means (docs/whatsapp/RELIABILITY.md):
  *   'permanent'  Meta answered and refused it (bad number, unknown template): a retry won't help;
- *   'retry'      Meta answered "not now" (rate limit, busy), or the request never reached Meta;
+ *   'retry'      Meta answered "not now" (rate limit, busy), or the request never reached Meta
+ *                (connection refused, DNS, or an error raised before the request was made);
  *   'unknown'    no answer in time, or the connection broke mid-way: Meta may have sent it, so it
  *                is not resent automatically (a second copy is worse than a late one).
  */
@@ -36,7 +37,10 @@ export function sendOutcome(err) {
   if (err?.name === 'TypeError' && NEVER_CONNECTED.has(code)) return 'retry'
   if (NEVER_CONNECTED.has(code)) return 'retry'
   if (err?.status) return err.permanent ? 'permanent' : 'retry'
-  return 'unknown'
+  // fetch's own failure after connecting (reset, socket closed): the request may have reached Meta.
+  if (err?.name === 'TypeError') return 'unknown'
+  // Any other error was raised by our code, not on the wire: nothing reached Meta.
+  return 'retry'
 }
 
 /** An error for a Cloud API answer that was not a success. */

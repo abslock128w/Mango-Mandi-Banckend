@@ -156,6 +156,10 @@ const SCENARIOS = {
     env.FAVOURITES = false
     return { path: '/settings/switches/FAVOURITES', method: 'PUT', body: { enabled: true }, ok: 200, unchanged: async () => !(await one('SELECT 1 AS x FROM feature_switches')) }
   },
+  'PUT /whatsapp/automations/:kind': async () => ({
+    path: '/whatsapp/automations/REVIEW_REQUEST', method: 'PUT', body: { enabled: false }, ok: 200,
+    unchanged: async () => !(await one(`SELECT 1 AS x FROM wa_automations WHERE kind = 'REVIEW_REQUEST' AND NOT enabled`)),
+  }),
   'POST /staff': async () => ({
     path: '/staff', body: { email: 'meena@mandimangoes.test', role: 'PACKER', password: 'long-enough-pass-1' }, ok: 201,
     unchanged: async () => !(await one(`SELECT 1 AS x FROM admin_users WHERE email = 'meena@mandimangoes.test'`)),

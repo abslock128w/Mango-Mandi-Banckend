@@ -20,7 +20,7 @@ LOCKED` for templates), so two instances or an overlapping run never send the sa
 | Outcome | When | What happens |
 |---------|------|--------------|
 | **permanent** | Meta answered and refused it (invalid number, unknown or paused template, bad parameter) | Marked failed with Meta's message. Not retried |
-| **retry** | Meta answered "not now" (rate limit, throughput, temporary error codes, 5xx), or the request never reached Meta (connection refused, DNS) | Tried again: templates after 1, 5, 15, 60, 180 minutes; replies after 1, 2, 5 minutes (each +0 to 25% jitter so a burst doesn't return together). A chat reply also gets one quick in-turn retry with `PROVIDER_CHECKS` |
+| **retry** | Meta answered "not now" (rate limit, throughput, temporary error codes, 5xx), or the request never reached Meta (connection refused, DNS, an error before the request was made) | Tried again: templates after 1, 5, 15, 60, 180 minutes; replies after 1, 2, 5 minutes (each +0 to 25% jitter so a burst doesn't return together). A chat reply also gets one quick in-turn retry with `PROVIDER_CHECKS` |
 | **unknown** | No answer in time, or the connection broke mid-request | **Not resent automatically.** Meta may have delivered it, and a second delivery code or confirmation is worse than a late one. Marked failed / unknown and listed on the WhatsApp page, where staff choose Send again |
 
 A template that is known to be paused or rejected, or whose number of variables differs from
