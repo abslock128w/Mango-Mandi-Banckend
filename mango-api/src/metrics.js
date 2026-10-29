@@ -22,6 +22,8 @@ export const metrics = {
   notificationsSent: new client.Counter({ name: 'mango_notifications_sent_total', help: 'Customer messages delivered to the provider', labelNames: ['kind'], registers: [registry] }),
   notificationsFailed: new client.Counter({ name: 'mango_notifications_failed_total', help: 'Customer messages given up on after retries', labelNames: ['kind'], registers: [registry] }),
   maintenanceLastRun: new client.Gauge({ name: 'mango_maintenance_last_run_timestamp_seconds', help: 'When this instance last finished a maintenance tick (unix seconds)', registers: [registry] }),
+  whatsappMessages: new client.Counter({ name: 'mango_whatsapp_messages_total', help: 'WhatsApp messages received (in) and sent (out)', labelNames: ['direction', 'type'], registers: [registry] }),
+  whatsappFailures: new client.Counter({ name: 'mango_whatsapp_message_failures_total', help: 'Free-form WhatsApp messages that failed (failed) or got no answer in time (unknown)', labelNames: ['outcome'], registers: [registry] }),
   webhookErrors: new client.Counter({ name: 'mango_webhook_errors_total', help: 'Webhooks that failed to process (the sender will retry)', labelNames: ['source'], registers: [registry] }),
   otpFallbacks: new client.Counter({ name: 'mango_otp_fallbacks_total', help: 'Login codes sent on the second channel because the first failed', labelNames: ['channel'], registers: [registry] }),
   otpNotAccepted: new client.Counter({ name: 'mango_otp_sms_not_accepted_total', help: 'Jio answered without the documented accepted status, so the code counted as not sent', registers: [registry] }),
