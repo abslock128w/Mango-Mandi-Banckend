@@ -32,6 +32,7 @@ const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ def
 const Reviews = lazy(() => import('./pages/Reviews'))
 const Customers = lazy(() => import('./pages/Customers'))
 const HelpDesk = lazy(() => import('./pages/HelpDesk'))
+const WhatsApp = lazy(() => import('./pages/WhatsApp'))
 const Subscriptions = lazy(() => import('./pages/Subscriptions'))
 const CustomerProfilePage = lazy(() => import('./pages/Customers').then((m) => ({ default: m.CustomerProfilePage })))
 const WhOverview = lazy(() => import('./warehouse/pages/Overview'))
@@ -162,6 +163,8 @@ export default function App() {
               <Route path="/reviews" element={<Only screen="reviews"><Reviews /></Only>} />
               <Route path="/customers" element={<Only screen="customers"><Customers /></Only>} />
               <Route path="/customers/:id" element={<Only screen="customers"><CustomerProfilePage /></Only>} />
+              <Route path="/whatsapp" element={<Only screen="whatsapp"><WhatsApp /></Only>} />
+              <Route path="/whatsapp/:id" element={<Only screen="whatsapp"><WhatsApp /></Only>} />
               <Route path="/help-desk" element={<Only screen="helpDesk"><HelpDesk /></Only>} />
               <Route path="/help-desk/:id" element={<Only screen="helpDesk"><HelpDesk /></Only>} />
               <Route path="/subscriptions" element={<Only screen="subscriptions"><Subscriptions /></Only>} />

@@ -39,6 +39,7 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     label: 'Customers',
     links: [
       ['/customers', 'Find a customer', 'customers'],
+      ['/whatsapp', 'WhatsApp', 'whatsapp'],
       ['/help-desk', 'Help desk', 'helpDesk'],
       ['/subscriptions', 'Subscriptions', 'subscriptions'],
       ['/claims', 'Claims', 'claims'],
