@@ -160,6 +160,7 @@ function LiveStopRow({ stop: s, manager, onReview, onLeave }: { stop: LiveStop; 
       <div className="live-stop-head">
         <Link to={`/orders/${s.id}`}>{s.number}</Link> <span>{s.customerName ?? 'Customer'}</span> <OrderBadge status={s.status} />
         {s.rider ? <span className="muted small"> · {s.rider.firstName}</span> : null}
+        {s.pickupWarehouse ? <span className="muted small"> · pick up at {s.pickupWarehouse}</span> : null}
         {s.needsReview && (
           <button type="button" className="chip-review" onClick={onReview} disabled={!s.reviewAttemptId} title={s.reviewAttemptId ? 'Check this delivery' : 'Flagged: the review opens once it is delivered'}>
             Needs review

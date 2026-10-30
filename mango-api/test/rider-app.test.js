@@ -407,3 +407,75 @@ describe('demo login code (DEMO_OTP)', () => {
     }
   })
 })
+
+describe('nearest rider and pickup warehouse', () => {
+  test('the rule: nearest rider with a position; the warehouse that makes rider → warehouse → stop shortest', async () => {
+    const { choose, km } = await import('../src/nearest.js')
+    const koramangala = { lat: 12.9279, lng: 77.6271 }
+    const whitefield = { lat: 12.9698, lng: 77.75 }
+    assert.ok(Math.abs(km(koramangala, whitefield) - 13.9) < 0.6, String(km(koramangala, whitefield)))
+    const riders = [
+      { id: 'far', pos: whitefield, stops: 0 },
+      { id: 'near', pos: { lat: 12.935, lng: 77.62 }, stops: 3 },
+      { id: 'unknown', pos: null, stops: 0 },
+    ]
+    const warehouses = [
+      { id: 'north', pos: { lat: 13.0285, lng: 77.5409 } },
+      { id: 'south', pos: { lat: 12.8452, lng: 77.6602 } },
+    ]
+    const pick = choose({ pos: koramangala }, riders, warehouses)
+    assert.equal(pick.rider.id, 'near')
+    assert.equal(pick.warehouse.id, 'south')
+    // No rider has a position: the one with the fewest stops.
+    assert.equal(choose({ pos: koramangala }, [{ id: 'a', pos: null, stops: 2 }, { id: 'b', pos: null, stops: 1 }], warehouses).rider.id, 'b')
+  })
+
+  test('auto-assign gives each unassigned stop to its nearest rider and sets the pickup warehouse; the rider sees it', async () => {
+    await query("UPDATE warehouses SET lat = 13.0285, lng = 77.5409, name = 'Yeshwanthpur mandi' WHERE id = 'wh_main'")
+    await query("INSERT INTO warehouses (id, name, lat, lng) VALUES ('wh_south', 'Electronic City hub', 12.8452, 77.6602)")
+    await query("UPDATE pincodes SET lat = 12.9279, lng = 77.6271 WHERE pincode = '560034'")
+    const { id, date } = await packedOrder({ assign: false })
+    await api.post('/admin/v1/staff', { email: 'far@mandimangoes.test', role: 'RIDER', password: 'long-enough-3' }, { token: admin })
+    const far = await adminToken(api, 'far@mandimangoes.test', 'long-enough-3')
+    // Ravi is in Koramangala, the other rider in Whitefield.
+    assert.equal((await api.post('/admin/v1/rider/location', { lat: 12.935, lng: 77.62 }, { token: rider })).body.stored, true)
+    assert.equal((await api.post('/admin/v1/rider/location', { lat: 12.9698, lng: 77.75 }, { token: far })).body.stored, true)
+    assert.equal((await api.post('/admin/v1/manifest/auto-assign', { date }, { token: rider })).status, 403)
+    const r = await api.post('/admin/v1/manifest/auto-assign', { date }, { token: admin })
+    assert.equal(r.status, 200, JSON.stringify(r.body))
+    assert.equal(r.body.assigned.length, 1)
+    const a = r.body.assigned[0]
+    assert.deepEqual([a.orderId, a.riderId, a.warehouseId, a.warehouseName], [id, riderId, 'wh_south', 'Electronic City hub'])
+    assert.ok(a.riderKm < 2, String(a.riderKm))
+    // Already assigned: a second run changes nothing.
+    assert.deepEqual((await api.post('/admin/v1/manifest/auto-assign', { date }, { token: admin })).body.assigned, [])
+    const stop = (await api.get(`/admin/v1/manifest?date=${date}`, { token: rider })).body.runs[0].stops[0].orders[0]
+    assert.equal(stop.pickupWarehouse.name, 'Electronic City hub')
+    const history = (await api.get(`/admin/v1/orders/${id}`, { token: admin })).body.events.at(-1).reason
+    assert.match(history, /^Given to the nearest rider: Ravi Kumar, \d+\.\d km away; pick up at Electronic City hub$/)
+  })
+})
+
+describe('demo payments (DEMO_PAYMENTS)', () => {
+  test('the customer pays their own order with the test button; others and switched-off deploys get 404', async () => {
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const cust = await customerToken(api)
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    assert.equal(o.status, 201, JSON.stringify(o.body))
+    const other = await customerToken(api)
+    assert.equal((await api.post(`/v1/orders/${o.body.orderId}/demo-pay`, { outcome: 'captured' }, { token: other.accessToken })).status, 404)
+    const savedDev = env.ENABLE_DEV_ROUTES
+    env.ENABLE_DEV_ROUTES = false
+    try {
+      assert.equal((await api.post(`/v1/orders/${o.body.orderId}/demo-pay`, { outcome: 'captured' }, { token: cust.accessToken })).status, 404)
+      env.DEMO_PAYMENTS = true
+      const paid = await api.post(`/v1/orders/${o.body.orderId}/demo-pay`, { outcome: 'captured' }, { token: cust.accessToken })
+      assert.equal(paid.status, 200, JSON.stringify(paid.body))
+      const seen = (await mine(cust, o.body.orderId)).body
+      assert.equal(seen.status, 'CONFIRMED')
+    } finally {
+      env.ENABLE_DEV_ROUTES = savedDev
+      env.DEMO_PAYMENTS = false
+    }
+  })
+})

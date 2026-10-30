@@ -30,6 +30,8 @@ export type ManifestOrder = {
   proof?: Partial<Record<Step, ProofPhoto>>;
   codeTriesLeft?: number;
   codeLocked?: boolean;
+  /** Where to collect it: the warehouse the nearest-rider assignment picked, or null. */
+  pickupWarehouse?: { id: string; name: string; address: string | null; lat: number | null; lng: number | null } | null;
 };
 
 export type ManifestStop = { pincode: string; city: string | null; zone: string | null; orders: ManifestOrder[] };

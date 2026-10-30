@@ -102,6 +102,7 @@ export default function Deliveries() {
           </button>
         </div>
         <span className="spacer" />
+        {canAssign && <AssignNearest day={day} />}
         {!rider && (
           <button type="button" className="btn" onClick={() => window.print()}>
             Print
@@ -417,6 +418,36 @@ function RiderPicker({ label, riders, value, busy, onPick }: { label: string; ri
         ))}
       </select>
     </label>
+  )
+}
+
+/** Gives every unassigned stop on the day to the rider nearest to it, with the pickup warehouse that makes his trip shortest. */
+function AssignNearest({ day }: { day: string }) {
+  const toast = useToast()
+  const refresh = useRefresh(day)
+  const queryClient = useQueryClient()
+  const m = useMutation({
+    mutationFn: () => api.autoAssign(day),
+    onSuccess: (r) => {
+      if (!r.assigned.length) toast.success('Every stop already has a rider')
+      else {
+        const first = r.assigned[0]
+        const where = first.warehouseName ? `, pick up at ${first.warehouseName}` : ''
+        toast.success(
+          r.assigned.length === 1
+            ? `${first.number} given to ${first.riderName}${first.riderKm !== null ? ` (${first.riderKm} km away)` : ''}${where}`
+            : `${count(r.assigned.length, 'stop', 'stops')} given to the nearest riders`,
+        )
+      }
+      refresh()
+      queryClient.invalidateQueries({ queryKey: ['deliveries-live'] })
+    },
+    onError: (err) => toast.error(err),
+  })
+  return (
+    <button type="button" className="btn no-print" disabled={m.isPending} onClick={() => m.mutate()}>
+      {m.isPending ? 'Assigning…' : 'Assign nearest riders'}
+    </button>
   )
 }
 

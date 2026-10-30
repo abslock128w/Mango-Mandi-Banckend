@@ -289,6 +289,11 @@ export const api = {
     if (!DEV_PAY) return Promise.reject(new ApiError(404, "NOT_FOUND", "Test payments are off"));
     return raw<void>("POST", "/dev/pay", { orderId, outcome });
   },
+  /**
+   * A demo deploy without a payment service (DEMO_PAYMENTS on the API), or a developer's
+   * machine: settles the signed-in customer's own order with no money taken.
+   */
+  demoPay: (orderId: string, outcome: "captured" | "failed") => request<{ result: string }>("POST", `/orders/${enc(orderId)}/demo-pay`, { outcome }),
   devPayPreorder: (preorderId: string, outcome: "captured" | "failed") => {
     if (!DEV_PAY) return Promise.reject(new ApiError(404, "NOT_FOUND", "Test payments are off"));
     return raw<void>("POST", "/dev/pay-preorder", { preorderId, outcome });

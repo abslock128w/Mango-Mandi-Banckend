@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { OPS_PHONE } from "@/lib/config";
-import { dateWords, firstName, mapsDirections, STAGE, telHref } from "@/lib/format";
+import { dateWords, firstName, mapsDirections, STAGE, telHref, warehouseDirections } from "@/lib/format";
 import { useRun, type RunOrder } from "@/lib/run-context";
 import { PendingBadge } from "./pending-badge";
 import { StopChip } from "./stop-chip";
@@ -113,9 +113,15 @@ function CurrentStop({ o, index }: { o: RunOrder; index: number }) {
         : {contents(o)}
       </p>
       {o.gift && <p className="mt-1 text-sm font-semibold text-ripe">Gift from {o.gift.from}</p>}
+      {!out && o.pickupWarehouse && (
+        <p className="mt-2 rounded-xl bg-chip px-3 py-2 text-base" data-testid="pickup-warehouse">
+          Collect from <strong>{o.pickupWarehouse.name}</strong>
+        </p>
+      )}
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <A href={mapsDirections(address(o))} target="_blank" rel="noopener" variant="secondary">
-          <Navigation aria-hidden size={20} /> Navigate
+        {/* Before the pickup, directions to the warehouse; after it, to the customer. */}
+        <A href={!out && o.pickupWarehouse ? warehouseDirections(o.pickupWarehouse) : mapsDirections(address(o))} target="_blank" rel="noopener" variant="secondary">
+          <Navigation aria-hidden size={20} /> {!out && o.pickupWarehouse ? "To warehouse" : "Navigate"}
         </A>
         {o.phone ? (
           <A href={telHref(o.phone)} variant="secondary">

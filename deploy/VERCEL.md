@@ -145,6 +145,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log`, with `LOG_OTP_CODES=true` to read codes in the Vercel logs | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio); production refuses `LOG_OTP_CODES` |
 | `WHATSAPP_*` | Meta's values, with `WHATSAPP_PROVIDER=meta` | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates). With `meta`, the rider app's pickup sends the out-for-delivery update and the delivery code at once ([Rider app](#9-the-rider-app-fourth-project)) |
 | `DEMO_OTP` | **never** (the API refuses to start) | a 6-digit code, e.g. `123456`, until WhatsApp Business or Jio SMS is set up | demo only: every phone sign-in (shop and rider app) takes this fixed code, nothing is sent, and the screen shows it. Remove it once codes can be sent |
+| `DEMO_PAYMENTS` | **never** (the API refuses to start) | `true` until Razorpay is set up | demo only: checkout shows "Pay (test)" and "Fail payment (test)"; the order is marked paid with no money taken |
 | `RIDER_ORIGIN` | `https://rider.mandimangoes.in` | the rider app preview URL | the rider app's address: CORS and the session routes allow it |
 | `ANTHROPIC_API_KEY` | from the Claude Console | a separate key, or unset | the mango check on the rider's open-box photo (Claude Haiku). Unset: the check is skipped (shadow) |
 | `MANGO_CHECK` | `shadow` for the first week, then `on` | `shadow` | `on`: a failed check means retake (continue for review after two); `shadow`: stored and shown on the panel, never blocks; `off`: no call |
@@ -368,7 +369,7 @@ Vercel project. Do not deploy it to the demo projects (`mandimangoes-demo`, `man
    both. Details: [docs/whatsapp/TEMPLATES.md](../docs/whatsapp/TEMPLATES.md).
 5. Riders: on **Staff**, give each rider their mobile number and the name customers see. They sign in
    on their own phone with a code and set a PIN. A lost phone: Staff → the rider → Phones → Revoke.
-6. Migrations 053 and 054 run with the API's build. `migrations-pending/055_drop_delivery_code.sql`
+6. Migrations 053 and 054 run with the API's build. `migrations-pending/056_drop_delivery_code.sql`
    moves into `migrations/` in the release after this one (the release before 053 still reads the
    plaintext code column).
 

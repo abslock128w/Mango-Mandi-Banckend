@@ -19,6 +19,10 @@ async function pickUp(page: Page, m: Mock, number = "ORD-1093") {
 
 async function toDoor(page: Page) {
   await page.getByRole("link", { name: "Back to the run" }).click();
+  await expect(page.getByTestId("current-stop").getByRole("link", { name: "Navigate" })).toHaveAttribute(
+    "href",
+    "https://www.google.com/maps/dir/?api=1&destination=12%2C%204th%20Cross%2C%20Indiranagar%2C%20560038&travelmode=driving",
+  );
   await page.getByTestId("current-stop").getByRole("link", { name: "At the door" }).click();
   await expect(page.getByTestId("step-1")).toHaveAttribute("data-state", "active");
 }
@@ -30,10 +34,8 @@ test("login: phone, code and PIN, then today's run; a cold start asks only for t
   await expect(page.getByLabel("0 of 2 stops done")).toBeVisible();
   const card = page.getByTestId("current-stop");
   await expect(card).toContainText("Asha");
-  await expect(card.getByRole("link", { name: "Navigate" })).toHaveAttribute(
-    "href",
-    "https://www.google.com/maps/dir/?api=1&destination=12%2C%204th%20Cross%2C%20Indiranagar%2C%20560038&travelmode=driving",
-  );
+  // Before the pickup the directions go to the warehouse (checked below); after it, to the customer.
+  await expect(card.getByRole("link", { name: "To warehouse" })).toBeVisible();
   await expect(card.getByRole("link", { name: "Call" })).toHaveAttribute("href", "tel:+919812345678");
 
   // A new page load: the phone is bound, so the PIN is enough.
@@ -179,4 +181,17 @@ test("the code screen can send a new code after 30 seconds", async ({ page }) =>
   await expect(page.getByText("A new code is on its way.")).toBeVisible();
   expect(m.otpRequests).toBe(before + 1);
   await expect(resend).toBeDisabled();
+});
+
+test("before pickup the stop says which warehouse to collect from, with directions there", async ({ page }) => {
+  await mockApi(page);
+  await signIn(page);
+  const card = page.getByTestId("current-stop");
+  await expect(card.getByTestId("pickup-warehouse")).toHaveText("Collect from Electronic City hub");
+  await expect(card.getByRole("link", { name: "To warehouse" })).toHaveAttribute(
+    "href",
+    "https://www.google.com/maps/dir/?api=1&destination=12.8452,77.6602&travelmode=driving",
+  );
+  await card.getByRole("link", { name: "Pick up at warehouse" }).click();
+  await expect(page.getByTestId("pickup-warehouse-card")).toContainText("Electronic City hub");
 });

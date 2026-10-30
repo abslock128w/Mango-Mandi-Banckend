@@ -1,4 +1,4 @@
-// Before migrations-pending/055_drop_delivery_code.sql: gives every order that still has
+// Before migrations-pending/056_drop_delivery_code.sql: gives every order that still has
 // only a plaintext delivery code (sent out before migration 053) its hash, so the rider's
 // code check keeps working once the plaintext column is gone. Orders out for delivery at
 // that moment lose the code on the shop page (WhatsApp already delivered it); run it after

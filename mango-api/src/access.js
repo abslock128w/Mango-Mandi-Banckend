@@ -99,6 +99,8 @@ export const OPERATOR_ROUTES = [
   // Giving stops to riders (SEC-02): riders see only their own.
   route('GET', '/riders'),
   route('POST', '/manifest/assign'),
+  // Every unassigned stop to its nearest rider, with the pickup warehouse (nearest.js).
+  route('POST', '/manifest/auto-assign'),
   route('GET', '/delivery-reviews'),
   // The Deliveries page's live view: stops, photos, mango checks, WhatsApp status, rider positions.
   route('GET', '/deliveries/live'),

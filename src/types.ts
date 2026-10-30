@@ -1623,6 +1623,8 @@ export interface LiveStop {
   pincode: string | null
   customerName: string | null
   rider: { id: string; firstName: string } | null
+  /** Where the rider collects it (nearest-rider assignment), or null. */
+  pickupWarehouse?: string | null
   photos: ProofPhoto[]
   messages: LiveMessage[]
   codeTries: number

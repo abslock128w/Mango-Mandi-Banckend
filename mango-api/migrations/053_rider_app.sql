@@ -6,7 +6,7 @@
 -- Additive only: new columns (nullable or with a default), new tables and a
 -- wider kind check, so the previous release keeps running on this schema
 -- (n-minus-1). The plaintext orders.delivery_code is no longer written by this
--- release; it is dropped by migrations-pending/055_drop_delivery_code.sql in the
+-- release; it is dropped by migrations-pending/056_drop_delivery_code.sql in the
 -- release after this one. Rollback: the previous release ignores the new columns.
 --
 -- locks: delivery_photos and admin_users are small; the new orders columns are

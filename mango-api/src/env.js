@@ -277,6 +277,12 @@ const schema = z.object({
   // that signs anyone in (shop customers and riders) with no message sent; the code is also shown
   // on the sign-in screen. Never in production: the API refuses to start with it there.
   DEMO_OTP: z.string().regex(/^\d{6}$/, 'DEMO_OTP must be 6 digits').optional(),
+  // DEMO ONLY, until Razorpay is set up: checkout offers "Pay (test)" / "Fail payment (test)",
+  // which settle the order with no money moving. Refused in production, like DEMO_OTP.
+  DEMO_PAYMENTS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
   OTP_PEPPER: z.string().default(''),
@@ -451,6 +457,10 @@ env.PAYMENT_DAILY_RECON ??= isProd
 // A fixed login code would let anyone sign in as any customer or rider.
 if (env.DEMO_OTP && deployEnv === 'production') {
   console.error('DEMO_OTP is set on a production deploy: remove it (it lets anyone sign in with a fixed code)')
+  process.exit(1)
+}
+if (env.DEMO_PAYMENTS && deployEnv === 'production') {
+  console.error('DEMO_PAYMENTS is on in a production deploy: turn it off (orders would be marked paid with no money taken)')
   process.exit(1)
 }
 

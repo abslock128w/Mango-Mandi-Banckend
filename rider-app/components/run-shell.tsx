@@ -8,7 +8,7 @@ import { useSession } from "@/lib/session";
 import { Unlock } from "./unlock";
 import { Spinner } from "./ui";
 
-/** Signed-in pages: the PIN screen in place when the session lapsed, the run's data, screen and location while a run is on. */
+/** Signed-in pages: the PIN screen in place when the session lapsed, the run's data, the screen kept on during a run, and the rider's location while signed in. */
 export function RunShell({ children }: { children: ReactNode }) {
   const s = useSession();
   const router = useRouter();
@@ -38,6 +38,8 @@ function RunEffects() {
   // A run is active from the first pickup until the last stop is done.
   const active = orders.some((o) => o.state === "out");
   useWakeLock(active);
-  useLocationTrail(active);
+  // Where the rider is whenever the app is open and signed in (on duty), not only once a stop is out:
+  // ops give each new stop to the rider nearest to it (POST /manifest/auto-assign).
+  useLocationTrail(true);
   return null;
 }

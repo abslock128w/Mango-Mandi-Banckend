@@ -99,8 +99,8 @@ export async function waitForPayment(orderId: string, tries = 10): Promise<strin
   return status;
 }
 
-/** Development only: the API's /v1/dev/pay stands in for Razorpay. */
+/** No payment service set up (a demo deploy, or development): the API's demo-pay settles the order. */
 export async function devPay(orderId: string, outcome: "captured" | "failed") {
-  await api.devPay(orderId, outcome);
+  await api.demoPay(orderId, outcome);
   return waitForPayment(orderId);
 }

@@ -34,7 +34,7 @@ export function newDeliveryCode(orderId) {
 
 /**
  * The code to show the customer (shop page, WhatsApp), or null. Orders from
- * before 053 still carry the plaintext column until 055 drops it.
+ * before 053 still carry the plaintext column until 056 drops it.
  */
 export function deliveryCodeFor(o) {
   if (o.delivery_code_nonce) return deriveCode(o.id, o.delivery_code_nonce)

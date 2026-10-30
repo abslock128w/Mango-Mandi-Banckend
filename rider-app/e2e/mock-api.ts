@@ -148,6 +148,7 @@ export async function mockApi(page: Page, opts: Partial<Mock> = {}): Promise<Moc
                   proof: proofOf(o.id),
                   codeTriesLeft: 3 - (m.tries[o.id] ?? 0),
                   codeLocked: (m.tries[o.id] ?? 0) >= 3,
+                  pickupWarehouse: { id: "wh_south", name: "Electronic City hub", address: "Phase 1, Electronic City", lat: 12.8452, lng: 77.6602 },
                 },
               ],
             })),

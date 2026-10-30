@@ -25,6 +25,14 @@ Decisions and their reasons: [ASSUMPTIONS.md](../../ASSUMPTIONS.md).
 Every photo carries the phone's GPS and the time at the shutter. Everything the rider does is queued on
 the phone and sent when there is signal, so a dead zone between stops loses nothing.
 
+## Who gets which stop
+
+On Deliveries, **Assign nearest riders** gives every stop without a rider to the rider nearest to it
+(where the rider app last reported him in the past 3 hours) and picks the warehouse that makes his trip
+shortest: rider → warehouse → customer. The rider app then says "Collect from <warehouse>" with
+directions there, and after the pickup, directions to the customer. A stop is placed at its pincode's
+centre (`pincodes.lat/lng`, seeded for Bengaluru); warehouses need `warehouses.lat/lng`.
+
 ## On the panel
 
 - **Deliveries**: refreshes every 10 seconds. Each stop shows its pickup, door and open-box photos, the

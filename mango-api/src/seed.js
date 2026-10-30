@@ -58,15 +58,22 @@ const DEMO_BATCHES = [
   // Chausa has no stock in the demo: the shop shows it as sold out, with a stock alert to set.
 ]
 
+// With each area's approximate centre: a stop is placed there for the nearest-rider assignment (056).
 const PINCODES = [
-  ['560001', 'Bengaluru', 'Central'],
-  ['560008', 'Bengaluru', 'East'],
-  ['560034', 'Bengaluru', 'South'],
-  ['560038', 'Bengaluru', 'East'],
-  ['560066', 'Bengaluru', 'East'],
-  ['560076', 'Bengaluru', 'South'],
-  ['560095', 'Bengaluru', 'South'],
-  ['560102', 'Bengaluru', 'South'],
+  ['560001', 'Bengaluru', 'Central', 12.9757, 77.6050],
+  ['560008', 'Bengaluru', 'East', 12.9634, 77.6551],
+  ['560034', 'Bengaluru', 'South', 12.9279, 77.6271],
+  ['560038', 'Bengaluru', 'East', 12.9719, 77.6412],
+  ['560066', 'Bengaluru', 'East', 12.9698, 77.7500],
+  ['560076', 'Bengaluru', 'South', 12.8858, 77.5970],
+  ['560095', 'Bengaluru', 'South', 12.9352, 77.6197],
+  ['560102', 'Bengaluru', 'South', 12.9116, 77.6389],
+]
+
+// Demo warehouses with their places, so the nearest-rider assignment has a pickup to choose.
+const DEMO_WAREHOUSES = [
+  ['wh_main', 'Yeshwanthpur mandi', 'APMC Yard, Yeshwanthpur, Bengaluru 560022', 13.0285, 77.5409],
+  ['wh_south', 'Electronic City hub', 'Phase 1, Electronic City, Bengaluru 560100', 12.8452, 77.6602],
 ]
 
 const DEMO_USERS = [
@@ -92,8 +99,10 @@ export async function seed() {
       )
     }
   }
-  for (const [pin, city, zone] of PINCODES) {
+  for (const [pin, city, zone, lat, lng] of PINCODES) {
     await query('INSERT INTO pincodes (pincode, city, zone) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pin, city, zone])
+    // A place a manager set on the Pincodes page stays.
+    await query('UPDATE pincodes SET lat = $2, lng = $3 WHERE pincode = $1 AND lat IS NULL', [pin, lat, lng])
   }
 
   if (!isProd) {
@@ -125,6 +134,13 @@ export async function seed() {
   // Demo stock: development, and Vercel previews on the staging branch. Never production.
   if (env.SEED_DEMO_DATA && (!isProd || deployEnv === 'preview')) {
     await seedDemoBatches()
+    for (const [id, name, address, lat, lng] of DEMO_WAREHOUSES) {
+      await query(
+        `INSERT INTO warehouses (id, name, address, lat, lng) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET name = CASE WHEN warehouses.name = 'Main warehouse' THEN EXCLUDED.name ELSE warehouses.name END, address = COALESCE(warehouses.address, EXCLUDED.address), lat = COALESCE(warehouses.lat, EXCLUDED.lat), lng = COALESCE(warehouses.lng, EXCLUDED.lng)`,
+        [id, name, address, lat, lng],
+      )
+    }
     await seedDemoVarieties()
   }
   // Tests set up their own slots; development gets two to click through.

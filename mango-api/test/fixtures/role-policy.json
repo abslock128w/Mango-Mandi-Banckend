@@ -130,6 +130,7 @@
   "POST /help/requests/:id/reply": ["MANAGER","OPERATOR"],
   "POST /help/requests/:id/resolve": ["MANAGER","OPERATOR"],
   "POST /manifest/assign": ["MANAGER","OPERATOR"],
+  "POST /manifest/auto-assign": ["MANAGER","OPERATOR"],
   "POST /manifest/dispatch": ["MANAGER","OPERATOR","PACKER","RIDER"],
   "POST /me/password": ["MANAGER","OPERATOR","PACKER","QC","RIDER"],
   "POST /me/two-step/disable": ["MANAGER","OPERATOR","PACKER","QC","RIDER"],

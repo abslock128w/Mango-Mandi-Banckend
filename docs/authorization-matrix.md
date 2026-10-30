@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-225 routes; 23 ask for step-up.
+226 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -53,6 +53,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /gift-orders/:id` | ✓ | ✓ |  |  |  |  |  |
 | `GET /manifest` | ✓ | ✓ | ✓ |  | ✓ |  | Views (STAFF_AUDIT_TRAIL) |
 | `POST /manifest/assign` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /manifest/auto-assign` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /manifest/dispatch` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
 | `GET /orders` | ✓ | ✓ |  |  |  |  | Searches (STAFF_AUDIT_TRAIL) |
 | `GET /orders/:id` | ✓ | ✓ | ✓ |  |  |  | Views (STAFF_AUDIT_TRAIL) |

@@ -14,7 +14,7 @@ repository pointed another way. Each says what was assumed and why.
 2. **The plaintext column is dropped one release later.** Dropping `orders.delivery_code` in the
    same release would break the previous release while the deploy rolls (the repo's n-minus-1
    check). So 053 stops writing it, 054 validates the new check, and the drop waits in
-   `mango-api/migrations-pending/055_drop_delivery_code.sql` with instructions.
+   `mango-api/migrations-pending/056_drop_delivery_code.sql` with instructions.
 3. **Delivery code tries reset on a retry**, as before (a missed delivery goes out again with the
    same code and 3 fresh tries).
 4. **Extra columns beyond the brief's list**: `delivery_photos.attempt` (photos belong to one
@@ -105,6 +105,17 @@ repository pointed another way. Each says what was assumed and why.
     screens show it. The WhatsApp settings (`WHATSAPP_PROVIDER`, `WHATSAPP_TOKEN`,
     `WHATSAPP_PHONE_NUMBER_ID`, the templates) stay in place, unused until set. A production deploy
     refuses to start with `DEMO_OTP` set, and preflight lists it as an error there.
+
+23b. **Demo payments**: until Razorpay is set up, `DEMO_PAYMENTS=true` lets the shop's existing "Pay (test)"
+    buttons settle the customer's own order through `POST /v1/orders/:id/demo-pay`. Refunds of such orders
+    have no gateway to go to. Refused in production, like `DEMO_OTP`.
+23c. **Nearest rider and pickup warehouse** (`POST /manifest/auto-assign`, the panel's "Assign nearest
+    riders"): a stop is placed at its pincode's centre (addresses have no coordinates yet); a rider is where
+    the rider app last reported him in the past 3 hours (the app now reports whenever it is open and signed
+    in, not only during a run); distances are straight lines. Each unassigned stop goes to the nearest
+    rider; the pickup warehouse is the one that makes rider → warehouse → customer shortest. With no rider
+    position known, the rider with the fewest stops gets it. Stops already given to a rider are not moved.
+    Nearest-first can give one rider many stops; a load limit is a follow-up if that matters.
 
 ## Live view and jobs
 

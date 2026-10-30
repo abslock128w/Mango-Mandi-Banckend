@@ -14,6 +14,7 @@ import { env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { addEvent } from '../orders.js'
+import { assignNearest } from '../nearest.js'
 import { logger } from '../logger.js'
 import { messageStates, messageView, sendNotificationsNow } from '../notify.js'
 import { productName } from '../products.js'
@@ -41,9 +42,10 @@ router.get(
       `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id, o.delivery_failures,
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message, o.rider_id, r.email AS rider_email, r.display_name AS rider_name,
               o.delivery_code_tries, o.handover_override_at,
+              w.id AS wh_id, w.name AS wh_name, w.address AS wh_address, w.lat AS wh_lat, w.lng AS wh_lng,
               s.label AS slot_label, s.starts_at, s.ends_at, p.city, p.zone
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN pincodes p ON p.pincode = o.pincode
-         LEFT JOIN admin_users r ON r.id = o.rider_id
+         LEFT JOIN admin_users r ON r.id = o.rider_id LEFT JOIN warehouses w ON w.id = o.pickup_warehouse_id
         WHERE o.delivery_date = $1 AND o.status = ANY($2) ${rider ? 'AND o.rider_id = $3' : ''}
         ORDER BY ${ROUTE_ORDER}`,
       rider ? [date, statuses, req.admin.id] : [date, statuses],
@@ -86,6 +88,10 @@ router.get(
         rider: o.rider_id ? { id: o.rider_id, email: o.rider_email ?? null, name: o.rider_name ?? null, firstName: riderFirstName({ display_name: o.rider_name, email: o.rider_email }) } : null,
         // Rider app: the photos of this attempt by step, and where the code stands.
         ...proof.get(o.id),
+        // Where the rider collects it (set by the nearest-rider assignment, nearest.js).
+        pickupWarehouse: o.wh_id
+          ? { id: o.wh_id, name: o.wh_name, address: o.wh_address ?? null, lat: o.wh_lat === null ? null : Number(o.wh_lat), lng: o.wh_lng === null ? null : Number(o.wh_lng) }
+          : null,
         // Sent back with the delivery report, so a late resend for an earlier attempt is refused.
         attempt: o.delivery_failures + 1,
         items: lines.map((i) => ({ sku: i.sku, productName: productName(i.sku), stage: i.stage, quantity: i.quantity })),
@@ -451,6 +457,7 @@ router.get(
     const cursor = now()
     const { rows: orders } = await query(
       `SELECT o.id, o.number, o.status, o.delivery_failures, o.delivery_code_tries, o.rider_id, o.pincode, o.handover_override_at,
+              (SELECT name FROM warehouses w WHERE w.id = o.pickup_warehouse_id) AS pickup_warehouse,
               COALESCE(o.gift_recipient_name, o.customer_name) AS customer_name, r.display_name AS rider_name, r.email AS rider_email
          FROM orders o LEFT JOIN admin_users r ON r.id = o.rider_id
         WHERE o.delivery_date = $1 AND o.status = ANY($2) ORDER BY o.number`,
@@ -482,6 +489,7 @@ router.get(
       return {
         id: o.id, number: o.number, status: o.status, pincode: o.pincode, customerName: o.customer_name,
         rider: o.rider_id ? { id: o.rider_id, firstName: riderFirstName({ display_name: o.rider_name, email: o.rider_email }) } : null,
+        pickupWarehouse: o.pickup_warehouse ?? null,
         photos: mine.map((p) => ({
           id: p.id, step: p.step, at: p.created_at, takenAt: p.taken_at, removed: Boolean(p.removed_at),
           lat: p.lat === null ? null : Number(p.lat), lng: p.lng === null ? null : Number(p.lng), accuracy: p.accuracy === null ? null : Number(p.accuracy),
@@ -548,6 +556,22 @@ async function sendOutcomeNow(orderId) {
     logger.warn({ err, orderId }, 'delivered message not sent at once; the outbox retries it')
   }
 }
+
+/**
+ * Gives every unassigned stop on the date (one slot's orders, or the listed ones) to
+ * the nearest rider, with the warehouse that makes his trip shortest (nearest.js).
+ */
+router.post(
+  '/manifest/auto-assign',
+  asyncHandler(async (req, res) => {
+    const b = parse(
+      z.object({ date: z.string().refine(isDate, 'date must be YYYY-MM-DD'), orderIds: z.array(z.string().max(40)).min(1).max(500).optional() }),
+      req.body,
+    )
+    const assigned = await tx((c) => assignNearest(c, b.date, req.actor, { orderIds: b.orderIds ?? null }))
+    res.json({ assigned })
+  }),
+)
 
 /** Photo deliveries waiting for someone other than the rider to check them. */
 router.get('/delivery-reviews', asyncHandler(async (_req, res) => res.json(await photoReviews({ query }))))

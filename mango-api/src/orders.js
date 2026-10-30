@@ -849,7 +849,7 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   }
   if (to === 'OUT_FOR_DELIVERY') {
     // The customer gives this code to the rider (delivery-proof.js). A retry keeps the code already sent.
-    // Stored hashed (delivery-code.js); the plaintext column is no longer written (053, dropped by 055).
+    // Stored hashed (delivery-code.js); the plaintext column is no longer written (053, dropped by 056).
     await c.query('UPDATE orders SET delivery_code_tries = 0 WHERE id = $1', [o.id])
     if (!o.delivery_code_hash) {
       const fresh = o.delivery_code ? { hash: deliveryCodeHash(o.id, o.delivery_code), nonce: null } : newDeliveryCode(o.id)

@@ -99,7 +99,7 @@ const POLICY = JSON.parse(readFileSync(new URL('./fixtures/role-policy.json', im
  */
 const ISOLATION_CASES = [
   'GET /v1/orders/:id', 'GET /v1/orders/:id/bill', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
-  'POST /v1/orders/:id/cancel', 'POST /v1/orders/:id/reschedule', 'PUT /v1/orders/:id/rating',
+  'POST /v1/orders/:id/cancel', 'POST /v1/orders/:id/reschedule', 'PUT /v1/orders/:id/rating', 'POST /v1/orders/:id/demo-pay',
   'GET /v1/preorders/:id', 'POST /v1/preorders/:id/cancel',
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
@@ -285,6 +285,7 @@ describe('customer to customer', () => {
       ['GET /v1/orders/:id/payment-status', () => api.get(`/v1/orders/${open.orderId}/payment-status`, B), () => api.get('/v1/orders/ord_none/payment-status', B)],
       ['POST /v1/orders/:id/verify-payment', () => verify(open.orderId, open.razorpayOrderId), () => verify('ord_none', open.razorpayOrderId)],
       ['POST /v1/orders/:id/cancel', () => api.post(`/v1/orders/${open.orderId}/cancel`, {}, B), () => api.post('/v1/orders/ord_none/cancel', {}, B)],
+      ['POST /v1/orders/:id/demo-pay', () => api.post(`/v1/orders/${open.orderId}/demo-pay`, { outcome: 'captured' }, B), () => api.post('/v1/orders/ord_none/demo-pay', { outcome: 'captured' }, B)],
       ['POST /v1/orders/:id/reschedule', () => api.post(`/v1/orders/${open.orderId}/reschedule`, { deliveryDate: addDays(todayIST(), 4) }, B), () => api.post('/v1/orders/ord_none/reschedule', { deliveryDate: addDays(todayIST(), 4) }, B)],
       ['PUT /v1/orders/:id/rating', () => api.put(`/v1/orders/${done.orderId}/rating`, { stars: 1 }, B), () => api.put('/v1/orders/ord_none/rating', { stars: 1 }, B)],
       ['GET /v1/preorders/:id', () => api.get(`/v1/preorders/${pre.body.id}`, B), () => api.get('/v1/preorders/pre_none', B)],

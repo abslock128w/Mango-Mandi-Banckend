@@ -1,10 +1,10 @@
 "use client";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Check, CheckCheck, Clock, MessageCircle, X } from "lucide-react";
+import { Check, CheckCheck, Clock, MessageCircle, Navigation, Warehouse, X } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { db, stepKey, type Job } from "@/lib/db";
-import { firstName, STAGE } from "@/lib/format";
+import { firstName, STAGE, warehouseDirections } from "@/lib/format";
 import { enqueue, newClientId, queuePhoto, whenSettled } from "@/lib/queue";
 import { useRun } from "@/lib/run-context";
 import type { PickupMessage, PickupResult } from "@/lib/types";
@@ -54,6 +54,23 @@ export function Pickup({ id }: { id: string }) {
     <>
       <BackBar title={`Pickup · ${o.number}`} />
       <div className="flex flex-col gap-4 p-4">
+        {o.pickupWarehouse && (
+          <Card data-testid="pickup-warehouse-card">
+            <p className="flex items-center gap-2 text-sm font-bold text-muted">
+              <Warehouse aria-hidden size={18} /> Collect from
+            </p>
+            <p className="text-xl font-extrabold">{o.pickupWarehouse.name}</p>
+            {o.pickupWarehouse.address && <p className="text-base text-muted">{o.pickupWarehouse.address}</p>}
+            <a
+              href={warehouseDirections(o.pickupWarehouse)}
+              target="_blank"
+              rel="noopener"
+              className="mt-3 flex min-h-12 items-center justify-center gap-2 rounded-2xl border-2 border-action bg-surface font-bold text-action"
+            >
+              <Navigation aria-hidden size={20} /> Directions to the warehouse
+            </a>
+          </Card>
+        )}
         <Card>
           <p className="text-sm font-bold text-muted">{o.number}</p>
           <h2 className="text-2xl font-extrabold">{firstName(o.customerName)}</h2>

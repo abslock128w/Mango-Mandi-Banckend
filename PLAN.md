@@ -22,7 +22,7 @@ Assumptions are in ASSUMPTIONS.md.
 - `orders`: `delivery_code_hash TEXT`, `delivery_code_nonce TEXT`, `handover_override_by/_at/_reason` (leave at door).
   The plaintext `delivery_code` is no longer written. The 4 digits are `HMAC(pepper, orderId:nonce) mod 10000`,
   re-derived for the shop page and the WhatsApp code message; checked by `SHA-256(pepper:orderId:code)` timing-safe.
-  `migrations-pending/055_drop_delivery_code.sql` drops the column in the next release (n-minus-1 rule).
+  `migrations-pending/056_drop_delivery_code.sql` drops the column in the next release (n-minus-1 rule).
 - `admin_users`: `phone` (unique), `display_name`.
 - `rider_otps (phone PK, code_hash, expires_at, attempts)`.
 - `rider_devices (id, rider_id, device_id, label, pin_hash, pin_failures, refresh_hash, unlocked_until, last_seen_at, created_at, revoked_at)`.

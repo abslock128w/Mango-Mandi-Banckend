@@ -9,7 +9,7 @@ import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
 import { activeSlots, checkCapacity, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
-import { env, isProd } from './env.js'
+import { devRoutesOn, env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
@@ -1479,6 +1479,23 @@ router.get(
 )
 
 // ---------------------------------------------------------------- dev-only
+
+/**
+ * The checkout's "Pay (test)" and "Fail payment (test)" while no payment service is set up:
+ * DEMO_PAYMENTS on a demo deploy (refused in production, env.js), or a developer's machine.
+ * Settles the customer's own unpaid order as the Razorpay webhook would, with no money taken.
+ */
+router.post(
+  '/orders/:id/demo-pay',
+  asyncHandler(async (req, res) => {
+    if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
+    const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
+    const o = await ownOrder({ query }, req)
+    const r = await tx((c) => processPayment(c, { orderId: o.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo' }))
+    await sendDueRefunds(refundsFor({ ...r, orderId: o.id }))
+    res.json({ result: r.result })
+  }),
+)
 
 export const devRouter = express.Router()
 
