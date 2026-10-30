@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npm ci",
-  "buildCommand": "npm run build && node ../scripts/scan-bundle.mjs --next .next --forbid-localhost-in-production"
+  "buildCommand": "npm run build && node ../scripts/scan-bundle.mjs .next/static --forbid-localhost-in-production"
 }
