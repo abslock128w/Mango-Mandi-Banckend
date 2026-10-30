@@ -5,6 +5,7 @@ import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate, telHref } from '../format'
 import { MissedDialog, PhotoField, uploadPhoto } from '../MissedDialog'
 import { canSee } from '../permissions'
+import { LiveProofPanel } from '../LiveProof'
 import { currentPosition } from '../photo'
 import { useSession } from '../session'
 import type { Manifest, ManifestOrder, Rider } from '../types'
@@ -119,6 +120,8 @@ export default function Deliveries() {
         </div>
       )}
       {rider && !routeView && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
+      {/* Rider app proof, live (managers and operators): photos, mango checks, WhatsApp status, rider positions. */}
+      {canAssign && <LiveProofPanel day={day} manager={me?.role === 'MANAGER'} />}
       {routeView && q.data ? (
         q.data.runs.length === 0 && !q.data.unassigned ? (
           <>

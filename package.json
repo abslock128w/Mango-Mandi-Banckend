@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests && npm --prefix customer-app run typecheck",
     "test:e2e": "playwright test",
     "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\"",
-    "lint": "eslint . && npm --prefix customer-app run lint",
+    "lint": "eslint . && npm --prefix customer-app run lint && npm --prefix rider-app run lint",
     "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/.next/static",
     "shop:dev": "npm --prefix customer-app run dev -- --port 5174",
     "shop:build": "npm --prefix customer-app run build",

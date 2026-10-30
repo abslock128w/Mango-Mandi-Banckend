@@ -346,6 +346,15 @@ function OrderDetail({ order }: { order: Order }) {
 
         {order.status === "PAYMENT_PENDING" && <PayBox order={order} onPaid={refresh} />}
 
+        {order.status === "OUT_FOR_DELIVERY" && order.rider?.firstName && (
+          <Section>
+            <p className="flex items-center gap-2 text-15 font-bold text-ink" data-testid="rider-name">
+              <Bike aria-hidden size={18} className="text-action" />
+              Out for delivery with {order.rider.firstName}
+            </p>
+          </Section>
+        )}
+
         {order.deliveryCode && (
           <Section className="border border-action text-center">
             <p className="flex items-center justify-center gap-1.5 text-13 font-semibold text-ink">
@@ -355,6 +364,7 @@ function OrderDetail({ order }: { order: Order }) {
               {order.deliveryCode}
             </p>
             <p className="text-12 text-muted">Share it with the delivery partner when the box reaches you.</p>
+            <p className="mt-1 text-12 font-semibold text-ink">Share this code with the rider only after you have seen your mangoes.</p>
           </Section>
         )}
 

@@ -34,6 +34,7 @@ function wifiAddresses() {
 const SHOP = 'http://localhost:5174'
 const PANEL = 'http://localhost:5173'
 const API = 'http://localhost:3000'
+const RIDER = 'http://localhost:5175'
 
 /**
  * What to start for these command-line flags (unit-tested in tests/unit/start-local.unit.ts).
@@ -82,6 +83,8 @@ export function localPlan(argv, wifiIps = []) {
     SUBSCRIPTION_SEASON_END: new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10),
     // The shop opened from a phone (http://<wifi address>:5174) is allowed too.
     CUSTOMER_ORIGIN: [SHOP, ...wifi.map((ip) => `http://${ip}:5174`)].join(','),
+    // The rider app (rider-app/, docs/rider-app/README.md) on port 5175.
+    RIDER_ORIGIN: RIDER,
     // Shared: login codes stay out of the API's answers and are printed here instead.
     ...(shared ? { OTP_CODE_IN_RESPONSE: 'false', LOG_OTP_CODES: 'true', SMS_PROVIDER: 'log' } : {}),
   }
@@ -226,7 +229,7 @@ async function main() {
   if (major < 24) say(`This computer has Node ${process.versions.node}. MandiMangoes runs on Node 24; it works here, but install the current LTS from nodejs.org when you can.`)
 
   // An older window still running would keep serving old pages (often a blank screen) on these ports.
-  for (const port of [3000, 5173, 5174, DB_PORT]) {
+  for (const port of [3000, 5173, 5174, 5175, DB_PORT]) {
     if (!(await portFree(port))) {
       throw new Error(`MandiMangoes is already running in another window (port ${port} is busy). Close that window first, then run this again.`)
     }
@@ -241,6 +244,11 @@ async function main() {
     say('Installing the shop (first run or after an update)')
     await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'customer-app'))
     markInstalled(path.join(root, 'customer-app'))
+  }
+  if (installNeeded(path.join(root, 'rider-app'))) {
+    say('Installing the rider app (first run or after an update)')
+    await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'rider-app'))
+    markInstalled(path.join(root, 'rider-app'))
   }
   if (installNeeded(path.join(root, 'mango-api'))) {
     say('Installing the API (first run or after an update)')
@@ -280,6 +288,7 @@ async function main() {
   say('Starting the shop and the staff panel')
   start('npx vite --port 5173 --strictPort --force', root, { VITE_API_URL: API }, true)
   start(PLAN.shopCmd, path.join(root, 'customer-app'), PLAN.shopEnv, true)
+  start('npx next dev --port 5175', path.join(root, 'rider-app'), { NEXT_PUBLIC_API_URL: API }, true)
   await waitFor(SHOP)
   await waitFor(PANEL)
   const phoneLink = PHONE ? await startPhoneLink() : null
@@ -292,6 +301,7 @@ async function main() {
 MandiMangoes is running.
   Shop:         ${SHOP}   (${PLAN.shared ? 'the sign-in code is printed in this window' : 'the sign-in code shows on screen'})
   Staff panel:  ${PANEL}   (manager@mandimangoes.test / manager123)
+  Rider app:    ${RIDER}   (phone 9000000001 or 9000000002; the sign-in code shows on screen)
 ${PLAN.shared ? SHARED_WARNING : '\nTo open the shop on your phone too, start it with --phone.\n'}
 ${
     phoneLink

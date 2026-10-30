@@ -7,7 +7,7 @@ import { ALL_ROLES, ROLE_LABEL } from '../permissions'
 import { useSession } from '../session'
 import { useStepUp } from '../StepUp'
 import { DailySummaryCard } from './DailySummary'
-import type { AuditEntry, BatchStatus, OrderStatus, Role, StaffMember } from '../types'
+import type { AuditEntry, BatchStatus, OrderStatus, RiderDevice, Role, StaffMember } from '../types'
 import { ConfirmDialog, Dialog, EmptyState, FormError, QueryError, ReasonDialog, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
 
 const ROLE_HINT: Record<Role, string> = {
@@ -33,6 +33,8 @@ export default function Staff() {
   const [resetting, setResetting] = useState<StaffMember | null>(null)
   const [removing, setRemoving] = useState<StaffMember | null>(null)
   const [unlocking, setUnlocking] = useState<StaffMember | null>(null)
+  // Rider app: the rider whose number, name and phones are open.
+  const [riderOpen, setRiderOpen] = useState<StaffMember | null>(null)
   // A role picked in the table, waiting for the manager to confirm it (the select shows it meanwhile).
   const [changing, setChanging] = useState<{ staff: StaffMember; role: Role } | null>(null)
   // A two-step setup code, shown once to hand over in person.
@@ -116,6 +118,7 @@ export default function Staff() {
                   <th>Role</th>
                   <th>Two-step</th>
                   {summaryOn && <th>Evening summary</th>}
+                  <th>Rider app</th>
                   <th>Added</th>
                   <th>
                     <span className="sr-only">Actions</span>
@@ -154,6 +157,21 @@ export default function Staff() {
                       </td>
                       <td>{s.twoStep ? 'On' : 'Off'}</td>
                       {summaryOn && <td>{s.role === 'MANAGER' ? (s.dailySummary ? 'On' : 'Off') : '—'}</td>}
+                      <td>
+                        {s.role === 'RIDER' ? (
+                          <>
+                            {s.displayName ?? <span className="muted">No name</span>}
+                            <div className="small muted">
+                              {s.phone ?? 'No number'} · {s.devices ?? 0} {s.devices === 1 ? 'phone' : 'phones'}
+                            </div>
+                            <button type="button" className="btn btn-small" onClick={() => setRiderOpen(s)}>
+                              Number and phones<span className="sr-only"> for {s.email}</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
                       <td>{dateTime(s.createdAt)}</td>
                       <td>
                         <div className="btn-row">
@@ -240,6 +258,7 @@ export default function Staff() {
         </Dialog>
       )}
       {resetting && <PasswordDialog member={resetting} confirm={stepUp.run} onClose={() => setResetting(null)} />}
+      {riderOpen && <RiderAppDialog member={riderOpen} onClose={() => setRiderOpen(null)} onChanged={refresh} />}
       {unlocking && (
         <ConfirmDialog
           title={`Reset two-step sign-in for ${unlocking.email}?`}
@@ -289,6 +308,105 @@ export default function Staff() {
       )}
       {stepUp.dialog}
     </>
+  )
+}
+
+/**
+ * Rider app (docs/rider-app/README.md): the number a rider signs in with on their phone, the
+ * first name customers see, and the phones signed in, each of which a manager can sign out.
+ */
+function RiderAppDialog({ member, onClose, onChanged }: { member: StaffMember; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const [phone, setPhone] = useState(member.phone?.replace(/^\+91/, '') ?? '')
+  const [name, setName] = useState(member.displayName ?? '')
+  const [revoking, setRevoking] = useState<RiderDevice | null>(null)
+  const devices = useQuery({ queryKey: ['rider-devices', member.id], queryFn: () => api.riderDevices(member.id) })
+  const save = useMutation({
+    mutationFn: () => api.updateRiderDetails(member.id, { phone: phone.trim() || null, displayName: name.trim() || null }),
+    onSuccess: () => {
+      toast.success(`Saved ${member.email}'s rider details`)
+      onChanged()
+    },
+  })
+  const revoke = useMutation({
+    mutationFn: (d: RiderDevice) => api.revokeRiderDevice(member.id, d.id),
+    onSuccess: () => {
+      toast.success('Phone signed out')
+      setRevoking(null)
+      void queryClient.invalidateQueries({ queryKey: ['rider-devices', member.id] })
+      onChanged()
+    },
+  })
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    save.mutate()
+  }
+  return (
+    <Dialog
+      title={`Rider app: ${member.email}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Close
+          </button>
+          <button type="submit" form="rider-app-form" className="btn btn-primary" disabled={save.isPending}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <form id="rider-app-form" onSubmit={onSubmit}>
+        <div className="field">
+          <label htmlFor="rider-phone">Mobile number (they sign in with it)</label>
+          <input id="rider-phone" inputMode="tel" value={phone} maxLength={16} onChange={(e) => setPhone(e.target.value)} placeholder="98765 43210" />
+        </div>
+        <div className="field">
+          <label htmlFor="rider-name">Name customers see (first name is used)</label>
+          <input id="rider-name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+        </div>
+        {save.isError && <FormError error={save.error} />}
+      </form>
+      <h3>Signed-in phones</h3>
+      {devices.isPending ? (
+        <Spinner />
+      ) : devices.isError ? (
+        <QueryError error={devices.error} onRetry={() => devices.refetch()} />
+      ) : devices.data.length === 0 ? (
+        <p className="muted">No phone has signed in yet.</p>
+      ) : (
+        <ul className="bare-list" aria-label="Signed-in phones">
+          {devices.data.map((d) => (
+            <li key={d.id}>
+              <strong>{d.label ?? d.deviceId}</strong>
+              <div className="small muted">
+                Added {dateTime(d.createdAt)} · last seen {dateTime(d.lastSeenAt)}
+                {d.revokedAt ? ` · signed out ${dateTime(d.revokedAt)}${d.revokedBy ? ` (${d.revokedBy})` : ''}` : ''}
+              </div>
+              {!d.revokedAt && (
+                <button type="button" className="btn btn-small btn-danger" onClick={() => setRevoking(d)}>
+                  Sign out this phone
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {revoking && (
+        <ConfirmDialog
+          title="Sign out this phone?"
+          tone="danger"
+          confirmLabel="Sign it out"
+          busy={revoke.isPending}
+          error={revoke.error}
+          onClose={() => setRevoking(null)}
+          onConfirm={() => revoke.mutate(revoking)}
+        >
+          <p>For a lost or stolen phone. It stops working at once; the rider signs in again with their number. Their other sessions end too.</p>
+        </ConfirmDialog>
+      )}
+    </Dialog>
   )
 }
 

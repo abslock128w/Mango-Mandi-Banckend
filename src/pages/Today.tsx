@@ -5,6 +5,7 @@ import { api } from '../api'
 import { ORDER_STATUS_LABEL, count, date, istDate, istTime, rupeesCompact } from '../format'
 import type { Analytics, AnalyticsWeek, OrderStatus } from '../types'
 import NeedsAttention, { attentionQuery } from './NeedsAttention'
+import { useDeliveryToasts } from '../LiveProof'
 import { SummaryPreviewButton } from './DailySummary'
 import { useSession } from '../session'
 import { EmptyState, LinkRow, QueryError, RowLink, scrollRegion, usePageTitle } from '../ui'
@@ -59,6 +60,8 @@ export default function Today() {
   const manager = me?.role === 'MANAGER'
   // Managers get last week's numbers beside today's: the same weekly series as Analytics.
   const insights = useQuery({ queryKey: ['analytics', null, null], queryFn: () => api.analytics({}), enabled: manager, staleTime: 5 * 60_000 })
+  // Rider app: a toast when a stop is picked up or delivered (managers and operators).
+  useDeliveryToasts(istDate(0), manager || me?.role === 'OPERATOR')
 
   if (q.isError) return <QueryError error={q.error} onRetry={() => q.refetch()} />
   // While loading, the heading and tiles hold their final size and nothing sits

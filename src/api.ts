@@ -74,6 +74,8 @@ import type {
   ReviewQueue,
   Role,
   StaffMember,
+  LiveDeliveries,
+  RiderDevice,
   Summary,
   DailySummaryPreview,
   DailySummarySetting,
@@ -435,6 +437,10 @@ export const api = {
     const res = await send('GET', `/orders/${id(orderId)}/delivery-photos/${id(photoId)}`)
     return URL.createObjectURL(await res.blob())
   },
+  /** Rider app: the day's stops with photos, mango checks, WhatsApp status and rider positions; `since` lists what changed after it. */
+  liveDeliveries: (date: string, since?: string | null) => request<LiveDeliveries>('GET', `/deliveries/live${qs({ date, since: since ?? undefined })}`),
+  /** A manager lets the rider leave this order without the code (a photo and who took it). */
+  allowLeaveAtDoor: (orderId: string, reason: string) => request<void>('POST', `/orders/${id(orderId)}/handover-override`, { reason }),
   recordDelivery: (
     orderId: string,
     body:
@@ -532,6 +538,11 @@ export const api = {
     request<StaffMember>('POST', '/staff', { ...input, ...confirmBody(confirmCode) }),
   updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
     request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),
+  /** Rider app details: the sign-in number and the name customers see (no confirmation asked). */
+  updateRiderDetails: (staffId: string, patch: { phone?: string | null; displayName?: string | null }) =>
+    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, patch),
+  riderDevices: (staffId: string) => request<RiderDevice[]>('GET', `/staff/${id(staffId)}/devices`),
+  revokeRiderDevice: (staffId: string, deviceRowId: string) => request<void>('POST', `/staff/${id(staffId)}/devices/${id(deviceRowId)}/revoke`, {}),
   removeStaff: (staffId: string, confirmCode?: string) => request<void>('DELETE', `/staff/${id(staffId)}`, confirmBody(confirmCode)),
   /** `reads`: also list views of customer details (recorded with STAFF_AUDIT_TRAIL on the server). */
   audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number; reads?: boolean } = {}) =>

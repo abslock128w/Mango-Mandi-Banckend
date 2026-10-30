@@ -823,6 +823,12 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, 200, state.config)
     }
 
+    // Rider app (LiveProof.tsx): the live view has nothing picked up, riders have no phones signed in.
+    if (path === '/deliveries/live') {
+      return json(route, 200, { date: url.searchParams.get('date'), cursor: new Date().toISOString(), changed: [], events: [], stops: [], riders: [] })
+    }
+    if (/^\/staff\/[^/]+\/devices$/.test(path)) return json(route, 200, [])
+    if (/^\/orders\/[^/]+\/handover-override$/.test(path)) return route.fulfill({ status: 204 })
     return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Not found', requestId: 'req_404' } })
   })
 
