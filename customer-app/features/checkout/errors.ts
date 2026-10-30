@@ -39,6 +39,8 @@ export function checkoutProblem(err: unknown, lines: CartLine[] = [], bulk: Bulk
       return "We don't deliver to this pincode yet.";
     case "QUOTE_EXPIRED":
       return "Prices were held for a few minutes and that time ran out. We've checked them again.";
+    case "PAYMENTS_UNAVAILABLE":
+      return "Online payment isn't switched on yet, so orders can't be paid for here. Nothing was charged.";
     case "PAYMENT_GATEWAY_ERROR":
       return "The payment service didn't answer. Please try again.";
     case "PAYMENT_STARTING":

@@ -12,3 +12,5 @@ deploy/backups/
 # The backup public key and off-site storage settings stay on the server
 deploy/backup-config/
 .local/
+.vercel
+.env.local

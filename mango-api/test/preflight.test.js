@@ -64,6 +64,16 @@ describe('production preflight', () => {
     assert.ok(errors.some((e) => e.includes('CUSTOMER_ORIGIN points at localhost')))
   })
 
+  it('lets a preview start without Razorpay, as a demo that takes no payments, but never with only one key', () => {
+    const none = checkProduction({ ...good, RAZORPAY_KEY_ID: '', RAZORPAY_KEY_SECRET: '' }, { vercel: false, target: 'preview' })
+    assert.ok(!none.errors.some((e) => e.startsWith('RAZORPAY_KEY_ID')))
+    assert.ok(none.warnings.some((w) => w.includes('takes no payments')))
+    const half = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', RAZORPAY_KEY_SECRET: '' }, { vercel: false, target: 'preview' })
+    assert.ok(half.errors.some((e) => e.startsWith('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')))
+    const prod = checkProduction({ ...good, RAZORPAY_KEY_ID: '', RAZORPAY_KEY_SECRET: '' }, { vercel: false, target: 'production' })
+    assert.ok(prod.errors.some((e) => e.startsWith('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')))
+  })
+
   it('warns about test keys and features left off', () => {
     const { errors, warnings } = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', WHATSAPP_APP_SECRET: '', TRUST_PROXY: 0 })
     assert.deepEqual(errors, [])

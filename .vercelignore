@@ -1,0 +1,13 @@
+# Uploads to Vercel (the three projects deploy from this repository): leave out local-only files.
+.local
+**/node_modules
+**/.next
+customer-app/tests/unit/__snapshots__
+dist
+test-results*
+playwright-report*
+deploy/backups
+deploy/backup-config
+deploy/.env
+**/.env.local
+docs/screenshots
