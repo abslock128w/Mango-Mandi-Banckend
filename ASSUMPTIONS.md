@@ -100,6 +100,12 @@ repository pointed another way. Each says what was assumed and why.
     00001, Ravi Kumar) and `suresh.rider@mandimangoes.test` (+91 90000 00002, Suresh Patil), password
     `rider12345`. Placeholder numbers; never seeded in production.
 
+23a. **Demo login code**: until the WhatsApp Business account (or Jio SMS) is ready, `DEMO_OTP` (6 digits)
+    makes every phone sign-in, shop and rider app, accept that one code with nothing sent; the sign-in
+    screens show it. The WhatsApp settings (`WHATSAPP_PROVIDER`, `WHATSAPP_TOKEN`,
+    `WHATSAPP_PHONE_NUMBER_ID`, the templates) stay in place, unused until set. A production deploy
+    refuses to start with `DEMO_OTP` set, and preflight lists it as an error there.
+
 ## Live view and jobs
 
 23. **Polling, not push**: the panel polls `/deliveries/live` every 10 seconds (the brief's 10-second

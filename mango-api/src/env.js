@@ -273,6 +273,10 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // DEMO ONLY, while WhatsApp Business and SMS are being set up: one fixed 6-digit login code
+  // that signs anyone in (shop customers and riders) with no message sent; the code is also shown
+  // on the sign-in screen. Never in production: the API refuses to start with it there.
+  DEMO_OTP: z.string().regex(/^\d{6}$/, 'DEMO_OTP must be 6 digits').optional(),
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
   OTP_PEPPER: z.string().default(''),
@@ -443,6 +447,12 @@ export function strictDefaults(e, prod) {
 strictDefaults(env, isProd)
 // PAY-08: the daily match with Razorpay is on in production unless set to false.
 env.PAYMENT_DAILY_RECON ??= isProd
+
+// A fixed login code would let anyone sign in as any customer or rider.
+if (env.DEMO_OTP && deployEnv === 'production') {
+  console.error('DEMO_OTP is set on a production deploy: remove it (it lets anyone sign in with a fixed code)')
+  process.exit(1)
+}
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

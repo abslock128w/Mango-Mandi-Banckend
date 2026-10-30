@@ -154,6 +154,15 @@ const otpMatches = (stored, phone, code) => {
  */
 async function issueCode(phone, channel, ip) {
   await checkOtpBudget(phone, ip)
+  // DEMO_OTP (demo deploys only, env.js): the fixed code, nothing sent, shown on the sign-in screen.
+  if (env.DEMO_OTP) {
+    await query(
+      `INSERT INTO otps (phone, code, expires_at, attempts, resends, window_start) VALUES ($1, $2, $3, 0, 1, $4)
+       ON CONFLICT (phone) DO UPDATE SET code = $2, expires_at = $3, attempts = 0, resends = otps.resends + 1`,
+      [phone, hashOtp(phone, env.DEMO_OTP).toString('hex'), new Date(now().getTime() + OTP_TTL_MS), now()],
+    )
+    return { sent: true, channel: 'demo', devCode: env.DEMO_OTP }
+  }
   const code = String(randomInt(100_000, 1_000_000))
   const at = now()
   const store = () =>

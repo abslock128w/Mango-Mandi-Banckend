@@ -79,16 +79,18 @@ router.post(
     const rider = await riderByPhone(phone)
     if (!rider) {
       logger.info({ phone: maskPhone(phone) }, 'rider code asked for a number that is no rider')
-      return res.json({ sent: true, channel: 'whatsapp' })
+      return res.json(env.DEMO_OTP ? { sent: true, channel: 'demo', devCode: env.DEMO_OTP } : { sent: true, channel: 'whatsapp' })
     }
-    const code = String(randomInt(100_000, 1_000_000))
-    const channel = await sendOtp(phone, code, 'whatsapp')
+    // DEMO_OTP (demo deploys only, env.js): the fixed code, nothing sent, shown on the sign-in screen.
+    const code = env.DEMO_OTP ?? String(randomInt(100_000, 1_000_000))
+    const channel = env.DEMO_OTP ? 'demo' : await sendOtp(phone, code, 'whatsapp')
     await query(
       `INSERT INTO rider_otps (phone, code_hash, expires_at, attempts, created_at) VALUES ($1, $2, $3, 0, $4)
        ON CONFLICT (phone) DO UPDATE SET code_hash = $2, expires_at = $3, attempts = 0, created_at = $4`,
       [phone, hashCode(phone, code), new Date(now().getTime() + CODE_TTL_MS), now()],
     )
     // As the shop's sign-in: on a developer's machine the code comes back for the screen.
+    if (env.DEMO_OTP) return res.json({ sent: true, channel, devCode: code })
     res.json(isProd || !env.OTP_CODE_IN_RESPONSE ? { sent: true, channel } : { sent: true, channel, devCode: code })
   }),
 )

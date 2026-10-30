@@ -378,3 +378,29 @@ describe('live view, positions and photo purge', () => {
     assert.equal(await purgeOldDeliveryPhotos(), 0)
   })
 })
+
+describe('demo login code (DEMO_OTP)', () => {
+  test('while WhatsApp and SMS are not set up, the fixed code signs riders and customers in and nothing is sent', async () => {
+    const { sendOtpForTests } = await import('../src/sms.js')
+    const sends = []
+    const prev = sendOtpForTests(async (phone) => (sends.push(phone), 'whatsapp'))
+    env.DEMO_OTP = '246810'
+    try {
+      const rider = await api.post('/admin/v1/rider/otp/request', { phone: '9000000011' })
+      assert.deepEqual(rider.body, { sent: true, channel: 'demo', devCode: '246810' })
+      // A number that is no rider's gets the same answer.
+      assert.deepEqual((await api.post('/admin/v1/rider/otp/request', { phone: '9000000099' })).body, rider.body)
+      assert.equal((await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: '111111', deviceId: 'device-demo-1' })).body.error.code, 'OTP_INVALID')
+      const v = await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: '246810', deviceId: 'device-demo-1' })
+      assert.equal(v.status, 200, JSON.stringify(v.body))
+
+      const cust = await api.post('/v1/auth/otp/request', { phone: '9876511111' })
+      assert.deepEqual([cust.body.channel, cust.body.devCode], ['demo', '246810'])
+      assert.equal((await api.post('/v1/auth/otp/verify', { phone: '9876511111', code: '246810' })).status, 200)
+      assert.deepEqual(sends, [])
+    } finally {
+      delete env.DEMO_OTP
+      sendOtpForTests(prev)
+    }
+  })
+})
