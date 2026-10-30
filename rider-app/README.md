@@ -82,3 +82,6 @@ offline photos that upload after reconnecting, and a missed delivery.
 Lighthouse: `npm run build && npm run lhci`. If Playwright only has its headless shell,
 point `CHROME_PATH` at it (`~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell`).
 Budgets: performance ≥ 0.9 and accessibility ≥ 0.95 on the sign-in page (mobile, simulated 4G).
+Last run (30 Oct 2026, production build, 3 runs): performance 0.92 to 0.97, accessibility 1.0,
+best practices 1.0. Largest contentful paint is about 2.5 to 2.6 s, so its 2.5 s check only warns.
+SEO is low on purpose: the app is marked noindex.

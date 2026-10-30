@@ -532,16 +532,20 @@ router.post(
   }),
 )
 
-/** Sends the delivered or missed-delivery message just queued for this order. Never fails the request. */
+/**
+ * Sends the "delivered" message just queued for this order. Never fails the request.
+ * A missed delivery's message keeps going through the outbox: it may be held for staff
+ * (no retry day, attempts used up) and its wording depends on that.
+ */
 async function sendOutcomeNow(orderId) {
   try {
     const { rows } = await query(
-      `SELECT id FROM notifications WHERE order_id = $1 AND kind IN ('DELIVERED', 'DELIVERY_FAILED') AND status = 'PENDING' AND next_attempt_at <= $2`,
+      `SELECT id FROM notifications WHERE order_id = $1 AND kind = 'DELIVERED' AND status = 'PENDING' AND next_attempt_at <= $2`,
       [orderId, now()],
     )
     if (rows.length) await sendNotificationsNow(rows.map((r) => r.id))
   } catch (err) {
-    logger.warn({ err, orderId }, 'delivery message not sent at once; the outbox retries it')
+    logger.warn({ err, orderId }, 'delivered message not sent at once; the outbox retries it')
   }
 }
 

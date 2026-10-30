@@ -440,9 +440,9 @@ describe('dispatch and messages', () => {
     await query('UPDATE orders SET delivery_date = $2, at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id, date])
     ok(await api.post(`${W}/operations/${ds.id}/finalize`, {}, { token: manager }))
     ok(await api.post(`/admin/v1/orders/${o.id}/dispatch`, {}, { token: manager }), 204)
-    assert.equal(await sendDueNotifications({ sender: stub }), 1)
-    assert.equal(sent.length, 1)
-    assert.match(sent[0], /out_for_delivery/)
+    assert.equal(await sendDueNotifications({ sender: stub }), 2)
+    // The update and, in its own authentication message, the delivery code (rider app, 053).
+    assert.deepEqual([...sent].sort(), ['mandi_delivery_code', 'mandi_out_for_delivery'])
     await booksBalance()
   })
 })

@@ -63,7 +63,7 @@ if (step !== "door") {
   await page.getByRole("button", { name: "Mark picked up" }).click();
   await page.getByText("WhatsApp sent").waitFor({ timeout: 30_000 });
   await shot("06-picked-up-whatsapp");
-  await context.storageState({ path: path.join(here, "..", ".walkthrough-state.json") });
+  await context.storageState({ path: path.join(here, "..", ".walkthrough-state.json"), indexedDB: true });
 }
 
 if (step === "pickup") {
@@ -75,8 +75,9 @@ if (step === "pickup") {
 if (step === "door") {
   await page.goto(`${RIDER}/today`);
   const pin = page.getByTestId("pin");
-  if (await pin.isVisible({ timeout: 5000 }).catch(() => false)) await pin.fill("4071");
-  await page.waitForURL("**/today");
+  // A new page load on a bound phone asks for the PIN.
+  if (await pin.waitFor({ timeout: 8000 }).then(() => true, () => false)) await pin.fill("4071");
+  await page.getByTestId("current-stop").waitFor({ timeout: 20_000 });
 } else {
   await page.getByRole("link", { name: "Back to the run" }).click();
 }
@@ -104,5 +105,11 @@ if (await done.isVisible().catch(() => false)) {
   await done.click();
   await page.waitForTimeout(1500);
   await shot("12-after-delivery");
+  const summary = page.getByRole("link", { name: /Run complete/ }).first();
+  if (await summary.isVisible().catch(() => false)) {
+    await summary.click();
+    await page.waitForTimeout(1500);
+    await shot("13-run-complete");
+  }
 }
 await browser.close();

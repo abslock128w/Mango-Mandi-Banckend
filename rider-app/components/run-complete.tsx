@@ -18,7 +18,14 @@ export function RunComplete() {
     0,
   );
   const [openedAt] = useState(() => Date.now());
-  const end = lastAt || openedAt;
+  // From the server when this phone has no record (signed in again, another phone): the first
+  // pickup photo, and the last photo at a door (the code is typed right after it).
+  const times = (pick: (o: (typeof orders)[number]) => (string | undefined)[]) =>
+    orders.flatMap(pick).filter((t): t is string => Boolean(t)).map((t) => Date.parse(t)).filter(Number.isFinite);
+  const firstPickup = Math.min(...times((o) => [o.pickup?.at]));
+  const lastDoor = Math.max(...times((o) => [o.proof?.open_box?.at, o.proof?.door?.at, o.proof?.attempt?.at]));
+  const start = startedAt ?? (Number.isFinite(firstPickup) ? firstPickup : null);
+  const end = lastAt || (startedAt === null && Number.isFinite(lastDoor) ? lastDoor : openedAt);
   return (
     <>
       <BackBar title="Run complete" />
@@ -40,7 +47,7 @@ export function RunComplete() {
         </div>
         <Card>
           <p className="text-base font-semibold text-muted">Time taken</p>
-          <p className="text-2xl font-extrabold">{startedAt ? duration(end - startedAt) : "—"}</p>
+          <p className="text-2xl font-extrabold">{start ? duration(Math.max(0, end - start)) : "—"}</p>
         </Card>
         {pending > 0 && (
           <p role="status" className="rounded-xl bg-warn-soft px-3 py-2 text-base font-medium text-warn">
