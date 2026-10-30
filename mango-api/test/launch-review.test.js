@@ -3,7 +3,8 @@
 // idempotency keys, delivery proof, gift codes, claim limits, the operator
 // allowlist, maintenance time slices and account deletion with money owed.
 import sharp from 'sharp'
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
+import { allowLeaveAtDoor, doorProof, adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
+import { deliveryCodeFor } from '../src/delivery-code.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { OPERATOR_ROUTES, roleAllows } from '../src/access.js'
@@ -264,11 +265,13 @@ describe('delivery proof', () => {
     const id = await outForDelivery(cust, true)
     const sent = []
     await sendDueNotifications({ sender: async (m) => (sent.push(m), 'wamid.x') })
-    const code = (await order(id)).delivery_code
-    const toRecipient = sent.find((m) => m.phone === '+919811122233')
-    assert.equal(toRecipient.template, 'mandi_out_for_delivery')
+    const code = deliveryCodeFor(await order(id))
+    // The update (no code) and the code in its own authentication message (053).
+    const toRecipient = sent.find((m) => m.phone === '+919811122233' && m.template === 'mandi_out_for_delivery')
     assert.equal(toRecipient.params[0], 'Asha')
-    assert.equal(toRecipient.params.at(-1), code)
+    assert.ok(!toRecipient.params.includes(code))
+    const codeToRecipient = sent.find((m) => m.phone === '+919811122233' && m.template === 'mandi_delivery_code')
+    assert.deepEqual([codeToRecipient.params, codeToRecipient.urlParam], [[code], code])
     assert.ok(sent.some((m) => m.phone !== '+919811122233' && m.template === 'mandi_out_for_delivery'), 'the buyer still hears too')
   })
 
@@ -276,7 +279,9 @@ describe('delivery proof', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const id = await outForDelivery(cust)
-    for (let i = 0; i < 5; i++) await api.post(`/admin/v1/orders/${id}/delivery`, { outcome: 'DELIVERED', code: '0000' === (await order(id)).delivery_code ? '1111' : '0000' }, { token: ops })
+    await doorProof(api, ops, id)
+    for (let i = 0; i < 3; i++) await api.post(`/admin/v1/orders/${id}/delivery`, { outcome: 'DELIVERED', code: '0000' === deliveryCodeFor(await order(id)) ? '1111' : '0000' }, { token: ops })
+    await allowLeaveAtDoor(api, admin, id)
     const JPEG = await sharp({ create: { width: 16, height: 12, channels: 3, background: '#fa0' } }).jpeg().toBuffer()
     const ph = await api.raw('POST', `/admin/v1/orders/${id}/delivery-photos`, { token: ops, headers: { 'Content-Type': 'image/jpeg' }, raw: JPEG })
     const done = await api.post(`/admin/v1/orders/${id}/delivery`, { outcome: 'DELIVERED', photoId: ph.body.id, receivedBy: 'Security guard' }, { token: ops })
@@ -284,7 +289,7 @@ describe('delivery proof', () => {
 
     const attention = (await api.get('/admin/v1/attention', { token: admin })).body
     const review = attention.photoDeliveries[0]
-    assert.deepEqual(review.flags, ['5 wrong codes first', 'no location'])
+    assert.deepEqual(review.flags, ['3 wrong codes first', 'no location'])
     // The person who delivered it can't sign it off.
     assert.equal((await api.post(`/admin/v1/delivery-reviews/${review.id}`, { ok: true }, { token: ops })).status, 403)
     assert.equal((await api.post(`/admin/v1/delivery-reviews/${review.id}`, { ok: false }, { token: admin })).body.error.code, 'NOTE_REQUIRED')

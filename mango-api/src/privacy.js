@@ -67,6 +67,8 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
       WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)`,
     [me.id],
   )
+  // The rider's GPS at each delivery photo is the customer's address too.
+  await c.query('UPDATE delivery_photos SET lat = NULL, lng = NULL, accuracy = NULL WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)', [me.id])
   await scrubOrderAudit(c, `SELECT id FROM orders WHERE customer_id = $1`, [me.id])
   // Their bills stay exactly as issued, name and address included, until BILL_RETENTION_MONTHS after the bill date.
   const deliveryPics = await c.query(

@@ -8,7 +8,7 @@ import { query } from './db.js'
 import { now, todayIST } from './clock.js'
 import { env } from './env.js'
 import { logger } from './logger.js'
-import { dropPhoto } from './photos.js'
+import { deleteUpload, dropPhoto, staleDeliveryUploads } from './photos.js'
 import { scrubOrderAudit } from './privacy.js'
 
 /** Sent, failed and skipped customer messages are kept this long (the order page shows them). */
@@ -68,6 +68,7 @@ export async function anonymiseOldOrders(at = now(), { months = env.PII_RETENTIO
   )
   if (rows.length) {
     await query('UPDATE delivery_attempts SET received_by = NULL, note = NULL, lat = NULL, lng = NULL WHERE order_id = ANY($1)', [rows.map((r) => r.id)])
+    await query('UPDATE delivery_photos SET lat = NULL, lng = NULL, accuracy = NULL WHERE order_id = ANY($1)', [rows.map((r) => r.id)])
     await scrubOrderAudit({ query }, 'SELECT unnest($1::text[])', [rows.map((r) => r.id)])
   }
   const photos = await removeOldPhotos(at, { batch })
@@ -134,4 +135,29 @@ export async function removeOldPhotos(at = now(), { batch = 1_000 } = {}) {
   // The rows are changed first: a Blob delete that fails is logged, and the image can no longer be served.
   for (const row of [...delivery.rows, ...claimed.rows]) await dropPhoto(row)
   return delivery.rowCount + claimed.rowCount
+}
+
+/**
+ * Rider app (docs/rider-app/README.md): delivery photos older than
+ * DELIVERY_PHOTO_RETENTION_DAYS (90) lose their image, in Blob or in the row.
+ * The row stays, with its step, time, place and mango check verdict, so the
+ * panel and audits still show what was proven. Also deletes phone uploads that
+ * were never finished (older than a day) and rider positions older than 30 days.
+ * Returns how many photos were cleared.
+ */
+export async function purgeOldDeliveryPhotos(at = now(), { batch = 1_000 } = {}) {
+  const cutoff = new Date(at.getTime() - env.DELIVERY_PHOTO_RETENTION_DAYS * 86_400_000)
+  const due = await query(
+    `WITH due AS (
+       SELECT id, blob_path FROM delivery_photos WHERE removed_at IS NULL AND created_at < $1
+        ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED),
+     gone AS (UPDATE delivery_photos p SET removed_at = $3, bytes = NULL, blob_path = NULL FROM due WHERE p.id = due.id)
+     SELECT blob_path FROM due`,
+    [cutoff, batch, at],
+  )
+  for (const row of due.rows) await dropPhoto(row)
+  for (const path of await staleDeliveryUploads(new Date(at.getTime() - 86_400_000), batch)) await deleteUpload(path)
+  await query('DELETE FROM rider_locations WHERE at < $1', [new Date(at.getTime() - 30 * 86_400_000)])
+  await query('DELETE FROM rider_otps WHERE expires_at < $1', [at])
+  return due.rowCount
 }

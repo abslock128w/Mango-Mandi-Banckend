@@ -48,9 +48,9 @@ paid, and a payment for the wrong amount. Those refunds are automatic.
 | `PACKED` | `SHIPPED` | Staff dispatch it, or the warehouse finishes the dispatch session. |
 | `PACKED` | `CANCELLED` | A manager cancels with a full refund (the customer can no longer cancel). |
 | `PACKED` | `PROCESSING` | The warehouse takes a box off it (unpick); it is packed again. Staff cannot make this move by hand. |
-| `SHIPPED` | `OUT_FOR_DELIVERY` | Staff send it out with the rider on its delivery day (a manager can send one early, saying why). |
+| `SHIPPED` | `OUT_FOR_DELIVERY` | The rider photographs the sealed box and taps Picked up (rider app), or staff send it out, on its delivery day (a manager can send one early, saying why). The code is made then, stored hashed. |
 | `SHIPPED` | `CANCELLED` | A manager cancels with a full refund. |
-| `OUT_FOR_DELIVERY` | `DELIVERED` | The customer's code or a photo, or a manager's override with a reason. |
+| `OUT_FOR_DELIVERY` | `DELIVERED` | The customer's code, after the door and open-box photos (rider app); a photo and who took it once a manager allowed leaving it; or a manager's override with a reason. |
 | `OUT_FOR_DELIVERY` | `DELIVERY_FAILED` | The rider records a missed delivery. |
 | `OUT_FOR_DELIVERY` | `CANCELLED` | A manager cancels with a full refund. |
 | `DELIVERY_FAILED` | `OUT_FOR_DELIVERY` | The retry goes out. |

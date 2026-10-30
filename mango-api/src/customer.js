@@ -610,7 +610,7 @@ router.post(
 )
 
 /** Columns left out of the export: internal checks, not the customer's data. */
-const EXPORT_HIDDEN = new Set(['delivery_code_tries', 'customer_id', 'bytes', 'blob_path'])
+const EXPORT_HIDDEN = new Set(['delivery_code_tries', 'delivery_code_hash', 'delivery_code_nonce', 'customer_id', 'bytes', 'blob_path'])
 const exportRows = (rows) => rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k, v]) => !EXPORT_HIDDEN.has(k) && !Buffer.isBuffer(v))))
 
 /**

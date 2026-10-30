@@ -1,5 +1,5 @@
 // Proof of delivery: the rider role, the customer's delivery code, photos and missed deliveries.
-import { closeAll, adminToken, checkout, client, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
+import { allowLeaveAtDoor, closeAll, adminToken, checkout, client, customerToken, doorProof, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
@@ -68,15 +68,20 @@ describe('proof of delivery', () => {
 
     const code = (await mine(cust, id)).body.deliveryCode
     assert.match(code, /^\d{4}$/)
-    // The WhatsApp update carries the code as its last variable.
+    // The code goes in its own authentication message (body and copy-code button); the update carries none (053).
     const sent = []
     await sendDueNotifications({ sender: async (m) => (sent.push(m), 'wamid.x') })
-    assert.equal(sent.find((m) => m.template === 'mandi_out_for_delivery').params.at(-1), code)
+    const codeMsg = sent.find((m) => m.template === 'mandi_delivery_code')
+    assert.deepEqual([codeMsg.params, codeMsg.urlParam], [[code], code])
+    assert.ok(!sent.find((m) => m.template === 'mandi_out_for_delivery').params.includes(code))
 
+    // The code waits for the door and open-box photos (rider app).
+    assert.equal((await deliver(id, { outcome: 'DELIVERED', code })).body.error.code, 'PROOF_STEPS_MISSING')
+    await doorProof(api, rider, id)
     const wrong = await deliver(id, { outcome: 'DELIVERED', code: code === '0000' ? '1111' : '0000' })
     assert.equal(wrong.status, 422)
     assert.equal(wrong.body.error.code, 'WRONG_CODE')
-    assert.equal(wrong.body.error.triesLeft, 4)
+    assert.equal(wrong.body.error.triesLeft, 2)
     assert.equal((await deliver(id, { outcome: 'DELIVERED' })).body.error.code, 'PROOF_REQUIRED')
 
     const ok = await deliver(id, { outcome: 'DELIVERED', code, lat: 12.9352, lng: 77.6245 })
@@ -105,6 +110,9 @@ describe('proof of delivery', () => {
     assert.equal((await upload(id, Buffer.from('not an image at all'), 'image/png')).body.error.code, 'PHOTO_INVALID')
     const up = await upload(id, JPEG)
     assert.equal(up.status, 201, JSON.stringify(up.body))
+    // Leaving it without the code needs a manager's OK for the order (rider app).
+    assert.equal((await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id, receivedBy: 'Guard' })).body.error.code, 'HANDOVER_NOT_ALLOWED')
+    await allowLeaveAtDoor(api, admin, id)
     assert.equal((await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id })).body.error.code, 'RECEIVER_REQUIRED')
     const ok = await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id, receivedBy: 'Security guard at the gate' })
     assert.deepEqual(ok.body, { outcome: 'DELIVERED', method: 'photo' })
@@ -121,7 +129,7 @@ describe('proof of delivery', () => {
     assert.equal(staffPic.status, 200)
   })
 
-  test('a missed delivery needs a reason, retries the next day with the same code, and five wrong codes lock it', async () => {
+  test('a missed delivery needs a reason, retries the next day with the same code, and three wrong codes lock it', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const { id, date } = await packedOrder(cust)
@@ -147,7 +155,8 @@ describe('proof of delivery', () => {
     assert.equal((await mine(cust, id)).body.deliveryCode, code)
 
     const bad = code === '0000' ? '1111' : '0000'
-    for (let i = 0; i < 5; i++) assert.equal((await deliver(id, { outcome: 'DELIVERED', code: bad })).status, 422)
+    await doorProof(api, rider, id)
+    for (let i = 0; i < 3; i++) assert.equal((await deliver(id, { outcome: 'DELIVERED', code: bad })).status, 422)
     const locked = await deliver(id, { outcome: 'DELIVERED', code })
     assert.equal(locked.status, 429)
     assert.equal(locked.body.error.code, 'CODE_LOCKED')
@@ -209,6 +218,7 @@ describe('photos in Blob storage', () => {
     const row = (await query('SELECT bytes, blob_path FROM delivery_photos WHERE id = $1', [up.body.id])).rows[0]
     assert.equal(row.bytes, null)
     assert.ok(blobs.has(row.blob_path))
+    await allowLeaveAtDoor(api, admin, id)
     await deliver(id, { outcome: 'DELIVERED', photoId: up.body.id, receivedBy: 'Neighbour' })
     const pic = await fetch(`${srv.base}/v1/orders/${id}/delivery-photo`, { headers: { Authorization: `Bearer ${cust.accessToken}` } })
     assert.ok(Buffer.from(await pic.arrayBuffer()).equals(STORED))

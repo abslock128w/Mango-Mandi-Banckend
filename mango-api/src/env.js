@@ -319,6 +319,19 @@ const schema = z.object({
   // The channel a login code goes by when the customer didn't choose; the other is the fallback.
   // whatsapp: WhatsApp first (works before Jio DLT is approved).
   OTP_DEFAULT_CHANNEL: z.enum(['sms', 'whatsapp']).default('sms'),
+  // Rider app (docs/rider-app/README.md). The mango check on the open-box photo calls Claude Haiku
+  // with this key. MANGO_CHECK: on (a failed check means retake), shadow (stored, never blocks;
+  // the default, and always when there is no key), off (no call).
+  ANTHROPIC_API_KEY: z.string().default(''),
+  MANGO_CHECK: z.enum(['on', 'shadow', 'off']).optional(),
+  // The rider app's address(es), comma separated: allowed by CORS and for the session routes.
+  RIDER_ORIGIN: z.string().default(''),
+  // Where Vercel Blob tells the API a rider's photo upload finished (onUploadCompleted). Unset: the
+  // API's own address from the request. The phone also reports the upload itself, so this is a backup.
+  BLOB_CALLBACK_URL: z.string().default(''),
+  // Delivery photos (and their Blob files) older than this are removed by the daily maintenance pass;
+  // the rows keep step, time, place and the mango check verdict.
+  DELIVERY_PHOTO_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
   WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),

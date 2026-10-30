@@ -4,7 +4,7 @@
 // session requests, rider scoping, delivery retries, account deletion, and
 // the database environment guard.
 import sharp from 'sharp'
-import { adminToken, checkout, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
+import { allowLeaveAtDoor, adminToken, checkout, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
@@ -318,6 +318,7 @@ describe('riders and deliveries', () => {
     const jpeg = await sharp({ create: { width: 16, height: 12, channels: 3, background: '#fa0' } }).jpeg().toBuffer()
     const photo = await api.raw('POST', `/admin/v1/orders/${o.orderId}/delivery-photos`, { token: rider, headers: { 'Content-Type': 'image/jpeg' }, raw: jpeg })
     assert.equal(photo.status, 201)
+    await allowLeaveAtDoor(api, admin, o.orderId)
     const done = await api.post(`/admin/v1/orders/${o.orderId}/delivery`, { outcome: 'DELIVERED', photoId: photo.body.id, receivedBy: 'Security guard' }, { token: rider })
     assert.equal(done.status, 200, JSON.stringify(done.body))
     await query(`INSERT INTO wa_inbound (message_id, phone, received_at) VALUES ('wamid.1', '+919876512345', NOW())`)

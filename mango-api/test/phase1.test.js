@@ -147,7 +147,8 @@ describe('WhatsApp order updates', () => {
     await move(id, 'PROCESSING')
     await api.post(`/admin/v1/orders/${id}/allocate`, undefined, { token: admin })
     for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) await move(id, s)
-    assert.deepEqual(await notes(id), ['ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING', 'DELIVERED:PENDING'])
+    // Out for delivery also queues the code in its own authentication message (rider app, 053).
+    assert.deepEqual((await notes(id)).sort(), ['DELIVERED:PENDING', 'DELIVERY_CODE:PENDING', 'ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING'])
 
     const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: slot.id })
     await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })

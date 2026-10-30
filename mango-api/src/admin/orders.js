@@ -89,7 +89,7 @@ export async function orderDetail(c, orderId) {
   )
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
-  const [items, stock, events, notes, deliveryAttempts, rating, bill] = await Promise.all([
+  const [items, stock, events, notes, deliveryAttempts, rating, bill, photos] = await Promise.all([
     c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
@@ -101,6 +101,11 @@ export async function orderDetail(c, orderId) {
     attemptsFor(c, orderId),
     c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
     isOn('BILLS_ENABLED') ? billFor(c, orderId) : null,
+    c.query(
+      `SELECT id, step, attempt, lat, lng, accuracy, taken_at, created_at, taken_by, verdict, check_passed, needs_review, checked_at, removed_at
+         FROM delivery_photos WHERE order_id = $1 ORDER BY created_at, id`,
+      [orderId],
+    ),
   ])
   const r = rating.rows[0]
   return {
@@ -126,6 +131,7 @@ export async function orderDetail(c, orderId) {
     slot: o.slot_id ? { id: o.slot_id, label: o.slot_label, startsAt: String(o.slot_starts_at).slice(0, 5), endsAt: String(o.slot_ends_at).slice(0, 5) } : null,
     notifications: notes.rows.map((n) => ({
       kind: n.kind, channel: n.channel, status: n.status, attempts: n.attempts, createdAt: n.created_at, sentAt: n.sent_at, error: n.last_error,
+      providerId: n.provider_id ?? null, deliveryStatus: n.delivery_status ?? null,
     })),
     items: items.rows.map((i) => ({
       id: i.id, productName: productName(i.sku), sku: i.sku, quantity: i.quantity, stage: i.stage, unitPrice: i.unit_price,
@@ -138,6 +144,13 @@ export async function orderDetail(c, orderId) {
     returnedBoxes: ['CANCELLED', 'RTO'].includes(o.status) ? stock.rows.filter((s) => s.state === 'packed').reduce((n, s) => n + s.quantity, 0) : 0,
     events: events.rows.map((e) => ({ status: e.status, fromStatus: e.from_status, actor: e.actor, reason: e.reason, createdAt: e.created_at })),
     deliveryAttempts,
+    // Rider app proof (docs/rider-app/README.md): every photo with its step, GPS, times and mango check.
+    proof: photos.rows.map((p) => ({
+      id: p.id, step: p.step, attempt: p.attempt, takenAt: p.taken_at, at: p.created_at, takenBy: p.taken_by, removed: Boolean(p.removed_at),
+      lat: p.lat === null ? null : Number(p.lat), lng: p.lng === null ? null : Number(p.lng), accuracy: p.accuracy === null ? null : Number(p.accuracy),
+      passed: p.check_passed, needsReview: p.needs_review, checkedAt: p.checked_at, verdict: p.verdict,
+    })),
+    leaveAtDoor: o.handover_override_at ? { by: o.handover_override_by, at: o.handover_override_at, reason: o.handover_override_reason } : null,
     payment: o.payment_status || o.payment_method
       ? { status: o.payment_status, method: o.payment_method, amount: o.payment_amount, id: o.payment_id, ...(o.payment_link_url ? { linkUrl: o.payment_link_url } : {}),
           refund: o.refund_requested_at ? { requestedAt: o.refund_requested_at, refundedAt: o.refunded_at, id: o.refund_id, status: o.refund_status ?? null } : null }

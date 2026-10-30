@@ -1,5 +1,5 @@
 // Security and privacy fixes from the 23 Oct audit (SEC-01 to SEC-13).
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { allowLeaveAtDoor, adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -130,6 +130,7 @@ describe('SEC-02: riders see only their own stops', () => {
     assert.equal(stored.mime, 'image/jpeg')
     assert.ok(!stored.bytes.includes('GPS-SECRET'), 'EXIF kept')
     assert.ok(jpeg.includes('GPS-SECRET'), 'the test photo had EXIF')
+    await allowLeaveAtDoor(api, admin, o.id)
     const done = await api.post(`/admin/v1/orders/${o.id}/delivery`, { outcome: 'DELIVERED', photoId: pic.body.id, receivedBy: 'Security guard' }, { token: a.token })
     assert.equal(done.status, 200, JSON.stringify(done.body))
     assert.deepEqual(stopIds(await api.get(`/admin/v1/manifest?date=${o.date}`, { token: a.token })), [o.id]) // still today's run

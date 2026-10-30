@@ -14,8 +14,10 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | REPLACEMENT_CONFIRMED | `mandi_replacement_confirmed` | UTILITY | 4 | Open order |
 | RIPENESS_GUIDE | `mandi_ripeness_guide` | UTILITY | 4 | — |
 | DATE_MOVED | `mandi_date_moved` | UTILITY | 4 | Open order |
-| OUT_FOR_DELIVERY | `mandi_out_for_delivery` | UTILITY | 4 | Open order |
-| GIFT_OUT_FOR_DELIVERY | `mandi_out_for_delivery` | UTILITY | 4 | Open order |
+| OUT_FOR_DELIVERY | `mandi_out_for_delivery` | UTILITY | 4 | Track order |
+| DELIVERY_CODE | `mandi_delivery_code` | AUTHENTICATION | 1 | Copy code |
+| GIFT_OUT_FOR_DELIVERY | `mandi_out_for_delivery` | UTILITY | 4 | Track order |
+| GIFT_DELIVERY_CODE | `mandi_delivery_code` | AUTHENTICATION | 1 | Copy code |
 | DELIVERED | `mandi_delivered` | UTILITY | 2 | Open order |
 | DELIVERY_FAILED | `mandi_delivery_failed` | UTILITY | 3 | Open order |
 | CANCELLED | `mandi_cancelled` | UTILITY | 2 | — |
@@ -103,32 +105,60 @@ Suggested wording: Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If tha
 - Template: `mandi_out_for_delivery`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: Dispatch moves the order to OUT_FOR_DELIVERY.
-- Button: URL button "Open order", `https://<shop>/orders/{{1}}`, sent only with WHATSAPP_ORDER_LINKS=true once Meta approved the button
-- If it can't be sent: Not sent: the delivery code is also on the order page in the shop.
+- Sent when: The rider photographs the sealed box at the warehouse and taps Picked up (rider app), or staff dispatch it: the order moves to OUT_FOR_DELIVERY. Sent at once on pickup; the outbox retries. No delivery code: that is DELIVERY_CODE.
+- Button: URL button "Track order", `https://<shop>/orders/{{1}}` (always sent; part of this template version)
+- If it can't be sent: Not sent: the order page in the shop shows the rider is on the way, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
   2. order number (example: ORD-1093)
-  3. slot (example: 7 AM to 11 AM)
-  4. delivery code (example: 4821)
+  3. rider first name (example: Ravi)
+  4. slot (example: 7 AM to 11 AM)
 
-Suggested wording: Hi {{1}}, order {{2}} is on its way and arrives {{3}}. Give the rider code {{4}} when the box reaches you.
+Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is on its way with {{3}} and arrives {{4}}. Your delivery code comes in the next message: share it with the rider only after you have seen your mangoes.
+
+## DELIVERY_CODE
+
+- Template: `mandi_delivery_code`
+- Category: AUTHENTICATION
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Sent with OUT_FOR_DELIVERY: the 4-digit code the customer reads to the rider once they have seen their mangoes.
+- Authentication settings: code_expiration_minutes 90, message_send_ttl_seconds 900, add_security_recommendation true
+- Button: Copy code (Meta's one-time password button; the code is the button's parameter too)
+- If it can't be sent: Not sent: the delivery code is also on the order page in the shop.
+- Variables:
+  1. delivery code (example: 4821)
+
+Suggested wording: (Meta's fixed authentication wording: "{{1}} is your verification code." with the security recommendation and the expiry footer; copy-code button)
 
 ## GIFT_OUT_FOR_DELIVERY
 
 - Template: `mandi_out_for_delivery` (shared with OUT_FOR_DELIVERY)
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A gift order goes OUT_FOR_DELIVERY: the recipient gets the code too.
-- Button: URL button "Open order", `https://<shop>/orders/{{1}}`, sent only with WHATSAPP_ORDER_LINKS=true once Meta approved the button
-- If it can't be sent: Not sent: the buyer has the code on the order page.
+- Sent when: A gift order goes OUT_FOR_DELIVERY: the recipient hears too.
+- Button: URL button "Track order", `https://<shop>/orders/{{1}}` (always sent; part of this template version)
+- If it can't be sent: Not sent: the buyer sees the update on the order page.
 - Variables:
   1. recipient name (example: Ravi)
   2. order number (example: ORD-1095)
-  3. slot (example: 7 AM to 11 AM)
-  4. delivery code (example: 4821)
+  3. rider first name (example: Suresh)
+  4. slot (example: 7 AM to 11 AM)
 
 Suggested wording: (shares mandi_out_for_delivery)
+
+## GIFT_DELIVERY_CODE
+
+- Template: `mandi_delivery_code` (shared with DELIVERY_CODE)
+- Category: AUTHENTICATION
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: A gift order goes OUT_FOR_DELIVERY: the recipient, who is at the door, gets the code.
+- Authentication settings: code_expiration_minutes 90, message_send_ttl_seconds 900, add_security_recommendation true
+- Button: Copy code (Meta's one-time password button; the code is the button's parameter too)
+- If it can't be sent: Not sent: the buyer has the code on the order page.
+- Variables:
+  1. delivery code (example: 4821)
+
+Suggested wording: (shares mandi_delivery_code)
 
 ## DELIVERED
 

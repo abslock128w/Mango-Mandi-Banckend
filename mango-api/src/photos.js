@@ -269,3 +269,31 @@ export async function staleUploads(before, limit) {
   if (!store?.listOld) return []
   return await store.listOld(UPLOAD_PREFIX, before, limit)
 }
+
+// ---------------------------------------------------------------- rider photos (rider app)
+
+/** Where a rider's phone uploads a delivery photo straight to Blob, before the API re-encodes it. */
+export const DELIVERY_UPLOAD_PREFIX = 'delivery-uploads/'
+
+/**
+ * A 10-minute token for one private path (JPEG only, 2 MB). With a callback
+ * URL, Blob calls it when the upload finishes (onUploadCompleted), carrying
+ * `tokenPayload` (order, step, GPS); the phone also reports the upload itself.
+ */
+export async function deliveryUploadToken(pathname, tokenPayload, callbackUrl) {
+  return await generateClientTokenFromReadWriteToken({
+    token: env.BLOB_READ_WRITE_TOKEN,
+    pathname,
+    allowedContentTypes: ['image/jpeg'],
+    maximumSizeInBytes: MAX_PHOTO_BYTES,
+    validUntil: Date.now() + 10 * 60_000,
+    addRandomSuffix: false,
+    ...(callbackUrl ? { onUploadCompleted: { callbackUrl, tokenPayload } } : {}),
+  })
+}
+
+/** Direct delivery uploads older than `before` that were never finished. */
+export async function staleDeliveryUploads(before, limit) {
+  if (!store?.listOld) return []
+  return await store.listOld(DELIVERY_UPLOAD_PREFIX, before, limit)
+}

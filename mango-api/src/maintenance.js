@@ -37,7 +37,7 @@ import { sendReorderReminders, sendStockAlerts } from './engagement.js'
 import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRecentPayments, reconcileRefunds, refundDuplicatePayments } from './payments.js'
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
-import { anonymiseOldOrders, monthsBefore, pruneNotifications, removeOldBillBuyers } from './retention.js'
+import { anonymiseOldOrders, monthsBefore, pruneNotifications, purgeOldDeliveryPhotos, removeOldBillBuyers } from './retention.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
 import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
@@ -432,6 +432,8 @@ async function steps(forceAll) {
       out.billBuyersRemoved = await removeOldBillBuyers()
       return orders
     })
+    // Rider app: delivery photo images past 90 days go (rows and mango check verdicts stay).
+    out.deliveryPhotosPurged = await step('delivery-photo-purge', () => purgeOldDeliveryPhotos())
     // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
     out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
   }

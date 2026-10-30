@@ -10,7 +10,7 @@
 //   - the audit trails name who did it and why;
 //   - a database restore followed by ops/reapply-deletions.js leaves no
 //     deleted account behind.
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
+import { allowLeaveAtDoor, adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createHmac } from 'node:crypto'
@@ -138,6 +138,9 @@ describe('every route is filed', () => {
       'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
       'GET /v1/policy', 'GET /v1/preorders/weeks', 'GET /v1/products', 'GET /v1/products/:sku/photo', 'GET /v1/products/:sku/reviews', 'GET /v1/review-photos/:id',
       'POST /admin/v1/auth/google', 'POST /admin/v1/auth/login', 'POST /admin/v1/auth/logout', 'POST /admin/v1/auth/refresh', 'POST /admin/v1/auth/two-step',
+      // Rider app sign-in (admin/rider-auth.js): phone code, PIN on a bound phone, refresh, sign out (test/rider-app.test.js).
+      'POST /admin/v1/rider/logout', 'POST /admin/v1/rider/otp/request', 'POST /admin/v1/rider/otp/verify', 'POST /admin/v1/rider/pin/set',
+      'POST /admin/v1/rider/pin/unlock', 'POST /admin/v1/rider/session/refresh',
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',
       // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
       'POST /v1/events',
@@ -191,6 +194,7 @@ async function deliveredWithPhoto(cust, body = {}) {
   assert.equal((await api.post(`/admin/v1/orders/${o.orderId}/dispatch`, undefined, t)).status, 204)
   const pic = await image(`/admin/v1/orders/${o.orderId}/delivery-photos`, manager)
   assert.equal(pic.status, 201, JSON.stringify(pic.body))
+  await allowLeaveAtDoor(api, manager, o.orderId)
   const done = await api.post(`/admin/v1/orders/${o.orderId}/delivery`, { outcome: 'DELIVERED', photoId: pic.body.id, receivedBy: 'Security guard', ...body }, t)
   assert.equal(done.status, 200, JSON.stringify(done.body))
   return { ...o, photoId: pic.body.id }

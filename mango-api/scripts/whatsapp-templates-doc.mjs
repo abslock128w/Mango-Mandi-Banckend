@@ -24,8 +24,10 @@ const BODY = {
   REPLACEMENT_CONFIRMED: 'Hi {{1}}, your replacement order {{2}} is booked at no cost. It will be delivered on {{3}}, {{4}}.',
   RIPENESS_GUIDE: 'Hi {{1}}, a guide for order {{2}}: {{3}}. {{4}}',
   DATE_MOVED: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that date doesn't suit you, cancel it in the app before it is packed for a full refund.",
-  OUT_FOR_DELIVERY: 'Hi {{1}}, order {{2}} is on its way and arrives {{3}}. Give the rider code {{4}} when the box reaches you.',
+  OUT_FOR_DELIVERY: 'Hi {{1}}, your MandiMangoes order {{2}} is on its way with {{3}} and arrives {{4}}. Your delivery code comes in the next message: share it with the rider only after you have seen your mangoes.',
   GIFT_OUT_FOR_DELIVERY: '(shares mandi_out_for_delivery)',
+  DELIVERY_CODE: "(Meta's fixed authentication wording: \"{{1}} is your verification code.\" with the security recommendation and the expiry footer; copy-code button)",
+  GIFT_DELIVERY_CODE: '(shares mandi_delivery_code)',
   DELIVERED: 'Hi {{1}}, order {{2}} has been delivered. If a box is damaged, report it in the app within a day and we will replace it.',
   DELIVERY_FAILED: "Hi {{1}}, we couldn't deliver order {{2}} today. We will bring it on {{3}}.",
   CANCELLED: 'Hi {{1}}, order {{2}} has been cancelled. If you paid for it, the refund has been started.',
@@ -52,7 +54,10 @@ const CONSENT_WORDS = {
 const BUTTON_WORDS = {
   'order-link': 'URL button "Open order", `https://<shop>/orders/{{1}}` (always sent)',
   'order-link-flag': 'URL button "Open order", `https://<shop>/orders/{{1}}`, sent only with WHATSAPP_ORDER_LINKS=true once Meta approved the button',
+  'track-order': 'URL button "Track order", `https://<shop>/orders/{{1}}` (always sent; part of this template version)',
+  'copy-code': "Copy code (Meta's one-time password button; the code is the button's parameter too)",
 }
+const BUTTON_SHORT = { 'track-order': 'Track order', 'copy-code': 'Copy code' }
 
 export function render() {
   const out = [
@@ -70,7 +75,7 @@ export function render() {
     '|------|----------|----------|-----------|--------|',
   ]
   for (const a of AUTOMATIONS) {
-    out.push(`| ${a.kind} | \`${nameOf(a)}\` | ${a.category} | ${a.params.length} | ${a.button ? 'Open order' : '—'} |`)
+    out.push(`| ${a.kind} | \`${nameOf(a)}\` | ${a.category} | ${a.params.length} | ${a.button ? (BUTTON_SHORT[a.button] ?? 'Open order') : '—'} |`)
   }
   out.push(`| LOGIN_CODE | \`${PREFIX}login_code\` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |`, '')
   for (const a of AUTOMATIONS) {
@@ -80,6 +85,7 @@ export function render() {
     out.push(`- Who may receive it: ${CONSENT_WORDS[a.consent]}`)
     out.push(`- Sent when: ${a.trigger}`)
     if (a.flag) out.push(`- Only with \`${a.flag}=true\``)
+    if (a.auth) out.push(`- Authentication settings: code_expiration_minutes ${a.auth.codeExpirationMinutes}, message_send_ttl_seconds ${a.auth.messageSendTtlSeconds}, add_security_recommendation true`)
     out.push(`- Button: ${a.button ? BUTTON_WORDS[a.button] : 'none'}`)
     out.push(`- If it can't be sent: ${a.fallback}`)
     out.push('- Variables:')
