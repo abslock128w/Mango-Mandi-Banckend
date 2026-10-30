@@ -12,9 +12,10 @@ npm install
 npm run dev          # http://localhost:5175, API at NEXT_PUBLIC_API_URL
 ```
 
-With the whole stack (`node scripts/start-local.mjs` from the repo root) the API is on
-http://localhost:3000. Add `http://localhost:5175` to the API's allowed origins (see the
-API's rider settings in deploy/VERCEL.md) so the browser may call it.
+`node scripts/start-local.mjs` from the repo root starts this app on 5175 with the API on
+http://localhost:3000 (it sets the API's `RIDER_ORIGIN` to http://localhost:5175). Run on its own,
+set `RIDER_ORIGIN` on the API to this app's address. Demo riders: 9000000001 (Ravi) and
+9000000002 (Suresh); the sign-in code shows on screen in development.
 
 | Variable | Default | What it is |
 |---|---|---|
