@@ -273,6 +273,13 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // A public demo with no SMS or WhatsApp account (a Vercel preview only): the login code comes
+  // back in the response and the shop shows it. Anyone could then sign in as any number, so the
+  // API refuses to start with it outside a preview (preflight).
+  DEMO_OTP_ON_SCREEN: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
   OTP_PEPPER: z.string().default(''),
@@ -400,6 +407,8 @@ export const errorDetailsOn = () => !isProd && env.SHOW_ERROR_DETAILS
 export const devRoutesOn = () => !isProd && env.ENABLE_DEV_ROUTES && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET
 /** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
 export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV
+/** Codes on screen for a demo: only ever on a Vercel preview (DEMO_OTP_ON_SCREEN). */
+export const demoOtpOnScreen = () => env.DEMO_OTP_ON_SCREEN && deployEnv === 'preview'
 
 // Fail closed: without NODE_ENV=production the API runs its development
 // stand-ins (a fake payment gateway, login codes in the response, /v1/dev).
