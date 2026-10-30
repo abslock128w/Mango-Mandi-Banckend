@@ -30,6 +30,7 @@ export type Mock = {
   down: boolean;
   calls: string[];
   pickups: number;
+  otpRequests: number;
 };
 
 const CORS = {
@@ -80,6 +81,7 @@ export async function mockApi(page: Page, opts: Partial<Mock> = {}): Promise<Moc
     down: false,
     calls: [],
     pickups: 0,
+    otpRequests: 0,
     ...opts,
   };
   let photoSeq = 0;
@@ -108,7 +110,10 @@ export async function mockApi(page: Page, opts: Partial<Mock> = {}): Promise<Moc
       }
     };
 
-    if (path === "/rider/otp/request") return json(route, 200, { sent: true, channel: "whatsapp", devCode: "123456" });
+    if (path === "/rider/otp/request") {
+      m.otpRequests++;
+      return json(route, 200, { sent: true, channel: "whatsapp", devCode: "123456" });
+    }
     if (path === "/rider/otp/verify") {
       if (body().code !== "123456") return err(route, 401, "OTP_INVALID", "Incorrect code");
       return json(route, 200, { setupToken: "setup.tok", rider: { id: "adm_r1", name: "Suresh Naik" } });

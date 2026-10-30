@@ -397,6 +397,9 @@ describe('demo login code (DEMO_OTP)', () => {
       const cust = await api.post('/v1/auth/otp/request', { phone: '9876511111' })
       assert.deepEqual([cust.body.channel, cust.body.devCode], ['demo', '246810'])
       assert.equal((await api.post('/v1/auth/otp/verify', { phone: '9876511111', code: '246810' })).status, 200)
+      // Again, and with no code asked for first: the demo code never "expires".
+      assert.equal((await api.post('/v1/auth/otp/verify', { phone: '9876511111', code: '246810' })).status, 200)
+      assert.equal((await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: '246810', deviceId: 'device-demo-2' })).status, 200)
       assert.deepEqual(sends, [])
     } finally {
       delete env.DEMO_OTP

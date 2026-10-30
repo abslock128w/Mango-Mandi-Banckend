@@ -162,3 +162,21 @@ test("customer not home: a reason, and the stop shows as missed", async ({ page 
   await expect(page.getByText("Missed")).toBeVisible();
   expect(m.orders[0].status).toBe("DELIVERY_FAILED");
 });
+
+test("the code screen can send a new code after 30 seconds", async ({ page }) => {
+  await page.clock.install();
+  const m = await mockApi(page);
+  await page.goto("/");
+  await page.getByLabel("Mobile number").fill("9812300001");
+  await page.getByRole("button", { name: "Send code" }).click();
+  const resend = page.getByTestId("resend-code");
+  await expect(resend).toBeDisabled();
+  await expect(resend).toContainText("Resend code in");
+  const before = m.otpRequests;
+  await page.clock.runFor(31_000);
+  await expect(resend).toHaveText("Resend code");
+  await resend.click();
+  await expect(page.getByText("A new code is on its way.")).toBeVisible();
+  expect(m.otpRequests).toBe(before + 1);
+  await expect(resend).toBeDisabled();
+});

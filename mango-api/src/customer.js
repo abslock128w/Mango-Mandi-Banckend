@@ -182,6 +182,11 @@ async function issueCode(phone, channel, ip) {
 
 /** Checks a code inside a transaction. Returns an error to throw after commit (so wrong tries count), or null. */
 async function consumeCode(c, phone, code) {
+  // DEMO_OTP (demo deploys only, env.js): the fixed code always works, asked for or not, as often as needed.
+  if (env.DEMO_OTP && code === env.DEMO_OTP) {
+    await c.query('DELETE FROM otps WHERE phone = $1', [phone])
+    return null
+  }
   const { rows } = await c.query('SELECT * FROM otps WHERE phone = $1 FOR UPDATE', [phone])
   const otp = rows[0]
   if (!otp || otp.expires_at <= now()) return unauthorized('This code has expired. Request a new one.', 'OTP_EXPIRED')

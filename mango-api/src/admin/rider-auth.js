@@ -102,6 +102,11 @@ router.post(
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ phone: phoneSchema, code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'), deviceId }), req.body)
     const result = await tx(async (c) => {
+      // DEMO_OTP (demo deploys only, env.js): the fixed code always works, asked for or not, as often as needed.
+      if (env.DEMO_OTP && b.code === env.DEMO_OTP) {
+        await c.query('DELETE FROM rider_otps WHERE phone = $1', [b.phone])
+        return { ok: true }
+      }
       const { rows } = await c.query('SELECT * FROM rider_otps WHERE phone = $1 FOR UPDATE', [b.phone])
       const otp = rows[0]
       if (!otp || otp.expires_at <= now()) return { error: unauthorized('This code has expired. Ask for a new one.', 'OTP_EXPIRED') }

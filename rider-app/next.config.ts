@@ -25,7 +25,7 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     // This folder, not the repo root (the repo has several lockfiles).
-    root: __dirname,
+    root: process.cwd(),
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

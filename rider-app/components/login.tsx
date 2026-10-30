@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, api } from "@/lib/api";
 import { startSession } from "@/lib/session";
 import { Brand } from "./brand";
@@ -23,6 +23,21 @@ export function Login() {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // A new code can be asked for 30 seconds after the last one (a deadline, so a phone that sleeps keeps time).
+  const [resendAt, setResendAt] = useState(0);
+  const [clock, setClock] = useState(0);
+  useEffect(() => {
+    if (!resendAt) return;
+    const t = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [resendAt]);
+  function startResendWait() {
+    const at = Date.now();
+    setClock(at);
+    setResendAt(at + 30_000);
+  }
+  const resendIn = resendAt ? Math.max(0, Math.ceil((resendAt - clock) / 1000)) : 0;
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -43,7 +58,20 @@ export function Login() {
     void act(async () => {
       const r = await api.otpRequest(e164);
       setCode("");
+      setNotice(null);
+      startResendWait();
       setStage({ at: "otp", phone: e164, devCode: r.devCode });
+    });
+  }
+
+  function resend() {
+    if (stage.at !== "otp" || resendIn > 0) return;
+    void act(async () => {
+      const r = await api.otpRequest(stage.phone);
+      setCode("");
+      startResendWait();
+      setNotice("A new code is on its way.");
+      setStage({ at: "otp", phone: stage.phone, devCode: r.devCode });
     });
   }
 
@@ -127,9 +155,17 @@ export function Login() {
               }}
             />
             {stage.devCode && <p className="text-center text-sm text-muted">Test code: {stage.devCode}</p>}
+            {notice && !error && (
+              <p role="status" className="text-center text-base text-muted">
+                {notice}
+              </p>
+            )}
             <ErrorText>{error}</ErrorText>
             <Button disabled={busy || code.length !== 6} onClick={() => verify()} className="w-full text-lg">
               {busy ? "Checking…" : "Continue"}
+            </Button>
+            <Button variant="secondary" disabled={busy || resendIn > 0} onClick={resend} data-testid="resend-code">
+              {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
             </Button>
             <Button variant="quiet" onClick={() => setStage({ at: "phone" })}>
               Change number
@@ -157,6 +193,10 @@ export function Login() {
             />
             <ErrorText>{error}</ErrorText>
             {busy && <p className="text-center text-muted">Saving…</p>}
+            {/* The step after the code lasts 10 minutes: past that (or on a typo in the number), start again. */}
+            <Button variant="quiet" disabled={busy} onClick={() => (setError(null), setStage({ at: "phone" }))}>
+              Start again
+            </Button>
           </div>
         )}
       </div>
