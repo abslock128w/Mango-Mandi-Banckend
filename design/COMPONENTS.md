@@ -95,7 +95,7 @@ Labels: the panel never shows enum names or ids. Map them in `src/format.ts` (`S
 
 ## Logo
 
-- Masters: `design/brand/logo-512.png` (full round logo) and `design/brand/mark-512.png` (the M and mango in a badge, for small sizes). Both have a transparent background.
-- Served copies sit in `public/brand/` (panel) and `customer-app/public/brand/` (shop): `logo-320.webp` and `logo-640.webp` (2x) for large uses, `mark-96.webp` for headers. Tab icons are `favicon-32.png`, `icon-192.png` and `apple-touch-icon.png`.
-- Use the full logo at 96px or larger (welcome, sign-in, panel login). Below that, use the mark: the words can't be read.
+- Masters: `design/brand/logo-source.jpg` (the original artwork), `design/brand/wordmark.png` (MANDI MANGOES in green with the mango as the O, transparent), `design/brand/wordmark-light.png` (cream letters, for dark backgrounds such as the panel sidebar) and `design/brand/mark-512.png` (the mango alone, for small sizes).
+- Served copies sit in `public/brand/` (panel) and `customer-app/public/brand/` (shop): `logo-480.webp` and `logo-960.webp` (2x) for the wordmark, `logo-light-480.webp` and `logo-light-960.webp` for the cream one, `mark-96.webp` and `mark-256.webp` for the mango. Tab and app icons (`favicon-32.png`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`) are the mango on cream.
+- Use the wordmark at 34px tall or more (headers, sign-in). Below that, use the mango: the words can't be read.
 - Header marks are decorative (`alt=""`) because the link already says "MandiMangoes, home" or "Mango Ops".

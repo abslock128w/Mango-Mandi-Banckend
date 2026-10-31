@@ -42,7 +42,7 @@ export function LoginView() {
   return (
     <div className="mx-auto w-full max-w-[420px] px-4 pt-8 pb-16 lg:pt-14">
       <div className="mb-6 flex flex-col items-center text-center">
-        <Image src="/brand/logo-320.webp" alt="MandiMangoes" width={96} height={96} priority className="size-24" />
+        <Image src="/brand/logo-480.webp" alt="MandiMangoes" width={190} height={80} priority sizes="190px" className="h-20 w-auto" />
         <h2 className="mt-4 font-display text-24 font-extrabold text-ink">{phoneStep ? "Add your mobile number" : "Sign in"}</h2>
         <p className="mt-1 text-13 text-muted">{phoneStep ? "One last step before you order." : "Mangoes picked for the day you want to eat them."}</p>
       </div>

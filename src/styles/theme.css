@@ -347,3 +347,82 @@ textarea {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* ---------- The MandiMangoes wordmark in the top-left corner ---------- */
+
+.brand .brand-mark {
+  display: none;
+}
+.brand-word {
+  display: none;
+  height: 34px;
+  width: auto;
+}
+.brand-ops {
+  align-self: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--color-saffron);
+  color: var(--color-on-accent);
+  font-size: var(--text-2xs);
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* Phones: the bar is the page colour, so the green wordmark (cream in the dark theme). */
+.brand-word-green {
+  display: block;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .brand-word-green {
+    display: none;
+  }
+  :root:not([data-theme='light']) .brand-word-cream {
+    display: block;
+  }
+}
+:root[data-theme='dark'] .brand-word-green {
+  display: none;
+}
+:root[data-theme='dark'] .brand-word-cream {
+  display: block;
+}
+/* From 900px the corner sits on the green sidebar: always the cream wordmark. */
+@media (min-width: 900px) {
+  :root .brand .brand-word-green {
+    display: none;
+  }
+  :root .brand .brand-word-cream {
+    display: block;
+  }
+  /* Collapsed to icons: the mango alone. */
+  .app.is-collapsed .brand .brand-word,
+  .app.is-collapsed .brand .brand-ops {
+    display: none;
+  }
+  .app.is-collapsed .brand .brand-mark {
+    display: block;
+    box-shadow: none;
+  }
+}
+
+/* Sign-in: the wordmark on the hero, the mango on the card. */
+.login-hero-brand img {
+  width: auto;
+  height: 64px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.login-logo {
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Narrow phones: the wordmark alone, a little smaller, so the bar never scrolls sideways. */
+@media (max-width: 559px) {
+  .brand-ops {
+    display: none;
+  }
+  .brand-word {
+    height: 30px;
+  }
+}
