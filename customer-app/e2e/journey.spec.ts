@@ -35,14 +35,21 @@ test("browse, sign in, check out and pay", async ({ page }) => {
 
   await page.getByRole("link", { name: /Track order/ }).click();
   await expect(page.getByText("Confirmed").first()).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
 });
 
 test("pages fit the screen and send a CSP", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "Pincode" }).fill("560034");
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await expect(page.getByRole("link", { name: /Pincode 560034/ }).first()).toBeVisible();
   for (const path of ["/", "/c/all", "/p/badami", "/search?q=hapus", "/bulk", "/preorder", "/help", "/terms", "/login"]) {
     const res = await page.goto(path);
     expect(res!.headers()["content-security-policy"], path).toContain("'strict-dynamic'");
     await page.waitForLoadState("networkidle");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), path).toBe(true);
+    // Against the viewport, not innerWidth: on a phone an overflowing page widens the layout
+    // viewport (it zooms out), so scrollWidth <= innerWidth would still hold.
+    const width = page.viewportSize()!.width;
+    expect(await page.evaluate(() => document.documentElement.scrollWidth), path).toBeLessThanOrEqual(width);
   }
 });

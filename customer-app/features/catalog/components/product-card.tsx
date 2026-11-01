@@ -92,14 +92,14 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       </Link>
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col">
-        <span className="inline-flex h-4 w-fit items-center gap-0.5 rounded-4 bg-chip px-1 text-9 leading-none font-bold text-ink uppercase">
+        <span className="inline-flex h-4 w-fit max-w-full items-center gap-0.5 overflow-hidden rounded-4 bg-chip px-1 text-9 leading-none font-bold whitespace-nowrap text-ink uppercase">
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
         </span>
         <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="mt-1.5">
           <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
         </Link>
-        <div className="mt-1 flex items-center gap-1.5">
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <RipenessChip stage={stage} />
           <BoxToggle product={product} ripeness={stage} value={size} onChange={setSize} compact />
         </div>
