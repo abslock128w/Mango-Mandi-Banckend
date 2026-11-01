@@ -93,7 +93,10 @@ export async function seed() {
     await query('INSERT INTO pincodes (pincode, city, zone) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [pin, city, zone])
   }
 
-  if (!isProd) {
+  if (!isProd && env.LOCAL_MANAGER_EMAIL && env.LOCAL_MANAGER_PASSWORD) {
+    // One manager login on this computer, kept in step with .local/manager-login.json.
+    await localManager(env.LOCAL_MANAGER_EMAIL.toLowerCase(), env.LOCAL_MANAGER_PASSWORD)
+  } else if (!isProd) {
     for (const [email, password, role] of DEMO_USERS) {
       await query('INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING', [
         newId('adm'), email, await bcrypt.hash(password, 10), role,
@@ -119,6 +122,16 @@ export async function seed() {
   }
   // Tests set up their own slots; development gets two to click through.
   if (env.SEED_DEMO_DATA && env.NODE_ENV === 'development') await seedDemoSlots()
+}
+
+/** Creates the local manager, or resets their password and role to the file's, on each start. */
+async function localManager(email, password) {
+  const { rows } = await query('SELECT id, password_hash, role FROM admin_users WHERE email = $1', [email])
+  if (!rows.length) {
+    await query(`INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, 'MANAGER')`, [newId('adm'), email, await bcrypt.hash(password, 10)])
+  } else if (rows[0].role !== 'MANAGER' || !(await bcrypt.compare(password, rows[0].password_hash))) {
+    await query(`UPDATE admin_users SET password_hash = $2, role = 'MANAGER', session_version = session_version + 1 WHERE id = $1`, [rows[0].id, await bcrypt.hash(password, 10)])
+  }
 }
 
 async function seedDemoSlots() {

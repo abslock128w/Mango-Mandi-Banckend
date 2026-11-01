@@ -259,6 +259,11 @@ const schema = z.object({
   // Previews get their own first manager, so the production password is never in a preview.
   PREVIEW_ADMIN_EMAIL: z.string().email().optional(),
   PREVIEW_ADMIN_PASSWORD: z.string().min(12).optional(),
+  // Development only (scripts/start-local.mjs reads .local/manager-login.json): the one manager
+  // login to use on this computer, the same as the demo's. Set, it replaces the seeded test
+  // accounts; production never reads it.
+  LOCAL_MANAGER_EMAIL: z.string().email().optional(),
+  LOCAL_MANAGER_PASSWORD: z.string().min(12).optional(),
   SMS_PROVIDER: z.enum(['log', 'jio']).default('log'),
   // With SMS_PROVIDER=log, write login codes to the log. Off unless asked for: outside
   // production the API already returns the code as devCode; on a preview it is the only way in.

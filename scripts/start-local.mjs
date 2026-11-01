@@ -100,6 +100,17 @@ const children = []
 
 const say = (msg) => console.log(`\n==> ${msg}`)
 
+/**
+ * The one manager login for this computer, the same as the demo's: .local/manager-login.json
+ * ({"email": "...", "password": "..."}, git-ignored). Without the file the API seeds its test logins.
+ */
+function managerLogin() {
+  const file = path.join(local, 'manager-login.json')
+  if (!existsSync(file)) return {}
+  const { email, password } = JSON.parse(readFileSync(file, 'utf8'))
+  return email && password ? { LOCAL_MANAGER_EMAIL: email, LOCAL_MANAGER_PASSWORD: password } : {}
+}
+
 /** True when nothing on this computer answers on the port (checked on both localhost addresses). */
 async function portFree(port) {
   const answers = (host) =>
@@ -274,7 +285,7 @@ async function main() {
   await convertToUtf8()
 
   say('Starting the API (it adds demo stock and staff logins)')
-  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: dbUrl('mango'), ...PLAN.api })
+  start('node src/index.js', path.join(root, 'mango-api'), { DATABASE_URL: dbUrl('mango'), ...PLAN.api, ...managerLogin() })
   await waitFor(`${API}/ready`)
 
   say('Starting the shop and the staff panel')
