@@ -27,7 +27,8 @@ const TONE: Record<Slide["tone"], string> = {
 function Dots() {
   const { selected, count, scrollTo } = useCarousel();
   return (
-    <div className="mt-2.5 flex justify-center gap-1.5">
+    // Fixed height: the dots appear once Embla has measured, without pushing the page down.
+    <div className="mt-2.5 flex h-6 justify-center gap-1.5">
       {Array.from({ length: count }, (_, i) => (
         <button key={i} type="button" onClick={() => scrollTo(i)} aria-label={`Go to slide ${i + 1}`} aria-current={i === selected} className="relative grid h-6 place-items-center px-0.5">
           <m.span

@@ -11,9 +11,9 @@ import { ProductDetail, PurchaseBar, useSelection } from "./product-detail";
 export function ProductPage({ id }: { id: string }) {
   const scope = useQueryParam("src") ?? "page";
   const r = useQueryParam("r") as RipenessStage | null;
-  const { data: product } = useProduct(id);
+  const { data: product, isPending } = useProduct(id);
   const sel = useSelection(product, r);
-  if (!product || !sel) return null;
+  if (!product || !sel) return isPending ? <ProductPageSkeleton /> : <ProductMissing />;
   return (
     <PageTransition>
       <div className="mx-auto max-w-content px-4 pt-3 pb-40 lg:px-6 lg:pt-5 lg:pb-0">
@@ -30,5 +30,36 @@ export function ProductPage({ id }: { id: string }) {
         <PurchaseBar product={product} sel={sel} />
       </div>
     </PageTransition>
+  );
+}
+
+/** Holds the page's height while the catalogue loads, so the footer doesn't flash up top. */
+function ProductPageSkeleton() {
+  return (
+    <div aria-busy className="mx-auto min-h-dvh max-w-content px-4 pt-3 pb-40 lg:px-6 lg:pt-5 lg:pb-0">
+      <div className="skeleton mb-3 h-4 w-40 rounded-4" />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)] lg:gap-10">
+        <div className="skeleton aspect-square rounded-12" />
+        <div className="space-y-3">
+          <div className="skeleton h-4 w-1/2 rounded-4" />
+          <div className="skeleton h-7 w-3/4 rounded-4" />
+          <div className="skeleton h-4 w-2/3 rounded-4" />
+          <div className="skeleton h-40 rounded-12" />
+          <div className="skeleton h-20 rounded-12" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductMissing() {
+  return (
+    <div className="mx-auto flex max-w-content flex-col items-center px-6 py-20 text-center">
+      <h1 className="text-19 font-bold text-ink">We couldn&apos;t find that mango</h1>
+      <p className="mt-1 max-w-xs text-13 text-muted">The link may be old, or the variety may be out of season.</p>
+      <Link href="/c/all" className="press mt-6 rounded-12 bg-action px-5 py-3 text-15 font-semibold text-white">
+        Browse mangoes
+      </Link>
+    </div>
   );
 }

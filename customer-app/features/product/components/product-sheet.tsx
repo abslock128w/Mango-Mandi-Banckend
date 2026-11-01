@@ -18,7 +18,7 @@ export function ProductSheet() {
   const [lastId, setLastId] = useState(id);
   if (id && id !== lastId) setLastId(id);
   const shownId = id ?? lastId;
-  const { data: product } = useProduct(shownId);
+  const { data: product, isPending } = useProduct(shownId);
   const sel = useSelection(product, r);
 
   const close = () => {
@@ -44,6 +44,8 @@ export function ProductSheet() {
     >
       {product && sel ? (
         <ProductDetail key={product.id} product={product} sel={sel} scope={scope} mode="sheet" />
+      ) : !isPending ? (
+        <p className="px-4 py-16 text-center text-15 font-semibold text-ink">We couldn&apos;t find that mango.</p>
       ) : (
         <div className="space-y-3 p-4" aria-busy>
           <div className="skeleton aspect-square rounded-12" />
