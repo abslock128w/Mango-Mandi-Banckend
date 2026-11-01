@@ -537,7 +537,7 @@ export const api = {
     request<Promo>('PATCH', `/promos/${id(code)}`, { ...patch, ...confirmBody(confirmCode) }),
   staff: () => request<StaffMember[]>('GET', '/staff'),
   // Staff changes carry `confirmCode` when the server asks the manager to confirm it is them (SEC-07, STAFF_STEP_UP).
-  addStaff: (input: { email: string; role: Role; password: string }, confirmCode?: string) =>
+  addStaff: (input: { email: string; role: Role; password: string; phone?: string; displayName?: string }, confirmCode?: string) =>
     request<StaffMember>('POST', '/staff', { ...input, ...confirmBody(confirmCode) }),
   updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
     request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),

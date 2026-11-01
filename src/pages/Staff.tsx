@@ -418,9 +418,19 @@ function AddDialog({ confirm, onClose, onDone }: { confirm: Confirm; onClose: ()
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Role>('PACKER')
   const [password, setPassword] = useState('')
+  // Riders sign in to the rider app with their mobile number; the name is what customers see.
+  const [phone, setPhone] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
+  const isRider = role === 'RIDER'
   const add = useMutation({
-    mutationFn: () => confirm((code) => api.addStaff({ email: email.trim(), role, password }, code)),
+    mutationFn: () =>
+      confirm((code) =>
+        api.addStaff(
+          { email: email.trim(), role, password, ...(isRider ? { phone: phone.trim(), ...(displayName.trim() ? { displayName: displayName.trim() } : {}) } : {}) },
+          code,
+        ),
+      ),
     onSuccess: (s) => {
       toast.success(`${s.email} added as ${ROLE_LABEL[s.role]}`)
       onClose()
@@ -433,6 +443,9 @@ function AddDialog({ confirm, onClose, onDone }: { confirm: Confirm; onClose: ()
     setFormError(null)
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setFormError('Enter a work email.')
     if (password.length < 12) return setFormError('Use a password of at least 12 characters.')
+    if (isRider && phone.replace(/\D/g, '').replace(/^(91|0)(?=\d{10}$)/, '').length !== 10) {
+      return setFormError("Enter the rider's 10-digit mobile number: they sign in to the rider app with it.")
+    }
     add.mutate()
   }
 
@@ -469,6 +482,24 @@ function AddDialog({ confirm, onClose, onDone }: { confirm: Confirm; onClose: ()
             {ROLE_HINT[role]}.
           </p>
         </div>
+        {isRider && (
+          <>
+            <div className="field">
+              <label htmlFor="staff-phone">Mobile number</label>
+              <input id="staff-phone" type="tel" inputMode="tel" autoComplete="off" placeholder="98xxxxxxxx" value={phone} onChange={(e) => setPhone(e.target.value)} aria-describedby="staff-phone-hint" />
+              <p className="hint" id="staff-phone-hint">
+                They sign in to the rider app with this number and a code, then set a PIN.
+              </p>
+            </div>
+            <div className="field">
+              <label htmlFor="staff-name">Name customers see</label>
+              <input id="staff-name" type="text" autoComplete="off" placeholder="First and last name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} aria-describedby="staff-name-hint" />
+              <p className="hint" id="staff-name-hint">
+                Optional. The first name goes in the customer&apos;s &quot;out for delivery&quot; message.
+              </p>
+            </div>
+          </>
+        )}
         <div className="field">
           <label htmlFor="staff-password">First password</label>
           <input id="staff-password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />

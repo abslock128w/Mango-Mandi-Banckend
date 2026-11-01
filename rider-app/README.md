@@ -15,8 +15,9 @@ npm run dev          # http://localhost:5175, API at NEXT_PUBLIC_API_URL
 `node scripts/start-local.mjs` from the repo root starts this app on 5175 with the API on
 http://localhost:3000 (it sets the API's `RIDER_ORIGIN` to http://localhost:5175). On a demo deploy without WhatsApp or SMS yet, set `DEMO_OTP=123456` (any 6 digits) on the API:
 every sign-in takes that code and the screen shows it. Run on its own,
-set `RIDER_ORIGIN` on the API to this app's address. Demo riders: 9000000001 (Ravi) and
-9000000002 (Suresh); the sign-in code shows on screen in development.
+set `RIDER_ORIGIN` on the API to this app's address. Riders are added by a
+manager on the panel (Staff → Add person, role Rider, with their mobile number); the sign-in code
+shows on screen in development.
 
 | Variable | Default | What it is |
 |---|---|---|

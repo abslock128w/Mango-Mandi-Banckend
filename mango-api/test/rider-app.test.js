@@ -479,3 +479,24 @@ describe('demo payments (DEMO_PAYMENTS)', () => {
     }
   })
 })
+
+describe('adding a rider on the panel', () => {
+  test('Staff → Add person with role Rider, a number and a name: the rider signs in to the rider app with that number', async () => {
+    const add = await api.post(
+      '/admin/v1/staff',
+      { email: 'new.rider@mandimangoes.test', role: 'RIDER', password: 'long-enough-9', phone: '98765 43219', displayName: 'Anil Rao', confirmCode: 'manager123' },
+      { token: admin },
+    )
+    assert.equal(add.status, 201, JSON.stringify(add.body))
+    assert.deepEqual([add.body.phone, add.body.displayName, add.body.role], ['+919876543219', 'Anil Rao', 'RIDER'])
+    // A number another staff member has is refused.
+    const twice = await api.post('/admin/v1/staff', { email: 'other.rider@mandimangoes.test', role: 'RIDER', password: 'long-enough-9', phone: '9876543219', confirmCode: 'manager123' }, { token: admin })
+    assert.deepEqual([twice.status, twice.body.error.code], [409, 'PHONE_TAKEN'])
+    const code = (await api.post('/admin/v1/rider/otp/request', { phone: '9876543219' })).body.devCode
+    const v = await api.post('/admin/v1/rider/otp/verify', { phone: '9876543219', code, deviceId: 'device-new-rider-1' })
+    assert.equal(v.status, 200, JSON.stringify(v.body))
+    assert.equal(v.body.rider.name, 'Anil Rao')
+    const set = await api.post('/admin/v1/rider/pin/set', { setupToken: v.body.setupToken, deviceId: 'device-new-rider-1', pin: '4071' })
+    assert.equal((await api.get('/admin/v1/auth/me', { token: set.body.accessToken })).body.role, 'RIDER')
+  })
+})

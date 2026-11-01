@@ -1,6 +1,7 @@
 // Docs only, not CI: the panel side of one real rider-app delivery, at 1280 px, against a
 // running mango-api (WHATSAPP_PROVIDER=log). Screenshots go to docs/rider-app/panel-*.png.
 //   PANEL_URL=http://localhost:5183 API_URL=http://localhost:3200 ORDER_ID=ord_… CUST_PHONE=98… node tests/rider-app-live-walkthrough.mjs
+// It adds a rider through the staff API (MANAGER_EMAIL / MANAGER_PASSWORD, RIDER_PHONE) and gives them the order.
 // The rider's steps are made through the API as the rider app makes them (photos with X- headers).
 import { chromium } from '@playwright/test'
 import { readFileSync } from 'node:fs'
@@ -26,7 +27,20 @@ async function call(method, p, body, token, headers = {}) {
   if (!r.ok) throw new Error(`${method} ${p} ${r.status} ${t}`)
   return b
 }
-const rider = (await call('POST', '/admin/v1/auth/login', { email: 'ravi.rider@mandimangoes.test', password: 'rider12345' })).accessToken
+// No riders are seeded: a manager adds one (Staff → Add person, role Rider), as here, and the order is given to them.
+const MANAGER = { email: process.env.MANAGER_EMAIL ?? 'manager@mandimangoes.test', password: process.env.MANAGER_PASSWORD ?? 'manager123' }
+const RIDER_LOGIN = { email: 'walkthrough.rider@mandimangoes.test', password: 'Walkthrough-rider-1' }
+const manager = (await call('POST', '/admin/v1/auth/login', MANAGER)).accessToken
+const added = await fetch(`${API}/admin/v1/staff`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${manager}` },
+  body: JSON.stringify({ ...RIDER_LOGIN, role: 'RIDER', phone: process.env.RIDER_PHONE ?? '9000000099', displayName: 'Walkthrough Rider', confirmCode: MANAGER.password }),
+})
+if (!added.ok && added.status !== 409) throw new Error(`adding the rider: ${added.status} ${await added.text()}`)
+const rider = (await call('POST', '/admin/v1/auth/login', RIDER_LOGIN)).accessToken
+const me = await call('GET', '/admin/v1/auth/me', undefined, rider)
+const order = await call('GET', `/admin/v1/orders/${ORDER_ID}`, undefined, manager)
+await call('POST', '/admin/v1/manifest/assign', { date: String(order.deliveryDate).slice(0, 10), orderIds: [ORDER_ID], riderId: me.id }, manager)
 let n = 0
 const photo = (step, name) =>
   call('POST', `/admin/v1/orders/${ORDER_ID}/photos`, jpeg(name), rider, {
@@ -42,8 +56,8 @@ const shot = async (name, full = false) => {
 }
 
 await page.goto(PANEL)
-await page.getByLabel(/email/i).fill('manager@mandimangoes.test')
-await page.getByLabel(/password/i).fill('manager123')
+await page.getByLabel(/email/i).fill(MANAGER.email)
+await page.getByLabel(/password/i).fill(MANAGER.password)
 await page.getByRole('button', { name: /sign in/i }).click()
 await page.waitForTimeout(3000)
 const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())

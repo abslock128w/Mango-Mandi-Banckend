@@ -301,7 +301,7 @@ async function main() {
 MandiMangoes is running.
   Shop:         ${SHOP}   (${PLAN.shared ? 'the sign-in code is printed in this window' : 'the sign-in code shows on screen'})
   Staff panel:  ${PANEL}   (manager@mandimangoes.test / manager123)
-  Rider app:    ${RIDER}   (phone 9000000001 or 9000000002; the sign-in code shows on screen)
+  Rider app:    ${RIDER}   (add a rider with a mobile number on the panel: Staff → Add person, role Rider)
 ${PLAN.shared ? SHARED_WARNING : '\nTo open the shop on your phone too, start it with --phone.\n'}
 ${
     phoneLink

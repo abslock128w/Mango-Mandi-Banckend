@@ -104,17 +104,25 @@ router.post(
   '/staff',
   requireManager,
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password }), req.body)
+    const b = parse(
+      z.object({
+        email: z.string().trim().toLowerCase().email(), role: z.enum(ROLES), password,
+        // A rider signs in to the rider app with this number (admin/rider-auth.js); the name is what customers see.
+        phone: phoneSchema.optional(), displayName: z.string().trim().min(1).max(80).optional(),
+      }),
+      req.body,
+    )
     if ((await query('SELECT 1 FROM admin_users WHERE email = $1', [b.email])).rowCount) throw conflict('Someone already has that email', 'STAFF_EXISTS')
+    if (b.phone && (await query('SELECT 1 FROM admin_users WHERE phone = $1', [b.phone])).rowCount) throw conflict('Another staff member has that number', 'PHONE_TAKEN')
     await stepUp(req)
     const hash = await bcrypt.hash(b.password, 10)
     // SEC-08 (STAFF_AUDIT_TRAIL): the account, its setup code and the audit row commit together.
     const run = env.STAFF_AUDIT_TRAIL ? tx : (fn) => fn({ query })
     const { row, setupCode } = await run(async (c) => {
       const { rows } = await c.query(
-        `INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (email) DO NOTHING RETURNING id, email, role, created_at`,
-        [newId('adm'), b.email, hash, b.role],
+        `INSERT INTO admin_users (id, email, password_hash, role, phone, display_name) VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (email) DO NOTHING RETURNING id, email, role, created_at, phone, display_name`,
+        [newId('adm'), b.email, hash, b.role, b.phone ?? null, b.displayName ?? null],
       )
       if (!rows.length) throw conflict('Someone already has that email', 'STAFF_EXISTS')
       req.params.id = rows[0].id

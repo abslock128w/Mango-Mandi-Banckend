@@ -96,9 +96,8 @@ repository pointed another way. Each says what was assumed and why.
 21. **Unknown numbers** get the same answer as riders' numbers (nothing is sent), so the endpoint does
     not reveal who is a rider. Rider login codes have their own table so a rider who is also a customer
     can't use one sign-in's code for the other.
-22. **Demo riders**: two seeded with the local demo data (`SEED_DEMO_DATA`, development only), `ravi.rider@mandimangoes.test` (+91 90000
-    00001, Ravi Kumar) and `suresh.rider@mandimangoes.test` (+91 90000 00002, Suresh Patil), password
-    `rider12345`. Placeholder numbers; never seeded in production.
+22. **No seeded riders**: managers add riders themselves on Staff → Add person, role Rider, with the
+    rider's mobile number (they sign in to the rider app with it) and the name customers see.
 
 23a. **Demo login code**: until the WhatsApp Business account (or Jio SMS) is ready, `DEMO_OTP` (6 digits)
     makes every phone sign-in, shop and rider app, accept that one code with nothing sent; the sign-in

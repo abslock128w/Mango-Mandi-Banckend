@@ -81,9 +81,6 @@ const DEMO_USERS = [
   ['ops@mandimangoes.test', 'operator123', 'OPERATOR'],
   ['packer@mandimangoes.test', 'packer123', 'PACKER'],
   ['qc@mandimangoes.test', 'qc123', 'QC'],
-  // Rider app (docs/rider-app/README.md): two riders who sign in on the phone with these placeholder numbers.
-  ['ravi.rider@mandimangoes.test', 'rider12345', 'RIDER', '+919000000001', 'Ravi Kumar'],
-  ['suresh.rider@mandimangoes.test', 'rider12345', 'RIDER', '+919000000002', 'Suresh Patil'],
 ]
 
 export async function seed() {
@@ -106,17 +103,10 @@ export async function seed() {
   }
 
   if (!isProd) {
-    for (const [email, password, role, phone = null, name = null] of DEMO_USERS) {
-      // The demo riders come with the demo data (local development), not into tests.
-      if (phone && !env.SEED_DEMO_DATA) continue
+    for (const [email, password, role] of DEMO_USERS) {
       await query('INSERT INTO admin_users (id, email, password_hash, role) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING', [
         newId('adm'), email, await bcrypt.hash(password, 10), role,
       ])
-      if (phone) {
-        await query('UPDATE admin_users SET phone = COALESCE(phone, $2), display_name = COALESCE(display_name, $3) WHERE email = $1 AND NOT EXISTS (SELECT 1 FROM admin_users WHERE phone = $2 AND email <> $1)', [
-          email, phone, name,
-        ])
-      }
     }
   } else {
     // First start: create one manager if there are no staff yet. Previews use

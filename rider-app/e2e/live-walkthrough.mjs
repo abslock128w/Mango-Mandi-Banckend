@@ -1,6 +1,6 @@
 // Walks one real order end to end against a running mango-api (no mocks), at 390 px,
 // and saves a screenshot per step into docs/rider-app/. For the docs, not CI:
-//   RIDER_URL=http://localhost:5175 API_URL=http://localhost:3200 ORDER_ID=ord_… CUST_PHONE=9876543210 node e2e/live-walkthrough.mjs
+//   RIDER_PHONE=98… RIDER_URL=http://localhost:5175 API_URL=http://localhost:3200 ORDER_ID=ord_… CUST_PHONE=9876543210 node e2e/live-walkthrough.mjs
 // The customer's code is read the way the shop reads it: the customer signs in (CUST_PHONE, a
 // development API returns the login code) and opens the order (ORDER_ID).
 import { chromium, devices } from "@playwright/test";
@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, "..", "..", "docs", "rider-app");
 const RIDER = process.env.RIDER_URL ?? "http://localhost:5175";
-const PHONE = process.env.RIDER_PHONE ?? "9000000001";
+// No riders are seeded: add one with this mobile number on the panel first (Staff → Add person, role Rider).
+const PHONE = process.env.RIDER_PHONE;
+if (!PHONE) throw new Error("Set RIDER_PHONE to the mobile number of a rider added on the panel (Staff → Add person, role Rider)");
 const step = process.argv[2] ?? "all";
 const API = process.env.API_URL ?? "http://localhost:3000";
 async function customerCode() {
