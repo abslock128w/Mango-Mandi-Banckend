@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Sheet } from "@/components/ui/drawer";
 import { cn } from "@/lib/format";
 import { uiSpring } from "@/lib/motion";
-import { RIPENESS } from "@/lib/ripeness";
+import { RIPENESS, STAGES } from "@/lib/ripeness";
 import type { BoxSize, RipenessStage } from "@/lib/types";
 import { DEFAULT_FILTERS, SORTS, type Filters, type Tab } from "../filters";
 
@@ -70,8 +70,8 @@ export function FilterSheet({ open, onOpenChange, value, onApply, tab }: { open:
         <div role="radiogroup" aria-label={tabs.find((t) => t.id === active)?.label} className="flex-1 px-4">
           {active === "sort" && SORTS.map((s) => opt(draft.sort === s.id, s.label, () => setDraft({ ...draft, sort: s.id }), s.id))}
           {active === "ripeness" &&
-            [null, "ripe", "semi-raw", "raw"].map((r) =>
-              opt(draft.ripeness === r, r ? RIPENESS[r as RipenessStage].label : "Any ripeness", () => setDraft({ ...draft, ripeness: r as RipenessStage | null }), String(r)),
+            [null, ...STAGES].map((r: RipenessStage | null) =>
+              opt(draft.ripeness === r, r ? RIPENESS[r].label : "Any ripeness", () => setDraft({ ...draft, ripeness: r }), String(r)),
             )}
           {active === "size" && [null, 3, 5].map((s) => opt(draft.size === s, s ? `${s} kg box` : "Any box size", () => setDraft({ ...draft, size: s as BoxSize | null }), String(s)))}
           {active === "more" && (
