@@ -4,13 +4,15 @@ import { Loader2 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import * as m from "motion/react-m";
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { api } from "@/lib/api/client";
 import { cn } from "@/lib/format";
 import type { Profile } from "@/lib/types";
 import { errorText } from "./errors";
 import { OtpInput } from "./otp-input";
 import { useTurnstile } from "./third-party";
+
+const noSubscribe = () => () => {};
 
 type OTPCredentialLike = Credential & { code: string };
 type Channel = "sms" | "whatsapp";
@@ -29,6 +31,8 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
   const [sent, setSent] = useState<{ channel: string; devCode?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resendIn, setResendIn] = useState(0);
+  // Until the page is interactive a tap on Send code would reload it and lose the number.
+  const ready = useSyncExternalStore(noSubscribe, () => true, () => false);
   const { needed: humanNeeded, token: humanToken, setBox: setHumanBox, used: humanUsed } = useTurnstile(setError);
   const number = tenDigits(phone);
 
@@ -112,6 +116,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
               </span>
               <input
                 id="phone"
+                disabled={!ready}
                 type="tel"
                 inputMode="numeric"
                 autoComplete="tel-national"
@@ -127,7 +132,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
             <p id="phone-err" role="alert" className="min-h-4 text-12 text-danger">
               {error}
             </p>
-            <button type="submit" disabled={request.isPending} className="press flex h-12 w-full items-center justify-center gap-2 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled">
+            <button type="submit" disabled={!ready || request.isPending} className="press flex h-12 w-full items-center justify-center gap-2 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled">
               {request.isPending ? (
                 <>
                   <Loader2 aria-hidden size={20} className="animate-spin" /> Sending
