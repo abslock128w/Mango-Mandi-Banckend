@@ -40,7 +40,7 @@ export function ProductSheet() {
       description="Product details"
       snapPoints={SNAPS}
       panelWidth={480}
-      footer={product && sel ? <PurchaseBar product={product} sel={sel} scope={scope} /> : undefined}
+      footer={product && sel ? <PurchaseBar product={product} sel={sel} /> : undefined}
     >
       {product && sel ? (
         <ProductDetail key={product.id} product={product} sel={sel} scope={scope} mode="sheet" />

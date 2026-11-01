@@ -2,6 +2,7 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { Minus, Plus } from "lucide-react";
+import { useId } from "react";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { morphSpring } from "@/lib/motion";
 import { cn, ripenessLabel } from "@/lib/format";
@@ -12,8 +13,6 @@ import { toast } from "@/features/shell/ui-store";
 interface Props {
   product: Product;
   sku: Sku;
-  /** Namespaces the shared layoutId when the same SKU appears twice on a page. */
-  scope: string;
   size?: "card" | "lg";
   className?: string;
 }
@@ -22,12 +21,16 @@ interface Props {
  * Blinkit ADD pill that morphs into a solid minus-count-plus stepper of the
  * same size (shared layoutId, spring 500/30). Collapses back to ADD at 0.
  */
-export function AddButton({ product, sku, scope, size = "card", className }: Props) {
+export function AddButton({ product, sku, size = "card", className }: Props) {
   const qty = useQty(sku.id);
   const add = useCart((s) => s.add);
   const setQty = useCart((s) => s.setQty);
   const reduce = useReducedMotion();
-  const layoutId = `add-${scope}-${sku.id}`;
+  // One id per button instance: the ADD pill and the stepper share it to morph, but two
+  // mounted buttons must never share it, or Motion hides the non-lead one (opacity 0).
+  // The product page renders PurchaseBar twice (phone bar + laptop column), and the
+  // same SKU can sit in two lists with the same scope.
+  const layoutId = `add-${useId()}`;
   const label = `${product.name} ${ripenessLabel[sku.ripeness]} ${sku.size} kg`;
   const limit = Math.min(MAX_QTY, sku.stock);
   const box = size === "lg" ? "h-11 w-[120px]" : "h-8 w-[66px]";

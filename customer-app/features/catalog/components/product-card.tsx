@@ -5,6 +5,7 @@ import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
 import { useState, ViewTransition } from "react";
 import { AddButton } from "@/features/cart/components/add-button";
+import { useQty } from "@/features/cart/store";
 import { NotifyButton } from "./notify-button";
 import { RipenessChip } from "./ripeness-chip";
 import { BoxToggle } from "./box-toggle";
@@ -38,6 +39,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const slot = useNextSlot();
   const open = useOpenProduct();
   const [loaded, setLoaded] = useState(false);
+  const qty = useQty(sku.id);
 
   // Stock is per box and ripeness for the chosen day (GET /v1/catalogue).
   const unavailable = sku.stock <= 0;
@@ -106,10 +108,11 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
             <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
             <span className="text-11 text-muted">{sku.boxLabel} box</span>
           </div>
-          {unavailable ? (
+          {/* A box already in the cart keeps its stepper when the day sells out, so it can be removed here. */}
+          {unavailable && qty === 0 ? (
             <NotifyButton sku={sku.apiSku} stage={stage} label={product.name} />
           ) : (
-            <AddButton product={product} sku={sku} scope={scope} />
+            <AddButton product={product} sku={sku} />
           )}
         </div>
       </div>
