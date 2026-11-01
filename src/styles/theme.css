@@ -426,3 +426,9 @@ textarea {
     height: 30px;
   }
 }
+
+/* A button turning enabled (grey to green) switches at once: a fade passes through colours
+   white text cannot be read on. Only hover animates its colour. */
+.btn:not(:hover) {
+  transition-property: border-color, box-shadow;
+}

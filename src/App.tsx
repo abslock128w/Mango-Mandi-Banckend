@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { API_URL, SIGNOUT_EVENT, api } from './api'
+import { API_SET, SIGNOUT_EVENT, api } from './api'
 import { SessionContext } from './session'
 import type { Me } from './types'
 import { ApiBaseBanner, OfflineBanner, Spinner } from './ui'
@@ -132,7 +132,7 @@ export default function App() {
 
   return (
     <SessionContext.Provider value={{ me, setMe }}>
-      <ApiBaseBanner apiUrl={API_URL} />
+      <ApiBaseBanner apiSet={API_SET} />
       <OfflineBanner />
       <SignOutListener onSignOut={onSignOut} />
       {booting ? (
