@@ -48,7 +48,11 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (!env.COOKIE_SECURE) errors.push('COOKIE_SECURE must be true in production')
 
   // Payments: there is no cash on delivery, so without Razorpay nobody can pay.
-  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) errors.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required: customers could not pay')
+  // A preview (a demo or staging) may start without them: checkout then answers 503 PAYMENTS_UNAVAILABLE.
+  if (!env.RAZORPAY_KEY_ID || !env.RAZORPAY_KEY_SECRET) {
+    if (preview && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET) warnings.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are unset: this preview takes no payments (checkout stops at paying)')
+    else errors.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required: customers could not pay')
+  }
   else if (preview && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) errors.push('RAZORPAY_KEY_ID is a live key on a preview: previews must use test keys, or they could take real money')
   else if (!preview && env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) warnings.push('RAZORPAY_KEY_ID is a test key: payments are not real money')
   if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET is the dev default: set the secret from the Razorpay webhook settings')
@@ -71,6 +75,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   }
   if (env.SMS_PROVIDER === 'jio' && (!env.JIO_SMS_SUCCESS_PATH || !env.JIO_SMS_SUCCESS_VALUES)) {
     errors.push("JIO_SMS_SUCCESS_PATH and JIO_SMS_SUCCESS_VALUES are required: copy from Jio's API documentation how a reply says the SMS was accepted")
+  }
+  if (env.DEMO_OTP_ON_SCREEN) {
+    if (preview) warnings.push('DEMO_OTP_ON_SCREEN is on: login codes are shown on screen, so anyone can sign in as any number (a demo with made-up data only)')
+    else errors.push('DEMO_OTP_ON_SCREEN is on outside a preview: anyone could sign in as any customer. It is for a demo preview only')
   }
   if (env.LOG_OTP_CODES && !preview) errors.push('LOG_OTP_CODES must be off in production: login codes would be written to the logs')
   if (env.ENABLE_DEV_ROUTES) errors.push('ENABLE_DEV_ROUTES is set: it is for local development only (it lets anyone mark an order paid)')

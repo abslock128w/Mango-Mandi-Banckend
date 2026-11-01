@@ -1,0 +1,284 @@
+/*
+ * Mango Ops base: the panel's names for the shared tokens (design/tokens.css, imported first by
+ * main.tsx), element defaults and small utilities. Pages use these names, never raw colours.
+ */
+:root {
+  --green-900: var(--color-staff-strong);
+  --green-700: var(--color-staff);
+  --green-100: var(--color-staff-soft);
+  --amber-700: var(--color-warning);
+  --amber-500: var(--color-accent);
+  --amber-100: var(--color-warning-soft);
+  --red-600: var(--color-error);
+  --red-100: var(--color-error-soft);
+  --blue-700: var(--color-info);
+  --blue-100: var(--color-info-soft);
+  --text: var(--color-ink);
+  --text-2: var(--color-ink-2);
+  --text-muted: var(--color-muted);
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --surface-2: var(--color-surface-2);
+  --surface-3: var(--color-surface-3);
+  --border: var(--color-line);
+  --border-strong: var(--color-line-strong);
+  --focus: var(--color-focus);
+  --radius: var(--radius-md);
+  --shadow: var(--shadow-md);
+  --link: var(--color-staff);
+
+  /* the shell */
+  --header-h: 56px;
+  --sidebar-w: 248px;
+  --tabbar-h: 64px;
+  --content-max: 1360px;
+  /* Controls are full tap targets; only a mouse on a wide screen gets the denser sizes. */
+  --control-h: var(--tap-min);
+  --control-sm: var(--tap-min);
+  color-scheme: light;
+}
+
+@media (pointer: fine) and (min-width: 900px) {
+  :root {
+    --control-h: 40px;
+    --control-sm: 32px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  /* The sticky top bar and the phone tab bar never hide what a link or a scroll brings into view. */
+  scroll-padding-top: calc(var(--header-h) + var(--space-4));
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--text-base) / var(--leading) var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: var(--link);
+  text-underline-offset: 0.16em;
+  text-decoration-thickness: 1px;
+}
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+  letter-spacing: -0.011em;
+  line-height: var(--leading-tight);
+}
+h1 {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-4);
+}
+h2 {
+  font-size: var(--text-md);
+  font-weight: 620;
+  margin: 0 0 var(--space-3);
+}
+h3 {
+  font-size: var(--text-base);
+  font-weight: 620;
+  margin: 0 0 var(--space-2);
+}
+p {
+  margin: 0 0 var(--space-3);
+}
+p:last-child {
+  margin-bottom: 0;
+}
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+strong {
+  font-weight: 620;
+}
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: var(--space-4) 0;
+}
+
+/* The shared focus ring: teal with a halo so it shows on any fill. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--color-focus-halo);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-staff) 22%, transparent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.small {
+  font-size: var(--text-sm);
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.text-danger,
+.text-bad {
+  color: var(--red-600);
+}
+.text-warn {
+  color: var(--amber-700);
+}
+.text-good {
+  color: var(--color-success);
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spacing utilities on the --space-* scale, in place of inline style props. */
+.m-0 {
+  margin: 0;
+}
+.mt-0 {
+  margin-top: 0;
+}
+.mb-0 {
+  margin-bottom: 0;
+}
+.mt-2 {
+  margin-top: var(--space-2);
+}
+.mt-3 {
+  margin-top: var(--space-3);
+}
+.mt-4 {
+  margin-top: var(--space-4);
+}
+.mt-5 {
+  margin-top: var(--space-5);
+}
+.mt-6 {
+  margin-top: var(--space-6);
+}
+.mb-1 {
+  margin-bottom: var(--space-1);
+}
+.mb-2 {
+  margin-bottom: var(--space-2);
+}
+.mb-3 {
+  margin-bottom: var(--space-3);
+}
+.mb-4 {
+  margin-bottom: var(--space-4);
+}
+.grow {
+  flex: 1;
+}
+.pre-wrap {
+  white-space: pre-wrap;
+}
+.contents {
+  display: contents;
+}
+.align-end {
+  align-items: flex-end;
+}
+.narrow {
+  max-width: 640px;
+}
+/* A short list inside a table cell. */
+.sub-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+.bare-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bare-list > li + li {
+  margin-top: var(--space-2);
+}
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.plain-list li {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.plain-list > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.25rem;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: 500 var(--text-2xs) / 1 var(--font-sans);
+  white-space: nowrap;
+}
+
+abbr[title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: help;
+}
+
+.print-only {
+  display: none;
+}

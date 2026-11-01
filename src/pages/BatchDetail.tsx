@@ -26,6 +26,8 @@ import {
   scrollRegion,
   usePageTitle,
 } from '../ui'
+import { RipenessTimeline } from '../viz'
+import { CalendarDays, Clock, Sprout } from 'lucide-react'
 
 /** Forward-only: every later step in the flow is reachable; the next one is primary. */
 function forwardSteps(status: BatchStatus): BatchStatus[] {
@@ -67,99 +69,139 @@ function BatchView({ batch }: { batch: Batch }) {
   return (
     <>
       <BackLink to="/batches">Batches</BackLink>
-      <div className="topbar">
+      <div className="detail-head">
         <h1>
           {batch.variety} <span className="muted small">plucked {date(batch.pluckedOn)}</span>
         </h1>
         <BatchBadge status={batch.status} />
-        <span className={batch.ageDays >= 5 ? 'text-warn' : 'muted'}>{batch.ageDays} days old</span>
-        {batch.farm && <span className="muted">Farm: {batch.farm}</span>}
       </div>
+      <ul className="detail-meta">
+        <li>
+          <Clock aria-hidden="true" strokeWidth={1.75} />
+          <span className={batch.ageDays >= 5 ? 'text-warn' : undefined}>{batch.ageDays} days old</span>
+        </li>
+        <li>
+          <CalendarDays aria-hidden="true" strokeWidth={1.75} />
+          Plucked <strong>{date(batch.pluckedOn)}</strong>
+        </li>
+        {batch.farm && (
+          <li>
+            <Sprout aria-hidden="true" strokeWidth={1.75} />
+            <span>Farm: {batch.farm}</span>
+          </li>
+        )}
+      </ul>
 
-      <StatusControls batch={batch} />
+      <BatchTimeline batch={batch} />
 
-      <section className="card">
-        <div className="topbar section-head">
-          <h2>Stock</h2>
-          <span className="spacer" />
-          {!isFinal(batch.status) && (
-            <button type="button" className="btn" onClick={() => setCounting(true)}>
-              Count stock
-            </button>
-          )}
+      <div className="detail-cols">
+        <div>
+          <section className="card">
+            <div className="topbar section-head">
+              <h2>Stock</h2>
+              <span className="spacer" />
+              {!isFinal(batch.status) && (
+                <button type="button" className="btn" onClick={() => setCounting(true)}>
+                  Count stock
+                </button>
+              )}
+            </div>
+            <div {...scrollRegion('Stock per SKU')}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th className="num">On hand</th>
+                    <th className="num">
+                      <abbr title="Reserved by customers who have not paid yet">Unpaid</abbr>
+                    </th>
+                    <th className="num">
+                      <abbr title="Paid, not yet packed">To pack</abbr>
+                    </th>
+                    <th className="num">Reserve buffer</th>
+                    <th className="num">Available</th>
+                    <th>
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batch.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td>
+                        {l.productName ?? l.sku}
+                        {l.productName && <div className="muted small">{l.sku}</div>}
+                      </td>
+                      <td className="num">{l.onHand}</td>
+                      <td className="num">{l.held}</td>
+                      <td className="num">{l.committed}</td>
+                      <td className="num">{l.reserveBuffer}</td>
+                      <td className="num">
+                        <strong>{l.available}</strong>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          onClick={() => setAdjusting(l)}
+                          disabled={batch.status === 'CONDEMNED'}
+                        >
+                          Adjust<span className="sr-only"> {l.sku}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {batch.status === 'CONDEMNED' && <DisabledReason>A condemned batch's stock can't be adjusted.</DisabledReason>}
+          </section>
+
+          <section className="card">
+            <Tabs
+              id="batch"
+              label="QC and ledger"
+              tabs={[
+                ['qc', 'QC'],
+                ['ledger', 'Ledger'],
+              ]}
+              value={tab}
+              onChange={setTab}
+            />
+            <div {...tabPanelProps('batch', tab)}>
+              {tab === 'qc' ? <QcPanel batch={batch} focus={params.get('focusQC') === '1'} /> : <LedgerPanel batchId={batch.id} />}
+            </div>
+          </section>
         </div>
-        <div {...scrollRegion('Stock per SKU')}>
-          <table>
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th className="num">On hand</th>
-                <th className="num">
-                  <abbr title="Reserved by customers who have not paid yet">Unpaid</abbr>
-                </th>
-                <th className="num">
-                  <abbr title="Paid, not yet packed">To pack</abbr>
-                </th>
-                <th className="num">Reserve buffer</th>
-                <th className="num">Available</th>
-                <th>
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {batch.lines.map((l) => (
-                <tr key={l.id}>
-                  <td>
-                    {l.productName ?? l.sku}
-                    {l.productName && <div className="muted small">{l.sku}</div>}
-                  </td>
-                  <td className="num">{l.onHand}</td>
-                  <td className="num">{l.held}</td>
-                  <td className="num">{l.committed}</td>
-                  <td className="num">{l.reserveBuffer}</td>
-                  <td className="num">
-                    <strong>{l.available}</strong>
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn-small"
-                      onClick={() => setAdjusting(l)}
-                      disabled={batch.status === 'CONDEMNED'}
-                    >
-                      Adjust<span className="sr-only"> {l.sku}</span>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div>
+          <StatusControls batch={batch} />
+          {opsAllowed(me, 'purchaseRecords') && <PurchasesPanel batchId={batch.id} />}
         </div>
-        {batch.status === 'CONDEMNED' && <DisabledReason>A condemned batch's stock can't be adjusted.</DisabledReason>}
-      </section>
-
-      {opsAllowed(me, 'purchaseRecords') && <PurchasesPanel batchId={batch.id} />}
-
-      <section className="card">
-        <Tabs
-          id="batch"
-          label="QC and ledger"
-          tabs={[
-            ['qc', 'QC'],
-            ['ledger', 'Ledger'],
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-        <div {...tabPanelProps('batch', tab)}>
-          {tab === 'qc' ? <QcPanel batch={batch} focus={params.get('focusQC') === '1'} /> : <LedgerPanel batchId={batch.id} />}
-        </div>
-      </section>
+      </div>
 
       {adjusting && <AdjustDialog batchId={batch.id} line={adjusting} onClose={() => setAdjusting(null)} />}
       {counting && <CountDialog batch={batch} onClose={() => setCounting(false)} />}
     </>
+  )
+}
+
+/**
+ * The batch's ripeness windows and sell-by limit on one track (the selling rules), with today
+ * marked. Roles that can read the rules see the stage windows; everyone sees age against the limit.
+ */
+function BatchTimeline({ batch }: { batch: Batch }) {
+  const { me } = useSession()
+  const rules = useQuery({ queryKey: ['rules'], queryFn: api.rules, enabled: canSee(me?.role, 'planning'), staleTime: 5 * 60_000 })
+  const summary = useQuery({ queryKey: ['summary'], queryFn: api.summary, staleTime: 60_000 })
+  const r = rules.data?.rules
+  const maxAge = r?.maxSellableAge ?? summary.data?.maxSellableAge
+  if (maxAge == null || isFinal(batch.status)) return null
+  const windows = r ? (r.stageProfiles[batch.variety] ?? r.stageProfiles.default ?? null) : null
+  const latest = [...batch.qc].sort((a, b) => b.loggedAt.localeCompare(a.loggedAt))[0]?.ripenessRating ?? null
+  return (
+    <section className="card" aria-label="Ripeness timeline">
+      <RipenessTimeline ageDays={batch.ageDays} maxSellableAge={maxAge} retireAge={r?.retireAge} windows={windows} latest={latest} />
+    </section>
   )
 }
 

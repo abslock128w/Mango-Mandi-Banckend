@@ -44,7 +44,7 @@ test('pack list: a confirmed order is started and packed in one tap; "To pack" h
   await expect(page.getByText('Everything is packed for')).toBeVisible()
 })
 
-test('Today: every tile is a link to its filtered page, urgent ones say so, and they come before Needs attention', async ({ page }) => {
+test('Today: every tile is a link to its filtered page, urgent ones say so, and Needs attention comes first', async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   api.summary.orders.DELIVERY_FAILED = 2
   api.attention = {
@@ -72,12 +72,10 @@ test('Today: every tile is a link to its filtered page, urgent ones say so, and 
   await expect(group.getByRole('heading', { level: 3 })).toHaveText('Deliveries marked without proof 31')
   await expect(group.getByRole('listitem')).toHaveCount(3)
 
-  // The tiles are in the first screen.
-  const viewport = page.viewportSize()!
-  const last = (await tiles.last().boundingBox())!
-  expect(last.y + last.height).toBeLessThanOrEqual(viewport.height)
+  // Needs attention leads the page (the queue first); the tiles follow it.
+  const first = (await tiles.first().boundingBox())!
   const attention = (await card.boundingBox())!
-  expect(attention.y).toBeGreaterThan(last.y)
+  expect(attention.y).toBeLessThan(first.y)
 
   const showAll = group.getByRole('button', { name: 'Show all 31 deliveries marked without proof' })
   await showAll.click()

@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, istDate } from '../format'
 import { can, opsAllowed } from '../permissions'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
-import type { BulkMoveResult, CalendarDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
+import type { BulkMoveResult, CalendarDay, CoverageDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
@@ -28,7 +28,11 @@ export default function Planning() {
   )
 }
 
-/** Sellable boxes per SKU and ripeness for every date customers can book. Zeros are supply gaps. */
+/**
+ * Sellable boxes per SKU and ripeness for every date customers can book, as one heatmap: a row per
+ * product, a column group per date with its three stages. Deeper teal is more stock; a hatched cell
+ * is a supply gap. The numbers are printed in every cell, so colour is never the only signal.
+ */
 function Coverage() {
   const q = useQuery({ queryKey: ['coverage'], queryFn: api.coverage, refetchInterval: 60_000 })
   const products = useQuery({ queryKey: ['products'], queryFn: api.products })
@@ -48,63 +52,120 @@ function Coverage() {
       ) : q.data.length === 0 ? (
         <EmptyState>No delivery dates are open.</EmptyState>
       ) : (
-        q.data.map((day) => {
-          const skus = [...new Set(day.stock.map((s) => s.sku))]
-          const qty = (sku: string, stage: Ripeness) => day.stock.find((s) => s.sku === sku && s.stage === stage)?.qty ?? 0
-          return (
-            <div key={day.date} className="mt-4">
-              <h3>{date(day.date)}</h3>
-              {day.slots && day.slots.length > 0 && (
-                <p className="muted small mt-0">
-                  Booked:{' '}
-                  {day.slots
-                    .map((sl) => `${sl.label} ${sl.booked}${sl.maxBoxes == null ? '' : ` of ${sl.maxBoxes}`} boxes`)
-                    .join(' · ')}
-                </p>
-              )}
-              <div {...scrollRegion(`Stock for ${date(day.date)}`)}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      {STAGES.map((s) => (
-                        <th key={s} className="num">
-                          {RIPENESS_LABEL[s]}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {skus.map((sku) => (
-                      <tr key={sku}>
-                        <td>
-                          {name(sku)} <span className="muted small">{sku}</span>
-                        </td>
-                        {STAGES.map((s) => {
-                          const n = qty(sku, s)
-                          return (
-                            <td key={s} className={`num${n === 0 ? ' text-warn' : ''}`}>
-                              {n === 0 ? (
-                                <>
-                                  <span aria-hidden="true">—</span>
-                                  <span className="sr-only">none</span>
-                                </>
-                              ) : (
-                                n
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )
-        })
+        <CoverageHeatmap days={q.data} name={name} />
       )}
     </section>
+  )
+}
+
+const shortDate = (d: string) => date(d).replace(/,? \d{4}$/, '')
+const STAGE_SHORT: Record<Ripeness, string> = { RAW: 'Raw', SEMI_RIPE: 'Semi', RIPE: 'Ripe' }
+
+function CoverageHeatmap({ days, name }: { days: CoverageDay[]; name: (sku: string) => string }) {
+  const skus = [...new Set(days.flatMap((d) => d.stock.map((s) => s.sku)))]
+  const qty = (day: CoverageDay, sku: string, stage: Ripeness) => day.stock.find((s) => s.sku === sku && s.stage === stage)?.qty ?? 0
+  const max = Math.max(1, ...days.flatMap((d) => d.stock.map((s) => s.qty)))
+  // Five steps of teal by share of the busiest cell (display only).
+  const level = (n: number) => (n === 0 ? 0 : Math.min(5, 1 + Math.floor((n / max) * 4.999)))
+  const label = days.length === 1 ? `Stock for ${date(days[0].date)}` : `Stock for ${date(days[0].date)} to ${date(days[days.length - 1].date)}`
+  return (
+    <>
+      <div {...scrollRegion(label)} className={`${scrollRegion(label).className} heatmap`}>
+        <table>
+          <thead>
+            <tr>
+              <th rowSpan={2} scope="col">
+                Product
+              </th>
+              {days.map((d) => (
+                <th key={d.date} colSpan={STAGES.length} scope="colgroup">
+                  {shortDate(d.date)}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              {days.flatMap((d) =>
+                STAGES.map((s, i) => (
+                  <th key={`${d.date}-${s}`} scope="col" className={i === 0 ? 'stage-start' : undefined}>
+                    <span aria-hidden="true">{STAGE_SHORT[s]}</span>
+                    <span className="sr-only">
+                      {RIPENESS_LABEL[s]}, {date(d.date)}
+                    </span>
+                  </th>
+                )),
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {skus.map((sku) => (
+              <tr key={sku}>
+                <th scope="row">
+                  {name(sku)} <span className="muted small">{sku}</span>
+                </th>
+                {days.flatMap((d) =>
+                  STAGES.map((s) => {
+                    const n = qty(d, sku, s)
+                    return (
+                      <td key={`${d.date}-${s}`} className={`heat heat-${level(n)}`}>
+                        {n === 0 ? (
+                          <>
+                            <span aria-hidden="true">—</span>
+                            <span className="sr-only">none</span>
+                          </>
+                        ) : (
+                          n
+                        )}
+                      </td>
+                    )
+                  }),
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="heat-legend" aria-hidden="true">
+        <span>
+          <span className="heat-chip heat-0" />
+          None to book
+        </span>
+        <span className="heat-scale">
+          Fewer
+          {[1, 2, 3, 4, 5].map((l) => (
+            <span key={l} className={`heat-${l}`} />
+          ))}
+          More
+        </span>
+      </p>
+      {days.some((d) => d.slots && d.slots.length > 0) && (
+        <ul className="slot-load" aria-label="Boxes booked per slot">
+          {days
+            .filter((d) => d.slots && d.slots.length > 0)
+            .map((d) => (
+              <li key={d.date}>
+                <span className="slot-load-date">{shortDate(d.date)}</span>
+                <div>
+                  <p className="muted small">
+                    Booked: {d.slots!.map((sl) => `${sl.label} ${sl.booked}${sl.maxBoxes == null ? '' : ` of ${sl.maxBoxes}`} boxes`).join(' · ')}
+                  </p>
+                  <div className="slot-meters" aria-hidden="true">
+                    {d.slots!
+                      .filter((sl) => sl.maxBoxes)
+                      .map((sl) => (
+                        <span key={sl.id} className={`slot-meter${sl.booked >= (sl.maxBoxes ?? 0) ? ' is-full' : ''}`}>
+                          {sl.label}
+                          <span className="meter">
+                            <span style={{ width: `${Math.min(100, (sl.booked / (sl.maxBoxes ?? 1)) * 100)}%` }} />
+                          </span>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              </li>
+            ))}
+        </ul>
+      )}
+    </>
   )
 }
 

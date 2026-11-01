@@ -18,21 +18,28 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            customer-app/package-lock.json
       - run: npm ci
+      # The shop (customer-app/) is a Next.js app with its own packages.
+      - run: npm ci
+        working-directory: customer-app
       # SEC-12: no high or critical advisory in what the shop and panel ship.
       - name: Dependency audit (shipped packages)
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=high && npm --prefix customer-app audit --omit=dev --audit-level=high
       - run: npm run typecheck
-      - name: Lint (panel, shop and the API; eslint.config.mjs)
+      - name: Lint (panel and API with eslint.config.mjs; the shop with its own)
         run: npm run lint
-      - name: Unit tests (the API clients)
-        run: npm run test:unit
+      - name: Unit tests (the panel, the scripts and the shop)
+        run: npm run test:unit && npm run shop:test
       - run: npm run build
       - name: Build the customer app
         run: npm run shop:build
         env:
+          NEXT_PUBLIC_API_URL: https://api.example.in
           # A made-up number for the build check only; production sets the shop's real one.
-          VITE_SUPPORT_WHATSAPP: '910000000000'
+          NEXT_PUBLIC_SUPPORT_WHATSAPP: '910000000000'
       # Bundle safety: no secrets, dev routes, demo accounts or mock providers in
       # what ships to browsers (scripts/scan-bundle.mjs; the Vercel builds run it
       # too, with --forbid-localhost, so a build without VITE_API_URL fails).
@@ -181,9 +188,12 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             mango-api/package-lock.json
+            customer-app/package-lock.json
       - run: npm ci
       - run: npm ci
         working-directory: mango-api
+      - run: npm ci
+        working-directory: customer-app
       - name: Start mango-api with demo data
         working-directory: mango-api
         run: |
@@ -247,7 +257,7 @@ jobs:
         run: npx playwright test
         env:
           CI: 'true'
-          VITE_API_URL: http://localhost:3000
+          NEXT_PUBLIC_API_URL: http://localhost:3000
       # NFR-15: the whole shop again on Safari on an iPhone (WebKit), after the Chromium run so the
       # specs' one-per-project customers and boxes never meet a run going side by side.
       - run: npx playwright install --with-deps webkit
@@ -261,7 +271,7 @@ jobs:
         env:
           CI: 'true'
           PW_WEBKIT: '1'
-          VITE_API_URL: http://localhost:3000
+          NEXT_PUBLIC_API_URL: http://localhost:3000
       # What each failing page showed (its accessibility snapshot), since this job keeps no report.
       - if: failure()
         run: for f in $(find test-results-shop -name error-context.md 2>/dev/null); do echo "== $f"; head -80 "$f"; done
@@ -282,7 +292,7 @@ jobs:
       ACME_EMAIL: ops@example.in
       POSTGRES_PASSWORD: ci-only
       # A made-up help number for the image build check; production sets the real one in deploy/.env.
-      VITE_SUPPORT_WHATSAPP: '910000000000'
+      SUPPORT_WHATSAPP: '910000000000'
     steps:
       - uses: actions/checkout@v4
       - run: touch .env
@@ -294,4 +304,4 @@ jobs:
           -e SHOP_DOMAIN -e ADMIN_DOMAIN -e API_DOMAIN -e ACME_EMAIL
           caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Build the API and web images
-        run: docker compose -f compose.yml build api web
+        run: docker compose -f compose.yml build api shop web

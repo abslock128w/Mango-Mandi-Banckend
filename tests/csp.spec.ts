@@ -14,14 +14,23 @@ const vercelCsp = (file: string) => {
   return cfg.headers.flatMap((h) => h.headers).find((h) => h.key === 'Content-Security-Policy')?.value
 }
 
-for (const [file, app] of [
-  ['vercel.json', 'panel'],
-  ['customer-app/vercel.json', 'shop'],
-] as [string, App][]) {
-  test(`${file} sends the ${app} policy from scripts/csp.ts`, () => {
-    expect(vercelCsp(file)).toBe(header(app))
-  })
-}
+test('vercel.json sends the panel policy from scripts/csp.ts', () => {
+  expect(vercelCsp('vercel.json')).toBe(header('panel'))
+})
+
+// The Next.js shop sends its policy from customer-app/proxy.ts with a nonce per request
+// (customer-app/lib/csp.ts). Apart from the nonce it allows what scripts/csp.ts allows.
+test('the shop policy matches scripts/csp.ts apart from its nonce', async () => {
+  const { shopPolicy, MAP_SOURCES } = await import('../customer-app/lib/csp')
+  const api = 'https://api.mandimangoes.in'
+  const next = shopPolicy({ api, nonce: 'abc' })
+  // The map picker's hosts are the shop's only additions.
+  const maps = Object.values(MAP_SOURCES).flat()
+  const strip = (p: string) => maps.reduce((acc, host) => acc.replace(` ${host}`, ''), p.replace(" 'nonce-abc' 'strict-dynamic'", ''))
+  expect(strip(next)).toBe(policy('shop', { api }))
+  expect(next).toContain("script-src 'self' 'nonce-abc' 'strict-dynamic' ")
+  expect(next.match(/script-src [^;]*/)![0]).not.toContain('unsafe')
+})
 
 test('the policies allow what each app loads, and nothing inline', () => {
   const shop = policy('shop', { api: 'https://api.mandimangoes.in' })

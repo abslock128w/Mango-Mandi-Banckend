@@ -1,60 +1,79 @@
-# MandiMangoes customer app
+# MandiMangoes shop
 
-The shop customers use on their phones: pick a delivery day and the ripeness they
-want, sign in with a code sent to their phone, choose a delivery time, pay with
-Razorpay, follow the order, cancel it for a full refund before it is packed, and
-report a problem after delivery. It talks to mango-api's `/v1` routes.
+The customer shop for MandiMangoes: a responsive Next.js storefront on top of mango-api's
+`/v1` storefront API ([`../mango-api`](../mango-api/README.md)). Phones first at 360 px,
+laptops up to a 1200 px content column, in the Orchard colours (`styles/theme.css`).
 
-It is a Vite + React + TypeScript app that shares the repo root's `node_modules`,
-so there is nothing extra to install.
+Shoppers pick a pincode and a delivery day, then a variety, a box and a ripeness
+(Ripe, Semi-ripe or Raw). Stock, prices, delivery days, slots, promo codes and totals all
+come from the API; the shop never works out a price on its own.
 
-```bash
-npm install                       # at the repo root, once
-npm run shop:dev                  # http://localhost:5174, API at VITE_API_URL (default http://localhost:3000)
-npm run shop:build                # production build in customer-app/dist
-```
+## Run it
 
-Allow the app's address in the API with `CUSTOMER_ORIGIN` (default
-`http://localhost:5174`; comma-separate several).
-
-Errors in customers' browsers go to Sentry when the build sets `VITE_SENTRY_DSN`
-(the code is in `../shared/error-reports`, shared with the panel). A crash shows
-"Something went wrong" with Try again instead of a blank page. What a report may
-and may not carry: [deploy/VERCEL.md](../deploy/VERCEL.md#error-reports-from-the-shop-and-the-panel).
-
-## Screens
-
-| Path | What it does |
-|------|--------------|
-| `/` | Pincode check, delivery-day chips, each box in raw, semi-ripe and ripe with its eat-by date and stock left |
-| `/cart` | Boxes kept on this device until checkout |
-| `/sign-in` | Phone number, then the 6-digit code; resend by SMS or WhatsApp |
-| `/checkout` | Delivery time, name and address, a priced review, then Razorpay |
-| `/orders`, `/orders/:id` | Order list; progress, delivery details, live payment status, cancel |
-| `/orders/:id/claim` | Report damaged, wrong or missing boxes within the claim window |
-
-## Payments
-
-Checkout creates the order, then opens Razorpay Checkout with the key the API
-returns. The page never decides an order is paid: Razorpay's webhook tells the
-API, and the order page polls until the status changes. Closing the Razorpay
-window leaves the order waiting for payment with a Pay button while the boxes are
-held. In development, with no Razorpay key set, the order page shows **Payment
-succeeds** and **Payment fails** buttons that use the API's test payment route.
-
-## Test
+The easiest way is the whole stack from the repo root (database, API, panel and this shop):
 
 ```bash
-cd customer-app && npx playwright test   # needs mango-api running in development mode
-
-# Safari on an iPhone (WebKit, NFR-15), as CI runs it after the Chromium projects.
-# PW_WEBKIT=1 adds the `iphone` project; without it the run is Chromium only.
-npx playwright install --with-deps webkit   # once
-cd customer-app && PW_WEBKIT=1 npx playwright test --project=iphone
+node scripts/start-local.mjs
 ```
 
-One journey runs on phone and desktop widths: an unserved pincode, picking boxes,
-the cart, signing in with the test code, checkout, a test payment, cancelling with
-a refund, and signing out, with an accessibility check on each main screen.
-`tests/error-reports.spec.ts` needs no API: it builds the shop with a made-up
-Sentry DSN and checks what a report carries.
+The shop opens on http://localhost:5174. Sign in with any Indian mobile number; in
+development the API returns the code and the sign-in screen shows it. Without Razorpay keys
+the checkout shows test pay buttons (`next dev` only).
+
+On its own, against an API you already run:
+
+```bash
+npm ci
+```
+
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:3000 npm run dev -- --port 5174
+```
+
+The API only accepts the shop from origins in its `CUSTOMER_ORIGIN` (start-local sets
+`http://localhost:5174`).
+
+## Settings
+
+| Variable | What it does |
+|----------|--------------|
+| `NEXT_PUBLIC_API_URL` | mango-api's address. Empty means "this same origin" (start-local `--phone` passes `/v1` through `SHOP_API_PROXY`). |
+| `NEXT_PUBLIC_SUPPORT_WHATSAPP` | The help WhatsApp number, digits only. A production build fails without it. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Optional. Google Maps in the location picker; OpenStreetMap without it. |
+| `NEXT_OUTPUT=standalone` | Builds the self-contained server used by `deploy/shop.Dockerfile`. |
+
+## How it fits the API
+
+- **Catalogue.** `GET /v1/catalogue?pincode&delivery_date` returns one row per SKU and stage.
+  `lib/catalog.ts` groups rows by variety into products with one line per box and stage.
+  Before a pincode is chosen the shop shows `GET /v1/products` prices without stock.
+- **Money** arrives in paise and is turned into rupees once, in `lib/api/client.ts` (`toRupees`).
+  Prices include GST; delivery is free; payment is prepaid only.
+- **Sign-in.** Phone OTP or Google. The access token lives in memory; the refresh token is an
+  httpOnly cookie the API sets (`X-Session: cookie`).
+- **Checkout.** The local cart is copied to the server cart, then quote (with an optional promo
+  code), confirm with an `Idempotency-Key`, and Razorpay checkout. One unpaid order at a time.
+- **Orders.** Track, cancel before packing, move the delivery day, show the delivery code, report
+  a problem for a replacement within the claim window.
+- **Pre-orders** book a week of the coming season; **bulk deals** go into the cart at tier prices.
+
+## Security
+
+`proxy.ts` sends a Content-Security-Policy with a fresh nonce on every page
+(`lib/csp.ts`, checked against `../scripts/csp.ts` by `../tests/csp.spec.ts`). The production
+bundle is scanned for secrets, dev routes and demo accounts (`../scripts/scan-bundle.mjs`).
+
+## Checks
+
+```bash
+npm run lint && npm run typecheck && npm test
+```
+
+```bash
+npx playwright test
+```
+
+The Playwright journey runs against a real API on http://localhost:3000 (start-local, or the CI
+e2e job), at 360 px and 1280 px.
+
+Photo credits are in [CREDITS.md](CREDITS.md).

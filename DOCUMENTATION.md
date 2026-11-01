@@ -51,6 +51,12 @@ The panel reads the API address from `.env` (`VITE_API_URL=http://localhost:3000
 If it's unset, a red banner warns you.
 
 ### Seed logins (change before production)
+One manager login everywhere: put it in `.local/manager-login.json` (`{"email": "...", "password": "..."}`,
+git-ignored) and `scripts/start-local.mjs` makes that the only staff login on this computer, the
+same one the Vercel demo uses (`PREVIEW_ADMIN_EMAIL` / `PREVIEW_ADMIN_PASSWORD`). Add riders and
+other staff from the panel's Staff page. Without the file, development seeds these test logins
+(CI and the end-to-end tests use them):
+
 | Email | Password | Role |
 |-------|----------|------|
 | `manager@mandimangoes.test` | `manager123` | Manager |

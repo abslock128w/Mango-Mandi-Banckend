@@ -19,6 +19,7 @@ import {
   scrollRegion,
   usePageTitle,
 } from '../ui'
+import { FreshnessStrip } from '../viz'
 
 export default function Batches() {
   const [params, setParams] = useSearchParams()
@@ -27,6 +28,9 @@ export default function Batches() {
   usePageTitle('Batches')
 
   const q = useQuery({ queryKey: ['batches', status], queryFn: () => api.batches(status) })
+  // The live sell limit, for each row's freshness strip (the same summary Today reads).
+  const summary = useQuery({ queryKey: ['summary'], queryFn: api.summary, staleTime: 60_000 })
+  const maxAge = summary.data?.maxSellableAge ?? 7
 
   function setStatus(next: BatchStatus | null) {
     const p = new URLSearchParams(params)
@@ -45,6 +49,7 @@ export default function Batches() {
     <>
       <div className="topbar">
         <h1>Batches</h1>
+        <p className="page-sub">Stock by picking batch. The strip shows each batch's age against the {maxAge}-day sell limit.</p>
         <span className="spacer" />
         <button type="button" className="btn btn-primary" onClick={() => setReceiving(true)}>
           Receive batch
@@ -86,8 +91,11 @@ export default function Batches() {
                     {b.farm && <div className="muted small">{b.farm}</div>}
                   </td>
                   <td data-label="Plucked">{date(b.pluckedOn)}</td>
-                  <td className={`num${b.ageDays >= 5 ? ' text-warn' : ''}`} data-label="Age">
-                    {b.ageDays}d
+                  <td className={`num${b.ageDays > maxAge ? ' text-danger' : b.ageDays >= 5 ? ' text-warn' : ''}`} data-label="Age">
+                    <span className="age-cell">
+                      <FreshnessStrip ageDays={b.ageDays} maxAge={maxAge} />
+                      {b.ageDays}d
+                    </span>
                   </td>
                   <td className="card-status">
                     <BatchBadge status={b.status} />

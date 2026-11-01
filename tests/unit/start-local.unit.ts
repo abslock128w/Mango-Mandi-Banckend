@@ -28,7 +28,7 @@ test('by default nothing leaves this computer: no link, no Wi-Fi, codes on scree
   assert.equal(p.shared, false)
   assert.deepEqual(p.wifi, [])
   assert.equal(p.shopEnv.SHOP_API_PROXY, undefined)
-  assert.equal(p.shopEnv.VITE_API_URL, 'http://localhost:3000')
+  assert.equal(p.shopEnv.NEXT_PUBLIC_API_URL, 'http://localhost:3000')
   assert.doesNotMatch(p.shopCmd, /--host/)
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174')
   assert.equal(p.api.OTP_CODE_IN_RESPONSE, undefined)
@@ -52,8 +52,8 @@ test('--phone shares the shop, and the API keeps codes out of its answers', () =
   assert.equal(p.api.LOG_OTP_CODES, 'true')
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174,http://192.168.1.20:5174')
   assert.equal(p.shopEnv.SHOP_API_PROXY, 'http://localhost:3000')
-  assert.equal(p.shopEnv.VITE_API_URL, '')
-  assert.match(p.shopCmd, /--host 0\.0\.0\.0/)
+  assert.equal(p.shopEnv.NEXT_PUBLIC_API_URL, '')
+  assert.match(p.shopCmd, /--hostname 0\.0\.0\.0/)
 })
 
 test('--wifi shares on the Wi-Fi only, with the same protections', () => {

@@ -9,23 +9,27 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tests && tsc --noEmit -p customer-app && tsc --noEmit -p customer-app/tests",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests && npm --prefix customer-app run typecheck",
     "test:e2e": "playwright test",
-    "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\" \"customer-app/tests/unit/*.unit.ts\"",
-    "lint": "eslint .",
-    "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/dist",
-    "shop:dev": "vite --config customer-app/vite.config.ts",
-    "shop:build": "tsc --noEmit -p customer-app && vite build --config customer-app/vite.config.ts",
-    "shop:preview": "vite preview --config customer-app/vite.config.ts"
+    "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\"",
+    "lint": "eslint . && npm --prefix customer-app run lint",
+    "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/.next/static",
+    "shop:dev": "npm --prefix customer-app run dev -- --port 5174",
+    "shop:build": "npm --prefix customer-app run build",
+    "shop:preview": "npm --prefix customer-app run start -- --port 5174",
+    "shop:install": "npm --prefix customer-app ci",
+    "shop:test": "npm --prefix customer-app test"
   },
   "dependencies": {
     "@sentry/browser": "11.7.0",
     "@tanstack/react-query": "^5.56.2",
     "@vercel/blob": "^2.8.2",
+    "lucide-react": "^1.64.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

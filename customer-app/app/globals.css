@@ -1,0 +1,135 @@
+@import "tailwindcss";
+@import "../styles/theme.css";
+
+@custom-variant reduced (@media (prefers-reduced-motion: reduce));
+
+@layer base {
+  html {
+    overflow-anchor: none;
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans text-13 antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-action);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@utility hairline {
+  border-width: 0.5px;
+  border-color: var(--color-line);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility skeleton {
+  background-color: var(--color-chip);
+  background-image: linear-gradient(
+    90deg,
+    var(--color-chip) 0%,
+    var(--color-line) 50%,
+    var(--color-chip) 100%
+  );
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@utility press {
+  transition: transform 120ms ease-out;
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+}
+
+/* Page transitions: fade + 8px rise, 200ms, content only. */
+::view-transition-old(.page) {
+  animation: 120ms ease-out both vt-fade reverse;
+}
+::view-transition-new(.page) {
+  animation: 200ms ease-out both vt-rise;
+}
+::view-transition-group(.morph) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes vt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Keep the header out of route transitions. */
+.site-header {
+  view-transition-name: site-header;
+}
+::view-transition-group(site-header),
+::view-transition-old(site-header),
+::view-transition-new(site-header) {
+  animation: none;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Leaflet: keep tiles under our sheets. */
+.leaflet-container {
+  font-family: var(--font-sans);
+  z-index: 0;
+}
+
+@keyframes sheet-content {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.route-line {
+  stroke: var(--color-action);
+}
