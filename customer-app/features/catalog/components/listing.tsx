@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { PageTransition } from "@/features/shell/page-transition";
 import { useProducts } from "../hooks/queries";
 import { CatalogueError } from "./catalogue-error";
@@ -14,7 +14,7 @@ import { RIPENESS } from "@/lib/ripeness";
 import type { Collection, Product, RipenessStage } from "@/lib/types";
 import { ProductCard, ProductCardSkeleton } from "./product-card";
 import { SECTIONS } from "../sections";
-import { DEFAULT_FILTERS, SORTS, type Filters, type Tab } from "../filters";
+import { DEFAULT_FILTERS, filtersFromQuery, filtersToQuery, SORTS, type Filters, type Tab } from "../filters";
 import { WhenVisible } from "@/components/ui/when-visible";
 
 
@@ -97,8 +97,31 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
   );
 }
 
+// The filters live in the query string: a refresh or a shared link keeps them, and Back undoes them.
+const searchListeners = new Set<() => void>();
+function subscribeSearch(cb: () => void) {
+  searchListeners.add(cb);
+  window.addEventListener("popstate", cb);
+  return () => {
+    searchListeners.delete(cb);
+    window.removeEventListener("popstate", cb);
+  };
+}
+
+function useUrlFilters(): [Filters, (f: Filters) => void] {
+  const search = useSyncExternalStore(subscribeSearch, () => window.location.search, () => "");
+  const filters = useMemo(() => (search ? filtersFromQuery(search) : DEFAULT_FILTERS), [search]);
+  const setFilters = useCallback((f: Filters) => {
+    const next = filtersToQuery(f);
+    if (next === window.location.search) return;
+    window.history.pushState(window.history.state, "", window.location.pathname + next);
+    searchListeners.forEach((cb) => cb());
+  }, []);
+  return [filters, setFilters];
+}
+
 export function Listing({ initial }: { initial: Collection }) {
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useUrlFilters();
   const [active, setActive] = useState<Collection>(initial);
   const [sheet, setSheet] = useState<{ open: boolean; tab: Tab; loaded: boolean }>({ open: false, tab: "sort", loaded: false });
   const sectionRefs = useRef(new Map<Collection, HTMLElement>());
