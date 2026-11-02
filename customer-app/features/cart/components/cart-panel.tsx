@@ -43,7 +43,7 @@ export function LineStepper({ line }: { line: CartLine }) {
   );
 }
 
-function CartLineRow({ line }: { line: CartLine }) {
+function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }) {
   return (
     <m.li
       layout
@@ -64,6 +64,7 @@ function CartLineRow({ line }: { line: CartLine }) {
           <span className="text-12 text-muted">{line.size} kg box</span>
         </div>
         <p className="mt-1 text-12 font-semibold text-ink">{rupees(line.price * line.qty)}</p>
+        {soldOutOn && <p className="mt-0.5 text-11 font-semibold text-ribbon">Sold out for {soldOutOn}. Pick another day or remove it.</p>}
       </div>
       <LineStepper line={line} />
     </m.li>
@@ -138,8 +139,17 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
   const slot = useNextSlot();
   const { data: policy } = usePolicy();
   const [changeDay, setChangeDay] = useState(false);
+  const hydrated = useUi((s) => s.hydrated);
   const inCart = new Set(lines.map((l) => l.productId));
-  const suggestions = (products ?? []).filter((p) => !inCart.has(p.id) && p.variety.inSeason).slice(0, 8);
+  const fresh = (products ?? []).filter((p) => !inCart.has(p.id) && p.variety.inSeason).slice(0, 8);
+  // Freeze the suggestions while the panel is open: a card the shopper taps ADD on stays
+  // put and turns into a stepper, instead of vanishing and sliding the next card's ADD
+  // under their thumb.
+  const [shownIds, setShownIds] = useState<string[] | null>(null);
+  if (shownIds === null && hydrated && products) setShownIds(fresh.map((p) => p.id));
+  const suggestions = shownIds ? shownIds.map((id) => products?.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => Boolean(p)) : fresh;
+  // Stock is per day: a box added for one day can be sold out on the day picked later.
+  const soldOut = new Set((products ?? []).flatMap((p) => p.skus.filter((k) => k.stock <= 0).map((k) => k.id)));
   const subtotal = cartSubtotal(lines, bulk);
   const boxes = cartCount(lines, bulk);
 
@@ -171,7 +181,7 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
         <ul className="mt-3 space-y-3 border-t border-line pt-3">
           <AnimatePresence initial={false}>
             {lines.map((l) => (
-              <CartLineRow key={l.skuId} line={l} />
+              <CartLineRow key={l.skuId} line={l} soldOutOn={slot && soldOut.has(l.skuId) ? slot.dayLabel.replace(/^(Today|Tomorrow)$/, (d) => d.toLowerCase()) : undefined} />
             ))}
           </AnimatePresence>
           {bulk.map((b) => (

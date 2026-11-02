@@ -80,6 +80,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   else if (env.DEMO_PAYMENTS) warnings.push('DEMO_PAYMENTS is on: checkout shows test pay buttons and no money moves')
   if (env.DEMO_OTP && !preview) errors.push('DEMO_OTP must be off in production: anyone could sign in with the fixed code')
   else if (env.DEMO_OTP) warnings.push('DEMO_OTP is set: every phone sign-in (shop and riders) takes the fixed demo code and no code is sent')
+  if (env.DEMO_OTP_ON_SCREEN) {
+    if (preview) warnings.push('DEMO_OTP_ON_SCREEN is on: login codes are shown on screen, so anyone can sign in as any number (a demo with made-up data only)')
+    else errors.push('DEMO_OTP_ON_SCREEN is on outside a preview: anyone could sign in as any customer. It is for a demo preview only')
+  }
   if (env.LOG_OTP_CODES && !preview) errors.push('LOG_OTP_CODES must be off in production: login codes would be written to the logs')
   if (env.ENABLE_DEV_ROUTES) errors.push('ENABLE_DEV_ROUTES is set: it is for local development only (it lets anyone mark an order paid)')
 

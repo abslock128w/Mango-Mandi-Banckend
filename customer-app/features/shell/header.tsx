@@ -151,6 +151,7 @@ export function Header() {
               transition={headerTween}
               className="overflow-hidden"
             >
+              <Logo height={34} className="mb-2" />
               <p className="text-11 font-bold text-ink">
                 <EtaKicker />
               </p>
@@ -171,7 +172,7 @@ export function Header() {
 
       {/* Laptops */}
       <div className="mx-auto hidden h-[86px] max-w-content items-center gap-6 px-6 lg:flex">
-        <Logo />
+        <Logo height={58} />
         <div className="h-full w-px bg-line" aria-hidden />
         <div className="w-[270px] min-w-0 shrink-0">
           <p className="font-display text-17 leading-tight font-extrabold text-ink">

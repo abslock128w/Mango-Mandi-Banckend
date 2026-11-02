@@ -196,7 +196,7 @@ export function Listing({ initial }: { initial: Collection }) {
                     rootMargin={i === 0 ? "10000px" : "600px"}
                     placeholder={
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3" aria-hidden>
-                        {Array.from({ length: Math.min(list?.length ?? 4, 12) }, (_, j) => (
+                        {Array.from({ length: Math.min(list?.length ?? 12, 12) }, (_, j) => (
                           <ProductCardSkeleton key={j} />
                         ))}
                       </div>
@@ -205,7 +205,7 @@ export function Listing({ initial }: { initial: Collection }) {
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
                     {list
                       ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} />)
-                      : Array.from({ length: 4 }, (_, j) => <ProductCardSkeleton key={j} />)}
+                      : Array.from({ length: 12 }, (_, j) => <ProductCardSkeleton key={j} />)}
                     {list && list.length === 0 && <p className="col-span-full rounded-12 bg-surface p-6 text-center text-13 text-muted">No mangoes match these filters.</p>}
                   </div>
                   </WhenVisible>

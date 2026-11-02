@@ -143,7 +143,12 @@ export default function Layout() {
         <div className="app-bar">
           <NavLink to={homeFor(me?.role)} className="brand">
             <img src="/brand/mark-96.webp" width="28" height="28" alt="" className="brand-mark" />
-            <span className="brand-text">Mango Ops</span>
+            <img src="/brand/logo-480.webp" srcSet="/brand/logo-480.webp 1x, /brand/logo-960.webp 2x" width="81" height="34" alt="" className="brand-word brand-word-green" />
+            <img src="/brand/logo-light-480.webp" srcSet="/brand/logo-light-480.webp 1x, /brand/logo-light-960.webp 2x" width="81" height="34" alt="" className="brand-word brand-word-cream" />
+            <span className="brand-ops" aria-hidden="true">
+              Ops
+            </span>
+            <span className="brand-text sr-only">Mango Ops</span>
           </NavLink>
           {here && (
             <p className="crumbs" aria-hidden="true">

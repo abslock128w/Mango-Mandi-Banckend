@@ -5,6 +5,7 @@ import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
 import { useState, ViewTransition } from "react";
 import { AddButton } from "@/features/cart/components/add-button";
+import { useQty } from "@/features/cart/store";
 import { NotifyButton } from "./notify-button";
 import { RipenessChip } from "./ripeness-chip";
 import { BoxToggle } from "./box-toggle";
@@ -38,6 +39,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const slot = useNextSlot();
   const open = useOpenProduct();
   const [loaded, setLoaded] = useState(false);
+  const qty = useQty(sku.id);
 
   // Stock is per box and ripeness for the chosen day (GET /v1/catalogue).
   const unavailable = sku.stock <= 0;
@@ -90,14 +92,14 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       </Link>
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col">
-        <span className="inline-flex h-4 w-fit items-center gap-0.5 rounded-4 bg-chip px-1 text-9 leading-none font-bold text-ink uppercase">
+        <span className="inline-flex h-4 w-fit max-w-full items-center gap-0.5 overflow-hidden rounded-4 bg-chip px-1 text-9 leading-none font-bold whitespace-nowrap text-ink uppercase">
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
         </span>
         <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="mt-1.5">
           <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
         </Link>
-        <div className="mt-1 flex items-center gap-1.5">
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <RipenessChip stage={stage} />
           <BoxToggle product={product} ripeness={stage} value={size} onChange={setSize} compact />
         </div>
@@ -106,10 +108,11 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
             <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
             <span className="text-11 text-muted">{sku.boxLabel} box</span>
           </div>
-          {unavailable ? (
+          {/* A box already in the cart keeps its stepper when the day sells out, so it can be removed here. */}
+          {unavailable && qty === 0 ? (
             <NotifyButton sku={sku.apiSku} stage={stage} label={product.name} />
           ) : (
-            <AddButton product={product} sku={sku} scope={scope} />
+            <AddButton product={product} sku={sku} />
           )}
         </div>
       </div>

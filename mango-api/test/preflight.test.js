@@ -74,6 +74,14 @@ describe('production preflight', () => {
     assert.ok(prod.errors.some((e) => e.startsWith('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET')))
   })
 
+  it('allows codes on screen only on a demo preview', () => {
+    const demo = checkProduction({ ...good, DEMO_OTP_ON_SCREEN: true }, { vercel: false, target: 'preview' })
+    assert.ok(!demo.errors.some((e) => e.startsWith('DEMO_OTP_ON_SCREEN')))
+    assert.ok(demo.warnings.some((w) => w.startsWith('DEMO_OTP_ON_SCREEN')))
+    const prod = checkProduction({ ...good, DEMO_OTP_ON_SCREEN: true }, { vercel: false, target: 'production' })
+    assert.ok(prod.errors.some((e) => e.startsWith('DEMO_OTP_ON_SCREEN')))
+  })
+
   it('warns about test keys and features left off', () => {
     const { errors, warnings } = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', WHATSAPP_APP_SECRET: '', TRUST_PROXY: 0 })
     assert.deepEqual(errors, [])

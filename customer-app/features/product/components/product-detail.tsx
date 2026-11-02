@@ -374,7 +374,7 @@ function BulkLink() {
 }
 
 /** Sticky footer: box, price and a solid green Add to cart (becomes a stepper). */
-export function PurchaseBar({ product, sel, scope }: { product: Product; sel: Selection; scope: string }) {
+export function PurchaseBar({ product, sel }: { product: Product; sel: Selection }) {
   const qty = useQty(sel.sku.id);
   const add = useCart((s) => s.add);
   const reduce = useReducedMotion();
@@ -388,12 +388,12 @@ export function PurchaseBar({ product, sel, scope }: { product: Product; sel: Se
         <p className="text-17 font-bold text-ink">{rupees(sel.sku.price)}</p>
         <p className="text-9 text-muted">(Inclusive of all taxes)</p>
       </div>
-      {outOfStock ? (
+      {outOfStock && qty === 0 ? (
         <div className="w-40">
           <NotifyButton sku={sel.sku.apiSku} stage={sel.stage} label={`${product.name} ${RIPENESS[sel.stage].label.toLowerCase()}`} wide />
         </div>
       ) : qty > 0 ? (
-        <AddButton product={product} sku={sel.sku} scope={`${scope}-bar`} size="lg" />
+        <AddButton product={product} sku={sel.sku} size="lg" />
       ) : (
         <m.button
           type="button"
@@ -440,7 +440,7 @@ export function ProductDetail({ product, sel, scope, mode }: { product: Product;
       <BulkLink />
       {mode === "page" && (
         <div className="hidden rounded-12 border-[0.5px] border-line bg-surface lg:block">
-          <PurchaseBar product={product} sel={sel} scope={scope} />
+          <PurchaseBar product={product} sel={sel} />
         </div>
       )}
       <section aria-labelledby="why-h">

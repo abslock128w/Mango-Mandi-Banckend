@@ -25,7 +25,7 @@ export function HomeView() {
       <div className="mx-auto max-w-content">
         <UnpaidBanner />
         <HeroCarousel slides={SLIDES} />
-        <VarietyGrid title="Shop by variety" products={(products ?? []).slice().sort((a, b) => Number(Boolean(a.variety.contents)) - Number(Boolean(b.variety.contents)))} />
+        <VarietyGrid title="Shop by variety" products={products?.slice().sort((a, b) => Number(Boolean(a.variety.contents)) - Number(Boolean(b.variety.contents)))} />
         <ProductRail id="ripe" title={day ? `Ripe for ${day.toLowerCase() === "tomorrow" ? "tomorrow" : day}` : "Ripe and ready"} stage="RIPE" href="/c/ripe" />
         <BookAheadCard />
         <ProductRail id="semi" title="Semi-ripe, ready in 1 to 2 days" stage="SEMI_RIPE" href="/c/semi-ripe" />

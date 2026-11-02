@@ -732,8 +732,8 @@ export function OfflineBanner() {
   )
 }
 
-export function ApiBaseBanner({ apiUrl }: { apiUrl: string }) {
-  if (apiUrl) return null
+export function ApiBaseBanner({ apiSet }: { apiSet: boolean }) {
+  if (apiSet) return null
   return (
     <div className="banner banner-bad" role="alert">
       VITE_API_URL is not set, so the app cannot reach the API. Add it to .env and restart.

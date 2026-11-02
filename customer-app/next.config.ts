@@ -1,9 +1,14 @@
 import type { NextConfig } from "next";
 import { withSerwist } from "@serwist/turbopack";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-const api = new URL(apiUrl);
-/** Local --phone/--wifi sharing: the shop answers /v1 itself and passes it on (never /v1/dev). */
+/**
+ * The API's address. "/" (or empty) means this same origin: the shop answers /v1 itself and
+ * SHOP_API_PROXY passes it on (never /v1/dev). Used by start-local --phone, and by a demo whose
+ * shop and API are on different vercel.app names: Safari and iPhones block the API's sign-in
+ * cookie there as third-party, so customers would be signed out every time they came back.
+ */
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+const api = URL.canParse(apiUrl) ? new URL(apiUrl) : null;
 const proxy = process.env.SHOP_API_PROXY;
 
 // UX-1: every page shows a help contact, so a production build needs the WhatsApp number.
@@ -23,10 +28,10 @@ const nextConfig: NextConfig = {
     imageSizes: [32, 64, 96, 128, 180, 256, 384],
     // Product photos come from the API (/v1/products/:sku/photo) or Vercel Blob.
     remotePatterns: [
-      { protocol: api.protocol.replace(":", "") as "http" | "https", hostname: api.hostname, port: api.port, pathname: "/v1/**" },
+      ...(api ? [{ protocol: api.protocol.replace(":", "") as "http" | "https", hostname: api.hostname, port: api.port, pathname: "/v1/**" }] : []),
       { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
     ],
-    dangerouslyAllowLocalIP: api.hostname === "localhost" || api.hostname === "127.0.0.1",
+    dangerouslyAllowLocalIP: api?.hostname === "localhost" || api?.hostname === "127.0.0.1",
   },
   async headers() {
     return [

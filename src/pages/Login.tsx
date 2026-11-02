@@ -51,8 +51,7 @@ export default function Login() {
     <main className="login-wrap">
       <div className="login-hero">
         <div className="login-hero-brand">
-          <img src="/brand/mark-96.webp" width="40" height="40" alt="" />
-          <span>MandiMangoes</span>
+          <img src="/brand/logo-480.webp" srcSet="/brand/logo-480.webp 1x, /brand/logo-960.webp 2x" width="152" height="64" alt="MandiMangoes" />
         </div>
         <div className="login-hero-body">
           <h2>Every box, from the orchard to the door.</h2>
@@ -67,7 +66,7 @@ export default function Login() {
       </div>
       <div className="login-panel">
         <div className="card login-card">
-          <img src="/brand/logo-320.webp" srcSet="/brand/logo-320.webp 1x, /brand/logo-640.webp 2x" width="56" height="56" alt="MandiMangoes" className="login-logo" />
+          <img src="/brand/mark-96.webp" srcSet="/brand/mark-96.webp 1x, /brand/mark-256.webp 2x" width="56" height="56" alt="MandiMangoes" className="login-logo" />
           <h1>Mango Ops</h1>
           <p className="login-sub">Sign in with your work account.</p>
           {ticket ? (
