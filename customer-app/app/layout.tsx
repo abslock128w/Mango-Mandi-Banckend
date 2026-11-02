@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/features/shell/providers";
 import { CartBar, CartPanel, LocationGate, ProductSheet, Toaster } from "@/features/shell/lazy-overlays";
+import { OfflineNotice } from "@/features/shell/offline-notice";
 import { PwaRegister } from "@/features/shell/pwa-register";
 import { config } from "@/lib/config";
 import { tokens } from "@/styles/tokens";
@@ -55,6 +56,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <CartBar />
           <CartPanel />
           <Toaster />
+          <OfflineNotice />
           <PwaRegister />
         </Providers>
       </body>

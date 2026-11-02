@@ -28,9 +28,7 @@ export async function signIn(page: Page, next = "/account") {
 /** Offline then online again: the page says so, and recovers without a reload. */
 export async function offlineAndBack(page: Page) {
   await page.context().setOffline(true);
-  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
-  await expect(page.getByText(/offline|no internet|connection/i).first()).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "You're offline" })).toBeVisible();
   await page.context().setOffline(false);
-  await page.evaluate(() => window.dispatchEvent(new Event("online")));
-  await expect(page.getByText(/offline|no internet/i).filter({ visible: true })).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.getByRole("status").filter({ hasText: "You're offline" })).toHaveCount(0);
 }
