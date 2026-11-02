@@ -114,7 +114,10 @@ repository pointed another way. Each says what was assumed and why.
     in, not only during a run); distances are straight lines. Each unassigned stop goes to the nearest
     rider; the pickup warehouse is the one that makes rider → warehouse → customer shortest. With no rider
     position known, the rider with the fewest stops gets it. Stops already given to a rider are not moved.
-    Nearest-first can give one rider many stops; a load limit is a follow-up if that matters.
+    Nearest-first can give one rider many stops; a load limit is a follow-up if that matters. Assignments
+    run one at a time (an advisory lock), and a stop out for delivery whose rider was removed is given out
+    again. Tested in `docs/qa/nearest-rider.md`, which lists the questions this rule leaves open (nearest
+    to the customer or shortest trip via the warehouse; signed-out riders; load; the 3-hour window).
 
 ## Live view and jobs
 

@@ -31,7 +31,9 @@ On Deliveries, **Assign nearest riders** gives every stop without a rider to the
 (where the rider app last reported him in the past 3 hours) and picks the warehouse that makes his trip
 shortest: rider → warehouse → customer. The rider app then says "Collect from <warehouse>" with
 directions there, and after the pickup, directions to the customer. A stop is placed at its pincode's
-centre (`pincodes.lat/lng`, seeded for Bengaluru); warehouses need `warehouses.lat/lng`.
+centre (`pincodes.lat/lng`, seeded for Bengaluru); warehouses need `warehouses.lat/lng`. A stop given to
+a rider by hand (the Rider picker) is never moved; one whose rider was removed from Staff, even out for
+delivery, is given out again. The full rule, its edge cases and the open questions: `docs/qa/nearest-rider.md`.
 
 ## On the panel
 
