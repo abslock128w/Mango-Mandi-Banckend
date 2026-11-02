@@ -170,11 +170,12 @@ describe('WhatsApp order updates', () => {
     const failing = async () => {
       throw new Error('WhatsApp 500: try later')
     }
-    const t0 = Date.parse('2026-10-15T04:30:00Z')
     const row = async () => (await query('SELECT status, attempts, next_attempt_at FROM notifications WHERE order_id = $1', [o.body.orderId])).rows[0]
+    // From the moment of the send: the test clock keeps ticking, and resetDb (migrations, seed) runs after it is set.
+    const sentAt = now().getTime()
     assert.equal(await sendDueNotifications({ sender: failing }), 0)
     assert.equal((await row()).attempts, 1)
-    assert.ok(Math.abs((await row()).next_attempt_at.getTime() - (t0 + 60_000)) < 5000) // the test clock keeps ticking
+    assert.ok(Math.abs((await row()).next_attempt_at.getTime() - (sentAt + 60_000)) < 5000)
     assert.equal(await sendDueNotifications({ sender: failing }), 0) // not due yet
     assert.equal((await row()).attempts, 1)
     // Each retry waits 1, 5, 15, 60 and 180 minutes; step the clock just past each one.
