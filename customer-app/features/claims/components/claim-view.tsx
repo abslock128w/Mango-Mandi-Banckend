@@ -300,7 +300,7 @@ function ClaimPage({ order, claims }: { order: Order; claims: Claim[] }) {
               {send.error instanceof ApiError ? send.error.message : "Couldn't send. Try again."}
             </p>
           )}
-          <button type="submit" disabled={send.isPending || uploading} className="press flex h-12 w-full items-center justify-center gap-1.5 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled">
+          <button type="submit" disabled={send.isPending || uploading} className="press flex h-12 w-full items-center justify-center gap-2 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled">
             {send.isPending && <Loader2 aria-hidden size={18} className="animate-spin" />} Send report
           </button>
         </form>

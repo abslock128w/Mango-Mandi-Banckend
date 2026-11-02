@@ -79,7 +79,7 @@ export function SuccessView({ id }: { id: string }) {
         >
           <div className="flex items-center justify-between">
             <p className="text-13 font-semibold text-ink">Order {order.number}</p>
-            <span className="rounded-4 bg-tint px-1.5 py-0.5 text-11 font-semibold text-action">{paid ? "Paid" : "Waiting"}</span>
+            <span className="rounded-4 bg-tint px-2 py-0.5 text-11 font-semibold text-action">{paid ? "Paid" : "Waiting"}</span>
           </div>
           <ul className="mt-3 space-y-1 text-12 text-ink">
             {order.items.map((l) => (

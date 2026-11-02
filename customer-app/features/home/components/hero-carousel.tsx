@@ -59,7 +59,7 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
         <div className={cn("absolute inset-0 flex flex-col justify-center bg-gradient-to-r to-transparent p-4 text-ink", TONE[s.tone])}>
           <p className="max-w-[62%] font-display text-19 leading-tight font-extrabold">{s.title}</p>
           <p className="mt-1 max-w-[62%] text-12 font-medium">{s.subtitle}</p>
-          <span className="mt-3 w-fit rounded-8 bg-ink px-3 py-1.5 text-12 font-bold text-white">Order now</span>
+          <span className="mt-3 w-fit rounded-8 bg-ink px-3 py-2 text-12 font-bold text-white">Order now</span>
         </div>
       </Link>
     </CarouselItem>

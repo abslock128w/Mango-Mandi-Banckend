@@ -47,7 +47,7 @@ export function Today() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <PendingBadge count={pending} />
           {offline && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-chip px-3 py-1 text-sm font-semibold text-muted">
+            <span className="inline-flex items-center gap-2 rounded-full bg-chip px-3 py-1 text-sm font-semibold text-muted">
               <WifiOff aria-hidden size={16} /> Offline: showing the saved run
             </span>
           )}

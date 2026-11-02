@@ -10,5 +10,5 @@ const CHIP: Record<StopState, [string, string]> = {
 
 export function StopChip({ state }: { state: StopState }) {
   const [label, cls] = CHIP[state];
-  return <span className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-sm font-semibold ${cls}`}>{label}</span>;
+  return <span className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-sm font-semibold ${cls}`}>{label}</span>;
 }

@@ -24,7 +24,7 @@ export const PROSE = [
   "[&_h2]:mt-7 [&_h2]:mb-2 [&_h2]:font-display [&_h2]:text-19 [&_h2]:font-extrabold [&_h2]:text-ink",
   "[&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:text-15 [&_h3]:font-bold",
   "[&_p]:mt-2 [&_ul]:mt-2 [&_ol]:mt-2",
-  "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:space-y-1.5 [&_ol]:space-y-1.5 [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:marker:text-muted",
+  "[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:space-y-2 [&_ol]:space-y-2 [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:marker:text-muted",
   "[&_a:not([data-btn])]:font-semibold [&_a:not([data-btn])]:text-action [&_a:not([data-btn])]:underline [&_a:not([data-btn])]:underline-offset-2",
   "[&_strong]:font-semibold",
 ].join(" ");

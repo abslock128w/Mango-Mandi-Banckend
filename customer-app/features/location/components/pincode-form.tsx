@@ -105,7 +105,7 @@ export function PincodeForm({ onDone, showMapLink = true }: { onDone?: () => voi
         </p>
       )}
       {showMapLink && (
-        <Link href="/location" onClick={() => onDone?.()} className="flex h-11 items-center justify-center gap-1.5 text-13 font-semibold text-action">
+        <Link href="/location" onClick={() => onDone?.()} className="flex h-11 items-center justify-center gap-2 text-13 font-semibold text-action">
           <Map aria-hidden size={18} strokeWidth={1.75} /> Pick on map instead
         </Link>
       )}

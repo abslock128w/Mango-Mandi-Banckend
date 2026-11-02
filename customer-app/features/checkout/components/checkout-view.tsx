@@ -370,7 +370,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                   clearProblem("slot");
                 }}
               />
-              <p className="mt-1.5 text-11 text-muted">Order by {delivery.data.cutoffTime.replace(" IST", "")} for the next open day.</p>
+              <p className="mt-2 text-11 text-muted">Order by {delivery.data.cutoffTime.replace(" IST", "")} for the next open day.</p>
             </>
           ) : (
             <div className="skeleton h-11 rounded-8" />
@@ -387,7 +387,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
               </p>
             ) : slotsRequired ? (
               <>
-                <p className="mb-1.5 text-12 font-semibold text-ink">Delivery time</p>
+                <p className="mb-2 text-12 font-semibold text-ink">Delivery time</p>
                 <SlotPicker
                   id="checkout-slots"
                   slots={daySlots}
@@ -399,7 +399,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                   }}
                 />
                 {problems.slot && (
-                  <p role="alert" className="mt-1.5 text-12 text-danger">
+                  <p role="alert" className="mt-2 text-12 text-danger">
                     {problems.slot}
                   </p>
                 )}
@@ -571,7 +571,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                       <span className="block font-semibold text-ink">
                         {l.qty} × {l.title ?? l.name}
                       </span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-muted">
+                      <span className="mt-0.5 flex flex-wrap items-center gap-2 text-muted">
                         <RipenessChip stage={l.stage} />
                         {l.eatBy && <span>Best by {dayName(l.eatBy)}</span>}
                       </span>
@@ -645,16 +645,16 @@ function CheckoutForm({ pincode }: { pincode: string }) {
               </button>
             </form>
           )}
-          {promoCode && !q && !promoError && !blocking && <p className="mt-1.5 text-11 text-muted">We&apos;ll check {promoCode} when the price is ready.</p>}
+          {promoCode && !q && !promoError && !blocking && <p className="mt-2 text-11 text-muted">We&apos;ll check {promoCode} when the price is ready.</p>}
           {promoError && (
-            <div id="promo-error" role="alert" className="mt-1.5 flex items-center justify-between gap-2 text-12 text-danger">
+            <div id="promo-error" role="alert" className="mt-2 flex items-center justify-between gap-2 text-12 text-danger">
               <span>{promoError}</span>
               <button type="button" onClick={removePromo} className="h-11 shrink-0 font-semibold text-action">
                 Remove
               </button>
             </div>
           )}
-          {bulk.length > 0 && <p className="mt-1.5 text-11 text-muted">Codes don&apos;t apply to bulk deals.</p>}
+          {bulk.length > 0 && <p className="mt-2 text-11 text-muted">Codes don&apos;t apply to bulk deals.</p>}
         </Card>
 
         {q ? <BillDetails subtotal={q.subtotal} discount={q.discount} promo={q.promo} total={q.total} /> : <BillDetails subtotal={subtotal} total={subtotal} estimate />}
@@ -700,7 +700,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                 type="button"
                 disabled={cancelUnpaid.isPending}
                 onClick={() => cancelUnpaid.mutate(unpaid.orderId)}
-                className="press flex h-11 items-center justify-center gap-1.5 rounded-8 border border-line bg-surface text-13 font-semibold text-ink disabled:opacity-60"
+                className="press flex h-11 items-center justify-center gap-2 rounded-8 border border-line bg-surface text-13 font-semibold text-ink disabled:opacity-60"
               >
                 {cancelUnpaid.isPending && <Loader2 aria-hidden size={16} className="animate-spin" />}
                 Cancel it and place this order
@@ -734,7 +734,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
               Pay now <ChevronRight aria-hidden size={20} />
             </span>
           </button>
-          <p className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-center text-11 text-muted">
+          <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">
             <ShieldCheck aria-hidden size={14} /> Prepaid only. Free delivery. GST included.
             {q?.holdMinutes ? ` Boxes are held for ${q.holdMinutes} minutes while you pay.` : ""}
           </p>

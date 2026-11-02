@@ -24,7 +24,7 @@ export function BulkBanner() {
             <p className="mt-1 max-w-[80%] text-12 lg:text-15">
               {data.items.length} deal{data.items.length === 1 ? "" : "s"} with tiered prices, from {rupees(from)} a box.
             </p>
-            <span className="mt-3 w-fit rounded-8 bg-brand px-3 py-1.5 text-12 font-bold text-ink">See bulk deals</span>
+            <span className="mt-3 w-fit rounded-8 bg-brand px-3 py-2 text-12 font-bold text-ink">See bulk deals</span>
           </div>
         </Link>
       </WhenVisible>
@@ -93,7 +93,7 @@ export function HowItWorks() {
               <Icon aria-hidden size={20} strokeWidth={1.75} />
               <span className="absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-deep text-9 font-bold text-white">{i + 1}</span>
             </span>
-            <p className="mt-1.5 text-12 font-bold text-ink">{title}</p>
+            <p className="mt-2 text-12 font-bold text-ink">{title}</p>
             <p className="text-11 text-muted">{text}</p>
           </li>
         ))}

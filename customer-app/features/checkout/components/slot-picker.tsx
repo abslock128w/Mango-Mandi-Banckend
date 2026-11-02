@@ -19,7 +19,7 @@ export function SlotPicker({ slots, value, onChange, invalid, id }: { slots: Api
             disabled={!open}
             onClick={() => onChange(s.id)}
             className={cn(
-              "press flex min-h-14 flex-col items-center justify-center rounded-12 border px-2 py-1.5 text-center",
+              "press flex min-h-14 flex-col items-center justify-center rounded-12 border px-2 py-2 text-center",
               on ? "border-action bg-tint text-action" : invalid ? "border-danger bg-surface text-ink" : "border-line bg-surface text-ink",
               !open && "border-dashed bg-chip text-disabled-ink",
             )}

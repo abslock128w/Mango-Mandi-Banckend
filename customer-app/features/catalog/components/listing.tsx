@@ -81,13 +81,13 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
                 type="button"
                 onClick={() => onSelect(s.id)}
                 aria-current={on ? "true" : undefined}
-                className="press relative flex w-full flex-col items-center gap-1 px-1 py-2.5"
+                className="press relative flex w-full flex-col items-center gap-1 px-1 py-3"
               >
                 <span className={cn("relative size-12 overflow-hidden rounded-12 transition-colors", on ? "bg-brand-soft" : "bg-chip")}>
                   <Image src={s.image} alt="" fill sizes="48px" className="object-cover" />
                 </span>
                 <span className={cn("text-center text-11 leading-tight", on ? "font-bold text-ink" : "text-muted")}>{s.label}</span>
-                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-1.5 right-0 w-1 rounded-l-4 bg-action" />}
+                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
               </button>
             </li>
           );
@@ -196,7 +196,7 @@ export function Listing({ initial }: { initial: Collection }) {
               {filters.sort === "relevance" ? "Sort By" : SORTS.find((s) => s.id === filters.sort)?.label} <ChevronDown aria-hidden size={14} />
             </Chip>
           </div>
-          <div className="space-y-6 bg-canvas p-2.5 lg:p-4">
+          <div className="space-y-6 bg-canvas p-3 lg:p-4">
             {isError && <CatalogueError onRetry={refetch} />}
             {!isError && visibleSections.map((s, i) => {
               const stage = sectionStage(s.id, filters);
@@ -211,9 +211,9 @@ export function Listing({ initial }: { initial: Collection }) {
                   aria-labelledby={`sec-${s.id}`}
                   data-section={s.id}
                 >
-                  <h2 id={`sec-${s.id}`} className="px-0.5 pb-2.5 font-display text-15 font-extrabold text-ink lg:text-17">
+                  <h2 id={`sec-${s.id}`} className="px-0.5 pb-3 font-display text-15 font-extrabold text-ink lg:text-17">
                     {s.title}
-                    {list && <span className="ml-1.5 text-12 font-medium text-muted">{list.length} items</span>}
+                    {list && <span className="ml-2 text-12 font-medium text-muted">{list.length} items</span>}
                   </h2>
                   <WhenVisible
                     // First section renders immediately; the rest when scrolled near. Scroll-spy targets stay in place.

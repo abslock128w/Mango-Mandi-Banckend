@@ -61,7 +61,7 @@ export function PreorderView() {
     <PageTransition>
       <div className="mx-auto max-w-content px-4 pt-4 pb-10 lg:px-6">
         <section className="rounded-16 bg-deep p-5 text-white lg:p-8" aria-labelledby="pre-h">
-          <p className="flex items-center gap-1.5 text-12 font-bold tracking-wide text-brand uppercase">
+          <p className="flex items-center gap-2 text-12 font-bold tracking-wide text-brand uppercase">
             <CalendarClock aria-hidden size={16} /> Book ahead
           </p>
           <h1 id="pre-h" className="mt-1 font-display text-24 leading-tight font-extrabold lg:text-36">

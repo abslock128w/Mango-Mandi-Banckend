@@ -59,7 +59,7 @@ export function CartBar() {
             exit={reduce ? { opacity: 0 } : { y: 96, opacity: 0 }}
             transition={{ type: "spring", stiffness: 420, damping: 32 }}
             whileTap={{ scale: 0.98 }}
-            className="pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-2.5 rounded-12 bg-deep pr-3 pl-2 text-left text-white shadow-sheet"
+            className="pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 rounded-12 bg-deep pr-3 pl-2 text-left text-white shadow-sheet"
             aria-label={`View cart, ${count} item${count === 1 ? "" : "s"}, ${rupees(itemTotal)}`}
           >
             <DeliveryBadge />
