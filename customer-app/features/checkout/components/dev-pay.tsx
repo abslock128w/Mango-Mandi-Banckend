@@ -14,7 +14,10 @@ export function DevPayButtons({ orderId, onSettled }: { orderId: string; onSettl
     setBusy(outcome);
     setError(null);
     try {
-      onSettled(await devPay(orderId, outcome));
+      const status = await devPay(orderId, outcome);
+      // As on Razorpay's page: a failed attempt is said here, and the customer can try again while the boxes are held.
+      if (status === "ATTEMPT_FAILED") setError("The payment didn't go through. Nothing was charged. Try again.");
+      else onSettled(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't work. Try again.");
     } finally {

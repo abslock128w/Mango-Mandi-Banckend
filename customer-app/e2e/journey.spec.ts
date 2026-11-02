@@ -34,6 +34,8 @@ test("browse, sign in, check out and pay", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Order confirmed" })).toBeVisible();
 
   await page.getByRole("link", { name: /Track order/ }).click();
+  // "Confirmed" alone also matches the success page's heading: check the tracking page opened.
+  await expect(page).toHaveURL(/\/order\/[^/]+$/);
   await expect(page.getByText("Confirmed").first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize()!.width);
 });

@@ -101,6 +101,8 @@ export async function waitForPayment(orderId: string, tries = 10): Promise<strin
 
 /** No payment service set up (a demo deploy, or development): the API's demo-pay settles the order. */
 export async function devPay(orderId: string, outcome: "captured" | "failed") {
-  await api.demoPay(orderId, outcome);
+  const { result } = await api.demoPay(orderId, outcome);
+  // A failed attempt leaves the order waiting for payment (the hold stays): nothing will change, so don't wait for it.
+  if (result === "attempt_failed") return "ATTEMPT_FAILED";
   return waitForPayment(orderId);
 }
