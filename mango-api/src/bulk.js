@@ -14,6 +14,8 @@ import { findProduct } from './products.js'
 import { STAGES } from './stage.js'
 
 export const LISTING_STATUSES = ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED']
+/** A listing photo's link on the shop: each photo has its own id, so a link never changes what it shows. */
+export const shopPhotoUrl = (listingId, photoId) => `/v1/bulk-deals/${encodeURIComponent(listingId)}/photos/${encodeURIComponent(photoId)}`
 export const MAX_TIERS = 8
 export const MAX_PHOTOS = 8
 /** The most boxes one bulk line can ask for, whatever the listing says. */

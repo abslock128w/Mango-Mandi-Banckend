@@ -5,7 +5,6 @@
 import { addDays, now, todayIST } from '../clock.js'
 import { newId } from '../ids.js'
 import { auditLedger, LINE_LOCK_ORDER } from '../inventory.js'
-import { loadProducts } from '../products.js'
 import { formatBoxCode } from './codes.js'
 import { addHold, applyLineDeltas, lockBoxes, newDeltas, releaseHold, whError } from './core.js'
 import { boxView } from './boxes.js'
@@ -502,8 +501,6 @@ export async function listProductSettings(c) {
   const { rows } = await c.query('SELECT * FROM products ORDER BY sort_order, name')
   return rows.map(productSettings)
 }
-
-export const reloadProducts = () => loadProducts()
 
 // ---------------------------------------------------------------- CSV
 

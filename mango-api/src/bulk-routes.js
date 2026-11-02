@@ -3,7 +3,7 @@
 // lines in customer.js through bulkQuoteLines() and checkBulkLinesAtConfirm().
 import express from 'express'
 import { z } from 'zod'
-import { fromRow, onSale, orderMax, priceLine, qtyProblem, saleListing, tierView } from './bulk.js'
+import { fromRow, onSale, orderMax, priceLine, qtyProblem, saleListing, shopPhotoUrl, tierView } from './bulk.js'
 import { now } from './clock.js'
 import { query } from './db.js'
 import { orderableDates } from './delivery.js'
@@ -17,7 +17,6 @@ import { STAGES } from './stage.js'
 export const publicBulk = express.Router()
 export const cartBulk = express.Router()
 
-const shopPhotoUrl = (listingId, photoId) => `/v1/bulk-deals/${encodeURIComponent(listingId)}/photos/${encodeURIComponent(photoId)}`
 
 /** A listing as the shop shows it. `availability` adds stock per delivery date and ripeness when a pincode is known. */
 function shopView(l, photos, availability = null) {

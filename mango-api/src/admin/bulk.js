@@ -5,7 +5,7 @@ import express from 'express'
 import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import {
-  assertStatusMove, diff, fromRow, getListing, listingEvent, listingFields, listingProblems, MAX_PHOTOS, onSale, orderMax, publishProblems, tierView,
+  assertStatusMove, diff, fromRow, getListing, LISTING_STATUSES, listingEvent, listingFields, listingProblems, MAX_PHOTOS, onSale, orderMax, publishProblems, tierView,
 } from '../bulk.js'
 import { now } from '../clock.js'
 import { query, tx } from '../db.js'
@@ -21,7 +21,6 @@ const PHOTO_SIDE = 1600
 
 /** Photo links: each photo has its own id, so a link never changes what it shows. */
 export const adminPhotoUrl = (listingId, photoId) => `/admin/v1/bulk-listings/${encodeURIComponent(listingId)}/photos/${encodeURIComponent(photoId)}`
-export const shopPhotoUrl = (listingId, photoId) => `/v1/bulk-deals/${encodeURIComponent(listingId)}/photos/${encodeURIComponent(photoId)}`
 
 async function photosOf(c, listingId) {
   const { rows } = await c.query(
@@ -52,7 +51,7 @@ router.get(
   requireManager,
   asyncHandler(async (req, res) => {
     const q = parse(
-      z.object({ status: z.enum(['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED']).optional(), page: z.coerce.number().int().min(1).max(1000).default(1) }),
+      z.object({ status: z.enum(LISTING_STATUSES).optional(), page: z.coerce.number().int().min(1).max(1000).default(1) }),
       req.query,
     )
     const size = 50
