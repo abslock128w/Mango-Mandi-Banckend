@@ -1,7 +1,7 @@
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi, signIn } from "./mock-api";
+import { mockApi } from "./mock-api";
 
 // axe, WCAG 2.1 A and AA, on every rider screen and state.
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
