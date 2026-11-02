@@ -680,6 +680,13 @@ export function DownloadButton({
 
 // ---------- Error boundary ----------
 
+/**
+ * A screen's code could not be loaded: after a deploy, an open tab asks for file names that
+ * no longer exist (or the connection dropped). Chrome, Firefox and Safari word it differently.
+ */
+export const isModuleLoadError = (e: unknown) =>
+  e instanceof Error && /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module|Unable to preload CSS/i.test(e.message)
+
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
 
@@ -688,6 +695,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   componentDidCatch(error: Error, info: ReactErrorInfo) {
+    // Not a crash: the page is older than the server's files. Reloading fixes it.
+    if (isModuleLoadError(error)) return
     // Surface for developers; no customer data is in component stacks.
     console.warn('Screen crashed', error, info.componentStack)
     // And to Sentry when it is set up (shared/error-reports); the innermost boundary reports.
@@ -695,6 +704,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   render() {
+    if (this.state.error && isModuleLoadError(this.state.error)) {
+      return (
+        <div className="card error-card" role="alert">
+          <h2>A newer version of Mango Ops is ready</h2>
+          <p className="muted">This screen could not load. Reload to get the latest version; nothing you saved is lost.</p>
+          <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )
+    }
     if (this.state.error) {
       return (
         <div className="card error-card" role="alert">
