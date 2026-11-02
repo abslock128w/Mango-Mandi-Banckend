@@ -31,7 +31,7 @@ export function DevPayButtons({ orderId, onSettled }: { orderId: string; onSettl
         <button type="button" disabled={Boolean(busy)} onClick={() => run("captured")} className="press flex h-12 items-center justify-center gap-2 rounded-12 bg-action text-13 font-bold text-white disabled:bg-disabled">
           {busy === "captured" && <Loader2 aria-hidden size={16} className="animate-spin" />} Pay (test)
         </button>
-        <button type="button" disabled={Boolean(busy)} onClick={() => run("failed")} className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-line bg-surface text-13 font-semibold text-ink disabled:opacity-60">
+        <button type="button" disabled={Boolean(busy)} onClick={() => run("failed")} className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-line bg-surface text-13 font-semibold text-ink disabled:text-disabled-ink">
           {busy === "failed" && <Loader2 aria-hidden size={16} className="animate-spin" />} Fail payment (test)
         </button>
       </div>

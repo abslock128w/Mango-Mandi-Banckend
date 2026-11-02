@@ -219,7 +219,7 @@ function CancelSheet({ order, open, onOpenChange, onDone }: { order: Order; open
             type="button"
             disabled={cancel.isPending}
             onClick={() => cancel.mutate()}
-            className="press flex h-12 items-center justify-center gap-2 rounded-12 bg-danger text-15 font-semibold text-white disabled:opacity-60"
+            className="press flex h-12 items-center justify-center gap-2 rounded-12 bg-danger text-15 font-semibold text-white disabled:bg-disabled"
           >
             {cancel.isPending && <Loader2 aria-hidden size={18} className="animate-spin" />} Cancel order
           </button>

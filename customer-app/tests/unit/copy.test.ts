@@ -26,3 +26,20 @@ test("the shop says Sign in, never Log in or Login", () => {
   }
   expect(found).toEqual([]);
 });
+
+test("disabled controls use the disabled tokens, never faded opacity (design/COMPONENTS.md)", () => {
+  const root = new URL("../../..", import.meta.url).pathname;
+  const found: string[] = [];
+  for (const app of ["customer-app", "rider-app"]) {
+    for (const dir of ["app", "features", "components"]) {
+      let files: string[] = [];
+      try {
+        files = [...sources(join(root, app, dir))];
+      } catch {
+        continue;
+      }
+      for (const f of files) if (/disabled:opacity-/.test(readFileSync(f, "utf8"))) found.push(f.slice(root.length));
+    }
+  }
+  expect(found).toEqual([]);
+});

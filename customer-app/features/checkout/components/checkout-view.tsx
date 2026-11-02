@@ -640,7 +640,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                 placeholder="Enter code"
                 className={cn(input, "uppercase")}
               />
-              <button type="submit" disabled={!promoInput.trim()} className="press h-11 shrink-0 rounded-8 border border-action px-4 text-13 font-semibold text-action disabled:opacity-50">
+              <button type="submit" disabled={!promoInput.trim()} className="press h-11 shrink-0 rounded-8 border border-action px-4 text-13 font-semibold text-action disabled:border-disabled disabled:text-disabled-ink">
                 Apply
               </button>
             </form>
@@ -700,7 +700,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                 type="button"
                 disabled={cancelUnpaid.isPending}
                 onClick={() => cancelUnpaid.mutate(unpaid.orderId)}
-                className="press flex h-11 items-center justify-center gap-2 rounded-8 border border-line bg-surface text-13 font-semibold text-ink disabled:opacity-60"
+                className="press flex h-11 items-center justify-center gap-2 rounded-8 border border-line bg-surface text-13 font-semibold text-ink disabled:text-disabled-ink"
               >
                 {cancelUnpaid.isPending && <Loader2 aria-hidden size={16} className="animate-spin" />}
                 Cancel it and place this order

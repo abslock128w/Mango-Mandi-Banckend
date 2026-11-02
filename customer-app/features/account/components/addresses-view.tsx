@@ -51,7 +51,7 @@ function Addresses() {
                 aria-label={`Remove address: ${a.address}`}
                 disabled={forget.isPending && forget.variables?.id === a.id}
                 onClick={() => forget.mutate(a)}
-                className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-chip hover:text-danger disabled:opacity-50"
+                className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-chip hover:text-danger disabled:text-disabled-ink"
               >
                 <Trash2 size={18} strokeWidth={1.75} />
               </button>

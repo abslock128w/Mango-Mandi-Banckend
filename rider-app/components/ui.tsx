@@ -2,12 +2,13 @@
 import Link from "next/link";
 import type { ComponentProps, ReactNode } from "react";
 
-const base = "press inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 text-base font-semibold disabled:opacity-60";
+const base = "press inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-5 text-base font-semibold";
 const variants = {
-  primary: "bg-action text-white shadow-card",
-  secondary: "border-2 border-action bg-surface text-action",
-  quiet: "bg-chip text-ink",
-  danger: "bg-danger text-white",
+  // Disabled: the neutral disabled tokens, never faded opacity (design/COMPONENTS.md).
+  primary: "bg-action text-white shadow-card disabled:bg-disabled disabled:shadow-none",
+  secondary: "border-2 border-action bg-surface text-action disabled:border-disabled disabled:text-disabled-ink",
+  quiet: "bg-chip text-ink disabled:text-disabled-ink",
+  danger: "bg-danger text-white disabled:bg-disabled",
 } as const;
 
 export function Button({ variant = "primary", className = "", ...p }: ComponentProps<"button"> & { variant?: keyof typeof variants }) {
