@@ -8,3 +8,4 @@ test-results
 .lighthouseci
 .env*.local
 .walkthrough-state.json
+.next-e2e

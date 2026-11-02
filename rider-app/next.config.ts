@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   poweredByHeader: false,
+  // The e2e run builds into its own folder, so it can start its own dev server (with its own
+  // settings) while `npm run dev` is running on 5175 (Next allows one dev server per folder).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // No dev badge over the bottom buttons on a phone-sized screen.
   devIndicators: false,
   async headers() {

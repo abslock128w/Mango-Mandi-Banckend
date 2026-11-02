@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = Number(process.env.RIDER_PORT ?? 5175);
+// Its own port and build folder (NEXT_DIST_DIR), never the dev server on 5175: that one has
+// other settings (the ops phone, for one), so reusing it made the results depend on what was running.
+const PORT = Number(process.env.RIDER_PORT ?? 5185);
 
 // The API is mocked with page.route (e2e/mock-api.ts), so these run without mango-api.
 export default defineConfig({
@@ -27,8 +29,8 @@ export default defineConfig({
   webServer: {
     command: `npx next dev -p ${PORT}`,
     url: `http://localhost:${PORT}`,
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: { NEXT_PUBLIC_API_URL: "http://localhost:3000", NEXT_PUBLIC_OPS_PHONE: "+919800000001" },
+    env: { NEXT_PUBLIC_API_URL: "http://localhost:3000", NEXT_PUBLIC_OPS_PHONE: "+919800000001", NEXT_DIST_DIR: ".next-e2e" },
   },
 });
