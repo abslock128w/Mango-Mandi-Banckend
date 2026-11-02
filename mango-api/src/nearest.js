@@ -68,7 +68,7 @@ export function choose(stop, riders, warehouses) {
  */
 export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
   const { rows: stops } = await c.query(
-    `SELECT o.id, o.number, o.status, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
+    `SELECT o.id, o.number, o.status, o.pincode, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
       WHERE o.delivery_date = $1 AND o.rider_id IS NULL AND o.status = ANY($2) ${orderIds ? 'AND o.id = ANY($3)' : ''}
       ORDER BY o.slot_id NULLS LAST, o.number FOR UPDATE OF o`,
     orderIds ? [date, ASSIGNABLE, orderIds] : [date, ASSIGNABLE],
@@ -95,7 +95,12 @@ export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
     if (!pick) break
     await c.query('UPDATE orders SET rider_id = $2, pickup_warehouse_id = COALESCE($3, pickup_warehouse_id) WHERE id = $1', [s.id, pick.rider.id, pick.warehouse?.id ?? null])
     pick.rider.stops++
-    const why = pick.riderKm === null ? `${pick.rider.name} (no rider's position known: fewest stops)` : `${pick.rider.name}, ${pick.riderKm.toFixed(1)} km away`
+    // Why this rider: the distance, or which place was unknown (the stop's pincode, or every rider's).
+    const why = pick.riderKm !== null
+      ? `${pick.rider.name}, ${pick.riderKm.toFixed(1)} km away`
+      : s.lat === null || s.lng === null
+        ? `${pick.rider.name} (pincode ${s.pincode ?? '?'} has no place on the map yet: fewest stops)`
+        : `${pick.rider.name} (no rider's position known: fewest stops)`
     await addEvent(c, s.id, s.status, s.status, actor, `Given to the nearest rider: ${why}${pick.warehouse ? `; pick up at ${pick.warehouse.name}` : ''}`)
     out.push({
       orderId: s.id, number: s.number, riderId: pick.rider.id, riderName: pick.rider.name,
