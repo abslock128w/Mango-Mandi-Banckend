@@ -58,4 +58,7 @@ export function varietyInfo(variety: string): VarietyInfo {
   return byName.get(variety.trim().toLowerCase()) ?? { name: variety, ...FALLBACK };
 }
 
+/** The variety a product page's slug names ("imam-pasand"), if it is one we know. */
+export const varietyForSlug = (slug: string): VarietyInfo | undefined => V.find((v) => slugify(v.name) === slug);
+
 export const slugify = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");

@@ -64,3 +64,19 @@ test.describe("order success page", () => {
     await expect(page.getByRole("status")).toHaveText("If you paid, it shows on the order page within a few minutes. You won't be charged twice.");
   });
 });
+
+test("a product page draws its photo while the catalogue is still loading", async ({ page }) => {
+  await choosePincode(page);
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("**/v1/catalogue**", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.goto("/p/alphonso");
+  const photo = page.locator('[aria-busy] img[src*="m00.jpg"]');
+  await expect(photo).toBeVisible();
+  await expect.poll(() => photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  release();
+  await expect(page.getByRole("img", { name: "Alphonso mango" })).toBeVisible();
+});

@@ -17,7 +17,7 @@ module.exports = {
     assert: {
       assertions: {
         "categories:performance": ["error", { minScore: 0.9, aggregationMethod: "median" }],
-        "categories:accessibility": ["error", { minScore: 0.95, aggregationMethod: "median" }],
+        "categories:accessibility": ["error", { minScore: 1, aggregationMethod: "median" }],
         // The brief's budgets are the two scores above. LCP sits near 2.5 s on simulated 4G (the sign-in
         // text after the app's first render), so it warns rather than fails.
         "largest-contentful-paint": ["warn", { maxNumericValue: 2500, aggregationMethod: "median" }],
