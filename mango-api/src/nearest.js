@@ -16,8 +16,12 @@ import { addEvent } from './orders.js'
 
 /** How old a rider's last position may be and still count. */
 export const POSITION_FRESH_MS = 3 * 3_600_000
-/** Order states that can still be given to a rider before they go out. */
-const ASSIGNABLE = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED']
+/**
+ * Order states a stop without a rider can be in and still need one: before it
+ * goes out, and out for delivery (its rider was removed from Staff, which
+ * frees their stops).
+ */
+const ASSIGNABLE = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 
 /** Advisory lock namespace for "giving out stops" (one auto-assign at a time). */
 const ASSIGN_LOCK = 427714301
