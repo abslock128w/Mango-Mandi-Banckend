@@ -49,3 +49,16 @@ for (const path of ["/", "/c/all", "/p/alphonso", "/search?q=mango", "/location"
     expect(await page.evaluate(small)).toEqual([]);
   });
 }
+
+test("product cards keep the price and box size on one line each beside ADD at 360 px", async ({ page }) => {
+  test.skip(page.viewportSize()!.width > 400, "phones only");
+  await choosePincode(page);
+  await page.goto("/c/all");
+  const card = page.getByTestId("product-card").first();
+  await expect(card).toBeVisible();
+  const lines = await card.evaluate((c) => {
+    const col = c.querySelector(".mt-auto > div") as HTMLElement;
+    return Array.from(col.children).map((el) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight)));
+  });
+  expect(lines).toEqual([1, 1]);
+});

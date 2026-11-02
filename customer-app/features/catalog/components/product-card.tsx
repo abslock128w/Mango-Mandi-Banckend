@@ -106,7 +106,8 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
             <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
-            <span className="text-11 text-muted">{sku.boxLabel} box</span>
+            {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
+            <span className="text-11 whitespace-nowrap text-muted">{sku.boxLabel}</span>
           </div>
           {/* A box already in the cart keeps its stepper when the day sells out, so it can be removed here. */}
           {unavailable && qty === 0 ? (
