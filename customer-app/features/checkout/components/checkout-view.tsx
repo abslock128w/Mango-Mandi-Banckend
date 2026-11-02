@@ -347,8 +347,10 @@ function CheckoutForm({ pincode }: { pincode: string }) {
     if (listingId) for (const b of bulk) if (b.listingId === listingId && (!stage || b.stage === stage)) removeBulk(b.listingId, b.stage);
   };
   const promoError = quote.data?.promoError ?? null;
+  // The same problem already shown above with its actions (stock ran short: the refreshed quote fails too) is not repeated.
+  const sameAsBlocking = blocking instanceof ApiError && pay.error instanceof ApiError && blocking.code === pay.error.code;
   const payError =
-    pay.error && !unpaid && !(pay.error instanceof ApiError && ["SLOT_FULL", "SLOT_REQUIRED", "PHONE_REQUIRED"].includes(pay.error.code)) ? checkoutProblem(pay.error, lines, bulk) : null;
+    pay.error && !unpaid && !sameAsBlocking && !(pay.error instanceof ApiError && ["SLOT_FULL", "SLOT_REQUIRED", "PHONE_REQUIRED"].includes(pay.error.code)) ? checkoutProblem(pay.error, lines, bulk) : null;
   const working = sync.isFetching || quote.isFetching;
   const subtotal = cartSubtotal(lines, bulk);
   const removePromo = () => {
