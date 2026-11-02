@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { browserStorage } from "@/lib/browser-storage";
 import type { Address } from "@/lib/types";
 
 /**
@@ -34,7 +35,7 @@ export const useLocation = create<LocationState>()(
       removeAddress: (id) => set((s) => ({ saved: s.saved.filter((x) => x.id !== id), address: s.address?.id === id ? null : s.address })),
       setDeliveryDate: (deliveryDate) => set({ deliveryDate }),
     }),
-    { name: "mm.where", storage: createJSONStorage(() => localStorage), skipHydration: true, version: 2 },
+    { name: "mm.where", storage: createJSONStorage(browserStorage), skipHydration: true, version: 2 },
   ),
 );
 

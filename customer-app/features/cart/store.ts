@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { browserStorage } from "@/lib/browser-storage";
 import { config } from "@/lib/config";
 import { productImage } from "@/lib/catalog";
 import type { BulkCartLine, CartLine, Product, RipenessStage, Sku } from "@/lib/types";
@@ -67,7 +68,7 @@ export const useCart = create<CartState>()(
       setSlot: (slotId) => set({ slotId }),
       setPromo: (promoCode) => set({ promoCode }),
     }),
-    { name: "mm.cart", storage: createJSONStorage(() => localStorage), skipHydration: true, version: 2 },
+    { name: "mm.cart", storage: createJSONStorage(browserStorage), skipHydration: true, version: 2 },
   ),
 );
 

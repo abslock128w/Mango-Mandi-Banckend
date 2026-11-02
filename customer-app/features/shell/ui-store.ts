@@ -1,6 +1,7 @@
 "use client";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { browserStorage } from "@/lib/browser-storage";
 
 export interface Toast {
   id: number;
@@ -49,7 +50,7 @@ export const useUi = create<UiState>()(
     }),
     {
       name: "mm.ui",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(browserStorage),
       skipHydration: true,
       partialize: (s) => ({ recentSearches: s.recentSearches, notified: s.notified }),
     },
