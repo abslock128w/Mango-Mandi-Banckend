@@ -34,10 +34,10 @@ export function Footer() {
         </div>
         <nav aria-label="Shop">
           <p className="text-13 font-bold text-ink">Shop</p>
-          <ul className="mt-2 space-y-0.5 text-13">
+          <ul className="mt-2 text-13">
             {links.map(([label, href]) => (
               <li key={href}>
-                <Link className="inline-flex min-h-9 items-center text-muted hover:text-action" href={href}>
+                <Link className="inline-flex min-h-11 min-w-11 items-center text-muted hover:text-action" href={href}>
                   {label}
                 </Link>
               </li>
@@ -46,10 +46,10 @@ export function Footer() {
         </nav>
         <nav aria-label="Varieties">
           <p className="text-13 font-bold text-ink">Varieties</p>
-          <ul className="mt-2 space-y-0.5 text-13">
+          <ul className="mt-2 text-13">
             {(products ?? []).map((p) => (
               <li key={p.id}>
-                <Link className="inline-flex min-h-9 items-center text-muted hover:text-action" href={`/p/${p.id}`}>
+                <Link className="inline-flex min-h-11 min-w-11 items-center text-muted hover:text-action" href={`/p/${p.id}`}>
                   {p.name}
                 </Link>
               </li>
@@ -58,10 +58,10 @@ export function Footer() {
         </nav>
         <nav aria-label="About">
           <p className="text-13 font-bold text-ink">About</p>
-          <ul className="mt-2 space-y-0.5 text-13">
+          <ul className="mt-2 text-13">
             {info.map(([label, href]) => (
               <li key={href}>
-                <Link className="inline-flex min-h-9 items-center text-muted hover:text-action" href={href}>
+                <Link className="inline-flex min-h-11 min-w-11 items-center text-muted hover:text-action" href={href}>
                   {label}
                 </Link>
               </li>

@@ -148,7 +148,7 @@ function RipenessExplainer({ product, sel }: { product: Product; sel: Selection 
         {sel.sku.eatBy && <span className="text-muted"> Best eaten by {longDate(sel.sku.eatBy)}.</span>}
       </p>
       <details className="mt-2 text-12">
-        <summary className="cursor-pointer py-1 font-semibold text-action">How to store them</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-action">How to store them</summary>
         <ul className="mt-1 list-disc space-y-1 pl-4 text-muted">
           {RIPENESS[sel.stage].care.map((c) => (
             <li key={c}>{c}</li>

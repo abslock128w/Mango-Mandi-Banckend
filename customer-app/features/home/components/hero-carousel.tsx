@@ -28,9 +28,9 @@ function Dots() {
   const { selected, count, scrollTo } = useCarousel();
   return (
     // Fixed height: the dots appear once Embla has measured, without pushing the page down.
-    <div className="mt-2.5 flex h-6 justify-center gap-1.5">
+    <div className="mt-3 flex h-6 justify-center gap-1">
       {Array.from({ length: count }, (_, i) => (
-        <button key={i} type="button" onClick={() => scrollTo(i)} aria-label={`Go to slide ${i + 1}`} aria-current={i === selected} className="relative grid h-6 place-items-center px-0.5">
+        <button key={i} type="button" onClick={() => scrollTo(i)} aria-label={`Go to slide ${i + 1}`} aria-current={i === selected} className="relative grid h-6 min-w-6 place-items-center px-1 after:absolute after:inset-x-0 after:-inset-y-2.5">
           <m.span
             className={cn("block h-1.5 rounded-full", i === selected ? "bg-ink" : "bg-line")}
             initial={false}

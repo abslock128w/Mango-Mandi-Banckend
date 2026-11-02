@@ -20,9 +20,9 @@ export function ProductPage({ id }: { id: string }) {
     <PageTransition>
       <div className="mx-auto max-w-content px-4 pt-3 pb-40 lg:px-6 lg:pt-5 lg:pb-0">
         <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-12 text-muted">
-          <Link href="/" className="hover:text-action">Home</Link>
+          <Link href="/" className="tap hover:text-action">Home</Link>
           <ChevronRight aria-hidden size={14} />
-          <Link href="/c/all" className="hover:text-action">Mangoes</Link>
+          <Link href="/c/all" className="tap hover:text-action">Mangoes</Link>
           <ChevronRight aria-hidden size={14} />
           <span className="text-ink">{product.name}</span>
         </nav>

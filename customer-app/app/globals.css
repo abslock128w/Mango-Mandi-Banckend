@@ -29,6 +29,17 @@
   border-color: var(--color-line);
 }
 
+/* A control that looks smaller than 44 px still takes a 44 x 44 px touch (--tap-min in
+   design/COMPONENTS.md): an invisible box centred on it, part of the control for clicks. */
+@utility tap {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2));
+  }
+}
+
 @utility no-scrollbar {
   scrollbar-width: none;
   &::-webkit-scrollbar {

@@ -57,7 +57,7 @@ function Chip({ children, active, onClick, count }: { children: React.ReactNode;
       type="button"
       onClick={onClick}
       className={cn(
-        "press flex h-9 shrink-0 items-center gap-1 rounded-8 border px-3 text-12 font-medium whitespace-nowrap",
+        "press tap flex h-9 shrink-0 items-center gap-1 rounded-8 border px-3 text-12 font-medium whitespace-nowrap",
         active ? "border-action bg-tint text-action" : "border-line bg-surface text-ink",
       )}
     >

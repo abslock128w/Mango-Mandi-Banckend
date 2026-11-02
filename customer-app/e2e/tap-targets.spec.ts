@@ -1,0 +1,51 @@
+import { expect, test } from "@playwright/test";
+import { choosePincode } from "./helpers";
+
+// Every control is at least 44 x 44 px (design/COMPONENTS.md, "Shape": --tap-min). A control may
+// look smaller and reach 44 px with an invisible ::after hit area (after:-inset-y-...). Exempt:
+// links inside running text (WCAG 2.5.8's inline exception) and visually hidden skip links. The
+// carousel's slide dots are 24 x 44 px: 44 px wide dots would spread the pager over a third of a
+// phone; slides also swipe, and 24 px meets WCAG 2.5.8 AA.
+const small = () => {
+  const out: string[] = [];
+  const sel = 'a[href], button, input:not([type=hidden]), select, textarea, [role=button], [role=tab], [role=radio], [role=checkbox], [role=switch], summary';
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+    const box = el.getBoundingClientRect();
+    const s = getComputedStyle(el);
+    if (box.width <= 1 || box.height <= 1 || s.visibility === "hidden" || s.display === "none") continue;
+    if (el.closest("[aria-hidden=true], [inert]")) continue;
+    const af = getComputedStyle(el, "::after");
+    const px = (v: string) => (v.endsWith("px") ? parseFloat(v) : 0);
+    let w = box.width;
+    let h = box.height;
+    if (af.content !== "none" && af.position === "absolute") {
+      w = Math.max(w, box.width - px(af.left) - px(af.right));
+      h = Math.max(h, box.height - px(af.top) - px(af.bottom));
+    }
+    const inline = el.tagName === "A" && s.display === "inline" && /\S/.test((el.parentElement?.textContent ?? "").replace(el.textContent ?? "", ""));
+    const dot = (el.getAttribute("aria-label") ?? "").startsWith("Go to slide") && w >= 24 && h >= 44;
+    if (!inline && !dot && (Math.round(w) < 44 || Math.round(h) < 44)) {
+      const name = (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().replace(/\s+/g, " ").slice(0, 40);
+      out.push(`${el.tagName.toLowerCase()} "${name}" ${Math.round(w)}x${Math.round(h)}`);
+    }
+  }
+  return [...new Set(out)];
+};
+
+for (const path of ["/", "/c/all", "/p/alphonso", "/search?q=mango", "/location", "/help", "/bulk", "/preorder", "/login"]) {
+  test(`${path}: every control is at least 44 px`, async ({ page }) => {
+    await choosePincode(page);
+    await page.goto(path);
+    await page.waitForLoadState("networkidle");
+    // Rails below the fold draw when scrolled to.
+    await page.evaluate(async () => {
+      for (let y = 0; y < document.body.scrollHeight; y += 600) {
+        window.scrollTo(0, y);
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(small)).toEqual([]);
+  });
+}

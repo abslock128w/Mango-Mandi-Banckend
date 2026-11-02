@@ -96,7 +96,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
         </span>
-        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="mt-1.5">
+        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-2 block">
           <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">

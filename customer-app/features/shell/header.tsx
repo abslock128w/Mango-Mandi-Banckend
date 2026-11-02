@@ -48,7 +48,7 @@ export function AddressLine({ className }: { className?: string }) {
   const address = useLocation((s) => s.address);
   const hydrated = useUi((s) => s.hydrated);
   return (
-    <Link href="/location" className={cn("inline-flex max-w-full min-w-0 items-center gap-0.5 text-13 text-ink", className)}>
+    <Link href="/location" className={cn("tap inline-flex max-w-full min-w-0 items-center gap-1 text-13 text-ink", className)}>
       <span className="truncate">
         {hydrated && address ? (
           <>
@@ -181,7 +181,7 @@ export function Header() {
           <AddressLine className="mt-0.5" />
         </div>
         <SearchLink className="flex-1" />
-        <Link href={hydrated && token ? "/account" : "/login?next=/account"} className="text-17 text-ink hover:text-action">
+        <Link href={hydrated && token ? "/account" : "/login?next=/account"} className="tap text-17 text-ink hover:text-action">
           {hydrated && token ? "Account" : "Sign in"}
         </Link>
         <DesktopCart />
