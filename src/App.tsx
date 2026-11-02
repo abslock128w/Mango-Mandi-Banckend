@@ -113,17 +113,24 @@ export default function App() {
   const queryClient = useQueryClient()
 
   // One silent refresh on load restores a session from the httpOnly cookie.
+  const [unreachable, setUnreachable] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let cancelled = false
     api.bootstrap().then((restored) => {
       if (cancelled) return
-      setMe(restored)
-      setBooting(false)
+      if (restored === 'unavailable') {
+        setUnreachable(true)
+      } else {
+        setUnreachable(false)
+        setMe(restored)
+        setBooting(false)
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [attempt])
 
   const [onSignOut] = useState(() => () => {
     setMe(null)
@@ -135,7 +142,15 @@ export default function App() {
       <ApiBaseBanner apiSet={API_SET} />
       <OfflineBanner />
       <SignOutListener onSignOut={onSignOut} />
-      {booting ? (
+      {booting && unreachable ? (
+        <main className="boot-unreachable" role="alert">
+          <h1>Can&apos;t reach Mango Ops</h1>
+          <p>The server is busy or your connection dropped. You are still signed in.</p>
+          <button type="button" className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+            Try again
+          </button>
+        </main>
+      ) : booting ? (
         <Spinner label="Restoring session" />
       ) : (
         // Layout has its own boundary around the screen, so the menu stays while a

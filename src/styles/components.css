@@ -1172,3 +1172,22 @@ dl.kv dd {
   border-radius: inherit;
   background: var(--red-600);
 }
+
+/* The API could not be reached while restoring a session: not the sign-in form, a way to retry. */
+.boot-unreachable {
+  max-width: 420px;
+  margin: var(--space-12) auto;
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+.boot-unreachable h1 {
+  margin: 0;
+}
+.boot-unreachable p {
+  margin: var(--space-2) 0 var(--space-6);
+  font-size: var(--text-base);
+  color: var(--color-ink-2);
+}

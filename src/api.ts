@@ -234,12 +234,20 @@ async function firstStep(path: string, body: unknown): Promise<SignInResult> {
 
 export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
-  async bootstrap(): Promise<Me | null> {
+  /**
+   * Restores a session from the refresh cookie on load. 'unavailable' when the API is busy,
+   * rate-limited or unreachable: that says nothing about the session, so the panel must not
+   * show the sign-in form for it (the person is still signed in once the API answers).
+   */
+  async bootstrap(): Promise<Me | null | 'unavailable'> {
     if (!API_SET) return null
-    if ((await refreshOnce()) !== 'ok') return null
+    const refreshed = await refreshOnce()
+    if (refreshed === 'unavailable') return 'unavailable'
+    if (refreshed !== 'ok') return null
     try {
       return await request<Me>('GET', '/auth/me')
-    } catch {
+    } catch (e) {
+      if (e instanceof TypeError || (e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 429))) return 'unavailable'
       accessToken = null
       return null
     }
