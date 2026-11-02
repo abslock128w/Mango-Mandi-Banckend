@@ -85,6 +85,11 @@ export default function Login() {
                   Your session has ended. Please sign in again.
                 </div>
               )}
+              {params.get('reason') === 'elsewhere' && (
+                <div className="notice notice-warn" role="status">
+                  You signed out in another tab. Sign in again to carry on.
+                </div>
+              )}
               <GoogleSignIn onSignedIn={afterFirstStep} onError={setError} />
               <form onSubmit={onSubmit} noValidate>
                 <div className="field">

@@ -147,6 +147,18 @@ function signOutLocally() {
   window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'expired' } }))
 }
 
+/**
+ * Signing out in one tab signs out the others. Their access tokens would otherwise keep working
+ * until they lapse (up to 15 minutes): on a shared computer the next person would find the panel
+ * still open in another tab. BroadcastChannel reaches every tab of this panel in this browser.
+ */
+const sessionChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('mango-ops-session')
+sessionChannel?.addEventListener('message', (e: MessageEvent<{ type?: string }>) => {
+  if (e.data?.type !== 'signed-out' || !accessToken) return
+  accessToken = null
+  window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'elsewhere' } }))
+})
+
 /** A Blob body is sent as-is (photos); anything else as JSON. */
 async function send(method: string, path: string, body?: unknown, retried = false, extra?: Record<string, string>): Promise<Response> {
   const headers: Record<string, string> = { ...extra }
@@ -291,6 +303,7 @@ export const api = {
       // ignore
     }
     accessToken = null
+    sessionChannel?.postMessage({ type: 'signed-out' })
     window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'logout' } }))
   },
 

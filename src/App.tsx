@@ -99,7 +99,7 @@ function SignOutListener({ onSignOut }: { onSignOut: () => void }) {
     function handle(e: Event) {
       const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason
       onSignOut()
-      navigate(reason === 'expired' ? '/login?reason=expired' : '/login', { replace: true })
+      navigate(reason === 'expired' || reason === 'elsewhere' ? `/login?reason=${reason}` : '/login', { replace: true })
     }
     window.addEventListener(SIGNOUT_EVENT, handle)
     return () => window.removeEventListener(SIGNOUT_EVENT, handle)
