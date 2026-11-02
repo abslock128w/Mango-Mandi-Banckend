@@ -314,6 +314,8 @@ export function seed() {
 }
 
 export type MockState = ReturnType<typeof seed> & {
+  /** Riders for the Deliveries page's picker and the nearest-rider assignment (empty: none on Staff). */
+  riders: { id: string; email: string; name: string | null }[]
   signedIn: boolean
   role: Role
   twoStep: { enabled: boolean; required: boolean; setupCodeNeeded: boolean }
@@ -371,6 +373,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       setupCodeNeeded: opts.twoStep === 'required-with-code',
     },
     calls: [],
+    riders: [{ id: 'adm9', email: 'rider@mandimangoes.test', name: null }],
     features: opts.features ?? null,
     growth: growthSeed(),
   }
@@ -618,7 +621,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     if (path === '/pack-list') return json(route, 200, state.packList)
     if (path === '/manifest') return json(route, 200, state.manifest)
     // Giving stops to riders (SEC-02).
-    if (path === '/riders') return json(route, 200, [{ id: 'adm9', email: 'rider@mandimangoes.test' }])
+    if (path === '/riders') return json(route, 200, state.riders)
+    // The nearest-rider assignment (nearest.js): every unassigned stop goes to the first rider, 1.2 km away.
+    if (path === '/manifest/auto-assign') {
+      const rider = state.riders[0]
+      const assigned: { orderId: string; number: string; riderId: string; riderName: string; riderKm: number; warehouseId: string; warehouseName: string; tripKm: number }[] = []
+      for (const o of state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders)) as { id: string; number: string; rider?: unknown }[]) {
+        if (!rider || o.rider) continue
+        o.rider = { id: rider.id, email: rider.email, name: rider.name, firstName: rider.name?.split(' ')[0] ?? rider.email }
+        assigned.push({ orderId: o.id, number: o.number, riderId: rider.id, riderName: rider.name ?? rider.email, riderKm: 1.2, warehouseId: 'wh_south', warehouseName: 'Electronic City hub', tripKm: 9.8 })
+      }
+      return json(route, 200, { assigned, riders: state.riders.length })
+    }
     if (path === '/manifest/assign') {
       const b = body as { riderId: string | null; orderIds?: string[] }
       const assigned: string[] = []

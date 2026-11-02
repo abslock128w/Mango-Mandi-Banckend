@@ -568,8 +568,7 @@ router.post(
       z.object({ date: z.string().refine(isDate, 'date must be YYYY-MM-DD'), orderIds: z.array(z.string().max(40)).min(1).max(500).optional() }),
       req.body,
     )
-    const assigned = await tx((c) => assignNearest(c, b.date, req.actor, { orderIds: b.orderIds ?? null }))
-    res.json({ assigned })
+    res.json(await tx((c) => assignNearest(c, b.date, req.actor, { orderIds: b.orderIds ?? null })))
   }),
 )
 

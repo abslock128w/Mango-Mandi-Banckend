@@ -64,7 +64,9 @@ export function choose(stop, riders, warehouses) {
 /**
  * Gives every unassigned stop on the date (or only orderIds) to its nearest rider,
  * with the pickup warehouse, and notes why on the order's history.
- * Returns [{ orderId, number, riderId, riderName, riderKm, warehouseId, warehouseName, tripKm }].
+ * Returns { assigned: [{ orderId, number, riderId, riderName, riderKm, warehouseId, warehouseName, tripKm }],
+ * riders } with how many riders there are, so "nothing assigned" can be told apart
+ * from "nobody to assign to".
  */
 export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
   const { rows: stops } = await c.query(
@@ -73,7 +75,7 @@ export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
       ORDER BY o.slot_id NULLS LAST, o.number FOR UPDATE OF o`,
     orderIds ? [date, ASSIGNABLE, orderIds] : [date, ASSIGNABLE],
   )
-  if (!stops.length) return []
+  if (!stops.length) return { assigned: [], riders: (await c.query("SELECT COUNT(*)::int AS n FROM admin_users WHERE role = 'RIDER'")).rows[0].n }
   const { rows: riderRows } = await c.query(
     `SELECT u.id, u.display_name, u.email,
             (SELECT COUNT(*)::int FROM orders x WHERE x.rider_id = u.id AND x.delivery_date = $1 AND x.status <> 'CANCELLED') AS stops,
@@ -109,5 +111,5 @@ export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
       tripKm: pick.tripKm === null ? null : Math.round(pick.tripKm * 10) / 10,
     })
   }
-  return out
+  return { assigned: out, riders: riders.length }
 }

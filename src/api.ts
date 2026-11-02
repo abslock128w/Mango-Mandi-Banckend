@@ -460,7 +460,7 @@ export const api = {
   /** Gives stops to a rider (null: to nobody): the listed orders, or every order still to deliver in a slot. */
   /** Every unassigned stop on the date to its nearest rider, with the warehouse that makes his trip shortest. */
   autoAssign: (date: string) =>
-    request<{ assigned: { orderId: string; number: string; riderName: string; riderKm: number | null; warehouseName: string | null }[] }>('POST', '/manifest/auto-assign', { date }),
+    request<{ assigned: { orderId: string; number: string; riderName: string; riderKm: number | null; warehouseName: string | null }[]; riders: number }>('POST', '/manifest/auto-assign', { date }),
   assignRiders: (input: { date: string; riderId: string | null; orderIds?: string[]; slotId?: string | null }) =>
     request<{ assigned: string[] }>('POST', '/manifest/assign', input),
   uploadDeliveryPhoto: (orderId: string, photo: Blob) => request<{ id: string }>('POST', `/orders/${id(orderId)}/delivery-photos`, photo),

@@ -434,7 +434,8 @@ function AssignNearest({ day }: { day: string }) {
   const m = useMutation({
     mutationFn: () => api.autoAssign(day),
     onSuccess: (r) => {
-      if (!r.assigned.length) toast.success('Every stop already has a rider')
+      if (!r.assigned.length && !r.riders) toast.error(new Error('There are no riders yet: add one on Staff, with the role Rider'))
+      else if (!r.assigned.length) toast.success('Every stop already has a rider')
       else {
         const first = r.assigned[0]
         const where = first.warehouseName ? `, pick up at ${first.warehouseName}` : ''

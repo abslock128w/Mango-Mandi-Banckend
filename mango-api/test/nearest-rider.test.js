@@ -584,8 +584,8 @@ describe('nearest rider: edge cases', () => {
   })
 
   test('direct: assignNearest in a transaction handles an empty date and bad ids quietly', async () => {
-    assert.deepEqual(await tx((c) => assignNearest(c, '2026-10-20', { type: 'admin', id: 'x', label: 'x' })), [])
-    assert.deepEqual(await tx((c) => assignNearest(c, date, { type: 'admin', id: 'x', label: 'x' }, { orderIds: ['nope'] })), [])
+    assert.deepEqual(await tx((c) => assignNearest(c, '2026-10-20', { type: 'admin', id: 'x', label: 'x' })), { assigned: [], riders: 0 })
+    assert.deepEqual(await tx((c) => assignNearest(c, date, { type: 'admin', id: 'x', label: 'x' }, { orderIds: ['nope'] })), { assigned: [], riders: 0 })
     assert.equal((await autoAssign({ date: 'yesterday' })).status, 400)
     assert.equal((await autoAssign({ date, orderIds: [] })).status, 400)
   })
