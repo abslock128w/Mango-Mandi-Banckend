@@ -273,7 +273,7 @@ function BillDownload({ order }: { order: Order }) {
 export function TrackingView({ id }: { id: string }) {
   const { hydrated, signedIn } = useSignedInReady();
   const { data: order, isError, error, refetch } = useOrder(id);
-  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}`} title="Log in to see this order" />;
+  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}`} title="Sign in to see this order" />;
   if (isError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (

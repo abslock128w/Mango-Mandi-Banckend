@@ -239,7 +239,7 @@ export function PayBar({ onNavigate }: { onNavigate?: () => void }) {
           <span className="text-11 font-medium uppercase">Total</span>
         </span>
         <span className="flex items-center gap-0.5 text-17 font-bold">
-          {signedIn ? "Proceed to checkout" : "Login to proceed"} <ChevronRight aria-hidden size={20} strokeWidth={2} />
+          {signedIn ? "Proceed to checkout" : "Sign in to proceed"} <ChevronRight aria-hidden size={20} strokeWidth={2} />
         </span>
       </button>
     </div>

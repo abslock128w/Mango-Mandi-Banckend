@@ -324,7 +324,7 @@ function BookForm({ weeks, stages, cancelPolicy, onStale }: { weeks: PreorderWee
           className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
         >
           {book.isPending && <Loader2 aria-hidden size={20} className="animate-spin" />}
-          {!signedIn ? (waitlist ? "Log in to join the waitlist" : "Log in to book") : !pincode ? "Set your pincode" : waitlist ? "Join the waitlist" : `Book and pay ${rupees(total)}`}
+          {!signedIn ? (waitlist ? "Sign in to join the waitlist" : "Sign in to book") : !pincode ? "Set your pincode" : waitlist ? "Join the waitlist" : `Book and pay ${rupees(total)}`}
         </button>
         {!signedIn && <p className="text-center text-12 text-muted">You log in with your mobile number, then come back here to book and pay.</p>}
       </form>

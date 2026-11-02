@@ -18,9 +18,9 @@ export function PreordersList() {
   if (hydrated && !signedIn)
     return (
       <div className="flex flex-col items-center px-6 py-16 text-center">
-        <p className="text-17 font-bold text-ink">Log in to see your bookings</p>
+        <p className="text-17 font-bold text-ink">Sign in to see your bookings</p>
         <Link href="/login?next=/preorders" className="press mt-4 inline-flex h-11 items-center rounded-12 bg-action px-5 text-15 font-semibold text-white">
-          Log in
+          Sign in
         </Link>
       </div>
     );

@@ -182,7 +182,7 @@ export function Header() {
         </div>
         <SearchLink className="flex-1" />
         <Link href={hydrated && token ? "/account" : "/login?next=/account"} className="text-17 text-ink hover:text-action">
-          {hydrated && token ? "Account" : "Login"}
+          {hydrated && token ? "Account" : "Sign in"}
         </Link>
         <DesktopCart />
       </div>

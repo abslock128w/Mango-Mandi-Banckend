@@ -40,7 +40,7 @@ export function SuccessView({ id }: { id: string }) {
     }
   }, [paid, qc, id]);
 
-  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/success`} title="Log in to see your order" />;
+  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/success`} title="Sign in to see your order" />;
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center px-4 pt-14 pb-10 text-center">

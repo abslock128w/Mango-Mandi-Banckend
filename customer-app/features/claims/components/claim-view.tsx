@@ -33,7 +33,7 @@ export function ClaimView({ id }: { id: string }) {
   const { hydrated, signedIn } = useSignedInReady();
   const order = useOrder(id);
   const claims = useClaims();
-  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/claim`} title="Log in to report a problem" />;
+  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/claim`} title="Sign in to report a problem" />;
   if (order.isError)
     return (
       <div className="p-8 text-center" role="alert">
