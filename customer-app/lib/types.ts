@@ -418,9 +418,3 @@ export interface SearchSuggestion {
   reason?: string;
 }
 
-export interface SearchResult {
-  query: string;
-  matchedBy: "name" | "synonym" | "none";
-  suggestions: SearchSuggestion[];
-  products: Product[];
-}

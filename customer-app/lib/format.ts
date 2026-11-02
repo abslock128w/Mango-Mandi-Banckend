@@ -1,12 +1,10 @@
-import type { BoxSize, OrderStatus, RipenessStage } from "./types";
+import type { OrderStatus, RipenessStage } from "./types";
 
 const inr0 = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 const inr2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** ₹1,899 (paise shown only when there are any: ₹999.50). Prices include GST. */
 export const rupees = (n: number) => `₹${Number.isInteger(Math.round(n * 100) / 100) ? inr0.format(n) : inr2.format(n)}`;
-
-export const boxLabel = (size: BoxSize) => `${size} kg`;
 
 export const ripenessLabel: Record<RipenessStage, string> = {
   RAW: "Raw",
@@ -37,14 +35,11 @@ export function dayName(day: string) {
   if (day === addDays(t, 1)) return "Tomorrow";
   return atNoon(day).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: IST });
 }
-/** "1 Nov" */
-export const shortDate = (day: string) => atNoon(day).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: IST });
 /** "Sat, 1 Nov" */
 export const longDate = (day: string) => atNoon(day).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: IST });
 /** "1 Nov, 4:05 pm" for timestamps */
 export const dateTime = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: IST });
-export const timeOnly = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: IST });
 
 /** "07:00" to "7 am", "16:30" to "4:30 pm" */
 export function clock(hhmm: string) {

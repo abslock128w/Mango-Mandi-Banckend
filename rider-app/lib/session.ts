@@ -22,8 +22,6 @@ function set(next: SessionState) {
 }
 
 export const getAccessToken = () => accessToken;
-export const getSessionState = () => state;
-
 export function useSession(): SessionState {
   return useSyncExternalStore(
     (l) => {

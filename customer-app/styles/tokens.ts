@@ -13,4 +13,3 @@ export const tokens = {
 } as const;
 
 /** Colours handed to the Google Maps JS API (it can't read CSS variables). */
-export const mapTokens = { route: tokens.action, routeFaint: "#0B6E5Baa" } as const;

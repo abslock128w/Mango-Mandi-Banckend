@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "e2e": "playwright test",
     "lhci": "lhci autorun --config=lighthouserc.cjs",
-    "check": "npm run lint && npm run typecheck"
+    "check": "npm run lint && npm run deadcode && npm run typecheck",
+    "deadcode": "knip"
   },
   "dependencies": {
     "@lottiefiles/dotlottie-react": "^0.20.0",
@@ -36,6 +37,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
+    "knip": "^5.88.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -120,18 +120,6 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   );
 }
 
-export function DiscountRibbon({ percent }: { percent: number }) {
-  return (
-    <span
-      className="absolute -top-3 left-0 flex w-7 flex-col items-center bg-ribbon pt-1 pb-2 text-center text-9 leading-[10px] font-extrabold text-white [clip-path:polygon(0_0,100%_0,100%_100%,75%_88%,50%_100%,25%_88%,0_100%)]"
-      aria-label={`${percent}% off`}
-    >
-      <span>{percent}%</span>
-      <span>OFF</span>
-    </span>
-  );
-}
-
 export function ProductCardSkeleton({ fixed }: { fixed?: boolean }) {
   return (
     <div aria-hidden className={cn("flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card", fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full")}>

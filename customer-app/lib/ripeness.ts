@@ -31,6 +31,3 @@ export const RIPENESS: Record<RipenessStage, { label: string; hint: string; shor
     ],
   },
 };
-
-export const stageSlug: Record<RipenessStage, string> = { RIPE: "ripe", SEMI_RIPE: "semi-ripe", RAW: "raw" };
-export const slugStage = (s: string | null | undefined): RipenessStage | null => (s === "ripe" ? "RIPE" : s === "semi-ripe" ? "SEMI_RIPE" : s === "raw" ? "RAW" : null);
