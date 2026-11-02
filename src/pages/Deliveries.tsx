@@ -127,7 +127,7 @@ export default function Deliveries() {
         q.data.runs.length === 0 && !q.data.unassigned ? (
           <>
             <EmptyState>No deliveries on {date(day)}.</EmptyState>
-            <NextDay day={day} onPick={setDay} />
+            <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
           </>
         ) : (
           <RiderRoute key={day} manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
@@ -139,7 +139,7 @@ export default function Deliveries() {
       ) : q.data.runs.length === 0 ? (
         <>
           <EmptyState>No deliveries on {date(day)}.</EmptyState>
-          <NextDay day={day} onPick={setDay} />
+          <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
         </>
       ) : (
         <>
@@ -174,14 +174,19 @@ export default function Deliveries() {
 }
 
 /** On an empty day, points at the next day (within a few) that has deliveries. */
-function NextDay({ day, onPick }: { day: string; onPick: (d: string) => void }) {
-  const days = Array.from({ length: LOOK_AHEAD }, (_, i) => addDays(day, i + 1))
+// A rider may open only today's and tomorrow's run (SEC-02): `lastDay` stops the look-ahead there,
+// rather than asking for days the API refuses and then saying they are empty.
+function NextDay({ day, onPick, lastDay }: { day: string; onPick: (d: string) => void; lastDay: string | null }) {
+  const days = Array.from({ length: LOOK_AHEAD }, (_, i) => addDays(day, i + 1)).filter((d) => !lastDay || d <= lastDay)
   const results = useQueries({
     queries: days.map((d) => ({ queryKey: ['manifest', d], queryFn: () => api.manifest(d), staleTime: 60_000 })),
   })
   if (results.some((r) => r.isPending)) return null
   const i = results.findIndex((r) => (r.data?.runs.length ?? 0) > 0)
-  if (i < 0) return <p className="muted small">Nothing in the next {LOOK_AHEAD} days either.</p>
+  if (i < 0) {
+    if (days.length === 0) return null
+    return <p className="muted small">{days.length === 1 ? `Nothing on ${date(days[0])} either.` : `Nothing in the next ${days.length} days either.`}</p>
+  }
   const next = results[i].data!
   return (
     <p>
