@@ -67,7 +67,7 @@ body {
   }
   .sidebar .nav-link {
     min-height: 38px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: var(--nav-ink);
     font-weight: 520;
   }
@@ -117,7 +117,7 @@ body {
   background: color-mix(in srgb, var(--surface) 86%, transparent);
 }
 .search-btn {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-xs);
 }
 .avatar {
@@ -133,7 +133,7 @@ body {
   width: var(--control-h);
   height: var(--control-h);
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   color: var(--text-2);
   cursor: pointer;
@@ -287,7 +287,7 @@ a.kpi-link:hover {
 .morning-brief-icon {
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 6px 16px -6px rgb(255 133 82 / 70%);
 }
 .morning-brief-title {
@@ -314,8 +314,8 @@ th {
 }
 th,
 td {
-  padding-top: 11px;
-  padding-bottom: 11px;
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
 }
 tbody tr:hover {
   background: color-mix(in srgb, var(--color-saffron) 7%, transparent);
@@ -324,7 +324,7 @@ tbody tr:hover {
 /* ---------- Controls ---------- */
 
 .btn {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-weight: 620;
 }
 /* A solid fill (contrast checkers cannot read text over a gradient); low specificity (:where), so the
@@ -335,10 +335,10 @@ tbody tr:hover {
 input:not([type='checkbox']):not([type='radio']),
 select,
 textarea {
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 .badge {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 /* Eight tiles in one row only on very wide screens, where each still fits its label. */
@@ -360,8 +360,8 @@ textarea {
 }
 .brand-ops {
   align-self: center;
-  padding: 2px 7px;
-  border-radius: 999px;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
   background: var(--color-saffron);
   color: var(--color-on-accent);
   font-size: var(--text-2xs);
