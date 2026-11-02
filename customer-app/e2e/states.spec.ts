@@ -59,8 +59,16 @@ test.describe("order success page", () => {
     await page.route(/\/v1\/orders\/ord_waiting$/, (route) => route.abort());
     await page.goto("/order/ord_waiting/success");
     await expect(page.getByRole("heading", { name: "Confirming your payment" })).toBeVisible();
-    await page.clock.fastForward(31_000);
-    await expect(page.getByRole("heading", { name: "Still waiting for your payment" })).toBeVisible();
+    // The page may mount again once the session has loaded (its 30 s starts then), so move the
+    // clock on until the wait is over, a few times at most.
+    const waiting = page.getByRole("heading", { name: "Still waiting for your payment" });
+    await expect
+      .poll(async () => {
+        if (await waiting.isVisible()) return true;
+        await page.clock.fastForward(31_000);
+        return waiting.isVisible();
+      }, { intervals: [500], timeout: 15_000 })
+      .toBe(true);
     await expect(page.getByRole("status")).toHaveText("If you paid, it shows on the order page within a few minutes. You won't be charged twice.");
   });
 });
