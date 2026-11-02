@@ -16,9 +16,9 @@ Severity: **Critical** (money, data loss, security hole, a flow that cannot fini
 | Setup: merge | Done | 3 conflicts (demo sign-in switches); both branches' switches kept |
 | 1. Build and static | Done | 0 errors, 0 warnings in typecheck, lint, builds; knip and `audit:prod` added |
 | 2. API | Done | 1,234 node tests pass; contract walk (8,316 bad-input requests, 100 illegal moves, 11 double sends, hand-worked figures) finds no API defect; upgrade from `main` checked (docs/qa/api-upgrade.md) |
-| 3. Shop | In progress | Crawl of 27 pages x 5 widths x Chromium and WebKit: no console errors, no sideways scroll |
-| 4. Panel | Not started | |
-| 5. Rider app | Not started | |
+| 3. Shop | Done | Crawl of 27 pages x 5 widths x Chromium and WebKit: no console errors, no sideways scroll; 230 e2e runs (5 widths x 2 browsers) pass |
+| 4. Panel | Done | Crawl of 37 screens x 5 roles, 5 widths, light and dark, Chromium and WebKit (720 views): no sideways scroll; new specs for two tabs, refresh, expiry, theme, boot, new version |
+| 5. Rider app | Done | 14 e2e pass: login, PIN, today, pickup, five steps, 3 wrong codes, not home, override, offline queue, wake lock, location, reinstall |
 | 6. Pixel and visual | Not started | |
 | 7. Accessibility and performance | Not started | |
 | 8. Cross-app journeys | Not started | |
@@ -42,6 +42,12 @@ Severity: **Critical** (money, data loss, security hole, a flow that cannot fini
 | 13 | Medium | Shop | `features/shell/offline-notice.tsx` (new) | No offline handling at all: stale pages, broken image icons, silent failures | f5456e5 | `e2e/offline.spec.ts` |
 | 14 | Medium | Shop | `features/checkout/payment.ts`, `dev-pay.tsx` | "Fail payment (test)" (also the demo's DEMO_PAYMENTS) spun 10 s, then left the page with no word; the customer could not retry in place | c28beae | `e2e/flows.spec.ts` checkout |
 | 15 | Low | Shop | 11 places, `features/orders/components/sign-in-prompt.tsx` | "Log in", "Login to proceed" and "Sign in" mixed; the orders sign-in prompt had no heading and a different look | 5ab7330 | `tests/unit/copy.test.ts`, `e2e/flows.spec.ts` account |
+| 16 | Medium | Panel | `src/api.ts`, `App.tsx`, `pages/Login.tsx` | Signing out in one tab left other tabs signed in (access token valid up to 15 min): a shared warehouse computer stayed open | 1abd7fc | `tests/sessions.spec.ts` |
+| 17 | Medium | Panel | `src/api.ts` `bootstrap()`, `App.tsx` | A 429/503 or no connection while restoring the session showed the sign-in form to a signed-in person | 1382123 | `tests/boot.spec.ts` |
+| 18 | Low | Panel | `src/ui.tsx` ErrorBoundary | After a deploy, open tabs showed "This screen hit a problem" and reported a crash to Sentry; now "A newer version is ready, Reload" | 1efc320 | `tests/new-version.spec.ts` |
+| 19 | Medium | Panel (Safari) | `src/ui.tsx` Dialog | Closing any dialog dropped focus on `<body>`/`<main>` in Safari (buttons are not focused by a click there) | db4d7b3 | `tests/screens.spec.ts`, `tests/reviews.spec.ts` in WebKit |
+| 20 | Low | Panel | `src/pages/Deliveries.tsx` | A rider's empty day asked for days riders may not open (403s) and claimed "Nothing in the next 3 days" | e0c6987 | `tests/rider-lookahead.spec.ts` |
+| 21 | Medium | Rider | `rider-app/lib/run-context.tsx` | After calling ops about a locked code, the run took up to 30 s to show the manager's override | 0b3283f | `e2e/run.spec.ts` |
 
 ## Questions for the owner (business rules not changed)
 
@@ -65,6 +71,16 @@ Severity: **Critical** (money, data loss, security hole, a flow that cannot fini
 
 - Dev-only `npm audit` advisories (Lighthouse CI's puppeteer/zod 3, ESLint's minimatch): the only fix
   is a breaking downgrade of `@lhci/cli`; none of it ships.
+
+## Test environment notes
+
+- WebKit on macOS does not move focus to buttons and links with Tab unless the system setting
+  "Keyboard navigation" is on (Safari's default). Five panel keyboard tests (`a11y.spec.ts` Tab order,
+  Skip link, the phone Menu) fail in WebKit here for that reason only; they pass in Chromium and in
+  CI's Linux WebKit, which tabs to everything.
+- The local stack must run with `API_RATE_LIMIT` raised for QA runs (`API_RATE_LIMIT=1000000 node
+  scripts/start-local.mjs`): the crawls and the e2e matrix send more than the production 3,000 requests
+  per 15 minutes from one address.
 
 ## Process notes
 
