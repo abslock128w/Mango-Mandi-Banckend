@@ -1,0 +1,36 @@
+import { expect, type Page } from "@playwright/test";
+
+// Shared steps for the shop e2e specs, against the real local API.
+
+export const phone = () => `98${String(Date.now()).slice(-8)}`;
+
+export async function fits(page: Page, label: string) {
+  const width = page.viewportSize()!.width;
+  expect(await page.evaluate(() => document.documentElement.scrollWidth), `${label}: no sideways scroll`).toBeLessThanOrEqual(width);
+}
+
+export async function choosePincode(page: Page, pin = "560034") {
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "Pincode" }).fill(pin);
+  await page.getByRole("button", { name: "Check", exact: true }).click();
+  await expect(page.getByRole("link", { name: new RegExp(`Pincode ${pin}`) }).first()).toBeVisible();
+}
+
+export async function signIn(page: Page, next = "/account") {
+  await page.goto(`/login?next=${encodeURIComponent(next)}`);
+  await page.getByRole("textbox", { name: /mobile number/i }).fill(phone());
+  await page.getByRole("button", { name: "Send code" }).click();
+  const code = (await page.getByText(/your code is \d{6}/).textContent())!.match(/\d{6}/)![0];
+  await page.getByRole("textbox", { name: "Digit 1" }).click();
+  await page.keyboard.type(code);
+}
+
+/** Offline then online again: the page says so, and recovers without a reload. */
+export async function offlineAndBack(page: Page) {
+  await page.context().setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await expect(page.getByText(/offline|no internet|connection/i).first()).toBeVisible();
+  await page.context().setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByText(/offline|no internet/i).filter({ visible: true })).toHaveCount(0, { timeout: 15_000 });
+}

@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, Clock, Search, SearchX, ShoppingCart, X } from 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductCard, ProductCardSkeleton } from "@/features/catalog/components/product-card";
+import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useProducts } from "@/features/catalog/hooks/queries";
 import { useOpenProduct } from "@/features/product/open";
 import { Logo } from "@/features/shell/logo";
@@ -147,7 +148,7 @@ export function SearchView() {
   }
   useEffect(() => inputRef.current?.focus(), []);
 
-  const { data: products, isPending } = useProducts();
+  const { data: products, isPending, isError, refetch } = useProducts();
   const suggestions = useMemo(() => (products && debounced ? suggestionsFor(products, debounced) : null), [products, debounced]);
   const results = useMemo(() => (products && submitted ? searchProducts(products, submitted) : null), [products, submitted]);
   const trending = useMemo(() => [...(products ?? []).slice(0, 3).map((p) => p.name), ...IDEAS], [products]);
@@ -229,7 +230,9 @@ export function SearchView() {
               Showing results for <b className="font-bold">&quot;{submitted}&quot;</b>
             </h1>
             {results?.matchedBy === "synonym" && <p className="mt-0.5 text-12 text-muted">Including other names and ripeness</p>}
-            {!results && isPending ? (
+            {!results && isError ? (
+              <CatalogueError onRetry={refetch} className="mt-3" />
+            ) : !results && isPending ? (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {Array.from({ length: 4 }, (_, i) => (
                   <ProductCardSkeleton key={i} />

@@ -32,7 +32,17 @@ export const usePriceList = () => useQuery({ queryKey: qk.products, queryFn: api
  * Products for the shop: the catalogue for the pincode and day (stock per stage)
  * when a pincode is set, else the plain price list.
  */
-export function useProducts(): { data: Product[] | undefined; isPending: boolean; serviceable: boolean | null } {
+export interface ProductsState {
+  data: Product[] | undefined;
+  isPending: boolean;
+  /** Nothing to show because a request failed (the delivery days, the catalogue or the price list). */
+  isError: boolean;
+  /** Asks again for whatever failed. */
+  refetch: () => void;
+  serviceable: boolean | null;
+}
+
+export function useProducts(): ProductsState {
   const pincode = usePincode();
   const hydrated = useUi((s) => s.hydrated);
   const date = useDeliveryDate();
@@ -46,16 +56,23 @@ export function useProducts(): { data: Product[] | undefined; isPending: boolean
   });
   const list = usePriceList();
   const fromCat = useMemo(() => productsFromCatalogue(cat.data), [cat.data]);
+  const refetch = () => {
+    if (delivery.isError) void delivery.refetch();
+    if (cat.isError) void cat.refetch();
+    if (list.isError) void list.refetch();
+  };
   if (hydrated && pincode) {
-    if (delivery.data && !delivery.data.serviceable) return { data: list.data, isPending: false, serviceable: false };
-    return { data: cat.data ? fromCat : undefined, isPending: !cat.data, serviceable: true };
+    if (delivery.data && !delivery.data.serviceable) return { data: list.data, isPending: false, isError: list.isError && !list.data, refetch, serviceable: false };
+    // Without the delivery days there is no day to ask the catalogue for, so that failing is an error too.
+    const isError = !cat.data && (cat.isError || (delivery.isError && !delivery.data));
+    return { data: cat.data ? fromCat : undefined, isPending: !cat.data && !isError, isError, refetch, serviceable: true };
   }
-  return { data: list.data, isPending: list.isPending, serviceable: null };
+  return { data: list.data, isPending: list.isPending && !list.isError, isError: list.isError && !list.data, refetch, serviceable: null };
 }
 
 export function useProduct(id: string | null) {
-  const { data, isPending } = useProducts();
-  return { data: id ? data?.find((p) => p.id === id) : undefined, isPending };
+  const { data, isPending, isError, refetch } = useProducts();
+  return { data: id ? data?.find((p) => p.id === id) : undefined, isPending, isError, refetch };
 }
 
 /** The header and card line: "Tomorrow, 7 to 11 am" and "TOMORROW 7 AM". */

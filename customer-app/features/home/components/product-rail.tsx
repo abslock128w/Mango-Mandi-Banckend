@@ -35,7 +35,9 @@ function RailSkeleton() {
 }
 
 function RailCards({ id, stage }: { id: string; stage?: RipenessStage }) {
-  const { data } = useProducts();
+  const { data, isError } = useProducts();
+  // The home page shows one notice for the catalogue; a rail stays empty rather than loading forever.
+  if (isError) return null;
   if (!data) return <RailSkeleton />;
   const inStock = (pid: string) => data.find((p) => p.id === pid)!.skus.some((s) => (!stage || s.ripeness === stage) && s.stock > 0);
   const list = [...data].sort((a, b) => Number(inStock(b.id)) - Number(inStock(a.id)));

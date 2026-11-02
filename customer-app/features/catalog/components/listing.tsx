@@ -7,6 +7,7 @@ import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageTransition } from "@/features/shell/page-transition";
 import { useProducts } from "../hooks/queries";
+import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
 import { uiSpring } from "@/lib/motion";
 import { RIPENESS } from "@/lib/ripeness";
@@ -105,7 +106,7 @@ export function Listing({ initial }: { initial: Collection }) {
   const reduce = useReducedMotion();
 
   const visibleSections = SECTIONS.filter((s) => !(filters.ripeness && SECTION_STAGE[s.id] && SECTION_STAGE[s.id] !== filters.ripeness));
-  const { data: products } = useProducts();
+  const { data: products, isError, refetch } = useProducts();
 
   const scrollToSection = useCallback(
     (id: Collection, smooth = true) => {
@@ -173,7 +174,8 @@ export function Listing({ initial }: { initial: Collection }) {
             </Chip>
           </div>
           <div className="space-y-6 bg-canvas p-2.5 lg:p-4">
-            {visibleSections.map((s, i) => {
+            {isError && <CatalogueError onRetry={refetch} />}
+            {!isError && visibleSections.map((s, i) => {
               const stage = sectionStage(s.id, filters);
               const list = products ? sortProducts(applyClientFilters(products, stage, filters), filters.sort, stage) : null;
               return (

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { useQueryParam } from "@/lib/hooks/use-query-param";
+import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useProduct } from "@/features/catalog/hooks/queries";
 import { PageTransition } from "@/features/shell/page-transition";
 import type { RipenessStage } from "@/lib/types";
@@ -11,8 +12,9 @@ import { ProductDetail, PurchaseBar, useSelection } from "./product-detail";
 export function ProductPage({ id }: { id: string }) {
   const scope = useQueryParam("src") ?? "page";
   const r = useQueryParam("r") as RipenessStage | null;
-  const { data: product, isPending } = useProduct(id);
+  const { data: product, isPending, isError, refetch } = useProduct(id);
   const sel = useSelection(product, r);
+  if (isError) return <CatalogueError onRetry={refetch} className="mx-auto mt-6 max-w-[480px]" />;
   if (!product || !sel) return isPending ? <ProductPageSkeleton /> : <ProductMissing />;
   return (
     <PageTransition>
