@@ -136,3 +136,74 @@ test.describe("info pages and empty states", () => {
     await fits(page, "search empty");
   });
 });
+
+test.describe("product page", () => {
+  test("ripeness and box size change the price and what is added; Back returns to the listing", async ({ page }) => {
+    await choosePincode(page);
+    await page.goto("/c/all");
+    await page.getByTestId("product-card").first().getByRole("link").first().click();
+    // Phones open the product in a sheet over the listing; laptops open its page.
+    await expect(page).toHaveURL(/\/p\/|[?&]product=/);
+    const sizes = page.locator('section[aria-labelledby="box-h"]').filter({ visible: true }).first().getByRole("radiogroup", { name: "Box size" });
+    const radios = sizes.getByRole("radio");
+    await expect(radios.nth(1)).toBeVisible();
+    const priceOf = async (i: number) => Number(((await radios.nth(i).textContent()) ?? "").match(/₹([\d,]+)/)?.[1].replace(/,/g, "") ?? "NaN");
+    const [small, big] = [await priceOf(0), await priceOf(1)];
+    expect(big, "the bigger box costs more").toBeGreaterThan(small);
+    await radios.nth(1).click();
+    await expect(radios.nth(1)).toHaveAttribute("aria-checked", "true");
+    const ripeness = page.getByRole("radiogroup", { name: "Ripeness" }).filter({ visible: true }).first();
+    await expect(ripeness.getByRole("radio").first()).toBeVisible();
+    await fits(page, "product");
+    await page.goBack();
+    await expect(page).toHaveURL(/\/c\/all/);
+    await expect(page).not.toHaveURL(/product=/);
+    await expect(page.locator('section[aria-labelledby="box-h"]').filter({ visible: true }), "Back closes the product").toHaveCount(0);
+  });
+});
+
+test.describe("search", () => {
+  test("a search finds a variety, survives a refresh, and Back clears to the previous page", async ({ page }) => {
+    await choosePincode(page);
+    await page.goto("/search?q=badami");
+    await expect(page.getByTestId("search-results").getByTestId("product-card").first()).toContainText(/Badami/i);
+    await page.reload();
+    await expect(page.getByTestId("search-results").getByTestId("product-card").first()).toContainText(/Badami/i);
+    await fits(page, "search");
+  });
+});
+
+test.describe("account", () => {
+  test("after an order the address is saved; removing it empties the list; sign out ends the session", async ({ page }) => {
+    await choosePincode(page);
+    await page.getByTestId("product-card").first().getByRole("button", { name: /^Add .* to cart$/ }).click();
+    await page.goto("/checkout");
+    await page.getByRole("textbox", { name: /mobile number/i }).fill(phone());
+    await page.getByRole("button", { name: "Send code" }).click();
+    const code = (await page.getByText(/your code is \d{6}/).textContent())!.match(/\d{6}/)![0];
+    await page.getByRole("textbox", { name: "Digit 1" }).click();
+    await page.keyboard.type(code);
+    await page.getByRole("textbox", { name: "Address" }).fill("7 QA Road, Koramangala, Bengaluru 560034");
+    await page.getByRole("radiogroup", { name: "Delivery time" }).getByRole("radio", { disabled: false }).first().click();
+    await page.getByText("Pay now").click();
+    await page.getByRole("button", { name: "Pay (test)" }).click();
+    await expect(page).toHaveURL(/\/success$/);
+
+    await page.goto("/orders");
+    await expect(page.getByRole("link", { name: /ORD-\d+/ }).first()).toBeVisible();
+    await fits(page, "orders");
+
+    await page.goto("/account/addresses");
+    const remove = page.getByRole("button", { name: /^Remove address: 7 QA Road/ });
+    await expect(remove).toBeVisible();
+    await remove.click();
+    await expect(page.getByText("No saved addresses yet.", { exact: false })).toBeVisible();
+    await page.reload();
+    await expect(page.getByText("No saved addresses yet.", { exact: false })).toBeVisible();
+
+    await page.goto("/account");
+    await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    await page.goto("/orders");
+    await expect(page.getByRole("heading", { name: "Sign in to see your orders" })).toBeVisible();
+  });
+});
