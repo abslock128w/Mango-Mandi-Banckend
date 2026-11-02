@@ -62,3 +62,25 @@ test("product cards keep the price and box size on one line each beside ADD at 3
   });
   expect(lines).toEqual([1, 1]);
 });
+
+test("home rail headings keep 12 px clear of 'see all', which stays on one line", async ({ page }) => {
+  await choosePincode(page);
+  await page.waitForLoadState("networkidle");
+  const gaps = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("section[aria-labelledby] > div:first-child")).flatMap((row) => {
+      const h = row.querySelector("h2");
+      const a = row.querySelector("a");
+      if (!h || !a || !/see all/.test(a.textContent ?? "")) return [];
+      const r = document.createRange();
+      r.selectNodeContents(h);
+      const textRight = Math.max(...Array.from(r.getClientRects()).map((x) => x.right));
+      const link = a.getBoundingClientRect();
+      return [{ h: h.textContent, gap: Math.round(link.left - textRight), lines: Math.round(link.height / 44) }];
+    }),
+  );
+  expect(gaps.length).toBeGreaterThan(0);
+  for (const g of gaps) {
+    expect(g.gap, g.h ?? "").toBeGreaterThanOrEqual(12);
+    expect(g.lines, g.h ?? "").toBe(1);
+  }
+});
