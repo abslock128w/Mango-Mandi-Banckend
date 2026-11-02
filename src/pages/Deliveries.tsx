@@ -418,7 +418,7 @@ function RiderPicker({ label, riders, value, busy, onPick }: { label: string; ri
         <option value="">{value ? 'Nobody' : 'Give to a rider…'}</option>
         {riders.map((r) => (
           <option key={r.id} value={r.id}>
-            {r.email}
+            {r.name ?? r.email}
           </option>
         ))}
       </select>
@@ -646,7 +646,7 @@ function StopCard({
         <span className="print-only" aria-hidden="true">
           ☐ Delivered
         </span>
-        {!picker && me?.role !== 'RIDER' && o.rider?.email && <span className="small muted">Rider: {o.rider.email}</span>}
+        {!picker && me?.role !== 'RIDER' && (o.rider?.name || o.rider?.email) && <span className="small muted">Rider: {o.rider.name ?? o.rider.email}</span>}
         {picker}
       </div>
       <div>

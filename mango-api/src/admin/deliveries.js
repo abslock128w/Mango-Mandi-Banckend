@@ -182,7 +182,8 @@ router.post(
 /** Riders, for the Deliveries page's assign control. */
 router.get(
   '/riders',
-  asyncHandler(async (_req, res) => res.json((await query("SELECT id, email FROM admin_users WHERE role = 'RIDER' ORDER BY email")).rows)),
+  asyncHandler(async (_req, res) =>
+    res.json((await query("SELECT id, email, display_name AS name FROM admin_users WHERE role = 'RIDER' ORDER BY display_name NULLS LAST, email")).rows)),
 )
 
 async function riderOrThrow(id) {

@@ -689,7 +689,7 @@ export interface ManifestOrder {
   /** A gift: the name and phone above are the recipient's. */
   gift?: { from: string | null; message: string | null } | null
   /** The rider the stop is given to (riders only see their own stops). */
-  rider?: { id: string; email: string | null } | null
+  rider?: { id: string; email: string | null; name?: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
 }
 
@@ -697,6 +697,8 @@ export interface ManifestOrder {
 export interface Rider {
   id: string
   email: string
+  /** The name customers and the rider app see (Staff), or null for an account with only an email. */
+  name: string | null
 }
 
 /** A day's delivery run: one run per slot (or one with no slot), stops by pincode. */
