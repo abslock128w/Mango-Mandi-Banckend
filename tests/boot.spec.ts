@@ -14,6 +14,8 @@ for (const status of [429, 503]) {
     await page.goto('/orders')
     const alert = page.getByRole('alert').filter({ hasText: "Can't reach Mango Ops" })
     await expect(alert).toBeVisible()
+    // The panel cannot tell yet whether anyone is signed in, so it does not claim it.
+    await expect(alert).toContainText('If you were signed in, you still are.')
     await expect(page.getByLabel('Work email')).toHaveCount(0)
     // WCAG rules, plus aria-allowed-role (a best-practice rule Lighthouse also runs).
     const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze()
