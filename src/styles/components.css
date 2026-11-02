@@ -1191,3 +1191,34 @@ dl.kv dd {
   font-size: var(--text-base);
   color: var(--color-ink-2);
 }
+
+/* ---------- Touch targets (pointer: coarse) ----------
+   On a touch screen every control is at least --tap-min (design/COMPONENTS.md); only a mouse on a
+   wide screen gets the denser sizes (base.css). */
+
+/* A checkbox in a table: its label is the 44 px target; the negative margin keeps the row height. */
+.check-hit {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  margin: calc((var(--tap-min) - 20px) / -2);
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  /* A link on its own in a table cell (an order number, "Receive batch", "Open order") is a 44 px row. */
+  td > a:not(.btn):only-child,
+  td > strong:only-child > a:only-child,
+  .pack-order h2 > a,
+  .stop-head > strong > a,
+  .block-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+  }
+  .segmented .btn,
+  .btn-small {
+    min-width: var(--tap-min);
+  }
+}
