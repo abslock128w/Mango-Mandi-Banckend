@@ -99,11 +99,17 @@ export function RunProvider({ children }: { children: ReactNode }) {
     });
     const onOnline = () => void refresh();
     window.addEventListener("online", onOnline);
+    // Back from a call to ops (the dialer hid the app): what ops changed shows at once, not in up to 30 s.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       live = false;
       clearInterval(t);
       off();
       window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [date, refresh]);
 
