@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import AxeBuilder from '@axe-core/playwright'
 import { mockApi } from './mock-api'
 
 // Restoring a session on load when the API is busy (429, 503) or unreachable: that says nothing
@@ -14,6 +15,7 @@ for (const status of [429, 503]) {
     const alert = page.getByRole('alert').filter({ hasText: "Can't reach Mango Ops" })
     await expect(alert).toBeVisible()
     await expect(page.getByLabel('Work email')).toHaveCount(0)
+    expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()).violations.map((v) => v.id)).toEqual([])
     await expect(page).toHaveURL(/\/orders$/)
     busy = false
     await alert.getByRole('button', { name: 'Try again' }).click()

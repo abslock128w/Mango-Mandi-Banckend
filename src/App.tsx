@@ -143,12 +143,14 @@ export default function App() {
       <OfflineBanner />
       <SignOutListener onSignOut={onSignOut} />
       {booting && unreachable ? (
-        <main className="boot-unreachable" role="alert">
-          <h1>Can&apos;t reach Mango Ops</h1>
-          <p>The server is busy or your connection dropped. You are still signed in.</p>
-          <button type="button" className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
-            Try again
-          </button>
+        <main className="boot-unreachable">
+          <div role="alert">
+            <h1>Can&apos;t reach Mango Ops</h1>
+            <p>The server is busy or your connection dropped. You are still signed in.</p>
+            <button type="button" className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
         </main>
       ) : booting ? (
         <Spinner label="Restoring session" />
