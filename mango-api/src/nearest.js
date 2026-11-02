@@ -19,6 +19,9 @@ export const POSITION_FRESH_MS = 3 * 3_600_000
 /** Order states that can still be given to a rider before they go out. */
 const ASSIGNABLE = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED']
 
+/** Advisory lock namespace for "giving out stops" (one auto-assign at a time). */
+const ASSIGN_LOCK = 427714301
+
 const EARTH_KM = 6371
 const rad = (d) => (d * Math.PI) / 180
 /** Straight-line distance in km between two { lat, lng }. */
@@ -69,6 +72,10 @@ export function choose(stop, riders, warehouses) {
  * from "nobody to assign to".
  */
 export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
+  // One assignment at a time (until the transaction ends): two at once would each
+  // count the riders' stops before the other's commit and both pick the same
+  // least-loaded rider. Stops of other dates are rare enough to wait too.
+  await c.query('SELECT pg_advisory_xact_lock($1)', [ASSIGN_LOCK])
   const { rows: stops } = await c.query(
     `SELECT o.id, o.number, o.status, o.pincode, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
       WHERE o.delivery_date = $1 AND o.rider_id IS NULL AND o.status = ANY($2) ${orderIds ? 'AND o.id = ANY($3)' : ''}
