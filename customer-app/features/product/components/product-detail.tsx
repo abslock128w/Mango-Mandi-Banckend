@@ -224,7 +224,7 @@ function Highlights({ product, sel }: { product: Product; sel: Selection }) {
     ["Availability", v.inSeason ? "In stock for your day" : v.seasonNote],
     [
       "Sweetness",
-      <span key="s" className="inline-flex items-center gap-1" aria-label={`${v.sweetness} out of 5`}>
+      <span key="s" role="img" className="inline-flex items-center gap-1" aria-label={`${v.sweetness} out of 5`}>
         {Array.from({ length: 5 }, (_, i) => (
           <span key={i} aria-hidden className={cn("size-2 rounded-full", i < v.sweetness ? "bg-ripe" : "bg-line")} />
         ))}
@@ -270,7 +270,7 @@ function Reviews({ product }: { product: Product }) {
         {items.map((r) => (
           <li key={r.id} className="py-3 text-12">
             <p className="flex items-center gap-2">
-              <span className="font-semibold text-ink" aria-label={`${r.rating} out of 5`}>
+              <span role="img" className="font-semibold text-ink" aria-label={`${r.rating} out of 5`}>
                 {"★".repeat(r.rating)}
                 <span className="text-line">{"★".repeat(5 - r.rating)}</span>
               </span>
