@@ -14,7 +14,8 @@
     "lhci": "lhci autorun --config=lighthouserc.h2.cjs",
     "check": "npm run lint && npm run deadcode && npm run typecheck && npm test",
     "lhci:http1": "lhci autorun --config=lighthouserc.cjs",
-    "deadcode": "knip"
+    "deadcode": "knip",
+    "audit:prod": "npm audit --omit=dev --audit-level=low"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -63,5 +64,14 @@
     "typescript": "^5",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "@serwist/build": {
+      "zod": "^4.6.7",
+      "glob": "^14.0.3"
+    },
+    "@serwist/turbopack": {
+      "zod": "^4.6.7"
+    }
   }
 }
