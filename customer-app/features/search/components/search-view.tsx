@@ -241,7 +241,7 @@ export function SearchView() {
             ) : results && results.products.length > 0 ? (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 lg:gap-3" data-testid="search-results">
                 {results.products.map((p, i) => (
-                  <ProductCard key={`${p.id}-${results.stage}-${results.size}`} product={p} scope="search" index={i} ripeness={results.stage} preferredSize={results.size} />
+                  <ProductCard key={`${p.id}-${results.stage}-${results.size}`} product={p} scope="search" index={i} ripeness={results.stage} preferredSize={results.size} priority={i < 2} />
                 ))}
               </div>
             ) : (

@@ -81,7 +81,8 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
             onClick={() => setActive(i)}
             className={cn("press relative size-16 shrink-0 overflow-hidden rounded-8 border-2 bg-surface", i === active ? "border-action" : "border-line")}
           >
-            <Image src={src} alt="" fill sizes="64px" className="object-cover" />
+            {/* Beside the main photo, so above the fold; one is the main photo's own file. */}
+            <Image src={src} alt="" fill sizes="64px" loading="eager" className="object-cover" />
           </button>
         ))}
       </div>
