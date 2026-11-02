@@ -12,7 +12,10 @@ export const test = base.extend<{ consoleErrors: string[] }>({
     async ({ page }, use, testInfo) => {
       const errors: string[] = []
       const webkit = testInfo.project.use.browserName === 'webkit' || testInfo.project.name === 'iphone'
-      const cancelledInWebkit = (text: string) => webkit && text.includes('due to access control checks')
+      // WebKit also logs a lazy screen's import that a navigation cut off ('Importing a module script
+      // failed', with the error boundary's note), which a test that goes to the next page often does.
+      const cancelledInWebkit = (text: string) =>
+        webkit && (text.includes('due to access control checks') || text.includes('Importing a module script failed') || text.startsWith('The above error occurred in one of your React components'))
       page.on('console', (msg) => {
         if (msg.type() !== 'error') return
         const text = msg.text()

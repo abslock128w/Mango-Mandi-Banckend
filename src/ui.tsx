@@ -377,6 +377,22 @@ export function AuthedPhoto({
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+/**
+ * The control last pressed with a mouse or a finger. Safari does not focus a button when it is
+ * clicked, so when a dialog opens from a click there document.activeElement is <body> or an
+ * ancestor; the dialog gives focus back to this control instead when it closes.
+ */
+let lastPressed: HTMLElement | null = null
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      lastPressed = (e.target as Element | null)?.closest?.<HTMLElement>('button, a[href], [role="button"], [tabindex]:not([tabindex="-1"])') ?? null
+    },
+    true,
+  )
+}
+
 export function Dialog({
   title,
   onClose,
@@ -399,7 +415,9 @@ export function Dialog({
   closeRef.current = onClose
 
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
+    // Safari leaves focus on <body>, or on the nearest focusable ancestor (<main tabindex=-1>), after a click.
+    const active = document.activeElement as HTMLElement | null
+    const previous = lastPressed?.isConnected && (!active || active === document.body || (active !== lastPressed && active.contains(lastPressed))) ? lastPressed : active
     const el = ref.current
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE)
     first?.focus()
