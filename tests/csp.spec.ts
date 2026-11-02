@@ -8,7 +8,7 @@ import { cspPlugin, header, policy, preconnectTags, type App } from '../scripts/
 // panel spec runs under the dev server's policy, and the fixture fails a test
 // on any console error, so a violation ("Refused to load ...") fails the suite.
 
-const root = path.join(__dirname, '..')
+const root = path.join(import.meta.dirname, '..')
 const vercelCsp = (file: string) => {
   const cfg = JSON.parse(readFileSync(path.join(root, file), 'utf8')) as { headers: { source: string; headers: { key: string; value: string }[] }[] }
   return cfg.headers.flatMap((h) => h.headers).find((h) => h.key === 'Content-Security-Policy')?.value
