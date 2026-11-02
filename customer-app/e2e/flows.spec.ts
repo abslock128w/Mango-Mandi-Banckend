@@ -49,19 +49,20 @@ test.describe("sign in", () => {
   });
 });
 
-async function openCart(page: import("@playwright/test").Page, isMobile: boolean) {
-  if (isMobile) await page.getByTestId("cart-bar").click();
+async function openCart(page: import("@playwright/test").Page) {
+  // Below the lg breakpoint (1024 px) the cart is the bar at the bottom; above it, the header button.
+  if (page.viewportSize()!.width < 1024) await page.getByTestId("cart-bar").click();
   else await page.getByRole("button", { name: /^Cart, \d+ item/ }).click();
   return page.getByRole("dialog").filter({ hasText: /Total|Your cart is empty/ });
 }
 
 test.describe("cart and bill", () => {
-  test("two boxes, the bill adds up, delivery is free, a refresh keeps the cart, removing empties it", async ({ page, isMobile }) => {
+  test("two boxes, the bill adds up, delivery is free, a refresh keeps the cart, removing empties it", async ({ page }) => {
     await choosePincode(page);
     const cards = page.getByTestId("product-card");
     await cards.nth(0).getByRole("button", { name: /^Add .* to cart$/ }).click();
     await cards.nth(1).getByRole("button", { name: /^Add .* to cart$/ }).click();
-    let cart = await openCart(page, isMobile);
+    let cart = await openCart(page);
     await expect(cart.getByText("Delivery is free on every order")).toBeVisible();
     const money = (t: string) => Number(t.replace(/[^\d.]/g, ""));
     const lines = await cart.getByRole("group", { name: /^Quantity of/ }).count();
@@ -75,7 +76,7 @@ test.describe("cart and bill", () => {
     await fits(page, "cart");
     await page.keyboard.press("Escape");
     await page.reload();
-    cart = await openCart(page, isMobile);
+    cart = await openCart(page);
     await expect(cart.getByRole("group", { name: /^Quantity of/ })).toHaveCount(2);
     for (let i = 0; i < 3; i++) {
       const remove = cart.getByRole("button", { name: /^Remove one/ }).first();
@@ -203,6 +204,8 @@ test.describe("account", () => {
 
     await page.goto("/account");
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
+    // Signing out takes the shopper home; let that finish before opening another page.
+    await expect(page).toHaveURL(/\/$/);
     await page.goto("/orders");
     await expect(page.getByRole("heading", { name: "Sign in to see your orders" })).toBeVisible();
   });

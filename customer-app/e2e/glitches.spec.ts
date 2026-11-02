@@ -28,10 +28,10 @@ test("the stepper stays visible after Add to cart on the product page", async ({
   await expect(stepper).toContainText("2");
 });
 
-test("a cart suggestion stays put and becomes a stepper when added", async ({ page, isMobile }) => {
+test("a cart suggestion stays put and becomes a stepper when added", async ({ page }) => {
   await choosePincode(page);
   await page.getByTestId("product-card").first().getByRole("button", { name: /^Add .* to cart$/ }).click();
-  if (isMobile) await page.getByTestId("cart-bar").click();
+  if (page.viewportSize()!.width < 1024) await page.getByTestId("cart-bar").click();
   else await page.getByRole("button", { name: /^Cart, 1 item/ }).click();
   const cards = page.getByRole("dialog").getByTestId("product-card");
   await expect(cards.first()).toBeVisible();
