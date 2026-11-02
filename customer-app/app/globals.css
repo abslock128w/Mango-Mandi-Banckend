@@ -12,9 +12,11 @@
   body {
     @apply bg-canvas text-ink font-sans text-13 antialiased;
   }
+  /* The panel's ring: teal with a light halo, so it shows on teal buttons and photos too. */
   :focus-visible {
     outline: 2px solid var(--color-action);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-surface);
   }
   button {
     cursor: pointer;

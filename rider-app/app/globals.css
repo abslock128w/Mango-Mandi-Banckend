@@ -11,9 +11,11 @@
   body {
     @apply bg-canvas text-ink font-sans antialiased;
   }
+  /* With a light halo, so the ring shows on teal buttons and photos too. */
   :focus-visible {
     outline: 3px solid var(--color-action);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-surface);
   }
   button {
     cursor: pointer;
