@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { choosePincode } from "./helpers";
+import { choosePincode, payDemoOrder } from "./helpers";
 
 // The motion guard rails of docs/design/shop-motion.md (section 6), against the real local API.
 
@@ -137,4 +137,34 @@ test(`(e) ADD paints its stepper within ${TAP_BUDGET} ms of the tap`, async ({ p
       }),
   );
   expect(ms).toBeLessThan(TAP_BUDGET);
+});
+
+// The mango splash on the order success view (docs/design/shop-motion.md, "Mango splash").
+test("(f) order success shows the mango splash and the headline lands after the burst", async ({ page }) => {
+  await payDemoOrder(page);
+  const splash = page.locator("svg[data-splash]");
+  await expect(splash).toBeVisible();
+  // Something is moving: the tendrils, droplets and the mango run as CSS animations, transform and opacity only.
+  expect(await splash.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBeGreaterThan(20);
+  const animated = await splash.evaluate((el) =>
+    el.getAnimations({ subtree: true }).flatMap((a) => (a.effect as KeyframeEffect).getKeyframes().flatMap((k) => Object.keys(k).filter((p) => !["offset", "easing", "composite", "computedOffset"].includes(p)))),
+  );
+  expect([...new Set(animated)].sort()).toEqual(["opacity", "transform"]);
+  await expect(page.getByRole("heading", { name: "Order confirmed" })).toBeVisible({ timeout: 2_000 });
+  // The tick Lottie and the confetti are gone.
+  await expect(page.locator("canvas, [data-confetti]")).toHaveCount(0);
+});
+
+test("(g) with reduced motion the splash is its resting frame, nothing runs", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await payDemoOrder(page);
+  const splash = page.locator("svg[data-splash]");
+  await expect(splash).toBeVisible();
+  await expect(splash).toHaveAttribute("data-still", "");
+  await page.waitForTimeout(400);
+  expect(await splash.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
+  // The tendrils are out at their full length, not at zero.
+  const scale = await splash.locator(".splash-tendril").first().evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a ** 2 + new DOMMatrix(getComputedStyle(el).transform).b ** 2);
+  expect(scale).toBeGreaterThan(0.5);
+  await expect(page.getByRole("heading", { name: "Order confirmed" })).toBeVisible();
 });

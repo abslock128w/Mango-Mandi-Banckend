@@ -4,7 +4,7 @@ import { AnimatePresence } from "motion/react";
 import * as m from "motion/react-m";
 import { CheckCircle2, Info, X } from "lucide-react";
 import { useLayoutEffect, useRef, useEffect } from "react";
-import { GlassGlow } from "@/components/ui/pressable";
+import { GlassGlow } from "@/components/ui/glass-press";
 import { useIsDesktop } from "@/lib/hooks/use-media";
 import { cn } from "@/lib/format";
 import { type Toast, useUi } from "./ui-store";

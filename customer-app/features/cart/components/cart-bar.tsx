@@ -5,7 +5,7 @@ import * as m from "motion/react-m";
 import { ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { GlassGlow, useGlassPress } from "@/components/ui/pressable";
+import { GlassGlow, useGlassPress } from "@/components/ui/glass-press";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { useUi } from "@/features/shell/ui-store";
 import { useBackdropTone } from "@/lib/hooks/use-backdrop-tone";

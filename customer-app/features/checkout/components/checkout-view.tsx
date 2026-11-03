@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
 import { Crossfade } from "@/components/ui/crossfade";
-import { GlassGlow, useGlassPress } from "@/components/ui/pressable";
+import { GlassGlow, useGlassPress } from "@/components/ui/glass-press";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
