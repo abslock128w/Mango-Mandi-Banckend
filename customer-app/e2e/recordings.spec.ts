@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { choosePincode } from "./helpers";
 
@@ -6,7 +7,8 @@ import { choosePincode } from "./helpers";
 // to docs/screenshots/shop/. Off by default:
 //
 //   PW_SHOTS=1 npx playwright test e2e/recordings.spec.ts --project=mobile
-const OUT = new URL("../../docs/screenshots/shop/", import.meta.url).pathname;
+// Playwright runs from customer-app/.
+const OUT = path.resolve("../docs/screenshots/shop") + path.sep;
 const SIZE = { width: 390, height: 844 };
 
 test.use({ viewport: SIZE, video: { mode: "on", size: SIZE } });

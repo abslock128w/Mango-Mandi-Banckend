@@ -1,8 +1,6 @@
 "use client";
-import Link from "next/link";
 import type { HTMLMotionProps } from "motion/react";
 import * as m from "motion/react-m";
-import type { ComponentProps } from "react";
 import { cn } from "@/lib/format";
 import { press } from "@/lib/motion";
 
@@ -16,11 +14,4 @@ const base = "[-webkit-tap-highlight-color:transparent] touch-manipulation";
  */
 export function Pressable({ className, type = "button", whileTap, transition, ...rest }: HTMLMotionProps<"button">) {
   return <m.button type={type} whileTap={whileTap ?? { scale: press.scale }} transition={transition ?? press.transition} className={cn(base, className)} {...rest} />;
-}
-
-const MotionLink = m.create(Link);
-
-/** A Next.js link with the same press as `Pressable`. */
-export function PressableLink({ className, whileTap, transition, ...rest }: ComponentProps<typeof MotionLink>) {
-  return <MotionLink whileTap={whileTap ?? { scale: press.scale }} transition={transition ?? press.transition} className={cn(base, className)} {...rest} />;
 }

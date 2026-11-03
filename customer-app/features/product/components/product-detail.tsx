@@ -1,5 +1,4 @@
 "use client";
-import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { BadgeCheck, Boxes, CalendarClock, ChevronRight, Leaf, RefreshCcw, Star } from "lucide-react";
 import Link from "next/link";
@@ -14,7 +13,8 @@ import { ripenessDot } from "@/features/catalog/components/ripeness-chip";
 import { usePolicy, usePreorderWeeks, useProducts, useReviews } from "@/features/catalog/hooks/queries";
 import { whatsappLink } from "@/lib/config";
 import { boxContents, cn, dateTime, longDate, rupees } from "@/lib/format";
-import { press, spring } from "@/lib/motion";
+import { spring } from "@/lib/motion";
+import { Pressable } from "@/components/ui/pressable";
 import { Crossfade } from "@/components/ui/crossfade";
 import { fly } from "@/features/cart/fly-lazy";
 import { defaultSize, defaultStage, productImage, skuFor } from "@/lib/catalog";
@@ -410,7 +410,6 @@ function BulkLink() {
 export function PurchaseBar({ product, sel }: { product: Product; sel: Selection }) {
   const qty = useQty(sel.sku.id);
   const add = useCart((s) => s.add);
-  const reduce = useReducedMotion();
   const outOfStock = sel.sku.stock <= 0;
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -432,10 +431,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
       ) : qty > 0 ? (
         <AddButton product={product} sku={sel.sku} size="lg" />
       ) : (
-        <m.button
-          type="button"
-          whileTap={reduce ? undefined : { scale: press.scale }}
-          transition={press.transition}
+        <Pressable
           onClick={(e) => {
             add(product, sel.sku);
             fly(e.currentTarget);
@@ -444,7 +440,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
           className="h-12 min-w-40 rounded-6 bg-action px-6 text-15 font-semibold text-white"
         >
           Add to cart
-        </m.button>
+        </Pressable>
       )}
     </div>
   );
