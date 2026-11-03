@@ -74,11 +74,35 @@ screen with "Your session has ended."
 
 ## 4. The screens
 
-### Today (dashboard)
-Landing page. Tiles count orders by status (Confirmed, Processing, Packed, Shipped,
-Out for delivery, Delivery failed) plus Open claims and Payment pending — each tile
-links to the matching list. Below: batches 5+ days old still selling (sell or retire
-before the 7-day limit) and low-stock SKUs. Auto-refreshes every 60 seconds.
+### Everywhere (Mango Ops v2, docs/design/ops-dashboard-v2.md)
+- **Attention bell** (managers, operators) in the top bar: how many problems need someone,
+  red when one needs someone now; it opens the same ranked list as Today in a drawer.
+- **Live dot**: *Live* while the event stream (`GET /events`) is up, *Reconnecting*, *Every 15 s*
+  when the stream will not stay up and the panel polls instead, *Paused* when offline (with Reload).
+  A new paid order and a missed delivery raise a toast; the account menu can add a chime and a flash.
+- **Keyboard**: `?` lists every shortcut; `g` then `t`/`o`/`d`/`p`/`b` goes to Today, Orders,
+  Deliveries, Pack list, Batches; `/` finds on the page; in lists `j`/`k` move, `x` selects,
+  `Enter` peeks, `o` opens. Never while typing in a field.
+- **Density**: rows are 36 px with a mouse and 44 px on a touch screen; the account menu can fix
+  it to Compact or Comfortable. **Pin** a screen to the top of the sidebar from the account menu
+  or the palette. All of these are kept per browser.
+- **Command palette** (Ctrl/⌘ K): screens, orders, batches and pincodes as before, plus Actions
+  (assign a rider to the order on screen, receive a batch, dispatch today's run, give stops without
+  a rider out, the pack list for tomorrow, switch theme), Recent (the last eight opened), `>` for
+  actions only and `#1042` to jump to an order.
+
+### Today (control tower)
+Managers and operators open on the **Attention queue**: every problem ranked Now, Soon or Watch,
+with the role that owns it, how old it is, one action, and *Snooze until tomorrow* (this browser
+only) or *Open*. It joins Needs attention, overdue and at-risk orders, and the clock: a slot
+within 30 minutes of its pack-by with orders not packed, stops with no rider near dispatch-by, a
+rider silent for 30 minutes with stops left, and a stop out past its window. *All clear* when
+there is nothing. Then **The day**: each delivery slot on one timeline (order cutoff, pack by,
+dispatch by, the window) with where its orders are and a due-in or late-by pill; a lane opens
+that slot on Deliveries. Then **On the road**: riders out, stops left, the next pickup, stock
+health and a small map. The tiles, the week's numbers (now with on-time delivery and minutes
+per stop), the Needs attention playbooks (each item with its fix) and stock follow, as before.
+Packers, QC and riders keep their own home screens.
 
 ### Batches
 **List:** variety, plucked date, age, status, latest QC rating, on-hand / committed /
@@ -106,9 +130,14 @@ a quantity per product. Lands you on the new batch's detail with the QC form foc
   who and when.
 
 ### Orders
-**List:** order number, customer + phone, item count, total, status, delivery date,
-placed time. Filter by status, placed-date range, or search by order number / phone —
-all bookmarkable. 50 per page.
+**List (workbench):** order number, customer + phone, item count, total, status, delivery
+date, **Due** (the slot window, with a due-in or late-by pill on the day) and **Rider**, placed
+time. Click a heading to sort the page; **Columns** hides any (kept per browser). Saved views
+above the table: Tomorrow morning, Unpacked for today, Failed deliveries, Payment pending > 30 min,
+and *Save this view* for any filter. Choose rows (or all on the page) for Mark packed, Assign
+rider, Export CSV or Print. `Enter` or the eye button peeks at an order in a drawer (items,
+customer, history, main actions); a click on the row opens the full page. Filter by status,
+placed-date range, or search by order number / phone, all bookmarkable. 50 per page.
 
 **Order detail** shows items, totals, payment, the customer, the status timeline, and
 the stock allocation. The **action bar only shows valid actions** for the current
@@ -119,6 +148,19 @@ status (see §5). Highlights:
 - There is no refund action.
 - Payment-pending orders show a read-only note — there's no manual confirm, because only
   a verified payment confirms an order.
+
+### Deliveries (Dispatch board)
+Managers and operators get the stops on the left and a map on the right (a List / Map switch
+below 1024 px). Tabs: **Unassigned** (stops without a rider, on top), **By rider** (each rider
+with done/left, when last seen and how far from the warehouse), **By slot** (the run sheet as it
+always was, with Start run, per-stop riders and Print) and **Done**. Choose stops with their box,
+`x` or shift-click, then **Assign to…** (riders with distance and stops left), **Assign nearest**
+(only the chosen stops; each result is listed), **Dispatch** or **Print run sheet**. The map
+shows warehouses, one pin per pincode centre (stops have no coordinates of their own; a number
+when several share one), riders fading as their position ages, and on request the done stops and
+the last two hours of rider trails. Hovering a row lights its pin; a stop opens in the peek
+drawer. Map tiles come from `VITE_MAP_TILES_URL` (OpenStreetMap by default, with its credit; use
+a paid tile provider before heavy use). Riders keep their one-stop-at-a-time route.
 
 ### Pack list
 Printable picking sheet for a delivery date (defaults to tomorrow). Two views:
@@ -138,6 +180,11 @@ Serviceable delivery areas. Add a pincode (exactly 6 digits + city). **Deactivat
 the dialog suggests deactivating instead).
 
 ---
+
+### Analytics
+Season numbers week by week as before, plus **Operations** for any period against the one
+before it: on-time delivery, minutes per stop, repeat customers, deliveries, slot fill, the
+variety mix, the rider leaderboard and orders by pincode on a heat map, each with its figures.
 
 ## 5. Business rules the panel enforces
 
@@ -236,10 +283,13 @@ push. The accessibility suite runs axe-core (WCAG 2 A/AA) with zero violations.
 | Screen | Endpoints (`/admin/v1`) |
 |--------|-------------------------|
 | Login / session | `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/me` |
-| Today | `GET /summary` |
+| Today | `GET /summary`, `/attention`, `/day?date=`, `/live?date=`, `/analytics/ops` |
+| Everywhere | `GET /events` (Server-Sent Events: `hello`, `order.changed`, `rider.position`, `attention.changed`, `heartbeat`, `bye`) |
+| Deliveries | `GET /manifest`, `/live`, `/riders`, `/riders/:id/trail`; `POST /manifest/assign`, `/manifest/auto-assign`, `/manifest/dispatch`, `/orders/:id/dispatch` |
+| Analytics | `GET /analytics`, `/analytics/ops?from&to` |
 | Batches | `GET /batches`, `GET /batches/:id`, `POST /batches`, `GET /products`, `GET /batches/:id/ledger` |
 | Batch actions | `PATCH /batches/:id/status`, `POST /batches/:id/qc`, `PATCH /batches/:id/lines/:lineId` |
-| Orders | `GET /orders`, `GET /orders/:id` |
+| Orders | `GET /orders` (also `delivery`, `slot`, `unpacked`, `olderThanMinutes`), `GET /orders/:id`, `GET /slots` |
 | Order actions | `PATCH /orders/:id/status`, `POST /orders/:id/allocate`, `/cancel` |
 | Pack list | `GET /pack-list?date=` |
 | Claims | `GET /claims`, `POST /claims/:id/review`, `POST /claims/:id/resolve` |

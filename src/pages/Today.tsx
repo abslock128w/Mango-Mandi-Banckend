@@ -103,7 +103,11 @@ export default function Today() {
       {waiting ? (
         <span className="sr-only" role="status" aria-label="Loading" />
       ) : floor ? (
-        <ControlTower />
+        <>
+          <ControlTower />
+          {/* The playbooks behind the queue: each problem with its fix (retry, refund, repair), above the tiles as before. */}
+          <NeedsAttention />
+        </>
       ) : (
         <NeedsAttention whenClear={<AllClear />} />
       )}
@@ -139,8 +143,6 @@ export default function Today() {
 
       {manager && insights.data && <WeekInsights a={insights.data} />}
 
-      {/* The playbooks behind the queue: each problem with its fix (retry, refund, repair). */}
-      {!waiting && floor && <NeedsAttention />}
 
       {!waiting && overdue.length > 0 && (
         <section className="card">
