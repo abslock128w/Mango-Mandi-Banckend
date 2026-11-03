@@ -22,7 +22,7 @@ function icon(m: MapMarker, on: boolean): L.DivIcon {
   if (m.kind === 'warehouse') return L.divIcon({ className: cls, html: `<span class="map-house">${HOUSE}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] })
   if (m.kind === 'rider')
     return L.divIcon({ className: cls, html: `<span class="map-rider-dot" style="opacity:${m.opacity ?? 1}"></span><span class="map-rider-pulse"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] })
-  return L.divIcon({ className: cls, html: `<span class="map-pin-body">${m.badge ? esc(m.badge) : ''}</span>`, iconSize: [26, 32], iconAnchor: [13, 30] })
+  return L.divIcon({ className: cls, html: `<span class="map-pin-body">${m.badge ? `<b>${esc(m.badge)}</b>` : ''}</span>`, iconSize: [26, 32], iconAnchor: [13, 30] })
 }
 
 export default function MapCanvas({ markers, trails = [], heat = [], highlight, onHover, onSelect, fitKey, label }: MapViewProps) {

@@ -33,7 +33,7 @@ function useDebounced<T>(value: T, ms: number): T {
  * the orders search), a batch (variety, farm) or a pincode. Only lists the API already serves, and
  * only for roles that may read them. A combobox: arrow keys move, Enter opens, Escape closes.
  */
-export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]; onClose: () => void }) {
+export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]; onClose: () => void; onShortcuts?: () => void; pin?: { label: string; pinned: boolean; toggle: () => void } | null }) {
   const { me } = useSession()
   const navigate = useNavigate()
   const [text, setText] = useState('')

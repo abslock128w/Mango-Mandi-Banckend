@@ -91,6 +91,7 @@ import type {
   PurchaseInput,
   StockForecast,
 } from './types'
+import type { DayPlan, LiveBoard, OpsAnalytics, RiderTrail } from './ops/types'
 
 const RAW_API_URL = (import.meta.env.VITE_API_URL ?? '').trim()
 /**
@@ -195,6 +196,22 @@ export async function apiRequest<T>(method: string, path: string, body?: unknown
   const res = await send(method, path, body, false, headers)
   if (res.status === 204) return undefined as T
   return parseAnswer<T>(res.status, await res.text())
+}
+
+/**
+ * The live event stream (GET /events, Server-Sent Events) as a streaming fetch with the same
+ * sign-in as every other call; EventSource cannot send the Authorization header.
+ */
+export async function openEventStream(signal: AbortSignal): Promise<Response> {
+  const headers: Record<string, string> = { Accept: 'text/event-stream' }
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+  let res = await fetch(`${BASE}/events`, { headers, credentials: 'include', signal, cache: 'no-store' })
+  if (res.status === 401 && (await refreshOnce()) === 'ok') {
+    headers.Authorization = `Bearer ${accessToken}`
+    res = await fetch(`${BASE}/events`, { headers, credentials: 'include', signal, cache: 'no-store' })
+  }
+  if (!res.ok || !res.body) throw await toApiError(res)
+  return res
 }
 
 /** A signed-in download (a PDF or CSV) as an object URL; the caller revokes it. */
@@ -457,6 +474,14 @@ export const api = {
   takeRun: (date: string) =>
     request<{ dispatched: string[]; skipped: { number: string; reason: string }[] }>('POST', '/manifest/dispatch', { date }),
   riders: () => request<Rider[]>('GET', '/riders'),
+  // Mango Ops v2 (docs/design/ops-dashboard-v2.md): the operating day, the live board, a rider's trail, ops analytics.
+  day: (date: string) => request<DayPlan>('GET', `/day${qs({ date })}`),
+  live: (date: string) => request<LiveBoard>('GET', `/live${qs({ date })}`),
+  riderTrail: (riderId: string, date: string) => request<RiderTrail>('GET', `/riders/${id(riderId)}/trail${qs({ date })}`),
+  opsAnalytics: (f: { from?: string | null; to?: string | null } = {}) => request<OpsAnalytics>('GET', `/analytics/ops${qs(f)}`),
+  /** Nearest riders for the chosen stops only (the Dispatch board's "Assign nearest"). */
+  autoAssignSome: (date: string, orderIds: string[]) =>
+    request<{ assigned: { orderId: string; number: string; riderName: string; riderKm: number | null; warehouseName: string | null }[]; riders: number }>('POST', '/manifest/auto-assign', { date, orderIds }),
   /** Gives stops to a rider (null: to nobody): the listed orders, or every order still to deliver in a slot. */
   /** Every unassigned stop on the date to its nearest rider, with the warehouse that makes his trip shortest. */
   autoAssign: (date: string) =>

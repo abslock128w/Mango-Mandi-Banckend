@@ -42,6 +42,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
     // The backend-free specs intercept every /admin/v1 call, so any API URL works.
-    env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
+    // No map tiles from the internet in tests: the map draws its markers on a blank canvas.
+    env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000', VITE_MAP_TILES_URL: process.env.VITE_MAP_TILES_URL ?? 'none' },
   },
 })

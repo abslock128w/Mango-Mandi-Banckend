@@ -7,6 +7,7 @@ import App from './App'
 import { ErrorBoundary, ToastProvider } from './ui'
 import { startErrorReports } from '../shared/error-reports/index.ts'
 import { applyTheme, readTheme } from './theme'
+import { DENSITY_KEY, applyDensity, getPref, type Density } from './ops/prefs'
 import '../design/tokens.css'
 import './styles.css'
 
@@ -14,6 +15,7 @@ import './styles.css'
 startErrorReports('panel')
 // The saved light/dark choice, before the first paint.
 applyTheme(readTheme())
+applyDensity(getPref<Density>(DENSITY_KEY, 'auto'))
 
 const queryClient = new QueryClient({
   defaultOptions: {

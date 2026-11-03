@@ -1,5 +1,6 @@
 import type { Page, Route } from '@playwright/test'
 import type { Attention, AuditEntry, LedgerEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
+import type { DayPlan, LiveBoard, OpsAnalytics } from '../src/ops/types'
 
 /** A 1×1 PNG. */
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64')
@@ -313,7 +314,108 @@ export function seed() {
   }
 }
 
+/** Mango Ops v2: where the mock's pincodes and warehouse are (Mumbai, as the mock's addresses). */
+export const MOCK_PLACES: Record<string, [number, number]> = { '400001': [18.9388, 72.8354], '400050': [19.0596, 72.8295], '411001': [18.5286, 73.8743] }
+export const MOCK_WAREHOUSE = { id: 'wh_main', name: 'Byculla mandi', address: 'Byculla, Mumbai 400027', lat: 18.9793, lng: 72.8331 }
+
+const ist = (date: string, hhmm: string, minus = 0) => new Date(new Date(`${date}T${hhmm}:00+05:30`).getTime() - minus * 60_000).toISOString()
+
+/** GET /day from the mock's slots and manifest: the manifest's orders count on its own date only. */
+export function mockDay(state: MockState, date: string): DayPlan {
+  const orders = date === state.manifest.date ? state.manifest.runs.flatMap((r) => r.stops.flatMap((st) => st.orders.map((o) => ({ o, slotId: r.slot?.id ?? null })))) : []
+  const bucket = (status: string) =>
+    ['CONFIRMED', 'PROCESSING'].includes(status) ? 'waiting' : ['PACKED', 'SHIPPED'].includes(status) ? 'packed' : status === 'OUT_FOR_DELIVERY' ? 'out' : status === 'DELIVERED' ? 'delivered' : status === 'DELIVERY_FAILED' ? 'failed' : null
+  return {
+    date,
+    now: new Date().toISOString(),
+    rules: { packLeadMinutes: 60, dispatchLeadMinutes: 15, orderCutoff: null },
+    slots: state.slots
+      .filter((sl) => sl.active)
+      .map((sl) => {
+        const mine = orders.filter((x) => x.slotId === sl.id)
+        const counts = { waiting: 0, packed: 0, out: 0, delivered: 0, failed: 0 }
+        for (const { o } of mine) {
+          const b = bucket(o.status) as keyof typeof counts | null
+          if (b) counts[b]++
+        }
+        return {
+          id: sl.id, label: sl.label, startsAt: sl.startsAt, endsAt: sl.endsAt, capacityBoxes: sl.maxBoxes,
+          windowStartAt: ist(date, sl.startsAt), windowEndAt: ist(date, sl.endsAt), packByAt: ist(date, sl.startsAt, 60), dispatchByAt: ist(date, sl.startsAt, 15), orderCutoffAt: null,
+          counts, orders: mine.length, boxes: mine.reduce((n, x) => n + (x.o.boxes ?? 1), 0),
+          unassigned: mine.filter((x) => !(x.o as { rider?: { id: string } | null }).rider && x.o.status !== 'DELIVERED').length,
+        }
+      }),
+    unslotted: null,
+  }
+}
+
+/** GET /live from the mock's riders and manifest (stops at their pincode's centre). */
+export function mockLive(state: MockState, date: string): LiveBoard {
+  const stops = date === state.manifest.date
+    ? state.manifest.runs.flatMap((r) =>
+        r.stops.flatMap((st) =>
+          st.orders.map((o) => {
+            const place = MOCK_PLACES[st.pincode] ?? null
+            const rider = (o as { rider?: { id: string } | null }).rider ?? null
+            return {
+              orderId: o.id, number: o.number, status: o.status as LiveBoard['stops'][number]['status'], slotId: r.slot?.id ?? null, pincode: st.pincode, area: st.zone ?? st.city ?? null,
+              lat: place?.[0] ?? null, lng: place?.[1] ?? null, riderId: rider?.id ?? null, boxes: o.boxes ?? 1, customerName: o.customerName ?? null,
+              windowStartAt: r.slot ? ist(date, r.slot.startsAt) : null, dueAt: r.slot ? ist(date, r.slot.endsAt) : null, pickupWarehouseId: null,
+            }
+          }),
+        ),
+      )
+    : []
+  return {
+    date,
+    now: new Date().toISOString(),
+    riders: state.riders.map((r, i) => {
+      const mine = stops.filter((st) => st.riderId === r.id)
+      return {
+        id: r.id, name: r.name ?? r.email, email: r.email, phone: null, lastAt: new Date(Date.now() - (2 + i * 20) * 60_000).toISOString(),
+        lat: MOCK_WAREHOUSE.lat - 0.01 * (i + 1), lng: MOCK_WAREHOUSE.lng + 0.004 * (i + 1), accuracy: 12,
+        stopsLeft: mine.filter((st) => st.status !== 'DELIVERED').length, stopsDone: mine.filter((st) => st.status === 'DELIVERED').length,
+      }
+    }),
+    stops,
+    warehouses: [MOCK_WAREHOUSE],
+  }
+}
+
+export const MOCK_OPS_ANALYTICS: OpsAnalytics = {
+  from: '2026-10-10', to: '2026-10-16',
+  onTime: { delivered: 40, onTime: 36, rate: 0.9 },
+  slotFill: [
+    { slotId: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00', days: 7, capacityBoxes: 280, boxes: 182, orders: 120, fill: 0.65 },
+    { slotId: 'slt2', label: 'Evening', startsAt: '16:00', endsAt: '20:00', days: 7, capacityBoxes: null, boxes: 64, orders: 41, fill: null },
+  ],
+  minutesPerStop: { median: 14, stops: 40 },
+  riders: [
+    { id: 'adm9', name: 'Ravi Kumar', delivered: 28, failed: 1, medianMinutes: 12, flagged: 0 },
+    { id: 'adm10', name: 'Salma Begum', delivered: 12, failed: 2, medianMinutes: 17, flagged: 1 },
+  ],
+  pincodes: [
+    { pincode: '400001', area: 'South', lat: 18.9388, lng: 72.8354, orders: 30, boxes: 48 },
+    { pincode: '400050', area: 'Bandra', lat: 19.0596, lng: 72.8295, orders: 12, boxes: 18 },
+  ],
+  varieties: [
+    { variety: 'Alphonso', boxes: 52, orders: 34 },
+    { variety: 'Kesar', boxes: 14, orders: 9 },
+  ],
+  repeat: { customers: 38, repeatCustomers: 11, rate: 0.289 },
+  daily: [
+    { date: '2026-10-15', orders: 20, delivered: 18, failed: 1 },
+    { date: '2026-10-16', orders: 22, delivered: 22, failed: 2 },
+  ],
+}
+
 export type MockState = ReturnType<typeof seed> & {
+  /** Mango Ops v2: set to answer GET /day, /live or /analytics/ops with fixed data; null builds them from the manifest. */
+  dayPlan: DayPlan | null
+  liveBoard: LiveBoard | null
+  opsAnalytics: OpsAnalytics
+  /** GET /events: what the stream sends before it closes (SSE text). */
+  eventStream: string
   /** Riders for the Deliveries page's picker and the nearest-rider assignment (empty: none on Staff). */
   riders: { id: string; email: string; name: string | null }[]
   signedIn: boolean
@@ -375,6 +477,10 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
     calls: [],
     riders: [{ id: 'adm9', email: 'rider@mandimangoes.test', name: null }],
     features: opts.features ?? null,
+    dayPlan: null,
+    liveBoard: null,
+    opsAnalytics: MOCK_OPS_ANALYTICS,
+    eventStream: `event: hello\ndata: {"at":"${new Date().toISOString()}"}\n\n`,
     growth: growthSeed(),
   }
 
@@ -837,6 +943,18 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, 200, state.config)
     }
 
+    // Mango Ops v2 (docs/design/ops-dashboard-v2.md): managers and operators only, as on the API.
+    if (['/day', '/live', '/events', '/analytics/ops'].includes(path) || /^\/riders\/[^/]+\/trail$/.test(path)) {
+      if (state.role !== 'MANAGER' && state.role !== 'OPERATOR') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Not available', requestId: 'req_f' } })
+      const date = url.searchParams.get('date') ?? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())
+      if (path === '/day') return json(route, 200, state.dayPlan ?? mockDay(state, date))
+      if (path === '/live') return json(route, 200, state.liveBoard ?? mockLive(state, date))
+      if (path === '/analytics/ops') return json(route, 200, { ...state.opsAnalytics, from: url.searchParams.get('from') ?? state.opsAnalytics.from, to: url.searchParams.get('to') ?? state.opsAnalytics.to })
+      if (path === '/events') return route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'Cache-Control': 'no-cache' }, body: state.eventStream })
+      const riderId = path.split('/')[2]
+      const at = Date.now()
+      return json(route, 200, { riderId, date, points: [0, 1, 2, 3].map((i) => ({ lat: MOCK_WAREHOUSE.lat - 0.004 * i, lng: MOCK_WAREHOUSE.lng + 0.002 * i, accuracy: 10, at: new Date(at - (30 - i * 8) * 60_000).toISOString() })) })
+    }
     // Rider app (LiveProof.tsx): the live view has nothing picked up, riders have no phones signed in.
     if (path === '/deliveries/live') {
       return json(route, 200, { date: url.searchParams.get('date'), cursor: new Date().toISOString(), changed: [], events: [], stops: [], riders: [] })

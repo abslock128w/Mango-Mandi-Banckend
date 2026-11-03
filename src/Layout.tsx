@@ -1,12 +1,16 @@
 import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { ChevronDown, ChevronsLeft, ChevronsRight, KeyRound, LogOut, Menu as MenuIcon, Moon, Search, Sun, X } from 'lucide-react'
+import { BellRing, ChevronDown, ChevronsLeft, ChevronsRight, Keyboard, KeyRound, LogOut, Menu as MenuIcon, Moon, Pin, PinOff, Rows3, Search, Sun, X } from 'lucide-react'
 import { api } from './api'
-import { ROLE_LABEL, homeFor } from './permissions'
+import { ROLE_LABEL, canSee, homeFor } from './permissions'
 import { useSession } from './session'
 import { ErrorBoundary, Spinner } from './ui'
 import { isHere, navGroups, primaryLinks, type NavItem } from './nav'
 import { applyTheme, readTheme, shownTheme } from './theme'
+import { AttentionBell } from './shell/AttentionBell'
+import { CHORDS, ShortcutSheet, useGlobalKeys } from './shell/keys'
+import { LiveDot, LiveProvider } from './shell/live'
+import { CHIME_KEY, DENSITY_KEY, applyDensity, usePinned, usePref, type Density } from './ops/prefs'
 
 // The palette is code nobody needs for the first paint: fetched the first time it opens.
 const CommandPalette = lazy(() => import('./CommandPalette'))
@@ -34,11 +38,29 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
  * and it closes when focus or a click leaves it. Ctrl/Cmd+K opens the command palette.
  */
 export default function Layout() {
+  return (
+    <LiveProvider>
+      <Shell />
+    </LiveProvider>
+  )
+}
+
+const DENSITY_LABEL: Record<Density, string> = { auto: 'By pointer', compact: 'Compact', comfortable: 'Comfortable' }
+const DENSITIES: Density[] = ['auto', 'compact', 'comfortable']
+
+function Shell() {
   const { me } = useSession()
   const location = useLocation()
   const [open, setOpen] = useState<Open>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [palette, setPalette] = useState(false)
+  const [sheet, setSheet] = useState(false)
+  const [density, setDensity] = usePref<Density>(DENSITY_KEY, 'auto')
+  const [chime, setChime] = usePref<boolean>(CHIME_KEY, false)
+  const [pinned, setPinned] = usePinned()
+  useEffect(() => applyDensity(density), [density])
+  const chords = CHORDS.filter((c) => canSee(me?.role, c.screen as Parameters<typeof canSee>[1]))
+  useGlobalKeys({ chords, onSheet: () => setSheet(true), onPalette: () => setPalette(true) })
   const mainRef = useRef<HTMLElement>(null)
   // Set when a disclosure opens from its button, so the effect below moves focus into it.
   const focusInto = useRef(false)
@@ -48,6 +70,10 @@ export default function Layout() {
   const primaryTo = new Set(primary.map((l) => l.to))
   const twoStepOff = !!me?.twoStep && !me.twoStep.enabled
   const here = groups.flatMap((g) => g.links.map((l) => ({ group: g.label, link: l }))).find((x) => isHere(x.link.to, location.pathname))
+  // Pinned screens (per browser), in the order they were pinned; only ones this role still sees.
+  const allLinks = groups.flatMap((g) => g.links)
+  const pins = pinned.map((to) => allLinks.find((l) => l.to === to)).filter((l): l is NavItem => Boolean(l))
+  const herePinned = here ? pinned.includes(here.link.to) : false
 
   // A new page closes whatever was open.
   useEffect(() => setOpen(null), [location.pathname])
@@ -164,6 +190,8 @@ export default function Layout() {
               {isMac ? '⌘' : 'Ctrl'} K
             </kbd>
           </button>
+          <LiveDot />
+          <AttentionBell />
           <ThemeSwitch />
           <div className={`account${open === 'account' ? ' open' : ''}`} data-disclosure="account">
             <button type="button" className="account-btn" aria-expanded={open === 'account'} aria-controls={panelId('account')} onClick={() => toggle('account')}>
@@ -194,6 +222,48 @@ export default function Layout() {
                   </span>
                 </div>
               )}
+              <fieldset className="menu-group">
+                <legend className="menu-group-label">
+                  <Rows3 aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
+                  Density
+                </legend>
+                <div className="segmented segmented-small">
+                  {DENSITIES.map((d) => (
+                    <button key={d} type="button" className="btn btn-small" aria-pressed={density === d} onClick={() => setDensity(d)}>
+                      {DENSITY_LABEL[d]}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+              {(me?.role === 'MANAGER' || me?.role === 'OPERATOR') && (
+                <label className="menu-item menu-check">
+                  <BellRing aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
+                  <span>Sound and flash for new orders and missed deliveries</span>
+                  <input type="checkbox" checked={chime} onChange={(e) => setChime(e.target.checked)} />
+                </label>
+              )}
+              {here && (
+                <button
+                  type="button"
+                  className="menu-item"
+                  onClick={() => setPinned(herePinned ? pinned.filter((to) => to !== here.link.to) : [...pinned, here.link.to])}
+                >
+                  {herePinned ? <PinOff aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} /> : <Pin aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />}
+                  {herePinned ? `Unpin ${here.link.label}` : `Pin ${here.link.label} to the sidebar`}
+                </button>
+              )}
+              <button
+                type="button"
+                className="menu-item"
+                aria-keyshortcuts="Shift+?"
+                onClick={() => {
+                  setOpen(null)
+                  setSheet(true)
+                }}
+              >
+                <Keyboard aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
+                Keyboard shortcuts
+              </button>
               <NavLink to="/two-step" className={({ isActive }) => `menu-item${isActive ? ' active' : ''}`}>
                 <KeyRound aria-hidden="true" className="menu-item-icon" strokeWidth={1.75} />
                 Two-step sign-in{twoStepOff ? ' (off)' : ''}
@@ -209,6 +279,18 @@ export default function Layout() {
 
       <nav id="main-nav" aria-label="Main" className={`sidebar${open === 'menu' ? ' open' : ''}`} data-disclosure="menu">
         <div id={panelId('menu')} className="nav-sheet">
+          {pins.length > 0 && (
+            <div className="nav-group nav-pinned">
+              <span className="nav-group-label" id="nav-pinned-label">
+                Pinned
+              </span>
+              <ul className="nav-group-list" aria-labelledby="nav-pinned-label">
+                {pins.map((l) => (
+                  <li key={l.to}>{link(l)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <ul className="nav-groups">
             {groups.map((g) => {
               const labelId = `nav-${g.id}-label`
@@ -264,9 +346,18 @@ export default function Layout() {
 
       {palette && (
         <Suspense fallback={null}>
-          <CommandPalette groups={groups} onClose={() => setPalette(false)} />
+          <CommandPalette
+            groups={groups}
+            onClose={() => setPalette(false)}
+            onShortcuts={() => {
+              setPalette(false)
+              setSheet(true)
+            }}
+            pin={here ? { label: here.link.label, pinned: herePinned, toggle: () => setPinned(herePinned ? pinned.filter((to) => to !== here.link.to) : [...pinned, here.link.to]) } : null}
+          />
         </Suspense>
       )}
+      {sheet && <ShortcutSheet chords={chords} onClose={() => setSheet(false)} />}
     </div>
   )
 }

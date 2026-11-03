@@ -476,7 +476,7 @@ function AttentionGroupView({ group }: { group: AttentionGroup }) {
   const listId = useId()
   const more = group.items.length - FIRST_FEW
   return (
-    <div className="attention-group">
+    <div className="attention-group" id={`attention-${group.key}`} tabIndex={-1}>
       <h3>
         {group.title} <span className="attention-count">{group.items.length}</span>
       </h3>
