@@ -24,13 +24,13 @@ function ToastItem({ t, desktop }: { t: Toast; desktop: boolean }) {
       exit={desktop ? { opacity: 0, x: 24 } : { opacity: 0, y: -24 }}
       transition={{ type: "spring", stiffness: 420, damping: 34 }}
       role="status"
-      className="pointer-events-auto relative w-full overflow-hidden rounded-12 bg-ink text-white shadow-sheet lg:w-[360px]"
+      className="glass glass-strong glass-pill pointer-events-auto relative w-full overflow-hidden lg:w-[360px]"
     >
       <div className="flex items-center gap-3 py-3 pr-2 pl-4">
-        <Icon aria-hidden size={20} strokeWidth={1.75} className={cn("shrink-0", t.tone === "success" ? "text-raw" : t.tone === "danger" ? "text-danger" : "text-brand")} />
+        <Icon aria-hidden size={20} strokeWidth={1.75} className={cn("shrink-0", t.tone === "success" ? "text-action" : t.tone === "danger" ? "text-danger" : "text-ripe")} />
         <p className="flex-1 text-13 font-medium">{t.title}</p>
         {t.action?.href && (
-          <Link href={t.action.href} className="rounded-6 px-2 py-1 text-13 font-bold text-brand" onClick={() => dismiss(t.id)}>
+          <Link href={t.action.href} className="rounded-6 px-2 py-1 text-13 font-bold text-action" onClick={() => dismiss(t.id)}>
             {t.action.label}
           </Link>
         )}
@@ -43,7 +43,7 @@ function ToastItem({ t, desktop }: { t: Toast; desktop: boolean }) {
         initial={{ scaleX: 1 }}
         animate={{ scaleX: 0 }}
         transition={{ duration: duration / 1000, ease: "linear" }}
-        className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-brand"
+        className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-brand/80"
       />
     </m.li>
   );

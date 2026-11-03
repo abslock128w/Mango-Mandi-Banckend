@@ -82,6 +82,8 @@
   --radius-8: 8px;
   --radius-12: 12px;
   --radius-16: 16px;
+  --radius-20: 20px;
+  --radius-24: 24px;
   --radius-full: 9999px;
 
   --shadow-card: 2px 2px 10px rgba(120, 72, 20, 0.06);
@@ -166,7 +168,13 @@
   --glass-blur-press: 12px;
   --glass-saturate: 1.6;
   --glass-edge: 1px solid color-mix(in oklab, white 55%, transparent);
-  --glass-shadow: 0 1px 0 rgba(255, 255, 255, 0.45) inset, 0 8px 24px -12px rgba(43, 29, 18, 0.25);
+  /* The rim: a bright hairline along the top edge, a soft inner ring and a faint darker bottom-right
+     edge (light bends through the slab), then a shallow drop shadow. */
+  --glass-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    inset -1px -1px 0 rgba(43, 29, 18, 0.05),
+    0 8px 24px -12px rgba(43, 29, 18, 0.25);
   --glass-ink: color-mix(in oklab, var(--color-ink) 92%, transparent);
 
   --ease-spring-snappy: linear(0, 0.04, 0.135, 0.254, 0.378, 0.496, 0.601, 0.692, 0.767, 0.827, 0.875, 0.912, 0.94, 0.961, 0.975, 0.986, 1);

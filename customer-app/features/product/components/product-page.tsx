@@ -34,7 +34,7 @@ export function ProductPage({ id }: { id: string }) {
         <ProductDetail product={product} sel={sel} scope={scope} mode="page" />
       </div>
       <OutsidePage>
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+        <div className="glass glass-strong fixed inset-x-0 bottom-0 z-30 rounded-none border-x-0 border-b-0 border-t border-t-hairline pb-[env(safe-area-inset-bottom)] lg:hidden">
           <PurchaseBar product={product} sel={sel} />
         </div>
       </OutsidePage>

@@ -437,7 +437,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
             fly(e.currentTarget);
           }}
           data-testid="add-to-cart"
-          className="h-12 min-w-40 rounded-6 bg-action px-6 text-15 font-semibold text-white"
+          className="glass-primary relative h-12 min-w-40 rounded-12 bg-action px-6 text-15 font-semibold text-white"
         >
           Add to cart
         </Pressable>

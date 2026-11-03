@@ -98,7 +98,7 @@ export function CartBar() {
               transition={spring.bouncy}
               style={{ scale: pulse }}
               whileTap={{ scale: 0.97 }}
-              className="glass glass-strong glass-pill glass-press pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 pr-3 pl-2 text-left"
+              className="glass glass-strong glass-pill glass-press pointer-events-auto relative mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 pr-3 pl-2 text-left"
               aria-label={`View cart, ${count} item${count === 1 ? "" : "s"}, ${rupees(itemTotal)}`}
             >
               <DeliveryBadge />

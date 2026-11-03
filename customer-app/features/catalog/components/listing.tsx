@@ -58,7 +58,7 @@ function Chip({ children, active, onClick, count }: { children: React.ReactNode;
       type="button"
       onClick={onClick}
       className={cn(
-        "press tap flex h-9 shrink-0 items-center gap-1 rounded-8 border px-3 text-12 font-medium whitespace-nowrap",
+        "press tap flex h-9 shrink-0 items-center gap-1 rounded-full border px-3 text-12 font-medium whitespace-nowrap",
         active ? "border-action bg-tint text-action" : "border-line bg-surface text-ink",
       )}
     >
@@ -121,8 +121,24 @@ function useUrlFilters(): [Filters, (f: Filters) => void] {
   return [filters, setFilters];
 }
 
+/** True once the sticky chip row has stuck under the header (a 1 px sentinel above it leaves the screen). */
+function useStuck(sentinel: React.RefObject<HTMLDivElement | null>) {
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el) return;
+    const headerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 0;
+    const io = new IntersectionObserver(([e]) => setStuck(!e.isIntersecting && e.boundingClientRect.top < headerH + 1), { rootMargin: `-${headerH + 1}px 0px 0px 0px`, threshold: 0 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [sentinel]);
+  return stuck;
+}
+
 export function Listing({ initial }: { initial: Collection }) {
   const [filters, setFilters] = useUrlFilters();
+  const sentinel = useRef<HTMLDivElement>(null);
+  const stuck = useStuck(sentinel);
   const [active, setActive] = useState<Collection>(initial);
   const [sheet, setSheet] = useState<{ open: boolean; tab: Tab; loaded: boolean }>({ open: false, tab: "sort", loaded: false });
   const sectionRefs = useRef(new Map<Collection, HTMLElement>());
@@ -193,7 +209,9 @@ export function Listing({ initial }: { initial: Collection }) {
           }}
         />
         <div className="min-w-0 flex-1">
-          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-hairline bg-surface px-3 py-2">
+          <div ref={sentinel} aria-hidden className="h-px w-full" />
+          {/* Surface-coloured in the flow; glass once it sticks under the header (globals.css, .glass-stuck). */}
+          <div data-stuck={stuck ? "" : undefined} className="glass glass-strong glass-stuck no-scrollbar sticky top-(--header-h) z-20 -mt-px flex gap-2 overflow-x-auto rounded-none border-x-0 border-t-0 border-b border-b-hairline px-3 py-2 transition-[background-color,box-shadow] duration-(--dur-m) ease-standard">
             <Chip onClick={() => openSheet("sort")} count={filterCount} active={filterCount > 0}>
               <SlidersHorizontal aria-hidden size={14} strokeWidth={2} /> Filters
             </Chip>

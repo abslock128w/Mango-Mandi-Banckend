@@ -127,115 +127,149 @@
      for the press.
    - No backdrop-filter: the strong (78%) surface, no blur. Reduced transparency: the opaque surface,
      no blur, no specular, no lensing. */
-.glass {
-  position: relative;
-  isolation: isolate;
-  background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border: var(--glass-edge);
-  box-shadow: var(--glass-shadow);
-  color: var(--glass-ink);
-  text-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.4);
-}
-.glass-strong {
-  background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg-strong);
-}
-.glass-bar {
-  border-radius: 16px;
-}
-.glass-pill {
-  border-radius: 24px;
-}
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
-  mix-blend-mode: soft-light;
-  transform: translateX(calc(var(--spec-x, 0) * 16%));
-}
-@supports (animation-timeline: scroll()) {
-  .glass::before {
-    animation: glass-specular linear both;
-    animation-timeline: scroll(root block);
-    animation-range: 0 80px;
-  }
-}
-@keyframes glass-specular {
-  to {
-    transform: translateX(16%);
-  }
-}
-/* Lensing: the pill scales to .97 and its blur drops for the press (phones only, where there is a
-   thumb on the glass; filter is cheap on the engines that run the shop). */
-@media (hover: none) and (prefers-reduced-transparency: no-preference) {
-  .glass-press {
+/* In the components layer, so a utility on the element (rounded-none, border-0, sticky) still wins.
+   Every glass element sets its own position (sticky, fixed, absolute or relative). */
+@layer components {
+  .glass {
+    isolation: isolate;
+    background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+    color: var(--glass-ink);
+    text-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.4);
+    /* The specular and sheen move inside the slab, never past it (no sideways scroll). */
+    overflow: clip;
+    /* Surfaces change state smoothly (a chip row that sticks, a bar that lands). Never transform:
+       Motion owns the transform of the bars it animates. */
     transition:
-      transform var(--dur-spring-snappy) var(--ease-spring-snappy),
-      -webkit-backdrop-filter var(--dur-xs) var(--ease-standard),
-      backdrop-filter var(--dur-xs) var(--ease-standard);
+      background-color var(--dur-m) var(--ease-standard),
+      box-shadow var(--dur-m) var(--ease-standard);
   }
-  .glass-press:active:not(:disabled) {
-    transform: scale(0.97);
-    transition-duration: var(--dur-xs);
-    -webkit-backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
-    backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
+  /* A sheen that sweeps across the slab when it is pressed (::after, transform only, 600 ms). */
+  .glass::after,
+  .glass-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.45) 50%, transparent 65%);
+    transform: translateX(-110%);
   }
-}
-/* A primary button in glass: the action colour at 100% behind the label (it stays obviously the
-   primary thing to tap), with the glass edge, specular and lensing. Opaque, so no blur behind it. */
-.glass-primary {
-  position: relative;
-  isolation: isolate;
-  border: var(--glass-edge);
-  box-shadow: var(--glass-shadow);
-}
-.glass-primary::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
-  mix-blend-mode: soft-light;
-}
-@supports not (backdrop-filter: blur(1px)) {
-  .glass {
-    background: var(--glass-bg-strong);
+  .glass:active::after,
+  .glass-primary:active::after,
+  .glass-press:active::after {
+    animation: glass-sheen 600ms var(--ease-emphasized) both;
   }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .glass {
+  @keyframes glass-sheen {
+    to {
+      transform: translateX(110%);
+    }
+  }
+  .glass-strong {
+    background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg-strong);
+  }
+  .glass-bar {
+    border-radius: 16px;
+  }
+  .glass-pill {
+    border-radius: 24px;
+  }
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
+    mix-blend-mode: soft-light;
+    transform: translateX(calc(var(--spec-x, 0) * 16%));
+  }
+  @supports (animation-timeline: scroll()) {
+    .glass::before {
+      animation: glass-specular linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 80px;
+    }
+  }
+  @keyframes glass-specular {
+    to {
+      transform: translateX(16%);
+    }
+  }
+  /* Lensing: the blur drops 18 -> 12 px for the press (phones only, where there is a thumb on the
+     glass; filter is cheap on the engines that run the shop). The .97 scale of the press comes from
+     Motion's whileTap on the bar (or the press utility), not from here. */
+  @media (hover: none) and (prefers-reduced-transparency: no-preference) {
+    .glass-press {
+      transition:
+        background-color var(--dur-m) var(--ease-standard),
+        box-shadow var(--dur-m) var(--ease-standard),
+        -webkit-backdrop-filter var(--dur-xs) var(--ease-standard),
+        backdrop-filter var(--dur-xs) var(--ease-standard);
+    }
+    .glass-press:active:not(:disabled) {
+      -webkit-backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
+      backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
+    }
+  }
+  /* A primary button in glass: the action colour at 100% behind the label (it stays obviously the
+     primary thing to tap), with the glass edge, specular and lensing. Opaque, so no blur behind it. */
+  .glass-primary {
+    isolation: isolate;
+    overflow: clip;
+    border: var(--glass-edge);
+    box-shadow: var(--glass-shadow);
+  }
+  .glass-primary::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
+    mix-blend-mode: soft-light;
+  }
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass {
+      background: var(--glass-bg-strong);
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background: var(--color-surface);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      text-shadow: none;
+    }
+    .glass::before,
+    .glass-primary::before,
+    .glass::after,
+    .glass-primary::after {
+      display: none;
+    }
+  }
+  /* The listing's chip row is glass only once it sticks under the header (listing.tsx, data-stuck),
+     and gives its blur up while a sheet is open so no more than four surfaces blur at once. */
+  .glass-stuck:not([data-stuck]) {
     background: var(--color-surface);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    text-shadow: none;
+    border-color: transparent;
+    box-shadow: none;
   }
-  .glass::before,
-  .glass-primary::before {
+  .glass-stuck:not([data-stuck])::before {
     display: none;
   }
-}
-/* The listing's chip row is glass only once it sticks under the header (listing.tsx, data-stuck),
-   and gives its blur up while a sheet is open so no more than four surfaces blur at once. */
-.glass-stuck:not([data-stuck]) {
-  background: var(--color-surface);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  border-color: transparent;
-  box-shadow: none;
-}
-.glass-stuck:not([data-stuck])::before {
-  display: none;
-}
-body:has(.app-root[data-active]) .glass-stuck {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
+  body:has(.app-root[data-active]) .glass-stuck {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @utility skeleton {

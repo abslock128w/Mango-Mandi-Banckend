@@ -731,7 +731,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             disabled={pay.isPending || cancelUnpaid.isPending || (!q && !(slotsRequired && !chosenSlot))}
             onClick={() => (q ? submit() : validate())}
             data-testid="place-order"
-            className="press flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white disabled:bg-disabled"
+            className="press glass-primary relative flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white disabled:bg-disabled"
           >
             <span className="flex flex-col items-start leading-tight">
               <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />

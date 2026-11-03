@@ -111,6 +111,20 @@ export function Sheet({
   const useSnaps = mode === "bottom" && snapPoints && snapPoints.length > 0;
   const backdropRef = React.useRef<HTMLDivElement>(null);
   usePushBack(backdropRef, open && mode === "bottom");
+  // The head (handle and title) is glass over the content, which scrolls beneath it: the content
+  // starts below the head by its measured height (--sheet-head).
+  const headRef = React.useRef<HTMLDivElement>(null);
+  const popupRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const head = headRef.current;
+    const popup = popupRef.current;
+    if (!head || !popup) return;
+    const measure = () => popup.style.setProperty("--sheet-head", `${head.offsetHeight}px`);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(head);
+    return () => ro.disconnect();
+  }, [open, mode]);
 
   const titleNode = (
     <BaseDrawer.Title className={cn("font-display text-17 font-extrabold text-ink", hideTitle && "sr-only")}>{title}</BaseDrawer.Title>
@@ -147,8 +161,9 @@ export function Sheet({
           )}
         >
           <BaseDrawer.Popup
+            ref={popupRef}
             className={cn(
-              "group/sheet relative flex min-h-0 flex-col bg-surface text-ink outline-none",
+              "group/sheet relative flex min-h-0 flex-col overflow-hidden bg-surface text-ink outline-none",
               "transition-[transform,opacity] data-swiping:duration-0 data-swiping:select-none data-swiping:will-change-transform",
               mode !== "dialog" &&
                 // spring.smooth; a fast flick (low --drawer-swipe-strength) lands sooner.
@@ -170,27 +185,31 @@ export function Sheet({
             )}
             style={mode === "right" ? { width: panelWidth } : undefined}
           >
-            {mode === "bottom" && (
-              <div className="flex shrink-0 justify-center pt-2 pb-1" aria-hidden>
-                <div className="h-1 w-10 rounded-full bg-line" />
-              </div>
-            )}
-            {header ?? (
-              <div className={cn("flex shrink-0 items-center justify-between gap-3 px-4", hideTitle ? "py-1" : "border-b border-hairline py-3")}>
-                {titleNode}
-                <BaseDrawer.Close
-                  aria-label="Close"
-                  className="press ml-auto grid size-11 place-items-center rounded-full text-ink hover:bg-chip"
-                >
-                  <X size={20} strokeWidth={1.75} />
-                </BaseDrawer.Close>
-              </div>
-            )}
+            {/* Glass head: the handle and title float over the content (will-change: transform only
+                while dragging; the blur never animates). */}
+            <div ref={headRef} className={cn("glass absolute inset-x-0 top-0 z-10 rounded-none border-x-0 border-t-0", mode === "bottom" && "rounded-t-16", mode === "dialog" && "rounded-t-16")}>
+              {mode === "bottom" && (
+                <div className="flex shrink-0 justify-center pt-2 pb-1" aria-hidden>
+                  <div className="h-1 w-10 rounded-full bg-ink/20" />
+                </div>
+              )}
+              {header ?? (
+                <div className={cn("flex shrink-0 items-center justify-between gap-3 px-4", hideTitle ? "py-1" : "py-3")}>
+                  {titleNode}
+                  <BaseDrawer.Close
+                    aria-label="Close"
+                    className="press ml-auto grid size-11 place-items-center rounded-full text-ink hover:bg-chip"
+                  >
+                    <X size={20} strokeWidth={1.75} />
+                  </BaseDrawer.Close>
+                </div>
+              )}
+            </div>
             {header && <div className="sr-only">{titleNode}</div>}
             {description && <BaseDrawer.Description className="sr-only">{description}</BaseDrawer.Description>}
             <BaseDrawer.Content
               className={cn(
-                "min-h-0 flex-1 touch-auto overflow-y-auto overscroll-contain",
+                "min-h-0 flex-1 touch-auto overflow-y-auto overscroll-contain pt-(--sheet-head,0px)",
                 bodyClassName,
               )}
             >
