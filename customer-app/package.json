@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/blur-placeholders.mjs",
     "build": "next build",
+    "blur": "node scripts/blur-placeholders.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",

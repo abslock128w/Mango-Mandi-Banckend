@@ -1,11 +1,11 @@
 "use client";
-import Image from "next/image";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { BadgeCheck, Boxes, CalendarClock, ChevronRight, Leaf, RefreshCcw, Star } from "lucide-react";
 import Link from "next/link";
 import { useState, ViewTransition } from "react";
 import { WhenVisible } from "@/components/ui/when-visible";
+import { BlurImage } from "@/components/ui/blur-image";
 import { AddButton } from "@/features/cart/components/add-button";
 import { useCart, useQty } from "@/features/cart/store";
 import { NotifyButton } from "@/features/catalog/components/notify-button";
@@ -61,7 +61,7 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
       {/* Picking another photo crossfades to it (the first paints at once: initial={false}). */}
       <AnimatePresence initial={false}>
         <m.div key={current} className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
-          <Image src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
+          <BlurImage src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
         </m.div>
       </AnimatePresence>
     </div>
@@ -89,7 +89,7 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
             className={cn("rail-item press relative size-16 shrink-0 overflow-hidden rounded-8 border-2 bg-surface transition-colors duration-(--dur-s)", i === active ? "border-action" : "border-line")}
           >
             {/* Beside the main photo, so above the fold; one is the main photo's own file. */}
-            <Image src={src} alt="" fill sizes="64px" loading="eager" className="object-cover" />
+            <BlurImage src={src} alt="" fill sizes="64px" loading="eager" className="object-cover" />
           </button>
         ))}
       </div>

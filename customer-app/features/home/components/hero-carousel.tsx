@@ -1,6 +1,6 @@
 "use client";
 import Autoplay from "embla-carousel-autoplay";
-import Image from "next/image";
+import { BlurImage } from "@/components/ui/blur-image";
 import Link from "next/link";
 import { useReducedMotion, useScroll, useTransform } from "motion/react";
 import * as m from "motion/react-m";
@@ -57,7 +57,7 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
       <Link ref={ref} href={s.href} className="relative block aspect-[2.1/1] overflow-hidden rounded-12 bg-brand-soft">
         <m.div className="absolute -inset-y-[5%] inset-x-0" style={{ y }}>
           {/* Off-screen banners load after first paint so they don't compete with the LCP image. */}
-          {(i === 0 || ready) && <Image src={s.image} alt="" fill preload={i === 0} loading={i === 0 ? "eager" : "lazy"} fetchPriority={i === 0 ? "high" : "auto"} sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 88vw" className="object-cover" />}
+          {(i === 0 || ready) && <BlurImage src={s.image} alt="" fill preload={i === 0} loading={i === 0 ? "eager" : "lazy"} fetchPriority={i === 0 ? "high" : "auto"} sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 88vw" className="object-cover" />}
         </m.div>
         <div className={cn("absolute inset-0 flex flex-col justify-center bg-gradient-to-r to-transparent p-4 text-ink", TONE[s.tone])}>
           {/* The words rise 8 px (160 ms) each time their slide comes to the front. */}

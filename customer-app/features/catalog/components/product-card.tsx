@@ -1,5 +1,5 @@
 "use client";
-import Image from "next/image";
+import { BlurImage } from "@/components/ui/blur-image";
 import Link from "next/link";
 import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
@@ -41,7 +41,6 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const sku = skuFor(product, stage, size) ?? product.skus[0];
   const slot = useNextSlot();
   const open = useOpenProduct();
-  const [loaded, setLoaded] = useState(false);
   const qty = useQty(sku.id);
 
   // Stock is per box and ripeness for the chosen day (GET /v1/catalogue).
@@ -73,9 +72,8 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
             <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
-              {!loaded && <div aria-hidden className="skeleton absolute inset-0" />}
-              {/* The image paints over the shimmer as soon as it decodes. */}
-              <Image
+              {/* The photo fades in over its own blurred colours as soon as it decodes. */}
+              <BlurImage
                 src={productImage(product, stage)}
                 alt=""
                 fill
@@ -83,7 +81,6 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
                 preload={priority}
                 fetchPriority={priority ? "high" : "auto"}
                 loading={priority || eager ? "eager" : "lazy"}
-                onLoad={() => setLoaded(true)}
                 className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
             </m.div>

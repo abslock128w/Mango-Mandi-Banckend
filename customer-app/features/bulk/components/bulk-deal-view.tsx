@@ -143,6 +143,8 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                   srcSet={[480, 640, 960, 1200].map((w) => `${mediaUrl(cur.url, w)} ${w}w`).join(", ")}
                   sizes="(min-width: 1024px) 560px, 100vw"
                   alt={`Photo ${photo + 1} of ${deal.photos.length}, ${deal.title}`}
+                  width={960}
+                  height={720}
                   className="size-full object-cover"
                 />
               ) : (
@@ -163,7 +165,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                     className={cn("press size-16 shrink-0 overflow-hidden rounded-8 border-2", i === photo ? "border-action" : "border-transparent")}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- API thumbnail */}
-                    <img src={mediaUrl(p.url, 160)!} alt="" loading="lazy" className="size-full object-cover" />
+                    <img src={mediaUrl(p.url, 160)!} alt="" width={64} height={64} loading="lazy" className="size-full object-cover" />
                   </button>
                 ))}
               </div>

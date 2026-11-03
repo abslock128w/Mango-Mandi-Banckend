@@ -97,7 +97,7 @@ function DealCard({ deal: d, eager }: { deal: BulkDeal; eager: boolean }) {
         <div className="relative aspect-4/3 bg-chip">
           {photo ? (
             // eslint-disable-next-line @next/next/no-img-element -- API photo, resized by the API (?w=)
-            <img src={photo} alt="" loading={eager ? "eager" : "lazy"} className="size-full object-cover" />
+            <img src={photo} alt="" width={480} height={360} decoding="async" loading={eager ? "eager" : "lazy"} className="size-full object-cover" />
           ) : (
             <span className="grid size-full place-items-center text-muted">
               <Package aria-hidden size={40} strokeWidth={1.5} />

@@ -1,5 +1,6 @@
 "use client";
 import Image from "next/image";
+import { BlurImage } from "@/components/ui/blur-image";
 import Link from "next/link";
 import { AnimatePresence, animate, useMotionValue, useTransform } from "motion/react";
 import * as m from "motion/react-m";
@@ -102,7 +103,7 @@ function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }
         className="relative flex items-center gap-3 bg-surface"
       >
         <span className="relative size-[70px] shrink-0 overflow-hidden rounded-8 border-[0.5px] border-line bg-surface">
-          <Image src={line.image} alt="" fill sizes="70px" className="object-cover" draggable={false} />
+          <BlurImage src={line.image} alt="" fill sizes="70px" className="object-cover" draggable={false} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-12 font-medium text-ink">{/box/i.test(line.name) ? line.name : `${line.name} Mango`}</p>

@@ -1,5 +1,5 @@
 "use client";
-import Image from "next/image";
+import { BlurImage } from "@/components/ui/blur-image";
 import { AnimatePresence, animate, useMotionValue, useReducedMotion, useTransform } from "motion/react";
 import * as m from "motion/react-m";
 import { ChevronRight } from "lucide-react";
@@ -115,7 +115,7 @@ export function CartBar() {
                       className="relative size-9 overflow-hidden rounded-8 border-2 border-deep bg-white"
                       style={{ zIndex: 3 - i }}
                     >
-                      <Image src={l.image} alt="" fill sizes="36px" className="object-cover" />
+                      <BlurImage src={l.image} alt="" fill sizes="36px" className="object-cover" />
                     </m.span>
                   ))}
                 </AnimatePresence>
