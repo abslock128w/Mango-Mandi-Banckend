@@ -72,7 +72,7 @@ const FilterSheet = dynamic(() => import("./filter-sheet").then((m) => m.FilterS
 
 function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id: Collection) => void }) {
   return (
-    <nav aria-label="Ripeness and collections" className="no-scrollbar sticky top-(--header-h) h-[calc(100dvh-var(--header-h))] w-rail shrink-0 overflow-y-auto border-r border-line bg-surface lg:w-[104px]">
+    <nav aria-label="Ripeness and collections" className="no-scrollbar sticky top-(--header-h) h-[calc(100dvh-var(--header-h))] w-rail shrink-0 overflow-y-auto border-r border-hairline bg-surface lg:w-[104px]">
       <ul>
         {SECTIONS.map((s) => {
           const on = s.id === active;
@@ -193,7 +193,7 @@ export function Listing({ initial }: { initial: Collection }) {
           }}
         />
         <div className="min-w-0 flex-1">
-          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-line bg-surface px-3 py-2">
+          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-hairline bg-surface px-3 py-2">
             <Chip onClick={() => openSheet("sort")} count={filterCount} active={filterCount > 0}>
               <SlidersHorizontal aria-hidden size={14} strokeWidth={2} /> Filters
             </Chip>

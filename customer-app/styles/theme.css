@@ -30,6 +30,8 @@
   --color-muted: #6b5848;
   --color-faint: #7a6656;
   --color-line: #efe3d2;
+  /* Dividers (docs/design/shop-motion.md, "Editorial feel"): the line at 60%, a hairline not a rule. */
+  --color-hairline: color-mix(in oklab, #efe3d2 60%, transparent);
   --color-surface: #ffffff;
   --color-canvas: #fff8ee;
   --color-chip: #fbf1e3;
@@ -102,6 +104,14 @@
   --ease-out-sheet: var(--ease-emphasized);
   --animate-shimmer: shimmer 1.4s linear infinite;
   --animate-rise: rise var(--dur-m) var(--ease-standard) both;
+  /* The stage chip's dot breathes once as it appears (1 → 1.15 → 1, 600 ms). */
+  --animate-dot-breathe: dot-breathe 600ms var(--ease-standard) both;
+
+  @keyframes dot-breathe {
+    50% {
+      transform: scale(1.15);
+    }
+  }
 
   @keyframes rise {
     from {

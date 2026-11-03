@@ -27,7 +27,7 @@ export function FilterSheet({ open, onOpenChange, value, onApply, tab }: { open:
     { id: "more", label: "Sweetness" },
   ];
   const opt = (on: boolean, label: string, onClick: () => void, key: string) => (
-    <button key={key} type="button" role="radio" aria-checked={on} onClick={onClick} className="flex h-12 w-full items-center justify-between gap-3 border-b border-line text-left text-13 text-ink">
+    <button key={key} type="button" role="radio" aria-checked={on} onClick={onClick} className="flex h-12 w-full items-center justify-between gap-3 border-b border-hairline text-left text-13 text-ink">
       {label}
       <span aria-hidden className={cn("grid size-5 place-items-center rounded-full border-2", on ? "border-action" : "border-line")}>
         {on && <span className="size-2.5 rounded-full bg-action" />}

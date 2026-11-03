@@ -30,7 +30,7 @@ export function BillDetails({ subtotal, discount = 0, promo, total, estimate }: 
         )}
       {row(<Bike aria-hidden size={16} strokeWidth={1.75} />, "Delivery", <span className="font-semibold text-action">FREE</span>)}
       {row(<ReceiptText aria-hidden size={16} strokeWidth={1.75} />, "GST", <span className="text-muted">Included in prices</span>)}
-      <div className="mt-2 flex items-center justify-between border-t border-line pt-3">
+      <div className="mt-2 flex items-center justify-between border-t border-hairline pt-3">
         <span className="text-15 font-bold text-ink">{estimate ? "Estimated total" : "To pay"}</span>
         <span className="text-15 font-bold text-ink" data-testid="to-pay">
           {rupees(total)}

@@ -7,7 +7,7 @@ import { animatedBack, markBack } from "./nav";
 export function FlowHeader({ title, back = true, href }: { title: string; back?: boolean; href?: string }) {
   const router = useRouter();
   return (
-    <header className="site-header sticky top-0 z-40 border-b border-line bg-surface">
+    <header className="site-header sticky top-0 z-40 border-b border-hairline bg-surface">
       <div className="mx-auto flex h-14 max-w-content items-center gap-2 px-2 lg:h-[72px] lg:px-6">
         {back && (
           <button type="button" onClick={() => {

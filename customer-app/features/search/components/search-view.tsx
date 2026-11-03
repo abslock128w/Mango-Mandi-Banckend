@@ -175,7 +175,7 @@ export function SearchView() {
 
   return (
     <div className="min-h-dvh bg-surface">
-      <header className="site-header sticky top-0 z-40 border-b border-line bg-surface">
+      <header className="site-header sticky top-0 z-40 border-b border-hairline bg-surface">
         <div className="mx-auto flex max-w-content items-center gap-2 px-3 py-3 lg:gap-6 lg:px-6 lg:py-4">
           <button type="button" onClick={() => router.back()} aria-label="Back" className="press grid size-11 shrink-0 place-items-center rounded-full text-ink lg:hidden">
             <ArrowLeft size={20} strokeWidth={1.75} />

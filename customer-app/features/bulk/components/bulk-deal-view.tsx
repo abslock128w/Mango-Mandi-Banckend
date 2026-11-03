@@ -213,7 +213,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
               </h2>
               <table className="mt-2 w-full overflow-hidden rounded-12 bg-surface text-13">
                 <thead>
-                  <tr className="border-b border-line text-left text-12 text-muted">
+                  <tr className="border-b border-hairline text-left text-12 text-muted">
                     <th scope="col" className="px-3 py-2 font-semibold">Boxes</th>
                     <th scope="col" className="px-3 py-2 font-semibold">Per box</th>
                     <th scope="col" className="px-3 py-2 text-right font-semibold">You save</th>
@@ -225,7 +225,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                     .map((t) => {
                       const on = tier?.minQty === t.minQty;
                       return (
-                        <tr key={t.minQty} aria-current={on ? "true" : undefined} className={cn("border-b border-line last:border-0", on && "bg-tint")}>
+                        <tr key={t.minQty} aria-current={on ? "true" : undefined} className={cn("border-b border-hairline last:border-0", on && "bg-tint")}>
                           <td className="px-3 py-2 text-ink">{tierRange(t)}</td>
                           <td className="px-3 py-2 font-semibold text-ink">{rupees(t.unitPrice)}</td>
                           <td className="px-3 py-2 text-right text-action">{t.savingPerBox > 0 ? `${rupees(t.savingPerBox)} a box` : "None"}</td>
@@ -319,7 +319,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
             </section>
 
             <OutsidePage>
-              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
+              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
                 <button
                   type="button"
                   onClick={add}

@@ -112,9 +112,9 @@ export function SuccessView({ id }: { id: string }) {
               </li>
             ))}
           </ul>
-          <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
+          <div className="mt-3 flex items-center justify-between border-t border-hairline pt-3">
             <span className="text-12 text-muted">{plural(order.items.reduce((n, l) => n + l.quantity, 0), "box", "boxes")}</span>
-            <span className="text-15 font-bold text-ink">{rupees(order.total)}</span>
+            <span className="text-15 font-bold text-ink tabular-nums">{rupees(order.total)}</span>
           </div>
           <Link href={`/order/${order.id}`} data-testid="track-order" className="press mt-4 flex h-12 items-center justify-center gap-1 rounded-12 bg-action text-15 font-semibold text-white">
             {failed ? "Go to the order" : "Track order"} <ChevronRight aria-hidden size={20} />

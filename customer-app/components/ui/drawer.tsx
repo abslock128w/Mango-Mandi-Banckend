@@ -176,7 +176,7 @@ export function Sheet({
               </div>
             )}
             {header ?? (
-              <div className={cn("flex shrink-0 items-center justify-between gap-3 px-4", hideTitle ? "py-1" : "border-b border-line py-3")}>
+              <div className={cn("flex shrink-0 items-center justify-between gap-3 px-4", hideTitle ? "py-1" : "border-b border-hairline py-3")}>
                 {titleNode}
                 <BaseDrawer.Close
                   aria-label="Close"
@@ -196,7 +196,7 @@ export function Sheet({
             >
               {children}
             </BaseDrawer.Content>
-            {footer && <div className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]">{footer}</div>}
+            {footer && <div className="shrink-0 border-t border-hairline bg-surface pb-[env(safe-area-inset-bottom)]">{footer}</div>}
           </BaseDrawer.Popup>
         </BaseDrawer.Viewport>
       </BaseDrawer.Portal>

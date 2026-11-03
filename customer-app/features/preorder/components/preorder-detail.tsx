@@ -172,7 +172,7 @@ function Detail({ pre }: { pre: Preorder }) {
             </>
           )}
         </dl>
-        <div className="mt-3 flex items-start justify-between gap-2 border-t border-line pt-3">
+        <div className="mt-3 flex items-start justify-between gap-2 border-t border-hairline pt-3">
           <div>
             <p className="text-13 font-semibold text-ink">
               {pre.qty} × {pre.productName}

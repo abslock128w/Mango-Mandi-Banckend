@@ -5,14 +5,20 @@ import { useProducts } from "@/features/catalog/hooks/queries";
 import { WhenVisible } from "@/components/ui/when-visible";
 import type { RipenessStage } from "@/lib/types";
 
-/** A shelf of variety cards shown at one ripeness; in-stock varieties first. */
-export function ProductRail({ id, title, stage, href }: { id: string; title: string; stage?: RipenessStage; href: string }) {
+/**
+ * A shelf of variety cards shown at one ripeness; in-stock varieties first. The header is one
+ * confident line with an optional one-line "why" in muted ink; rails sit 32 px apart on phones.
+ */
+export function ProductRail({ id, title, note, stage, href }: { id: string; title: string; note?: string; stage?: RipenessStage; href: string }) {
   return (
-    <section aria-labelledby={`${id}-h`} className="pt-6">
+    <section aria-labelledby={`${id}-h`} className="pt-8 lg:pt-6">
       <div className="flex items-center justify-between gap-3 px-4 lg:px-6">
-        <h2 id={`${id}-h`} className="font-display text-19 font-extrabold text-ink">
-          {title}
-        </h2>
+        <div className="min-w-0">
+          <h2 id={`${id}-h`} className="font-display text-19 font-extrabold text-ink">
+            {title}
+          </h2>
+          {note && <p className="mt-0.5 text-12 text-muted">{note}</p>}
+        </div>
         <Link href={href} className="press flex h-11 shrink-0 items-center text-15 font-semibold whitespace-nowrap text-deep">
           see all <span className="sr-only">{title}</span>
         </Link>

@@ -607,7 +607,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                 ]}
           </ul>
           {q && (
-            <p className="mt-2 border-t border-line pt-2 text-12 text-muted">
+            <p className="mt-2 border-t border-hairline pt-2 text-12 text-muted">
               Arrives {dayName(q.deliveryDate)}
               {q.slot ? `, ${windowLabel(q.slot.startsAt, q.slot.endsAt)}` : ""}
             </p>

@@ -213,7 +213,7 @@ function BoxChips({ product, sel }: { product: Product; sel: Selection }) {
               )}
             >
               <span className="text-13 font-semibold text-ink">{b.label}</span>
-              <span className="text-12 text-ink">{sku.stock > 0 ? rupees(sku.price) : "Sold out"}</span>
+              <span className="text-12 text-ink tabular-nums">{sku.stock > 0 ? rupees(sku.price) : "Sold out"}</span>
             </button>
           );
         })}
@@ -266,7 +266,7 @@ function Highlights({ product, sel }: { product: Product; sel: Selection }) {
       <h2 id="hl-h" className="text-15 font-bold text-ink">
         Highlights
       </h2>
-      <dl className="mt-2 divide-y divide-line">
+      <dl className="mt-2 divide-y divide-hairline">
         {rows.map(([k, val]) => (
           <div key={k} className="grid grid-cols-[110px_1fr] gap-2 py-2 text-12">
             <dt className="text-muted">{k}</dt>
@@ -293,7 +293,7 @@ function Reviews({ product }: { product: Product }) {
         )}
         <span className="text-12 font-medium text-muted">{summary.count} ratings</span>
       </h2>
-      <ul className="mt-2 divide-y divide-line">
+      <ul className="mt-2 divide-y divide-hairline">
         {items.map((r) => (
           <li key={r.id} className="py-3 text-12">
             <p className="flex items-center gap-2">
@@ -359,7 +359,7 @@ export function PriceBlock({ sel, product, morphId }: { sel: Selection; product:
   return (
     <div>
       {/* In the phone sheet the price travels from the card (position only, so it never stretches). */}
-      <m.p layout={morphId ? "position" : undefined} layoutId={morphId} transition={spring.smooth} className="text-19 font-bold text-ink">
+      <m.p layout={morphId ? "position" : undefined} layoutId={morphId} transition={spring.smooth} className="text-19 font-bold text-ink tabular-nums">
         <Crossfade inline id={sel.sku.price}>
           {rupees(sel.sku.price)}
         </Crossfade>
@@ -417,7 +417,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
         <p className="text-12 text-muted">
           {sel.sku.boxLabel} box · {RIPENESS[sel.stage].label}
         </p>
-        <p className="text-17 font-bold text-ink">
+        <p className="text-17 font-bold text-ink tabular-nums">
           <Crossfade inline id={sel.sku.price}>
             {rupees(sel.sku.price)}
           </Crossfade>

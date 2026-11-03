@@ -101,6 +101,19 @@
   mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
 }
 
+/* Editorial feel (docs/design/shop-motion.md): a photo settles 1.03 → 1 the first time its card is
+   revealed (RevealOnce plays this on [data-settle]) and lifts 1.02 under a press. Transform only. */
+@utility photo-lift {
+  transition: transform var(--dur-spring-snappy) var(--ease-spring-snappy);
+  .group:active & {
+    transform: scale(1.02);
+  }
+}
+/* Words on a photo: a soft scrim from the bottom, never a boxed label. */
+@utility scrim {
+  background-image: linear-gradient(to top, rgb(43 29 18 / 0.78), rgb(43 29 18 / 0.28) 55%, transparent);
+}
+
 @utility skeleton {
   background-color: var(--color-chip);
   background-image: linear-gradient(
