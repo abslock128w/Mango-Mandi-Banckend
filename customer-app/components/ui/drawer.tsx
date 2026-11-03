@@ -29,10 +29,16 @@ export interface SheetProps {
 }
 
 /**
- * shadcn-style Drawer on Base UI primitives (no Vaul).
- * Phones: bottom sheet with drag-to-dismiss and optional snap points.
- * Laptops (>=1024px): right-hand panel or centred dialog.
- * Motion: 250ms ease-out slide, backdrop fade, content fades in 60ms after settle.
+ * shadcn-style Drawer on Base UI primitives (no Vaul). docs/design/shop-motion.md, "Sheet".
+ * Phones: bottom sheet that tracks the finger, with optional snap points. Base UI rubber-bands past
+ *   the top (square-root damping), dismisses on a flick faster than 500 px/s or a drag past the
+ *   threshold, and otherwise settles on the nearest snap point. The page behind is pushed back
+ *   (AppIndent, globals.css) and the backdrop dims, both by --drawer-swipe-progress, so they follow
+ *   the drag rather than a timer. Release and open run on spring.smooth (its CSS mirror), shortened
+ *   by Base UI's --drawer-swipe-strength after a fast flick. The keyboard lifts the sheet
+ *   (VirtualKeyboardProvider, visualViewport) so a pincode or code field is never covered.
+ * Laptops (>=1024px): right-hand panel (spring.smooth slide) or centred dialog (scale .96 + fade, 240 ms).
+ * Content renders with the sheet: no delayed fade.
  */
 export function Sheet({
   open,
@@ -76,12 +82,21 @@ export function Sheet({
       key={useSnaps ? "snap" : mode}
       {...(useSnaps ? { snapPoints, snapPoint: snap, onSnapPointChange: setSnap } : {})}
     >
+      <BaseDrawer.VirtualKeyboardProvider>
       <BaseDrawer.Portal>
-        <BaseDrawer.Backdrop className="fixed inset-0 z-50 min-h-dvh bg-scrim opacity-100 transition-opacity duration-[250ms] ease-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-swiping:duration-0" />
+        <BaseDrawer.Backdrop
+          className={cn(
+            "fixed inset-0 z-50 min-h-dvh bg-scrim",
+            // Dims with the drag: fully dark at rest, clear as the sheet leaves.
+            "opacity-[calc(1-var(--drawer-swipe-progress,0))] data-ending-style:opacity-0 data-starting-style:opacity-0",
+            "transition-opacity duration-(--dur-m) ease-standard data-swiping:duration-0",
+          )}
+        />
         <BaseDrawer.Viewport
           className={cn(
             "fixed inset-0 z-50 flex touch-none",
-            mode === "bottom" && "items-end justify-center",
+            // The software keyboard's height: the sheet sits on top of it.
+            mode === "bottom" && "items-end justify-center pb-(--drawer-keyboard-inset)",
             mode === "right" && "justify-end",
             mode === "dialog" && "items-center justify-center p-6",
           )}
@@ -89,19 +104,23 @@ export function Sheet({
           <BaseDrawer.Popup
             className={cn(
               "group/sheet relative flex min-h-0 flex-col bg-surface text-ink outline-none",
-              "transition-[transform,opacity] duration-[250ms] ease-out data-swiping:duration-0 data-swiping:select-none",
+              "transition-[transform,opacity] data-swiping:duration-0 data-swiping:select-none data-swiping:will-change-transform",
+              mode !== "dialog" &&
+                // spring.smooth; a fast flick (low --drawer-swipe-strength) lands sooner.
+                "duration-[calc(var(--dur-spring-smooth)*var(--drawer-swipe-strength,1))] ease-(--ease-spring-smooth)",
+              mode === "dialog" && "duration-(--dur-m) ease-standard",
               mode === "bottom" &&
                 cn(
                   "w-full rounded-t-16 shadow-sheet",
                   useSnaps
-                    ? "h-[calc(100dvh-2rem)] [padding-bottom:max(0px,calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))] [transform:translateY(calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))]"
-                    : "max-h-[calc(100dvh-2rem)] [transform:translateY(var(--drawer-swipe-movement-y))]",
+                    ? "h-[calc(100dvh-2rem-var(--drawer-keyboard-inset,0px))] [padding-bottom:max(0px,calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))] [transform:translateY(calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))]"
+                    : "max-h-[calc(100dvh-2rem-var(--drawer-keyboard-inset,0px))] [transform:translateY(var(--drawer-swipe-movement-y))]",
                   "data-starting-style:[transform:translateY(100%)] data-ending-style:[transform:translateY(100%)]",
                 ),
               mode === "right" &&
                 "h-dvh max-w-full [transform:translateX(var(--drawer-swipe-movement-x))] data-starting-style:[transform:translateX(100%)] data-ending-style:[transform:translateX(100%)]",
               mode === "dialog" &&
-                "max-h-[calc(100dvh-3rem)] w-full max-w-[560px] rounded-16 data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0",
+                "max-h-[calc(100dvh-3rem)] w-full max-w-[560px] rounded-16 data-starting-style:scale-[0.96] data-starting-style:opacity-0 data-ending-style:scale-[0.96] data-ending-style:opacity-0",
               className,
             )}
             style={mode === "right" ? { width: panelWidth } : undefined}
@@ -127,7 +146,6 @@ export function Sheet({
             <BaseDrawer.Content
               className={cn(
                 "min-h-0 flex-1 touch-auto overflow-y-auto overscroll-contain",
-                "animate-[sheet-content_150ms_ease-out_310ms_both] reduced:animate-none",
                 bodyClassName,
               )}
             >
@@ -137,6 +155,7 @@ export function Sheet({
           </BaseDrawer.Popup>
         </BaseDrawer.Viewport>
       </BaseDrawer.Portal>
+      </BaseDrawer.VirtualKeyboardProvider>
     </BaseDrawer.Root>
   );
 }

@@ -1,4 +1,5 @@
 "use client";
+import { OutsidePage } from "@/components/ui/outside-page";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -316,19 +317,21 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
               {price.error && <p className="mt-1 text-12 text-danger">{price.error instanceof ApiError ? price.error.message : "Couldn't check the price."}</p>}
             </section>
 
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
-              <button
-                type="button"
-                onClick={add}
-                disabled={!canAdd || pricing}
-                data-testid="bulk-add"
-                className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
-              >
-                {pricing ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ShoppingBag aria-hidden size={20} />}
-                {canAdd ? `Add ${n} boxes · ${rupees(total)}` : "Add to cart"}
-              </button>
-              <p className="mt-2 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
-            </div>
+            <OutsidePage>
+              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
+                <button
+                  type="button"
+                  onClick={add}
+                  disabled={!canAdd || pricing}
+                  data-testid="bulk-add"
+                  className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
+                >
+                  {pricing ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ShoppingBag aria-hidden size={20} />}
+                  {canAdd ? `Add ${n} boxes · ${rupees(total)}` : "Add to cart"}
+                </button>
+                <p className="mt-2 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
+              </div>
+            </OutsidePage>
           </div>
         </div>
       </div>

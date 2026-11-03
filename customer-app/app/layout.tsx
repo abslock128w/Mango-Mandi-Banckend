@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/features/shell/providers";
+import { AppIndent } from "@/features/shell/app-root";
 import { CartBar, CartPanel, LocationGate, ProductSheet, Toaster } from "@/features/shell/lazy-overlays";
 import { OfflineNotice } from "@/features/shell/offline-notice";
 import { PwaRegister } from "@/features/shell/pwa-register";
@@ -48,7 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           Skip to content
         </a>
         <Providers>
-          {children}
+          <AppIndent>{children}</AppIndent>
           <Suspense>
             <LocationGate />
             <ProductSheet />

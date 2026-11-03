@@ -1,4 +1,5 @@
 "use client";
+import { OutsidePage } from "@/components/ui/outside-page";
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
@@ -30,9 +31,11 @@ export function ProductPage({ id }: { id: string }) {
         </nav>
         <ProductDetail product={product} sel={sel} scope={scope} mode="page" />
       </div>
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
-        <PurchaseBar product={product} sel={sel} />
-      </div>
+      <OutsidePage>
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+          <PurchaseBar product={product} sel={sel} />
+        </div>
+      </OutsidePage>
     </PageTransition>
   );
 }

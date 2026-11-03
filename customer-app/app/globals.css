@@ -137,15 +137,37 @@
   z-index: 0;
 }
 
-@keyframes sheet-content {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 
 .route-line {
   stroke: var(--color-action);
+}
+
+/* Sheets push the page back (docs/design/shop-motion.md, "Sheet"): phones only, never under reduced
+   motion. AppIndent (features/shell/app-root.tsx) is the page; Base UI marks it data-active while a
+   sheet is open and sets --drawer-swipe-progress (0 at rest, 1 when the sheet has left), so the page
+   comes forward as the sheet is dragged away. The visible window (from --indent-top, the scroll
+   position when the sheet opened) is clipped with round corners and scaled about its own top. */
+@media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
+  .app-root {
+    --indent: calc(1 - var(--drawer-swipe-progress, 0));
+    transform-origin: 50% var(--indent-top, 0px);
+    transition:
+      transform var(--dur-spring-smooth) var(--ease-spring-smooth),
+      clip-path var(--dur-spring-smooth) var(--ease-spring-smooth);
+  }
+  .app-root[data-active] {
+    transform: translateY(calc(var(--indent) * 12px)) scale(calc(1 - 0.06 * var(--indent)));
+    clip-path: inset(var(--indent-top, 0px) 0 calc(100% - var(--indent-top, 0px) - 100lvh) 0 round calc(var(--indent) * 12px));
+  }
+  .app-root[data-settling] {
+    clip-path: inset(var(--indent-top, 0px) 0 calc(100% - var(--indent-top, 0px) - 100lvh) 0 round 0);
+  }
+  /* While a finger is on the sheet the page follows it 1:1. */
+  body:has([data-swiping]) .app-root {
+    transition: none;
+    will-change: transform;
+  }
+  body:has(.app-root[data-active]) {
+    background-color: var(--color-black);
+  }
 }
