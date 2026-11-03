@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "../styles/theme.css";
-@import "../styles/blur-placeholders.css";
 
 @custom-variant reduced (@media (prefers-reduced-motion: reduce));
 
@@ -47,6 +46,42 @@
   scrollbar-width: none;
   &::-webkit-scrollbar {
     display: none;
+  }
+}
+
+/* Crossfade and RollingNumber (components/ui): CSS keyframes on the motion tokens. */
+.crossfade-in {
+  animation: vt-fade var(--dur-s) var(--ease-standard) both;
+}
+.crossfade-out {
+  animation: vt-fade var(--dur-s) var(--ease-standard) both reverse;
+}
+.roll-in {
+  animation: roll-in var(--dur-spring-snappy) var(--ease-spring-snappy) both;
+}
+.roll-out {
+  animation: roll-out var(--dur-spring-snappy) var(--ease-spring-snappy) both;
+}
+@keyframes roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--roll, 1) * 100%));
+  }
+}
+@keyframes roll-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--roll, 1) * -100%));
+  }
+}
+/* A step that follows another (checkout's placed order): 16 px in from the right on spring.smooth. */
+.step-in {
+  animation: vt-slide-step var(--dur-spring-smooth) var(--ease-spring-smooth) both;
+}
+@keyframes vt-slide-step {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
   }
 }
 
@@ -242,7 +277,7 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
 /* The phone header's large title (features/shell/header.tsx, useLargeTitle): the logo block fades and
    shrinks, the address slides up and the account button holds still while the header scrolls by
    --header-collapse. Scroll-driven, so it moves in step with the scroll itself. Browsers without
-   scroll timelines get the same from Motion's useScroll. */
+   scroll timelines keep the header open (--header-collapse is 0 there). */
 @supports (animation-timeline: scroll()) {
   @media (max-width: 1023px) {
     .header-brand,

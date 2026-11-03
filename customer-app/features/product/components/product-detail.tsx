@@ -1,5 +1,5 @@
 "use client";
-import { AnimatePresence, useReducedMotion } from "motion/react";
+import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { BadgeCheck, Boxes, CalendarClock, ChevronRight, Leaf, RefreshCcw, Star } from "lucide-react";
 import Link from "next/link";
@@ -14,9 +14,9 @@ import { ripenessDot } from "@/features/catalog/components/ripeness-chip";
 import { usePolicy, usePreorderWeeks, useProducts, useReviews } from "@/features/catalog/hooks/queries";
 import { whatsappLink } from "@/lib/config";
 import { boxContents, cn, dateTime, longDate, rupees } from "@/lib/format";
-import { fade, press, spring } from "@/lib/motion";
+import { press, spring } from "@/lib/motion";
 import { Crossfade } from "@/components/ui/crossfade";
-import { flyToCart } from "@/features/cart/fly";
+import { fly } from "@/features/cart/fly-lazy";
 import { defaultSize, defaultStage, productImage, skuFor } from "@/lib/catalog";
 import { RIPENESS, STAGES } from "@/lib/ripeness";
 import type { BoxSize, Product, RipenessStage, Sku } from "@/lib/types";
@@ -58,12 +58,10 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
   const current = images[Math.min(active, images.length - 1)];
   const main = (
     <div data-fly-image="main" className="relative aspect-square overflow-hidden rounded-12 bg-surface">
-      {/* Picking another photo crossfades to it (the first paints at once: initial={false}). */}
-      <AnimatePresence initial={false}>
-        <m.div key={current} className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
-          <BlurImage src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
-        </m.div>
-      </AnimatePresence>
+      {/* Picking another photo crossfades to it (the first paints at once). */}
+      <Crossfade fill id={current}>
+        <BlurImage src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
+      </Crossfade>
     </div>
   );
   return (
@@ -440,7 +438,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
           transition={press.transition}
           onClick={(e) => {
             add(product, sel.sku);
-            flyToCart(e.currentTarget);
+            fly(e.currentTarget);
           }}
           data-testid="add-to-cart"
           className="h-12 min-w-40 rounded-6 bg-action px-6 text-15 font-semibold text-white"

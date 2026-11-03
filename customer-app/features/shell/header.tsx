@@ -1,9 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useMotionValue, useReducedMotion, useScroll, useTransform } from "motion/react";
-import * as m from "motion/react-m";
 import { ChevronDown, Search, ShoppingCart, UserRound } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Crossfade } from "@/components/ui/crossfade";
 import { RotatingPlaceholder } from "@/features/search/components/rotating-placeholder";
 import { useNextSlot } from "@/features/catalog/hooks/queries";
@@ -20,26 +18,13 @@ import { cn, plural, rupees } from "@/lib/format";
  * top: -(collapse) px, so the browser itself scrolls the logo and delivery line away and the
  * address and search stay pinned: no height animation, no reflow, the document never changes
  * height. While it goes, the logo block fades and shrinks a little, the address line slides up
- * into the space and the account button holds still. Those three follow the scroll position with
- * CSS scroll-driven animations (globals.css, in step with the compositor's scroll) where the browser
- * has them, and with Motion's useScroll otherwise. Stopping half-way after a swipe settles the title
- * open or closed in the direction of travel, as iOS does.
+ * into the space and the account button holds still: CSS scroll-driven animations (globals.css),
+ * in step with the compositor's scroll, no script per frame. A browser without scroll timelines
+ * keeps the header fully open (collapse 0) rather than half-working. Stopping half-way after a
+ * swipe settles the title open or closed in the direction of travel, as iOS does.
  */
 function useLargeTitle(header: React.RefObject<HTMLElement | null>, parts: { search: React.RefObject<HTMLElement | null>; account: React.RefObject<HTMLElement | null>; address: React.RefObject<HTMLElement | null> }) {
-  const collapse = useMotionValue(0);
-  const shift = useMotionValue(0);
-  const { scrollY } = useScroll();
-  const progress = useTransform(() => (collapse.get() > 0 ? Math.min(1, Math.max(0, scrollY.get() / collapse.get())) : 0));
-  const native = useSyncExternalStore(
-    noopSubscribe,
-    () => CSS.supports("animation-timeline: scroll()"),
-    () => true,
-  );
-  const fallback = {
-    brand: { opacity: useTransform(progress, [0, 0.6], [1, 0]), scale: useTransform(progress, [0, 1], [1, 0.96]) },
-    address: { y: useTransform(() => -progress.get() * shift.get()) },
-    account: { y: useTransform(() => progress.get() * collapse.get()) },
-  };
+  const collapse = useRef(0);
 
   // Measured on resize only (never on scroll): how far the header slides and the address moves.
   useLayoutEffect(() => {
@@ -48,9 +33,9 @@ function useLargeTitle(header: React.RefObject<HTMLElement | null>, parts: { sea
     const measure = () => {
       const { search, account, address } = { search: parts.search.current, account: parts.account.current, address: parts.address.current };
       const root = document.documentElement.style;
-      // Laptops (the phone block is display: none) do not collapse.
-      if (!search || !account || !address || !search.offsetParent) {
-        collapse.set(0);
+      // Laptops (the phone block is display: none), and browsers without scroll timelines, do not collapse.
+      if (!search || !account || !address || !search.offsetParent || !CSS.supports("animation-timeline: scroll()")) {
+        collapse.current = 0;
         root.setProperty("--header-collapse", "0px");
         root.setProperty("--header-h", `${el.offsetHeight}px`);
         return;
@@ -59,11 +44,9 @@ function useLargeTitle(header: React.RefObject<HTMLElement | null>, parts: { sea
       const accountTop = top(account);
       // Collapsed, the search keeps the gap it has below the account button today.
       const c = Math.max(0, Math.round(top(search) - (accountTop + account.offsetHeight + 12)));
-      const d = Math.max(0, Math.round(top(address) - accountTop - c));
-      collapse.set(c);
-      shift.set(d);
+      collapse.current = c;
       root.setProperty("--header-collapse", `${c}px`);
-      root.setProperty("--header-shift", `${d}px`);
+      root.setProperty("--header-shift", `${Math.max(0, Math.round(top(address) - accountTop - c))}px`);
       // What stays on screen: sticky rails and scroll offsets sit under this.
       root.setProperty("--header-h", `${el.offsetHeight - c}px`);
     };
@@ -71,27 +54,23 @@ function useLargeTitle(header: React.RefObject<HTMLElement | null>, parts: { sea
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [header, parts.search, parts.account, parts.address, collapse, shift]);
+  }, [header, parts.search, parts.account, parts.address]);
 
   // Settle a half-collapsed title after the customer's own scroll stops.
   const { ref: dir } = useScrollDirection();
-  const reduce = useReducedMotion();
   useEffect(() => {
     const settle = () => {
-      const c = collapse.get();
+      const c = collapse.current;
       const y = window.scrollY;
       if (!c || y <= 0 || y >= c || !userScrolledRecently(1000)) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       window.scrollTo({ top: dir.current.dir === "down" ? c : 0, behavior: reduce ? "auto" : "smooth" });
     };
     window.addEventListener("scrollend", settle);
     return () => window.removeEventListener("scrollend", settle);
-  }, [collapse, dir, reduce]);
-
-  return native ? null : fallback;
+  }, [dir]);
 }
 
-const noopSubscribe = () => () => {};
-const MotionLink = m.create(Link);
 
 export function AddressLine({ className }: { className?: string }) {
   const address = useLocation((s) => s.address);
@@ -186,9 +165,9 @@ export function Header() {
   const token = useAuth((s) => s.profile);
   const ref = useRef<HTMLElement>(null);
   const search = useRef<HTMLAnchorElement>(null);
-  const account = useRef<HTMLAnchorElement>(null);
+  const account = useRef<HTMLDivElement>(null);
   const address = useRef<HTMLDivElement>(null);
-  const fallback = useLargeTitle(ref, { search, account, address });
+  useLargeTitle(ref, { search, account, address });
   const hydrated = useUi((s) => s.hydrated);
 
   return (
@@ -200,29 +179,27 @@ export function Header() {
       <div className="mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <m.div className="header-brand origin-top-left" style={fallback?.brand}>
+            <div className="header-brand origin-top-left">
               <Logo height={34} className="mb-2" />
               <p className="text-11 font-bold text-ink">
                 <EtaKicker />
               </p>
               <EtaHeadline />
-            </m.div>
-            <m.div ref={address} className="header-address relative" style={fallback?.address}>
+            </div>
+            <div ref={address} className="header-address relative">
               <AddressLine className="mt-0.5" />
-            </m.div>
+            </div>
           </div>
-          <MotionLink
-            ref={account}
-            href={hydrated && token ? "/account" : "/login?next=/account"}
-            aria-label="Account"
-            className="header-account relative z-10 size-11 shrink-0 rounded-full"
-            style={fallback?.account}
-          >
-            {/* The link moves with the scroll; its face presses. */}
-            <span className="press grid size-full place-items-center rounded-full bg-surface text-ink">
+          {/* The account button holds still while the header scrolls; its face presses. */}
+          <div ref={account} className="header-account relative z-10 size-11 shrink-0">
+            <Link
+              href={hydrated && token ? "/account" : "/login?next=/account"}
+              aria-label="Account"
+              className="press grid size-full place-items-center rounded-full bg-surface text-ink"
+            >
               <UserRound size={20} strokeWidth={1.75} />
-            </span>
-          </MotionLink>
+            </Link>
+          </div>
         </div>
         <SearchLink ref={search} className="mt-3" />
       </div>

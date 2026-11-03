@@ -1,7 +1,9 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { useEffect, useLayoutEffect, ViewTransition } from "react";
-import { inShopLayout, installNavDirection, notifyPathChanged } from "./nav";
+
+/** The shop's own pages share one layout (header, footer) under app/(shop). */
+const SHOP = /^\/($|c\/|p\/|bulk(\/|$)|preorder$)/;
 
 /**
  * Route change with depth (docs/design/shop-motion.md): the entering page and the leaving page get
@@ -13,11 +15,12 @@ import { inShopLayout, installNavDirection, notifyPathChanged } from "./nav";
  */
 export function PageTransition({ children, root }: { children: React.ReactNode; root?: boolean }) {
   const path = usePathname();
-  useEffect(installNavDirection, []);
+  // The direction store (nav.ts) loads after the page; the first tap is well after that.
+  useEffect(() => void import("./nav").then((m) => m.installNavDirection()), []);
   // An animated back (nav.ts) waits for the page it went back to.
-  useLayoutEffect(notifyPathChanged, [path]);
+  useLayoutEffect(() => void window.dispatchEvent(new Event("mm:path")), [path]);
   // At the root, all shop pages are one page (their own template animates them under the header).
-  const key = root && inShopLayout(path) ? "shop" : path;
+  const key = root && SHOP.test(path) ? "shop" : path;
   return (
     <ViewTransition key={key} enter="page-in" exit="page-out" default="none">
       <div>{children}</div>

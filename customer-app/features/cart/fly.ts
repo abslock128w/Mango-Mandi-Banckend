@@ -34,6 +34,7 @@ function target(): { x: number; y: number } {
   return { x: 72, y: window.innerHeight - 40 };
 }
 
+/** @public loaded on demand by fly-lazy.ts */
 export function flyToCart(from: Element) {
   if (typeof window === "undefined") return;
   if (window.matchMedia("(min-width: 1024px), (prefers-reduced-motion: reduce)").matches) return;

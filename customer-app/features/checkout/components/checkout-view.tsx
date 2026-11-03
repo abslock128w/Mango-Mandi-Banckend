@@ -2,10 +2,8 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
-import { AnimatePresence } from "motion/react";
-import * as m from "motion/react-m";
+import { Crossfade } from "@/components/ui/crossfade";
 import { RollingNumber } from "@/components/ui/rolling-number";
-import { spring } from "@/lib/motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { useAuth } from "@/features/auth/store";
@@ -298,8 +296,8 @@ function CheckoutForm({ pincode }: { pincode: string }) {
   // After the order exists
   if (placed)
     return (
-      // The next step slides in 16 px from the right (spring.smooth); nothing waits for an exit.
-      <m.div className="mx-auto max-w-md p-4" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={spring.smooth}>
+      // The next step slides in 16 px from the right (spring.smooth, globals.css); nothing waits for an exit.
+      <div className="step-in mx-auto max-w-md p-4">
         <section className="rounded-16 bg-surface p-4 text-center" aria-live="polite">
           <p className="text-13 text-muted">Order {placed.number}</p>
           <p className="mt-1 font-display text-21 font-extrabold text-ink">{rupees(placed.total)}</p>
@@ -319,7 +317,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             Go to the order
           </Link>
         </section>
-      </m.div>
+      </div>
     );
 
   if (empty)
@@ -736,23 +734,12 @@ function CheckoutForm({ pincode }: { pincode: string }) {
               <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />
               <span className="text-11 font-medium uppercase">{q ? "Total" : "Estimate"}</span>
             </span>
-            {/* The label stays; its icon morphs chevron → spinner → tick in place (spring.snappy). */}
+            {/* The label stays; its icon crossfades chevron → spinner → tick in place. */}
             <span className="flex items-center gap-1 text-17 font-bold">
               Pay now
-              <span className="relative grid size-5 place-items-center">
-                <AnimatePresence initial={false} mode="popLayout">
-                  <m.span
-                    key={pay.isSuccess ? "done" : pay.isPending || working ? "busy" : "idle"}
-                    className="grid place-items-center"
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.5 }}
-                    transition={spring.snappy}
-                  >
-                    {pay.isSuccess ? <Check aria-hidden size={20} strokeWidth={2.5} /> : pay.isPending || working ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ChevronRight aria-hidden size={20} />}
-                  </m.span>
-                </AnimatePresence>
-              </span>
+              <Crossfade inline id={pay.isSuccess ? "done" : pay.isPending || working ? "busy" : "idle"} className="size-5">
+                {pay.isSuccess ? <Check aria-hidden size={20} strokeWidth={2.5} /> : pay.isPending || working ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ChevronRight aria-hidden size={20} />}
+              </Crossfade>
             </span>
           </button>
           <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">

@@ -6,8 +6,9 @@
 //   node scripts/spring-css.mjs
 import { spring } from "motion";
 
-// Keep in step with `spring` in lib/motion.ts (visual duration in seconds, bounce).
-const PRESETS = { smooth: [0.3, 0], snappy: [0.28, 0.12], bouncy: [0.42, 0.28], gentle: [0.5, 0] };
+// Keep in step with `spring` in lib/motion.ts (visual duration in seconds, bounce). CSS uses only
+// these two; bouncy and gentle run in Motion.
+const PRESETS = { smooth: [0.3, 0], snappy: [0.28, 0.12] };
 
 for (const [name, [visualDuration, bounce]] of Object.entries(PRESETS)) {
   const gen = spring({ keyframes: [0, 1], visualDuration, bounce });

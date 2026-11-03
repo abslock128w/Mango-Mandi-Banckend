@@ -2,14 +2,14 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { Minus, Plus } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { morphSpring } from "@/lib/motion";
 import { cn, ripenessLabel } from "@/lib/format";
 import type { Product, Sku } from "@/lib/types";
 import { MAX_QTY, useCart, useQty } from "../store";
 import { toast } from "@/features/shell/ui-store";
-import { flyToCart } from "../fly";
+import { fly, prefetchFly } from "../fly-lazy";
 
 interface Props {
   product: Product;
@@ -33,6 +33,7 @@ export function AddButton({ product, sku, size = "card", className }: Props) {
   // The product page renders PurchaseBar twice (phone bar + laptop column), and the
   // same SKU can sit in two lists with the same scope.
   const layoutId = `add-${useId()}`;
+  useEffect(prefetchFly, []);
   const label = `${product.name} ${ripenessLabel[sku.ripeness]} ${sku.size} kg`;
   const limit = Math.min(MAX_QTY, sku.stock);
   const box = size === "lg" ? "h-11 w-[120px]" : "h-8 w-[66px]";
@@ -45,7 +46,7 @@ export function AddButton({ product, sku, size = "card", className }: Props) {
       return;
     }
     setQty(sku.id, qty + 1);
-    flyToCart(e.currentTarget);
+    fly(e.currentTarget);
   };
 
   return (
@@ -63,7 +64,7 @@ export function AddButton({ product, sku, size = "card", className }: Props) {
             whileTap={reduce ? undefined : { scale: 0.96 }}
             onClick={(e) => {
               add(product, sku);
-              flyToCart(e.currentTarget);
+              fly(e.currentTarget);
             }}
             aria-label={`Add ${label} to cart`}
             className={cn(

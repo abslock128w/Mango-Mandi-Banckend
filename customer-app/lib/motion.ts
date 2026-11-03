@@ -30,17 +30,17 @@ export const fade: Transition = { duration: 0.16, ease: ease.standard };
 /** The press state of anything tappable. */
 export const press = { scale: 0.97, transition: spring.snappy } as const;
 
-/** Durations in seconds, mirrored as --dur-xs … --dur-l. */
-export const dur = { xs: 0.1, s: 0.16, m: 0.24, l: 0.36 } as const;
-
 // Older names, kept so nothing breaks: they now point at the presets above.
 /** ADD to stepper morph. */
 export const morphSpring: Transition = spring.snappy;
-/** General UI spring (cart bar, rail indicator, progress). */
+/**
+ * General UI spring (cart bar, rail indicator, progress).
+ * @public kept for code written against the old name
+ */
 export const uiSpring: Transition = spring.smooth;
+/** @public kept for code written against the old name */
 export const softSpring: Transition = spring.gentle;
 
-/** Staggered fade-and-rise, 30 ms per item, capped at 8 items (beyond that everything arrives together). */
+/** Staggered fade-and-rise (RevealOnce), 30 ms per item, capped at 8 (beyond that everything arrives together). */
 export const STAGGER_MS = 30;
 export const STAGGER_CAP = 8;
-export const riseDelay = (i: number) => (Math.min(i, STAGGER_CAP) * STAGGER_MS) / 1000;

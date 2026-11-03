@@ -1,33 +1,29 @@
 "use client";
-import { AnimatePresence, useReducedMotion } from "motion/react";
-import * as m from "motion/react-m";
 import { useState } from "react";
-import { spring } from "@/lib/motion";
 
-/** A number whose digits roll vertically when it changes. */
+/**
+ * A number whose digits roll vertically when it changes: up when it grows, down when it shrinks,
+ * on the snappy spring (its CSS mirror). CSS keyframes, no Motion, so it costs nothing where it is
+ * the only moving part (the checkout total). Reduced motion: it simply changes.
+ */
 export function RollingNumber({ value, className, format = String }: { value: number; className?: string; format?: (n: number) => string }) {
-  const [prev, setPrev] = useState(value);
-  const [dir, setDir] = useState(1);
-  if (value !== prev) {
-    setDir(value > prev ? 1 : -1);
-    setPrev(value);
+  const [shown, setShown] = useState(value);
+  const [old, setOld] = useState<{ value: number; dir: 1 | -1 } | null>(null);
+  if (value !== shown) {
+    setOld({ value: shown, dir: value > shown ? 1 : -1 });
+    setShown(value);
   }
-  const reduce = useReducedMotion();
+  const roll = { "--roll": old?.dir ?? 1 } as React.CSSProperties;
   return (
     <span className={`relative inline-flex overflow-hidden tabular-nums ${className ?? ""}`} style={{ lineHeight: "inherit" }}>
-      <AnimatePresence initial={false} mode="popLayout" custom={dir}>
-        <m.span
-          key={value}
-          custom={dir}
-          initial={reduce ? false : { y: `${dir * 100}%`, opacity: 0 }}
-          animate={{ y: "0%", opacity: 1 }}
-          exit={reduce ? { opacity: 0 } : { y: `${dir * -100}%`, opacity: 0 }}
-          transition={spring.snappy}
-          className="inline-block"
-        >
-          {format(value)}
-        </m.span>
-      </AnimatePresence>
+      {old && (
+        <span key={`out-${old.value}-${shown}`} aria-hidden className="roll-out absolute top-0 left-0" style={roll} onAnimationEnd={() => setOld(null)}>
+          {format(old.value)}
+        </span>
+      )}
+      <span key={shown} className={old ? "roll-in inline-block" : "inline-block"} style={roll}>
+        {format(shown)}
+      </span>
     </span>
   );
 }

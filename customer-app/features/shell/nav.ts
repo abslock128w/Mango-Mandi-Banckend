@@ -20,10 +20,6 @@ export type NavKind = "forward" | "back" | "present" | "dismiss";
 const FLOW = /^\/(checkout|account|orders|order|login|location)(\/|$)/;
 export const isFlow = (path: string) => FLOW.test(path);
 
-/** The shop's own pages share one layout (header, footer) under app/(shop). */
-const SHOP = /^\/($|c\/|p\/|bulk(\/|$)|preorder$)/;
-export const inShopLayout = (path: string) => SHOP.test(path);
-
 export function navKind(from: string, to: string, back: boolean): NavKind {
   // Order placed: the confirmation presents over checkout like a modal, whatever came before.
   if (/^\/order\/[^/]+\/success$/.test(to) && !back) return "present";
@@ -44,11 +40,13 @@ export const markBack = () => {
 };
 
 let pathWaiter: (() => void) | null = null;
-/** PageTransition calls this when the new path has committed. */
-export function notifyPathChanged() {
-  pathWaiter?.();
-  pathWaiter = null;
-}
+// PageTransition says when the new path has committed (an event, so it need not import this file).
+const PATH_COMMITTED = "mm:path";
+if (typeof window !== "undefined")
+  window.addEventListener(PATH_COMMITTED, () => {
+    pathWaiter?.();
+    pathWaiter = null;
+  });
 
 type DocWithVT = Document & { startViewTransition?: (update: () => Promise<void>) => { finished: Promise<void> } };
 type NavigationEntries = { entries?: () => { url: string | null }[]; currentEntry: { index: number } | null };
