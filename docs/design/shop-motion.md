@@ -212,3 +212,137 @@ Commit this plan as `docs/design/shop-motion.md` first, then one commit per step
 4. Confetti on order success: keep, shorter [taken] vs remove.
 5. Swipe-to-remove on cart lines: on [taken]; the Remove button stays too.
 6. Haptics: none on web [taken] (`navigator.vibrate` is Android-only and feels cheap).
+
+## 9. What shipped / what did not / owner questions (3 Nov 2026)
+
+Branch `claude/shop-motion-3bdd77`, on top of `claude/ops-dashboard-v2-9a061c`. One commit per step
+of section 7, plus four fix commits the test runs and the bundle check called for.
+
+### What shipped
+
+1. **Tokens and primitives.** `lib/motion.ts` has the four springs (`smooth`, `snappy`, `bouncy`,
+   `gentle`), `fade`, `ease`, `press`; `morphSpring`/`uiSpring`/`softSpring` are aliases. The springs
+   use Motion's `visualDuration` (Apple's *perceptual* duration) rather than `duration`, which cuts
+   the spring short. Their CSS mirror (`--ease-spring-*`/`--dur-spring-*`, `linear()` curves) comes
+   from `scripts/spring-css.mjs`; theme also has `--ease-standard/emphasized` and `--dur-xs…l`.
+   `Pressable`, `Crossfade`, `RevealOnce`, `BlurImage` are in `components/ui/`.
+2. **Sheets.** The page behind a phone sheet is pushed back (scale .94, 12 px down, round corners on
+   black), following the finger through `--drawer-swipe-progress`; the backdrop dims with the same
+   progress; release runs on the smooth spring, shortened after a fast flick. Content renders at
+   once (the 310 ms delayed fade is gone). The keyboard lifts the sheet (Base UI's
+   `VirtualKeyboardProvider`, which listens to `visualViewport`). Dialogs scale from .96.
+3. **Header.** An iOS large title: full height in the layout, sticky at `top: -59px`, so the browser
+   scrolls the logo and delivery line away while the address and search stay pinned. The page
+   height never changes on scroll (it changed by 59 px per toggle before; `motion.spec` (d)).
+   The fade/slide of its parts is CSS scroll-driven, no script per frame. `useScrollDirection`
+   (customer's own scrolling only, 24 px hysteresis) drives the cart bar (hides on the way down,
+   back on the way up or on any add, pulses 1.03 per add) and the large title's settle after a swipe.
+4. **Page transitions.** `html[data-nav]` = forward / back / present / dismiss from a small history
+   store (`features/shell/nav.ts`, Navigation API with a pushState/popstate fallback). Forward
+   slides in 24 px over the old page pushed back; back reverses; checkout, account, orders, order,
+   sign-in and location present from the bottom and dismiss downwards; the order-success page
+   presents. Transitions moved into `app/template.tsx` and `app/(shop)/template.tsx`, so every page
+   animates. Back arrows animate (`animatedBack`).
+5. **Home.** Carousel: Embla duration 22, autoplay pauses on touch, hover, focus and off screen;
+   parallax 4%; slide text rises; dots stretch with clip-path. Tiles and cards reveal once
+   (`RevealOnce`, 30 ms stagger capped at 8; a rail reveals as one row). Rails snap to the gutter and
+   fade at both ends. The delivery line crossfades.
+6. **Add to cart.** Fly to cart on phones (`features/cart/fly.ts`: 40 px copy on an arc, 380 ms,
+   transform-only, one at a time, none on laptops or under reduced motion); the bar pulses when it
+   lands. Its code loads on idle; the photo is read at the tap and the flight starts a frame later,
+   so the frame that shows the stepper stays light. ADD/stepper and rolling numbers on the snappy spring. Cart lines leave by clip-path while
+   the lines below slide up by transform; swipe left reveals Remove (80 px, rubber-band).
+7. **Product detail.** Photo, name and price travel from the card into the phone sheet (name and
+   price by position only, so text never stretches); on laptops the name joins the photo in the View
+   Transition. This also fixed the photo morph that the code already had: the product page read
+   `?src=` from the previous URL on a client navigation, so its names never matched the card's.
+   Photo crossfade between thumbnails, snapping thumbnails, price crossfade, snappy box toggle,
+   ripeness knob by transform.
+8. **Listing, search, checkout, sign-in, orders, tracking.** Snappy indicators; grid fades in on a
+   filter change; search results/skeleton crossfade, accordion by clip-path, clear button pops;
+   checkout's placed panel slides in, total rolls, Pay now's icon morphs chevron → spinner → tick;
+   sign-in phone ↔ code without `mode="wait"`, a wrong code shakes and clears; order rows and
+   tracking cards reveal once, stops-away and ETA crossfade, delivery photo in a fixed 4:3 box.
+   Confetti 1.2 s, 24 pieces; order card on the gentle spring.
+9. **Images.** `npm run blur` (also `prebuild`) writes `public/blur-placeholders.css`: a 4 px WebP of
+   each of the 46 photos. `BlurImage` (cards, tiles, banners, product photos, cart) fades each photo
+   in over its own blurred colours. Raw `<img>` tags have width/height.
+10. **Guard rails.** `shop/compositor-only` lint rule (fails animated height/width/top/left/inset/
+    margin/padding in Motion props and `animate()` calls; unit-tested). `e2e/motion.spec.ts` with the
+    five cases of section 6; (e) holds 100 ms on a production build (`E2E_PROD=1` against
+    `next start`: 11 of 12 runs under 100 ms, one at 101.5 ms, on this Mac under load) and a 250 ms
+    ceiling on the dev server the e2e matrix uses (React's development build is several times
+    slower). `npm run bundle-size` measures first-load JS+CSS per page and fails a
+    page over +6 kB. `e2e/recordings.spec.ts` (`PW_SHOTS=1`) records the three clips in
+    `docs/screenshots/shop/`.
+
+**Tests** (fresh database and API, Chromium, 3 Nov 2026):
+
+| Check | Base (`3c4156c`) | This branch |
+| --- | --- | --- |
+| `npm run typecheck` | passes | passes |
+| `npm run lint` (with `shop/compositor-only`) | passes | passes, no warnings |
+| `npm test` (Vitest) | 15 passed | 26 passed (8 files) |
+| `npm run deadcode` (knip) | passes | passes |
+| Playwright, mobile 360×780 + desktop 1280×800 | 79 passed, 13 skipped | 88 passed, 0 failed, 20 skipped |
+| `visual.spec` baselines (`PW_VISUAL=1`), both sizes | 12 passed | 12 passed, baselines unchanged |
+| `motion.spec` (e) on a production build (`E2E_PROD=1`) | – | 11 of 12 runs under 100 ms (one 101.5 ms) |
+
+Skipped: the visual specs without `PW_VISUAL`, the recordings without `PW_SHOTS`, and the sheet drag
+on laptops (no bottom sheet there). New tests: `motion.spec` (5 per size, 9 run), `blur.test`,
+`compositor-only.test`.
+
+**Recordings** (390 px, production build): `docs/screenshots/shop/add-to-cart.webm`,
+`open-product.webm`, `open-cart.webm`.
+
+**Bundle**, first load per page, JS + CSS gzipped, production build, base → this branch:
+`/` +4.6 kB, `/c/all` +0.5 kB, `/p/alphonso` +0.9 kB, `/search` +4.8 kB, `/login` +3.1 kB,
+`/checkout` +3.2 kB, `/orders` −1.9 kB, `/help` +2.7 kB. Lazy chunks (fly to cart, nav store, sheets)
+and the deferred placeholder stylesheet (1.7 kB) are on top of that, after first paint.
+
+### What did not ship, or shipped differently
+
+- **Toasts** are unchanged: still from the top on phones and bottom-right on laptops, no swipe up to
+  dismiss. Left out to keep the scope of this PR; it is a small follow-up.
+- **`Pressable` is used in one place** (the product purchase bar). The 109 `press` usages were not
+  rewritten; the `press` utility itself now presses to .97 and releases on the snappy spring, so
+  they all move the same way without a Motion component each.
+- **Rubber-band** is Base UI's square-root damping, not `overshoot × 0.3`; the 500 px/s flick is
+  Base UI's own threshold (exactly the plan's number).
+- **Push-back without `Drawer.Provider`/`Indent`:** Base UI exports the drawer as one namespace, so
+  the provider put a second copy of the drawer (~15 kB) in the root chunk. The sheet mirrors the
+  backdrop's progress onto `.app-root` instead.
+- **The header does not come back mid-page on a scroll up.** It behaves like an iOS large title: it
+  scrolls away and returns at the top. The old header re-expanded on scroll-up (owner question 7).
+  Browsers without CSS scroll timelines (Firefox today) keep the header open and do not collapse.
+- **Browser back/forward and the system back swipe are not animated** by the app: Next.js restores
+  those pages outside a React transition, and iOS/Android draw their own animation for the swipe.
+  The app's own back arrows animate.
+- **Listing filters fade the new grid in** rather than crossfading two grids (two copies of the cards
+  would be in the page for 160 ms; the listing specs read the cards straight after Apply). The
+  "layout reorder for ≤ 12 items" was not done.
+- **Checkout has no multi-step flow** to slide between; the slide is on the placed-order panel. The
+  pay button keeps its "Pay now" label and morphs only the icon (tests and screen readers find it by
+  its text).
+- **OTP caret:** the native input caret, no custom blinking caret.
+- **Placeholders are 4 px, not 8 px** (identical under the 12 px blur, two thirds of the bytes) and
+  load as a stylesheet after first paint. API photos (bulk deals) get the chip colour: the API sends
+  no dominant colour.
+- **`content-visibility: auto`** was tried on the foot of home and removed: the skipped size differed
+  from the drawn one and changed the page height (caught by `motion.spec` (d)).
+- **Crossfade and RollingNumber are CSS**, not `AnimatePresence`: they sit in the header and the
+  checkout, where Motion's presence code would have cost ~5 kB per page.
+- The **listing loads its first two rows eagerly** (12 cards on laptops, 4 on phones): with
+  reveal-once the second row was the page's largest paint while still `loading="lazy"`.
+
+### Owner questions (defaults taken)
+
+Section 8's defaults all stand (fly to cart on phones only, flow pages present, autoplay pauses on
+interaction, shorter confetti, swipe to remove plus the stepper, no haptics). New ones:
+
+7. Header on scroll up: iOS large title, back only at the top [taken] vs re-expand on any scroll up
+   (the old behaviour; it would cover the listing's sticky rail).
+8. Toasts: worth the swipe-up-to-dismiss follow-up?
+9. Firefox (no scroll timelines): header stays open [taken] vs a script fallback (~1 kB, and it lags
+   the scroll by a frame).
+10. Order success presents from the bottom [taken] vs sliding forward like other flow pages.
