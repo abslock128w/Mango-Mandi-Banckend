@@ -9,7 +9,8 @@ import { LiveProofPanel } from '../LiveProof'
 import { currentPosition } from '../photo'
 import { useSession } from '../session'
 import type { Manifest, ManifestOrder, Rider } from '../types'
-import { Badge, Dialog, EmptyState, FormError, OrderBadge, QueryError, Spinner, useToast, usePageTitle } from '../ui'
+import { Badge, DaySwitcher, Dialog, EmptyState, FormError, OrderBadge, QueryError, Spinner, useToast, usePageTitle } from '../ui'
+import { DispatchBoard } from './DispatchBoard'
 
 type Run = Manifest['runs'][number]
 
@@ -87,20 +88,7 @@ export default function Deliveries() {
       </div>
       <div className="topbar no-print">
         <h1>Deliveries</h1>
-        <div className="field m-0">
-          <label htmlFor="dl-date" className="sr-only">
-            Delivery date
-          </label>
-          <input id="dl-date" type="date" value={day} onChange={(e) => setDay(e.target.value)} />
-        </div>
-        <div className="segmented" role="group" aria-label="Pick a day">
-          <button type="button" className="btn" aria-pressed={day === today} onClick={() => setDay(today)}>
-            Today
-          </button>
-          <button type="button" className="btn" aria-pressed={day === tomorrow} onClick={() => setDay(tomorrow)}>
-            Tomorrow
-          </button>
-        </div>
+        <DaySwitcher id="dl-date" day={day} onChange={setDay} />
         <span className="spacer" />
         {canAssign && <AssignNearest day={day} />}
         {!rider && (
@@ -141,6 +129,38 @@ export default function Deliveries() {
           <EmptyState>No deliveries on {date(day)}.</EmptyState>
           <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
         </>
+      ) : canAssign ? (
+        <DispatchBoard
+          day={day}
+          manifest={q.data}
+          riders={riders}
+          onRefresh={refresh}
+          bySlot={
+            <>
+              <div className="run-summary no-print">
+                <span role="status" aria-label="Run summary">
+                  <strong>{todo}</strong> to deliver · <strong>{delivered}</strong> delivered
+                  {unpacked > 0 && (
+                    <>
+                      {' '}
+                      · <strong>{unpacked}</strong> not packed yet
+                    </>
+                  )}
+                </span>
+                <label className="check-inline small">
+                  <input type="checkbox" checked={focus} onChange={(e) => setFocusChoice(e.target.checked)} />
+                  To deliver first
+                </label>
+              </div>
+              <p className="muted">
+                {count(q.data.orders, 'order', 'orders')}, {count(q.data.boxes, 'box', 'boxes')}. Every order is paid: riders collect nothing.
+              </p>
+              {q.data.runs.map((r) => (
+                <RunSection key={r.slot?.id ?? 'none'} run={r} day={day} focus={focus} riders={riders} onDelivered={setDelivering} onMissed={setMissing} />
+              ))}
+            </>
+          }
+        />
       ) : (
         <>
           <div className="run-summary no-print">

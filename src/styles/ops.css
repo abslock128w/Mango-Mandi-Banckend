@@ -1026,6 +1026,19 @@
   .app-bar {
     gap: var(--space-1);
   }
+  /* Every control keeps its 44px; the wordmark gives up a little width instead. */
+  .app-bar .search-btn,
+  .app-bar .bell-btn,
+  .app-bar .theme-btn,
+  .app-bar .account-btn {
+    flex: none;
+  }
+  .app-bar .brand {
+    min-width: 0;
+  }
+  .app-bar .brand-word {
+    height: 26px;
+  }
 }
 .drawer-live {
   margin: 0 0 var(--space-3);

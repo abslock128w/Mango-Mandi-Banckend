@@ -17,12 +17,22 @@ const HOUSE =
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
+/** On a touch screen every marker is a 44px target (the drawing stays its own size inside it). */
+const coarse = () => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+
 function icon(m: MapMarker, on: boolean): L.DivIcon {
   const cls = `map-marker map-${m.kind}${m.tone ? ` pipe-${m.tone}` : ''}${on ? ' is-on' : ''}`
-  if (m.kind === 'warehouse') return L.divIcon({ className: cls, html: `<span class="map-house">${HOUSE}</span>`, iconSize: [30, 30], iconAnchor: [15, 15] })
-  if (m.kind === 'rider')
-    return L.divIcon({ className: cls, html: `<span class="map-rider-dot" style="opacity:${m.opacity ?? 1}"></span><span class="map-rider-pulse"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] })
-  return L.divIcon({ className: cls, html: `<span class="map-pin-body">${m.badge ? `<b>${esc(m.badge)}</b>` : ''}</span>`, iconSize: [26, 32], iconAnchor: [13, 30] })
+  const html =
+    m.kind === 'warehouse'
+      ? `<span class="map-house">${HOUSE}</span>`
+      : m.kind === 'rider'
+        ? `<span class="map-rider-mark"><span class="map-rider-dot" style="opacity:${m.opacity ?? 1}"></span><span class="map-rider-pulse"></span></span>`
+        : `<span class="map-pin-body">${m.badge ? `<b>${esc(m.badge)}</b>` : ''}</span>`
+  const own: [number, number] = m.kind === 'warehouse' ? [30, 30] : m.kind === 'rider' ? [22, 22] : [26, 32]
+  const size: [number, number] = coarse() ? [Math.max(44, own[0]), Math.max(44, own[1])] : own
+  // Pins point at their place with the tip; the others are centred on it.
+  const anchor: [number, number] = m.kind === 'stop' ? [size[0] / 2, size[1] / 2 + own[1] / 2 - 2] : [size[0] / 2, size[1] / 2]
+  return L.divIcon({ className: cls, html, iconSize: size, iconAnchor: anchor })
 }
 
 export default function MapCanvas({ markers, trails = [], heat = [], highlight, onHover, onSelect, fitKey, label }: MapViewProps) {
