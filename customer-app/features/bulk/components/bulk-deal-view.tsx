@@ -7,7 +7,6 @@ import { Loader2, Package, ShoppingBag } from "lucide-react";
 import { useCart } from "@/features/cart/store";
 import { useLocation, usePincode } from "@/features/location/store";
 import { toast, useUi } from "@/features/shell/ui-store";
-import { PageTransition } from "@/features/shell/page-transition";
 import { api, ApiError, mediaUrl, qk } from "@/lib/api/client";
 import { boxContents, cn, dayName, rupees } from "@/lib/format";
 import { RIPENESS } from "@/lib/ripeness";
@@ -127,7 +126,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
   }
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-4 pb-32 lg:px-6 lg:pb-10">
         <nav aria-label="Breadcrumb" className="mb-3 text-12 text-muted">
           <Link href="/bulk" className="inline-flex h-11 items-center font-semibold text-action">
@@ -335,6 +334,6 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
           </div>
         </div>
       </div>
-    </PageTransition>
+    </>
   );
 }

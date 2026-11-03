@@ -6,7 +6,6 @@ import { ChevronRight } from "lucide-react";
 import { useQueryParam } from "@/lib/hooks/use-query-param";
 import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useProduct } from "@/features/catalog/hooks/queries";
-import { PageTransition } from "@/features/shell/page-transition";
 import type { RipenessStage } from "@/lib/types";
 import { varietyForSlug } from "@/lib/varieties";
 import { ProductDetail, PurchaseBar, useSelection } from "./product-detail";
@@ -20,7 +19,7 @@ export function ProductPage({ id }: { id: string }) {
   if (isError) return <CatalogueError onRetry={refetch} className="mx-auto mt-6 max-w-[480px]" />;
   if (!product || !sel) return isPending ? <ProductPageSkeleton id={id} stage={r} /> : <ProductMissing />;
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-3 pb-40 lg:px-6 lg:pt-5 lg:pb-0">
         <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-12 text-muted">
           <Link href="/" className="tap hover:text-action">Home</Link>
@@ -36,7 +35,7 @@ export function ProductPage({ id }: { id: string }) {
           <PurchaseBar product={product} sel={sel} />
         </div>
       </OutsidePage>
-    </PageTransition>
+    </>
   );
 }
 

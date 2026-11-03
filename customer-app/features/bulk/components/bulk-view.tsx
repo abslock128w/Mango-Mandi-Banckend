@@ -4,7 +4,6 @@ import { Building2, MapPin, MessageCircle, Package } from "lucide-react";
 import { useBulkDeals } from "@/features/catalog/hooks/queries";
 import { usePincode } from "@/features/location/store";
 import { useUi } from "@/features/shell/ui-store";
-import { PageTransition } from "@/features/shell/page-transition";
 import { ApiError, mediaUrl } from "@/lib/api/client";
 import { whatsappLink } from "@/lib/config";
 import { rupees } from "@/lib/format";
@@ -18,7 +17,7 @@ export function BulkView() {
   const q = useBulkDeals();
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-4 pb-10 lg:px-6">
         <section className="rounded-16 bg-deep p-5 text-white lg:p-8" aria-labelledby="bulk-h">
           <p className="text-12 font-bold tracking-wide text-brand uppercase">Bulk deals</p>
@@ -73,7 +72,7 @@ export function BulkView() {
 
         <OfficeBlock />
       </div>
-    </PageTransition>
+    </>
   );
 }
 

@@ -5,7 +5,6 @@ import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { PageTransition } from "@/features/shell/page-transition";
 import { useProducts } from "../hooks/queries";
 import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
@@ -172,7 +171,7 @@ export function Listing({ initial }: { initial: Collection }) {
   const openSheet = (tab: Tab) => setSheet({ open: true, tab, loaded: true });
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto flex max-w-content">
         <RipenessRail
           active={active}
@@ -241,6 +240,6 @@ export function Listing({ initial }: { initial: Collection }) {
         </div>
       </div>
       {sheet.loaded && <FilterSheet open={sheet.open} tab={sheet.tab} onOpenChange={(o) => setSheet((s) => ({ ...s, open: o }))} value={filters} onApply={setFilters} />}
-    </PageTransition>
+    </>
   );
 }

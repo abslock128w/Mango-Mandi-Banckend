@@ -10,7 +10,6 @@ import { StagePicker } from "@/features/bulk/components/stage-picker";
 import { usePreorderWeeks } from "@/features/catalog/hooks/queries";
 import { useLocation } from "@/features/location/store";
 import { useUi } from "@/features/shell/ui-store";
-import { PageTransition } from "@/features/shell/page-transition";
 import { api, ApiError, qk } from "@/lib/api/client";
 import { cn, rupees } from "@/lib/format";
 import type { PreorderWeek, RipenessStage } from "@/lib/types";
@@ -58,7 +57,7 @@ export function PreorderView() {
   const hydrated = useUi((s) => s.hydrated);
   const q = usePreorderWeeks();
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-4 pb-10 lg:px-6">
         <section className="rounded-16 bg-deep p-5 text-white lg:p-8" aria-labelledby="pre-h">
           <p className="flex items-center gap-2 text-12 font-bold tracking-wide text-brand uppercase">
@@ -103,7 +102,7 @@ export function PreorderView() {
           )}
         </div>
       </div>
-    </PageTransition>
+    </>
   );
 }
 
