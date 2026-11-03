@@ -10,6 +10,7 @@ import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
 import { fade, spring } from "@/lib/motion";
 import { RIPENESS } from "@/lib/ripeness";
+import { defaultStage, productImage } from "@/lib/catalog";
 import type { Collection, Product, RipenessStage } from "@/lib/types";
 import { ProductCard, ProductCardSkeleton } from "./product-card";
 import { SECTIONS } from "../sections";
@@ -171,6 +172,13 @@ export function Listing({ initial }: { initial: Collection }) {
   }, [active]);
 
   const filterKey = filtersToQuery(filters);
+  // Photos drawn above the fold. A card lower down that shows the same photo loads it eagerly too:
+  // it is the same file (a cache hit, nothing extra to fetch), and it keeps Next.js from taking
+  // the on-screen copy for a lazy one.
+  const firstStage = visibleSections[0] ? sectionStage(visibleSections[0].id, filters) : null;
+  const eagerPhotos = new Set(
+    products ? sortProducts(applyClientFilters(products, firstStage, filters), filters.sort, firstStage).slice(0, aboveFold).map((p) => productImage(p, defaultStage(p, firstStage))) : [],
+  );
   const filterCount = Number(filters.sort !== "relevance") + Number(Boolean(filters.ripeness)) + Number(Boolean(filters.size)) + Number(Boolean(filters.sweetness)) + Number(filters.inStockOnly);
   const openSheet = (tab: Tab) => setSheet({ open: true, tab, loaded: true });
 
@@ -233,7 +241,7 @@ export function Listing({ initial }: { initial: Collection }) {
                   {/* A new filter or sort fades the grid in (one copy in the page, never two). */}
                   <m.div key={filterKey} initial={reduce ? false : { opacity: 0.35 }} animate={{ opacity: 1 }} transition={fade} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
                     {list
-                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} eager={i === 0 && j < aboveFold} />)
+                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} eager={(i === 0 && j < aboveFold) || eagerPhotos.has(productImage(p, defaultStage(p, stage)))} />)
                       : Array.from({ length: 12 }, (_, j) => <ProductCardSkeleton key={j} />)}
                     {list && list.length === 0 && <p className="col-span-full rounded-12 bg-surface p-6 text-center text-13 text-muted">No mangoes match these filters.</p>}
                   </m.div>

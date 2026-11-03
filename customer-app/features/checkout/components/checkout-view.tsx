@@ -296,7 +296,9 @@ function CheckoutForm({ pincode }: { pincode: string }) {
   // After the order exists
   if (placed)
     return (
-      // The next step slides in 16 px from the right (spring.smooth, globals.css); nothing waits for an exit.
+      // The next step slides in 16 px from the right (spring.smooth, globals.css); nothing waits for an
+      // exit. The outer box clips the slide so the page is never wider than the screen meanwhile.
+      <div className="overflow-x-clip">
       <div className="step-in mx-auto max-w-md p-4">
         <section className="rounded-16 bg-surface p-4 text-center" aria-live="polite">
           <p className="text-13 text-muted">Order {placed.number}</p>
@@ -317,6 +319,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             Go to the order
           </Link>
         </section>
+      </div>
       </div>
     );
 

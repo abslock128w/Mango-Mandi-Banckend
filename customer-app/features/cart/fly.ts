@@ -18,12 +18,11 @@ export function landing() {
   return Math.max(0, landsAt - performance.now());
 }
 
-function source(from: Element): HTMLImageElement | null {
-  const scope = from.closest("[data-fly-scope]");
-  const img = scope?.querySelector<HTMLImageElement>("[data-fly-image] img") ?? document.querySelector<HTMLImageElement>('[data-fly-image="main"] img');
-  if (!img || !img.currentSrc) return null;
-  const r = img.getBoundingClientRect();
-  return r.width > 0 && r.bottom > 0 && r.top < window.innerHeight ? img : null;
+/** The photo that flies: its file and its centre on screen at the tap (fly-lazy.ts reads them). */
+export interface FlyPhoto {
+  src: string;
+  x: number;
+  y: number;
 }
 
 /** Where the newest thumbnail sits in the cart bar (or will, while the bar is still arriving). */
@@ -35,16 +34,11 @@ function target(): { x: number; y: number } {
 }
 
 /** @public loaded on demand by fly-lazy.ts */
-export function flyToCart(from: Element) {
-  if (typeof window === "undefined") return;
-  if (window.matchMedia("(min-width: 1024px), (prefers-reduced-motion: reduce)").matches) return;
-  const img = source(from);
-  if (!img) return;
+export function flyToCart(photo: FlyPhoto) {
   current?.anim.cancel();
   current?.el.remove();
 
-  const r = img.getBoundingClientRect();
-  const start = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  const start = { x: photo.x, y: photo.y };
   const end = target();
   // A quadratic arc that lifts above the straighter of the two points.
   const ctrl = { x: (start.x + end.x) / 2, y: Math.min(start.y, end.y) - 120 };
@@ -60,7 +54,7 @@ export function flyToCart(from: Element) {
   const el = document.createElement("div");
   el.setAttribute("data-fly", "");
   el.setAttribute("aria-hidden", "true");
-  el.style.cssText = `position:fixed;left:0;top:0;width:${SIZE}px;height:${SIZE}px;z-index:60;pointer-events:none;border-radius:8px;overflow:hidden;background:var(--color-surface) center/cover no-repeat url("${img.currentSrc}");box-shadow:var(--shadow-card);will-change:transform`;
+  el.style.cssText = `position:fixed;left:0;top:0;width:${SIZE}px;height:${SIZE}px;z-index:60;pointer-events:none;border-radius:8px;overflow:hidden;background:var(--color-surface) center/cover no-repeat url("${photo.src}");box-shadow:var(--shadow-card);will-change:transform`;
   document.body.appendChild(el);
   // The whole flight eases (emphasized); the arc's points are spaced evenly in time.
   const anim = el.animate(frames, { duration: DURATION, easing: "cubic-bezier(0.32, 0.72, 0, 1)", fill: "forwards" });
