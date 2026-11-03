@@ -44,6 +44,3 @@ export const softSpring: Transition = spring.gentle;
 export const STAGGER_MS = 30;
 export const STAGGER_CAP = 8;
 export const riseDelay = (i: number) => (Math.min(i, STAGGER_CAP) * STAGGER_MS) / 1000;
-
-/** The old timed header collapse (step 3 of the plan replaces it with a scroll-linked header). */
-export const headerTween: Transition = { duration: 0.18, ease: ease.standard };

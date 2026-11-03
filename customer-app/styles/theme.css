@@ -125,7 +125,11 @@
 }
 
 :root {
-  --header-h: 143px;
+  /* The header's height on screen once scrolled (sticky rails sit under it), and how far the phone
+     header's large title scrolls away. Constant while scrolling; header.tsx measures them on resize. */
+  --header-h: 129px;
+  --header-collapse: 59px;
+  --header-shift: 26px;
 
   /* Durations for tweens: crossfades, presses, scroll-linked fades. */
   --dur-xs: 100ms;
@@ -147,5 +151,6 @@
 @media (min-width: 1024px) {
   :root {
     --header-h: 87px;
+    --header-collapse: 0px;
   }
 }

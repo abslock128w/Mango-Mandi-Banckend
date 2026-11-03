@@ -115,6 +115,53 @@
   animation: none;
 }
 
+/* The phone header's large title (features/shell/header.tsx, useLargeTitle): the logo block fades and
+   shrinks, the address slides up and the account button holds still while the header scrolls by
+   --header-collapse. Scroll-driven, so it moves in step with the scroll itself. Browsers without
+   scroll timelines get the same from Motion's useScroll. */
+@supports (animation-timeline: scroll()) {
+  @media (max-width: 1023px) {
+    .header-brand,
+    .header-address,
+    .header-account {
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 var(--header-collapse, 59px);
+    }
+    .header-brand {
+      animation-name: header-brand;
+    }
+    .header-address {
+      animation-name: header-address;
+    }
+    .header-account {
+      animation-name: header-account;
+    }
+  }
+}
+@keyframes header-brand {
+  60% {
+    opacity: 0;
+    transform: scale(0.976);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes header-address {
+  to {
+    transform: translateY(calc(-1 * var(--header-shift, 26px)));
+  }
+}
+@keyframes header-account {
+  to {
+    transform: translateY(var(--header-collapse, 59px));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -128,6 +175,12 @@
   ::view-transition-old(*),
   ::view-transition-new(*) {
     animation: none !important;
+  }
+  /* Scroll-linked, not autonomous motion: the header must still keep its parts in place. */
+  .header-brand,
+  .header-address,
+  .header-account {
+    animation-duration: auto !important;
   }
 }
 
