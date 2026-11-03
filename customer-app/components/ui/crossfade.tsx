@@ -20,7 +20,7 @@ export function Crossfade({ id, children, className, inline, fill }: { id: strin
 
   const Wrap = inline ? "span" : "div";
   return (
-    <Wrap className={cn("relative", inline && "inline-block", fill && "absolute inset-0", className)}>
+    <Wrap className={cn(fill ? "absolute inset-0" : "relative", inline && "inline-block", className)}>
       {leaving && (
         <Wrap
           key={`out-${leaving.id}`}
