@@ -267,7 +267,7 @@ export function DataTable<T>({
                     <td
                       key={c.key}
                       className={[c.num ? 'num' : '', c.card ? `card-${c.card}` : ''].filter(Boolean).join(' ') || undefined}
-                      data-label={c.card ? undefined : c.header}
+                      data-label={c.card === 'title' || c.card === 'status' || c.key === 'peek' ? undefined : c.header}
                     >
                       {ci === 0 && rowHref ? (
                         <Link to={rowHref(row)} className="dt-link">

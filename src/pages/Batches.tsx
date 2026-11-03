@@ -7,16 +7,14 @@ import { ALL_BATCH_STATUSES, type BatchStatus } from '../types'
 import {
   Badge,
   BatchBadge,
+  DataTable,
   Dialog,
   EmptyState,
   FormError,
-  LinkRow,
   QueryError,
-  RowLink,
   Spinner,
   StatusFilter,
   useToast,
-  scrollRegion,
   usePageTitle,
 } from '../ui'
 import { FreshnessStrip } from '../viz'
@@ -65,65 +63,61 @@ export default function Batches() {
       ) : q.data.length === 0 ? (
         <EmptyState>No batches{status ? ` with status ${BATCH_STATUS_LABEL[status]}` : ''}.</EmptyState>
       ) : (
-        <div {...scrollRegion('Batches', { cards: true })}>
-          <table>
-            <thead>
-              <tr>
-                <th>Variety</th>
-                <th>Plucked</th>
-                <th className="num">Age</th>
-                <th>Status</th>
-                <th>QC</th>
-                <th className="num">On hand</th>
-                <th className="num">
-                  <abbr title="Paid, not yet packed">To pack</abbr>
-                </th>
-                <th className="num">Available</th>
-              </tr>
-            </thead>
-            <tbody>
-              {q.data.map((b) => (
-                <LinkRow key={b.id}>
-                  <td className="card-title">
-                    <RowLink to={`/batches/${b.id}`} more={`batch plucked ${date(b.pluckedOn)}`}>
-                      {b.variety}
-                    </RowLink>
-                    {b.farm && <div className="muted small">{b.farm}</div>}
-                  </td>
-                  <td data-label="Plucked">{date(b.pluckedOn)}</td>
-                  <td className={`num${b.ageDays > maxAge ? ' text-danger' : b.ageDays >= 5 ? ' text-warn' : ''}`} data-label="Age">
-                    <span className="age-cell">
-                      <FreshnessStrip ageDays={b.ageDays} maxAge={maxAge} />
-                      {b.ageDays}d
-                    </span>
-                  </td>
-                  <td className="card-status">
-                    <BatchBadge status={b.status} />
-                  </td>
-                  <td className="card-wide" data-label="QC">
-                    {b.latestRating ? (
-                      <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'neutral'}>
-                        {RIPENESS_LABEL[b.latestRating]}
-                        {b.latestCondition === 'REJECT' ? ' · Reject' : ''}
-                      </Badge>
-                    ) : (
-                      <Badge tone="warn">No QC: not sellable yet</Badge>
-                    )}
-                  </td>
-                  <td className="num" data-label="On hand">
-                    {b.onHand}
-                  </td>
-                  <td className="num" data-label="To pack">
-                    {b.committed}
-                  </td>
-                  <td className="num" data-label="Available">
-                    {b.available}
-                  </td>
-                </LinkRow>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          label="Batches"
+          storageKey="batches"
+          rows={q.data}
+          rowKey={(b) => b.id}
+          rowName={(b) => `${b.variety} batch plucked ${date(b.pluckedOn)}`}
+          rowHref={(b) => `/batches/${b.id}`}
+          columns={[
+            {
+              key: 'variety',
+              header: 'Variety',
+              fixed: true,
+              card: 'title',
+              sort: (a, b) => a.variety.localeCompare(b.variety),
+              cell: (b) => (
+                <>
+                  {b.variety}
+                  <span className="sr-only"> batch plucked {date(b.pluckedOn)}</span>
+                  {b.farm && <span className="muted small dt-sub"> {b.farm}</span>}
+                </>
+              ),
+            },
+            { key: 'plucked', header: 'Plucked', sort: (a, b) => a.pluckedOn.localeCompare(b.pluckedOn), cell: (b) => date(b.pluckedOn) },
+            {
+              key: 'age',
+              header: 'Age',
+              num: true,
+              sort: (a, b) => a.ageDays - b.ageDays,
+              cell: (b) => (
+                <span className={`age-cell${b.ageDays > maxAge ? ' text-danger' : b.ageDays >= 5 ? ' text-warn' : ''}`}>
+                  <FreshnessStrip ageDays={b.ageDays} maxAge={maxAge} />
+                  {b.ageDays}d
+                </span>
+              ),
+            },
+            { key: 'status', header: 'Status', card: 'status', sort: (a, b) => BATCH_STATUS_LABEL[a.status].localeCompare(BATCH_STATUS_LABEL[b.status]), cell: (b) => <BatchBadge status={b.status} /> },
+            {
+              key: 'qc',
+              header: 'QC',
+              card: 'wide',
+              cell: (b) =>
+                b.latestRating ? (
+                  <Badge tone={b.latestCondition === 'REJECT' ? 'bad' : 'neutral'}>
+                    {RIPENESS_LABEL[b.latestRating]}
+                    {b.latestCondition === 'REJECT' ? ' · Reject' : ''}
+                  </Badge>
+                ) : (
+                  <Badge tone="warn">No QC: not sellable yet</Badge>
+                ),
+            },
+            { key: 'onHand', header: 'On hand', num: true, sort: (a, b) => a.onHand - b.onHand, cell: (b) => b.onHand },
+            { key: 'committed', header: 'To pack', num: true, sort: (a, b) => a.committed - b.committed, cell: (b) => b.committed },
+            { key: 'available', header: 'Available', num: true, sort: (a, b) => a.available - b.available, cell: (b) => b.available },
+          ]}
+        />
       )}
 
       {receiving && <ReceiveDialog onClose={() => setReceiving(false)} />}
