@@ -193,7 +193,7 @@ export function Listing({ initial }: { initial: Collection }) {
           }}
         />
         <div className="min-w-0 flex-1">
-          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-line bg-surface px-3 py-2">
+          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-hairline bg-surface px-3 py-2">
             <Chip onClick={() => openSheet("sort")} count={filterCount} active={filterCount > 0}>
               <SlidersHorizontal aria-hidden size={14} strokeWidth={2} /> Filters
             </Chip>

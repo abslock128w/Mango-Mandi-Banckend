@@ -173,7 +173,7 @@ export function Header() {
   return (
     <header
       ref={ref}
-      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-line bg-linear-to-br from-brand to-blush lg:top-0 lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface"
+      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-hairline bg-linear-to-br from-brand to-blush lg:top-0 lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface"
     >
       {/* Phones and tablets */}
       <div className="mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">

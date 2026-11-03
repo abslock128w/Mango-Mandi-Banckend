@@ -13,7 +13,7 @@ import type { Product } from "@/lib/types";
 export function VarietyGrid({ title, products }: { title: string; products: Product[] | undefined }) {
   const open = useOpenProduct();
   return (
-    <section aria-labelledby="vg-h" className="px-4 pt-5 lg:px-6">
+    <section aria-labelledby="vg-h" className="px-4 pt-8 lg:px-6 lg:pt-5">
       <h2 id="vg-h" className="font-display text-19 font-extrabold text-ink">
         {title}
       </h2>

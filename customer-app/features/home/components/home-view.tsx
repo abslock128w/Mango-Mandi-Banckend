@@ -27,11 +27,11 @@ export function HomeView() {
         <HeroCarousel slides={SLIDES} />
         {isError && <CatalogueError onRetry={refetch} className="mx-4 mt-4 lg:mx-6" />}
         <VarietyGrid title="Shop by variety" products={products?.slice().sort((a, b) => Number(Boolean(a.variety.contents)) - Number(Boolean(b.variety.contents)))} />
-        <ProductRail id="ripe" title={day ? `Ripe for ${day.toLowerCase() === "tomorrow" ? "tomorrow" : day}` : "Ripe and ready"} stage="RIPE" href="/c/ripe" />
+        <ProductRail id="ripe" title={day ? `Ripe for ${day.toLowerCase() === "tomorrow" ? "tomorrow" : day}` : "Ripe and ready"} why="Tree-ripened, eat within a day or two" stage="RIPE" href="/c/ripe" />
         <BookAheadCard />
-        <ProductRail id="semi" title="Semi-ripe, ready in 1 to 2 days" stage="SEMI_RIPE" href="/c/semi-ripe" />
+        <ProductRail id="semi" title="Semi-ripe, ready in 1 to 2 days" why="Firm today, sweet on your counter by the weekend" stage="SEMI_RIPE" href="/c/semi-ripe" />
         <BulkBanner />
-        <ProductRail id="raw" title="Raw for pickles" stage="RAW" href="/c/raw" />
+        <ProductRail id="raw" title="Raw for pickles" why="Green and tart, for pickle, chutney and salads" stage="RAW" href="/c/raw" />
         <HowItWorks />
         <TrustStrip />
       </div>

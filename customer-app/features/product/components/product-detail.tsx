@@ -57,7 +57,7 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
   const [active, setActive] = useState(0);
   const current = images[Math.min(active, images.length - 1)];
   const main = (
-    <div data-fly-image="main" className="relative aspect-square overflow-hidden rounded-12 bg-surface">
+    <div data-fly-image="main" className="relative aspect-square overflow-hidden rounded-16 bg-surface">
       {/* Picking another photo crossfades to it (the first paints at once). */}
       <Crossfade fill id={current}>
         <BlurImage src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
@@ -417,7 +417,7 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
         <p className="text-12 text-muted">
           {sel.sku.boxLabel} box · {RIPENESS[sel.stage].label}
         </p>
-        <p className="text-17 font-bold text-ink">
+        <p className="text-17 font-bold text-ink tabular-nums">
           <Crossfade inline id={sel.sku.price}>
             {rupees(sel.sku.price)}
           </Crossfade>

@@ -41,12 +41,12 @@ export function RevealOnce({
       if (id) seen.add(id);
       el.style.opacity = "";
       el.style.transform = "";
-      el.animate([from, { opacity: "1", transform: "none" }], {
-        duration: 240,
-        delay: Math.min(index, STAGGER_CAP) * STAGGER_MS,
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
-        fill: "backwards",
-      });
+      const delay = Math.min(index, STAGGER_CAP) * STAGGER_MS;
+      const easing = "cubic-bezier(0.2, 0, 0, 1)";
+      el.animate([from, { opacity: "1", transform: "none" }], { duration: 240, delay, easing, fill: "backwards" });
+      // Editorial detail: the photo settles from 1.03 and the ripeness dot breathes once, with the reveal.
+      for (const photo of el.querySelectorAll(".photo-settle")) photo.animate([{ transform: "scale(1.03)" }, { transform: "none" }], { duration: 600, delay, easing, fill: "backwards" });
+      for (const dot of el.querySelectorAll(".chip-dot")) dot.animate([{ transform: "none" }, { transform: "scale(1.15)" }, { transform: "none" }], { duration: 600, delay: delay + 240, easing });
     };
     const target = el.parentElement?.closest<HTMLElement>("[data-reveal-group]") ?? el;
     const r = target.getBoundingClientRect();
@@ -77,7 +77,7 @@ export function RevealOnce({
     };
   }, [id, index, reduce]);
   return (
-    <Tag ref={ref as React.Ref<never>} className={className} style={style} {...rest}>
+    <Tag ref={ref as React.Ref<never>} data-reveal="" className={className} style={style} {...rest}>
       {children}
     </Tag>
   );

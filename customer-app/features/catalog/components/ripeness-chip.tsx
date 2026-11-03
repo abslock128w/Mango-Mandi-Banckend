@@ -11,7 +11,7 @@ const tone: Record<RipenessStage, string> = {
 export function RipenessChip({ stage, className }: { stage: RipenessStage; className?: string }) {
   return (
     <span className={cn("inline-flex h-5 items-center gap-1 rounded-4 px-2 text-11 font-medium whitespace-nowrap", tone[stage], className)}>
-      <span aria-hidden className="size-1.5 rounded-full bg-(--dot)" />
+      <span aria-hidden className="chip-dot size-1.5 rounded-full bg-(--dot)" />
       {RIPENESS[stage].label}
     </span>
   );

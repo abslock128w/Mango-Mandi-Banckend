@@ -17,11 +17,12 @@ export interface Slide {
   tone: "brand" | "action" | "ripe" | "raw";
 }
 
+// The photo leads; the words sit on a soft ink scrim at its foot. The tone colours only the button.
 const TONE: Record<Slide["tone"], string> = {
-  brand: "from-brand/95 via-brand/70",
-  action: "from-deep/95 via-deep/70 text-white",
-  ripe: "from-ripe/95 via-ripe/70 text-white",
-  raw: "from-action/95 via-action/70 text-white",
+  brand: "bg-brand text-ink",
+  action: "bg-white text-deep",
+  ripe: "bg-white text-ripe",
+  raw: "bg-white text-action",
 };
 
 function Dots() {
@@ -54,17 +55,17 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
   const active = selected === i;
   return (
     <CarouselItem index={i} total={total} className="basis-[88%] pl-3 sm:basis-1/2 lg:basis-1/3">
-      <Link ref={ref} href={s.href} className="relative block aspect-[2.1/1] overflow-hidden rounded-12 bg-brand-soft">
+      <Link ref={ref} href={s.href} className="relative block aspect-[16/10] overflow-hidden rounded-16 bg-brand-soft lg:aspect-[2.1/1]">
         <m.div className="absolute -inset-y-[5%] inset-x-0" style={{ y }}>
           {/* Off-screen banners load after first paint so they don't compete with the LCP image. */}
           {(i === 0 || ready) && <BlurImage src={s.image} alt="" fill preload={i === 0} loading={i === 0 ? "eager" : "lazy"} fetchPriority={i === 0 ? "high" : "auto"} sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 88vw" className="object-cover" />}
         </m.div>
-        <div className={cn("absolute inset-0 flex flex-col justify-center bg-gradient-to-r to-transparent p-4 text-ink", TONE[s.tone])}>
-          {/* The words rise 8 px (160 ms) each time their slide comes to the front. */}
+        <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-ink/85 via-ink/35 to-transparent p-4 text-white lg:p-5">
+          {/* The words rise 8 px (160 ms) each time their slide comes to the front; the photo alone moves with the scroll. */}
           <m.div initial={false} animate={active ? { y: [8, 0], opacity: [0, 1] } : { y: 0, opacity: 1 }} transition={{ duration: 0.16, ease: ease.standard }}>
-            <p className="max-w-[62%] font-display text-19 leading-tight font-extrabold">{s.title}</p>
-            <p className="mt-1 max-w-[62%] text-12 font-medium">{s.subtitle}</p>
-            <span className="mt-3 block w-fit rounded-8 bg-ink px-3 py-2 text-12 font-bold text-white">Order now</span>
+            <p className="max-w-[80%] font-display text-24 leading-tight font-extrabold text-balance lg:text-21">{s.title}</p>
+            <p className="mt-1 max-w-[80%] text-13 font-medium text-white/90 lg:text-12">{s.subtitle}</p>
+            <span className={cn("mt-3 block w-fit rounded-full px-3 py-2 text-12 font-bold", TONE[s.tone])}>Order now</span>
           </m.div>
         </div>
       </Link>

@@ -28,7 +28,21 @@
 
 @utility hairline {
   border-width: 0.5px;
-  border-color: var(--color-line);
+  border-color: var(--color-hairline);
+}
+
+/* First Club feel (docs/design/shop-motion.md, "Editorial"): a photo settles 1.03 → 1 and the
+   ripeness dot breathes once (1 → 1.15 → 1, 600 ms) the first time their card reveals. Standalone
+   (the product page), they play on mount; inside RevealOnce they play with the reveal instead. */
+.photo-settle {
+  animation: settle 600ms var(--ease-standard) both;
+}
+.chip-dot {
+  animation: breathe 600ms var(--ease-standard) 1 both;
+}
+[data-reveal] .photo-settle,
+[data-reveal] .chip-dot {
+  animation: none;
 }
 
 /* A control that looks smaller than 44 px still takes a 44 x 44 px touch (--tap-min in

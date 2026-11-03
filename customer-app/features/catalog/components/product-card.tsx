@@ -59,20 +59,21 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       data-product={product.id}
       data-fly-scope
       className={cn(
-        "rail-item relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
-        fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full min-w-0",
+        "rail-item relative flex flex-col overflow-hidden rounded-12 border-[0.5px] border-hairline bg-surface shadow-card",
+        fixed ? "h-[300px] w-[150px] shrink-0 lg:h-[326px] lg:w-[178px]" : "h-full min-w-0",
       )}
     >
       <Link
         href={href}
         onClick={(e) => open(e, product.id, scope, stage)}
-        className="group block rounded-8 focus-visible:outline-offset-4"
+        className="group block focus-visible:outline-offset-[-2px]"
         aria-label={`${name}, ${ripenessLabel[stage].toLowerCase()}, ${sku.boxLabel}, ${rupees(sku.price)}`}
       >
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
-              {/* The photo fades in over its own blurred colours as soon as it decodes. */}
+            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden bg-surface">
+              {/* The photo fades in over its own blurred colours as soon as it decodes, settles from
+                  1.03 as the card reveals, and lifts 1.02 under the thumb. */}
               <BlurImage
                 src={productImage(product, stage)}
                 alt=""
@@ -81,20 +82,23 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
                 preload={priority}
                 fetchPriority={priority ? "high" : "auto"}
                 loading={priority || eager ? "eager" : "lazy"}
-                className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
+                className={cn("photo-settle object-cover transition-[opacity,filter,transform] duration-(--dur-m) ease-standard group-hover:scale-[1.02] group-active:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
             </m.div>
           </ViewTransition>
+          {/* A soft scrim at the foot of the photo carries the stage chip (and sold out). */}
+          <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-ink/30 to-transparent" />
+          <RipenessChip stage={stage} className="absolute bottom-2 left-2" />
           {few && (
-            <span className="absolute top-1 left-1 rounded-4 bg-ribbon px-2 py-0.5 text-9 leading-none font-extrabold text-white uppercase">Only {sku.stock} left</span>
+            <span className="absolute top-2 left-2 rounded-4 bg-ribbon px-2 py-0.5 text-9 leading-none font-extrabold text-white uppercase">Only {sku.stock} left</span>
           )}
           {unavailable && (
-            <span className="absolute inset-x-0 bottom-2 mx-auto w-fit rounded-4 bg-disabled-ink px-2 py-1 text-9 leading-none font-bold text-white uppercase">Sold out</span>
+            <span className="absolute right-2 bottom-2 rounded-4 bg-disabled-ink px-2 py-1 text-9 leading-none font-bold text-white uppercase">Sold out</span>
           )}
         </div>
       </Link>
 
-      <div className="mt-2 flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col p-3 pt-2">
         <span className="inline-flex h-4 w-fit max-w-full items-center gap-0.5 overflow-hidden rounded-4 bg-chip px-1 text-9 leading-none font-bold whitespace-nowrap text-ink uppercase">
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
@@ -108,12 +112,11 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           </ViewTransition>
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <RipenessChip stage={stage} />
           <BoxToggle product={product} ripeness={stage} value={size} onChange={setSize} compact />
         </div>
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
-            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink">
+            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink tabular-nums">
               {rupees(sku.price)}
             </m.span>
             {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
@@ -133,14 +136,16 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
 
 export function ProductCardSkeleton({ fixed }: { fixed?: boolean }) {
   return (
-    <div aria-hidden className={cn("flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card", fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full")}>
-      <div className="skeleton aspect-square rounded-8" />
-      <div className="skeleton mt-2 h-4 w-20 rounded-4" />
-      <div className="skeleton mt-2 h-4 w-full rounded-4" />
-      <div className="skeleton mt-1 h-4 w-2/3 rounded-4" />
-      <div className="mt-auto flex items-end justify-between pt-2">
-        <div className="skeleton h-8 w-12 rounded-4" />
-        <div className="skeleton h-8 w-[66px] rounded-6" />
+    <div aria-hidden className={cn("flex flex-col overflow-hidden rounded-12 border-[0.5px] border-hairline bg-surface shadow-card", fixed ? "h-[300px] w-[150px] shrink-0 lg:h-[326px] lg:w-[178px]" : "h-full")}>
+      <div className="skeleton aspect-square" />
+      <div className="flex flex-1 flex-col p-3 pt-2">
+        <div className="skeleton h-4 w-20 rounded-4" />
+        <div className="skeleton mt-2 h-4 w-full rounded-4" />
+        <div className="skeleton mt-1 h-4 w-2/3 rounded-4" />
+        <div className="mt-auto flex items-end justify-between pt-2">
+          <div className="skeleton h-8 w-12 rounded-4" />
+          <div className="skeleton h-8 w-[66px] rounded-6" />
+        </div>
       </div>
     </div>
   );
