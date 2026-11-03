@@ -1,19 +1,38 @@
 "use client";
 import Link from "next/link";
-import { DotLottieReact, setWasmUrl } from "@lottiefiles/dotlottie-react";
+import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { Check, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { RollingNumber } from "@/components/ui/rolling-number";
 import { api, ApiError, qk } from "@/lib/api/client";
 import { dayName, plural, rupees, windowLabel } from "@/lib/format";
-import { spring } from "@/lib/motion";
+import { ease, spring } from "@/lib/motion";
 import { useOrder, useSignedInReady } from "../hooks";
-import { Confetti } from "./confetti";
 import { SignInPrompt } from "./sign-in-prompt";
 
-setWasmUrl("/lottie/dotlottie-player.wasm");
+// The mango splash (replaces the confetti and the Lottie tick): its own chunk, fetched with this view.
+const MangoSplash = dynamic(() => import("./mango-splash").then((mod) => mod.MangoSplash), { ssr: false });
+
+/** The order number counts in once the splash has settled (900 ms): "MM-000123" rolls its digits. */
+function OrderNumber({ number, animate }: { number: string; animate: boolean }) {
+  const digits = number.match(/(\d+)$/)?.[1];
+  const [shown, setShown] = useState(animate && digits ? 0 : Number(digits ?? 0));
+  useEffect(() => {
+    if (!animate || !digits) return;
+    const t = setTimeout(() => setShown(Number(digits)), 900);
+    return () => clearTimeout(t);
+  }, [animate, digits]);
+  if (!digits) return <>{number}</>;
+  return (
+    <>
+      {number.slice(0, -digits.length)}
+      <RollingNumber value={shown} format={(n) => String(n).padStart(digits.length, "0")} />
+    </>
+  );
+}
 
 /** How long the page waits for a payment to be confirmed before handing over to the order page. */
 const WAIT_MS = 30_000;
@@ -63,7 +82,6 @@ export function SuccessView({ id }: { id: string }) {
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center px-4 pt-14 pb-10 text-center">
       <div className="relative grid size-40 place-items-center">
-        {paid && <Confetti />}
         {waiting ? (
           <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
             <Clock aria-hidden size={40} />
@@ -72,15 +90,16 @@ export function SuccessView({ id }: { id: string }) {
           <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
             <Loader2 aria-hidden size={40} className="animate-spin" />
           </span>
-        ) : reduce || failed ? (
-          <span className={failed ? "grid size-24 place-items-center rounded-full bg-danger-soft text-danger" : "grid size-24 place-items-center rounded-full bg-action text-white"}>
+        ) : failed ? (
+          <span className="grid size-24 place-items-center rounded-full bg-danger-soft text-danger">
             <Check aria-hidden size={48} strokeWidth={3} />
           </span>
         ) : (
-          <DotLottieReact src="/lottie/success.json" autoplay loop={false} className="size-32" aria-hidden />
+          <MangoSplash />
         )}
       </div>
-      <m.h1 initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="font-display text-24 font-extrabold text-ink">
+      {/* The headline rises once the mango has settled (900 ms); the status line stays put for screen readers. */}
+      <m.h1 key={paid ? "title-paid" : "title-waiting"} initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: paid ? 0.9 : 0.3, duration: 0.24, ease: ease.standard }} className="font-display text-24 font-extrabold text-ink">
         {paid ? "Order confirmed" : failed ? "Payment didn't go through" : waiting ? "Still waiting for your payment" : "Confirming your payment"}
       </m.h1>
       <p className="mt-1 text-13 text-muted" role="status">
@@ -95,14 +114,17 @@ export function SuccessView({ id }: { id: string }) {
 
       {order && (
         <m.section
+          key={paid ? "card-paid" : "card-waiting"}
           initial={reduce ? false : { opacity: 0, y: 48 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...spring.gentle, delay: 0.5 }}
+          transition={{ ...spring.gentle, delay: paid && !reduce ? 1.1 : 0.5 }}
           className="mt-8 w-full rounded-16 border-[0.5px] border-line bg-surface p-4 text-left shadow-card"
           aria-label="Order summary"
         >
           <div className="flex items-center justify-between">
-            <p className="text-13 font-semibold text-ink">Order {order.number}</p>
+            <p className="text-13 font-semibold text-ink">
+              Order <OrderNumber number={order.number} animate={Boolean(paid && !reduce)} />
+            </p>
             <span className="rounded-4 bg-tint px-2 py-0.5 text-11 font-semibold text-action">{paid ? "Paid" : "Waiting"}</span>
           </div>
           <ul className="mt-3 space-y-1 text-12 text-ink">

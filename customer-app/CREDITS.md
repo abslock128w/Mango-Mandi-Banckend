@@ -62,6 +62,6 @@ Photos are generic mango shots and are not variety-accurate (see ASSUMPTIONS.md)
 - Fallback reverse geocoding: [Nominatim](https://nominatim.org/) by OpenStreetMap (usage policy: max 1 request per second; the picker debounces to one request per map move).
 - Icons: [Lucide](https://lucide.dev) (ISC).
 - Fonts: [Plus Jakarta Sans](https://fonts.google.com/specimen/Plus+Jakarta+Sans) and [Inter](https://fonts.google.com/specimen/Inter) (SIL Open Font License) via `next/font`; the Latin subset of Inter is self-hosted in `styles/fonts/`.
-- Success animation: `public/lottie/success.json` is an original hand-built Lottie (checkmark, circle, ring); the dotLottie WebAssembly player is copied from `@lottiefiles/dotlottie-web` (MIT) to `public/lottie/` so it works offline.
+- Order-success animation: the mango splash (`features/orders/components/mango-splash.tsx`) is original inline SVG animated with Motion; no Lottie, no player.
 - Logo, scooter and pin illustrations: original inline SVG.
 - Layout, type scale, radii and card dimensions are modelled on blinkit.com; the colour palette ("Orchard") is original. No Blinkit assets, logos or copy are used.

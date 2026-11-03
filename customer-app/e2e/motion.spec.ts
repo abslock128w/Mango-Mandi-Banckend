@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { choosePincode } from "./helpers";
+import { choosePincode, signIn } from "./helpers";
 
 // The motion guard rails of docs/design/shop-motion.md (section 6), against the real local API.
 
@@ -137,4 +137,46 @@ test(`(e) ADD paints its stepper within ${TAP_BUDGET} ms of the tap`, async ({ p
       }),
   );
   expect(ms).toBeLessThan(TAP_BUDGET);
+});
+
+// The mango splash on order confirmation (docs/design/shop-motion.md, "Splash").
+async function placeDemoOrder(page: Page) {
+  await choosePincode(page);
+  await page.goto("/p/alphonso");
+  await page.getByRole("button", { name: "Add to cart" }).last().click();
+  await signIn(page, "/checkout");
+  await expect(page).toHaveURL(/\/checkout$/);
+  await page.getByRole("textbox", { name: "Address" }).fill("12 Test Lane, Koramangala 4th Block, Bengaluru 560034");
+  await page.getByRole("radiogroup", { name: "Delivery time" }).getByRole("radio", { disabled: false }).first().click();
+  await expect(page.getByText("₹1,899").first()).toBeVisible();
+  await page.getByText("Pay now").click();
+  await page.getByRole("button", { name: "Pay (test)" }).click();
+  await expect(page).toHaveURL(/\/order\/[^/]+\/success$/);
+}
+
+/** Every transform in the splash (Motion writes them inline), as one string. */
+const splashTransforms = (page: Page) =>
+  page.getByTestId("mango-splash").evaluate((el) => [...el.querySelectorAll<SVGElement>("*")].map((n) => `${n.style.transform}|${n.style.opacity}|${n.getAttribute("transform") ?? ""}`).join("\n"));
+
+test("(f) a paid order splashes a mango and shows its headline within 2 s", async ({ page }) => {
+  await placeDemoOrder(page);
+  const t0 = Date.now();
+  await expect(page.getByTestId("mango-splash")).toBeVisible({ timeout: 2000 });
+  await expect(page.getByRole("heading", { name: "Order confirmed" })).toBeAttached({ timeout: 2000 - (Date.now() - t0) });
+  // It moves: the transforms of the splash change between two reads.
+  const a = await splashTransforms(page);
+  await page.waitForTimeout(200);
+  expect(await splashTransforms(page)).not.toBe(a);
+  await expect(page.getByRole("status").filter({ hasText: /Arriving/ })).toBeVisible();
+});
+
+test("(g) with reduced motion the mango rests in its puddle and nothing moves", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await placeDemoOrder(page);
+  await expect(page.getByTestId("mango-splash")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Order confirmed" })).toBeVisible();
+  const a = await splashTransforms(page);
+  await page.waitForTimeout(500);
+  expect(await splashTransforms(page)).toBe(a);
+  await expect(page.getByRole("status").filter({ hasText: /Arriving/ })).toBeVisible();
 });
