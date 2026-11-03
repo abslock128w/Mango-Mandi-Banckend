@@ -420,7 +420,7 @@ export const api = {
   shortArrival: (batchId: string, lineId: string, input: { onHand: number; reason: string; reasonCode?: AdjustReason }) =>
     request<ShortArrivalResult>('POST', `/batches/${id(batchId)}/lines/${id(lineId)}/short-arrival`, input),
 
-  orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number }) =>
+  orders: (f: { status?: string | null; from?: string | null; to?: string | null; q?: string | null; page?: number; delivery?: string | null; slot?: string | null; unpacked?: string | null; olderThanMinutes?: string | null }) =>
     request<Paged<OrderListItem>>('GET', `/orders${qs(f)}`),
   order: (orderId: string) => request<OrderDetail>('GET', `/orders/${id(orderId)}`),
   /** Gift orders to many recipients with their deliveries (MULTI_GIFT; managers and operators). */

@@ -34,6 +34,8 @@ export interface DataTableProps<T> {
   rowHref?: (row: T) => string
   /** A quick look (PeekDrawer): row click and Enter. Without it a row click opens rowHref. */
   onPeek?: (row: T) => void
+  /** A row click opens rowHref even when there is a peek (Enter still peeks). */
+  clickOpens?: boolean
   /** How a row is named to screen readers in "Select ORD-1042". */
   rowName: (row: T) => string
   selectable?: boolean
@@ -59,6 +61,7 @@ export function DataTable<T>({
   rowKey,
   rowHref,
   onPeek,
+  clickOpens = false,
   rowName,
   selectable = false,
   selected = NO_COLUMNS,
@@ -149,7 +152,7 @@ export function DataTable<T>({
       return
     }
     lastClicked.current = index
-    if (onPeek) onPeek(row)
+    if (onPeek && !clickOpens) onPeek(row)
     else if (rowHref) navigate(rowHref(row))
   }
 
@@ -211,6 +214,7 @@ export function DataTable<T>({
             <tr>
               {selectable && (
                 <th className="dt-select">
+                  <label className="dt-check">
                   <input
                     type="checkbox"
                     aria-label={`Select all ${rows.length} on this page`}
@@ -220,6 +224,7 @@ export function DataTable<T>({
                     }}
                     onChange={() => setSelected(allOn ? selected.filter((id) => !ids.includes(id)) : [...new Set([...selected, ...ids])])}
                   />
+                  </label>
                 </th>
               )}
               {shown.map((c) => {
@@ -253,7 +258,9 @@ export function DataTable<T>({
                 >
                   {selectable && (
                     <td className="dt-select">
-                      <input type="checkbox" aria-label={`Select ${rowName(row)}`} checked={on} onChange={() => toggle(key)} />
+                      <label className="dt-check">
+                        <input type="checkbox" aria-label={`Select ${rowName(row)}`} checked={on} onChange={() => toggle(key)} />
+                      </label>
                     </td>
                   )}
                   {shown.map((c, ci) => (

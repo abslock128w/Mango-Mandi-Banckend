@@ -1043,3 +1043,24 @@
 .drawer-live {
   margin: 0 0 var(--space-3);
 }
+
+/* Menus that open and close with the hidden attribute stay closed whatever their display. */
+.dt-chooser-menu[hidden],
+.queue-menu[hidden] {
+  display: none;
+}
+/* Touch screens: header sort buttons and row checkboxes are 44px targets (the label is the target). */
+.dt-check {
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  min-height: 32px;
+  cursor: pointer;
+}
+@media (pointer: coarse) {
+  .dt-sort,
+  .dt-check {
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+  }
+}

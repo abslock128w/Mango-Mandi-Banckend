@@ -218,7 +218,9 @@ export function DispatchBoard({ day, manifest, riders, bySlot, onRefresh }: { da
         aria-label={s.o.number}
       >
         {opts.select ? (
-          <input type="checkbox" aria-label={`Select ${s.o.number}`} checked={chosen} onChange={() => toggle(s.o.id)} />
+          <label className="dt-check">
+            <input type="checkbox" aria-label={`Select ${s.o.number}`} checked={chosen} onChange={() => toggle(s.o.id)} />
+          </label>
         ) : (
           <span className="avatar-sm" aria-hidden="true">
             {initial(s.o.rider ? riderName(s.o.rider) : '–')}
