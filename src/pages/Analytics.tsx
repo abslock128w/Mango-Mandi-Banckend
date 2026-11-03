@@ -8,6 +8,7 @@ import { ExportPanel } from '../ExportPanel'
 import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
 import { useSession } from '../session'
 import { FunnelSection } from './Funnel'
+import { OpsSection } from './AnalyticsOps'
 import { BarList, KpiCard, deltaOf } from '../viz'
 
 // Recharts is only fetched for this page, after its numbers are on screen.
@@ -59,6 +60,8 @@ export default function Analytics() {
       ) : (
         <>
           <Kpis weeks={q.data.weeks} totals={q.data.totals} />
+
+          <OpsSection />
 
           {(q.data.lowRatings ?? []).length > 0 && (
             <section className="card">
