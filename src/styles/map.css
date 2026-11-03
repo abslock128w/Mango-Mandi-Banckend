@@ -39,17 +39,23 @@
 }
 .skip-map {
   position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.skip-map:focus {
   left: var(--space-2);
   top: var(--space-2);
   z-index: 1000;
+  width: auto;
+  height: auto;
+  clip: auto;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--link);
-  transform: translateY(-200%);
-}
-.skip-map:focus {
-  transform: none;
 }
 .map-fit {
   position: absolute;
@@ -109,7 +115,7 @@
   place-items: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 2px solid var(--surface);
   background: var(--color-ink);
   color: var(--color-surface);
@@ -160,7 +166,7 @@
 }
 .map-rider-dot {
   position: absolute;
-  inset: 3px;
+  inset: 4px;
   border-radius: 50%;
   border: 3px solid var(--surface);
   background: var(--color-staff);

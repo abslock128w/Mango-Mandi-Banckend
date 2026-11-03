@@ -6,7 +6,7 @@
 // riders silent while out, stops past their window). Pure, unit-tested (tests/unit/ops-queue.unit.ts).
 import type { Attention, Summary } from '../types'
 import type { DayPlan, LiveBoard } from './types'
-import { SILENT_AFTER_MIN, ago, clock, minutesSince } from './time'
+import { SILENT_AFTER_MIN, ago, clock, minutesSince } from './time.ts'
 
 export type Severity = 'now' | 'soon' | 'watch'
 export type Owner = 'MANAGER' | 'OPERATOR' | 'PACKER'

@@ -280,6 +280,43 @@ export function DispatchBoard({ day, manifest, riders, bySlot, onRefresh }: { da
             ]}
           />
         </div>
+        {selectable && selected.length > 0 && (
+          <div className="board-bar no-print" role="region" aria-label="Selected stops">
+            <span className="board-bar-count" role="status">
+              {selected.length} selected
+            </span>
+            <label className="check-inline small">
+              <span className="sr-only">Assign the selected stops to</span>
+              <select
+                ref={pickerRef}
+                aria-label="Assign the selected stops to"
+                aria-keyshortcuts="a"
+                value=""
+                disabled={busy}
+                onChange={(e) => { if (e.target.value) assign.mutate({ riderId: e.target.value, orderIds: selected }) }}
+              >
+                <option value="">Assign to…</option>
+                {riderOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.text}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn btn-small" disabled={busy} onClick={() => nearest.mutate(selected)}>
+              {nearest.isPending ? 'Assigning…' : 'Assign nearest'}
+            </button>
+            <button type="button" className="btn btn-small" disabled={busy} onClick={() => dispatch.mutate(selected)}>
+              Dispatch
+            </button>
+            <button type="button" className="btn btn-small" onClick={() => window.print()}>
+              Print run sheet
+            </button>
+            <button type="button" className="link-btn" onClick={() => setSelected([])}>
+              Clear
+            </button>
+          </div>
+        )}
         <div {...tabPanelProps('board', tab)} onKeyDown={onListKey}>
           {tab === 'slot' && bySlot}
           {tab === 'unassigned' &&
@@ -354,43 +391,6 @@ export function DispatchBoard({ day, manifest, riders, bySlot, onRefresh }: { da
           </div>
         )}
 
-        {selectable && selected.length > 0 && (
-          <div className="board-bar no-print" role="region" aria-label="Selected stops">
-            <span className="board-bar-count" role="status">
-              {selected.length} selected
-            </span>
-            <label className="check-inline small">
-              <span className="sr-only">Assign the selected stops to</span>
-              <select
-                ref={pickerRef}
-                aria-label="Assign the selected stops to"
-                aria-keyshortcuts="a"
-                value=""
-                disabled={busy}
-                onChange={(e) => { if (e.target.value) assign.mutate({ riderId: e.target.value, orderIds: selected }) }}
-              >
-                <option value="">Assign to…</option>
-                {riderOptions.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.text}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="btn btn-small" disabled={busy} onClick={() => nearest.mutate(selected)}>
-              {nearest.isPending ? 'Assigning…' : 'Assign nearest'}
-            </button>
-            <button type="button" className="btn btn-small" disabled={busy} onClick={() => dispatch.mutate(selected)}>
-              Dispatch
-            </button>
-            <button type="button" className="btn btn-small" onClick={() => window.print()}>
-              Print run sheet
-            </button>
-            <button type="button" className="link-btn" onClick={() => setSelected([])}>
-              Clear
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="board-map no-print">

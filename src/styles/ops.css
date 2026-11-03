@@ -145,7 +145,7 @@
   right: -4px;
   min-width: 20px;
   height: 20px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: var(--radius-pill);
   background: var(--color-ink);
   color: var(--color-surface);
@@ -207,7 +207,7 @@
 
 .kbd-chord {
   display: inline-flex;
-  gap: 3px;
+  gap: 4px;
 }
 .shortcuts {
   display: grid;
@@ -428,14 +428,14 @@
   grid-area: track;
   position: relative;
   height: 22px;
-  border-radius: var(--radius-xs, 4px);
+  border-radius: var(--radius-xs);
   background: var(--surface-2);
 }
 .day-span {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  border-radius: var(--radius-xs, 4px);
+  top: 4px;
+  bottom: 4px;
+  border-radius: var(--radius-xs);
 }
 .day-span-prep {
   background: repeating-linear-gradient(135deg, var(--border-strong) 0 2px, transparent 2px 6px);
@@ -460,11 +460,11 @@
 }
 .day-mark {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: -4px;
+  bottom: -4px;
   width: 3px;
   transform: translateX(-50%);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .day-mark-cutoff {
   background: var(--text-muted);
@@ -477,8 +477,8 @@
 }
 .day-now {
   position: absolute;
-  top: -6px;
-  bottom: -6px;
+  top: -8px;
+  bottom: -8px;
   width: 2px;
   transform: translateX(-50%);
   background: var(--color-error);
@@ -506,7 +506,7 @@
   display: inline-block;
   width: 12px;
   height: 12px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   margin-left: var(--space-2);
 }
 .day-key-pack {
@@ -608,9 +608,6 @@
   margin-bottom: var(--space-2);
 }
 .dt-bulk {
-  position: sticky;
-  top: calc(var(--header-h) + var(--space-2));
-  z-index: 6;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -961,9 +958,6 @@
   color: var(--text-muted);
 }
 .board-bar {
-  position: sticky;
-  bottom: var(--space-3);
-  z-index: 8;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -975,10 +969,8 @@
   background: var(--color-staff-soft);
   box-shadow: var(--shadow-md);
 }
-@media (max-width: 899.98px) {
-  .board-bar {
-    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--space-2));
-  }
+.board-list .board-bar {
+  margin: 0 0 var(--space-3);
 }
 .board-bar-count {
   font-weight: 650;
@@ -991,6 +983,10 @@
   display: grid;
   gap: var(--space-1);
   font-size: var(--text-sm);
+}
+.layer-toggles input {
+  width: 24px;
+  height: 24px;
 }
 .layer-toggles {
   display: flex;
