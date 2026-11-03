@@ -115,6 +115,129 @@
   mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
 }
 
+/* Liquid glass (docs/design/shop-motion.md, "Glass"), the one place backdrop-filter is written
+   (tests/unit/glass.test.ts): the header once collapsed, the cart bar, the listing's chip row once
+   it sticks, a sheet's head, toasts. Never cards, lists or page backgrounds, and at most four live at
+   once (the chip row gives its blur up while a sheet is open).
+   - A warm cast from the brand over the translucent surface, blurred and saturated behind.
+   - A specular highlight (::before, 140°, white 35% to clear at 40%, soft-light) that glides with the
+     scroll: a scroll-driven transform over the first 80 px, the same way the header collapses.
+   - Ink on glass is 92% with a hair of white under it, for legibility over photos.
+   - Lensing on touch (.glass-press, phones only): the pill scales to .97 and its blur drops 18 -> 12 px
+     for the press.
+   - No backdrop-filter: the strong (78%) surface, no blur. Reduced transparency: the opaque surface,
+     no blur, no specular, no lensing. */
+.glass {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  color: var(--glass-ink);
+  text-shadow: 0 0.5px 0 rgba(255, 255, 255, 0.4);
+}
+.glass-strong {
+  background: linear-gradient(var(--glass-tint), transparent 60%), var(--glass-bg-strong);
+}
+.glass-bar {
+  border-radius: 16px;
+}
+.glass-pill {
+  border-radius: 24px;
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
+  mix-blend-mode: soft-light;
+  transform: translateX(calc(var(--spec-x, 0) * 16%));
+}
+@supports (animation-timeline: scroll()) {
+  .glass::before {
+    animation: glass-specular linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 80px;
+  }
+}
+@keyframes glass-specular {
+  to {
+    transform: translateX(16%);
+  }
+}
+/* Lensing: the pill scales to .97 and its blur drops for the press (phones only, where there is a
+   thumb on the glass; filter is cheap on the engines that run the shop). */
+@media (hover: none) and (prefers-reduced-transparency: no-preference) {
+  .glass-press {
+    transition:
+      transform var(--dur-spring-snappy) var(--ease-spring-snappy),
+      -webkit-backdrop-filter var(--dur-xs) var(--ease-standard),
+      backdrop-filter var(--dur-xs) var(--ease-standard);
+  }
+  .glass-press:active:not(:disabled) {
+    transform: scale(0.97);
+    transition-duration: var(--dur-xs);
+    -webkit-backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur-press)) saturate(var(--glass-saturate));
+  }
+}
+/* A primary button in glass: the action colour at 100% behind the label (it stays obviously the
+   primary thing to tap), with the glass edge, specular and lensing. Opaque, so no blur behind it. */
+.glass-primary {
+  position: relative;
+  isolation: isolate;
+  border: var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+}
+.glass-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.35), transparent 40%);
+  mix-blend-mode: soft-light;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .glass {
+    background: var(--glass-bg-strong);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--color-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    text-shadow: none;
+  }
+  .glass::before,
+  .glass-primary::before {
+    display: none;
+  }
+}
+/* The listing's chip row is glass only once it sticks under the header (listing.tsx, data-stuck),
+   and gives its blur up while a sheet is open so no more than four surfaces blur at once. */
+.glass-stuck:not([data-stuck]) {
+  background: var(--color-surface);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+.glass-stuck:not([data-stuck])::before {
+  display: none;
+}
+body:has(.app-root[data-active]) .glass-stuck {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 @utility skeleton {
   background-color: var(--color-chip);
   background-image: linear-gradient(
@@ -296,12 +419,21 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   @media (max-width: 1023px) {
     .header-brand,
     .header-address,
-    .header-account {
+    .header-account,
+    .header-canvas,
+    .header-glass {
       animation-duration: auto;
       animation-timing-function: linear;
       animation-fill-mode: both;
       animation-timeline: scroll(root block);
       animation-range: 0 var(--header-collapse, 59px);
+    }
+    /* Expanded, the header is canvas-coloured; collapsed, it is glass over the page (opacity only). */
+    .header-canvas {
+      animation-name: header-canvas;
+    }
+    .header-glass {
+      animation-name: header-glass;
     }
     .header-brand {
       animation-name: header-brand;
@@ -322,6 +454,16 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   to {
     opacity: 0;
     transform: scale(0.96);
+  }
+}
+@keyframes header-canvas {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes header-glass {
+  from {
+    opacity: 0;
   }
 }
 @keyframes header-address {
@@ -357,7 +499,9 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   /* Scroll-linked, not autonomous motion: the header must still keep its parts in place. */
   .header-brand,
   .header-address,
-  .header-account {
+  .header-account,
+  .header-canvas,
+  .header-glass {
     animation-duration: auto !important;
   }
 }

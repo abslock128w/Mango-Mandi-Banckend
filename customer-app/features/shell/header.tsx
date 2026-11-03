@@ -173,10 +173,15 @@ export function Header() {
   return (
     <header
       ref={ref}
-      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-hairline bg-linear-to-br from-brand to-blush lg:top-0 lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface"
+      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-hairline bg-canvas lg:top-0"
     >
+      {/* Expanded, the brand gradient; collapsed, glass over the page: the two crossfade by opacity
+          on the same scroll value as the large title (globals.css). Laptops are always glass. */}
+      <div aria-hidden className="header-canvas absolute inset-0 bg-linear-to-br from-brand to-blush lg:hidden" />
+      <div aria-hidden className="header-glass glass glass-strong absolute inset-0 rounded-none border-0 border-b border-hairline" />
+      <div aria-hidden className="absolute inset-0 hidden bg-linear-to-r from-brand-soft/60 to-transparent lg:block" />
       {/* Phones and tablets */}
-      <div className="mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
+      <div className="relative mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="header-brand origin-top-left">
@@ -205,7 +210,7 @@ export function Header() {
       </div>
 
       {/* Laptops */}
-      <div className="mx-auto hidden h-[86px] max-w-content items-center gap-6 px-6 lg:flex">
+      <div className="relative mx-auto hidden h-[86px] max-w-content items-center gap-6 px-6 lg:flex">
         <Logo height={58} />
         <div className="h-full w-px bg-line" aria-hidden />
         <div className="w-[270px] min-w-0 shrink-0">

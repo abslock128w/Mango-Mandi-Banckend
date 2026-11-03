@@ -98,7 +98,7 @@ export function CartBar() {
               transition={spring.bouncy}
               style={{ scale: pulse }}
               whileTap={{ scale: 0.97 }}
-              className="pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 rounded-12 bg-deep pr-3 pl-2 text-left text-white shadow-sheet"
+              className="glass glass-strong glass-pill glass-press pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 pr-3 pl-2 text-left"
               aria-label={`View cart, ${count} item${count === 1 ? "" : "s"}, ${rupees(itemTotal)}`}
             >
               <DeliveryBadge />
@@ -112,7 +112,7 @@ export function CartBar() {
                       animate={{ scale: 1, opacity: 1, x: 0 }}
                       exit={{ scale: 0.4, opacity: 0 }}
                       transition={{ ...spring.snappy, delay: reduce ? 0 : i * 0.05 }}
-                      className="relative size-9 overflow-hidden rounded-8 border-2 border-deep bg-white"
+                      className="relative size-9 overflow-hidden rounded-8 border-2 border-white bg-white shadow-card"
                       style={{ zIndex: 3 - i }}
                     >
                       <BlurImage src={l.image} alt="" fill sizes="36px" className="object-cover" />
@@ -124,11 +124,11 @@ export function CartBar() {
                 <span className="text-13 font-bold">
                   <RollingNumber value={count} /> item{count === 1 ? "" : "s"}
                 </span>
-                <span className="text-13 font-bold">
+                <span className="text-13 font-bold tabular-nums">
                   <CountUp value={itemTotal} />
                 </span>
               </span>
-              <span className="flex items-center gap-0.5 text-15 font-bold">
+              <span className="flex items-center gap-0.5 text-15 font-bold text-deep">
                 View cart <ChevronRight aria-hidden size={20} strokeWidth={2} />
               </span>
             </m.button>
