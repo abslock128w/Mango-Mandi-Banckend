@@ -21,7 +21,7 @@ export function BoxToggle({
 }) {
   const id = useId();
   return (
-    <div role="radiogroup" aria-label="Box size" className={cn("relative inline-flex rounded-4 bg-chip p-0.5", compact ? "h-5" : "h-8")}>
+    <div role="radiogroup" aria-label="Box size" className={cn("relative inline-flex rounded-full bg-chip p-0.5", compact ? "h-5" : "h-8")}>
       {product.boxes.map(({ size: s }) => {
         const sku = product.skus.find((k) => k.ripeness === ripeness && k.size === s);
         const selected = s === value;
@@ -45,7 +45,7 @@ export function BoxToggle({
               <m.span
                 layoutId={`box-${id}`}
                 transition={spring.snappy}
-                className="absolute inset-0 -z-10 rounded-4 border-[0.5px] border-line bg-surface shadow-card"
+                className="absolute inset-0 -z-10 rounded-full border-[0.5px] border-line bg-surface shadow-card"
               />
             )}
             {s} kg

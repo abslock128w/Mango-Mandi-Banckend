@@ -21,7 +21,7 @@ export interface Slide {
 const TONE: Record<Slide["tone"], string> = {
   brand: "bg-brand text-ink",
   action: "bg-white text-deep",
-  ripe: "bg-white text-ripe",
+  ripe: "bg-white text-ink",
   raw: "bg-white text-action",
 };
 
@@ -55,18 +55,18 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
   const active = selected === i;
   return (
     <CarouselItem index={i} total={total} className="basis-[88%] pl-3 sm:basis-1/2 lg:basis-1/3">
-      <Link ref={ref} href={s.href} className="relative block aspect-[16/10] overflow-hidden rounded-16 bg-brand-soft lg:aspect-[2.1/1]">
+      <Link ref={ref} href={s.href} className="relative block aspect-[5/4] overflow-hidden rounded-24 bg-brand-soft lg:aspect-[2.1/1] lg:rounded-16">
         <m.div className="absolute -inset-y-[5%] inset-x-0" style={{ y }}>
           {/* Off-screen banners load after first paint so they don't compete with the LCP image. */}
           {(i === 0 || ready) && <BlurImage src={s.image} alt="" fill preload={i === 0} loading={i === 0 ? "eager" : "lazy"} fetchPriority={i === 0 ? "high" : "auto"} sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 88vw" className="object-cover" />}
         </m.div>
-        <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-ink/85 via-ink/35 to-transparent p-4 text-white lg:p-5">
-          {/* The words rise 8 px (160 ms) each time their slide comes to the front; the photo alone moves with the scroll. */}
+        {/* The words sit on a soft scrim at the top, the call to action floats at the foot; the photo alone moves with the scroll. */}
+        <div className="absolute inset-0 flex flex-col items-center justify-between bg-gradient-to-b from-ink/70 via-ink/10 to-ink/30 p-4 text-center text-white lg:p-5">
           <m.div initial={false} animate={active ? { y: [8, 0], opacity: [0, 1] } : { y: 0, opacity: 1 }} transition={{ duration: 0.16, ease: ease.standard }}>
-            <p className="max-w-[80%] font-display text-24 leading-tight font-extrabold text-balance lg:text-21">{s.title}</p>
-            <p className="mt-1 max-w-[80%] text-13 font-medium text-white/90 lg:text-12">{s.subtitle}</p>
-            <span className={cn("mt-3 block w-fit rounded-full px-3 py-2 text-12 font-bold", TONE[s.tone])}>Order now</span>
+            <p className="font-display text-24 leading-tight font-extrabold text-balance lg:text-19">{s.title}</p>
+            <p className="mt-1 text-13 font-medium text-white/90 lg:text-12">{s.subtitle}</p>
           </m.div>
+          <span className={cn("block w-fit rounded-full px-4 py-2 text-13 font-bold shadow-card", TONE[s.tone])}>Order now →</span>
         </div>
       </Link>
     </CarouselItem>

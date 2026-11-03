@@ -33,6 +33,9 @@ export interface ProductCardProps {
   preferredSize?: BoxSize | null;
 }
 
+/** The pastel square behind a photo, by ripeness, until the photo covers it. */
+const PHOTO_TINT: Record<RipenessStage, string> = { RIPE: "bg-ripe-soft", SEMI_RIPE: "bg-semi-soft", RAW: "bg-raw-soft" };
+
 export const vtName = (scope: string, id: string) => `p-${scope}-${id}`.replace(/[^a-zA-Z0-9-]/g, "-");
 
 export function ProductCard({ product, ripeness, scope, index = 0, fixed, priority, eager, preferredSize }: ProductCardProps) {
@@ -59,19 +62,19 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       data-product={product.id}
       data-fly-scope
       className={cn(
-        "rail-item relative flex flex-col overflow-hidden rounded-12 border-[0.5px] border-hairline bg-surface shadow-card",
+        "rail-item relative flex flex-col overflow-hidden rounded-20 border-[0.5px] border-hairline bg-surface p-2 shadow-card",
         fixed ? "h-[300px] w-[150px] shrink-0 lg:h-[326px] lg:w-[178px]" : "h-full min-w-0",
       )}
     >
       <Link
         href={href}
         onClick={(e) => open(e, product.id, scope, stage)}
-        className="group block focus-visible:outline-offset-[-2px]"
+        className="group block rounded-12 focus-visible:outline-offset-2"
         aria-label={`${name}, ${ripenessLabel[stage].toLowerCase()}, ${sku.boxLabel}, ${rupees(sku.price)}`}
       >
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden bg-surface">
+            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className={cn("relative aspect-square overflow-hidden rounded-12", PHOTO_TINT[stage])}>
               {/* The photo fades in over its own blurred colours as soon as it decodes, settles from
                   1.03 as the card reveals, and lifts 1.02 under the thumb. */}
               <BlurImage
@@ -87,7 +90,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
             </m.div>
           </ViewTransition>
           {/* A soft scrim at the foot of the photo carries the stage chip (and sold out). */}
-          <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-ink/30 to-transparent" />
+          <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 rounded-b-12 bg-gradient-to-t from-ink/25 to-transparent" />
           <RipenessChip stage={stage} className="absolute bottom-2 left-2" />
           {few && (
             <span className="absolute top-2 left-2 rounded-4 bg-ribbon px-2 py-0.5 text-9 leading-none font-extrabold text-white uppercase">Only {sku.stock} left</span>
@@ -98,15 +101,16 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         </div>
       </Link>
 
-      <div className="flex min-h-0 flex-1 flex-col p-3 pt-2">
-        <span className="inline-flex h-4 w-fit max-w-full items-center gap-0.5 overflow-hidden rounded-4 bg-chip px-1 text-9 leading-none font-bold whitespace-nowrap text-ink uppercase">
+      <div className="flex min-h-0 flex-1 flex-col px-1 pt-2 pb-1">
+        {/* A quiet kicker: the delivery day and slot, grey uppercase. */}
+        <span className="inline-flex h-4 w-fit max-w-full items-center gap-1 overflow-hidden text-9 leading-none font-bold tracking-wide whitespace-nowrap text-faint uppercase">
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
         </span>
-        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-2 block">
+        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-1 block">
           {/* The name travels into the product sheet (phones) or page (laptops) with the photo. */}
           <ViewTransition name={`${vtName(scope, product.id)}-name`} share="morph" default="none">
-            <m.h3 layout="position" layoutId={`title-${scope}-${product.id}`} transition={spring.smooth} className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">
+            <m.h3 layout="position" layoutId={`title-${scope}-${product.id}`} transition={spring.smooth} className="line-clamp-2 h-9 text-13 leading-[18px] font-medium text-ink">
               {name}
             </m.h3>
           </ViewTransition>
@@ -136,9 +140,9 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
 
 export function ProductCardSkeleton({ fixed }: { fixed?: boolean }) {
   return (
-    <div aria-hidden className={cn("flex flex-col overflow-hidden rounded-12 border-[0.5px] border-hairline bg-surface shadow-card", fixed ? "h-[300px] w-[150px] shrink-0 lg:h-[326px] lg:w-[178px]" : "h-full")}>
-      <div className="skeleton aspect-square" />
-      <div className="flex flex-1 flex-col p-3 pt-2">
+    <div aria-hidden className={cn("flex flex-col overflow-hidden rounded-20 border-[0.5px] border-hairline bg-surface p-2 shadow-card", fixed ? "h-[300px] w-[150px] shrink-0 lg:h-[326px] lg:w-[178px]" : "h-full")}>
+      <div className="skeleton aspect-square rounded-12" />
+      <div className="flex flex-1 flex-col px-1 pt-2 pb-1">
         <div className="skeleton h-4 w-20 rounded-4" />
         <div className="skeleton mt-2 h-4 w-full rounded-4" />
         <div className="skeleton mt-1 h-4 w-2/3 rounded-4" />

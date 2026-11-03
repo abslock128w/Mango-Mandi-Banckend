@@ -149,7 +149,7 @@ export function SearchLink({ className, ref }: { className?: string; ref?: React
       ref={ref}
       href="/search"
       className={cn(
-        "flex h-12 items-center gap-2 rounded-8 border border-line bg-surface px-3 text-13 lg:h-[46px] lg:bg-chip",
+        "flex h-12 items-center gap-2 rounded-full border border-line bg-surface px-4 text-13 lg:h-[46px] lg:bg-chip",
         className,
       )}
     >

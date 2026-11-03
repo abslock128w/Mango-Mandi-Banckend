@@ -16,7 +16,7 @@ the shop does, only how it moves. All test ids, accessible names and e2e specs s
 - ADD → stepper `layoutId` morph with `AnimatePresence popLayout` (`add-button.tsx`), `RollingNumber`.
 - Cart bar spring entrance, thumbnails stagger, total count-up. Cart lines `layout` enter/exit.
 - Hero carousel autoplay + parallax + stretching dots. Sliding indicators (`listing`, `filter-sheet`, `box-toggle`).
-- Header collapse on scroll with hysteresis. Toaster springs. Login phone ↔ OTP slide. Success Lottie + confetti.
+- Header collapse on scroll with hysteresis. Toaster springs. Login phone ↔ OTP slide. Success Lottie + confetti (replaced by the mango splash in section 10).
 - Skeletons, `WhenVisible` (400 px), `press` utility, `animate-rise` with `riseDelay` stagger.
 
 ## 2. What feels un-Apple today (the gaps)
@@ -346,3 +346,109 @@ interaction, shorter confetti, swipe to remove plus the stepper, no haptics). Ne
 9. Firefox (no scroll timelines): header stays open [taken] vs a script fallback (~1 kB, and it lags
    the scroll by a frame).
 10. Order success presents from the bottom [taken] vs sliding forward like other flow pages.
+
+## 10. The First Club feel, liquid glass and the mango splash (branch `claude/shop-glass-splash`)
+
+Three additions on top of the ten steps, in their own PR on top of this one. Same rules: no
+behaviour changes, test ids and accessible names stay, compositor-only motion, reduced motion
+honoured, the e2e suite stays green. The UI reference is First Club (the premium grocery app from
+Bengaluru: editorial, image-led, calm), the glass is Apple's iOS 26 liquid glass, and the splash is
+the Slice mango-drink ads. Nothing of theirs is copied: not layout, palette, copy or assets.
+
+### Editorial (First Club feel)
+
+1. **Photography leads.** Product cards are First Club's shape: a white 20 px card with the photo
+   inset on a pastel square (tinted by ripeness until the photo covers it), the ripeness chip on a
+   soft scrim at the photo's foot, then a grey uppercase kicker (the delivery slot), a regular-weight
+   name, the box-size pills and the price. The photo settles 1.03 → 1 (600 ms) and the ripeness dot
+   breathes once (1 → 1.15 → 1, 600 ms) the first time the card reveals: `RevealOnce` plays both with
+   the card's own reveal, so a rail that remounts never replays them. Under the thumb the photo
+   lifts to 1.02.
+2. **Rhythm.** One accent per screen. Rail headers are one confident line with an optional "why"
+   in muted ink (`ProductRail why=`). Vertical rhythm between home sections is 32 px on phones
+   (24 on laptops), on the 4 px grid.
+3. **Story moments.** Hero slides are near-square photo cards (5:4, 24 px radius on phones) with
+   the headline on a soft scrim at the top, a larger display size, an "Order now →" pill at the
+   foot, and the photo alone moving with the scroll.
+6. **Pills.** The search bar, filter chips, ripeness chips, box-size toggles and calls to action
+   are pills (`rounded-full`); cards and banners use the new `--radius-20`/`--radius-24`.
+4. **Quiet chrome.** The header and cart bar are glass (below). Dividers are hairlines:
+   `--color-hairline` is the line at 60%.
+5. **Micro-detail.** Prices use tabular numerals; the stage chip's dot breathes once.
+
+### Glass
+
+Glass is for floating chrome only: the header once collapsed (and on laptops), the cart bar, the
+listing's chip row once it sticks, a sheet's head (handle and title), toasts, the phone purchase
+bar. Never cards, lists or page backgrounds. Primary buttons (the detail page's Add to cart, the
+checkout's Pay now) take `.glass-primary`: the action colour at 100% behind the label with the glass
+edge, specular and sheen, no blur, so they stay obviously primary.
+
+**Tokens** (`styles/theme.css`): `--glass-bg` (surface 62%), `--glass-bg-strong` (78%),
+`--glass-tint` (brand 10%, the warm cast), `--glass-blur` 18 px (12 px pressed),
+`--glass-saturate` 1.6, `--glass-edge`, `--glass-shadow` (a bright hairline along the top edge, a
+soft inner ring, a faint darker bottom-right edge, a shallow drop shadow), `--glass-ink` (ink 92%).
+
+**Recipe** (`.glass` in `globals.css`, in the components layer so utilities on the element win):
+the tint over the translucent surface, `backdrop-filter: blur() saturate()`, the edge and shadow,
+ink at 92% with a hair of white under it. `.glass-strong` for the denser surface, `.glass-bar`
+(16 px) and `.glass-pill` (24 px) for radius.
+- **Specular**: `::before`, a 140° white 35% → clear at 40% gradient in soft-light, whose transform
+  is scroll-driven over the first 80 px (`animation-timeline: scroll()`), so the highlight glides as
+  the page scrolls. The phone header's canvas → glass crossfade rides the same scroll range as its
+  large title (opacity only, two layers).
+- **Sheen**: `::after`, a thin bright band that sweeps across the slab on press (transform, 600 ms).
+- **Lensing** (`.glass-press`, phones only, `(hover: none)`): blur 18 → 12 px for the press; the
+  .97 scale is Motion's `whileTap` on the bar (never a CSS transform transition, which would fight
+  Motion's own transform).
+- **Transitions**: background and shadow ease on the motion tokens, so a chip row that sticks
+  changes state smoothly. `overflow: clip` keeps the specular and sheen inside the slab.
+- **Fallbacks**: `@supports not (backdrop-filter)` → the strong surface, no blur.
+  `prefers-reduced-transparency: reduce` → the opaque surface, no blur, no specular, no sheen, no
+  lensing. Reduced motion: the CSS kill switch already stops the sheen and transitions.
+- **Perf guard**: `tests/unit/glass.test.ts` fails any `backdrop-filter` written outside the
+  `.glass` recipe and any component that blurs its own backdrop (`backdrop-blur-*`, inline). At most
+  four surfaces blur at once: the chip row gives its blur up while a sheet is open
+  (`body:has(.app-root[data-active]) .glass-stuck`), the cart bar hides while the cart is open, and
+  the sheet's head keeps `will-change: transform` only while dragging (the blur never animates).
+
+| Surface | Variant | Note |
+| --- | --- | --- |
+| Header | strong bar | phones: brand gradient expanded, glass collapsed, crossfade on the scroll value; laptops: glass |
+| Cart bar | strong pill, press | thumbnails on the glass; tabular total |
+| Listing chip row | strong, `.glass-stuck` | surface-coloured in the flow, glass once stuck (IntersectionObserver sentinel) |
+| Sheet head | glass | handle and title float over the content, which starts below them (`--sheet-head`) |
+| Toasts | strong pill | |
+| Phone purchase bar | strong bar | |
+| Add to cart, Pay now | `.glass-primary` | action colour at 100%, no blur |
+
+### Splash
+
+`features/orders/components/mango-splash.tsx`, loaded with `next/dynamic` by the success view, so
+only that route carries it. It replaces the confetti and the Lottie tick (and their 1.2 MB of
+player and animation in `public/lottie/`). SVG and Motion transforms/opacity only; no canvas, no
+Lottie, no new dependency. Scatter is seeded once per mount (mulberry32 in a lazy initial state),
+so a re-render never re-scatters a blob mid-flight.
+
+Choreography, about 1.6 s, once per mount:
+1. **0–250 ms, drop.** The mango (inline SVG, brand → blush gradient, a leaf) falls from above the
+   card, easing in like gravity, rotating −12° → 4°.
+2. **250–390 ms, impact.** It squashes to 1.08 × 0.9 and back; a juice ring (brand at 60%) flashes
+   out, 0.3 → 1.4, fading.
+3. **300–900 ms, crown.** Ten blobs (rounded paths, orange → yellow) burst outward in an arc (±15°,
+   ±10% distance) inside one group with the gooey filter (`feGaussianBlur` → `feColorMatrix` →
+   `feComposite atop`, region capped), so touching blobs merge like liquid; they rise on the
+   emphasized curve, fall easing in, scale 0 → 1 → 0.6, fade out.
+4. **400–1100 ms, droplets.** Twenty circles (1–2.5 px) scatter further and faster, no goo, fade.
+5. **600–1000 ms, ripple.** Two rings behind the mango, 0.6 → 1.6, .35 → 0.
+6. **900 ms on, settle.** The puddle fades in under the mango; the headline rises (keyed to the paid
+   state, so it rises with the splash, not before) and the order number's digits roll in with
+   `RollingNumber`; the order card follows on the gentle spring.
+
+Reduced motion: the mango rests in its puddle, nothing moves; the `role="status"` line with the
+arrival day stays as it was. `motion.spec` (f) places a demo order and checks the splash is visible
+and the headline attached within 2 s and that the splash's transforms change; (g) does the same
+under reduced motion and checks nothing changes over 500 ms.
+
+**Budget**: `npm run bundle-size` now also measures the splash chunk and fails over 8 kB gzipped
+(printed on every run); the 6 kB first-load budget per page stands.
