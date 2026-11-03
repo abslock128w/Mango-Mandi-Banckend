@@ -104,6 +104,12 @@ export const OPERATOR_ROUTES = [
   route('GET', '/delivery-reviews'),
   // The Deliveries page's live view: stops, photos, mango checks, WhatsApp status, rider positions.
   route('GET', '/deliveries/live'),
+  // Mango Ops v2 (admin/ops-v2.js): the day per slot, the live map, a rider's trail, ops analytics, the event stream.
+  route('GET', '/day'),
+  route('GET', '/live'),
+  route('GET', '/riders/:id/trail'),
+  route('GET', '/analytics/ops'),
+  route('GET', '/events'),
   route('POST', '/delivery-reviews/:id'),
   route('GET', '/analytics'),
   route('GET', '/attention'),

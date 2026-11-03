@@ -32,6 +32,12 @@ const schema = z.object({
   // Neon: DATABASE_URL is the pooled (-pooler) URL; migrations need the direct one.
   DATABASE_URL_UNPOOLED: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().positive().default(onVercel ? 5 : 10),
+  // Mango Ops v2 live updates (GET /admin/v1/events, events.js): how long one stream stays open before
+  // it says bye and the panel reconnects (under Vercel's function limit), the heartbeat, and how long the
+  // LISTEN connection stays open after the last stream closes.
+  EVENTS_STREAM_MS: z.coerce.number().int().positive().default(240_000),
+  EVENTS_HEARTBEAT_MS: z.coerce.number().int().positive().default(25_000),
+  EVENTS_LISTEN_LINGER_MS: z.coerce.number().int().min(0).default(30_000),
   DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
   // A query slower than this is logged (duration and the start of its SQL, never its values); 0 turns it off.

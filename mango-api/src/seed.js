@@ -135,9 +135,53 @@ export async function seed() {
       )
     }
     await seedDemoVarieties()
+    await seedDemoRiders()
   }
   // Tests set up their own slots; development gets two to click through.
   if (env.SEED_DEMO_DATA && env.NODE_ENV === 'development') await seedDemoSlots()
+}
+
+// Demo riders (Mango Ops v2's map, docs/design/ops-dashboard-v2.md), each placed between a warehouse and
+// the pincodes it serves: [email, name, phone, [lat, lng] where the short trail ends].
+const DEMO_RIDERS = [
+  ['rider1@mandimangoes.test', 'Ravi Kumar', '+919800000101', [12.9352, 77.6197]],
+  ['rider2@mandimangoes.test', 'Salma Begum', '+919800000102', [12.9719, 77.6412]],
+  ['rider3@mandimangoes.test', 'Arjun Rao', '+919800000103', [12.8858, 77.5970]],
+]
+/** A demo rider's position counts as current for this long; older, the seed lays a fresh trail. */
+const DEMO_POSITION_MS = 30 * 60_000
+
+/**
+ * Three demo riders and, whenever their last position is over half an hour old, a fresh short trail
+ * (six points over the last 30 minutes, walking in from the nearest warehouse), so the map is never
+ * empty on a new deploy. They sign in by phone in the rider app like any rider.
+ */
+async function seedDemoRiders() {
+  const { rows: sites } = await query('SELECT lat, lng FROM warehouses WHERE active AND lat IS NOT NULL AND lng IS NOT NULL')
+  for (const [email, name, phone, [lat, lng]] of DEMO_RIDERS) {
+    await query(
+      `INSERT INTO admin_users (id, email, password_hash, role, display_name, phone) VALUES ($1, $2, $3, 'RIDER', $4, $5)
+       ON CONFLICT DO NOTHING`,
+      [newId('adm'), email, await bcrypt.hash(newId('pw'), 4), name, phone],
+    )
+    const { rows } = await query(
+      `SELECT u.id, (SELECT MAX(at) FROM rider_locations l WHERE l.rider_id = u.id) AS last FROM admin_users u WHERE u.email = $1 AND u.role = 'RIDER'`,
+      [email],
+    )
+    if (!rows.length || (rows[0].last && now().getTime() - new Date(rows[0].last).getTime() < DEMO_POSITION_MS)) continue
+    const from = sites
+      .map((w) => ({ lat: Number(w.lat), lng: Number(w.lng) }))
+      .sort((a, b) => Math.hypot(a.lat - lat, a.lng - lng) - Math.hypot(b.lat - lat, b.lng - lng))[0] ?? { lat, lng }
+    for (let i = 0; i < 6; i++) {
+      // From a third of the way out of the warehouse to the end point, one point every 5 minutes.
+      const f = 1 / 3 + ((2 / 3) * i) / 5
+      await query('INSERT INTO rider_locations (id, rider_id, lat, lng, accuracy, at) VALUES ($1, $2, $3, $4, 12, $5)', [
+        newId('loc'), rows[0].id,
+        Math.round((from.lat + (lat - from.lat) * f) * 1e6) / 1e6, Math.round((from.lng + (lng - from.lng) * f) * 1e6) / 1e6,
+        new Date(now().getTime() - (5 - i) * 5 * 60_000),
+      ])
+    }
+  }
 }
 
 /** Creates the local manager, or resets their password and role to the file's, on each start. */
