@@ -17,7 +17,7 @@ export function BulkBanner() {
   return (
     <section className="px-4 pt-8 lg:px-6 lg:pt-6" aria-label="Bulk deals">
       <WhenVisible placeholder={<div className="min-h-[132px] rounded-16 bg-deep lg:min-h-[160px]" />}>
-        <Link href="/bulk" className="relative block overflow-hidden rounded-16 bg-deep" data-testid="bulk-banner">
+        <Link href="/bulk" className="relative block overflow-hidden rounded-16 bg-deep" data-testid="bulk-banner" data-backdrop="dark">
           <BlurImage src="/images/banners/b3.jpg" alt="" fill sizes="(min-width: 1024px) 1150px, 92vw" className="object-cover opacity-35" />
           <div className="relative flex min-h-[132px] flex-col justify-center p-4 text-white lg:min-h-[160px] lg:p-6">
             <p className="font-display text-19 leading-tight font-extrabold lg:text-24">Bulk deals for events and gifting</p>

@@ -56,7 +56,7 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
   return (
     <CarouselItem index={i} total={total} className="basis-[88%] pl-3 sm:basis-1/2 lg:basis-1/3">
       {/* A full-bleed photo card (the editorial feel): the words sit on a scrim at its foot, the photo moves, the words hold still. */}
-      <Link ref={ref} href={s.href} className="relative block aspect-[2.1/1] overflow-hidden rounded-12 bg-brand-soft">
+      <Link ref={ref} href={s.href} data-backdrop="dark" className="relative block aspect-[2.1/1] overflow-hidden rounded-12 bg-brand-soft">
         <m.div className="absolute -inset-y-[5%] inset-x-0" style={{ y }}>
           {/* Off-screen banners load after first paint so they don't compete with the LCP image. */}
           {(i === 0 || ready) && <BlurImage src={s.image} alt="" fill preload={i === 0} loading={i === 0 ? "eager" : "lazy"} fetchPriority={i === 0 ? "high" : "auto"} sizes="(min-width: 1024px) 400px, (min-width: 640px) 50vw, 88vw" className="object-cover" />}
