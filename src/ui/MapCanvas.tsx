@@ -42,6 +42,17 @@ export default function MapCanvas({ markers, trails = [], heat = [], highlight, 
   const handlers = useRef({ onHover, onSelect })
   handlers.current = { onHover, onSelect }
   const fitted = useRef<string | null>(null)
+  // The places to fit once the map has a size (a map drawn while hidden or still laying out has none).
+  const pending = useRef<{ key: string; pts: [number, number][] } | null>(null)
+  const tryFit = () => {
+    const m = map.current
+    const p = pending.current
+    if (!m || !p || !host.current || host.current.clientHeight === 0 || host.current.clientWidth === 0) return
+    m.invalidateSize()
+    m.fitBounds(L.latLngBounds(p.pts).pad(0.15), { maxZoom: 14, animate: false })
+    fitted.current = p.key
+    pending.current = null
+  }
 
   useEffect(() => {
     if (!host.current) return
@@ -51,9 +62,14 @@ export default function MapCanvas({ markers, trails = [], heat = [], highlight, 
     else m.attributionControl.addAttribution('No map tiles')
     layer.current = L.layerGroup().addTo(m)
     map.current = m
+    // A new map (React mounts twice in development) has not been fitted yet.
+    fitted.current = null
     // Leaflet's own focusable map container gets a name.
     host.current.setAttribute('aria-label', label)
-    const ro = new ResizeObserver(() => m.invalidateSize())
+    const ro = new ResizeObserver(() => {
+      m.invalidateSize()
+      tryFit()
+    })
     ro.observe(host.current)
     return () => {
       ro.disconnect()
@@ -89,8 +105,8 @@ export default function MapCanvas({ markers, trails = [], heat = [], highlight, 
     const key = fitKey ?? 'all'
     const pts = [...markers.map((x) => [x.lat, x.lng] as [number, number]), ...heat.map((h) => [h.lat, h.lng] as [number, number])]
     if (fitted.current !== key && pts.length) {
-      fitted.current = key
-      m.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 14, animate: false })
+      pending.current = { key, pts }
+      tryFit()
     }
   }, [markers, trails, heat, highlight, fitKey])
 
