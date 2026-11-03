@@ -82,7 +82,7 @@ export function HowItWorks() {
     { icon: Wallet, title: "Pay online", text: "UPI, card or netbanking. Delivery is free" },
   ];
   return (
-    <section aria-labelledby="how-h" className="px-4 pt-6 [contain-intrinsic-size:auto_200px] [content-visibility:auto] lg:px-6">
+    <section aria-labelledby="how-h" className="px-4 pt-6 lg:px-6">
       <h2 id="how-h" className="font-display text-19 font-extrabold text-ink">
         How it works
       </h2>

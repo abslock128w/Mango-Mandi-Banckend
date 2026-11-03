@@ -3,7 +3,7 @@ import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { BadgeCheck, Boxes, CalendarClock, ChevronRight, Leaf, RefreshCcw, Star } from "lucide-react";
 import Link from "next/link";
-import { useState, ViewTransition } from "react";
+import { useLayoutEffect, useRef, useState, ViewTransition } from "react";
 import { WhenVisible } from "@/components/ui/when-visible";
 import { BlurImage } from "@/components/ui/blur-image";
 import { AddButton } from "@/features/cart/components/add-button";
@@ -97,6 +97,33 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
   );
 }
 
+/**
+ * The ring that marks the chosen ripeness on the track. It moves by transform: x in px of the
+ * measured track (a % translate of a full-width layer would push the page wider than the screen).
+ * Drawn once the track has a width, so it never slides in from the left on first paint.
+ */
+function RipenessKnob({ at }: { at: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const track = ref.current?.parentElement;
+    if (!track) return;
+    const ro = new ResizeObserver(() => setWidth(track.clientWidth));
+    ro.observe(track);
+    setWidth(track.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <span ref={ref} className="absolute top-1/2 left-0 size-0">
+      {width > 0 && (
+        <m.span initial={false} animate={{ x: at * width }} transition={spring.snappy} className="absolute block size-0">
+          <span className="absolute top-0 left-0 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-surface/40" />
+        </m.span>
+      )}
+    </span>
+  );
+}
+
 function RipenessExplainer({ product, sel }: { product: Product; sel: Selection }) {
   const stages = STAGES.filter((s) => product.stages.includes(s));
   const order: RipenessStage[] = ["RAW", "SEMI_RIPE", "RIPE"];
@@ -117,10 +144,7 @@ function RipenessExplainer({ product, sel }: { product: Product; sel: Selection 
                 style={{ left: `${(i / (visual.length - 1)) * 100}%` }}
               />
             ))}
-            {/* The knob rides a track-wide layer moved by transform (x is a % of the track). */}
-            <m.span className="absolute inset-0" initial={false} animate={{ x: `${(activeIdx / (visual.length - 1)) * 100}%` }} transition={spring.snappy}>
-              <span className="absolute top-1/2 left-0 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-surface/40" />
-            </m.span>
+            <RipenessKnob at={activeIdx / (visual.length - 1)} />
           </div>
           <div role="radiogroup" aria-label="Ripeness" className="mt-3 grid grid-cols-3 gap-2">
             {visual.map((s) => {

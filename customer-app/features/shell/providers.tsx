@@ -1,5 +1,4 @@
 "use client";
-import { Drawer } from "@base-ui/react/drawer";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LazyMotion, MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
@@ -49,8 +48,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {/* Every Motion animation respects prefers-reduced-motion. */}
       <MotionConfig reducedMotion="user">
         <LazyMotion features={loadMotionFeatures} strict>
-          {/* Lets the page (AppIndent) follow any open sheet. */}
-          <Drawer.Provider>{children}</Drawer.Provider>
+          {children}
         </LazyMotion>
       </MotionConfig>
     </QueryClientProvider>

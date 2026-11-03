@@ -7,6 +7,48 @@ import { cn } from "@/lib/format";
 
 type SnapPoint = number | string;
 
+// Phone sheets open at once (e.g. a filter sheet over the cart): the page stays pushed back until the last closes.
+let pushedBack = 0;
+let settleTimer = 0;
+
+/**
+ * Pushes the page (.app-root, features/shell/app-root.tsx) back while a phone sheet is open, and
+ * makes it follow the drag: Base UI writes --drawer-swipe-progress on the backdrop on every move,
+ * and a MutationObserver copies it to the page in the same frame. globals.css does the rest.
+ */
+function usePushBack(backdrop: React.RefObject<HTMLDivElement | null>, active: boolean) {
+  React.useEffect(() => {
+    const page = document.querySelector<HTMLElement>(".app-root");
+    if (!active || !page) return;
+    window.clearTimeout(settleTimer);
+    if (pushedBack++ === 0) {
+      page.style.setProperty("--indent-top", `${Math.max(window.scrollY, document.body.scrollTop)}px`);
+      page.removeAttribute("data-settling");
+      page.setAttribute("data-active", "");
+    }
+    let mo: MutationObserver | null = null;
+    // The backdrop mounts with the portal, a frame after `open`.
+    const raf = requestAnimationFrame(() => {
+      const el = backdrop.current;
+      if (!el) return;
+      const copy = () => page.style.setProperty("--drawer-swipe-progress", el.style.getPropertyValue("--drawer-swipe-progress") || "0");
+      copy();
+      mo = new MutationObserver(copy);
+      mo.observe(el, { attributes: true, attributeFilter: ["style"] });
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      mo?.disconnect();
+      if (--pushedBack > 0) return;
+      page.removeAttribute("data-active");
+      page.style.setProperty("--drawer-swipe-progress", "0");
+      // Keep the rounded clip while the page comes forward again.
+      page.setAttribute("data-settling", "");
+      settleTimer = window.setTimeout(() => page.removeAttribute("data-settling"), 450);
+    };
+  }, [active, backdrop]);
+}
+
 export interface SheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,8 +75,8 @@ export interface SheetProps {
  * Phones: bottom sheet that tracks the finger, with optional snap points. Base UI rubber-bands past
  *   the top (square-root damping), dismisses on a flick faster than 500 px/s or a drag past the
  *   threshold, and otherwise settles on the nearest snap point. The page behind is pushed back
- *   (AppIndent, globals.css) and the backdrop dims, both by --drawer-swipe-progress, so they follow
- *   the drag rather than a timer. Release and open run on spring.smooth (its CSS mirror), shortened
+ *   (usePushBack, globals.css) and the backdrop dims, both by --drawer-swipe-progress, so they
+ *   follow the drag rather than a timer. Release and open run on spring.smooth (its CSS mirror), shortened
  *   by Base UI's --drawer-swipe-strength after a fast flick. The keyboard lifts the sheet
  *   (VirtualKeyboardProvider, visualViewport) so a pincode or code field is never covered.
  * Laptops (>=1024px): right-hand panel (spring.smooth slide) or centred dialog (scale .96 + fade, 240 ms).
@@ -67,6 +109,8 @@ export function Sheet({
 
   const mode = isDesktop ? desktop : "bottom";
   const useSnaps = mode === "bottom" && snapPoints && snapPoints.length > 0;
+  const backdropRef = React.useRef<HTMLDivElement>(null);
+  usePushBack(backdropRef, open && mode === "bottom");
 
   const titleNode = (
     <BaseDrawer.Title className={cn("font-display text-17 font-extrabold text-ink", hideTitle && "sr-only")}>{title}</BaseDrawer.Title>
@@ -85,6 +129,7 @@ export function Sheet({
       <BaseDrawer.VirtualKeyboardProvider>
       <BaseDrawer.Portal>
         <BaseDrawer.Backdrop
+          ref={backdropRef}
           className={cn(
             "fixed inset-0 z-50 min-h-dvh bg-scrim",
             // Dims with the drag: fully dark at rest, clear as the sheet leaves.

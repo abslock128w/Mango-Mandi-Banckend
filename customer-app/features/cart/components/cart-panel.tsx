@@ -2,7 +2,7 @@
 import Image from "next/image";
 import { BlurImage } from "@/components/ui/blur-image";
 import Link from "next/link";
-import { AnimatePresence, animate, useMotionValue, useTransform } from "motion/react";
+import { AnimatePresence, animate, useIsPresent, useMotionValue, useTransform } from "motion/react";
 import * as m from "motion/react-m";
 import { CalendarDays, ChevronRight, Minus, Package, Plus, ShoppingBasket, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -57,6 +57,8 @@ function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }
   const x = useMotionValue(0);
   const [open, setOpen] = useState(false);
   const reveal = useTransform(x, [-REVEAL, -24, 0], [1, 0.6, 0]);
+  // A line on its way out can't be tapped or read out again.
+  const present = useIsPresent();
   const label = `${line.name} ${line.ripeness.toLowerCase().replace("_", "-")} ${line.size} kg`;
   const settle = (to: boolean) => {
     setOpen(to);
@@ -72,6 +74,8 @@ function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }
       className="relative"
       data-testid="cart-line"
       data-base-ui-swipe-ignore="x"
+      inert={!present}
+      aria-hidden={present ? undefined : true}
     >
       <m.button
         type="button"

@@ -11,6 +11,7 @@ const FROM = { opacity: "0", transform: "translateY(8px)" };
 
 /**
  * Fades and rises its content (8 px, 240 ms) the first time it comes into view, and never again.
+ * (On screen already when it mounts, it rises from 0.4 opacity rather than from nothing.)
  * - Server-rendered content already on screen when the page hydrates is left alone (it is painted).
  * - Content below the fold is hidden until it scrolls in, then plays once.
  * - `index` staggers siblings by 30 ms, capped at 8.
@@ -34,11 +35,13 @@ export function RevealOnce({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || reduce || (id && seen.has(id)) || typeof IntersectionObserver === "undefined") return;
-    const play = () => {
+    // Content already on screen when it mounts starts at 0.4, not 0: it counts as painted from the
+    // first frame (the page's largest paint is not held back by its own entrance).
+    const play = (from: Keyframe = FROM) => {
       if (id) seen.add(id);
       el.style.opacity = "";
       el.style.transform = "";
-      el.animate([FROM, { opacity: "1", transform: "none" }], {
+      el.animate([from, { opacity: "1", transform: "none" }], {
         duration: 240,
         delay: Math.min(index, STAGGER_CAP) * STAGGER_MS,
         easing: "cubic-bezier(0.2, 0, 0, 1)",
@@ -54,7 +57,7 @@ export function RevealOnce({
         if (id) seen.add(id);
         return;
       }
-      play();
+      play({ opacity: "0.4", transform: "translateY(8px)" });
       return;
     }
     Object.assign(el.style, FROM);

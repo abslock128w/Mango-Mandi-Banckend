@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "../styles/theme.css";
+@import "../styles/blur-placeholders.css";
 
 @custom-variant reduced (@media (prefers-reduced-motion: reduce));
 
@@ -324,10 +325,11 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
 }
 
 /* Sheets push the page back (docs/design/shop-motion.md, "Sheet"): phones only, never under reduced
-   motion. AppIndent (features/shell/app-root.tsx) is the page; Base UI marks it data-active while a
-   sheet is open and sets --drawer-swipe-progress (0 at rest, 1 when the sheet has left), so the page
-   comes forward as the sheet is dragged away. The visible window (from --indent-top, the scroll
-   position when the sheet opened) is clipped with round corners and scaled about its own top. */
+   motion. .app-root (features/shell/app-root.tsx) is the page; the sheet marks it data-active while
+   open and mirrors Base UI's --drawer-swipe-progress onto it (0 at rest, 1 when the sheet has left),
+   so the page comes forward as the sheet is dragged away (components/ui/drawer.tsx, usePushBack).
+   The visible window (from --indent-top, the scroll position when the sheet opened) is clipped with
+   round corners and scaled about its own top. */
 @media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
   .app-root {
     --indent: calc(1 - var(--drawer-swipe-progress, 0));

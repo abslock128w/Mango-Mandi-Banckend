@@ -736,25 +736,23 @@ function CheckoutForm({ pincode }: { pincode: string }) {
               <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />
               <span className="text-11 font-medium uppercase">{q ? "Total" : "Estimate"}</span>
             </span>
-            {/* Pay now → spinner → tick: each state replaces the last in place (spring.snappy). */}
-            <span className="relative flex items-center text-17 font-bold">
-              <AnimatePresence initial={false} mode="popLayout">
-                {pay.isSuccess ? (
-                  <m.span key="done" className="flex items-center gap-1" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={spring.snappy}>
-                    <Check aria-hidden size={22} strokeWidth={2.5} />
-                    <span className="sr-only">Order placed</span>
+            {/* The label stays; its icon morphs chevron → spinner → tick in place (spring.snappy). */}
+            <span className="flex items-center gap-1 text-17 font-bold">
+              Pay now
+              <span className="relative grid size-5 place-items-center">
+                <AnimatePresence initial={false} mode="popLayout">
+                  <m.span
+                    key={pay.isSuccess ? "done" : pay.isPending || working ? "busy" : "idle"}
+                    className="grid place-items-center"
+                    initial={{ opacity: 0, scale: 0.5 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.5 }}
+                    transition={spring.snappy}
+                  >
+                    {pay.isSuccess ? <Check aria-hidden size={20} strokeWidth={2.5} /> : pay.isPending || working ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ChevronRight aria-hidden size={20} />}
                   </m.span>
-                ) : pay.isPending || working ? (
-                  <m.span key="busy" className="flex items-center gap-2" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={spring.snappy}>
-                    <Loader2 aria-hidden size={20} className="animate-spin" />
-                    Pay now
-                  </m.span>
-                ) : (
-                  <m.span key="idle" className="flex items-center gap-1" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={spring.snappy}>
-                    Pay now <ChevronRight aria-hidden size={20} />
-                  </m.span>
-                )}
-              </AnimatePresence>
+                </AnimatePresence>
+              </span>
             </span>
           </button>
           <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">
