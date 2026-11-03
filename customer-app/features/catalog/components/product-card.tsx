@@ -4,6 +4,7 @@ import Link from "next/link";
 import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
 import { useState, ViewTransition } from "react";
+import { RevealOnce } from "@/components/ui/reveal-once";
 import { AddButton } from "@/features/cart/components/add-button";
 import { useQty } from "@/features/cart/store";
 import { NotifyButton } from "./notify-button";
@@ -12,7 +13,6 @@ import { BoxToggle } from "./box-toggle";
 import { productHref, useOpenProduct } from "@/features/product/open";
 import { useNextSlot } from "../hooks/queries";
 import { cn, dayName, ripenessLabel, rupees } from "@/lib/format";
-import { riseDelay } from "@/lib/motion";
 import { defaultSize, defaultStage, productImage, skuFor } from "@/lib/catalog";
 import type { BoxSize, Product, RipenessStage, Sku } from "@/lib/types";
 
@@ -48,13 +48,15 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const name = product.variety.contents ? product.name : `${product.name} Mango`;
 
   return (
-    <article
-      // Staggered fade-and-rise in CSS so it plays on first paint, before hydration.
-      style={{ animationDelay: `${riseDelay(index)}s` }}
+    <RevealOnce
+      as="article"
+      // Fades and rises the first time this card appears in this list, never again (30 ms stagger).
+      id={`card-${scope}-${product.id}`}
+      index={index}
       data-testid="product-card"
       data-product={product.id}
       className={cn(
-        "animate-rise relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
+        "rail-item relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
         fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full min-w-0",
       )}
     >
@@ -117,7 +119,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           )}
         </div>
       </div>
-    </article>
+    </RevealOnce>
   );
 }
 

@@ -319,7 +319,7 @@ function Rail({ title, products, scope, ripeness }: { title: string; products: P
   return (
     <section aria-label={title}>
       <h2 className="font-display text-17 font-extrabold text-ink">{title}</h2>
-      <div className="no-scrollbar -mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pt-3 pb-1" data-base-ui-swipe-ignore="x">
+      <div data-reveal-group className="rail-snap rail-fade no-scrollbar -mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pt-3 pb-1" data-base-ui-swipe-ignore="x">
         {products.map((p, i) => (
           <ProductCard key={p.id} product={p} scope={scope} index={i} ripeness={ripeness} fixed />
         ))}

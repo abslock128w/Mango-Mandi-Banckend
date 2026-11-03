@@ -4,6 +4,7 @@ import { useMotionValue, useReducedMotion, useScroll, useTransform } from "motio
 import * as m from "motion/react-m";
 import { ChevronDown, Search, ShoppingCart, UserRound } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { Crossfade } from "@/components/ui/crossfade";
 import { RotatingPlaceholder } from "@/features/search/components/rotating-placeholder";
 import { useNextSlot } from "@/features/catalog/hooks/queries";
 import { useLocation } from "@/features/location/store";
@@ -123,7 +124,14 @@ function useHeadline() {
 
 function EtaHeadline({ size = "lg" }: { size?: "lg" | "md" }) {
   const { headline } = useHeadline();
-  return <p className={cn("font-display leading-tight font-extrabold text-ink", size === "lg" ? "text-21 sm:text-24" : "text-17")}>{headline}</p>;
+  // A new pincode or slot crossfades the line instead of cutting to it.
+  return (
+    <p className={cn("font-display leading-tight font-extrabold text-ink", size === "lg" ? "text-21 sm:text-24" : "text-17")}>
+      <Crossfade inline id={headline}>
+        {headline}
+      </Crossfade>
+    </p>
+  );
 }
 
 function EtaKicker() {
@@ -241,6 +249,15 @@ export function Header() {
 
 function EtaInline() {
   const { kicker, headline } = useHeadline();
-  if (kicker !== "Delivery") return <>{`${headline} · ${kicker.toLowerCase()}`}</>;
-  return <>Delivery <span className="lowercase">{headline}</span></>;
+  return (
+    <Crossfade inline id={`${kicker}-${headline}`}>
+      {kicker !== "Delivery" ? (
+        `${headline} · ${kicker.toLowerCase()}`
+      ) : (
+        <>
+          Delivery <span className="lowercase">{headline}</span>
+        </>
+      )}
+    </Crossfade>
+  );
 }

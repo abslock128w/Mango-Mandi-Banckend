@@ -13,7 +13,7 @@ export function ProductRail({ id, title, stage, href }: { id: string; title: str
         <h2 id={`${id}-h`} className="font-display text-19 font-extrabold text-ink">
           {title}
         </h2>
-        <Link href={href} className="flex h-11 shrink-0 items-center text-15 font-semibold whitespace-nowrap text-deep">
+        <Link href={href} className="press flex h-11 shrink-0 items-center text-15 font-semibold whitespace-nowrap text-deep">
           see all <span className="sr-only">{title}</span>
         </Link>
       </div>
@@ -42,7 +42,8 @@ function RailCards({ id, stage }: { id: string; stage?: RipenessStage }) {
   const inStock = (pid: string) => data.find((p) => p.id === pid)!.skus.some((s) => (!stage || s.ripeness === stage) && s.stock > 0);
   const list = [...data].sort((a, b) => Number(inStock(b.id)) - Number(inStock(a.id)));
   return (
-    <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pt-3 pb-1 lg:gap-3 lg:px-6">
+    // Cards snap to the page gutter, and both ends fade so a card leaving the edge doesn't clip hard.
+    <div data-reveal-group className="rail-snap rail-fade no-scrollbar flex gap-2 overflow-x-auto px-4 pt-3 pb-1 lg:gap-3 lg:px-6">
       {list.slice(0, 10).map((p, i) => (
         <ProductCard key={p.id} product={p} ripeness={stage} scope={`rail-${id}`} index={i} fixed />
       ))}

@@ -14,6 +14,8 @@ const FROM = { opacity: "0", transform: "translateY(8px)" };
  * - Server-rendered content already on screen when the page hydrates is left alone (it is painted).
  * - Content below the fold is hidden until it scrolls in, then plays once.
  * - `index` staggers siblings by 30 ms, capped at 8.
+ * - Inside a horizontal rail (an ancestor with data-reveal-group) the whole row reveals together
+ *   when the rail comes into view; cards off to the side never fade in on a sideways swipe.
  * - Reduced motion: renders the final state, no movement.
  * Animates with the Web Animations API (transform and opacity only), not Motion, so a long grid
  * costs no React work.
@@ -43,7 +45,8 @@ export function RevealOnce({
         fill: "backwards",
       });
     };
-    const r = el.getBoundingClientRect();
+    const target = el.parentElement?.closest<HTMLElement>("[data-reveal-group]") ?? el;
+    const r = target.getBoundingClientRect();
     const onScreen = r.top < window.innerHeight && r.bottom > 0;
     if (onScreen) {
       // Painted by the server before hydration: already seen, leave it be.
@@ -63,7 +66,7 @@ export function RevealOnce({
       },
       { rootMargin: "0px 0px -6% 0px" },
     );
-    io.observe(el);
+    io.observe(target);
     return () => {
       io.disconnect();
       el.style.opacity = "";

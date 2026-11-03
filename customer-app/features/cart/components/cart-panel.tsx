@@ -198,7 +198,7 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
           <h2 id="ymal-h" className="px-1 pb-2 text-15 font-bold text-ink">
             You may also like
           </h2>
-          <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 pt-3 pb-1">
+          <div data-reveal-group className="rail-snap rail-fade no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3 pt-3 pb-1 [scroll-padding-inline:12px]">
             {suggestions.map((p, i) => (
               <ProductCard key={p.id} product={p} scope="cart-ymal" index={i} fixed />
             ))}

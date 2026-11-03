@@ -32,7 +32,7 @@ export function AppIndent({ children }: { children: React.ReactNode }) {
     };
   }, []);
   return (
-    <Drawer.Indent ref={ref} className="app-root">
+    <Drawer.Indent ref={ref} className="app-root bg-canvas">
       {children}
     </Drawer.Indent>
   );

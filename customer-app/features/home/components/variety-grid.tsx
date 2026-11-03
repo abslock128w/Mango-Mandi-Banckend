@@ -1,12 +1,15 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
+import { RevealOnce } from "@/components/ui/reveal-once";
 import { productHref, useOpenProduct } from "@/features/product/open";
 import { cn } from "@/lib/format";
-import { riseDelay } from "@/lib/motion";
 import type { Product } from "@/lib/types";
 
-/** Category-tile grid: every variety, the Mixed Box last. */
+/**
+ * Category-tile grid: every variety, the Mixed Box last. Tiles fade and rise the first time they
+ * appear (RevealOnce, 30 ms apart), press to .97, and the photo grows 4% on hover (pointer devices only).
+ */
 export function VarietyGrid({ title, products }: { title: string; products: Product[] | undefined }) {
   const open = useOpenProduct();
   return (
@@ -24,16 +27,16 @@ export function VarietyGrid({ title, products }: { title: string; products: Prod
             </li>
           ))}
         {products?.map((p, i) => (
-          <li key={p.id} className="animate-rise" style={{ animationDelay: `${riseDelay(i)}s` }}>
+          <RevealOnce as="li" key={p.id} id={`tile-${p.id}`} index={i}>
             <Link href={productHref(p.id, "tile")} onClick={(e) => open(e, p.id, "tile")} className="press group flex flex-col items-center gap-2">
               <span className={cn("relative block aspect-square w-full overflow-hidden rounded-12 bg-brand-soft", !p.variety.inSeason && "opacity-60")}>
-                <Image src={p.variety.photos[0]} alt="" fill sizes="(min-width: 1024px) 130px, 22vw" className="object-cover transition-transform duration-(--dur-l) ease-standard group-hover:scale-105" />
+                <Image src={p.variety.photos[0]} alt="" fill sizes="(min-width: 1024px) 130px, 22vw" className="object-cover transition-transform duration-(--dur-l) ease-standard group-hover:scale-[1.04]" />
                 {p.variety.contents && <span className="absolute top-1 left-1 rounded-4 bg-ribbon px-1 text-9 font-bold text-white uppercase">Mix</span>}
                 {!p.variety.inSeason && <span className="absolute inset-x-1 bottom-1 rounded-4 bg-ink/75 px-1 text-center text-9 font-bold text-white uppercase">Sold out</span>}
               </span>
               <span className="line-clamp-2 text-center text-12 leading-tight font-semibold text-ink">{p.name}</span>
             </Link>
-          </li>
+          </RevealOnce>
         ))}
       </ul>
     </section>

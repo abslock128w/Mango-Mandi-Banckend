@@ -49,6 +49,22 @@
   }
 }
 
+/* Horizontal rails: cards snap to the page gutter (16 px, 24 px on laptops). */
+@utility rail-snap {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 16px;
+  @media (min-width: 1024px) {
+    scroll-padding-inline: 24px;
+  }
+  & > .rail-item {
+    scroll-snap-align: start;
+  }
+}
+/* Both ends of a rail fade over the gutter instead of cutting a card off. */
+@utility rail-fade {
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+
 @utility skeleton {
   background-color: var(--color-chip);
   background-image: linear-gradient(
