@@ -71,7 +71,7 @@ The names on the left are the spec names. "Today" is where it lives now.
 
 ## Staff panel
 
-The panel imports the same `tokens.css`. Its colour names are aliases of the shared tokens (above), so a colour changes in one place. Its shared pieces live in `src/ui.tsx`:
+The panel imports the same `tokens.css`. Its colour names are aliases of the shared tokens (above), so a colour changes in one place. Its shared pieces live in `src/ui/` (`core.tsx` for the originals, re-exported with the v2 ones from `src/ui/index.ts`, so `import … from '../ui'` works as before):
 
 | Component | Props | Used on |
 | --- | --- | --- |
@@ -90,6 +90,15 @@ The panel imports the same `tokens.css`. Its colour names are aliases of the sha
 | `PhoneLink` | `{phone, who?}` | Tap-to-call `tel:` link, 44px tall, "—" when empty. OrderDetail, Claims, Preorders, NeedsAttention |
 | `MissedDialog` (`src/MissedDialog.tsx`) | failed-delivery reason from a list, note, photo | OrderDetail, Deliveries |
 | `ErrorBoundary` | `{children}` | Around the app (`main.tsx`) and each screen (`Layout.tsx`, keyed by path). "This screen hit a problem" with Reload; the innermost one reports to Sentry when the build has a DSN (`shared/error-reports`) |
+
+| `DataTable` (`src/ui/DataTable.tsx`) | `{label, rows, columns, rowKey, rowName, rowHref?, onPeek?, clickOpens?, selectable?, selected?, onSelectedChange?, bulk?, storageKey?, tools?, activeKey?}`; `Column {key, header, cell, sort?, num?, card?, hidden?, fixed?}` | Orders, Batches. Sticky header, client sort with `aria-sort`, column chooser (localStorage), select-all-on-page and a bulk bar, `j/k/x/Enter/o`, 36px rows on a fine pointer, cards under 640px, 44px checkbox and sort targets on touch. `rowsToCsv` for Export CSV |
+| `PeekDrawer` + `usePeek(param)` | `{title, onClose, openTo?, children, footer?}` | Orders (`?peek=`), Deliveries (`?stop=`). A Dialog drawer, 480px; the id in the URL survives reload and Back; `o` opens `openTo` |
+| `DayStrip` | `{plan: DayPlan, nowMs, linkTo(slot)}` | Today. The operating day in IST: per slot cutoff, pack by, dispatch by, window, stacked progress in the pipeline tones, due-in / late-by pill, now-marker. Each lane is one link with a spoken summary |
+| `Stat` | `{label, value, hint?, to?, tone?}` | Today's Live row |
+| `QueueItem` + `SeverityChip` | `{entry: QueueEntry, nowMs, onSnooze, onNavigate?}` | Today, the Attention bell. Severity chip (Now = error, Soon = warning, Watch = info tokens, always with the word), owner chip, age, one action, overflow with Snooze until tomorrow and Open. The list itself is built by `buildQueue` (`src/ops/queue.ts`) |
+| `MapView` (+ `MapCanvas`, loaded on demand) | `{label, markers, trails?, heat?, highlight?, onHover?, onSelect?, fitKey?, empty?}` | Today, Deliveries, Analytics. Leaflet, tiles from `VITE_MAP_TILES_URL` (OSM default with credit, `none` in tests); themed in `src/styles/map.css`, dark mode inverts the tiles; stops in pipeline tones, riders in staff green fading with age, warehouses in ink; 44px markers on touch; a "Skip the map" link |
+| `Kbd`, `PageHeader`, `DaySwitcher` + `useDay` | `Kbd {keys}`, `PageHeader {title, meta?, actions?}`, `DaySwitcher {day, onChange, id?}` | Shortcut sheet; Deliveries (the date input and "Pick a day" group as before) |
+| Shell (`src/shell/`) | `AttentionBell`, `LiveProvider` + `LiveDot`, `ShortcutSheet` + `useGlobalKeys` | Top bar on every page for managers and operators. Density (`--row-h`, `--table-font`, `data-density` on `<html>`), chime, pins, snoozes, recent and saved views are per-browser prefs (`src/ops/prefs.ts`) |
 
 Labels: the panel never shows enum names or ids. Map them in `src/format.ts` (`STOCK_STATE_LABEL`, `LEDGER_EVENT_LABEL`, `NOTIFICATION_LABEL`, `PAYMENT_METHOD_LABEL`, `ripenessLabel`, `actorLabel`, `telHref`).
 

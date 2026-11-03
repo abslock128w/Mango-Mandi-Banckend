@@ -214,3 +214,74 @@ Mumbai and the rider QA used Bengaluru: pick one city (Mumbai: the seed's addres
 - "Rider silent" threshold [30 minutes while out on a run].
 - Should operators be able to snooze attention items, or only managers [both; snooze is per browser].
 - New-order chime default [off].
+
+## What shipped, what did not, and the owner's questions (build session, 3 Nov 2026)
+
+### Shipped
+
+- **Shell.** Attention bell with the queue's count (red when something is Now) and a right drawer with
+  the same items; Live dot (Live / Reconnecting / Every 15 s with Reload / Paused); `?` shortcut sheet;
+  `g t/o/d/p/b` chords; `/` focuses the page's search; density by pointer (`--row-h` 36 px and
+  `--table-font` = `--text-xs` on a fine pointer, 44 px on coarse) with a Compact / Comfortable / By
+  pointer override in the account menu; chime + flash option (off by default); Pinned screens in the
+  sidebar (account menu or palette). `src/ui.tsx` is now `src/ui/` with re-exports; new primitives
+  DataTable, PeekDrawer (+ `usePeek`), DayStrip, Stat, QueueItem, Kbd, PageHeader, DaySwitcher, MapView.
+- **Today → control tower** (managers, operators): ranked Attention queue (Now / Soon / Watch, owner role,
+  age, one action, Snooze until tomorrow per browser, Open; groups past 8 collapse), built from
+  `/attention`, `/summary` and the v2 signals (slot within 30 min of pack-by with unpacked orders, stops
+  without a rider within 30 min of dispatch-by, rider silent ≥ 30 min with stops left, stop out past its
+  window). The Day strip, the Live row (riders out, stops left, stock health, next pickup, mini map), then
+  the Needs attention playbooks, tiles, week KPIs (+ on-time %, minutes per stop) and stock, as before.
+- **Deliveries → Dispatch board** for managers and operators: Unassigned / By rider / By slot (the old run
+  sheet, untouched, still the default tab) / Done; multi-select with Assign to (distance + stops left),
+  Assign nearest (the chosen stops only, results listed), Dispatch, Print run sheet; Leaflet map with
+  warehouses, one pin per pincode centre (count when shared), riders fading with age, done-stops and 2 h
+  trail layers, hover sync, Fit to stops, peek per stop (`?stop=`); List / Map switch under 1024 px.
+  Riders keep the route view.
+- **Orders → workbench**: DataTable (sort, column chooser, select-all-on-page, bulk Mark packed / Assign
+  rider / Export CSV / Print, `j/k/x/Enter/o`), Due and Rider columns, saved-view chips + Save this view,
+  peek drawer (`?peek=`). **Batches** on the DataTable too.
+- **Palette v2**: Actions with context, Recent (8), `>` actions only, `#1042` jump.
+- **Live updates**: `GET /events` SSE (pg_notify inside `addEvent`'s transaction, LISTEN bridge, 10 s
+  polling fallback in the API when LISTEN is unavailable, heartbeat 25 s, `bye` after 240 s); the panel
+  streams with fetch (EventSource cannot send the bearer token), reconnects with backoff, polls every
+  15 s after three failed connects and retries the stream every minute; React Query invalidation by event;
+  toasts for new paid orders and missed deliveries.
+- **Analytics v2**: Operations section with period presets / custom range and comparison with the period
+  before (in the URL): on-time %, minutes per stop, repeat customers, delivered, slot fill, variety mix,
+  rider leaderboard, pincode heat map with its table.
+- **Backend (additive)**: `GET /day`, `/live`, `/events`, `/riders/:id/trail`, `/analytics/ops` for managers
+  and operators (`access.js`, route inventory, role policy, authorization matrix); optional `delivery`,
+  `slot`, `unpacked`, `olderThanMinutes` filters and `slotId` / `riderId` fields on `GET /orders`; demo
+  riders with fresh trails in the seed (demo data only). Tests: `mango-api/test/ops-v2.test.js`,
+  `ops-v2-orders.test.js`, `tests/ops-v2.spec.ts`, `tests/unit/ops-v2.unit.ts`.
+
+### Not done, or done differently
+
+- **Seed city is Bengaluru, not Mumbai.** The real seed (pincodes, warehouses) is Bengaluru and 141 API
+  test lines use 560xxx pincodes; only the panel's mock data is Mumbai. Switching would have broken the API
+  tests, so the seed stays Bengaluru and the mock stays Mumbai (both self-consistent).
+- **Row click on Orders opens the full order** (an existing test and habit); the peek is on Enter and the
+  row's eye button. On the Dispatch board a click on the stop number peeks.
+- **DataTable roll-out stopped at Orders and Batches.** Claims is a card layout with no table; Preorders and
+  the Pack list tables carry per-row work actions and their own tests (Pack list keeps its work targets).
+- **Clustering** is by pincode centre (stops have no coordinates of their own), not a zoom-based cluster.
+- **"Stop out for more than 2 × minutes per stop × stops"** is not a signal; "out past its window" is.
+- **Polling fallback** refetches on an interval; it does not send `If-None-Match` (the API has no ETags).
+- **The panel's PageHeader** is used by the new primitives only; existing pages keep their `topbar` heading
+  so their tests and print layout stay.
+- **No test against a real Neon unpooled URL** for LISTEN; the polling fallback covers it if LISTEN fails.
+- **Before/after screenshots**: there was no earlier Deliveries or 1280 Orders screenshot; the "before" for
+  those is the base branch's code, not an image.
+
+### Owner questions (defaults taken)
+
+1. Map tiles: OpenStreetMap standard tiles for the demo, `VITE_MAP_TILES_URL` to switch (`none` draws no
+   tiles) [default taken]. A paid provider is needed before heavy use (OSM's tile policy).
+2. Pack-by 60 min and dispatch-by 15 min before the window [taken; `PACK_LEAD_MINUTES`,
+   `DISPATCH_LEAD_MINUTES` in `mango-api/src/admin/ops-v2.js`].
+3. Rider silent after 30 minutes while out [taken; `SILENT_AFTER_MIN`].
+4. Operators and managers can both snooze; snoozes are per browser [taken].
+5. New-order chime off by default [taken].
+6. Demo city: keep the seed in Bengaluru (above), or move seed and tests to Mumbai?
+7. Default Dispatch board tab: By slot (the run sheet staff know, and print) [taken]; Unassigned first instead?
