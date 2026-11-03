@@ -1,6 +1,6 @@
 "use client";
 import Image from "next/image";
-import { useReducedMotion } from "motion/react";
+import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { BadgeCheck, Boxes, CalendarClock, ChevronRight, Leaf, RefreshCcw, Star } from "lucide-react";
 import Link from "next/link";
@@ -14,7 +14,9 @@ import { ripenessDot } from "@/features/catalog/components/ripeness-chip";
 import { usePolicy, usePreorderWeeks, useProducts, useReviews } from "@/features/catalog/hooks/queries";
 import { whatsappLink } from "@/lib/config";
 import { boxContents, cn, dateTime, longDate, rupees } from "@/lib/format";
-import { uiSpring } from "@/lib/motion";
+import { fade, press, spring } from "@/lib/motion";
+import { Crossfade } from "@/components/ui/crossfade";
+import { flyToCart } from "@/features/cart/fly";
 import { defaultSize, defaultStage, productImage, skuFor } from "@/lib/catalog";
 import { RIPENESS, STAGES } from "@/lib/ripeness";
 import type { BoxSize, Product, RipenessStage, Sku } from "@/lib/types";
@@ -56,7 +58,12 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
   const current = images[Math.min(active, images.length - 1)];
   const main = (
     <div data-fly-image="main" className="relative aspect-square overflow-hidden rounded-12 bg-surface">
-      <Image src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
+      {/* Picking another photo crossfades to it (the first paints at once: initial={false}). */}
+      <AnimatePresence initial={false}>
+        <m.div key={current} className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}>
+          <Image src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
+        </m.div>
+      </AnimatePresence>
     </div>
   );
   return (
@@ -66,11 +73,11 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
           <div>{main}</div>
         </ViewTransition>
       ) : (
-        <m.div layoutId={`img-${scope}-${product.id}`} transition={{ type: "spring", stiffness: 380, damping: 34 }}>
+        <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth}>
           {main}
         </m.div>
       )}
-      <div role="listbox" aria-label="Product photos" className="no-scrollbar mt-3 flex gap-2 overflow-x-auto" data-base-ui-swipe-ignore="x">
+      <div role="listbox" aria-label="Product photos" className="rail-snap no-scrollbar mt-3 flex gap-2 overflow-x-auto [scroll-padding-inline:0px]" data-base-ui-swipe-ignore="x">
         {images.map((src, i) => (
           <button
             key={src}
@@ -79,7 +86,7 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
             aria-selected={i === active}
             aria-label={`Photo ${i + 1} of ${images.length}`}
             onClick={() => setActive(i)}
-            className={cn("press relative size-16 shrink-0 overflow-hidden rounded-8 border-2 bg-surface", i === active ? "border-action" : "border-line")}
+            className={cn("rail-item press relative size-16 shrink-0 overflow-hidden rounded-8 border-2 bg-surface transition-colors duration-(--dur-s)", i === active ? "border-action" : "border-line")}
           >
             {/* Beside the main photo, so above the fold; one is the main photo's own file. */}
             <Image src={src} alt="" fill sizes="64px" loading="eager" className="object-cover" />
@@ -110,12 +117,10 @@ function RipenessExplainer({ product, sel }: { product: Product; sel: Selection 
                 style={{ left: `${(i / (visual.length - 1)) * 100}%` }}
               />
             ))}
-            <m.span
-              className="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-surface/40"
-              initial={false}
-              animate={{ left: `${(activeIdx / (visual.length - 1)) * 100}%` }}
-              transition={uiSpring}
-            />
+            {/* The knob rides a track-wide layer moved by transform (x is a % of the track). */}
+            <m.span className="absolute inset-0" initial={false} animate={{ x: `${(activeIdx / (visual.length - 1)) * 100}%` }} transition={spring.snappy}>
+              <span className="absolute top-1/2 left-0 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-ink bg-surface/40" />
+            </m.span>
           </div>
           <div role="radiogroup" aria-label="Ripeness" className="mt-3 grid grid-cols-3 gap-2">
             {visual.map((s) => {
@@ -328,10 +333,15 @@ function Rail({ title, products, scope, ripeness }: { title: string; products: P
   );
 }
 
-export function PriceBlock({ sel, product }: { sel: Selection; product: Product }) {
+export function PriceBlock({ sel, product, morphId }: { sel: Selection; product: Product; morphId?: string }) {
   return (
     <div>
-      <p className="text-19 font-bold text-ink">{rupees(sel.sku.price)}</p>
+      {/* In the phone sheet the price travels from the card (position only, so it never stretches). */}
+      <m.p layout={morphId ? "position" : undefined} layoutId={morphId} transition={spring.smooth} className="text-19 font-bold text-ink">
+        <Crossfade inline id={sel.sku.price}>
+          {rupees(sel.sku.price)}
+        </Crossfade>
+      </m.p>
       <p className="text-9 text-muted">(Inclusive of all taxes)</p>
       {!product.variety.inSeason && <p className="mt-1 text-12 font-semibold text-danger">{product.variety.seasonNote}</p>}
       <PreorderNote product={product} />
@@ -386,7 +396,11 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
         <p className="text-12 text-muted">
           {sel.sku.boxLabel} box · {RIPENESS[sel.stage].label}
         </p>
-        <p className="text-17 font-bold text-ink">{rupees(sel.sku.price)}</p>
+        <p className="text-17 font-bold text-ink">
+          <Crossfade inline id={sel.sku.price}>
+            {rupees(sel.sku.price)}
+          </Crossfade>
+        </p>
         <p className="text-9 text-muted">(Inclusive of all taxes)</p>
       </div>
       {outOfStock && qty === 0 ? (
@@ -398,8 +412,12 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
       ) : (
         <m.button
           type="button"
-          whileTap={reduce ? undefined : { scale: 0.96 }}
-          onClick={() => add(product, sel.sku)}
+          whileTap={reduce ? undefined : { scale: press.scale }}
+          transition={press.transition}
+          onClick={(e) => {
+            add(product, sel.sku);
+            flyToCart(e.currentTarget);
+          }}
           data-testid="add-to-cart"
           className="h-12 min-w-40 rounded-6 bg-action px-6 text-15 font-semibold text-white"
         >
@@ -412,15 +430,26 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
 
 export function ProductDetail({ product, sel, scope, mode }: { product: Product; sel: Selection; scope: string; mode: "sheet" | "page" }) {
   const v = product.variety;
+  const name = v.contents ? product.name : `${product.name} Mango`;
 
   const info = (
     <div className="space-y-4">
       <div>
         <p className="text-12 text-muted">{v.origin}</p>
-        <h1 className="mt-0.5 font-display text-21 font-extrabold text-ink lg:text-24">{v.contents ? product.name : `${product.name} Mango`}</h1>
+        {mode === "page" ? (
+          // Laptops: the name morphs from the card with the photo (View Transition).
+          <ViewTransition name={`${vtName(scope, product.id)}-name`} share="morph" default="none">
+            <h1 className="mt-0.5 font-display text-21 font-extrabold text-ink lg:text-24">{name}</h1>
+          </ViewTransition>
+        ) : (
+          // Phones: it travels from the card into the sheet with the photo and the price.
+          <m.h1 layout="position" layoutId={`title-${scope}-${product.id}`} transition={spring.smooth} className="mt-0.5 font-display text-21 font-extrabold text-ink lg:text-24">
+            {name}
+          </m.h1>
+        )}
         <p className="mt-1 text-13 text-muted">{v.flavour}</p>
       </div>
-      <PriceBlock sel={sel} product={product} />
+      <PriceBlock sel={sel} product={product} morphId={mode === "sheet" ? `price-${scope}-${product.id}` : undefined} />
       {v.contents && (
         <section aria-labelledby="inside-h" className="rounded-12 border-[0.5px] border-line bg-surface p-3">
           <h2 id="inside-h" className="text-15 font-bold text-ink">

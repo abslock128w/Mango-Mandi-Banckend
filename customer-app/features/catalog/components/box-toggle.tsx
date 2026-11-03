@@ -1,7 +1,7 @@
 "use client";
 import * as m from "motion/react-m";
 import { useId } from "react";
-import { uiSpring } from "@/lib/motion";
+import { spring } from "@/lib/motion";
 import { cn } from "@/lib/format";
 import type { BoxSize, Product, RipenessStage } from "@/lib/types";
 
@@ -44,7 +44,7 @@ export function BoxToggle({
             {selected && (
               <m.span
                 layoutId={`box-${id}`}
-                transition={uiSpring}
+                transition={spring.snappy}
                 className="absolute inset-0 -z-10 rounded-4 border-[0.5px] border-line bg-surface shadow-card"
               />
             )}

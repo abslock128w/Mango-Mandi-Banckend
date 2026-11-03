@@ -5,6 +5,7 @@ import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
 import { useState, ViewTransition } from "react";
 import { RevealOnce } from "@/components/ui/reveal-once";
+import { spring } from "@/lib/motion";
 import { AddButton } from "@/features/cart/components/add-button";
 import { useQty } from "@/features/cart/store";
 import { NotifyButton } from "./notify-button";
@@ -69,7 +70,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       >
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
+            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
               {!loaded && <div aria-hidden className="skeleton absolute inset-0" />}
               {/* The image paints over the shimmer as soon as it decodes. */}
               <Image
@@ -100,7 +101,12 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           {cardChip(sku, slot?.short)}
         </span>
         <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-2 block">
-          <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
+          {/* The name travels into the product sheet (phones) or page (laptops) with the photo. */}
+          <ViewTransition name={`${vtName(scope, product.id)}-name`} share="morph" default="none">
+            <m.h3 layout="position" layoutId={`title-${scope}-${product.id}`} transition={spring.smooth} className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">
+              {name}
+            </m.h3>
+          </ViewTransition>
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <RipenessChip stage={stage} />
@@ -108,7 +114,9 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         </div>
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
-            <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
+            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink">
+              {rupees(sku.price)}
+            </m.span>
             {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
             <span className="text-11 whitespace-nowrap text-muted">{sku.boxLabel}</span>
           </div>
