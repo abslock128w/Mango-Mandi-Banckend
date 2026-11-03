@@ -42,13 +42,15 @@ const DEMO_VARIETIES = [
 const DEMO_BATCHES = [
   // Every variety but Chausa gets a young batch (raw now, ripe within the delivery window) and most
   // an older one (semi-ripe or ripe now), so each shows stock on every day a shopper can pick.
-  ['KES', 4, 'SELLING', 'SEMI_RIPE', 'Gir', 30, 12], ['KES', 1, 'ARRIVED', 'RAW', 'Junagadh', 24, 10],
-  ['BAN', 3, 'SELLING', 'SEMI_RIPE', 'Kurnool', 36, 14], ['BAN', 1, 'ARRIVED', 'RAW', 'Kurnool', 30, 12],
-  ['DAS', 3, 'SELLING', 'SEMI_RIPE', 'Malihabad', 20, 8], ['DAS', 0, 'ARRIVED', 'RAW', 'Malihabad', 16, 6],
+  // Four varieties also have a batch that is ripe tomorrow (like the Badami one above), so the shop's
+  // "Ripe for tomorrow" shelf and a fresh e2e run have more than one box to add.
+  ['KES', 5, 'SELLING', 'RIPE', 'Gir', 18, 8], ['KES', 4, 'SELLING', 'SEMI_RIPE', 'Gir', 30, 12], ['KES', 1, 'ARRIVED', 'RAW', 'Junagadh', 24, 10],
+  ['BAN', 5, 'SELLING', 'RIPE', 'Kurnool', 20, 8], ['BAN', 3, 'SELLING', 'SEMI_RIPE', 'Kurnool', 36, 14], ['BAN', 1, 'ARRIVED', 'RAW', 'Kurnool', 30, 12],
+  ['DAS', 5, 'SELLING', 'RIPE', 'Malihabad', 12, 6], ['DAS', 3, 'SELLING', 'SEMI_RIPE', 'Malihabad', 20, 8], ['DAS', 0, 'ARRIVED', 'RAW', 'Malihabad', 16, 6],
   ['LAN', 3, 'SELLING', 'SEMI_RIPE', 'Varanasi', 18, 6], ['LAN', 1, 'ARRIVED', 'RAW', 'Varanasi', 12, 6],
   ['TOT', 1, 'ARRIVED', 'RAW', 'Chittoor', 40, 20], ['TOT', 3, 'SELLING', 'SEMI_RIPE', 'Chittoor', 20, 10],
   ['HIM', 4, 'SELLING', 'SEMI_RIPE', 'Murshidabad', 6, 0], ['HIM', 1, 'ARRIVED', 'RAW', 'Malda', 8, 4],
-  ['NEE', 1, 'ARRIVED', 'RAW', 'Krishnagiri', 22, 10], ['NEE', 4, 'SELLING', 'SEMI_RIPE', 'Krishnagiri', 14, 6],
+  ['NEE', 5, 'SELLING', 'RIPE', 'Krishnagiri', 14, 6], ['NEE', 1, 'ARRIVED', 'RAW', 'Krishnagiri', 22, 10], ['NEE', 4, 'SELLING', 'SEMI_RIPE', 'Krishnagiri', 14, 6],
   ['MAL', 3, 'SELLING', 'SEMI_RIPE', 'Kolar', 16, 8], ['MAL', 0, 'ARRIVED', 'RAW', 'Kolar', 10, 4],
   ['AMR', 4, 'SELLING', 'SEMI_RIPE', 'Saharanpur', 12, 6], ['AMR', 1, 'ARRIVED', 'RAW', 'Saharanpur', 10, 4],
   ['RAS', 1, 'ARRIVED', 'RAW', 'Mysuru', 20, 10], ['RAS', 4, 'SELLING', 'SEMI_RIPE', 'Mysuru', 18, 8],
