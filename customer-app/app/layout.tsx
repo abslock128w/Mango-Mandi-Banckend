@@ -6,6 +6,7 @@ import { Suspense } from "react";
 import "./globals.css";
 import { Providers } from "@/features/shell/providers";
 import { AppIndent } from "@/features/shell/app-root";
+import { GlassLens } from "@/components/glass/lens";
 import { CartBar, CartPanel, LocationGate, ProductSheet, Toaster } from "@/features/shell/lazy-overlays";
 import { OfflineNotice } from "@/features/shell/offline-notice";
 import { PwaRegister } from "@/features/shell/pwa-register";
@@ -48,6 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:rounded-8 focus:bg-surface focus:px-3 focus:py-2">
           Skip to content
         </a>
+        <GlassLens />
         <Providers>
           <AppIndent>{children}</AppIndent>
           <Suspense>

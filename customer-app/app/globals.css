@@ -402,3 +402,218 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
     background-color: var(--color-black);
   }
 }
+
+/* Liquid glass (docs/design/shop-motion.md, "Liquid glass"). One class, four modifiers, for the
+   floating chrome only (header, cart bar, a stuck chip row, sheet headers, toasts, the two tinted
+   CTAs): never cards, lists or page backgrounds, never glass on glass. The host must be positioned
+   (sticky, fixed, relative) for the layers below to sit inside it.
+   - the body: a light wash over a blur and a push of saturation (backdrop-filter), tone-flipped to
+     dark by data-tone (features/shell/use-backdrop-tone.ts) when a photo or dark card is behind it.
+   - the rim: a bright hairline along the top edge, a warm one along the bottom, a faint 2 px inner
+     band that reads as the thickness of the glass where there is no lens.
+   - ::before, the sheen: a soft diagonal highlight blended in, which slides as the page scrolls
+     (a scroll-driven animation of its position, so it costs no script per frame).
+   - ::after, the lens (Chromium): a second backdrop-filter that bends what shows through at the
+     rim (components/glass/lens.tsx). Safari and Firefox ignore url() in backdrop-filter and keep
+     the blur, rim and sheen: the thicker-edge read without the refraction.
+   - press: scale .97 and a glow from under the finger (.glass-glow, components/ui/pressable.tsx).
+   Fallbacks at the end: no backdrop-filter or reduced transparency get a frosted, near-opaque
+   surface; more contrast gets an opaque surface with an ink border; reduced motion freezes the
+   sheen and the flex. At most four glass surfaces are mounted at once (tests/unit/glass.test.ts). */
+.glass {
+  --glass-ink: var(--color-ink);
+  --glass-bg: var(--glass-bg-light);
+  --glass-shadow: var(--glass-shadow-quiet);
+  isolation: isolate;
+  color: var(--glass-ink);
+  background-color: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid transparent;
+  border-top-color: var(--glass-rim-top);
+  box-shadow:
+    inset 0 1px 0 var(--glass-rim-top),
+    inset 0 -1px 0 var(--glass-rim-bottom),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.18),
+    var(--glass-shadow);
+  /* The tone swap and the press: a 200 ms crossfade of the wash, the flex on the snappy spring. */
+  transition:
+    background-color 200ms var(--ease-standard),
+    color 200ms var(--ease-standard),
+    box-shadow 200ms var(--ease-standard),
+    transform var(--dur-spring-snappy) var(--ease-spring-snappy);
+}
+:where(.glass) {
+  position: relative;
+}
+.glass[data-tone="dark"] {
+  --glass-ink: #fff;
+  --glass-bg: var(--glass-bg-dark);
+  --glass-shadow: var(--glass-shadow-busy);
+  border-top-color: rgba(255, 255, 255, 0.35);
+}
+/* Capsules for bars and pills: radius = height / 2. */
+.glass--pill {
+  border-radius: 9999px;
+}
+/* A bar spanning the screen: no radius, a rim only along its bottom edge. */
+.glass--bar {
+  border-radius: 0;
+  border-top-color: transparent;
+  box-shadow:
+    inset 0 -1px 0 var(--glass-rim-bottom),
+    var(--glass-shadow);
+}
+/* The one primary action: the action colour as a tint, white ink; it never flips. */
+.glass--tint {
+  --glass-ink: #fff;
+  --glass-bg: var(--glass-tint-action);
+  border-top-color: rgba(255, 255, 255, 0.45);
+}
+.glass--tint[data-tone="dark"] {
+  --glass-bg: var(--glass-tint-action);
+}
+/* Large glass (a sheet header): its tone shifts with what is behind it but never flips, and it
+   becomes opaque when the sheet reaches the top (data-opaque, a crossfade of the wash). */
+.glass--large[data-opaque] {
+  --glass-bg: var(--color-surface);
+}
+
+.glass::before,
+.glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+}
+/* The sheen, blended in; its position follows the page scroll (0 to 480 px) so the highlight glides. */
+.glass::before {
+  background-image: var(--glass-sheen);
+  background-size: 220% 100%;
+  background-position: 0% 0;
+  mix-blend-mode: soft-light;
+}
+@supports (animation-timeline: scroll()) {
+  .glass::before {
+    animation: glass-sheen linear both;
+    animation-timeline: scroll(root block);
+    animation-range: 0 480px;
+  }
+}
+@keyframes glass-sheen {
+  to {
+    background-position: 100% 0;
+  }
+}
+/* The lens: Chromium bends the backdrop at the rim by the edge map (components/glass/lens.tsx). */
+.glass::after {
+  display: none;
+}
+@supports (backdrop-filter: url("#glass-lens")) {
+  .glass::after {
+    display: block;
+    backdrop-filter: url("#glass-lens");
+  }
+}
+/* Flex and illuminate on press (Pressable's glass mode sets data-pressed and --px/--py). */
+.glass[data-pressed] {
+  transform: scale(0.97);
+  transition-duration: 200ms, 200ms, 200ms, var(--dur-xs);
+}
+.glass-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: radial-gradient(120px circle at var(--px, 50%) var(--py, 50%), rgba(255, 255, 255, 0.45), transparent 60%);
+  opacity: 0;
+  transition: opacity 300ms var(--ease-standard);
+}
+.glass[data-pressed] > .glass-glow {
+  opacity: 1;
+  transition-duration: 120ms;
+}
+/* Light spreads onto neighbouring glass in the same group: a brighter rim while one is pressed. */
+[data-glass-group]:has([data-pressed]) .glass:not([data-pressed]) {
+  border-top-color: #fff;
+}
+/* The scroll edge under a bar: content dissolves softly into the glass instead of meeting a line. */
+.glass-edge {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 24px;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+/* Fallbacks. No backdrop-filter at all, or Reduce Transparency: a frosted, near-opaque surface. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    --glass-bg: var(--glass-bg-frost);
+  }
+  .glass[data-tone="dark"] {
+    --glass-bg: var(--glass-bg-frost);
+    --glass-ink: var(--color-ink);
+  }
+  .glass--tint {
+    --glass-bg: var(--color-action);
+    --glass-ink: #fff;
+  }
+  .glass::after,
+  .glass-edge {
+    display: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    --glass-bg: var(--glass-bg-frost);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass[data-tone="dark"] {
+    --glass-bg: var(--glass-bg-frost);
+    --glass-ink: var(--color-ink);
+  }
+  .glass--tint {
+    --glass-bg: var(--color-action);
+    --glass-ink: #fff;
+  }
+  .glass::after,
+  .glass-edge {
+    display: none;
+  }
+}
+/* Increase Contrast: opaque, with an ink border. */
+@media (prefers-contrast: more) {
+  .glass {
+    --glass-bg: var(--color-surface);
+    --glass-ink: var(--color-ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border: 1.5px solid var(--color-ink);
+    box-shadow: none;
+  }
+  .glass--tint {
+    --glass-bg: var(--color-action);
+    --glass-ink: #fff;
+  }
+  .glass::before,
+  .glass::after,
+  .glass-edge {
+    display: none;
+  }
+}
+/* Reduced motion: the sheen holds still, nothing flexes. */
+@media (prefers-reduced-motion: reduce) {
+  .glass::before {
+    animation: none;
+  }
+  .glass[data-pressed] {
+    transform: none;
+  }
+}
