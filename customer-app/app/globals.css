@@ -61,10 +61,13 @@
   animation: var(--animate-shimmer);
 }
 
+/* Press state for plain buttons and links (components/ui/pressable.tsx is the Motion version):
+   in quickly, back on the snappy spring. */
 @utility press {
-  transition: transform 120ms ease-out;
+  transition: transform var(--dur-spring-snappy) var(--ease-spring-snappy);
   &:active:not(:disabled) {
-    transform: scale(0.96);
+    transform: scale(0.97);
+    transition-duration: var(--dur-xs);
   }
 }
 

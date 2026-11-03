@@ -78,7 +78,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
                 fetchPriority={priority ? "high" : "auto"}
                 loading={priority ? "eager" : "lazy"}
                 onLoad={() => setLoaded(true)}
-                className={cn("object-cover transition-[opacity,filter] duration-200 group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
+                className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
             </m.div>
           </ViewTransition>

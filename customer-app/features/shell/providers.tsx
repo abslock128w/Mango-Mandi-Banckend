@@ -12,6 +12,8 @@ const loadMotionFeatures = () => import("@/lib/motion-features").then((m) => m.d
 
 function useHydrateStores(client: QueryClient) {
   useEffect(() => {
+    // Hydrated: from now on, content that mounts on screen is new and may play its entrance (RevealOnce).
+    document.documentElement.setAttribute("data-hydrated", "");
     useAuth.getState().sync();
     Promise.all([useCart.persist.rehydrate(), useLocation.persist.rehydrate(), useUi.persist.rehydrate()]).finally(() => useUi.getState().setHydrated());
     // A stored profile gets a fresh access token from the refresh cookie.
