@@ -634,3 +634,181 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
     }
   }
 }
+
+/* Mango splash (features/orders/components/mango-splash.tsx; docs/design/shop-motion.md, "Mango
+   splash"). Timeline: 0 to 340 ms the mango drops · 320 ms impact (squash, contact shadow, ring) ·
+   330 to 1300 ms the tendrils shoot and the droplets fling, staggered 0 to 100 ms · 900 ms one
+   bead detaches · 1.3 s on, the pool breathes and two tendrils keep stretching. Each tendril and
+   droplet reads its angle (--a), length (--l), delay (--d), wobble (--w) and distance (--r) from
+   its element. Transform and opacity only. [data-still] is the resting frame with no animation
+   (reduced motion, the visual baseline). */
+.splash-mango {
+  transform-box: fill-box;
+  transform-origin: 50% 85%;
+  rotate: -8deg;
+  animation:
+    splash-drop-in 0.34s cubic-bezier(0.5, 0, 1, 0.6) both,
+    splash-squash 0.5s cubic-bezier(0.2, 1.6, 0.3, 1) 0.32s both;
+}
+@keyframes splash-drop-in {
+  from {
+    transform: translateY(-260px) rotate(-14deg);
+  }
+  to {
+    transform: translateY(0) rotate(4deg);
+  }
+}
+@keyframes splash-squash {
+  0% {
+    transform: scale(1.1, 0.86);
+  }
+  40% {
+    transform: scale(0.96, 1.05);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+.splash-shadow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-shadow 0.34s cubic-bezier(0.5, 0, 1, 0.6) both;
+}
+@keyframes splash-shadow {
+  from {
+    transform: scale(0.3);
+    opacity: 0.05;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.22;
+  }
+}
+.splash-pool {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    splash-pool 1s cubic-bezier(0.2, 1.3, 0.3, 1) 0.32s both,
+    splash-breathe 4s ease-in-out 1.3s infinite alternate;
+}
+@keyframes splash-pool {
+  from {
+    transform: scale(0.18);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes splash-breathe {
+  to {
+    transform: scale(1.035);
+  }
+}
+.splash-crater {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-pool 1s cubic-bezier(0.2, 1.3, 0.3, 1) 0.32s both;
+}
+/* Each tendril shoots past its length and settles back 6%, with a little wobble in its angle. */
+.splash-tendril {
+  transform-origin: 0 0;
+  transform: rotate(var(--a)) scale(0);
+  animation: splash-shoot 0.95s cubic-bezier(0.18, 1.35, 0.32, 1) calc(0.33s + var(--d)) both;
+}
+@keyframes splash-shoot {
+  from {
+    transform: rotate(calc(var(--a) - var(--w))) scale(0);
+  }
+  60% {
+    transform: rotate(var(--a)) scale(calc(var(--l) * 1.06));
+  }
+  to {
+    transform: rotate(var(--a)) scale(var(--l));
+  }
+}
+.splash-stretch {
+  transform-origin: 0 0;
+  animation: splash-stretch 2s cubic-bezier(0.2, 0, 0, 1) 1.3s both;
+}
+@keyframes splash-stretch {
+  to {
+    transform: scale(1.08);
+  }
+}
+.splash-drop {
+  transform-origin: 0 0;
+  transform: rotate(var(--a)) scale(0);
+  animation: splash-fling 0.9s cubic-bezier(0.1, 0.9, 0.3, 1) calc(0.36s + var(--d)) both;
+}
+@keyframes splash-fling {
+  0% {
+    transform: rotate(var(--a)) translateY(0) scale(0.2);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateY(calc(-1px * var(--r))) scale(var(--l));
+    opacity: 0.9;
+  }
+}
+.splash-drop--late {
+  animation:
+    splash-fling 0.9s cubic-bezier(0.1, 0.9, 0.3, 1) calc(0.36s + var(--d)) both,
+    splash-detach 0.6s cubic-bezier(0.2, 0, 0, 1) 0.9s both;
+}
+@keyframes splash-detach {
+  to {
+    transform: rotate(var(--a)) translateY(calc(-1px * var(--r) - 12px)) scale(calc(var(--l) * 0.8));
+    opacity: 0.9;
+  }
+}
+.splash-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ring 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.34s both;
+}
+@keyframes splash-ring {
+  from {
+    transform: scale(0.35);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+/* The resting frame: reduced motion, and the baseline the visual spec snapshots. */
+.splash[data-still] .splash-mango,
+.splash[data-still] .splash-shadow,
+.splash[data-still] .splash-pool,
+.splash[data-still] .splash-crater,
+.splash[data-still] .splash-tendril,
+.splash[data-still] .splash-stretch,
+.splash[data-still] .splash-drop,
+.splash[data-still] .splash-ring {
+  animation: none;
+}
+.splash[data-still] .splash-mango {
+  transform: rotate(4deg);
+}
+.splash[data-still] .splash-tendril {
+  transform: rotate(var(--a)) scale(var(--l));
+}
+.splash[data-still] .splash-stretch {
+  transform: scale(1.08);
+}
+.splash[data-still] .splash-drop {
+  transform: rotate(var(--a)) translateY(calc(-1px * var(--r))) scale(var(--l));
+  opacity: 0.9;
+}
+.splash[data-still] .splash-drop--late {
+  transform: rotate(var(--a)) translateY(calc(-1px * var(--r) - 12px)) scale(calc(var(--l) * 0.8));
+}
+.splash[data-still] .splash-ring {
+  opacity: 0;
+}
+.splash[data-still] .splash-shadow {
+  opacity: 0.22;
+}

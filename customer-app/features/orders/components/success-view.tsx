@@ -1,19 +1,19 @@
 "use client";
 import Link from "next/link";
-import { DotLottieReact, setWasmUrl } from "@lottiefiles/dotlottie-react";
+import dynamic from "next/dynamic";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { Check, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, ApiError, qk } from "@/lib/api/client";
-import { dayName, plural, rupees, windowLabel } from "@/lib/format";
+import { cn, dayName, plural, rupees, windowLabel } from "@/lib/format";
 import { spring } from "@/lib/motion";
 import { useOrder, useSignedInReady } from "../hooks";
-import { Confetti } from "./confetti";
 import { SignInPrompt } from "./sign-in-prompt";
 
-setWasmUrl("/lottie/dotlottie-player.wasm");
+// The splash is only in the success route's chunk, and only once the payment is confirmed.
+const MangoSplash = dynamic(() => import("./mango-splash"), { ssr: false });
 
 /** How long the page waits for a payment to be confirmed before handing over to the order page. */
 const WAIT_MS = 30_000;
@@ -60,11 +60,22 @@ export function SuccessView({ id }: { id: string }) {
       </div>
     );
 
+  // The headline and summary land after the splash's burst (1.1 s and 1.3 s), sooner otherwise.
+  const after = paid && !failed && !reduce ? 1.1 : 0.3;
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center px-4 pt-14 pb-10 text-center">
-      <div className="relative grid size-40 place-items-center">
-        {paid && <Confetti />}
-        {waiting ? (
+      <div className={cn("relative grid place-items-center", paid && !failed ? "size-[240px] sm:size-[280px]" : "size-40")}>
+        {paid && !failed ? (
+          <>
+            {/* A mango drops into juice (docs/design/shop-motion.md, "Mango splash"); reduced motion gets its resting frame and the tick. */}
+            <MangoSplash still={Boolean(reduce)} />
+            {reduce && (
+              <span className="absolute top-6 right-6 grid size-12 place-items-center rounded-full bg-action text-white ring-4 ring-canvas">
+                <Check aria-hidden size={24} strokeWidth={3} />
+              </span>
+            )}
+          </>
+        ) : waiting ? (
           <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
             <Clock aria-hidden size={40} />
           </span>
@@ -72,15 +83,14 @@ export function SuccessView({ id }: { id: string }) {
           <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
             <Loader2 aria-hidden size={40} className="animate-spin" />
           </span>
-        ) : reduce || failed ? (
-          <span className={failed ? "grid size-24 place-items-center rounded-full bg-danger-soft text-danger" : "grid size-24 place-items-center rounded-full bg-action text-white"}>
+        ) : (
+          <span className="grid size-24 place-items-center rounded-full bg-danger-soft text-danger">
             <Check aria-hidden size={48} strokeWidth={3} />
           </span>
-        ) : (
-          <DotLottieReact src="/lottie/success.json" autoplay loop={false} className="size-32" aria-hidden />
         )}
       </div>
-      <m.h1 initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="font-display text-24 font-extrabold text-ink">
+      {/* Keyed on the payment, so "Order confirmed" rises after the burst rather than editing the waiting line in place. */}
+      <m.h1 key={paid ? "h1-paid" : "h1-pending"} initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: after }} className="font-display text-24 font-extrabold text-ink">
         {paid ? "Order confirmed" : failed ? "Payment didn't go through" : waiting ? "Still waiting for your payment" : "Confirming your payment"}
       </m.h1>
       <p className="mt-1 text-13 text-muted" role="status">
@@ -95,9 +105,10 @@ export function SuccessView({ id }: { id: string }) {
 
       {order && (
         <m.section
+          key={paid ? "summary-paid" : "summary-pending"}
           initial={reduce ? false : { opacity: 0, y: 48 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...spring.gentle, delay: 0.5 }}
+          transition={{ ...spring.gentle, delay: after + 0.2 }}
           className="mt-8 w-full rounded-16 border-[0.5px] border-line bg-surface p-4 text-left shadow-card"
           aria-label="Order summary"
         >
