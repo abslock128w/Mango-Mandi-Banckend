@@ -55,6 +55,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       index={index}
       data-testid="product-card"
       data-product={product.id}
+      data-fly-scope
       className={cn(
         "rail-item relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
         fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full min-w-0",
@@ -68,7 +69,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       >
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} className="relative aspect-square overflow-hidden rounded-8 bg-surface">
+            <m.div layoutId={`img-${scope}-${product.id}`} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
               {!loaded && <div aria-hidden className="skeleton absolute inset-0" />}
               {/* The image paints over the shimmer as soon as it decodes. */}
               <Image

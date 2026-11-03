@@ -1,7 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, animate, useMotionValue, useTransform } from "motion/react";
 import * as m from "motion/react-m";
 import { CalendarDays, ChevronRight, Minus, Package, Plus, ShoppingBasket, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -17,6 +17,7 @@ import { toast, useUi } from "@/features/shell/ui-store";
 import { cn, dayName, rupees } from "@/lib/format";
 import type { BulkCartLine, CartLine } from "@/lib/types";
 import { MAX_QTY, cartCount, cartSubtotal, useCart } from "../store";
+import { spring } from "@/lib/motion";
 import { BillDetails } from "./bill-details";
 import { FreeDeliveryNote } from "./free-delivery";
 
@@ -43,30 +44,77 @@ export function LineStepper({ line }: { line: CartLine }) {
   );
 }
 
+const REVEAL = 88;
+
+/**
+ * A cart line. Leaving, it closes upwards with clip-path while the lines below slide up by
+ * transform (popLayout), never by animating height. Swiping it left reveals Remove: it follows the
+ * finger, rubber-bands past the button, and opens past 80 px or on a quick flick.
+ */
 function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }) {
+  const setQty = useCart((s) => s.setQty);
+  const x = useMotionValue(0);
+  const [open, setOpen] = useState(false);
+  const reveal = useTransform(x, [-REVEAL, -24, 0], [1, 0.6, 0]);
+  const label = `${line.name} ${line.ripeness.toLowerCase().replace("_", "-")} ${line.size} kg`;
+  const settle = (to: boolean) => {
+    setOpen(to);
+    animate(x, to ? -REVEAL : 0, spring.snappy);
+  };
   return (
     <m.li
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, height: 0, marginTop: 0 }}
-      transition={{ duration: 0.2 }}
-      className="flex items-center gap-3 overflow-hidden"
+      layout="position"
+      initial={{ opacity: 0, y: 8, clipPath: "inset(0% 0% 0% 0%)" }}
+      animate={{ opacity: 1, y: 0, clipPath: "inset(0% 0% 0% 0%)" }}
+      exit={{ opacity: 0, clipPath: "inset(0% 0% 100% 0%)" }}
+      transition={spring.smooth}
+      className="relative"
       data-testid="cart-line"
+      data-base-ui-swipe-ignore="x"
     >
-      <span className="relative size-[70px] shrink-0 overflow-hidden rounded-8 border-[0.5px] border-line bg-surface">
-        <Image src={line.image} alt="" fill sizes="70px" className="object-cover" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-12 font-medium text-ink">{/box/i.test(line.name) ? line.name : `${line.name} Mango`}</p>
-        <div className="mt-1 flex items-center gap-2">
-          <RipenessChip stage={line.ripeness} />
-          <span className="text-12 text-muted">{line.size} kg box</span>
+      <m.button
+        type="button"
+        onClick={() => setQty(line.skuId, 0)}
+        aria-hidden={!open}
+        tabIndex={open ? 0 : -1}
+        aria-label={`Remove ${label} from cart`}
+        style={{ opacity: reveal }}
+        className="absolute inset-y-0 right-0 flex w-[88px] flex-col items-center justify-center gap-1 rounded-8 bg-danger text-12 font-semibold text-white"
+      >
+        <Trash2 aria-hidden size={18} strokeWidth={1.75} />
+        Remove
+      </m.button>
+      <m.div
+        drag="x"
+        dragDirectionLock
+        dragConstraints={{ left: -REVEAL, right: 0 }}
+        dragElastic={{ left: 0.25, right: 0.05 }}
+        dragMomentum={false}
+        onDragEnd={(_, info) => settle(info.offset.x < -80 || info.velocity.x < -500 || (open && info.offset.x < 24 && info.velocity.x <= 0))}
+        onClickCapture={(e) => {
+          // A tap on an open line closes it instead of pressing what is under the finger.
+          if (open) {
+            e.stopPropagation();
+            settle(false);
+          }
+        }}
+        style={{ x }}
+        className="relative flex items-center gap-3 bg-surface"
+      >
+        <span className="relative size-[70px] shrink-0 overflow-hidden rounded-8 border-[0.5px] border-line bg-surface">
+          <Image src={line.image} alt="" fill sizes="70px" className="object-cover" draggable={false} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-12 font-medium text-ink">{/box/i.test(line.name) ? line.name : `${line.name} Mango`}</p>
+          <div className="mt-1 flex items-center gap-2">
+            <RipenessChip stage={line.ripeness} />
+            <span className="text-12 text-muted">{line.size} kg box</span>
+          </div>
+          <p className="mt-1 text-12 font-semibold text-ink">{rupees(line.price * line.qty)}</p>
+          {soldOutOn && <p className="mt-0.5 text-11 font-semibold text-ribbon">Sold out for {soldOutOn}. Pick another day or remove it.</p>}
         </div>
-        <p className="mt-1 text-12 font-semibold text-ink">{rupees(line.price * line.qty)}</p>
-        {soldOutOn && <p className="mt-0.5 text-11 font-semibold text-ribbon">Sold out for {soldOutOn}. Pick another day or remove it.</p>}
-      </div>
-      <LineStepper line={line} />
+        <LineStepper line={line} />
+      </m.div>
     </m.li>
   );
 }
@@ -178,8 +226,8 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
         {changeDay && <DayPicker />}
-        <ul className="mt-3 space-y-3 border-t border-line pt-3">
-          <AnimatePresence initial={false}>
+        <ul className="relative mt-3 space-y-3 border-t border-line pt-3">
+          <AnimatePresence initial={false} mode="popLayout">
             {lines.map((l) => (
               <CartLineRow key={l.skuId} line={l} soldOutOn={slot && soldOut.has(l.skuId) ? slot.dayLabel.replace(/^(Today|Tomorrow)$/, (d) => d.toLowerCase()) : undefined} />
             ))}
@@ -235,7 +283,7 @@ export function PayBar({ onNavigate }: { onNavigate?: () => void }) {
     <div className="p-3">
       <button type="button" onClick={go} data-testid="proceed" className="press flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white">
         <span className="flex flex-col items-start leading-tight">
-          <span className="text-15 font-bold">{rupees(cartSubtotal(lines, bulk))}</span>
+          <RollingNumber className="text-15 font-bold" value={cartSubtotal(lines, bulk)} format={rupees} />
           <span className="text-11 font-medium uppercase">Total</span>
         </span>
         <span className="flex items-center gap-0.5 text-17 font-bold">

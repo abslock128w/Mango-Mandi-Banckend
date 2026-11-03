@@ -55,7 +55,7 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
   const [active, setActive] = useState(0);
   const current = images[Math.min(active, images.length - 1)];
   const main = (
-    <div className="relative aspect-square overflow-hidden rounded-12 bg-surface">
+    <div data-fly-image="main" className="relative aspect-square overflow-hidden rounded-12 bg-surface">
       <Image src={current} alt={`${product.name} mango`} fill preload fetchPriority="high" loading="eager" sizes="(min-width: 1024px) 520px, 100vw" className="object-cover" />
     </div>
   );

@@ -2,6 +2,7 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { useState } from "react";
+import { spring } from "@/lib/motion";
 
 /** A number whose digits roll vertically when it changes. */
 export function RollingNumber({ value, className, format = String }: { value: number; className?: string; format?: (n: number) => string }) {
@@ -21,7 +22,7 @@ export function RollingNumber({ value, className, format = String }: { value: nu
           initial={reduce ? false : { y: `${dir * 100}%`, opacity: 0 }}
           animate={{ y: "0%", opacity: 1 }}
           exit={reduce ? { opacity: 0 } : { y: `${dir * -100}%`, opacity: 0 }}
-          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+          transition={spring.snappy}
           className="inline-block"
         >
           {format(value)}

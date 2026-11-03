@@ -12,12 +12,13 @@ import { rupees } from "@/lib/format";
 import { ease, spring } from "@/lib/motion";
 import { cartCount, cartSubtotal, useCart } from "../store";
 import { DeliveryBadge } from "./free-delivery";
+import { landing } from "../fly";
 
 const HIDDEN = [/^\/cart/, /^\/checkout/, /^\/login/, /^\/orders\/.+/, /^\/preorders\/.+/, /^\/location/, /^\/offline/];
 
 function CountUp({ value }: { value: number }) {
   const mv = useMotionValue(value);
-  const text = useTransform(mv, (v) => rupees(v));
+  const text = useTransform(mv, (v) => rupees(Math.round(v)));
   const reduce = useReducedMotion();
   useEffect(() => {
     if (reduce) {
@@ -38,7 +39,8 @@ function usePulse(count: number, reduce: boolean | null) {
     const added = count > last.current && last.current > 0;
     last.current = count;
     if (!added || reduce) return;
-    const c = animate(scale, [1, 1.03, 1], { duration: 0.32, ease: ease.standard });
+    // After the photo flying in from the card has landed (fly.ts).
+    const c = animate(scale, [1, 1.03, 1], { duration: 0.32, ease: ease.standard, delay: landing() / 1000 });
     return () => c.stop();
   }, [count, scale, reduce]);
   return scale;
@@ -100,7 +102,7 @@ export function CartBar() {
               aria-label={`View cart, ${count} item${count === 1 ? "" : "s"}, ${rupees(itemTotal)}`}
             >
               <DeliveryBadge />
-              <span className="flex -space-x-3" aria-hidden>
+              <span data-cart-thumbs className="flex -space-x-3" aria-hidden>
                 <AnimatePresence initial={false}>
                   {thumbs.map((l, i) => (
                     <m.span
