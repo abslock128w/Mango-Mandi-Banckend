@@ -8,7 +8,7 @@ export default defineConfig(async ({ mode }) => {
   // Error reports (shared/error-reports): their tags, and the optional source map upload.
   const sourceMaps = await sourceMapUpload(env)
   return {
-    plugins: [react(), cspPlugin('panel', env.VITE_API_URL), ...sourceMaps],
+    plugins: [react(), cspPlugin('panel', env.VITE_API_URL, env.VITE_MAP_TILES_URL), ...sourceMaps],
     define: errorReportDefine(env, mode),
     build: { sourcemap: sourceMaps.length ? 'hidden' : false },
     server: { port: 5173 },

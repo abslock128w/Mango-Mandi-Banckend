@@ -24,6 +24,12 @@ const RAZORPAY_CHECKOUT = 'https://checkout.razorpay.com'
 const TURNSTILE = 'https://challenges.cloudflare.com'
 // Photos may be served from Vercel Blob directly; profile pictures in the Google button.
 const IMAGES = ['https://*.public.blob.vercel-storage.com', 'https://*.googleusercontent.com']
+/**
+ * The panel's map tiles (Deliveries, Today, Analytics): VITE_MAP_TILES_URL, else OpenStreetMap's
+ * standard tiles. The header's https: already allows any tile host; the meta tag names this one.
+ */
+export const DEFAULT_MAP_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const tileOrigin = (tiles: string | undefined) => (tiles === 'none' ? null : originOf((tiles || DEFAULT_MAP_TILES).replace(/\{[a-z]\}/g, 'a')))
 
 function originOf(url: string | null | undefined): string | null {
   if (!url) return null
@@ -41,17 +47,20 @@ interface Options {
   dev?: boolean
   /** For the <meta> tag, which may not carry frame-ancestors. */
   meta?: boolean
+  /** The panel's map tile URL template (VITE_MAP_TILES_URL); 'none' turns the tiles off. */
+  tiles?: string
 }
 
-export function policy(app: App, { api, dev = false, meta = false }: Options): string {
+export function policy(app: App, { api, dev = false, meta = false, tiles }: Options): string {
   const apiSrc = api === null ? ['https:'] : [originOf(api)].filter((x): x is string => Boolean(x))
   const shop = app === 'shop'
+  const mapTiles = !shop && api !== null ? [tileOrigin(tiles)].filter((x): x is string => Boolean(x)) : []
   const d: Record<string, string[]> = {
     'default-src': ["'self'"],
     'script-src': ["'self'", `${GOOGLE}/gsi/client`, ...(shop ? [RAZORPAY_CHECKOUT, TURNSTILE] : []), ...(dev ? ["'unsafe-inline'"] : [])],
     // Google's button and Razorpay's sheet add their own inline styles.
     'style-src': ["'self'", "'unsafe-inline'", `${GOOGLE}/gsi/style`],
-    'img-src': ["'self'", 'data:', 'blob:', ...apiSrc, ...IMAGES, ...(shop ? [RAZORPAY] : [])],
+    'img-src': ["'self'", 'data:', 'blob:', ...apiSrc, ...IMAGES, ...mapTiles, ...(shop ? [RAZORPAY] : [])],
     'font-src': ["'self'", 'data:'],
     'connect-src': ["'self'", ...apiSrc, `${GOOGLE}/gsi/`, ...SENTRY, ...(shop ? [RAZORPAY] : []), ...(dev ? ['ws:', 'wss:'] : [])],
     'frame-src': [GOOGLE, ...(shop ? [RAZORPAY, TURNSTILE] : [])],
@@ -89,19 +98,19 @@ export function preconnectTags(apiUrl: string | null | undefined): HtmlTagDescri
  * Serves the policy from `vite` and `vite preview`, and writes the exact-API
  * <meta> tag and the API preconnect hints into the built index.html.
  */
-export function cspPlugin(app: App, apiUrl: string | undefined): Plugin {
+export function cspPlugin(app: App, apiUrl: string | undefined, tiles?: string): Plugin {
   const api = apiUrl ?? 'http://localhost:3000'
   return {
     name: 'mango-csp',
     configureServer(server) {
-      const value = policy(app, { api, dev: true })
+      const value = policy(app, { api, dev: true, tiles })
       server.middlewares.use((_req, res, next) => {
         res.setHeader('Content-Security-Policy', value)
         next()
       })
     },
     configurePreviewServer(server) {
-      const value = policy(app, { api })
+      const value = policy(app, { api, tiles })
       server.middlewares.use((_req, res, next) => {
         res.setHeader('Content-Security-Policy', value)
         next()
@@ -112,7 +121,7 @@ export function cspPlugin(app: App, apiUrl: string | undefined): Plugin {
       handler(_html, ctx) {
         if (ctx.server) return [] // the dev server sends the header instead
         return [
-          { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: policy(app, { api, meta: true }) }, injectTo: 'head-prepend' },
+          { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: policy(app, { api, meta: true, tiles }) }, injectTo: 'head-prepend' },
           // Only for a configured API: a build without VITE_API_URL can't reach one anyway.
           ...preconnectTags(apiUrl),
         ]
