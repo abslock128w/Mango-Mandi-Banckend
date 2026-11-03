@@ -1,7 +1,11 @@
 "use client";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
+import { Check, ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
+import { AnimatePresence } from "motion/react";
+import * as m from "motion/react-m";
+import { RollingNumber } from "@/components/ui/rolling-number";
+import { spring } from "@/lib/motion";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { useAuth } from "@/features/auth/store";
@@ -294,7 +298,8 @@ function CheckoutForm({ pincode }: { pincode: string }) {
   // After the order exists
   if (placed)
     return (
-      <div className="mx-auto max-w-md p-4">
+      // The next step slides in 16 px from the right (spring.smooth); nothing waits for an exit.
+      <m.div className="mx-auto max-w-md p-4" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={spring.smooth}>
         <section className="rounded-16 bg-surface p-4 text-center" aria-live="polite">
           <p className="text-13 text-muted">Order {placed.number}</p>
           <p className="mt-1 font-display text-21 font-extrabold text-ink">{rupees(placed.total)}</p>
@@ -314,7 +319,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             Go to the order
           </Link>
         </section>
-      </div>
+      </m.div>
     );
 
   if (empty)
@@ -728,12 +733,28 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             className="press flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white disabled:bg-disabled"
           >
             <span className="flex flex-col items-start leading-tight">
-              <span className="text-15 font-bold">{rupees(q?.total ?? subtotal)}</span>
+              <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />
               <span className="text-11 font-medium uppercase">{q ? "Total" : "Estimate"}</span>
             </span>
-            <span className="flex items-center gap-1 text-17 font-bold">
-              {(pay.isPending || working) && <Loader2 aria-hidden size={20} className="animate-spin" />}
-              Pay now <ChevronRight aria-hidden size={20} />
+            {/* Pay now → spinner → tick: each state replaces the last in place (spring.snappy). */}
+            <span className="relative flex items-center text-17 font-bold">
+              <AnimatePresence initial={false} mode="popLayout">
+                {pay.isSuccess ? (
+                  <m.span key="done" className="flex items-center gap-1" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={spring.snappy}>
+                    <Check aria-hidden size={22} strokeWidth={2.5} />
+                    <span className="sr-only">Order placed</span>
+                  </m.span>
+                ) : pay.isPending || working ? (
+                  <m.span key="busy" className="flex items-center gap-2" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }} transition={spring.snappy}>
+                    <Loader2 aria-hidden size={20} className="animate-spin" />
+                    Pay now
+                  </m.span>
+                ) : (
+                  <m.span key="idle" className="flex items-center gap-1" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={spring.snappy}>
+                    Pay now <ChevronRight aria-hidden size={20} />
+                  </m.span>
+                )}
+              </AnimatePresence>
             </span>
           </button>
           <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">

@@ -16,6 +16,8 @@ import { cn, rupees } from "@/lib/format";
 import type { SearchSuggestion } from "@/lib/types";
 import { searchProducts, suggestionsFor } from "../match";
 import { RotatingPlaceholder } from "./rotating-placeholder";
+import { Crossfade } from "@/components/ui/crossfade";
+import { spring } from "@/lib/motion";
 
 /** Fixed ideas that always find something, after the varieties on sale. */
 const IDEAS = ["Ripe, ready to eat", "Raw mango for pickle", "Semi-ripe", "5 kg box", "Mango for aamras"];
@@ -92,7 +94,14 @@ function SuggestionTree({ items, query, onSearch }: { items: SearchSuggestion[];
           </div>
           <AnimatePresence initial={false}>
             {s.children && expanded === s.id && (
-              <m.ul initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden border-l-2 border-line ml-8">
+              // Unfolds by clip-path and a 6 px drop, never by animating height.
+              <m.ul
+                initial={{ opacity: 0, y: -6, clipPath: "inset(0% 0% 100% 0%)" }}
+                animate={{ opacity: 1, y: 0, clipPath: "inset(0% 0% 0% 0%)" }}
+                exit={{ opacity: 0, y: -6, clipPath: "inset(0% 0% 100% 0%)" }}
+                transition={spring.snappy}
+                className="ml-8 border-l-2 border-line"
+              >
                 {s.children.map((c) => (
                   <li key={c.id}>
                     <button
@@ -196,8 +205,14 @@ export function SearchView() {
               className="h-full min-w-0 flex-1 bg-transparent px-2 text-15 text-ink outline-none"
             />
             {!text && <RotatingPlaceholder className="absolute top-1/2 left-10 -translate-y-1/2 text-15" />}
+            <AnimatePresence initial={false}>
             {text && (
-              <button
+              <m.button
+                key="clear"
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.6 }}
+                transition={spring.snappy}
                 type="button"
                 aria-label="Clear search"
                 onClick={() => {
@@ -208,8 +223,9 @@ export function SearchView() {
                 className="grid size-11 shrink-0 place-items-center text-muted"
               >
                 <X size={18} strokeWidth={2} />
-              </button>
+              </m.button>
             )}
+            </AnimatePresence>
           </form>
           <SearchCartButton />
         </div>
@@ -230,6 +246,8 @@ export function SearchView() {
               Showing results for <b className="font-bold">&quot;{submitted}&quot;</b>
             </h1>
             {results?.matchedBy === "synonym" && <p className="mt-0.5 text-12 text-muted">Including other names and ripeness</p>}
+            {/* Skeleton, results or none: each replaces the other with a crossfade. */}
+            <Crossfade id={!results && isError ? "error" : !results && isPending ? "loading" : results && results.products.length > 0 ? "results" : "none"}>
             {!results && isError ? (
               <CatalogueError onRetry={refetch} className="mt-3" />
             ) : !results && isPending ? (
@@ -260,6 +278,7 @@ export function SearchView() {
                 </div>
               </div>
             )}
+            </Crossfade>
           </section>
         ) : (
           <div className="space-y-6 px-4 pt-4 lg:px-6">

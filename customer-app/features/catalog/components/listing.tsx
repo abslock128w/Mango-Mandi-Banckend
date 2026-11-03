@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useProducts } from "../hooks/queries";
 import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
-import { uiSpring } from "@/lib/motion";
+import { fade, spring } from "@/lib/motion";
 import { RIPENESS } from "@/lib/ripeness";
 import type { Collection, Product, RipenessStage } from "@/lib/types";
 import { ProductCard, ProductCardSkeleton } from "./product-card";
@@ -86,7 +86,7 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
                   <Image src={s.image} alt="" fill sizes="48px" className="object-cover" />
                 </span>
                 <span className={cn("text-center text-11 leading-tight", on ? "font-bold text-ink" : "text-muted")}>{s.label}</span>
-                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
+                {on && <m.span layoutId="rail-active" transition={spring.snappy} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
               </button>
             </li>
           );
@@ -167,6 +167,7 @@ export function Listing({ initial }: { initial: Collection }) {
     if (window.location.pathname !== url) window.history.replaceState(window.history.state, "", url + window.location.search);
   }, [active]);
 
+  const filterKey = filtersToQuery(filters);
   const filterCount = Number(filters.sort !== "relevance") + Number(Boolean(filters.ripeness)) + Number(Boolean(filters.size)) + Number(Boolean(filters.sweetness)) + Number(filters.inStockOnly);
   const openSheet = (tab: Tab) => setSheet({ open: true, tab, loaded: true });
 
@@ -226,12 +227,13 @@ export function Listing({ initial }: { initial: Collection }) {
                       </div>
                     }
                   >
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
+                  {/* A new filter or sort fades the grid in (one copy in the page, never two). */}
+                  <m.div key={filterKey} initial={reduce ? false : { opacity: 0.35 }} animate={{ opacity: 1 }} transition={fade} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
                     {list
-                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} />)
+                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} eager={i === 0 && j < 6} />)
                       : Array.from({ length: 12 }, (_, j) => <ProductCardSkeleton key={j} />)}
                     {list && list.length === 0 && <p className="col-span-full rounded-12 bg-surface p-6 text-center text-13 text-muted">No mangoes match these filters.</p>}
-                  </div>
+                  </m.div>
                   </WhenVisible>
                 </section>
               );

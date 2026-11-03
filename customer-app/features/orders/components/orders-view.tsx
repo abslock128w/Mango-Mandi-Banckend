@@ -1,10 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useReducedMotion } from "motion/react";
-import * as m from "motion/react-m";
 import { ChevronRight, PackageOpen } from "lucide-react";
 import { dateTime, longDate, plural, rupees } from "@/lib/format";
-import { riseDelay } from "@/lib/motion";
+import { RevealOnce } from "@/components/ui/reveal-once";
 import { useNow } from "@/features/checkout/components/hold-countdown";
 import { useOrders, useSignedInReady } from "../hooks";
 import { SignInPrompt } from "./sign-in-prompt";
@@ -13,7 +11,6 @@ import { StatusPill } from "./status-pill";
 export function OrdersView() {
   const { hydrated, signedIn } = useSignedInReady();
   const { data, isPending, isError, refetch } = useOrders();
-  const reduce = useReducedMotion();
   const now = useNow();
 
   if (hydrated && !signedIn) return <SignInPrompt next="/orders" />;
@@ -54,15 +51,8 @@ export function OrdersView() {
       {sorted.map((o, i) => {
         const unpaid = o.status === "PAYMENT_PENDING" && (!o.holdExpiresAt || new Date(o.holdExpiresAt).getTime() > now);
         return (
-          <m.li
-            key={o.id}
-            initial={reduce ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.24, delay: riseDelay(i) }}
-            className="rounded-12 bg-surface p-3"
-            data-testid="order-row"
-          >
-            <Link href={`/order/${o.id}`} className="flex items-start justify-between gap-2">
+          <RevealOnce as="li" key={o.id} id={`order-${o.id}`} index={i} className="rounded-12 bg-surface p-3" data-testid="order-row">
+            <Link href={`/order/${o.id}`} className="press flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusPill status={o.status} />
@@ -84,7 +74,7 @@ export function OrdersView() {
                 Pay now
               </Link>
             )}
-          </m.li>
+          </RevealOnce>
         );
       })}
     </ul>

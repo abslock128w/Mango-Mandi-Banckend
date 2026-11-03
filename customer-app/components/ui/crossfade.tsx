@@ -1,5 +1,5 @@
 "use client";
-import { AnimatePresence } from "motion/react";
+import { AnimatePresence, useIsPresent } from "motion/react";
 import * as m from "motion/react-m";
 import { cn } from "@/lib/format";
 import { fade } from "@/lib/motion";
@@ -11,15 +11,34 @@ import { fade } from "@/lib/motion";
  * Reduced motion keeps the crossfade (it moves nothing).
  */
 export function Crossfade({ id, children, className, inline }: { id: string | number; children: React.ReactNode; className?: string; inline?: boolean }) {
-  const Box = inline ? m.span : m.div;
   const Wrap = inline ? "span" : "div";
   return (
     <Wrap className={cn("relative", inline && "inline-block", className)}>
       <AnimatePresence initial={false} mode="popLayout">
-        <Box key={id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} className={inline ? "inline-block" : undefined}>
+        <Face key={id} inline={inline}>
           {children}
-        </Box>
+        </Face>
       </AnimatePresence>
     </Wrap>
+  );
+}
+
+/** One side of the crossfade. The copy on its way out is hidden from screen readers and inert. */
+function Face({ children, inline, ref }: { children: React.ReactNode; inline?: boolean; ref?: React.Ref<HTMLElement> }) {
+  const present = useIsPresent();
+  const Box = inline ? m.span : m.div;
+  return (
+    <Box
+      ref={ref as React.Ref<never>}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={fade}
+      aria-hidden={present ? undefined : true}
+      inert={!present}
+      className={inline ? "inline-block" : undefined}
+    >
+      {children}
+    </Box>
   );
 }

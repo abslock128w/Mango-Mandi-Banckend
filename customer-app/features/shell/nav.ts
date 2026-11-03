@@ -25,6 +25,8 @@ const SHOP = /^\/($|c\/|p\/|bulk(\/|$)|preorder$)/;
 export const inShopLayout = (path: string) => SHOP.test(path);
 
 export function navKind(from: string, to: string, back: boolean): NavKind {
+  // Order placed: the confirmation presents over checkout like a modal, whatever came before.
+  if (/^\/order\/[^/]+\/success$/.test(to) && !back) return "present";
   const a = isFlow(from);
   const b = isFlow(to);
   if (!a && b) return "present";

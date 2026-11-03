@@ -27,13 +27,15 @@ export interface ProductCardProps {
   /** Fixed Blinkit desktop size 178 x 302 for rails. */
   fixed?: boolean;
   priority?: boolean;
+  /** Above the fold on some width (the first row of a listing): load now, without preloading. */
+  eager?: boolean;
   /** Box size preferred by a listing filter. */
   preferredSize?: BoxSize | null;
 }
 
 export const vtName = (scope: string, id: string) => `p-${scope}-${id}`.replace(/[^a-zA-Z0-9-]/g, "-");
 
-export function ProductCard({ product, ripeness, scope, index = 0, fixed, priority, preferredSize }: ProductCardProps) {
+export function ProductCard({ product, ripeness, scope, index = 0, fixed, priority, eager, preferredSize }: ProductCardProps) {
   const stage = defaultStage(product, ripeness);
   const [size, setSize] = useState<BoxSize>(() => preferredSize ?? defaultSize(product, stage));
   const sku = skuFor(product, stage, size) ?? product.skus[0];
@@ -80,7 +82,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
                 sizes="(min-width: 1024px) 160px, (min-width: 640px) 30vw, 42vw"
                 preload={priority}
                 fetchPriority={priority ? "high" : "auto"}
-                loading={priority ? "eager" : "lazy"}
+                loading={priority || eager ? "eager" : "lazy"}
                 onLoad={() => setLoaded(true)}
                 className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
