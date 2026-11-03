@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
 import { Crossfade } from "@/components/ui/crossfade";
+import { GlassGlow, useGlassPress } from "@/components/ui/pressable";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
@@ -100,6 +101,7 @@ type At = "slot" | "gift-name" | "gift-phone" | "address" | "business-name" | "g
 const ORDER: At[] = ["slot", "gift-name", "gift-phone", "address", "business-name", "gstin"];
 
 function CheckoutForm({ pincode }: { pincode: string }) {
+  const glassPress = useGlassPress();
   const router = useRouter();
   const qc = useQueryClient();
   const profile = useAuth((s) => s.profile);
@@ -731,7 +733,9 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             disabled={pay.isPending || cancelUnpaid.isPending || (!q && !(slotsRequired && !chosenSlot))}
             onClick={() => (q ? submit() : validate())}
             data-testid="place-order"
-            className="press flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white disabled:bg-disabled"
+            {...glassPress}
+            // The one tinted glass on the screen (docs/design/shop-motion.md, "Liquid glass").
+            className="glass glass--tint press flex h-14 w-full items-center justify-between rounded-12 px-4 disabled:bg-disabled"
           >
             <span className="flex flex-col items-start leading-tight">
               <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />
@@ -744,6 +748,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
                 {pay.isSuccess ? <Check aria-hidden size={20} strokeWidth={2.5} /> : pay.isPending || working ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ChevronRight aria-hidden size={20} />}
               </Crossfade>
             </span>
+            <GlassGlow />
           </button>
           <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">
             <ShieldCheck aria-hidden size={14} /> Prepaid only. Free delivery. GST included.

@@ -485,6 +485,10 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   .glass--tint[data-tone="dark"] {
     --glass-bg: var(--glass-tint-action);
   }
+  /* Nearly opaque, so the lens would only smear its own edge: no lens on tinted glass. */
+  .glass--tint::after {
+    display: none !important;
+  }
   /* Large glass (a sheet header): its tone shifts with what is behind it but never flips, and it
      becomes opaque when the sheet reaches the top (data-opaque, a crossfade of the wash). */
   .glass--large[data-opaque] {

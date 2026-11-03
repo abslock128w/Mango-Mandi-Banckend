@@ -432,12 +432,14 @@ export function PurchaseBar({ product, sel }: { product: Product; sel: Selection
         <AddButton product={product} sku={sel.sku} size="lg" />
       ) : (
         <Pressable
+          glass
           onClick={(e) => {
             add(product, sel.sku);
             fly(e.currentTarget);
           }}
           data-testid="add-to-cart"
-          className="h-12 min-w-40 rounded-6 bg-action px-6 text-15 font-semibold text-white"
+          // The one tinted glass on the screen: the action colour as a tint, white ink.
+          className="glass glass--tint h-12 min-w-40 rounded-6 px-6 text-15 font-semibold"
         >
           Add to cart
         </Pressable>
