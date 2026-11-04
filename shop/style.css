@@ -262,3 +262,6 @@ body[data-page="checkout"] .dock-mini{display:none!important}
 .grow-quote cite{display:block;margin-top:14px;font-size:11px;font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
 @media(max-width:1000px){.grow-steps{grid-template-columns:repeat(2,1fr)}.grow-steps li::after{display:none}.grow-steps li:last-child{grid-column:1/-1}}
 @media(max-width:700px){.ticker{padding:12px 0}.ticker-row span{font-size:18px}.grow{margin-top:44px}.grow-steps{grid-template-columns:1fr;gap:10px}.grow-steps li{padding:16px 16px 18px}.grow-steps li:last-child{grid-column:auto}}
+/* Touch screens: while a sheet is open nothing behind it is blurred live (it sits under the dim anyway). Blur layers
+   behind an opening sheet made phones drop parts of the sheet for a frame at a time (half-drawn flicker). */
+@media(pointer:coarse){body.locked :is(.glass,.liquid,.icon-button,.quantity,.occasion,.shop-top,.collection-toolbar,.quick-add,.product-tag,.liquid-rail,.liquid-lens,.dock-orb,.dock-search,.dock-mini){-webkit-backdrop-filter:none!important;backdrop-filter:none!important}}
