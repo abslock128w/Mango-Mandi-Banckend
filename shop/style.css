@@ -58,7 +58,7 @@
 @media(max-width:700px){.product-grid{grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;scroll-snap-type:none;margin:0;padding:0;gap:10px}.product-image{aspect-ratio:1}.product-bottom{flex-direction:column;align-items:stretch;gap:8px}.weight-select{max-width:none}.product-desc{min-height:2.6em}.product-status{flex-wrap:wrap;row-gap:6px}.toolbar-end{justify-content:space-between;margin-top:11px}.toolbar-end .price-note{margin-top:0}.sort-select{font-size:11px;min-height:32px;width:auto}.occasion-row{flex-wrap:nowrap;overflow-x:auto;margin:0 -16px 17px;padding:2px 16px;scrollbar-width:none}.occasion-row::-webkit-scrollbar{display:none}#no-results .occasion-row{flex-wrap:wrap;margin:0 0 20px;padding:0}.detail-image.photo{height:260px;aspect-ratio:auto}.detail-thumbs{margin-top:0}.detail-facts{gap:8px}}
 /* Liquid glass material (liquid.js MATERIAL = '.glass, .liquid' moves the light; [data-refract] bends the edges where supported).
    Thinner and brighter than before, with a specular rim (::before) and a pointer-following light (::after). */
-.glass,.liquid,.icon-button,.quantity,.occasion{background:linear-gradient(165deg,#ffffff94,#fffcf04d 46%,#ffffff75);-webkit-backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);box-shadow:inset 0 1px 0 #fffffff2,inset 0 -1px 1px #ffffff8c,inset 1px 0 1px #ffffff66,inset 0 -12px 20px -14px #24442d38,0 10px 28px #24442d1c,0 1px 2px #24442d12}
+.glass,.liquid,.icon-button,.quantity,.occasion{background:linear-gradient(165deg,#ffffff94,#fff4d058 46%,#ffffff75);-webkit-backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);box-shadow:inset 0 1px 0 #fffffff2,inset 0 -1px 1px #ffffff8c,inset 1px 0 1px #ffffff66,inset 0 -12px 20px -14px #24442d38,0 10px 28px #24442d1c,0 1px 2px #24442d12}
 .search.liquid,.bulk-shortcut.liquid,.bag-button.liquid,.faq-orb,.icon-button,.quantity,.occasion{position:relative}
 .glass::before,.liquid::before,.icon-button::before,.quantity::before,.occasion::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,#fffffffa,#ffffff26 28%,#fff0 55%,#ffffffbf);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);pointer-events:none;z-index:3}
 .glass::after,.liquid::after,.icon-button::after,.quantity::after,.occasion::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3;background:radial-gradient(150px circle at var(--lx,22%) var(--ly,-30%),#ffffffc7,#fff0 70%),linear-gradient(180deg,#ffffff61,#fff0 44%);mix-blend-mode:soft-light;opacity:.7;transition:opacity .35s var(--ease)}
@@ -101,6 +101,38 @@
 .stage-dot.selected{background:linear-gradient(165deg,#fff,#fffdf3c7);box-shadow:inset 0 1px 1px #fff,0 2px 6px #183c2129}
 /* Sheets are frosted glass too (product information inside stays on its own opaque blocks). */
 .sheet{background:#fbf9f0db;-webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6);box-shadow:inset 0 1px 0 #fff,inset 0 0 0 1px #ffffff80,0 30px 90px #102b2940}
+@media(max-width:1000px){.product-bottom{flex-direction:column;align-items:stretch;gap:8px}.box-cards{min-width:0}}
 @media(max-width:700px){.product-bottom{align-items:stretch}.box-cards{min-width:0}.box-card{min-height:40px}.box-card strong{font-size:12px}}
 @media(prefers-reduced-transparency:reduce){.glass,.liquid,.icon-button,.quantity,.occasion,.sheet{background:#faf8ed;-webkit-backdrop-filter:none;backdrop-filter:none}.glass::after,.liquid::after,.icon-button::after,.quantity::after,.occasion::after{display:none}}
 @supports not (backdrop-filter:blur(1px)){.liquid,.icon-button,.quantity,.occasion{background:#f6f4e9f5}.sheet{background:#fbf9f0}}
+/* Mango yellow: the ripe-fruit accent. Green stays for buying actions and body text; yellow carries the
+   highlights (announcement, hero glow, headline accents, chosen beads, badges, sunny sections).
+   Text on yellow is always the dark green ink (#173c2a, contrast above 7:1). */
+:root{--mango:#f6b81c;--mango-light:#ffd45a;--mango-soft:#fff1c2;--mango-deep:#c47a00;--mango-ink:#173c2a}
+::selection{background:var(--mango-light);color:var(--mango-ink)}
+.announcement{background:linear-gradient(90deg,#f4b21a,#ffd45a 50%,#f4b21a);color:var(--mango-ink);font-weight:500}
+.announcement a{color:var(--mango-ink)}
+.hero{background:radial-gradient(110% 95% at 0% 100%,#ffe089 0%,#fcebb4 34%,#f3efd9 70%)}
+.hero-bottom{background:linear-gradient(90deg,#fbdc7e,#f6e6b0 55%,#efe9cf);color:#6a561a}
+.hero-dots b{background:var(--mango-deep)}.hero-dots i{background:#d9b65a}
+.pulse{background:var(--mango);box-shadow:0 0 0 4px #f6b81c40}
+.promise-bar svg{color:var(--mango-deep)}
+h1 em,.section-heading h2 em,.season-copy h2 em,.story-title h2 em,.faq h2 em{background:linear-gradient(100deg,#b86e00,#e09a0c 55%,#c98200);-webkit-background-clip:text;background-clip:text;color:transparent}
+.desktop-nav .active:after{background:var(--mango);height:3px;border-radius:2px}
+.bag-count{background:var(--mango);color:var(--mango-ink);font-weight:600}
+.primary svg{color:var(--mango-light)}
+.selection-pill,.detail-lens{background:linear-gradient(180deg,#ffffff8c,#fff0 52%),linear-gradient(180deg,#ffd45a,#f6b81c 62%,#e8a00c);box-shadow:inset 0 1px 1px #ffffffd9,inset 0 -2px 4px #a8650030,0 4px 12px #e8a00c59}
+.segmented button.selected,.detail-stages button.selected{color:var(--mango-ink);font-weight:600}
+.occasion.selected{background:linear-gradient(180deg,#ffffff8c,#fff0 52%),linear-gradient(180deg,#ffd45a,#f6b81c 62%,#e8a00c);border-color:#e8a00c;color:var(--mango-ink);box-shadow:inset 0 1px 1px #ffffffd9,inset 0 -2px 4px #a8650030,0 5px 14px #e8a00c4d}
+.box-lens{background:linear-gradient(165deg,#fffdf2,#ffefb8 58%,#ffe28a)}
+.box-card[aria-pressed="true"] strong{color:var(--mango-ink)}
+.stage-dot.selected{background:linear-gradient(165deg,#fff7d6,#ffd45a)}
+.quick-add.liquid:hover{background:linear-gradient(180deg,#ffffff8c,#fff0 52%),var(--mango);color:var(--mango-ink)}
+.product-card:hover{box-shadow:0 14px 34px #c98a0a29,0 0 0 1px #f6b81c33}
+.toast.glass{background:linear-gradient(165deg,#fff8dde6,#ffe8a3c2)}
+.faq details[open] .faq-orb{background:linear-gradient(180deg,#ffffff8c,#fff0 52%),var(--mango);color:var(--mango-ink)}
+.season{background:linear-gradient(135deg,#fff4cc,#fde39a 70%,#fbd773)}
+.season-copy small{color:#7a6420}
+.bulk{background:radial-gradient(55% 110% at 100% 50%,#f6b81c38,#f6b81c00 70%),var(--green)}
+.bulk h2 em{color:var(--mango-light)}.bulk-type{color:var(--mango-light)}.bulk-type small{color:#f3e3a6}
+footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#f6b81c00,#f6b81c,#f6b81c00) 1}
