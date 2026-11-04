@@ -40,6 +40,8 @@ const enc=encodeURIComponent;
 const qs=o=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(o))if(v!==null&&v!==undefined&&v!=='')p.set(k,String(v));const s=p.toString();return s?`?${s}`:''};
 const idem=()=>({'Idempotency-Key':window.crypto&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`});
 const auth=(path,method='GET',body,headers)=>api(path,{method,body,headers,auth:true});
+// A signed-in file (the delivery photo), as a Blob for an object URL.
+async function authBlob(path){if(!token&&profile)await refreshOnce();const go=()=>fetch(`${base()}/v1${path}`,{credentials:'include',headers:{'X-Session':'cookie',...(token?{Authorization:`Bearer ${token}`}:{})}});let res=await go();if(res.status===401&&profile&&await refreshOnce())res=await go();if(!res.ok)throw fail(res.status,'ERROR','Not available');return res.blob()}
 window.MM={
   api,idem,toRupees,
   profile:()=>profile,
@@ -76,5 +78,6 @@ window.MM={
   addresses:()=>auth('/me/addresses'),
   deleteAddress:id=>auth(`/me/addresses/${enc(id)}`,'DELETE'),
   updateMe:body=>auth('/me','PATCH',body),
+  deliveryPhoto:id=>authBlob(`/orders/${enc(id)}/delivery-photo`),
 };
 })();

@@ -45,6 +45,27 @@ Nominatim (allowed in the CSP `connect-src`). The profile shows the name and pho
 addresses (remove), favourites, the WhatsApp reminder switch (`PATCH /v1/me`), pre-orders and
 sign out, with a Profile / My orders tab bar.
 
+### Delivery map and order tracking
+
+`map-picker.js` adds a map to the checkout's delivery step: Leaflet 1.9.4 (served from
+`assets/leaflet/`, BSD-2) with OpenStreetMap tiles. The pin stays in the middle and the customer
+moves the map onto their door; the spot becomes an address and pincode through Nominatim
+(the pincode switches if it differs). Search finds a building, society or street on Enter or
+the Search button only, as Nominatim's usage policy requires (no search-as-you-type, at most one
+request a second). A typed or saved address is never overwritten by the map; the map offers its
+address instead. The API stores the address as text only, so the pin travels in the text as a
+` · Pin: lat,lng` suffix: riders and staff see the exact spot, saved addresses bring the pin back,
+and the order page reads it to show its map.
+
+`/orders/:id` is the tracking page: a status headline (with the rider's first name and the rough
+arrival time from live tracking while out for delivery), a five-step tracker with times from the
+order's history, the delivery code, the delivery photo once delivered, the address with its map,
+the boxes with their best-by dates, and pay, cancel and WhatsApp help. It refreshes every 30 s
+(5 s while awaiting payment) and only redraws when the order changed.
+
+On phones and touch screens the sheets are solid and nothing is blurred behind them, and the
+glass skips edge refraction: blur over blur redrawn while a sheet animated in made phones flicker.
+
 ## Theme and type
 
 `theme.js` (in `<head>`, so there is no flash) sets light or dark from the device setting until

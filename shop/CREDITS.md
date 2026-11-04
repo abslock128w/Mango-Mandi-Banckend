@@ -55,3 +55,8 @@ They are illustrative: they show the variety type, not the actual fruit in a giv
 - **Schibsted Grotesk** by Bakken & Bæck for Schibsted, SIL Open Font License 1.1.
 
 Both downloaded as WOFF2 (latin and latin-ext) from [Fontsource](https://fontsource.org).
+
+## Maps
+
+- **Leaflet** 1.9.4 (`assets/leaflet/`, BSD 2-Clause, licence in `assets/leaflet/LICENSE`).
+- Map tiles and place search from **OpenStreetMap** and its Nominatim service, © OpenStreetMap contributors (ODbL), credited on every map.

@@ -199,7 +199,9 @@
   })
 
   // ---- Refraction: an edge-bending displacement map per size (cached), as in the dock's lens.
-  const canRefract = !opaque && CSS.supports('backdrop-filter', 'blur(2px) url(#mm-x)')
+  // Not on touch devices: phone GPUs flicker redrawing displacement-mapped blur under sheets and scrolling.
+  const coarse = matchMedia('(pointer: coarse)').matches
+  const canRefract = !opaque && !coarse && CSS.supports('backdrop-filter', 'blur(2px) url(#mm-x)')
   let defs = null
 
   function refraction(w, h, r) {

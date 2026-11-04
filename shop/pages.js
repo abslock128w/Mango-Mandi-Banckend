@@ -8,7 +8,7 @@
 const PAGES = [
   [/^\/checkout\/?$/, () => checkout()],
   [/^\/orders\/?$/, () => signedInThen('Your orders', ordersView)],
-  [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => orderView(decodeURIComponent(m[1])))],
+  [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => trackView(decodeURIComponent(m[1])))],
   [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
 ]
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
@@ -103,7 +103,7 @@ async function accountView(seq = ++sheetSeq) {
     </section>
     <section class="page-card">
       <h3>Saved addresses</h3>
-      ${addresses.length ? addresses.map((a) => `<div class="address-row"><div><strong>${esc(a.name || 'Saved address')}</strong><small>${esc(a.address)} · ${esc(a.pincode)}</small></div><button class="text-button" data-remove-address="${esc(a.id)}">Remove</button></div>`).join('') : '<p class="page-note">The addresses you deliver to are saved here after your first order, ready to pick at checkout.</p>'}
+      ${addresses.length ? addresses.map((a) => `<div class="address-row"><div><strong>${esc(a.name || 'Saved address')}</strong><small>${esc(addressText(a.address))} · ${esc(a.pincode)}</small></div><button class="text-button" data-remove-address="${esc(a.id)}">Remove</button></div>`).join('') : '<p class="page-note">The addresses you deliver to are saved here after your first order, ready to pick at checkout.</p>'}
     </section>
     <section class="page-card">
       <h3>Favourites</h3>
@@ -117,6 +117,118 @@ async function accountView(seq = ++sheetSeq) {
       <button class="button secondary" data-preorders>My pre-orders ${icon('sun')}</button>
       <button class="button secondary" data-signout>Sign out</button>
     </section>`
+}
+
+// ---- The order tracking page (/orders/:id).
+
+const TRACK_STEPS = [
+  ['Placed', ['PAYMENT_PENDING']],
+  ['Confirmed', ['CONFIRMED']],
+  ['Packed', ['PROCESSING', 'PACKED']],
+  ['On the way', ['SHIPPED', 'OUT_FOR_DELIVERY']],
+  ['Delivered', ['DELIVERED']],
+]
+const ENDED = ['DELIVERED', 'CANCELLED', 'RTO']
+const when = (t) => (t ? new Date(t).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '')
+let lastTrack = ''
+
+function trackHeadline(o) {
+  const name = o.rider && o.rider.firstName
+  const slot = o.slot ? ` · ${esc(o.slot.label)}, ${esc(o.slot.startsAt)}–${esc(o.slot.endsAt)}` : ''
+  const arriving = `Arriving ${fmtDate(o.deliveryDate)}${slot}`
+  switch (o.status) {
+    case 'PAYMENT_PENDING': return ['Waiting for payment', o.holdExpiresAt ? `Your mangoes are held until ${fmtTime(o.holdExpiresAt)}.` : arriving]
+    case 'CONFIRMED': return [o.findingStock ? 'Confirmed. Finding your mangoes' : 'Confirmed', o.findingStock ? 'We’re lining up the right fruit for your date and will message you if anything changes.' : arriving]
+    case 'PROCESSING': case 'PACKED': return ['Packed and ready', arriving]
+    case 'SHIPPED': case 'OUT_FOR_DELIVERY': return [`${name ? esc(name) + ' is' : 'Your mangoes are'} on the way`, o.tracking ? `About ${o.tracking.etaMinutes} min · ${o.tracking.stopsAway ? `${o.tracking.stopsAway} ${o.tracking.stopsAway === 1 ? 'stop' : 'stops'} before yours` : 'you’re next'}` : `Arriving today${slot}`]
+    case 'DELIVERED': return ['Delivered', o.delivery ? `${when(o.delivery.at)}${o.delivery.receivedBy ? ` · received by ${esc(o.delivery.receivedBy)}` : ''}` : 'Enjoy your mangoes.']
+    case 'DELIVERY_FAILED': return ['We missed you', o.retryScheduled ? 'We’ll try again on the next delivery run.' : 'We’ll call you to arrange a new time.']
+    case 'CANCELLED': return ['Cancelled', o.cancelReason === 'HOLD_EXPIRED' ? 'The payment didn’t come through in time, so the hold ran out.' : o.cancelledAt ? `Cancelled ${when(o.cancelledAt)}.` : '']
+    case 'RTO': return ['Returned', 'The order came back to us. We’ll be in touch.']
+    default: return [STATUS[o.status] || esc(o.status), arriving]
+  }
+}
+
+function tracker(o) {
+  if (['CANCELLED', 'RTO'].includes(o.status)) return ''
+  const at = TRACK_STEPS.findIndex(([, list]) => list.includes(o.status === 'DELIVERY_FAILED' ? 'OUT_FOR_DELIVERY' : o.status))
+  const stamp = (list) => {
+    const t = (o.timeline || []).find((e) => list.includes(e.status))
+    return t ? when(t.at) : ''
+  }
+  return `<ol class="tracker" aria-label="Order progress">${TRACK_STEPS.map(([label, list], i) => {
+    const state = i < at ? 'done' : i === at ? (o.status === 'DELIVERY_FAILED' ? 'missed' : 'current') : ''
+    return `<li class="${state}"${i === at ? ' aria-current="step"' : ''}><span class="tracker-dot">${i < at || (i === at && o.status === 'DELIVERED') ? icon('check') : ''}</span><strong>${label}</strong><small>${i <= at ? stamp(list) : ''}</small></li>`
+  }).join('')}</ol>`
+}
+
+async function trackView(id, quiet = false, seq = ++sheetSeq) {
+  if (!quiet) {
+    lastTrack = ''
+    host().innerHTML = head('Your order') + marker(seq) + '<p>Loading your order…</p>'
+  }
+  let o
+  try {
+    o = await MM.order(id)
+  } catch (e) {
+    if (!alive(seq)) return
+    if (quiet) setTimeout(() => alive(seq) && trackView(id, true, seq), 30000)
+    else host().innerHTML = head('Your order') + marker(seq) + `<p class="prototype-tag" role="alert">${esc(e.message)}</p><button class="text-button" data-orders>All orders</button>`
+    return
+  }
+  if (!alive(seq)) return
+  const again = () => setTimeout(() => alive(seq) && trackView(id, true, seq), o.status === 'PAYMENT_PENDING' ? 5000 : 30000)
+  // A quiet refresh only redraws when something changed, so the map and photo don't blink.
+  const snapshot = JSON.stringify(o)
+  if (quiet && snapshot === lastTrack) {
+    if (!ENDED.includes(o.status)) again()
+    return
+  }
+  lastTrack = snapshot
+  const [title, sub] = trackHeadline(o)
+  const left = o.holdExpiresAt ? Date.parse(o.holdExpiresAt) - Date.now() : 0
+  const canPay = o.status === 'PAYMENT_PENDING' && o.razorpayOrderId && left > 60000
+  const canCancel = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'].includes(o.status)
+  const pin = addressPin(o.deliveryAddress)
+  const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim()
+  host().innerHTML = head(`Order ${esc(o.number)}`) + marker(seq) + `
+    <section class="page-card track-hero status-${esc(o.status.toLowerCase())}">
+      <h2>${title}</h2><p>${sub}</p>
+      ${tracker(o)}
+      ${o.deliveryCode ? `<div class="delivery-code"><span>Delivery code</span><strong>${[...String(o.deliveryCode)].map((d) => `<i>${esc(d)}</i>`).join('')}</strong><small>Share it with ${o.rider && o.rider.firstName ? esc(o.rider.firstName) : 'your rider'} when your mangoes arrive.</small></div>` : ''}
+      ${o.delivery && o.delivery.hasPhoto ? '<figure class="delivery-photo"><img alt="Photo taken at delivery" hidden><figcaption>Photo at delivery</figcaption></figure>' : ''}
+      ${canPay ? `<button class="button primary full" data-pay-order="${esc(o.id)}">Pay now ${currency(o.total)} ${icon('arrow')}</button>` : ''}
+    </section>
+    <section class="page-card">
+      <h3>Delivering to</h3>
+      <p class="track-address">${esc(addressText(o.deliveryAddress))}${o.pincode ? ` · ${esc(o.pincode)}` : ''}</p>
+      ${pin ? '<div class="track-map" role="img" aria-label="Delivery location on the map"></div>' : ''}
+    </section>
+    <section class="page-card">
+      <h3>Your box${(o.items || []).length > 1 ? 'es' : ''}</h3>
+      ${(o.items || []).map((l) => {
+        const st = stageOf(l.stage)
+        return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(l.name)}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small><div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
+      }).join('')}
+      ${o.discount ? `<div class="subtotal"><span>Discount</span><strong>−${currency(o.discount)}</strong></div>` : ''}
+      <div class="subtotal"><span>Total</span><strong>${currency(o.total)}</strong></div>
+      <p class="cart-disclaimer">Placed ${when(o.placedAt)} · Prices include GST.</p>
+    </section>
+    <section class="page-card page-actions">
+      ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${o.number}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
+      ${canCancel ? `<button class="button secondary" data-cancel-order="${esc(o.id)}" data-number="${esc(o.number)}">Cancel order</button>` : ''}
+      <button class="button secondary" data-orders>All orders</button>
+    </section>`
+  if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})
+  if (o.delivery && o.delivery.hasPhoto) {
+    MM.deliveryPhoto(o.id).then((b) => {
+      const img = $('.delivery-photo img', host())
+      if (!img || !alive(seq)) return
+      img.src = URL.createObjectURL(b)
+      img.hidden = false
+    }, () => $('.delivery-photo', host())?.remove())
+  }
+  if (!ENDED.includes(o.status)) again()
 }
 
 // ---- Events.

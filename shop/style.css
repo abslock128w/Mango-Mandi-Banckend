@@ -175,3 +175,57 @@ h1,h2,h3{font-weight:500}h1{font-size:clamp(44px,4.8vw,68px);letter-spacing:-.02
 body.page-open .liquid-lens{opacity:0}body.page-open .liquid-tab.is-current{color:inherit}
 body[data-page="checkout"] .dock-mini{display:none!important}
 @media(max-width:700px){.slot-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Phones and touch screens: sheets are solid and the dimmed page behind them is not blurred. Blur over
+   blur (header, dock, tags) redrawn while a sheet animates in made the whole page flicker on phones. */
+@media(max-width:700px),(pointer:coarse){.sheet{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fbf9f0}.sheet::backdrop{-webkit-backdrop-filter:none;backdrop-filter:none;background:#102b2980}}
+/* Delivery map (map-picker.js). The pin stays in the middle; the map moves under it. */
+.map-slot{margin:10px 0 4px}
+.map-picker{display:grid;gap:8px}
+.map-search{position:relative;display:flex;align-items:center;gap:10px;min-height:46px;padding:0 6px 0 16px;border-radius:24px;--glass-blur:12px}
+.map-search>svg{width:17px;height:17px;flex-shrink:0;color:var(--muted)}
+.map-search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink);font-size:13px}
+.map-search input::-webkit-search-cancel-button{display:none}
+.map-search-go{min-height:34px;padding:0 14px;border-radius:18px;font-size:12px;font-weight:600;background:var(--accent-bead);color:var(--accent-ink)}
+.map-results{display:grid;gap:6px;max-height:240px;overflow:auto;padding:6px;border-radius:16px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),0 10px 24px #183c2114}
+.map-results button{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;text-align:left}
+.map-results button:hover{background:var(--chip)}
+.map-results strong{font-size:13px}.map-results small,.map-note{font-size:11px;color:var(--muted);line-height:1.5}
+.map-note{padding:8px 10px}
+.map-frame{position:relative;height:260px;border-radius:18px;overflow:hidden;background:#e8eddb;box-shadow:inset 0 0 0 1px var(--line)}
+.map-canvas{position:absolute;inset:0;z-index:0}
+.map-pin{position:absolute;left:50%;top:50%;z-index:500;width:38px;height:38px;margin:-36px 0 0 -19px;color:var(--accent);pointer-events:none;transition:transform .25s var(--ease)}
+.map-pin svg{width:100%;height:100%;fill:currentColor;stroke:#fff;stroke-width:1.2;filter:drop-shadow(0 4px 6px #0004)}
+.map-pin-shadow{position:absolute;left:50%;top:50%;z-index:499;width:12px;height:5px;margin:-2px 0 0 -6px;border-radius:50%;background:#0003;pointer-events:none;transition:transform .25s var(--ease),opacity .25s}
+.map-picker.is-moving .map-pin{transform:translateY(-10px)}.map-picker.is-moving .map-pin-shadow{transform:scale(.6);opacity:.5}
+.map-hint{font-size:11px;color:var(--muted);line-height:1.6}
+.map-offer{font-size:12px;color:var(--muted);line-height:1.6;margin:6px 0 0}.map-offer .text-button{display:inline-flex;padding:0;max-width:none;font-weight:600;color:var(--accent)}
+.leaflet-container{font:inherit;background:#e8eddb}.leaflet-control-attribution{font-size:9px!important}
+.map-marker{color:var(--accent)}.map-marker svg{width:34px;height:34px;fill:currentColor;stroke:#fff;stroke-width:1.2;filter:drop-shadow(0 3px 5px #0004)}
+/* Order tracking page. */
+.track-hero h2{font-size:clamp(26px,3.4vw,34px);line-height:1.15}
+.track-hero>p{font-size:13px;color:var(--muted);margin-top:6px}
+.tracker{display:grid;grid-template-columns:repeat(5,1fr);list-style:none;padding:0;margin:24px 0 4px;counter-reset:s}
+.tracker li{position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;padding:0 2px}
+.tracker li::before{content:'';position:absolute;top:13px;right:50%;width:100%;height:3px;background:var(--line);z-index:0}
+.tracker li:first-child::before{display:none}
+.tracker li.done::before,.tracker li.current::before,.tracker li.missed::before{background:var(--accent-soft)}
+.tracker-dot{position:relative;z-index:1;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--chip);box-shadow:inset 0 0 0 2px var(--line);color:var(--accent-ink)}
+.tracker-dot svg{width:14px;height:14px}
+.tracker li.done .tracker-dot,.tracker li.current .tracker-dot{background:var(--accent-bead);box-shadow:0 3px 10px var(--accent-glow)}
+.tracker li.current .tracker-dot::after{content:'';position:absolute;inset:-6px;border-radius:50%;box-shadow:0 0 0 2px var(--accent);opacity:.35;animation:track-pulse 1.8s var(--ease) infinite}
+.tracker li.missed .tracker-dot{background:#c86b4a;box-shadow:none}
+@keyframes track-pulse{0%{transform:scale(.8);opacity:.5}100%{transform:scale(1.25);opacity:0}}
+.tracker strong{font-size:11px;font-weight:600}.tracker small{font-size:10px;color:var(--muted);min-height:1.4em}
+.tracker li:not(.done):not(.current):not(.missed) strong{color:var(--muted);font-weight:500}
+.delivery-code{display:grid;gap:6px;justify-items:start;margin-top:18px;padding:16px;border-radius:16px;background:var(--chip)}
+.delivery-code span{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.delivery-code strong{display:flex;gap:6px}
+.delivery-code i{display:grid;place-items:center;width:40px;height:48px;border-radius:10px;font:600 26px/1 'Besley',Georgia,serif;font-style:normal;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line)}
+.delivery-code small{font-size:11px;color:var(--muted)}
+.delivery-photo{margin:18px 0 0}.delivery-photo img{width:100%;max-height:340px;object-fit:cover;border-radius:16px}.delivery-photo figcaption{font-size:11px;color:var(--muted);margin-top:6px}
+.track-hero .button{margin-top:18px}
+.track-address{font-size:13px;line-height:1.7}
+.track-map{height:200px;margin-top:12px;border-radius:16px;overflow:hidden;background:#e8eddb}
+@media(max-width:700px){.tracker strong{font-size:10px}.tracker small{font-size:9px}.map-frame{height:230px}.delivery-code i{width:36px;height:44px;font-size:22px}}
+@media(prefers-reduced-motion:reduce){.tracker li.current .tracker-dot::after{animation:none}}
+.map-results[hidden]{display:none}

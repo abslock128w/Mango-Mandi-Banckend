@@ -92,3 +92,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bulk h2 em,[data-theme="dark"] .bulk-type{color:#ffd766}[data-theme="dark"] .bulk-type small{color:#f3e3a6}
 [data-theme="dark"] footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#ffc93c00,#ffc93c,#ffc93c00) 1}
 [data-theme="dark"] .liquid-lens{background:linear-gradient(145deg,#fff6d040,#ffd45a24 50%,#ffffff0a)}
+@media(max-width:700px),(pointer:coarse){[data-theme="dark"] .sheet{background:#17150f}[data-theme="dark"] .sheet::backdrop{background:#000000b3}}
+[data-theme="dark"] .map-frame,[data-theme="dark"] .track-map,[data-theme="dark"] .leaflet-container{background:#22201a}
+[data-theme="dark"] .leaflet-tile-pane{filter:brightness(.78) contrast(1.05) saturate(.85)}
+[data-theme="dark"] .tracker li.missed .tracker-dot{background:#e5937a}
