@@ -1,7 +1,6 @@
 "use client";
 import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useDeliveryDate, useProducts } from "@/features/catalog/hooks/queries";
-import { PageTransition } from "@/features/shell/page-transition";
 import { dayName } from "@/lib/format";
 import { HeroCarousel, type Slide } from "./hero-carousel";
 import { BookAheadCard, BulkBanner, HowItWorks, UnpaidBanner } from "./home-widgets";
@@ -22,7 +21,7 @@ export function HomeView() {
   const date = useDeliveryDate();
   const day = date ? dayName(date) : null;
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content">
         <UnpaidBanner />
         <HeroCarousel slides={SLIDES} />
@@ -36,6 +35,6 @@ export function HomeView() {
         <HowItWorks />
         <TrustStrip />
       </div>
-    </PageTransition>
+    </>
   );
 }

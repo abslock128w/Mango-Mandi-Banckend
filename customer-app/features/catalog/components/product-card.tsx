@@ -1,9 +1,11 @@
 "use client";
-import Image from "next/image";
+import { BlurImage } from "@/components/ui/blur-image";
 import Link from "next/link";
 import * as m from "motion/react-m";
 import { Clock } from "lucide-react";
 import { useState, ViewTransition } from "react";
+import { RevealOnce } from "@/components/ui/reveal-once";
+import { spring } from "@/lib/motion";
 import { AddButton } from "@/features/cart/components/add-button";
 import { useQty } from "@/features/cart/store";
 import { NotifyButton } from "./notify-button";
@@ -12,7 +14,6 @@ import { BoxToggle } from "./box-toggle";
 import { productHref, useOpenProduct } from "@/features/product/open";
 import { useNextSlot } from "../hooks/queries";
 import { cn, dayName, ripenessLabel, rupees } from "@/lib/format";
-import { riseDelay } from "@/lib/motion";
 import { defaultSize, defaultStage, productImage, skuFor } from "@/lib/catalog";
 import type { BoxSize, Product, RipenessStage, Sku } from "@/lib/types";
 
@@ -26,19 +27,20 @@ export interface ProductCardProps {
   /** Fixed Blinkit desktop size 178 x 302 for rails. */
   fixed?: boolean;
   priority?: boolean;
+  /** Above the fold on some width (the first row of a listing): load now, without preloading. */
+  eager?: boolean;
   /** Box size preferred by a listing filter. */
   preferredSize?: BoxSize | null;
 }
 
 export const vtName = (scope: string, id: string) => `p-${scope}-${id}`.replace(/[^a-zA-Z0-9-]/g, "-");
 
-export function ProductCard({ product, ripeness, scope, index = 0, fixed, priority, preferredSize }: ProductCardProps) {
+export function ProductCard({ product, ripeness, scope, index = 0, fixed, priority, eager, preferredSize }: ProductCardProps) {
   const stage = defaultStage(product, ripeness);
   const [size, setSize] = useState<BoxSize>(() => preferredSize ?? defaultSize(product, stage));
   const sku = skuFor(product, stage, size) ?? product.skus[0];
   const slot = useNextSlot();
   const open = useOpenProduct();
-  const [loaded, setLoaded] = useState(false);
   const qty = useQty(sku.id);
 
   // Stock is per box and ripeness for the chosen day (GET /v1/catalogue).
@@ -48,13 +50,16 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   const name = product.variety.contents ? product.name : `${product.name} Mango`;
 
   return (
-    <article
-      // Staggered fade-and-rise in CSS so it plays on first paint, before hydration.
-      style={{ animationDelay: `${riseDelay(index)}s` }}
+    <RevealOnce
+      as="article"
+      // Fades and rises the first time this card appears in this list, never again (30 ms stagger).
+      id={`card-${scope}-${product.id}`}
+      index={index}
       data-testid="product-card"
       data-product={product.id}
+      data-fly-scope
       className={cn(
-        "animate-rise relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
+        "rail-item relative flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card",
         fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full min-w-0",
       )}
     >
@@ -66,19 +71,17 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
       >
         <div className="relative">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} className="relative aspect-square overflow-hidden rounded-8 bg-surface">
-              {!loaded && <div aria-hidden className="skeleton absolute inset-0" />}
-              {/* The image paints over the shimmer as soon as it decodes. */}
-              <Image
+            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
+              {/* The photo fades in over its own blurred colours as soon as it decodes. */}
+              <BlurImage
                 src={productImage(product, stage)}
                 alt=""
                 fill
                 sizes="(min-width: 1024px) 160px, (min-width: 640px) 30vw, 42vw"
                 preload={priority}
                 fetchPriority={priority ? "high" : "auto"}
-                loading={priority ? "eager" : "lazy"}
-                onLoad={() => setLoaded(true)}
-                className={cn("object-cover transition-[opacity,filter] duration-200 group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
+                loading={priority || eager ? "eager" : "lazy"}
+                className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
             </m.div>
           </ViewTransition>
@@ -97,7 +100,12 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           {cardChip(sku, slot?.short)}
         </span>
         <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-2 block">
-          <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
+          {/* The name travels into the product sheet (phones) or page (laptops) with the photo. */}
+          <ViewTransition name={`${vtName(scope, product.id)}-name`} share="morph" default="none">
+            <m.h3 layout="position" layoutId={`title-${scope}-${product.id}`} transition={spring.smooth} className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">
+              {name}
+            </m.h3>
+          </ViewTransition>
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <RipenessChip stage={stage} />
@@ -105,7 +113,9 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         </div>
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
-            <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
+            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink">
+              {rupees(sku.price)}
+            </m.span>
             {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
             <span className="text-11 whitespace-nowrap text-muted">{sku.boxLabel}</span>
           </div>
@@ -117,7 +127,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           )}
         </div>
       </div>
-    </article>
+    </RevealOnce>
   );
 }
 

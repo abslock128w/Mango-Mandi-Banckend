@@ -1,25 +1,28 @@
 "use client";
+import { OutsidePage } from "@/components/ui/outside-page";
 import Image from "next/image";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { useQueryParam } from "@/lib/hooks/use-query-param";
+import { useSearchParams } from "next/navigation";
 import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useProduct } from "@/features/catalog/hooks/queries";
-import { PageTransition } from "@/features/shell/page-transition";
 import type { RipenessStage } from "@/lib/types";
 import { varietyForSlug } from "@/lib/varieties";
 import { ProductDetail, PurchaseBar, useSelection } from "./product-detail";
 
 /** Full product page (laptops, direct links). Phones get a sticky purchase bar. */
 export function ProductPage({ id }: { id: string }) {
-  const scope = useQueryParam("src") ?? "page";
-  const r = useQueryParam("r") as RipenessStage | null;
+  // useSearchParams, not window.location: on a client navigation the URL changes only after this
+  // first render, and the photo and name morph need the card's scope (src) in that render.
+  const params = useSearchParams();
+  const scope = params.get("src") ?? "page";
+  const r = params.get("r") as RipenessStage | null;
   const { data: product, isPending, isError, refetch } = useProduct(id);
   const sel = useSelection(product, r);
   if (isError) return <CatalogueError onRetry={refetch} className="mx-auto mt-6 max-w-[480px]" />;
   if (!product || !sel) return isPending ? <ProductPageSkeleton id={id} stage={r} /> : <ProductMissing />;
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-3 pb-40 lg:px-6 lg:pt-5 lg:pb-0">
         <nav aria-label="Breadcrumb" className="mb-3 flex items-center gap-1 text-12 text-muted">
           <Link href="/" className="tap hover:text-action">Home</Link>
@@ -30,10 +33,12 @@ export function ProductPage({ id }: { id: string }) {
         </nav>
         <ProductDetail product={product} sel={sel} scope={scope} mode="page" />
       </div>
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
-        <PurchaseBar product={product} sel={sel} />
-      </div>
-    </PageTransition>
+      <OutsidePage>
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
+          <PurchaseBar product={product} sel={sel} />
+        </div>
+      </OutsidePage>
+    </>
   );
 }
 

@@ -5,17 +5,18 @@ import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { PageTransition } from "@/features/shell/page-transition";
 import { useProducts } from "../hooks/queries";
 import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
-import { uiSpring } from "@/lib/motion";
+import { fade, spring } from "@/lib/motion";
 import { RIPENESS } from "@/lib/ripeness";
+import { defaultStage, productImage } from "@/lib/catalog";
 import type { Collection, Product, RipenessStage } from "@/lib/types";
 import { ProductCard, ProductCardSkeleton } from "./product-card";
 import { SECTIONS } from "../sections";
 import { DEFAULT_FILTERS, filtersFromQuery, filtersToQuery, SORTS, type Filters, type Tab } from "../filters";
 import { WhenVisible } from "@/components/ui/when-visible";
+import { useIsDesktop } from "@/lib/hooks/use-media";
 
 
 const SECTION_STAGE: Record<Collection, RipenessStage | null> = { all: null, ripe: "RIPE", "semi-ripe": "SEMI_RIPE", raw: "RAW" };
@@ -87,7 +88,7 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
                   <Image src={s.image} alt="" fill sizes="48px" className="object-cover" />
                 </span>
                 <span className={cn("text-center text-11 leading-tight", on ? "font-bold text-ink" : "text-muted")}>{s.label}</span>
-                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
+                {on && <m.span layoutId="rail-active" transition={spring.snappy} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
               </button>
             </li>
           );
@@ -127,6 +128,8 @@ export function Listing({ initial }: { initial: Collection }) {
   const sectionRefs = useRef(new Map<Collection, HTMLElement>());
   const lock = useRef<number>(0);
   const reduce = useReducedMotion();
+  // Cards on screen before any scroll load at once: two rows (up to 6 across on laptops, 2 on phones).
+  const aboveFold = useIsDesktop() ? 12 : 4;
 
   const visibleSections = SECTIONS.filter((s) => !(filters.ripeness && SECTION_STAGE[s.id] && SECTION_STAGE[s.id] !== filters.ripeness));
   const { data: products, isError, refetch } = useProducts();
@@ -168,11 +171,19 @@ export function Listing({ initial }: { initial: Collection }) {
     if (window.location.pathname !== url) window.history.replaceState(window.history.state, "", url + window.location.search);
   }, [active]);
 
+  const filterKey = filtersToQuery(filters);
+  // Photos drawn above the fold. A card lower down that shows the same photo loads it eagerly too:
+  // it is the same file (a cache hit, nothing extra to fetch), and it keeps Next.js from taking
+  // the on-screen copy for a lazy one.
+  const firstStage = visibleSections[0] ? sectionStage(visibleSections[0].id, filters) : null;
+  const eagerPhotos = new Set(
+    products ? sortProducts(applyClientFilters(products, firstStage, filters), filters.sort, firstStage).slice(0, aboveFold).map((p) => productImage(p, defaultStage(p, firstStage))) : [],
+  );
   const filterCount = Number(filters.sort !== "relevance") + Number(Boolean(filters.ripeness)) + Number(Boolean(filters.size)) + Number(Boolean(filters.sweetness)) + Number(filters.inStockOnly);
   const openSheet = (tab: Tab) => setSheet({ open: true, tab, loaded: true });
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto flex max-w-content">
         <RipenessRail
           active={active}
@@ -227,12 +238,13 @@ export function Listing({ initial }: { initial: Collection }) {
                       </div>
                     }
                   >
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
+                  {/* A new filter or sort fades the grid in (one copy in the page, never two). */}
+                  <m.div key={filterKey} initial={reduce ? false : { opacity: 0.35 }} animate={{ opacity: 1 }} transition={fade} className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 lg:gap-3">
                     {list
-                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} />)
+                      ? list.map((p, j) => <ProductCard key={`${p.id}-${filters.size ?? ""}`} product={p} ripeness={stage} scope={`list-${s.id}`} preferredSize={filters.size} index={j} priority={i === 0 && j < 2} eager={(i === 0 && j < aboveFold) || eagerPhotos.has(productImage(p, defaultStage(p, stage)))} />)
                       : Array.from({ length: 12 }, (_, j) => <ProductCardSkeleton key={j} />)}
                     {list && list.length === 0 && <p className="col-span-full rounded-12 bg-surface p-6 text-center text-13 text-muted">No mangoes match these filters.</p>}
-                  </div>
+                  </m.div>
                   </WhenVisible>
                 </section>
               );
@@ -241,6 +253,6 @@ export function Listing({ initial }: { initial: Collection }) {
         </div>
       </div>
       {sheet.loaded && <FilterSheet open={sheet.open} tab={sheet.tab} onOpenChange={(o) => setSheet((s) => ({ ...s, open: o }))} value={filters} onApply={setFilters} />}
-    </PageTransition>
+    </>
   );
 }

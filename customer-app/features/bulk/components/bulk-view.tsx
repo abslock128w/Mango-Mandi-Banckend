@@ -4,7 +4,6 @@ import { Building2, MapPin, MessageCircle, Package } from "lucide-react";
 import { useBulkDeals } from "@/features/catalog/hooks/queries";
 import { usePincode } from "@/features/location/store";
 import { useUi } from "@/features/shell/ui-store";
-import { PageTransition } from "@/features/shell/page-transition";
 import { ApiError, mediaUrl } from "@/lib/api/client";
 import { whatsappLink } from "@/lib/config";
 import { rupees } from "@/lib/format";
@@ -18,7 +17,7 @@ export function BulkView() {
   const q = useBulkDeals();
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-4 pb-10 lg:px-6">
         <section className="rounded-16 bg-deep p-5 text-white lg:p-8" aria-labelledby="bulk-h">
           <p className="text-12 font-bold tracking-wide text-brand uppercase">Bulk deals</p>
@@ -73,7 +72,7 @@ export function BulkView() {
 
         <OfficeBlock />
       </div>
-    </PageTransition>
+    </>
   );
 }
 
@@ -98,7 +97,7 @@ function DealCard({ deal: d, eager }: { deal: BulkDeal; eager: boolean }) {
         <div className="relative aspect-4/3 bg-chip">
           {photo ? (
             // eslint-disable-next-line @next/next/no-img-element -- API photo, resized by the API (?w=)
-            <img src={photo} alt="" loading={eager ? "eager" : "lazy"} className="size-full object-cover" />
+            <img src={photo} alt="" width={480} height={360} decoding="async" loading={eager ? "eager" : "lazy"} className="size-full object-cover" />
           ) : (
             <span className="grid size-full place-items-center text-muted">
               <Package aria-hidden size={40} strokeWidth={1.5} />

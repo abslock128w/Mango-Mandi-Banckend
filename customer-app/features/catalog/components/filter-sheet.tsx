@@ -3,7 +3,7 @@ import * as m from "motion/react-m";
 import { useState } from "react";
 import { Sheet } from "@/components/ui/drawer";
 import { cn } from "@/lib/format";
-import { uiSpring } from "@/lib/motion";
+import { spring } from "@/lib/motion";
 import { RIPENESS, STAGES } from "@/lib/ripeness";
 import type { BoxSize, RipenessStage } from "@/lib/types";
 import { DEFAULT_FILTERS, SORTS, type Filters, type Tab } from "../filters";
@@ -62,7 +62,7 @@ export function FilterSheet({ open, onOpenChange, value, onApply, tab }: { open:
         <div role="tablist" aria-orientation="vertical" className="w-[120px] shrink-0 bg-canvas">
           {tabs.map((t) => (
             <button key={t.id} role="tab" aria-selected={active === t.id} type="button" onClick={() => setActive(t.id)} className={cn("relative flex h-12 w-full items-center px-3 text-left text-13", active === t.id ? "bg-surface font-semibold text-ink" : "text-muted")}>
-              {active === t.id && <m.span layoutId="filter-tab" transition={uiSpring} className="absolute inset-y-0 left-0 w-1 rounded-r-4 bg-action" />}
+              {active === t.id && <m.span layoutId="filter-tab" transition={spring.snappy} className="absolute inset-y-0 left-0 w-1 rounded-r-4 bg-action" />}
               {t.label}
             </button>
           ))}

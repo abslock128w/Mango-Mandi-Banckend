@@ -1,9 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useMotionValueEvent, useScroll } from "motion/react";
-import * as m from "motion/react-m";
 import { ChevronDown, Search, ShoppingCart, UserRound } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { Crossfade } from "@/components/ui/crossfade";
 import { RotatingPlaceholder } from "@/features/search/components/rotating-placeholder";
 import { useNextSlot } from "@/features/catalog/hooks/queries";
 import { useLocation } from "@/features/location/store";
@@ -11,38 +10,67 @@ import { useAuth } from "@/features/auth/store";
 import { cartCount, useCart } from "@/features/cart/store";
 import { useUi } from "./ui-store";
 import { Logo } from "./logo";
-import { headerTween } from "@/lib/motion";
+import { userScrolledRecently, useScrollDirection } from "@/lib/hooks/use-scroll-direction";
 import { cn, plural, rupees } from "@/lib/format";
 
-function useCollapsed() {
-  const { scrollY } = useScroll();
-  const [collapsed, setCollapsed] = useState(false);
-  const state = useRef({ collapsed: false, freezeUntil: 0, anchor: 0 });
-  useMotionValueEvent(scrollY, "change", (y) => {
-    const s = state.current;
-    const now = performance.now();
-    // Ignore the scroll adjustment caused by the header resizing itself.
-    if (now < s.freezeUntil) {
-      s.anchor = y;
-      return;
-    }
-    const toggle = (v: boolean) => {
-      s.collapsed = v;
-      s.freezeUntil = now + 260;
-      s.anchor = y;
-      setCollapsed(v);
+/**
+ * The phone header is an iOS large title. It keeps its full height in the layout and is sticky at
+ * top: -(collapse) px, so the browser itself scrolls the logo and delivery line away and the
+ * address and search stay pinned: no height animation, no reflow, the document never changes
+ * height. While it goes, the logo block fades and shrinks a little, the address line slides up
+ * into the space and the account button holds still: CSS scroll-driven animations (globals.css),
+ * in step with the compositor's scroll, no script per frame. A browser without scroll timelines
+ * keeps the header fully open (collapse 0) rather than half-working. Stopping half-way after a
+ * swipe settles the title open or closed in the direction of travel, as iOS does.
+ */
+function useLargeTitle(header: React.RefObject<HTMLElement | null>, parts: { search: React.RefObject<HTMLElement | null>; account: React.RefObject<HTMLElement | null>; address: React.RefObject<HTMLElement | null> }) {
+  const collapse = useRef(0);
+
+  // Measured on resize only (never on scroll): how far the header slides and the address moves.
+  useLayoutEffect(() => {
+    const el = header.current;
+    if (!el) return;
+    const measure = () => {
+      const { search, account, address } = { search: parts.search.current, account: parts.account.current, address: parts.address.current };
+      const root = document.documentElement.style;
+      // Laptops (the phone block is display: none), and browsers without scroll timelines, do not collapse.
+      if (!search || !account || !address || !search.offsetParent || !CSS.supports("animation-timeline: scroll()")) {
+        collapse.current = 0;
+        root.setProperty("--header-collapse", "0px");
+        root.setProperty("--header-h", `${el.offsetHeight}px`);
+        return;
+      }
+      const top = (n: HTMLElement) => n.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      const accountTop = top(account);
+      // Collapsed, the search keeps the gap it has below the account button today.
+      const c = Math.max(0, Math.round(top(search) - (accountTop + account.offsetHeight + 12)));
+      collapse.current = c;
+      root.setProperty("--header-collapse", `${c}px`);
+      root.setProperty("--header-shift", `${Math.max(0, Math.round(top(address) - accountTop - c))}px`);
+      // What stays on screen: sticky rails and scroll offsets sit under this.
+      root.setProperty("--header-h", `${el.offsetHeight - c}px`);
     };
-    if (y < 40) {
-      if (s.collapsed) toggle(false);
-      s.anchor = y;
-      return;
-    }
-    if (!s.collapsed && y - s.anchor > 24) toggle(true);
-    else if (s.collapsed && s.anchor - y > 24) toggle(false);
-    else if ((s.collapsed && y > s.anchor) || (!s.collapsed && y < s.anchor)) s.anchor = y;
-  });
-  return collapsed;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [header, parts.search, parts.account, parts.address]);
+
+  // Settle a half-collapsed title after the customer's own scroll stops.
+  const { ref: dir } = useScrollDirection();
+  useEffect(() => {
+    const settle = () => {
+      const c = collapse.current;
+      const y = window.scrollY;
+      if (!c || y <= 0 || y >= c || !userScrolledRecently(1000)) return;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.scrollTo({ top: dir.current.dir === "down" ? c : 0, behavior: reduce ? "auto" : "smooth" });
+    };
+    window.addEventListener("scrollend", settle);
+    return () => window.removeEventListener("scrollend", settle);
+  }, [dir]);
 }
+
 
 export function AddressLine({ className }: { className?: string }) {
   const address = useLocation((s) => s.address);
@@ -75,7 +103,14 @@ function useHeadline() {
 
 function EtaHeadline({ size = "lg" }: { size?: "lg" | "md" }) {
   const { headline } = useHeadline();
-  return <p className={cn("font-display leading-tight font-extrabold text-ink", size === "lg" ? "text-21 sm:text-24" : "text-17")}>{headline}</p>;
+  // A new pincode or slot crossfades the line instead of cutting to it.
+  return (
+    <p className={cn("font-display leading-tight font-extrabold text-ink", size === "lg" ? "text-21 sm:text-24" : "text-17")}>
+      <Crossfade inline id={headline}>
+        {headline}
+      </Crossfade>
+    </p>
+  );
 }
 
 function EtaKicker() {
@@ -108,9 +143,10 @@ function DesktopCart() {
   );
 }
 
-export function SearchLink({ className }: { className?: string }) {
+export function SearchLink({ className, ref }: { className?: string; ref?: React.Ref<HTMLAnchorElement> }) {
   return (
     <Link
+      ref={ref}
       href="/search"
       className={cn(
         "flex h-12 items-center gap-2 rounded-8 border border-line bg-surface px-3 text-13 lg:h-[46px] lg:bg-chip",
@@ -124,50 +160,48 @@ export function SearchLink({ className }: { className?: string }) {
   );
 }
 
-/** Sticky Blinkit header. The address line collapses on scroll down and expands on scroll up (180 ms). */
+/** Sticky Blinkit header. On phones the logo and delivery line scroll away as a large title (useLargeTitle). */
 export function Header() {
-  const collapsed = useCollapsed();
   const token = useAuth((s) => s.profile);
   const ref = useRef<HTMLElement>(null);
-  // Expose the live header height for sticky rails and chip rows.
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => document.documentElement.style.setProperty("--header-h", `${el.offsetHeight}px`));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const search = useRef<HTMLAnchorElement>(null);
+  const account = useRef<HTMLDivElement>(null);
+  const address = useRef<HTMLDivElement>(null);
+  useLargeTitle(ref, { search, account, address });
   const hydrated = useUi((s) => s.hydrated);
 
   return (
-    <header ref={ref} className="site-header sticky top-0 z-40 border-b border-line bg-linear-to-br from-brand to-blush lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface">
+    <header
+      ref={ref}
+      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-line bg-linear-to-br from-brand to-blush lg:top-0 lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface"
+    >
       {/* Phones and tablets */}
       <div className="mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <m.div
-              initial={false}
-              animate={collapsed ? { height: 0, opacity: 0 } : { height: "auto", opacity: 1 }}
-              transition={headerTween}
-              className="overflow-hidden"
-            >
+            <div className="header-brand origin-top-left">
               <Logo height={34} className="mb-2" />
               <p className="text-11 font-bold text-ink">
                 <EtaKicker />
               </p>
               <EtaHeadline />
-            </m.div>
-            <AddressLine className={cn(collapsed ? "mt-0" : "mt-0.5")} />
+            </div>
+            <div ref={address} className="header-address relative">
+              <AddressLine className="mt-0.5" />
+            </div>
           </div>
-          <Link
-            href={hydrated && token ? "/account" : "/login?next=/account"}
-            aria-label="Account"
-            className="press grid size-11 shrink-0 place-items-center rounded-full bg-surface text-ink"
-          >
-            <UserRound size={20} strokeWidth={1.75} />
-          </Link>
+          {/* The account button holds still while the header scrolls; its face presses. */}
+          <div ref={account} className="header-account relative z-10 size-11 shrink-0">
+            <Link
+              href={hydrated && token ? "/account" : "/login?next=/account"}
+              aria-label="Account"
+              className="press grid size-full place-items-center rounded-full bg-surface text-ink"
+            >
+              <UserRound size={20} strokeWidth={1.75} />
+            </Link>
+          </div>
         </div>
-        <SearchLink className="mt-3" />
+        <SearchLink ref={search} className="mt-3" />
       </div>
 
       {/* Laptops */}
@@ -192,6 +226,15 @@ export function Header() {
 
 function EtaInline() {
   const { kicker, headline } = useHeadline();
-  if (kicker !== "Delivery") return <>{`${headline} · ${kicker.toLowerCase()}`}</>;
-  return <>Delivery <span className="lowercase">{headline}</span></>;
+  return (
+    <Crossfade inline id={`${kicker}-${headline}`}>
+      {kicker !== "Delivery" ? (
+        `${headline} · ${kicker.toLowerCase()}`
+      ) : (
+        <>
+          Delivery <span className="lowercase">{headline}</span>
+        </>
+      )}
+    </Crossfade>
+  );
 }

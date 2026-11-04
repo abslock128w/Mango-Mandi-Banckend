@@ -1,7 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
+import { Check, ChevronRight, Gift, Loader2, MapPin, Receipt, ShieldCheck, TicketPercent, X } from "lucide-react";
+import { Crossfade } from "@/components/ui/crossfade";
+import { RollingNumber } from "@/components/ui/rolling-number";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { useAuth } from "@/features/auth/store";
@@ -294,7 +296,10 @@ function CheckoutForm({ pincode }: { pincode: string }) {
   // After the order exists
   if (placed)
     return (
-      <div className="mx-auto max-w-md p-4">
+      // The next step slides in 16 px from the right (spring.smooth, globals.css); nothing waits for an
+      // exit. The outer box clips the slide so the page is never wider than the screen meanwhile.
+      <div className="overflow-x-clip">
+      <div className="step-in mx-auto max-w-md p-4">
         <section className="rounded-16 bg-surface p-4 text-center" aria-live="polite">
           <p className="text-13 text-muted">Order {placed.number}</p>
           <p className="mt-1 font-display text-21 font-extrabold text-ink">{rupees(placed.total)}</p>
@@ -314,6 +319,7 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             Go to the order
           </Link>
         </section>
+      </div>
       </div>
     );
 
@@ -728,12 +734,15 @@ function CheckoutForm({ pincode }: { pincode: string }) {
             className="press flex h-14 w-full items-center justify-between rounded-12 bg-action px-4 text-white disabled:bg-disabled"
           >
             <span className="flex flex-col items-start leading-tight">
-              <span className="text-15 font-bold">{rupees(q?.total ?? subtotal)}</span>
+              <RollingNumber className="text-15 font-bold" value={q?.total ?? subtotal} format={rupees} />
               <span className="text-11 font-medium uppercase">{q ? "Total" : "Estimate"}</span>
             </span>
+            {/* The label stays; its icon crossfades chevron → spinner → tick in place. */}
             <span className="flex items-center gap-1 text-17 font-bold">
-              {(pay.isPending || working) && <Loader2 aria-hidden size={20} className="animate-spin" />}
-              Pay now <ChevronRight aria-hidden size={20} />
+              Pay now
+              <Crossfade inline id={pay.isSuccess ? "done" : pay.isPending || working ? "busy" : "idle"} className="size-5">
+                {pay.isSuccess ? <Check aria-hidden size={20} strokeWidth={2.5} /> : pay.isPending || working ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ChevronRight aria-hidden size={20} />}
+              </Crossfade>
             </span>
           </button>
           <p className="mt-2 flex flex-wrap items-center justify-center gap-2 text-center text-11 text-muted">

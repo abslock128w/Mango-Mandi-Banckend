@@ -5,8 +5,8 @@ import { useMemo } from "react";
 
 const COLORS = ["bg-brand", "bg-ripe", "bg-raw", "bg-action", "bg-ribbon", "bg-semi"];
 
-/** One burst of confetti, then gone. */
-export function Confetti({ count = 36 }: { count?: number }) {
+/** One short burst of confetti (1.2 s), then gone. None under reduced motion. */
+export function Confetti({ count = 24 }: { count?: number }) {
   const reduce = useReducedMotion();
   const pieces = useMemo(
     () =>
@@ -27,7 +27,7 @@ export function Confetti({ count = 36 }: { count?: number }) {
           style={{ width: p.w, height: p.w * 0.5 }}
           initial={{ x: 0, y: 0, opacity: 1, rotate: 0, scale: 0.4 }}
           animate={{ x: p.x, y: [0, p.y, p.y + 140], opacity: [1, 1, 0], rotate: p.r + 360, scale: 1 }}
-          transition={{ duration: 1.6, ease: "easeOut", delay: 0.35, times: [0, 0.4, 1] }}
+          transition={{ duration: 1.2, ease: "easeOut", delay: 0.3, times: [0, 0.4, 1] }}
         />
       ))}
     </div>

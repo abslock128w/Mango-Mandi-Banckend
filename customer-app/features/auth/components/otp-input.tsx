@@ -2,9 +2,22 @@
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/format";
 
-/** Six boxes. Box 1 carries autocomplete="one-time-code" so SMS autofill fills all six. */
-export function OtpInput({ value, onChange, invalid, disabled }: { value: string; onChange: (v: string) => void; invalid?: boolean; disabled?: boolean }) {
+/**
+ * Six boxes. Box 1 carries autocomplete="one-time-code" so SMS autofill fills all six.
+ * A wrong code (`shake` goes up) shakes the row, 320 ms, transform only; not under reduced motion.
+ */
+export function OtpInput({ value, onChange, invalid, disabled, shake = 0 }: { value: string; onChange: (v: string) => void; invalid?: boolean; disabled?: boolean; shake?: number }) {
   const refs = useRef<(HTMLInputElement | null)[]>([]);
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!shake || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    row.current?.animate(
+      [0, -6, 6, -4, 4, 0].map((x) => ({ transform: `translateX(${x}px)` })),
+      { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+    );
+    // Back to the first box for the next try.
+    refs.current[0]?.focus();
+  }, [shake]);
   const digits = Array.from({ length: 6 }, (_, i) => value[i] ?? "");
 
   useEffect(() => {
@@ -18,7 +31,7 @@ export function OtpInput({ value, onChange, invalid, disabled }: { value: string
   };
 
   return (
-    <div role="group" aria-label="One-time password" className="flex justify-between gap-2">
+    <div ref={row} role="group" aria-label="One-time password" className="flex justify-between gap-2">
       {digits.map((d, i) => (
         <input
           key={i}

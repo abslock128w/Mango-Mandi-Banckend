@@ -263,7 +263,7 @@ function ClaimPage({ order, claims }: { order: Order; claims: Claim[] }) {
               {photos.map((p, i) => (
                 <li key={p.key} className="relative size-20 overflow-hidden rounded-8 border border-line">
                   {/* eslint-disable-next-line @next/next/no-img-element -- a local preview (object URL) */}
-                  <img src={p.preview} alt={`Photo ${i + 1}`} className={cn("size-full object-cover", !p.id && "opacity-60")} />
+                  <img src={p.preview} alt={`Photo ${i + 1}`} width={80} height={80} className={cn("size-full object-cover", !p.id && "opacity-60")} />
                   {!p.id && !p.error && <Loader2 aria-label="Uploading" size={20} className="absolute inset-0 m-auto animate-spin text-white" />}
                   {p.error && <span className="absolute inset-x-0 bottom-0 bg-danger px-1 text-9 text-white">{p.error}</span>}
                   <button

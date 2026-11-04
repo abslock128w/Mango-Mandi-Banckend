@@ -49,6 +49,58 @@
   }
 }
 
+/* Crossfade and RollingNumber (components/ui): CSS keyframes on the motion tokens. */
+.crossfade-in {
+  animation: vt-fade var(--dur-s) var(--ease-standard) both;
+}
+.crossfade-out {
+  animation: vt-fade var(--dur-s) var(--ease-standard) both reverse;
+}
+.roll-in {
+  animation: roll-in var(--dur-spring-snappy) var(--ease-spring-snappy) both;
+}
+.roll-out {
+  animation: roll-out var(--dur-spring-snappy) var(--ease-spring-snappy) both;
+}
+@keyframes roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--roll, 1) * 100%));
+  }
+}
+@keyframes roll-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--roll, 1) * -100%));
+  }
+}
+/* A step that follows another (checkout's placed order): 16 px in from the right on spring.smooth. */
+.step-in {
+  animation: vt-slide-step var(--dur-spring-smooth) var(--ease-spring-smooth) both;
+}
+@keyframes vt-slide-step {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+/* Horizontal rails: cards snap to the page gutter (16 px, 24 px on laptops). */
+@utility rail-snap {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 16px;
+  @media (min-width: 1024px) {
+    scroll-padding-inline: 24px;
+  }
+  & > .rail-item {
+    scroll-snap-align: start;
+  }
+}
+/* Both ends of a rail fade over the gutter instead of cutting a card off. */
+@utility rail-fade {
+  mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
+}
+
 @utility skeleton {
   background-color: var(--color-chip);
   background-image: linear-gradient(
@@ -61,23 +113,106 @@
   animation: var(--animate-shimmer);
 }
 
+/* Press state for plain buttons and links (components/ui/pressable.tsx is the Motion version):
+   in quickly, back on the snappy spring. */
 @utility press {
-  transition: transform 120ms ease-out;
+  transition: transform var(--dur-spring-snappy) var(--ease-spring-snappy);
   &:active:not(:disabled) {
-    transform: scale(0.96);
+    transform: scale(0.97);
+    transition-duration: var(--dur-xs);
   }
 }
 
-/* Page transitions: fade + 8px rise, 200ms, content only. */
-::view-transition-old(.page) {
-  animation: 120ms ease-out both vt-fade reverse;
+/* Page transitions (docs/design/shop-motion.md, "Page transitions"). The page that arrives is
+   .page-in, the one that leaves .page-out (features/shell/page-transition.tsx); html[data-nav] says
+   which way we are going (features/shell/nav.ts). Transform, opacity and filter only.
+   - forward: the new page slides in 24 px from the right and fades in; the old one is pushed back
+     (scale .98, 8% darker) as it goes. back: the exact reverse.
+   - present: a flow page (checkout, account, orders…) rises from the bottom over the shop, which is
+     pushed back; dismiss: it falls away and the shop comes forward again.
+   - anything else (a replace, a reload): a short crossfade. */
+::view-transition-group(.page-in) {
+  z-index: 2;
 }
-::view-transition-new(.page) {
-  animation: 200ms ease-out both vt-rise;
+::view-transition-group(.page-out) {
+  z-index: 1;
 }
+::view-transition-group(site-header) {
+  z-index: 3;
+}
+::view-transition-old(.page-out) {
+  animation: var(--dur-xs) var(--ease-standard) both vt-fade reverse;
+}
+::view-transition-new(.page-in) {
+  animation: var(--dur-s) var(--ease-standard) both vt-fade;
+}
+
+html[data-nav="forward"]::view-transition-new(.page-in) {
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-slide-in;
+}
+html[data-nav="forward"]::view-transition-old(.page-out) {
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-push-back;
+}
+html[data-nav="back"]::view-transition-group(.page-out) {
+  z-index: 2;
+}
+html[data-nav="back"]::view-transition-group(.page-in) {
+  z-index: 1;
+}
+html[data-nav="back"]::view-transition-new(.page-in) {
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-push-back reverse;
+}
+html[data-nav="back"]::view-transition-old(.page-out) {
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-slide-in reverse;
+}
+
+html[data-nav="present"]::view-transition-new(.page-in),
+html[data-nav="present"]::view-transition-new(site-header) {
+  animation: var(--dur-l) var(--ease-emphasized) both vt-rise-full;
+}
+html[data-nav="present"]::view-transition-old(.page-out) {
+  animation: var(--dur-l) var(--ease-emphasized) both vt-recede;
+}
+html[data-nav="present"]::view-transition-old(site-header) {
+  animation: var(--dur-xs) var(--ease-standard) both vt-fade reverse;
+}
+html[data-nav="dismiss"]::view-transition-group(.page-out) {
+  z-index: 2;
+}
+html[data-nav="dismiss"]::view-transition-group(.page-in) {
+  z-index: 1;
+}
+html[data-nav="dismiss"]::view-transition-old(.page-out),
+html[data-nav="dismiss"]::view-transition-old(site-header) {
+  animation: var(--dur-spring-smooth) var(--ease-emphasized) both vt-rise-full reverse;
+}
+html[data-nav="dismiss"]::view-transition-new(.page-in) {
+  animation: var(--dur-spring-smooth) var(--ease-emphasized) both vt-recede reverse;
+}
+html[data-nav="dismiss"]::view-transition-new(site-header) {
+  animation: var(--dur-s) var(--ease-standard) var(--dur-s) both vt-fade;
+}
+
+/* The app's back arrow (nav.ts animatedBack) animates the whole page snapshot. */
+html[data-vt="root"][data-nav="back"]::view-transition-old(root) {
+  z-index: 1;
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-slide-in reverse;
+}
+html[data-vt="root"][data-nav="back"]::view-transition-new(root) {
+  animation: var(--dur-spring-smooth) var(--ease-spring-smooth) both vt-push-back reverse;
+}
+html[data-vt="root"][data-nav="dismiss"]::view-transition-old(root) {
+  z-index: 1;
+  animation: var(--dur-spring-smooth) var(--ease-emphasized) both vt-rise-full reverse;
+}
+html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
+  animation: var(--dur-spring-smooth) var(--ease-emphasized) both vt-recede reverse;
+}
+
+/* The product photo (and name on laptops) morphs between card and page. */
 ::view-transition-group(.morph) {
-  animation-duration: 320ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  animation-duration: var(--dur-spring-smooth);
+  animation-timing-function: var(--ease-spring-smooth);
 }
 @keyframes vt-fade {
   from {
@@ -87,29 +222,103 @@
     opacity: 1;
   }
 }
-@keyframes vt-rise {
+@keyframes vt-slide-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(24px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
+  }
+}
+@keyframes vt-push-back {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+    filter: brightness(0.92);
+  }
+}
+@keyframes vt-rise-full {
+  from {
+    transform: translateY(100vh);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes vt-recede {
+  to {
+    transform: scale(0.96);
+    filter: brightness(0.9);
   }
 }
 
-/* Keep the header out of route transitions. */
+/* The header stays put between shop pages (its own name keeps it out of the page's snapshot). */
 .site-header {
   view-transition-name: site-header;
 }
-::view-transition-group(site-header),
-::view-transition-old(site-header),
-::view-transition-new(site-header) {
+::view-transition-group(site-header) {
   animation: none;
+}
+/* A different header (one flow page to another) crossfades its title. Same curve both ways, so
+   with the browser's plus-lighter blend an unchanged header stays fully opaque. */
+::view-transition-old(site-header) {
+  animation: var(--dur-s) linear both vt-fade reverse;
+}
+::view-transition-new(site-header) {
+  animation: var(--dur-s) linear both vt-fade;
 }
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
+}
+
+/* The phone header's large title (features/shell/header.tsx, useLargeTitle): the logo block fades and
+   shrinks, the address slides up and the account button holds still while the header scrolls by
+   --header-collapse. Scroll-driven, so it moves in step with the scroll itself. Browsers without
+   scroll timelines keep the header open (--header-collapse is 0 there). */
+@supports (animation-timeline: scroll()) {
+  @media (max-width: 1023px) {
+    .header-brand,
+    .header-address,
+    .header-account {
+      animation-duration: auto;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 var(--header-collapse, 59px);
+    }
+    .header-brand {
+      animation-name: header-brand;
+    }
+    .header-address {
+      animation-name: header-address;
+    }
+    .header-account {
+      animation-name: header-account;
+    }
+  }
+}
+@keyframes header-brand {
+  60% {
+    opacity: 0;
+    transform: scale(0.976);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+@keyframes header-address {
+  to {
+    transform: translateY(calc(-1 * var(--header-shift, 26px)));
+  }
+}
+@keyframes header-account {
+  to {
+    transform: translateY(var(--header-collapse, 59px));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -121,10 +330,21 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  ::view-transition-group(*),
-  ::view-transition-old(*),
-  ::view-transition-new(*) {
+  /* Pages crossfade, nothing moves (never a blank frame). */
+  ::view-transition-group(*) {
     animation: none !important;
+  }
+  ::view-transition-old(*) {
+    animation: var(--dur-xs) linear both vt-fade reverse !important;
+  }
+  ::view-transition-new(*) {
+    animation: var(--dur-s) linear both vt-fade !important;
+  }
+  /* Scroll-linked, not autonomous motion: the header must still keep its parts in place. */
+  .header-brand,
+  .header-address,
+  .header-account {
+    animation-duration: auto !important;
   }
 }
 
@@ -134,15 +354,38 @@
   z-index: 0;
 }
 
-@keyframes sheet-content {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 
 .route-line {
   stroke: var(--color-action);
+}
+
+/* Sheets push the page back (docs/design/shop-motion.md, "Sheet"): phones only, never under reduced
+   motion. .app-root (features/shell/app-root.tsx) is the page; the sheet marks it data-active while
+   open and mirrors Base UI's --drawer-swipe-progress onto it (0 at rest, 1 when the sheet has left),
+   so the page comes forward as the sheet is dragged away (components/ui/drawer.tsx, usePushBack).
+   The visible window (from --indent-top, the scroll position when the sheet opened) is clipped with
+   round corners and scaled about its own top. */
+@media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
+  .app-root {
+    --indent: calc(1 - var(--drawer-swipe-progress, 0));
+    transform-origin: 50% var(--indent-top, 0px);
+    transition:
+      transform var(--dur-spring-smooth) var(--ease-spring-smooth),
+      clip-path var(--dur-spring-smooth) var(--ease-spring-smooth);
+  }
+  .app-root[data-active] {
+    transform: translateY(calc(var(--indent) * 12px)) scale(calc(1 - 0.06 * var(--indent)));
+    clip-path: inset(var(--indent-top, 0px) 0 calc(100% - var(--indent-top, 0px) - 100lvh) 0 round calc(var(--indent) * 12px));
+  }
+  .app-root[data-settling] {
+    clip-path: inset(var(--indent-top, 0px) 0 calc(100% - var(--indent-top, 0px) - 100lvh) 0 round 0);
+  }
+  /* While a finger is on the sheet the page follows it 1:1. */
+  body:has([data-swiping]) .app-root {
+    transition: none;
+    will-change: transform;
+  }
+  body:has(.app-root[data-active]) {
+    background-color: var(--color-black);
+  }
 }

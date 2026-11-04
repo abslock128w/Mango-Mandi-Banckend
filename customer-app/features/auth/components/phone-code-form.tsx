@@ -10,6 +10,7 @@ import { cn } from "@/lib/format";
 import type { Profile } from "@/lib/types";
 import { errorText } from "./errors";
 import { OtpInput } from "./otp-input";
+import { spring } from "@/lib/motion";
 import { useTurnstile } from "./third-party";
 
 const noSubscribe = () => () => {};
@@ -30,6 +31,8 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
   const [code, setCode] = useState("");
   const [sent, setSent] = useState<{ channel: string; devCode?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Counts wrong codes: each one shakes the boxes (OtpInput).
+  const [wrong, setWrong] = useState(0);
   const [resendIn, setResendIn] = useState(0);
   // Until the page is interactive a tap on Send code would reload it and lose the number.
   const ready = useSyncExternalStore(noSubscribe, () => true, () => false);
@@ -62,6 +65,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
     onError: (err) => {
       setError(errorText(err, "That code didn't work. Please try again."));
       setCode("");
+      setWrong((n) => n + 1);
     },
   });
 
@@ -102,10 +106,10 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
   };
 
   return (
-    <div>
-      <AnimatePresence mode="wait" initial={false}>
+    <div className="relative">
+      <AnimatePresence mode="popLayout" initial={false}>
         {!sent ? (
-          <m.form key="phone" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }} onSubmit={sendCode} noValidate className="space-y-3">
+          <m.form key="phone" initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} transition={spring.smooth} onSubmit={sendCode} noValidate className="space-y-3">
             <p className="text-13 text-muted">{intro ?? "We'll send a 6-digit code to your phone. No password needed."}</p>
             <label htmlFor="phone" className="block text-13 font-semibold text-ink">
               Mobile number
@@ -143,7 +147,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
             </button>
           </m.form>
         ) : (
-          <m.div key="otp" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18 }} className="space-y-4">
+          <m.div key="otp" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 16 }} transition={spring.smooth} className="space-y-4">
             <p className="text-13 text-muted">
               We sent a code by {sent.channel === "whatsapp" ? "WhatsApp" : "SMS"} to <b className="font-semibold text-ink">+91 {number}</b>.{" "}
               <button
@@ -177,6 +181,7 @@ export function PhoneCodeForm({ mode, onDone, intro }: { mode: "signin" | "add";
                   if (v.length === 6) check(v);
                 }}
                 invalid={Boolean(error)}
+                shake={wrong}
                 disabled={verify.isPending}
               />
               <p role="alert" className="min-h-4 text-center text-12 text-danger">

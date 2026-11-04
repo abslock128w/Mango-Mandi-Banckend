@@ -1,4 +1,5 @@
 "use client";
+import { OutsidePage } from "@/components/ui/outside-page";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -6,7 +7,6 @@ import { Loader2, Package, ShoppingBag } from "lucide-react";
 import { useCart } from "@/features/cart/store";
 import { useLocation, usePincode } from "@/features/location/store";
 import { toast, useUi } from "@/features/shell/ui-store";
-import { PageTransition } from "@/features/shell/page-transition";
 import { api, ApiError, mediaUrl, qk } from "@/lib/api/client";
 import { boxContents, cn, dayName, rupees } from "@/lib/format";
 import { RIPENESS } from "@/lib/ripeness";
@@ -126,7 +126,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
   }
 
   return (
-    <PageTransition>
+    <>
       <div className="mx-auto max-w-content px-4 pt-4 pb-32 lg:px-6 lg:pb-10">
         <nav aria-label="Breadcrumb" className="mb-3 text-12 text-muted">
           <Link href="/bulk" className="inline-flex h-11 items-center font-semibold text-action">
@@ -143,6 +143,8 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                   srcSet={[480, 640, 960, 1200].map((w) => `${mediaUrl(cur.url, w)} ${w}w`).join(", ")}
                   sizes="(min-width: 1024px) 560px, 100vw"
                   alt={`Photo ${photo + 1} of ${deal.photos.length}, ${deal.title}`}
+                  width={960}
+                  height={720}
                   className="size-full object-cover"
                 />
               ) : (
@@ -163,7 +165,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                     className={cn("press size-16 shrink-0 overflow-hidden rounded-8 border-2", i === photo ? "border-action" : "border-transparent")}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- API thumbnail */}
-                    <img src={mediaUrl(p.url, 160)!} alt="" loading="lazy" className="size-full object-cover" />
+                    <img src={mediaUrl(p.url, 160)!} alt="" width={64} height={64} loading="lazy" className="size-full object-cover" />
                   </button>
                 ))}
               </div>
@@ -316,22 +318,24 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
               {price.error && <p className="mt-1 text-12 text-danger">{price.error instanceof ApiError ? price.error.message : "Couldn't check the price."}</p>}
             </section>
 
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
-              <button
-                type="button"
-                onClick={add}
-                disabled={!canAdd || pricing}
-                data-testid="bulk-add"
-                className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
-              >
-                {pricing ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ShoppingBag aria-hidden size={20} />}
-                {canAdd ? `Add ${n} boxes · ${rupees(total)}` : "Add to cart"}
-              </button>
-              <p className="mt-2 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
-            </div>
+            <OutsidePage>
+              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
+                <button
+                  type="button"
+                  onClick={add}
+                  disabled={!canAdd || pricing}
+                  data-testid="bulk-add"
+                  className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
+                >
+                  {pricing ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ShoppingBag aria-hidden size={20} />}
+                  {canAdd ? `Add ${n} boxes · ${rupees(total)}` : "Add to cart"}
+                </button>
+                <p className="mt-2 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
+              </div>
+            </OutsidePage>
           </div>
         </div>
       </div>
-    </PageTransition>
+    </>
   );
 }

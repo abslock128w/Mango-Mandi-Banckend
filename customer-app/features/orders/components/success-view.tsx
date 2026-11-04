@@ -8,7 +8,7 @@ import { Check, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, ApiError, qk } from "@/lib/api/client";
 import { dayName, plural, rupees, windowLabel } from "@/lib/format";
-import { softSpring } from "@/lib/motion";
+import { spring } from "@/lib/motion";
 import { useOrder, useSignedInReady } from "../hooks";
 import { Confetti } from "./confetti";
 import { SignInPrompt } from "./sign-in-prompt";
@@ -97,7 +97,7 @@ export function SuccessView({ id }: { id: string }) {
         <m.section
           initial={reduce ? false : { opacity: 0, y: 48 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ ...softSpring, delay: 0.5 }}
+          transition={{ ...spring.gentle, delay: 0.5 }}
           className="mt-8 w-full rounded-16 border-[0.5px] border-line bg-surface p-4 text-left shadow-card"
           aria-label="Order summary"
         >

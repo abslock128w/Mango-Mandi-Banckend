@@ -1,4 +1,6 @@
 "use client";
+import { Crossfade } from "@/components/ui/crossfade";
+import { RevealOnce } from "@/components/ui/reveal-once";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bike, CalendarDays, Check, CircleAlert, Download, Image as ImageIcon, KeyRound, Loader2, MapPin, MessageCircle, RotateCcw, XCircle } from "lucide-react";
@@ -37,9 +39,10 @@ export function claimStatusText(c: Claim) {
 /** The usual path of an order, for the steps still to come. */
 const PATH: OrderStatus[] = ["CONFIRMED", "PROCESSING", "PACKED", "OUT_FOR_DELIVERY", "DELIVERED"];
 
+/** A card of the tracking page; each fades and rises once as it first appears (RevealOnce). */
 function Section({ title, children, className, icon }: { title?: string; children: React.ReactNode; className?: string; icon?: React.ReactNode }) {
   return (
-    <section className={cn("rounded-12 bg-surface p-4", className)} aria-label={title}>
+    <RevealOnce as="section" className={cn("rounded-12 bg-surface p-4", className)} aria-label={title}>
       {title && (
         <h2 className="mb-2 flex items-center gap-2 text-15 font-bold text-ink">
           {icon}
@@ -47,7 +50,7 @@ function Section({ title, children, className, icon }: { title?: string; childre
         </h2>
       )}
       {children}
-    </section>
+    </RevealOnce>
   );
 }
 
@@ -233,8 +236,11 @@ function DeliveryPhoto({ orderId }: { orderId: string }) {
   const photo = useMutation({ mutationFn: () => api.deliveryPhoto(orderId) });
   if (photo.data)
     return (
-      // eslint-disable-next-line @next/next/no-img-element -- a signed-in object URL, not a static asset
-      <img src={photo.data} alt="Your box at the door" className="mt-2 max-h-80 w-full rounded-8 object-contain" />
+      // A 4:3 box from the start, so the page doesn't move when the photo decodes.
+      <div className="mt-2 aspect-[4/3] max-h-80 w-full overflow-hidden rounded-8 bg-chip">
+        {/* eslint-disable-next-line @next/next/no-img-element -- a signed-in object URL, not a static asset */}
+        <img src={photo.data} alt="Your box at the door" width={640} height={480} className="size-full object-contain" />
+      </div>
     );
   return (
     <>
@@ -372,9 +378,17 @@ function OrderDetail({ order }: { order: Order }) {
           <Section>
             <p className="flex items-center gap-2 text-15 font-bold text-ink" aria-live="polite">
               <Bike aria-hidden size={18} className="text-action" />
-              {order.tracking.stopsAway === 0 ? "You're the next stop" : `${plural(order.tracking.stopsAway, "stop")} away`}
+              <Crossfade inline id={order.tracking.stopsAway}>
+                {order.tracking.stopsAway === 0 ? "You're the next stop" : `${plural(order.tracking.stopsAway, "stop")} away`}
+              </Crossfade>
             </p>
-            <p className="mt-0.5 text-12 text-muted">Expect it in about {Math.max(5, Math.round(order.tracking.etaMinutes / 5) * 5)} minutes.</p>
+            <p className="mt-0.5 text-12 text-muted">
+              Expect it in about{" "}
+              <Crossfade inline id={Math.max(5, Math.round(order.tracking.etaMinutes / 5) * 5)}>
+                {Math.max(5, Math.round(order.tracking.etaMinutes / 5) * 5)}
+              </Crossfade>{" "}
+              minutes.
+            </p>
           </Section>
         )}
 

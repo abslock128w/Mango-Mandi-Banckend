@@ -2,13 +2,14 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { Minus, Plus } from "lucide-react";
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { morphSpring } from "@/lib/motion";
 import { cn, ripenessLabel } from "@/lib/format";
 import type { Product, Sku } from "@/lib/types";
 import { MAX_QTY, useCart, useQty } from "../store";
 import { toast } from "@/features/shell/ui-store";
+import { fly, prefetchFly } from "../fly-lazy";
 
 interface Props {
   product: Product;
@@ -19,7 +20,8 @@ interface Props {
 
 /**
  * Blinkit ADD pill that morphs into a solid minus-count-plus stepper of the
- * same size (shared layoutId, spring 500/30). Collapses back to ADD at 0.
+ * same size (shared layoutId, spring.snappy, interruptible: a second tap never waits).
+ * Collapses back to ADD at 0. Each add on a phone sends the photo into the cart bar (fly.ts).
  */
 export function AddButton({ product, sku, size = "card", className }: Props) {
   const qty = useQty(sku.id);
@@ -31,18 +33,20 @@ export function AddButton({ product, sku, size = "card", className }: Props) {
   // The product page renders PurchaseBar twice (phone bar + laptop column), and the
   // same SKU can sit in two lists with the same scope.
   const layoutId = `add-${useId()}`;
+  useEffect(prefetchFly, []);
   const label = `${product.name} ${ripenessLabel[sku.ripeness]} ${sku.size} kg`;
   const limit = Math.min(MAX_QTY, sku.stock);
   const box = size === "lg" ? "h-11 w-[120px]" : "h-8 w-[66px]";
   const dims = size === "lg" ? "text-15 rounded-6" : "text-13 rounded-6";
   const transition = reduce ? { duration: 0 } : morphSpring;
 
-  const inc = () => {
+  const inc = (e: React.MouseEvent<HTMLElement>) => {
     if (qty >= limit) {
       toast(qty >= MAX_QTY ? { title: `Up to ${MAX_QTY} boxes per order`, action: { label: "Bulk order", href: "/bulk" } } : { title: "No more boxes in stock" });
       return;
     }
     setQty(sku.id, qty + 1);
+    fly(e.currentTarget);
   };
 
   return (
@@ -58,8 +62,9 @@ export function AddButton({ product, sku, size = "card", className }: Props) {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             whileTap={reduce ? undefined : { scale: 0.96 }}
-            onClick={() => {
+            onClick={(e) => {
               add(product, sku);
+              fly(e.currentTarget);
             }}
             aria-label={`Add ${label} to cart`}
             className={cn(
