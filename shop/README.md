@@ -45,6 +45,15 @@ Nominatim (allowed in the CSP `connect-src`). The profile shows the name and pho
 addresses (remove), favourites, the WhatsApp reminder switch (`PATCH /v1/me`), pre-orders and
 sign out, with a Profile / My orders tab bar.
 
+### Deliver to (location.js)
+
+The shop bar starts with a "Deliver to" chip. Its sheet sets the area up front, by current location,
+the map (with building search), a saved address or a pincode; the shop then shows that area's stock
+and delivery days. First-time visitors get the sheet once, offering their current location. Only the
+area is asked here: checkout starts from it (pincode, map pin, saved address, street from the
+location) and asks for the flat and building. The profile page sets the customer's name
+(`PATCH /v1/me {name}`; on an API without it, the name is kept on the device).
+
 ### Delivery map and order tracking
 
 `map-picker.js` adds a map to the checkout's delivery step: Leaflet 1.9.4 (served from

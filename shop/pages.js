@@ -12,7 +12,7 @@ const PAGES = [
   [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
 ]
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
-let homeScroll = 0
+let homeScroll = 0, nameEditing = false
 
 const isPage = (path) => PAGES.some(([re]) => re.test(path))
 const pageOpen = () => document.body.classList.contains('page-open')
@@ -94,13 +94,17 @@ async function accountView(seq = ++sheetSeq) {
     error = e.status === 401 ? 'Please sign in again.' : e.message
   }
   if (!alive(seq)) return
-  const name = me.name || 'Mango lover', phone = me.phone || ''
+  const named = me.name || (MM.profile() || {}).name || ''
+  const name = named || 'Mango lover', phone = me.phone || ''
+  const editing = nameEditing || !named
   const favs = favorites.filter((n) => shelf.some((v) => v.name === n))
   host().innerHTML = head('Your profile') + marker(seq) + `
     ${error ? `<p class="prototype-tag" role="alert">${esc(error)}</p>` : ''}
     <section class="page-card profile-card">
       <span class="avatar" aria-hidden="true">${esc(name.trim()[0] || 'M').toUpperCase()}</span>
-      <div><h2>${esc(name)}</h2><p>${esc(phone)}</p></div>
+      ${editing
+        ? `<form id="name-form" class="name-form"><label class="field">${named ? 'Your name' : 'What should we call you?'}<input name="name" maxlength="80" autocomplete="name" required value="${esc(named)}" placeholder="Your name"></label><button class="button primary" type="submit">Save</button></form>`
+        : `<div><h2>${esc(name)}</h2><p>${esc(phone)} · <button class="text-button inline-link" data-edit-name>Edit name</button></p></div>`}
     </section>
     <section class="page-card">
       <h3>Saved addresses</h3>
@@ -275,6 +279,9 @@ document.addEventListener('click', (e) => {
   if (b.hasAttribute('data-page-back')) {
     if (history.state && history.state.mm) history.back()
     else go('/')
+  } else if (b.hasAttribute('data-edit-name')) {
+    nameEditing = true
+    accountView()
   } else if (b.dataset.removeAddress) {
     MM.deleteAddress(b.dataset.removeAddress).then(() => {
       toast('Address removed')
@@ -285,6 +292,34 @@ document.addEventListener('click', (e) => {
     go('/#shop')
     productDetail(name)
   }
+})
+
+// The name on the profile page: saved to the account (PATCH /v1/me); if the API doesn't take it yet, kept on
+// this device so checkout still fills it in.
+document.addEventListener('submit', (e) => {
+  if (e.target.id !== 'name-form') return
+  e.preventDefault()
+  const name = String(new FormData(e.target).get('name') || '').trim()
+  if (!name) return
+  const b = e.target.querySelector('button')
+  b.disabled = true
+  MM.updateMe({ name }).then(
+    (me) => {
+      MM.rememberProfile({ name: me.name ?? name })
+      toast('Name saved')
+    },
+    (err) => {
+      if (err.status !== 400) throw err
+      MM.rememberProfile({ name })
+      toast('Name saved on this device')
+    },
+  ).then(() => {
+    nameEditing = false
+    accountView()
+  }, (err) => {
+    b.disabled = false
+    toast(err.message)
+  })
 })
 
 document.addEventListener('change', (e) => {

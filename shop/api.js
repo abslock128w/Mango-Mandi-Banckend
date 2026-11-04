@@ -45,6 +45,8 @@ async function authBlob(path){if(!token&&profile)await refreshOnce();const go=()
 window.MM={
   api,idem,toRupees,
   profile:()=>profile,
+  // After the profile changes here (the name, saved on the profile page).
+  rememberProfile:p=>setProfile({...profile,...p}),
   restore:()=>profile&&!token?refreshOnce():Promise.resolve(!!token),
   async signOut(){try{await raw('/auth/logout',{method:'POST',body:{}})}catch{}signedOut()},
   // public

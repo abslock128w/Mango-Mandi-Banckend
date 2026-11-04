@@ -287,3 +287,24 @@ body[data-page="checkout"] .dock-mini{display:none!important}
 @media(max-width:1000px){.bag-label{display:none}.bag-button{padding:10px 12px}}
 @media(max-width:900px){.desktop-nav{display:none}.hero{grid-template-columns:1fr}.hero-photo{min-height:340px}.hero-copy h1{font-size:52px}.hero-bottom>span:last-child{display:none}footer{padding-bottom:150px}.toast{bottom:150px}}
 @media(min-width:701px) and (max-width:900px){.search-row{display:none}.shop-top{padding-bottom:6px}.collection-toolbar{top:140px}html{scroll-padding-top:150px}}
+/* "Deliver to" chip in the shop bar (location.js) and its sheet. */
+.where-chip{display:flex;align-items:center;gap:9px;min-height:44px;max-width:min(420px,72vw);padding:5px 12px 5px 8px;margin:-6px 0;border-radius:22px;text-align:left;color:var(--ink);background:linear-gradient(170deg,#fffffff2,#fffcf3db);box-shadow:inset 0 0 0 1px var(--line),0 4px 14px #24442d14}
+.where-chip>svg:first-child{flex-shrink:0;width:30px;height:30px;padding:7px;border-radius:50%;background:var(--accent-bead);color:var(--accent-ink)}
+.where-text{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.where-text small{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.where-text strong{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.where-chip:not(.is-set) .where-text strong{color:var(--accent)}
+.where-caret{flex-shrink:0;width:16px;height:16px;color:var(--muted)}
+.where-sheet{width:560px}
+.where-intro{font-size:13px;color:var(--muted);line-height:1.7;margin:-6px 0 16px}
+.where-sheet .button.primary svg{width:18px;height:18px}
+.where-sheet .field{margin-top:18px}
+.where-sheet .map-slot{margin-top:8px}
+.where-sheet [data-where-map]{margin-top:10px}
+.where-pin{display:flex;align-items:flex-end;gap:10px}.where-pin .field{flex:1}.where-pin .button{min-height:46px}
+.where-skip{margin:16px auto 0}
+.where-error{margin:12px 0 0}
+@media(max-width:700px){.greeting .natural{display:none}.where-chip{max-width:100%;width:100%}.greeting{margin-bottom:4px}}
+.name-form{flex:1;display:flex;align-items:flex-end;gap:10px}.name-form .field{flex:1}.name-form .button{min-height:46px}
+.inline-link{display:inline-flex;padding:0;max-width:none;font-weight:600;color:var(--accent)}
+@media(max-width:700px){.profile-card{align-items:flex-start}.name-form{flex-direction:column;align-items:stretch}}

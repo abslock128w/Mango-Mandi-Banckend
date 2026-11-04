@@ -501,19 +501,25 @@ router.get('/me', asyncHandler(async (req, res) => {
   res.json(meView(rows[0]))
 }))
 
-/** Settings the customer controls: for now, the WhatsApp reminder a week after delivery. */
+/** Settings the customer controls: their name, and the WhatsApp reminder a week after delivery. */
 router.patch('/me', asyncHandler(async (req, res) => {
-  const b = parse(z.object({ remindersOptIn: z.boolean() }).strict(), req.body ?? {})
-  // The change is also WhatsApp promotional consent, with the request id as evidence (docs/whatsapp/CONSENT.md).
+  const b = parse(
+    z.object({
+      remindersOptIn: z.boolean().optional(),
+      name: z.string().trim().min(1, 'Enter your name').max(80, 'Keep the name under 80 characters').optional(),
+    }).strict().refine((v) => v.remindersOptIn !== undefined || v.name !== undefined, 'Nothing to change'),
+    req.body ?? {},
+  )
+  // A reminder change is also WhatsApp promotional consent, with the request id as evidence (docs/whatsapp/CONSENT.md).
   const row = await tx(async (c) => {
     const { rows } = await c.query(
-      `UPDATE customers SET reminders_opt_in = $2 WHERE id = $1 AND deleted_at IS NULL
+      `UPDATE customers SET reminders_opt_in = COALESCE($2, reminders_opt_in), name = COALESCE($3, name) WHERE id = $1 AND deleted_at IS NULL
         RETURNING id, phone, name, email, reminders_opt_in, (SELECT reminders_opt_in FROM customers WHERE id = $1) AS was`,
-      [req.customer.id, b.remindersOptIn],
+      [req.customer.id, b.remindersOptIn ?? null, b.name ?? null],
     )
     if (!rows.length) throw notFound('Customer not found')
     const cu = rows[0]
-    if (cu.was !== b.remindersOptIn && /^\+[1-9][0-9]{6,14}$/.test(cu.phone ?? '')) {
+    if (b.remindersOptIn !== undefined && cu.was !== b.remindersOptIn && /^\+[1-9][0-9]{6,14}$/.test(cu.phone ?? '')) {
       await setConsent(c, { phone: cu.phone, customerId: cu.id, scope: 'marketing', action: b.remindersOptIn ? 'OPT_IN' : 'OPT_OUT', source: 'shop_account', evidence: req.id ? `request ${req.id}` : null })
     }
     return cu
