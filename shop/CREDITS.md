@@ -48,3 +48,10 @@ From [Unsplash](https://unsplash.com) under the [Unsplash License](https://unspl
 | `assets/mangoes/m39.webp` | [@scoutori](https://unsplash.com/@scoutori) | https://unsplash.com/photos/a-hand-holds-a-purple-mango-with-two-others-nearby-oIfClDoDdaE |
 
 They are illustrative: they show the variety type, not the actual fruit in a given box.
+
+## Fonts (`assets/fonts/`)
+
+- **Besley** by Owen Earl (indestructible type*), SIL Open Font License 1.1.
+- **Schibsted Grotesk** by Bakken & Bæck for Schibsted, SIL Open Font License 1.1.
+
+Both downloaded as WOFF2 (latin and latin-ext) from [Fontsource](https://fontsource.org).
