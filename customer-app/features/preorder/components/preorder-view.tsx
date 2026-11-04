@@ -294,7 +294,7 @@ function BookForm({ weeks, stages, cancelPolicy, onStale }: { weeks: PreorderWee
           )}
         </div>
 
-        <div className="flex items-center justify-between border-t border-line pt-3">
+        <div className="flex items-center justify-between border-t border-hairline pt-3">
           <span className="text-13 text-ink">
             {boxes} × {pick.name}
           </span>

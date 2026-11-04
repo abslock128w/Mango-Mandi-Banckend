@@ -77,7 +77,7 @@ function Account() {
       </section>
 
       <nav aria-label="Account">
-        <ul className="divide-y divide-line rounded-12 bg-surface">
+        <ul className="divide-y divide-hairline rounded-12 bg-surface">
           {ROWS.map(({ href, icon: Icon, label }) => (
             <li key={href}>
               <Link href={href} className="flex h-14 items-center gap-3 px-4 text-13 text-ink hover:bg-chip">

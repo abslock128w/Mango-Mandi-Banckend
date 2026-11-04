@@ -5,8 +5,10 @@ import * as m from "motion/react-m";
 import { ChevronRight } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { GlassGlow, useGlassPress } from "@/components/ui/glass-press";
 import { RollingNumber } from "@/components/ui/rolling-number";
 import { useUi } from "@/features/shell/ui-store";
+import { useBackdropTone } from "@/lib/hooks/use-backdrop-tone";
 import { useScrollDirection } from "@/lib/hooks/use-scroll-direction";
 import { rupees } from "@/lib/format";
 import { ease, spring } from "@/lib/motion";
@@ -50,6 +52,9 @@ function usePulse(count: number, reduce: boolean | null) {
  * Floating cart bar (phones and tablets). Laptops use the header cart button.
  * Arrives on spring.bouncy, pulses on each add, and slides away while the customer scrolls down
  * (useScrollDirection, their own scrolling only), back on the way up or as soon as the cart changes.
+ * A liquid glass capsule (globals.css, .glass--pill): the page shows through it, its tone flips to
+ * dark over photos (useBackdropTone), it lights up from under the finger (useGlassPress), and the
+ * badge and thumbnails inside are concentric with it (28 px − 8 px padding = 20 px).
  */
 export function CartBar() {
   const lines = useCart((s) => s.lines);
@@ -73,6 +78,9 @@ export function CartBar() {
     setHiddenAt(direction === "down" ? count : null);
   }
   const tucked = hiddenAt !== null && hiddenAt === count;
+  const bar = useRef<HTMLButtonElement>(null);
+  useBackdropTone(bar, visible);
+  const glassPress = useGlassPress();
 
   return (
     <div
@@ -88,9 +96,12 @@ export function CartBar() {
         <AnimatePresence>
           {visible && (
             <m.button
+              ref={bar}
               type="button"
               key="bar"
               data-testid="cart-bar"
+              data-glass-group
+              {...glassPress}
               onClick={() => setOpen(true)}
               initial={reduce ? { opacity: 0 } : { y: 96, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -98,10 +109,10 @@ export function CartBar() {
               transition={spring.bouncy}
               style={{ scale: pulse }}
               whileTap={{ scale: 0.97 }}
-              className="pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 rounded-12 bg-deep pr-3 pl-2 text-left text-white shadow-sheet"
+              className="glass glass--pill pointer-events-auto mx-auto flex h-14 w-full max-w-[560px] items-center gap-3 rounded-full pr-3 pl-2 text-left"
               aria-label={`View cart, ${count} item${count === 1 ? "" : "s"}, ${rupees(itemTotal)}`}
             >
-              <DeliveryBadge />
+              <DeliveryBadge size={40} />
               <span data-cart-thumbs className="flex -space-x-3" aria-hidden>
                 <AnimatePresence initial={false}>
                   {thumbs.map((l, i) => (
@@ -112,7 +123,8 @@ export function CartBar() {
                       animate={{ scale: 1, opacity: 1, x: 0 }}
                       exit={{ scale: 0.4, opacity: 0 }}
                       transition={{ ...spring.snappy, delay: reduce ? 0 : i * 0.05 }}
-                      className="relative size-9 overflow-hidden rounded-8 border-2 border-deep bg-white"
+                      data-thumb
+                      className="relative size-9 overflow-hidden rounded-[20px] border-2 border-white/80 bg-white"
                       style={{ zIndex: 3 - i }}
                     >
                       <BlurImage src={l.image} alt="" fill sizes="36px" className="object-cover" />
@@ -131,6 +143,7 @@ export function CartBar() {
               <span className="flex items-center gap-0.5 text-15 font-bold">
                 View cart <ChevronRight aria-hidden size={20} strokeWidth={2} />
               </span>
+              <GlassGlow />
             </m.button>
           )}
         </AnimatePresence>

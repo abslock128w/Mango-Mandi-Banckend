@@ -231,7 +231,7 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         </div>
         {changeDay && <DayPicker />}
-        <ul className="relative mt-3 space-y-3 border-t border-line pt-3">
+        <ul className="relative mt-3 space-y-3 border-t border-hairline pt-3">
           <AnimatePresence initial={false} mode="popLayout">
             {lines.map((l) => (
               <CartLineRow key={l.skuId} line={l} soldOutOn={slot && soldOut.has(l.skuId) ? slot.dayLabel.replace(/^(Today|Tomorrow)$/, (d) => d.toLowerCase()) : undefined} />
@@ -241,7 +241,7 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
             <BulkLineRow key={`${b.listingId}-${b.stage}`} line={b} />
           ))}
         </ul>
-        <Link href="/c/all" onClick={() => onNavigate?.()} className="mt-3 flex h-11 items-center gap-1 border-t border-line pt-2 text-13 font-semibold text-action">
+        <Link href="/c/all" onClick={() => onNavigate?.()} className="mt-3 flex h-11 items-center gap-1 border-t border-hairline pt-2 text-13 font-semibold text-action">
           <Plus aria-hidden size={16} strokeWidth={2.5} /> Add more items
         </Link>
       </section>

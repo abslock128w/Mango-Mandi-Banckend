@@ -76,7 +76,7 @@ export function PreordersList() {
               <ChevronRight aria-hidden size={20} className="mt-1 shrink-0 text-muted" />
             </Link>
             {p.status === "CONVERTED" && p.orderId && (
-              <Link href={`/order/${p.orderId}`} className="flex h-11 items-center border-t border-line px-3 text-13 font-semibold text-action">
+              <Link href={`/order/${p.orderId}`} className="flex h-11 items-center border-t border-hairline px-3 text-13 font-semibold text-action">
                 See the order
               </Link>
             )}

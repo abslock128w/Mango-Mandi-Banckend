@@ -17,6 +17,8 @@ import { SECTIONS } from "../sections";
 import { DEFAULT_FILTERS, filtersFromQuery, filtersToQuery, SORTS, type Filters, type Tab } from "../filters";
 import { WhenVisible } from "@/components/ui/when-visible";
 import { useIsDesktop } from "@/lib/hooks/use-media";
+import { useBackdropTone } from "@/lib/hooks/use-backdrop-tone";
+import { useStuck } from "@/lib/hooks/use-stuck";
 
 
 const SECTION_STAGE: Record<Collection, RipenessStage | null> = { all: null, ripe: "RIPE", "semi-ripe": "SEMI_RIPE", raw: "RAW" };
@@ -72,7 +74,7 @@ const FilterSheet = dynamic(() => import("./filter-sheet").then((m) => m.FilterS
 
 function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id: Collection) => void }) {
   return (
-    <nav aria-label="Ripeness and collections" className="no-scrollbar sticky top-(--header-h) h-[calc(100dvh-var(--header-h))] w-rail shrink-0 overflow-y-auto border-r border-line bg-surface lg:w-[104px]">
+    <nav aria-label="Ripeness and collections" className="no-scrollbar sticky top-(--header-h) h-[calc(100dvh-var(--header-h))] w-rail shrink-0 overflow-y-auto border-r border-hairline bg-surface lg:w-[104px]">
       <ul>
         {SECTIONS.map((s) => {
           const on = s.id === active;
@@ -121,8 +123,14 @@ function useUrlFilters(): [Filters, (f: Filters) => void] {
   return [filters, setFilters];
 }
 
+const headerHeight = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue("--header-h")) || 0;
+
 export function Listing({ initial }: { initial: Collection }) {
   const [filters, setFilters] = useUrlFilters();
+  // The chip row is a plain surface in the flow and glass once it sticks under the header.
+  const { sentinel, stuck } = useStuck(headerHeight);
+  const chips = useRef<HTMLDivElement>(null);
+  useBackdropTone(chips, stuck);
   const [active, setActive] = useState<Collection>(initial);
   const [sheet, setSheet] = useState<{ open: boolean; tab: Tab; loaded: boolean }>({ open: false, tab: "sort", loaded: false });
   const sectionRefs = useRef(new Map<Collection, HTMLElement>());
@@ -193,7 +201,8 @@ export function Listing({ initial }: { initial: Collection }) {
           }}
         />
         <div className="min-w-0 flex-1">
-          <div className="no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto border-b border-line bg-surface px-3 py-2">
+          <div ref={sentinel} aria-hidden className="h-0" />
+          <div ref={chips} className={cn("no-scrollbar sticky top-(--header-h) z-20 flex gap-2 overflow-x-auto px-3 py-2", stuck ? "glass glass--bar" : "border-b border-hairline bg-surface")}>
             <Chip onClick={() => openSheet("sort")} count={filterCount} active={filterCount > 0}>
               <SlidersHorizontal aria-hidden size={14} strokeWidth={2} /> Filters
             </Chip>

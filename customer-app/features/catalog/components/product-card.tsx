@@ -69,10 +69,11 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
         className="group block rounded-8 focus-visible:outline-offset-4"
         aria-label={`${name}, ${ripenessLabel[stage].toLowerCase()}, ${sku.boxLabel}, ${rupees(sku.price)}`}
       >
-        <div className="relative">
+        {/* The photo has the whole width of the card (the editorial feel): it bleeds to the card's edges. */}
+        <div className="relative -mx-3 -mt-3">
           <ViewTransition name={vtName(scope, product.id)} share="morph" default="none">
-            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-8 bg-surface">
-              {/* The photo fades in over its own blurred colours as soon as it decodes. */}
+            <m.div layoutId={`img-${scope}-${product.id}`} transition={spring.smooth} data-fly-image className="relative aspect-square overflow-hidden rounded-t-8 bg-surface">
+              {/* The photo fades in over its own blurred colours as soon as it decodes, settles from 1.03 on first reveal and lifts under a press. */}
               <BlurImage
                 src={productImage(product, stage)}
                 alt=""
@@ -81,8 +82,13 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
                 preload={priority}
                 fetchPriority={priority ? "high" : "auto"}
                 loading={priority || eager ? "eager" : "lazy"}
-                className={cn("object-cover transition-[opacity,filter] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
+                data-settle
+                className={cn("photo-lift object-cover transition-[opacity,filter,transform] duration-(--dur-m) ease-standard group-hover:scale-[1.02]", unavailable && "opacity-50 grayscale-[40%]")}
               />
+              {/* The stage sits on a soft scrim at the foot of the photo, not in a label row. */}
+              <span aria-hidden className="scrim absolute inset-x-0 bottom-0 flex h-12 items-end p-2">
+                <RipenessChip stage={stage} onPhoto />
+              </span>
             </m.div>
           </ViewTransition>
           {few && (
@@ -108,12 +114,11 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           </ViewTransition>
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <RipenessChip stage={stage} />
           <BoxToggle product={product} ripeness={stage} value={size} onChange={setSize} compact />
         </div>
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
-            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink">
+            <m.span layout="position" layoutId={`price-${scope}-${product.id}`} transition={spring.smooth} className="text-12 font-semibold text-ink tabular-nums">
               {rupees(sku.price)}
             </m.span>
             {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
@@ -134,7 +139,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
 export function ProductCardSkeleton({ fixed }: { fixed?: boolean }) {
   return (
     <div aria-hidden className={cn("flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card", fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full")}>
-      <div className="skeleton aspect-square rounded-8" />
+      <div className="skeleton -mx-3 -mt-3 aspect-square rounded-t-8" />
       <div className="skeleton mt-2 h-4 w-20 rounded-4" />
       <div className="skeleton mt-2 h-4 w-full rounded-4" />
       <div className="skeleton mt-1 h-4 w-2/3 rounded-4" />

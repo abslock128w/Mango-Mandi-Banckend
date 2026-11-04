@@ -101,6 +101,19 @@
   mask-image: linear-gradient(to right, transparent, black 16px, black calc(100% - 16px), transparent);
 }
 
+/* Editorial feel (docs/design/shop-motion.md): a photo settles 1.03 → 1 the first time its card is
+   revealed (RevealOnce plays this on [data-settle]) and lifts 1.02 under a press. Transform only. */
+@utility photo-lift {
+  transition: transform var(--dur-spring-snappy) var(--ease-spring-snappy);
+  .group:active & {
+    transform: scale(1.02);
+  }
+}
+/* Words on a photo: a soft scrim from the bottom, never a boxed label. */
+@utility scrim {
+  background-image: linear-gradient(to top, rgb(43 29 18 / 0.78), rgb(43 29 18 / 0.28) 55%, transparent);
+}
+
 @utility skeleton {
   background-color: var(--color-chip);
   background-image: linear-gradient(
@@ -281,6 +294,7 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
 @supports (animation-timeline: scroll()) {
   @media (max-width: 1023px) {
     .header-brand,
+    .header-brand-bg,
     .header-address,
     .header-account {
       animation-duration: auto;
@@ -291,6 +305,10 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
     }
     .header-brand {
       animation-name: header-brand;
+    }
+    /* The brand gradient over the glass bar goes with the large title. */
+    .header-brand-bg {
+      animation-name: header-brand-bg;
     }
     .header-address {
       animation-name: header-address;
@@ -308,6 +326,11 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   to {
     opacity: 0;
     transform: scale(0.96);
+  }
+}
+@keyframes header-brand-bg {
+  to {
+    opacity: 0;
   }
 }
 @keyframes header-address {
@@ -342,6 +365,7 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   }
   /* Scroll-linked, not autonomous motion: the header must still keep its parts in place. */
   .header-brand,
+  .header-brand-bg,
   .header-address,
   .header-account {
     animation-duration: auto !important;
@@ -388,4 +412,403 @@ html[data-vt="root"][data-nav="dismiss"]::view-transition-new(root) {
   body:has(.app-root[data-active]) {
     background-color: var(--color-black);
   }
+}
+
+/* Liquid glass (docs/design/shop-motion.md, "Liquid glass"). One class, four modifiers, for the
+   floating chrome only (header, cart bar, a stuck chip row, sheet headers, toasts, the two tinted
+   CTAs): never cards, lists or page backgrounds, never glass on glass. The host must be positioned
+   (sticky, fixed, relative) for the layers below to sit inside it.
+   - the body: a light wash over a blur and a push of saturation (backdrop-filter), tone-flipped to
+     dark by data-tone (features/shell/use-backdrop-tone.ts) when a photo or dark card is behind it.
+   - the rim: a bright hairline along the top edge, a warm one along the bottom, a faint 2 px inner
+     band that reads as the thickness of the glass where there is no lens.
+   - ::before, the sheen: a soft diagonal highlight blended in, which slides as the page scrolls
+     (a scroll-driven animation of its position, so it costs no script per frame).
+   - ::after, the lens (Chromium): a second backdrop-filter that bends what shows through at the
+     rim (components/glass/lens.tsx). Safari and Firefox ignore url() in backdrop-filter and keep
+     the blur, rim and sheen: the thicker-edge read without the refraction.
+   - press: scale .97 and a glow from under the finger (.glass-glow, components/ui/pressable.tsx).
+   Fallbacks at the end: no backdrop-filter or reduced transparency get a frosted, near-opaque
+   surface; more contrast gets an opaque surface with an ink border; reduced motion freezes the
+   sheen and the flex. At most four glass surfaces are mounted at once (tests/unit/glass.test.ts). */
+@layer components {
+  .glass {
+    --glass-ink: var(--color-ink);
+    --glass-bg: var(--glass-bg-light);
+    --glass-shadow: var(--glass-shadow-quiet);
+    isolation: isolate;
+    color: var(--glass-ink);
+    background-color: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid transparent;
+    border-top-color: var(--glass-rim-top);
+    box-shadow:
+      inset 0 1px 0 var(--glass-rim-top),
+      inset 0 -1px 0 var(--glass-rim-bottom),
+      inset 0 0 0 2px rgba(255, 255, 255, 0.18),
+      var(--glass-shadow);
+    /* The tone swap and the press: a 200 ms crossfade of the wash, the flex on the snappy spring. */
+    transition:
+      background-color 200ms var(--ease-standard),
+      color 200ms var(--ease-standard),
+      box-shadow 200ms var(--ease-standard),
+      transform var(--dur-spring-snappy) var(--ease-spring-snappy);
+  }
+  :where(.glass) {
+    position: relative;
+  }
+  .glass[data-tone="dark"] {
+    --glass-ink: #fff;
+    --glass-bg: var(--glass-bg-dark);
+    --glass-shadow: var(--glass-shadow-busy);
+    border-top-color: rgba(255, 255, 255, 0.35);
+  }
+  /* Capsules for bars and pills: radius = height / 2. */
+  .glass--pill {
+    border-radius: 9999px;
+  }
+  /* A bar spanning the screen: no radius, a rim only along its bottom edge. */
+  .glass--bar {
+    border-radius: 0;
+    border: 0;
+    box-shadow:
+      inset 0 -1px 0 var(--glass-rim-bottom),
+      var(--glass-shadow);
+  }
+  /* The one primary action: the action colour as a tint, white ink; it never flips. */
+  .glass--tint {
+    --glass-ink: #fff;
+    --glass-bg: var(--glass-tint-action);
+    border-top-color: rgba(255, 255, 255, 0.45);
+  }
+  .glass--tint[data-tone="dark"] {
+    --glass-bg: var(--glass-tint-action);
+  }
+  /* Nearly opaque, so the lens would only smear its own edge: no lens on tinted glass. */
+  .glass--tint::after {
+    display: none !important;
+  }
+  /* Large glass (a sheet header): its tone shifts with what is behind it but never flips, and it
+     becomes opaque when the sheet reaches the top (data-opaque, a crossfade of the wash). */
+  .glass--large[data-opaque] {
+    --glass-bg: var(--color-surface);
+  }
+
+  .glass::before,
+  .glass::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: -1;
+  }
+  /* The sheen, blended in; its position follows the page scroll (0 to 480 px) so the highlight glides. */
+  .glass::before {
+    background-image: var(--glass-sheen);
+    background-size: 220% 100%;
+    background-position: 0% 0;
+    mix-blend-mode: soft-light;
+  }
+  @supports (animation-timeline: scroll()) {
+    .glass::before {
+      animation: glass-sheen linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0 480px;
+    }
+  }
+  @keyframes glass-sheen {
+    to {
+      background-position: 100% 0;
+    }
+  }
+  /* The lens: Chromium bends the backdrop at the rim by the edge map (components/glass/lens.tsx). */
+  .glass::after {
+    display: none;
+  }
+  @supports (backdrop-filter: url("#glass-lens")) {
+    .glass::after {
+      display: block;
+      backdrop-filter: url("#glass-lens");
+    }
+  }
+  /* Flex and illuminate on press (Pressable's glass mode sets data-pressed and --px/--py). */
+  .glass[data-pressed] {
+    transform: scale(0.97);
+    transition-duration: 200ms, 200ms, 200ms, var(--dur-xs);
+  }
+  .glass-glow {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background-image: radial-gradient(120px circle at var(--px, 50%) var(--py, 50%), rgba(255, 255, 255, 0.45), transparent 60%);
+    opacity: 0;
+    transition: opacity 300ms var(--ease-standard);
+  }
+  .glass[data-pressed] > .glass-glow {
+    opacity: 1;
+    transition-duration: 120ms;
+  }
+  /* Light spreads onto neighbouring glass in the same group: a brighter rim while one is pressed. */
+  [data-glass-group]:has([data-pressed]) .glass:not([data-pressed]) {
+    border-top-color: #fff;
+  }
+  /* The scroll edge under a bar: content dissolves softly into the glass instead of meeting a line. */
+  .glass-edge {
+    position: absolute;
+    inset-inline: 0;
+    top: 100%;
+    height: 24px;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    mask-image: linear-gradient(to bottom, black, transparent);
+  }
+
+  /* Fallbacks. No backdrop-filter at all, or Reduce Transparency: a frosted, near-opaque surface. */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass {
+      --glass-bg: var(--glass-bg-frost);
+    }
+    .glass[data-tone="dark"] {
+      --glass-bg: var(--glass-bg-frost);
+      --glass-ink: var(--color-ink);
+    }
+    .glass--tint {
+      --glass-bg: var(--color-action);
+      --glass-ink: #fff;
+    }
+    .glass::after,
+    .glass-edge {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      --glass-bg: var(--glass-bg-frost);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+    .glass[data-tone="dark"] {
+      --glass-bg: var(--glass-bg-frost);
+      --glass-ink: var(--color-ink);
+    }
+    .glass--tint {
+      --glass-bg: var(--color-action);
+      --glass-ink: #fff;
+    }
+    .glass::after,
+    .glass-edge {
+      display: none;
+    }
+  }
+  /* Increase Contrast: opaque, with an ink border. */
+  @media (prefers-contrast: more) {
+    .glass {
+      --glass-bg: var(--color-surface);
+      --glass-ink: var(--color-ink);
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      border: 1.5px solid var(--color-ink);
+      box-shadow: none;
+    }
+    .glass--tint {
+      --glass-bg: var(--color-action);
+      --glass-ink: #fff;
+    }
+    .glass::before,
+    .glass::after,
+    .glass-edge {
+      display: none;
+    }
+  }
+  /* Reduced motion: the sheen holds still, nothing flexes. */
+  @media (prefers-reduced-motion: reduce) {
+    .glass::before {
+      animation: none;
+    }
+    .glass[data-pressed] {
+      transform: none;
+    }
+  }
+}
+
+/* Mango splash (features/orders/components/mango-splash.tsx; docs/design/shop-motion.md, "Mango
+   splash"). Timeline: 0 to 340 ms the mango drops · 320 ms impact (squash, contact shadow, ring) ·
+   330 to 1300 ms the tendrils shoot and the droplets fling, staggered 0 to 100 ms · 900 ms one
+   bead detaches · 1.3 s on, the pool breathes and two tendrils keep stretching. Each tendril and
+   droplet reads its angle (--a), length (--l), delay (--d), wobble (--w) and distance (--r) from
+   its element. Transform and opacity only. [data-still] is the resting frame with no animation
+   (reduced motion, the visual baseline). */
+.splash-mango {
+  transform-box: fill-box;
+  transform-origin: 50% 85%;
+  rotate: -8deg;
+  animation:
+    splash-drop-in 0.34s cubic-bezier(0.5, 0, 1, 0.6) both,
+    splash-squash 0.5s cubic-bezier(0.2, 1.6, 0.3, 1) 0.32s both;
+}
+@keyframes splash-drop-in {
+  from {
+    transform: translateY(-260px) rotate(-14deg);
+  }
+  to {
+    transform: translateY(0) rotate(4deg);
+  }
+}
+@keyframes splash-squash {
+  0% {
+    transform: scale(1.1, 0.86);
+  }
+  40% {
+    transform: scale(0.96, 1.05);
+  }
+  100% {
+    transform: scale(1, 1);
+  }
+}
+.splash-shadow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-shadow 0.34s cubic-bezier(0.5, 0, 1, 0.6) both;
+}
+@keyframes splash-shadow {
+  from {
+    transform: scale(0.3);
+    opacity: 0.05;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0.22;
+  }
+}
+.splash-pool {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation:
+    splash-pool 1s cubic-bezier(0.2, 1.3, 0.3, 1) 0.32s both,
+    splash-breathe 4s ease-in-out 1.3s infinite alternate;
+}
+@keyframes splash-pool {
+  from {
+    transform: scale(0.18);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes splash-breathe {
+  to {
+    transform: scale(1.035);
+  }
+}
+.splash-crater {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-pool 1s cubic-bezier(0.2, 1.3, 0.3, 1) 0.32s both;
+}
+/* Each tendril shoots past its length and settles back 6%, with a little wobble in its angle. */
+.splash-tendril {
+  transform-origin: 0 0;
+  transform: rotate(var(--a)) scale(0);
+  animation: splash-shoot 0.95s cubic-bezier(0.18, 1.35, 0.32, 1) calc(0.33s + var(--d)) both;
+}
+@keyframes splash-shoot {
+  from {
+    transform: rotate(calc(var(--a) - var(--w))) scale(0);
+  }
+  60% {
+    transform: rotate(var(--a)) scale(calc(var(--l) * 1.06));
+  }
+  to {
+    transform: rotate(var(--a)) scale(var(--l));
+  }
+}
+.splash-stretch {
+  transform-origin: 0 0;
+  animation: splash-stretch 2s cubic-bezier(0.2, 0, 0, 1) 1.3s both;
+}
+@keyframes splash-stretch {
+  to {
+    transform: scale(1.08);
+  }
+}
+.splash-drop {
+  transform-origin: 0 0;
+  transform: rotate(var(--a)) scale(0);
+  animation: splash-fling 0.9s cubic-bezier(0.1, 0.9, 0.3, 1) calc(0.36s + var(--d)) both;
+}
+@keyframes splash-fling {
+  0% {
+    transform: rotate(var(--a)) translateY(0) scale(0.2);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(var(--a)) translateY(calc(-1px * var(--r))) scale(var(--l));
+    opacity: 0.9;
+  }
+}
+.splash-drop--late {
+  animation:
+    splash-fling 0.9s cubic-bezier(0.1, 0.9, 0.3, 1) calc(0.36s + var(--d)) both,
+    splash-detach 0.6s cubic-bezier(0.2, 0, 0, 1) 0.9s both;
+}
+@keyframes splash-detach {
+  to {
+    transform: rotate(var(--a)) translateY(calc(-1px * var(--r) - 12px)) scale(calc(var(--l) * 0.8));
+    opacity: 0.9;
+  }
+}
+.splash-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-ring 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.34s both;
+}
+@keyframes splash-ring {
+  from {
+    transform: scale(0.35);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+/* The resting frame: reduced motion, and the baseline the visual spec snapshots. */
+.splash[data-still] .splash-mango,
+.splash[data-still] .splash-shadow,
+.splash[data-still] .splash-pool,
+.splash[data-still] .splash-crater,
+.splash[data-still] .splash-tendril,
+.splash[data-still] .splash-stretch,
+.splash[data-still] .splash-drop,
+.splash[data-still] .splash-ring {
+  animation: none;
+}
+.splash[data-still] .splash-mango {
+  transform: rotate(4deg);
+}
+.splash[data-still] .splash-tendril {
+  transform: rotate(var(--a)) scale(var(--l));
+}
+.splash[data-still] .splash-stretch {
+  transform: scale(1.08);
+}
+.splash[data-still] .splash-drop {
+  transform: rotate(var(--a)) translateY(calc(-1px * var(--r))) scale(var(--l));
+  opacity: 0.9;
+}
+.splash[data-still] .splash-drop--late {
+  transform: rotate(var(--a)) translateY(calc(-1px * var(--r) - 12px)) scale(calc(var(--l) * 0.8));
+}
+.splash[data-still] .splash-ring {
+  opacity: 0;
+}
+.splash[data-still] .splash-shadow {
+  opacity: 0.22;
 }

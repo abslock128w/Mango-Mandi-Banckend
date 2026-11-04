@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { payDemoOrder } from "./helpers";
 
 // Visual snapshots of the shop screens whose content does not depend on live stock or dates.
 // Run with PW_VISUAL=1 (and PW_MATRIX=1 for every width); baselines are per platform (macOS here).
@@ -31,3 +32,20 @@ for (const [name, path] of [
     });
   });
 }
+
+// The mango splash at rest (docs/design/shop-motion.md, "Mango splash"): the frame after the burst,
+// with every animation finished. The order number and the delivery day come from the run.
+test("order-success", async ({ page }) => {
+  test.skip(!process.env.PW_VISUAL, "visual snapshots: PW_VISUAL=1");
+  await payDemoOrder(page);
+  const splash = page.locator("svg[data-splash]");
+  await expect(splash).toBeVisible();
+  await page.waitForTimeout(1600);
+  // Finish the burst; the pool's endless breathing is cancelled back to rest.
+  await page.evaluate(() => document.getAnimations().forEach((a) => (Number.isFinite(a.effect?.getComputedTiming().endTime ?? Infinity) ? a.finish() : a.cancel())));
+  await expect(page).toHaveScreenshot("order-success.png", {
+    animations: "disabled",
+    maxDiffPixelRatio: 0.002,
+    mask: [page.getByText(/^Order ORD-/), page.getByRole("status")],
+  });
+});

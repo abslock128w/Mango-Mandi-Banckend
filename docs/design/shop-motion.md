@@ -16,7 +16,8 @@ the shop does, only how it moves. All test ids, accessible names and e2e specs s
 - ADD → stepper `layoutId` morph with `AnimatePresence popLayout` (`add-button.tsx`), `RollingNumber`.
 - Cart bar spring entrance, thumbnails stagger, total count-up. Cart lines `layout` enter/exit.
 - Hero carousel autoplay + parallax + stretching dots. Sliding indicators (`listing`, `filter-sheet`, `box-toggle`).
-- Header collapse on scroll with hysteresis. Toaster springs. Login phone ↔ OTP slide. Success Lottie + confetti.
+- Header collapse on scroll with hysteresis. Toaster springs. Login phone ↔ OTP slide. Success Lottie + confetti
+  (both replaced by the mango splash in section 12).
 - Skeletons, `WhenVisible` (400 px), `press` utility, `animate-rise` with `riseDelay` stagger.
 
 ## 2. What feels un-Apple today (the gaps)
@@ -209,7 +210,7 @@ Commit this plan as `docs/design/shop-motion.md` first, then one commit per step
 1. Fly-to-cart on phones: on [taken]; desktop gets only the bar pulse.
 2. Flow pages present from the bottom (iOS modal) [taken] vs slide from the right.
 3. Hero autoplay: keep at 5 s but pause on interaction [taken] vs no autoplay.
-4. Confetti on order success: keep, shorter [taken] vs remove.
+4. Confetti on order success: keep, shorter [taken] vs remove. (Since replaced by the mango splash, section 12.)
 5. Swipe-to-remove on cart lines: on [taken]; the Remove button stays too.
 6. Haptics: none on web [taken] (`navigator.vibrate` is Android-only and feels cheap).
 
@@ -346,3 +347,192 @@ interaction, shorter confetti, swipe to remove plus the stepper, no haptics). Ne
 9. Firefox (no scroll timelines): header stays open [taken] vs a script fallback (~1 kB, and it lags
    the scroll by a frame).
 10. Order success presents from the bottom [taken] vs sliding forward like other flow pages.
+
+---
+
+# Part two: editorial feel, liquid glass, the mango splash (branch `claude/shop-glass-v2`, on top of this)
+
+Three additions on top of the motion work above, built from `docs/design/shop-motion-addendum.md`
+section A (the editorial feel) and the v2 plan `docs/design/shop-glass-splash-plan.md` (glass and the
+splash; it superseded the addendum's sections B and C). Both files are folded in here and deleted;
+`docs/design/splash-prototype.html` stays as the splash's reference. Same rules as part one: no
+behaviour change, test ids and accessible names stay, compositor-only motion, reduced motion honoured,
+the e2e suite stays green.
+
+## 10. Editorial feel (image-led, calm)
+
+Borrowed from the premium-grocery magazine feel (First Club), and nothing more: not their layout,
+palette or copy. The warm canvas (`--color-canvas #fff8ee`) and the brand mango and green stay.
+
+1. **Photography leads.** A product card's photo has the whole width of the card (it bleeds to the
+   edges, `-mx-3 -mt-3`, rounded only at the top) and the stage chip (RIPE / SEMI / RAW) sits on a
+   soft scrim at the photo's foot (`.scrim`, a gradient from 78% ink to clear) instead of a label row.
+   Photos settle 1.03 → 1 over 600 ms the first time their card is revealed (`RevealOnce` plays it on
+   `[data-settle]` with the same stagger as the card) and lift 1.02 under a press (`.photo-lift`,
+   transform only, on the card's `group:active`). Variety tiles do the same.
+2. **Generous rhythm.** Home rails and banners sit 32 px apart on phones (24 on laptops), and each
+   rail header is one confident line with a one-line why in muted ink (`ProductRail` `note`:
+   "Picked ripe, ready to eat on delivery", "Softens on the counter, no fridge", "Firm and green, for
+   pickle and chutney"). The 4 px grid test still applies.
+3. **Story moments.** The hero slides are full-bleed photo cards: the words sit on a scrim at the
+   foot (display 19 px on phones, 24 on laptops, the existing display font, no new font files), the
+   photo keeps its 4% parallax, the words hold still, and only the "Order now" pill carries the
+   slide's colour.
+4. **Quiet chrome.** The header and cart bar are glass (section 11). Dividers are hairlines:
+   `--color-hairline` is the line at 60% (`border-hairline`, `divide-hairline`) wherever a line only
+   separates (sheet headers and footers, the listing's chip row, highlight rows, the order summary,
+   the footer); borders that outline a control keep `--color-line`.
+5. **Micro-detail.** Prices use tabular numerals (`tabular-nums` on card prices, the price block,
+   the purchase bar, box chips, the order total; the cart bar's count-up already had them). The stage
+   chip's 6 px dot breathes once as it appears (`animate-dot-breathe`: 1 → 1.15 → 1, 600 ms; the
+   reduced-motion kill switch shortens it to nothing).
+
+## 11. Liquid glass (Apple iOS 26 style), for the floating chrome only
+
+### 11.1 What Apple's material does, and what the web can do
+
+From WWDC25 "Meet Liquid Glass", "Get to know the new design system" and "Build a SwiftUI app with
+the new design": lensing is the defining trait (the edge bends what is behind it; the centre is nearly
+clear); specular highlights respond to geometry and motion; small glass flips between a light and a
+dark style by what is behind it, large glass only shifts tone; shadows are contextual; there are two
+variants and we use only *regular*; tint is for the one primary action; on touch the material flexes
+and lights up from under the finger; glass floats above the content and never sits on glass; a
+scroll edge dissolves content under a bar instead of a divider; pills are capsules and nested shapes
+are concentric; Reduce Transparency, Increase Contrast and Reduce Motion each have a fallback.
+
+| Apple behaviour | Here | Where it works |
+| --- | --- | --- |
+| Blur + saturation body | `backdrop-filter: blur(16px) saturate(1.7)` over a 55% white wash | every modern browser |
+| Edge lensing | a second `backdrop-filter: url(#glass-lens)` on `::after`: `feImage` of a 32 × 32 edge map → `feDisplacementMap` scale 24 (`components/glass/lens.tsx`, map from `scripts/glass-lens-map.mjs`) | **Chromium only**. Safari and Firefox ignore `url()` in `backdrop-filter` and keep everything else: the blur, the rim, the 2 px inner band and the sheen give the thicker-edge read without the refraction |
+| Specular rim | a bright hairline along the top edge, a warm one along the bottom, a faint 2 px inner band (inset shadows, no border box on bars) | all |
+| Highlight following motion | the sheen (`::before`, 135° white gradient, `soft-light`) slides from 0 to 100% of its position over the first 480 px of scroll: a CSS scroll-driven animation, no script per frame | browsers with scroll timelines; Firefox keeps the sheen still |
+| Light/dark flip by background | `useBackdropTone` (`lib/hooks`): one `IntersectionObserver` aimed at the glass's band, over everything marked `data-backdrop="dark"` (hero slides, the bulk banner); sets `data-tone="dark"`, which swaps the wash, the ink and the shadow with a 200 ms crossfade | all |
+| Contextual shadow | quiet shadow at rest, a deeper one in the dark tone | all |
+| Flex and illuminate on press | `useGlassPress` marks the element `data-pressed` and records the finger (`--px/--py`); CSS scales to .97 (or Motion's press does) and lights a radial glow from under the finger (`.glass-glow`, opacity 120 ms in, 300 ms out); a pressed element brightens the rims of glass in the same `data-glass-group` | all |
+| Reduce Transparency | `prefers-reduced-transparency`: frosted, near-opaque, no blur, no lens | Chromium 118+; the others fall through to the no-`backdrop-filter` path, which is the same frosted surface |
+| Increase Contrast | `prefers-contrast: more`: opaque surface, 1.5 px ink border, no sheen or lens | all |
+| Reduce Motion | the sheen holds still, nothing flexes | all |
+
+### 11.2 Tokens and the utility
+
+Tokens in `styles/theme.css`: `--glass-blur 16px` (over 16 smears), `--glass-saturate 1.7`,
+`--glass-bg-light` (white 55%), `--glass-bg-dark` (#1b1310 48%), `--glass-bg-frost` (surface 88%),
+`--glass-rim-top/bottom`, `--glass-sheen`, `--glass-shadow-quiet/busy`, `--glass-tint-action`.
+
+One class in `app/globals.css`, in the components layer so a utility on the host (`sticky`, `fixed`,
+a radius) still wins: `.glass`, with `.glass--pill` (capsule), `.glass--bar` (full-width, rim along
+its bottom only), `.glass--tint` (the action colour as a tint, white ink, never flips, no lens: it is
+nearly opaque and the lens would only smear its own edge) and `.glass--large` (sheet headers: no
+flip, `data-opaque` at the top snap point). The host must be positioned. `.glass-edge` is the scroll
+edge: a 24 px band under a bar, blurred 6 px and masked to nothing, so content dissolves into the
+bar.
+
+The tint is 88% of the action colour, not Apple's lighter wash: white ink on it stays AA (4.8:1)
+over the cream canvas and the white sheet footer.
+
+### 11.3 Where glass is, and where it is not
+
+| Surface | Class | Notes |
+| --- | --- | --- |
+| Shop header | `.glass--bar` | on phones the brand gradient lies over it while the large title is open and fades with the scroll (`.header-brand-bg`, scroll-driven); the collapsed bar is glass the page shows through; on laptops glass from the start; flips to dark over the hero; scroll edge |
+| Search header, flow header | `.glass--bar` | scroll edge |
+| Cart bar | `.glass--pill`, `data-glass-group` | capsule, radius 28 = height / 2; the delivery badge (40 px) and the thumbnails (radius 20) are concentric at 8 px padding; thumbnails are vibrant overlays, not glass; flips to dark; lights up from under the finger |
+| Listing chip row | `.glass--bar` once stuck | `useStuck` (`lib/hooks`): a sentinel and one `IntersectionObserver` under the header's height; a plain surface in the flow |
+| Sheet grabber and header | `.glass--large` | floats over the content, which scrolls beneath it (the content starts below its measured height, `--sheet-head`); sheet corners 24, close button 16 at 8 px in; opaque at the top snap point |
+| Toasts | `.glass--pill` | 60 px capsule, dismiss button concentric at 22; on phones placed just under the header (read once per toast), never over it |
+| Product page Add to cart, checkout Pay now | `.glass--tint` | the only tinted things on screen; still obviously primary |
+
+Never: product cards, lists, page backgrounds, the order summary card. Never glass on glass. At most
+four glass surfaces are mounted at once on any screen (header, chip row, cart bar, a sheet header
+or a toast), and `tests/unit/glass.test.ts` keeps `backdrop-filter` inside the `.glass` rules and
+out of components, and checks every fallback exists. `tests/unit/radii.test.ts` reads the cart bar,
+toast and sheet and asserts the capsules and the concentric radii.
+
+### 11.4 Deviations from the plan
+
+- The sheen moves by `background-position`, not `transform`: the plan asked for both; a transform
+  would need the host to clip its pseudo (and so its children's focus rings). It is paint-only on a
+  small layer and only runs while the page scrolls.
+- The tone swap crossfades `background-color` (and ink and shadow) over 200 ms rather than two
+  stacked layers: the sheen and the lens already use both pseudo-elements. A paint, not a layout.
+- The lens is one filter stretched over each element's box (`preserveAspectRatio="none"`), so a
+  wide bar's rim is a little thicker on its sides than its top. It is a progressive enhancement.
+- The perf checks of plan 2.7 beyond the unit tests (counting live `backdrop-filter` surfaces in
+  Playwright, a long-task check on a throttled CPU) were not added; the suite's INP proxy (motion
+  spec (e)) and CLS check still run with the glass in place.
+
+## 12. The mango splash (order success)
+
+Replaces the tick Lottie and the confetti (and their dependency, `@lottiefiles/dotlottie-react`, and
+`public/lottie/`; the rider app keeps its own copy). `features/orders/components/mango-splash.tsx`,
+loaded with `next/dynamic` only in the success route's chunk and only once the payment is
+confirmed; the resting frame (`still`) under reduced motion, with a tick badge over the mango's
+corner; a failed payment keeps the red tick. The SVG is `aria-hidden`; the status line stays the
+announcement. Ported from `docs/design/splash-prototype.html`, which stays as the reference.
+
+**Choreography.** 0 to 340 ms the mango drops in (translateY −260 → 0, −14° → 4°, ease-in) · 320 ms
+impact: it squashes (1.1 × 0.86 → 0.96 × 1.05 → 1 with overshoot), the contact shadow grows, a
+ripple ring scales 0.35 → 1.5 and fades · 330 to 1300 ms sixteen tapered tendrils with beads at
+their tips shoot out from the centre on `cubic-bezier(.18, 1.35, .32, 1)`, past their length and
+back 6%, each with its own angle, length, delay (0 to 100 ms) and wobble, while sixteen droplets
+fling clear of the goo on their own angles · 900 ms one bead detaches (12 px further, shrinks to
+0.8) · 1.1 s the headline rises, 1.3 s the order summary · 1.3 s on, the pool breathes to 1.035 over
+4 s and two tendrils keep stretching for 2 s. Transform and opacity only; the blur filters are static.
+
+**Technique.** One SVG (`viewBox -200 -200 400 400`). The liquid's silhouette is a mask: the pool and
+the tendrils, goo'd (`feGaussianBlur` σ 6 → `feColorMatrix` alpha 22 −10) so they fuse; through it,
+three full-size rects paint the merged shape at once (a radial juice body, a rim gradient with a
+white top edge and a brown foot, a specular hotspot). A second filter (`feOffset` of the alpha,
+composited out, flooded brown) darkens a 3 px band along every lower edge for thickness. A front lip
+of juice is drawn after the mango so it sits in the pool. The realism items of the plan: the mango is
+traced from `public/images/mangoes/m00.jpg` (wide kidney, beak at the right, flatter underside) with
+skin, shade and blush gradients, a blurred inner shade clipped to the body and twelve speckles; four
+long tendrils curve; two keep stretching and one bead detaches; a soft crater sits in the pool around
+the mango's base; the rim's brown foot and the contact shadow keep the juice on the cream canvas.
+
+**Tests.** `motion.spec` (f): after a demo payment the splash is visible, over twenty animations run
+and every keyframe is transform or opacity, the headline lands within 2 s; (g): with reduced motion
+the splash is its resting frame, no animation runs, the tendrils are out. `visual.spec`
+"order-success": the resting frame at 1.6 s with every animation finished (`PW_VISUAL=1`; the
+baselines in this branch were taken on Linux, so the macOS ones need one `--update-snapshots` run on
+the Mac). `scripts/bundle-size.mjs` has a line each for the glass script (the three hooks, minified:
+budget 1.5 kB gzipped; its CSS rules in the built stylesheet are counted in every page and printed
+beside it) and the splash (its lazy chunk plus its CSS rules: budget 9 kB gzipped). The glass press
+hook lives in `components/ui/glass-press.tsx` without a Motion import, so a plain button (the
+checkout's Pay now) can use it without pulling Motion's `m` into its page.
+
+## 13. Tests and numbers (3 Nov 2026)
+
+Run here on a fresh demo database and API (Node 24, Postgres 16), Chromium 153 for Playwright:
+
+| Check | PR #4 (`claude/shop-motion-3bdd77`) | This branch |
+| --- | --- | --- |
+| `npm run typecheck` | passes | passes |
+| `npm run lint` (with `shop/compositor-only`) | passes | passes, no warnings |
+| `npm test` (Vitest) | 26 passed (8 files) | 32 passed (10 files): `glass.test` (3), `radii.test` (3) |
+| `npm run deadcode` (knip) | passes | passes |
+| Playwright, mobile 360×780 + desktop 1280×800 | 88 passed, 20 skipped | 92 passed, 0 failed, 22 skipped |
+| `visual.spec` "order-success" (`PW_VISUAL=1`), both sizes | – | 2 passed (Linux baselines) |
+| `npm run bundle-size --against` the base build | – | every page under +6 kB; glass 1,037 B of 1,536; splash 3,221 B of 9,216 |
+
+Skipped: the visual specs without `PW_VISUAL` (now seven per size), the recordings without
+`PW_SHOTS`, the sheet drag and the 360 px card check on laptops. New e2e: `motion.spec` (f) and (g)
+on both sizes.
+
+**Bundle** (first load per page, JS + CSS gzipped, production build, `claude/shop-motion-3bdd77` →
+this branch; the budget is +6 kB per page):
+
+| Page | Base | This branch | Delta |
+| --- | --- | --- | --- |
+| `/` | 286,797 B | 289,467 B | +2,670 B |
+| `/c/all` | 265,375 B | 267,953 B | +2,578 B |
+| `/p/alphonso` | 269,293 B | 271,887 B | +2,594 B |
+| `/search` | 263,660 B | 265,573 B | +1,913 B |
+| `/login` | 255,899 B | 257,654 B | +1,755 B |
+| `/checkout` | 258,387 B | 259,976 B | +1,589 B |
+| `/orders` | 247,638 B | 249,464 B | +1,826 B |
+| `/help` | 247,416 B | 249,186 B | +1,770 B |
+
+Glass script 1,037 B gzipped of the 1,536 B budget (its CSS, 934 B, is inside every page above);
+splash 3,221 B (its lazy chunk plus its CSS) of 9,216 B. The dotLottie player's 1.2 MB wasm and
+`success.json`, which the success page used to load, are gone.

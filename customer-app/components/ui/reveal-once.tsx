@@ -41,12 +41,10 @@ export function RevealOnce({
       if (id) seen.add(id);
       el.style.opacity = "";
       el.style.transform = "";
-      el.animate([from, { opacity: "1", transform: "none" }], {
-        duration: 240,
-        delay: Math.min(index, STAGGER_CAP) * STAGGER_MS,
-        easing: "cubic-bezier(0.2, 0, 0, 1)",
-        fill: "backwards",
-      });
+      const delay = Math.min(index, STAGGER_CAP) * STAGGER_MS;
+      el.animate([from, { opacity: "1", transform: "none" }], { duration: 240, delay, easing: "cubic-bezier(0.2, 0, 0, 1)", fill: "backwards" });
+      // Photos inside settle from 1.03 (the editorial feel): a slow breath, once.
+      for (const photo of el.querySelectorAll<HTMLElement>("[data-settle]")) photo.animate([{ transform: "scale(1.03)" }, { transform: "none" }], { duration: 600, delay, easing: "cubic-bezier(0.2, 0, 0, 1)" });
     };
     const target = el.parentElement?.closest<HTMLElement>("[data-reveal-group]") ?? el;
     const r = target.getBoundingClientRect();

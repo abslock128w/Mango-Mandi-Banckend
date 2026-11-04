@@ -21,7 +21,7 @@ export function Footer() {
     ["Privacy", "/privacy"],
   ];
   return (
-    <footer className="mt-10 border-t border-line bg-surface pb-24 lg:pb-0">
+    <footer className="mt-10 border-t border-hairline bg-surface pb-24 lg:pb-0">
       <div className="mx-auto grid max-w-content gap-8 px-4 py-8 lg:grid-cols-[1.2fr_1fr_1fr_1fr] lg:px-6 lg:py-10">
         <div>
           <Logo />
@@ -69,7 +69,7 @@ export function Footer() {
           </ul>
         </nav>
       </div>
-      <div className="border-t border-line">
+      <div className="border-t border-hairline">
         <p className="mx-auto max-w-content px-4 py-4 text-12 text-muted lg:px-6">
           © {new Date().getFullYear()} {config.brand} · Prices include GST · Prepaid by UPI, card or netbanking
         </p>

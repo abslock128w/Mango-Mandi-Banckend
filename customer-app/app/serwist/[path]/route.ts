@@ -6,7 +6,7 @@ const revision = process.env.VERCEL_GIT_COMMIT_SHA ?? `${Date.now()}`;
 export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } = createSerwistRoute({
   swSrc: "app/sw.ts",
   useNativeEsbuild: true,
-  globPatterns: [".next/static/**/*.{js,css,woff2}", "public/lottie/success.json", "public/images/banners/*.jpg"],
+  globPatterns: [".next/static/**/*.{js,css,woff2}", "public/images/banners/*.jpg"],
   additionalPrecacheEntries: [{ url: "/offline", revision }],
   maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
 });

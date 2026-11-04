@@ -115,6 +115,19 @@ export function Sheet({
   const titleNode = (
     <BaseDrawer.Title className={cn("font-display text-17 font-extrabold text-ink", hideTitle && "sr-only")}>{title}</BaseDrawer.Title>
   );
+  // The grabber and header float over the content as large glass (the content scrolls beneath
+  // them); the content starts below them by their measured height (--sheet-head).
+  const head = React.useCallback((el: HTMLDivElement | null) => {
+    const pop = el?.parentElement;
+    if (!el || !pop) return;
+    const measure = () => pop.style.setProperty("--sheet-head", `${el.offsetHeight}px`);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // At the top snap point the sheet is a page: its header turns opaque.
+  const atTop = useSnaps ? snap === snapPoints[snapPoints.length - 1] : false;
 
   return (
     <BaseDrawer.Root
@@ -156,7 +169,7 @@ export function Sheet({
               mode === "dialog" && "duration-(--dur-m) ease-standard",
               mode === "bottom" &&
                 cn(
-                  "w-full rounded-t-16 shadow-sheet",
+                  "w-full rounded-t-[24px] shadow-sheet",
                   useSnaps
                     ? "h-[calc(100dvh-2rem-var(--drawer-keyboard-inset,0px))] [padding-bottom:max(0px,calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))] [transform:translateY(calc(var(--drawer-snap-point-offset)+var(--drawer-swipe-movement-y)))]"
                     : "max-h-[calc(100dvh-2rem-var(--drawer-keyboard-inset,0px))] [transform:translateY(var(--drawer-swipe-movement-y))]",
@@ -170,33 +183,38 @@ export function Sheet({
             )}
             style={mode === "right" ? { width: panelWidth } : undefined}
           >
-            {mode === "bottom" && (
-              <div className="flex shrink-0 justify-center pt-2 pb-1" aria-hidden>
-                <div className="h-1 w-10 rounded-full bg-line" />
-              </div>
-            )}
-            {header ?? (
-              <div className={cn("flex shrink-0 items-center justify-between gap-3 px-4", hideTitle ? "py-1" : "border-b border-line py-3")}>
-                {titleNode}
-                <BaseDrawer.Close
-                  aria-label="Close"
-                  className="press ml-auto grid size-11 place-items-center rounded-full text-ink hover:bg-chip"
-                >
-                  <X size={20} strokeWidth={1.75} />
-                </BaseDrawer.Close>
-              </div>
-            )}
+            {/* Large glass: the content scrolls under it; its tone shifts with the content but never flips. */}
+            <div ref={head} data-opaque={atTop || mode === "dialog" ? "" : undefined} className={cn("glass glass--large absolute inset-x-0 top-0 z-10 rounded-[inherit] rounded-b-none", mode === "bottom" && "rounded-t-[24px]")}>
+              {mode === "bottom" && (
+                <div className="flex shrink-0 justify-center pt-2 pb-1" aria-hidden>
+                  <div className="h-1 w-10 rounded-full bg-line" />
+                </div>
+              )}
+              {header ?? (
+                // Concentric with the sheet: 24 px corners, 8 px in, 16 px corners on the close button.
+                <div data-sheet-head className={cn("flex shrink-0 items-center justify-between gap-3 px-2", hideTitle ? "py-1" : "py-3")}>
+                  <span className="pl-2">{titleNode}</span>
+                  <BaseDrawer.Close
+                    aria-label="Close"
+                    data-sheet-close
+                    className="press ml-auto grid size-11 place-items-center rounded-[16px] text-ink hover:bg-chip"
+                  >
+                    <X size={20} strokeWidth={1.75} />
+                  </BaseDrawer.Close>
+                </div>
+              )}
+            </div>
             {header && <div className="sr-only">{titleNode}</div>}
             {description && <BaseDrawer.Description className="sr-only">{description}</BaseDrawer.Description>}
             <BaseDrawer.Content
               className={cn(
-                "min-h-0 flex-1 touch-auto overflow-y-auto overscroll-contain",
+                "min-h-0 flex-1 touch-auto overflow-y-auto overscroll-contain pt-(--sheet-head,72px)",
                 bodyClassName,
               )}
             >
               {children}
             </BaseDrawer.Content>
-            {footer && <div className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)]">{footer}</div>}
+            {footer && <div className="shrink-0 border-t border-hairline bg-surface pb-[env(safe-area-inset-bottom)]">{footer}</div>}
           </BaseDrawer.Popup>
         </BaseDrawer.Viewport>
       </BaseDrawer.Portal>

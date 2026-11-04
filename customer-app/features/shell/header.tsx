@@ -10,6 +10,7 @@ import { useAuth } from "@/features/auth/store";
 import { cartCount, useCart } from "@/features/cart/store";
 import { useUi } from "./ui-store";
 import { Logo } from "./logo";
+import { useBackdropTone } from "@/lib/hooks/use-backdrop-tone";
 import { userScrolledRecently, useScrollDirection } from "@/lib/hooks/use-scroll-direction";
 import { cn, plural, rupees } from "@/lib/format";
 
@@ -160,7 +161,14 @@ export function SearchLink({ className, ref }: { className?: string; ref?: React
   );
 }
 
-/** Sticky Blinkit header. On phones the logo and delivery line scroll away as a large title (useLargeTitle). */
+/**
+ * Sticky Blinkit header. On phones the logo and delivery line scroll away as a large title
+ * (useLargeTitle). The bar itself is liquid glass (globals.css, .glass--bar): on phones the brand
+ * gradient lies over it while the title is open and fades with the scroll (.header-brand-bg), so the
+ * collapsed bar is glass the page shows through; on laptops it is glass from the start. Its tone
+ * flips to dark while a photo card or dark banner passes under it (useBackdropTone), and the content
+ * below its edge dissolves into it (.glass-edge) instead of meeting a line.
+ */
 export function Header() {
   const token = useAuth((s) => s.profile);
   const ref = useRef<HTMLElement>(null);
@@ -168,15 +176,15 @@ export function Header() {
   const account = useRef<HTMLDivElement>(null);
   const address = useRef<HTMLDivElement>(null);
   useLargeTitle(ref, { search, account, address });
+  useBackdropTone(ref);
   const hydrated = useUi((s) => s.hydrated);
 
   return (
-    <header
-      ref={ref}
-      className="site-header sticky top-[calc(-1*var(--header-collapse,0px))] z-40 border-b border-line bg-linear-to-br from-brand to-blush lg:top-0 lg:bg-linear-to-r lg:from-brand-soft lg:via-surface lg:to-surface"
-    >
+    <header ref={ref} className="site-header glass glass--bar sticky top-[calc(-1*var(--header-collapse,0px))] z-40 lg:top-0">
+      <span aria-hidden className="header-brand-bg absolute inset-0 bg-linear-to-br from-brand to-blush lg:hidden" />
+      <span aria-hidden className="glass-edge" />
       {/* Phones and tablets */}
-      <div className="mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
+      <div className="relative mx-auto max-w-content px-4 pt-3 pb-3 lg:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="header-brand origin-top-left">
@@ -205,17 +213,17 @@ export function Header() {
       </div>
 
       {/* Laptops */}
-      <div className="mx-auto hidden h-[86px] max-w-content items-center gap-6 px-6 lg:flex">
+      <div className="relative mx-auto hidden h-[86px] max-w-content items-center gap-6 px-6 lg:flex">
         <Logo height={58} />
-        <div className="h-full w-px bg-line" aria-hidden />
+        <div className="h-full w-px bg-hairline" aria-hidden />
         <div className="w-[270px] min-w-0 shrink-0">
-          <p className="font-display text-17 leading-tight font-extrabold text-ink">
+          <p className="font-display text-17 leading-tight font-extrabold text-(--glass-ink,var(--color-ink))">
             <EtaInline />
           </p>
           <AddressLine className="mt-0.5" />
         </div>
         <SearchLink className="flex-1" />
-        <Link href={hydrated && token ? "/account" : "/login?next=/account"} className="tap text-17 text-ink hover:text-action">
+        <Link href={hydrated && token ? "/account" : "/login?next=/account"} className="tap text-17 text-(--glass-ink,var(--color-ink)) hover:text-action">
           {hydrated && token ? "Account" : "Sign in"}
         </Link>
         <DesktopCart />
