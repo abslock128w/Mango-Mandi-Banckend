@@ -27,6 +27,21 @@ Alphonso), and the product sheet. `app.js` keeps the bag, checkout, orders, pre-
 bulk enquiries. The three are classic scripts sharing globals, loaded in that order. Why it
 was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
 
+Box size is two cards (3 kg / 5 kg, each with its price) instead of a dropdown, so picking a box
+is one tap, on the shelf and in the product sheet.
+
+## Liquid glass (`liquid.js`)
+
+The control layer (header, search, bag, rails, chips, tags and quick add on photos, close
+buttons, steppers, sheets, the dock) uses one glass material in `style.css`: a thin bright
+tint, heavy blur and saturation, a specular rim, and a light that follows the pointer.
+`liquid.js` adds spring physics: controls squash when pressed and wobble back, lean toward a
+mouse, and the ripeness pill, the sheet's ripeness lens and the box lens slide like a drop
+(stretching with speed, wobbling as they land). The bag button, dock bag bar, toast and
+dialogs jiggle when they change. Elements with `data-refract` also bend what is behind their
+edges (an SVG displacement map in `backdrop-filter`, Chromium only; elsewhere they keep the
+blur). Reduced motion turns the physics off; reduced transparency makes the glass opaque.
+
 To add a variety: add it on the panel's Products page (that is what the shop sells), then add
 a row to `ROWS` in `catalog.js` with the same name, and its photos to `assets/mangoes/`.
 

@@ -97,11 +97,41 @@ function boxFor(v, stage, chosen = cardBox[v.name]) {
   return first.sku
 }
 
-function boxOptions(v, stage, selected) {
-  return v.skus.map((s) => {
-    const out = qtyOf(s.sku, stage) === 0
-    return `<option value="${esc(s.sku)}" ${s.sku === selected ? 'selected' : ''} ${out ? 'disabled' : ''}>${esc(boxText(s))}${out ? ' · sold out' : ''}</option>`
-  }).join('')
+/** The box choice as one card per size (3 kg / 5 kg) with a glass lens behind the chosen one:
+    one tap picks a box. `scope` is 'card' (shelf) or 'detail' (product sheet). */
+function boxCards(v, stage, selected, scope) {
+  const i = Math.max(0, v.skus.findIndex((s) => s.sku === selected))
+  return `<div class="box-cards" role="group" aria-label="${esc(v.name)} box size" style="--n:${v.skus.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${v.skus.map((s) => {
+    const out = qtyOf(s.sku, stage) === 0, on = s.sku === selected
+    return `<button class="box-card" data-box="${esc(v.name)}" data-sku="${esc(s.sku)}" data-scope="${scope}" aria-pressed="${on}" ${out ? 'disabled' : ''}><strong>${esc(String(s.boxSize).replace('kg', ' kg'))}</strong><small>${out ? 'Sold out' : currency(s.price)}</small></button>`
+  }).join('')}</div>`
+}
+
+/** Slide a lens (box cards, sheet ripeness rail) to item `i`, with the jelly stretch. */
+function slideLens(group, lensSel, i) {
+  const lens = $(lensSel, group)
+  if (!lens) return
+  const from = lens.offsetLeft
+  group.style.setProperty('--i', i)
+  window.Liquid?.flip(lens, from - lens.offsetLeft)
+}
+
+function pickBox(b) {
+  const group = b.closest('.box-cards'), sku = b.dataset.sku, name = b.dataset.box
+  const cards = $$('.box-card', group)
+  cards.forEach((c) => c.setAttribute('aria-pressed', c === b))
+  slideLens(group, '.box-lens', cards.indexOf(b))
+  if (b.dataset.scope === 'detail') {
+    detail.sku = sku
+    $('#detail-price').innerHTML = `${currency(priceOf(sku))}<small> / box</small>`
+    window.Liquid?.pop($('#detail-price'), 0.35)
+    return
+  }
+  cardBox[name] = sku
+  const card = b.closest('.product-card'), st = stageById(card.dataset.kind), s = skuOf(sku)
+  $('.product-price', card).innerHTML = `${currency(s.price)}<small>/ box</small>`
+  $('.quick-add', card).setAttribute('aria-label', `Add a ${boxText(s)} of ${st.stage.toLowerCase()} ${name} to bag`)
+  window.Liquid?.pop($('.product-price', card), 0.35)
 }
 
 function photoButton(v, stage) {
@@ -126,7 +156,7 @@ function cardHTML(v) {
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
   const tag = out ? 'Sold out for now' : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
-  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag">${esc(tag)}</span>` : ''}<button class="quick-add" data-add="${name}" aria-label="Add a ${esc(boxText(s))} of ${st.stage.toLowerCase()} ${name} to bag" ${out ? 'disabled' : ''}>+</button></div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div><select class="weight-select" data-weight="${name}" aria-label="${name} box size">${boxOptions(v, stage, sku)}</select></div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span>${filter === 'all' ? stageSwitch(v, stage) : ''}</div></div></article>`
+  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}<button class="quick-add liquid" data-refract data-add="${name}" aria-label="Add a ${esc(boxText(s))} of ${st.stage.toLowerCase()} ${name} to bag" ${out ? 'disabled' : ''}>+</button></div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxCards(v, stage, sku, 'card')}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span>${filter === 'all' ? stageSwitch(v, stage) : ''}</div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -182,6 +212,7 @@ function renderProducts() {
     $('#search-suggest').innerHTML = CATALOG.trending.map((t) => `<button class="occasion" data-trending="${esc(t)}">${esc(t)}</button>`).join('')
   }
   if (window.gsap && !reduced) gsap.fromTo('.product-card', { y: 12, opacity: 0.5 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.06, ease: 'power3.out' })
+  window.Liquid?.scan(grid)
 }
 
 /** Re-render one card in place (stage or box change) and keep focus on the control used. */
@@ -191,7 +222,9 @@ function rerenderCard(name, focus) {
   if (!v || !el) return
   el.outerHTML = cardHTML(v)
   const fresh = $$('.product-card').find((a) => a.dataset.variety === name)
-  if (focus && fresh) $(focus, fresh)?.focus()
+  if (!fresh) return
+  if (focus) $(focus, fresh)?.focus()
+  window.Liquid?.scan(fresh)
 }
 
 function renderOccasions() {
@@ -199,15 +232,15 @@ function renderOccasions() {
     `<button class="occasion${o.id === occasion ? ' selected' : ''}" data-occasion="${o.id}" aria-pressed="${o.id === occasion}">${esc(o.label)}</button>`).join('')
 }
 
+/** The ripeness rail's green pill: jumps to the chosen stage, then liquid.js springs it over
+    from where it was (stretching as it travels, wobbling as it lands). */
 function positionPill(animate = true) {
   const b = $('.segmented .selected'), pill = $('.selection-pill')
   if (!b) return
-  const x = b.offsetLeft
-  if (window.gsap && animate && !reduced) gsap.to(pill, { left: x, width: b.offsetWidth, duration: 0.45, ease: 'back.out(1.4)' })
-  else {
-    pill.style.left = x + 'px'
-    pill.style.width = b.offsetWidth + 'px'
-  }
+  const from = pill.offsetLeft
+  pill.style.left = b.offsetLeft + 'px'
+  pill.style.width = b.offsetWidth + 'px'
+  if (animate) window.Liquid?.flip(pill, from - b.offsetLeft)
 }
 
 function setFilter(value) {
@@ -285,10 +318,10 @@ function renderDetail(focus) {
     sweet && ['Sweetness', sweet],
     c.bestFor && ['Best for', esc(c.bestFor)],
   ].filter(Boolean)
-  $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness">${STAGES.map((x) => {
-    const on = x.apiStage === detail.stage
-    return `<button class="${on ? 'selected' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}"><span class="dot ${x.id}"></span>${x.stage}${stock && soldOut(v, x.apiStage) ? '<small> · sold out</small>' : ''}</button>`
-  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><label class="field">Choose your box<select class="weight-select" id="detail-weight">${boxOptions(v, detail.stage, detail.sku)}</select></label><button class="button primary full" data-detail-add ${out ? 'disabled' : ''}>${out ? 'Sold out for now' : `Add to bag ${icon('bag')}`}</button><p class="detail-care">${st.care}</p></div></div>`
+  $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${STAGES.findIndex((x) => x.apiStage === detail.stage)}"><span class="detail-lens" aria-hidden="true"></span>${STAGES.map((x) => {
+    const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage)
+    return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
+  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${out ? 'disabled' : ''}>${out ? 'Sold out for now' : `Add to bag ${icon('bag')}`}</button><p class="detail-care">${st.care}</p></div></div>`
   if (focus) $(focus, $('#product-dialog'))?.focus()
 }
 
@@ -316,7 +349,12 @@ document.addEventListener('click', (e) => {
     detail.stage = b.dataset.detailStage
     detail.sku = boxFor(v, detail.stage, detail.sku)
     detail.photo = null
+    const from = $('.detail-lens')?.offsetLeft ?? 0
     renderDetail(`[data-detail-stage="${detail.stage}"]`)
+    const lens = $('.detail-lens')
+    if (lens) window.Liquid?.flip(lens, from - lens.offsetLeft)
+  } else if (b.dataset.box) {
+    pickBox(b)
   } else if (b.dataset.detailPhoto) {
     detail.photo = b.dataset.detailPhoto
     $('#detail-photo').src = detail.photo
@@ -345,13 +383,7 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = e.target
-  if (t.dataset.weight) {
-    cardBox[t.dataset.weight] = t.value
-    rerenderCard(t.dataset.weight, '[data-weight]')
-  } else if (t.id === 'detail-weight') {
-    detail.sku = t.value
-    $('#detail-price').innerHTML = `${currency(priceOf(t.value))}<small> / box</small>`
-  } else if (t.id === 'sort') {
+  if (t.id === 'sort') {
     sortBy = t.value
     renderProducts()
   }

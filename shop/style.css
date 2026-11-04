@@ -56,3 +56,51 @@
 .detail-info p.detail-stage-note{font-size:12px;line-height:1.7;margin-bottom:14px}
 .detail-info p.detail-care{font-size:11px;margin:18px 0 0}
 @media(max-width:700px){.product-grid{grid-template-columns:repeat(2,minmax(0,1fr));overflow:visible;scroll-snap-type:none;margin:0;padding:0;gap:10px}.product-image{aspect-ratio:1}.product-bottom{flex-direction:column;align-items:stretch;gap:8px}.weight-select{max-width:none}.product-desc{min-height:2.6em}.product-status{flex-wrap:wrap;row-gap:6px}.toolbar-end{justify-content:space-between;margin-top:11px}.toolbar-end .price-note{margin-top:0}.sort-select{font-size:11px;min-height:32px;width:auto}.occasion-row{flex-wrap:nowrap;overflow-x:auto;margin:0 -16px 17px;padding:2px 16px;scrollbar-width:none}.occasion-row::-webkit-scrollbar{display:none}#no-results .occasion-row{flex-wrap:wrap;margin:0 0 20px;padding:0}.detail-image.photo{height:260px;aspect-ratio:auto}.detail-thumbs{margin-top:0}.detail-facts{gap:8px}}
+/* Liquid glass material (liquid.js MATERIAL = '.glass, .liquid' moves the light; [data-refract] bends the edges where supported).
+   Thinner and brighter than before, with a specular rim (::before) and a pointer-following light (::after). */
+.glass,.liquid,.icon-button,.quantity,.occasion{background:linear-gradient(165deg,#ffffff94,#fffcf04d 46%,#ffffff75);-webkit-backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);box-shadow:inset 0 1px 0 #fffffff2,inset 0 -1px 1px #ffffff8c,inset 1px 0 1px #ffffff66,inset 0 -12px 20px -14px #24442d38,0 10px 28px #24442d1c,0 1px 2px #24442d12}
+.search.liquid,.bulk-shortcut.liquid,.bag-button.liquid,.faq-orb,.icon-button,.quantity,.occasion{position:relative}
+.glass::before,.liquid::before,.icon-button::before,.quantity::before,.occasion::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,#fffffffa,#ffffff26 28%,#fff0 55%,#ffffffbf);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);pointer-events:none;z-index:3}
+.glass::after,.liquid::after,.icon-button::after,.quantity::after,.occasion::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3;background:radial-gradient(150px circle at var(--lx,22%) var(--ly,-30%),#ffffffc7,#fff0 70%),linear-gradient(180deg,#ffffff61,#fff0 44%);mix-blend-mode:soft-light;opacity:.7;transition:opacity .35s var(--ease)}
+.is-lit::after{opacity:1}
+[data-refract].is-refracting{-webkit-backdrop-filter:blur(var(--glass-blur,26px)) saturate(1.9) brightness(1.05);backdrop-filter:blur(var(--glass-blur,26px)) var(--refract) saturate(1.9) brightness(1.05)}
+.header.is-refracting{--glass-blur:14px}.photo-label.is-refracting{--glass-blur:7px}.quick-add.is-refracting{--glass-blur:5px}.dock-orb.is-refracting{--glass-blur:12px}
+/* More of the page on glass: search, bulk shortcut, bag, photo tags, quick add, sort, FAQ, closes, steppers. */
+.search.liquid{border-color:#ffffffb3}.search.liquid:focus-within{border-color:var(--green);box-shadow:inset 0 1px 0 #fff,0 0 0 3px #1746311f,0 10px 28px #24442d1c}
+.bulk-shortcut.liquid{padding:8px 14px 8px 10px;border-radius:18px}
+.bag-button.liquid{--glass-blur:10px}
+.product-tag.liquid{--glass-blur:10px;background:linear-gradient(165deg,#ffffffb8,#fffcf080);color:var(--ink)}
+.quick-add.liquid{--glass-blur:12px}.quick-add.liquid:hover{background:linear-gradient(180deg,#ffffff38,#fff0 52%),var(--green);color:#fff}
+.image-note.liquid{--glass-blur:8px;padding:5px 11px;border-radius:20px;color:var(--green);text-shadow:none;opacity:1;font-size:10px}
+.sort-select.liquid{border-color:#ffffffb3;border-radius:20px;padding-left:12px}
+.faq-orb{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;--glass-blur:8px;flex-shrink:0;font-size:17px;line-height:1}
+.icon-button{--glass-blur:12px}.icon-button:hover{background:linear-gradient(165deg,#ffffffd9,#eef2e4b3)}
+.quantity{--glass-blur:12px}
+.occasion{--glass-blur:14px;border-color:#ffffffa6}.occasion:hover{background:linear-gradient(165deg,#ffffffd9,#f2f4eab3)}
+.occasion.selected{background:linear-gradient(180deg,#ffffff38,#fff0 52%),linear-gradient(180deg,#235c40,#174631 62%,#123b29);border-color:#174631;box-shadow:inset 0 1px 1px #ffffff73,inset 0 -2px 5px #00000033,0 6px 14px #17463140}
+/* Liquid buttons: a glossy top and a rounded underside, so the green reads as a bead of glass. */
+.primary{background:linear-gradient(180deg,#ffffff33,#fff0 52%),linear-gradient(180deg,#235c40,#174631 60%,#123b29);box-shadow:inset 0 1px 1px #ffffff73,inset 0 -2px 5px #00000033,0 6px 16px #1746313d}
+.primary:hover{background:linear-gradient(180deg,#ffffff40,#fff0 52%),linear-gradient(180deg,#2b6c4b,#1d553b 60%,#174631);box-shadow:inset 0 1px 1px #ffffff80,inset 0 -2px 5px #00000033,0 10px 24px #1746314d}
+.cream{background:linear-gradient(180deg,#fffef7,#f7f1dc 55%,#efe4c2);box-shadow:inset 0 1px 1px #fff,inset 0 -2px 4px #b9a46a40,0 6px 16px #0b2a1a33}.cream:hover{background:linear-gradient(180deg,#fffaf0,#ffe5a0 60%,#f3d382)}
+.secondary{background:linear-gradient(180deg,#f6f8f0,#e4ead8 58%,#d8e0c9);box-shadow:inset 0 1px 1px #fff,inset 0 -2px 4px #6d84542e,0 4px 12px #24442d1a}
+/* Jelly lenses: the ripeness pill, the sheet's ripeness lens and the box lens are beads that liquid.js springs between choices. */
+.selection-pill,.detail-lens{background:linear-gradient(180deg,#ffffff3d,#fff0 50%),linear-gradient(180deg,#235c40,#174631 64%,#133d2a);box-shadow:inset 0 1px 1px #ffffff80,inset 0 -2px 4px #00000038,0 4px 12px #17463147;transition:width .35s var(--ease);will-change:translate,scale}
+.detail-lens{position:absolute;top:5px;bottom:5px;left:calc(5px + var(--i,0) * (100% - 10px) / 3);width:calc((100% - 10px) / 3);border-radius:30px;z-index:-1}
+.detail-stages button.selected{background:none;box-shadow:none}.detail-stages button.out:not(.selected){opacity:.5}
+.box-cards{position:relative;display:grid;grid-template-columns:repeat(var(--n,2),minmax(0,1fr));padding:3px;border-radius:14px;min-width:156px;background:linear-gradient(180deg,#e6ebdccc,#f1f0e4cc);box-shadow:inset 0 1px 3px #183c211a,inset 0 -1px 0 #ffffffd9;isolation:isolate}
+.box-lens{position:absolute;top:3px;bottom:3px;left:calc(3px + var(--i,0) * (100% - 6px) / var(--n,2));width:calc((100% - 6px) / var(--n,2));border-radius:11px;z-index:-1;background:linear-gradient(165deg,#fffffff5,#fffdf3c7 55%,#ffffffe6);box-shadow:inset 0 1px 1px #fff,inset 0 -2px 3px #24442d14,0 4px 12px #183c2124,0 1px 2px #183c211a;will-change:translate,scale}
+.box-lens::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;background:linear-gradient(135deg,#fff,#fff0 40%,#fff0 70%,#ffffffd9);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.box-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:42px;padding:5px 6px;border-radius:11px;color:var(--muted);transition:color .25s var(--ease)}
+.box-card strong{font-size:13px;font-weight:600;color:#6c755f;transition:color .25s var(--ease)}
+.box-card small{font-size:10px;font-variant-numeric:tabular-nums}
+.box-card[aria-pressed="true"] strong{color:var(--green)}.box-card[aria-pressed="true"] small{color:#4f6048}
+.box-card:disabled small{color:#a0573f}
+.product-bottom{align-items:center}.product-price{transform-origin:left center}
+.detail-info .box-cards{margin:8px 0 16px}.detail-info .box-card{min-height:54px}.detail-info .box-card strong{font-size:15px}.detail-info .box-card small{font-size:11px}
+.product-status>.stage-switch{flex:none;background:#e6ebdcb3;border-radius:20px;padding:1px;margin:-3px -3px -3px 0;box-shadow:inset 0 1px 2px #183c2117}
+.stage-dot.selected{background:linear-gradient(165deg,#fff,#fffdf3c7);box-shadow:inset 0 1px 1px #fff,0 2px 6px #183c2129}
+/* Sheets are frosted glass too (product information inside stays on its own opaque blocks). */
+.sheet{background:#fbf9f0db;-webkit-backdrop-filter:blur(30px) saturate(1.6);backdrop-filter:blur(30px) saturate(1.6);box-shadow:inset 0 1px 0 #fff,inset 0 0 0 1px #ffffff80,0 30px 90px #102b2940}
+@media(max-width:700px){.product-bottom{align-items:stretch}.box-cards{min-width:0}.box-card{min-height:40px}.box-card strong{font-size:12px}}
+@media(prefers-reduced-transparency:reduce){.glass,.liquid,.icon-button,.quantity,.occasion,.sheet{background:#faf8ed;-webkit-backdrop-filter:none;backdrop-filter:none}.glass::after,.liquid::after,.icon-button::after,.quantity::after,.occasion::after{display:none}}
+@supports not (backdrop-filter:blur(1px)){.liquid,.icon-button,.quantity,.occasion{background:#f6f4e9f5}.sheet{background:#fbf9f0}}
