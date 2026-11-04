@@ -140,5 +140,3 @@ export function Sheet({
     </BaseDrawer.Root>
   );
 }
-
-export const SheetClose = BaseDrawer.Close;

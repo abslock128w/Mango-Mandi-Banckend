@@ -113,7 +113,7 @@ function DealCard({ deal: d, eager }: { deal: BulkDeal; eager: boolean }) {
           </p>
           <p className="mt-2 text-13 text-ink">
             From <b className="text-17">{rupees(d.fromPrice)}</b> a box
-            {d.retailPrice > d.fromPrice && <span className="ml-1.5 text-12 text-muted line-through">{rupees(d.retailPrice)}</span>}
+            {d.retailPrice > d.fromPrice && <span className="ml-2 text-12 text-muted line-through">{rupees(d.retailPrice)}</span>}
           </p>
           <p className="mt-auto pt-2 text-12 text-muted">
             Minimum {d.minQty} boxes{d.endsAt ? ` · Ends ${endsLabel(d.endsAt)}` : ""}

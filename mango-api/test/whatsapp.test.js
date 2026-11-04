@@ -150,7 +150,8 @@ describe('WhatsApp rules', () => {
       for (const a of AUTOMATIONS) {
         assert.equal(paramsFor({ ...n, kind: a.kind }).length, a.params.length, a.kind)
         env.WHATSAPP_ORDER_LINKS = false
-        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), a.button === 'order-link', `${a.kind} without the flag`)
+        // Always sent: the claim templates' link, the rider-app out-for-delivery Track order button, and the delivery code's copy-code button.
+        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), ['order-link', 'track-order', 'copy-code'].includes(a.button), `${a.kind} without the flag`)
         env.WHATSAPP_ORDER_LINKS = true
         assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), Boolean(a.button), `${a.kind} with the flag`)
       }
@@ -170,7 +171,7 @@ describe('WhatsApp rules', () => {
   test('every notification kind has one registry entry with a template, category, consent class and variables', () => {
     const kinds = ['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED', 'CANCELLED', 'REFUNDED', 'PREORDER_BOOKED', 'PREORDER_SPOT_OPEN',
       'PREORDER_MOVED', 'DATE_MOVED', 'GIFT_OUT_FOR_DELIVERY', 'RIPENESS_GUIDE', 'BACK_IN_STOCK', 'REORDER_REMINDER', 'REVIEW_REQUEST', 'CLAIM_RECEIVED', 'CLAIM_REJECTED',
-      'REFERRAL_REWARD', 'MANAGER_DAILY_SUMMARY', 'HELP_REPLY', 'SUBSCRIPTION_DUE']
+      'REFERRAL_REWARD', 'MANAGER_DAILY_SUMMARY', 'HELP_REPLY', 'SUBSCRIPTION_DUE', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE']
     assert.deepEqual([...AUTOMATION_KINDS].sort(), [...kinds].sort())
     assert.equal(new Set(AUTOMATION_KINDS).size, AUTOMATIONS.length)
     for (const a of AUTOMATIONS) {

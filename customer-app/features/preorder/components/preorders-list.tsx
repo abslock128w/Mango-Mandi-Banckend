@@ -18,9 +18,9 @@ export function PreordersList() {
   if (hydrated && !signedIn)
     return (
       <div className="flex flex-col items-center px-6 py-16 text-center">
-        <p className="text-17 font-bold text-ink">Log in to see your bookings</p>
+        <p className="text-17 font-bold text-ink">Sign in to see your bookings</p>
         <Link href="/login?next=/preorders" className="press mt-4 inline-flex h-11 items-center rounded-12 bg-action px-5 text-15 font-semibold text-white">
-          Log in
+          Sign in
         </Link>
       </div>
     );
@@ -65,8 +65,8 @@ export function PreordersList() {
           <li key={p.id} className="rounded-12 bg-surface" data-testid="preorder-row">
             <Link href={`/preorders/${p.id}`} className="flex items-start justify-between gap-2 p-3">
               <div className="min-w-0">
-                <span className={cn("rounded-4 px-1.5 py-0.5 text-11 font-semibold", st.tone)}>{st.label}</span>
-                <p className="mt-1.5 text-13 font-semibold text-ink">
+                <span className={cn("rounded-4 px-2 py-0.5 text-11 font-semibold", st.tone)}>{st.label}</span>
+                <p className="mt-2 text-13 font-semibold text-ink">
                   {p.qty} × {p.productName} · {rupees(p.total)}
                 </p>
                 <p className="text-12 text-muted">

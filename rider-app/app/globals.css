@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@import "../styles/theme.css";
+
+@custom-variant reduced (@media (prefers-reduced-motion: reduce));
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+  }
+  /* With a light halo, so the ring shows on teal buttons and photos too. */
+  :focus-visible {
+    outline: 3px solid var(--color-action);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-surface);
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@utility press {
+  transition: transform 120ms ease-out;
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

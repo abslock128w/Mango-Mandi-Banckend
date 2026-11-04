@@ -1,12 +1,6 @@
-import Link from "next/link";
+import { SignInPrompt as AccountSignInPrompt } from "@/features/account/components/bits";
 
-export function SignInPrompt({ next, title = "Log in to see your orders" }: { next: string; title?: string }) {
-  return (
-    <div className="flex flex-col items-center px-6 py-16 text-center">
-      <p className="text-17 font-bold text-ink">{title}</p>
-      <Link href={`/login?next=${encodeURIComponent(next)}`} className="press mt-4 rounded-12 bg-action px-5 py-3 text-15 font-semibold text-white">
-        Log in
-      </Link>
-    </div>
-  );
+/** The orders pages' sign-in prompt: the same card (heading, icon, button) as the account pages. */
+export function SignInPrompt({ next, title = "Sign in to see your orders", body = "Track each order, report a problem and order again." }: { next: string; title?: string; body?: string }) {
+  return <AccountSignInPrompt next={next} title={title} body={body} />;
 }

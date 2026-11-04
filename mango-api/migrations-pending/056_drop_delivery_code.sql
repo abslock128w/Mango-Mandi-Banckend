@@ -1,0 +1,12 @@
+-- contract: drops orders.delivery_code, the plaintext delivery code. From 053 on the
+-- API keeps only delivery_code_hash and delivery_code_nonce (src/delivery-code.js) and
+-- the shop reads the code from the API, which derives it.
+--
+-- Ships in the release AFTER the one that added 053 (move this file into migrations/
+-- then): the release before 053 still reads and writes delivery_code, and the n-minus-1
+-- check (scripts/n-minus-1.sh) runs it against the new schema. Orders still out for
+-- delivery with only a plaintext code are given a hash first by
+-- `node ops/hash-delivery-codes.js` (run once, before this file).
+--
+-- locks: dropping a column is a catalogue change on orders (brief ACCESS EXCLUSIVE, no rewrite).
+ALTER TABLE orders DROP COLUMN IF EXISTS delivery_code;

@@ -59,7 +59,7 @@ function CartLineRow({ line, soldOutOn }: { line: CartLine; soldOutOn?: string }
       </span>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-12 font-medium text-ink">{/box/i.test(line.name) ? line.name : `${line.name} Mango`}</p>
-        <div className="mt-1 flex items-center gap-1.5">
+        <div className="mt-1 flex items-center gap-2">
           <RipenessChip stage={line.ripeness} />
           <span className="text-12 text-muted">{line.size} kg box</span>
         </div>
@@ -81,7 +81,7 @@ function BulkLineRow({ line }: { line: BulkCartLine }) {
       <div className="min-w-0 flex-1">
         <p className="text-11 font-bold tracking-wide text-ribbon uppercase">Bulk deal</p>
         <p className="line-clamp-2 text-12 font-medium text-ink">{line.title}</p>
-        <div className="mt-1 flex items-center gap-1.5">
+        <div className="mt-1 flex items-center gap-2">
           <RipenessChip stage={line.stage} />
           <span className="text-12 text-muted">{line.qty} boxes</span>
         </div>
@@ -115,7 +115,7 @@ function DayPicker() {
   const setDate = useLocation((s) => s.setDeliveryDate);
   if (!data?.serviceable) return null;
   return (
-    <div role="radiogroup" aria-label="Delivery day" className="no-scrollbar -mx-1 mt-3 flex gap-1.5 overflow-x-auto px-1">
+    <div role="radiogroup" aria-label="Delivery day" className="no-scrollbar -mx-1 mt-3 flex gap-2 overflow-x-auto px-1">
       {data.deliveryDates.map((d) => (
         <button
           key={d}
@@ -160,7 +160,7 @@ export function CartContents({ onNavigate }: { onNavigate?: () => void }) {
       <FreeDeliveryNote />
 
       <section className="rounded-12 bg-surface p-3" aria-labelledby="day-h">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-8 bg-chip text-ink">
             <CalendarDays aria-hidden size={20} strokeWidth={1.75} />
           </span>
@@ -239,7 +239,7 @@ export function PayBar({ onNavigate }: { onNavigate?: () => void }) {
           <span className="text-11 font-medium uppercase">Total</span>
         </span>
         <span className="flex items-center gap-0.5 text-17 font-bold">
-          {signedIn ? "Proceed to checkout" : "Login to proceed"} <ChevronRight aria-hidden size={20} strokeWidth={2} />
+          {signedIn ? "Proceed to checkout" : "Sign in to proceed"} <ChevronRight aria-hidden size={20} strokeWidth={2} />
         </span>
       </button>
     </div>

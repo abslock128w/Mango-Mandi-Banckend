@@ -81,7 +81,8 @@ function Gallery({ product, sel, scope, mode }: { product: Product; sel: Selecti
             onClick={() => setActive(i)}
             className={cn("press relative size-16 shrink-0 overflow-hidden rounded-8 border-2 bg-surface", i === active ? "border-action" : "border-line")}
           >
-            <Image src={src} alt="" fill sizes="64px" className="object-cover" />
+            {/* Beside the main photo, so above the fold; one is the main photo's own file. */}
+            <Image src={src} alt="" fill sizes="64px" loading="eager" className="object-cover" />
           </button>
         ))}
       </div>
@@ -148,7 +149,7 @@ function RipenessExplainer({ product, sel }: { product: Product; sel: Selection 
         {sel.sku.eatBy && <span className="text-muted"> Best eaten by {longDate(sel.sku.eatBy)}.</span>}
       </p>
       <details className="mt-2 text-12">
-        <summary className="cursor-pointer py-1 font-semibold text-action">How to store them</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center font-semibold text-action">How to store them</summary>
         <ul className="mt-1 list-disc space-y-1 pl-4 text-muted">
           {RIPENESS[sel.stage].care.map((c) => (
             <li key={c}>{c}</li>
@@ -204,11 +205,11 @@ export function Promises({ className }: { className?: string }) {
   return (
     <ul className={cn("grid grid-cols-3 gap-2", className)}>
       {PROMISES.map(({ icon: Icon, title, text, tone }) => (
-        <li key={title} className="flex flex-col items-center rounded-12 bg-surface p-2.5 text-center">
+        <li key={title} className="flex flex-col items-center rounded-12 bg-surface p-3 text-center">
           <span className={cn("grid size-12 place-items-center rounded-full", tone)}>
             <Icon aria-hidden size={24} strokeWidth={1.75} />
           </span>
-          <p className="mt-1.5 text-12 font-bold text-ink">{title}</p>
+          <p className="mt-2 text-12 font-bold text-ink">{title}</p>
           <p className="mt-0.5 text-11 text-muted">{text}</p>
         </li>
       ))}
@@ -223,7 +224,7 @@ function Highlights({ product, sel }: { product: Product; sel: Selection }) {
     ["Availability", v.inSeason ? "In stock for your day" : v.seasonNote],
     [
       "Sweetness",
-      <span key="s" className="inline-flex items-center gap-1" aria-label={`${v.sweetness} out of 5`}>
+      <span key="s" role="img" className="inline-flex items-center gap-1" aria-label={`${v.sweetness} out of 5`}>
         {Array.from({ length: 5 }, (_, i) => (
           <span key={i} aria-hidden className={cn("size-2 rounded-full", i < v.sweetness ? "bg-ripe" : "bg-line")} />
         ))}
@@ -259,7 +260,7 @@ function Reviews({ product }: { product: Product }) {
       <h2 id="rev-h" className="flex items-center gap-2 text-15 font-bold text-ink">
         Reviews
         {summary.average != null && (
-          <span className="inline-flex items-center gap-0.5 rounded-4 bg-action px-1.5 text-12 text-white">
+          <span className="inline-flex items-center gap-0.5 rounded-4 bg-action px-2 text-12 text-white">
             {summary.average.toFixed(1)} <Star aria-hidden size={11} fill="currentColor" strokeWidth={0} />
           </span>
         )}
@@ -267,9 +268,9 @@ function Reviews({ product }: { product: Product }) {
       </h2>
       <ul className="mt-2 divide-y divide-line">
         {items.map((r) => (
-          <li key={r.id} className="py-2.5 text-12">
-            <p className="flex items-center gap-1.5">
-              <span className="font-semibold text-ink" aria-label={`${r.rating} out of 5`}>
+          <li key={r.id} className="py-3 text-12">
+            <p className="flex items-center gap-2">
+              <span role="img" className="font-semibold text-ink" aria-label={`${r.rating} out of 5`}>
                 {"★".repeat(r.rating)}
                 <span className="text-line">{"★".repeat(5 - r.rating)}</span>
               </span>
@@ -345,7 +346,7 @@ export function PreorderNote({ product }: { product: Product }) {
   const weeks = (data?.weeks ?? []).filter((w) => skus.has(w.sku) && w.remaining > 0).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
   if (!weeks.length) return null;
   return (
-    <Link href="/preorder" className="mt-2 flex gap-2.5 rounded-12 border border-brand bg-brand-soft p-3" data-testid="preorder-note">
+    <Link href="/preorder" className="mt-2 flex gap-3 rounded-12 border border-brand bg-brand-soft p-3" data-testid="preorder-note">
       <CalendarClock aria-hidden size={20} strokeWidth={1.75} className="mt-0.5 shrink-0 text-ink" />
       <span className="text-12 text-ink">
         <span className="block font-bold">Pre-order for the season</span>
@@ -359,7 +360,7 @@ export function PreorderNote({ product }: { product: Product }) {
 function BulkLink() {
   return (
     <Link href="/bulk" className="flex items-center justify-between gap-2 rounded-12 border-[0.5px] border-line bg-surface p-3">
-      <span className="flex items-center gap-2.5">
+      <span className="flex items-center gap-3">
         <span className="grid size-9 place-items-center rounded-8 bg-ribbon-soft text-ribbon">
           <Boxes aria-hidden size={20} strokeWidth={1.75} />
         </span>
@@ -427,7 +428,7 @@ export function ProductDetail({ product, sel, scope, mode }: { product: Product;
           </h2>
           <ul className="mt-2 grid grid-cols-2 gap-2">
             {v.contents.map((c) => (
-              <li key={c.name} className="rounded-8 bg-chip px-2.5 py-2">
+              <li key={c.name} className="rounded-8 bg-chip px-3 py-2">
                 <p className="text-13 font-semibold text-ink">{c.name}</p>
                 <p className="text-11 text-muted">{c.share}</p>
               </li>

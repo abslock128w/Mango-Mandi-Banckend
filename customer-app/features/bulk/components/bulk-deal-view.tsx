@@ -180,7 +180,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
             </header>
             {deal.description && <p className="text-13 whitespace-pre-line text-ink">{deal.description}</p>}
 
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-12 bg-surface p-3 text-13">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-12 bg-surface p-3 text-13">
               {deal.origin && (
                 <>
                   <dt className="text-muted">From</dt>
@@ -232,7 +232,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                     })}
                 </tbody>
               </table>
-              <p className="mt-1.5 text-12 text-muted">A single box is {rupees(deal.retailPrice)} in the regular shop. One price whatever the ripeness.</p>
+              <p className="mt-2 text-12 text-muted">A single box is {rupees(deal.retailPrice)} in the regular shop. One price whatever the ripeness.</p>
             </section>
 
             <StagePicker
@@ -303,7 +303,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                       <b className="text-19 text-ink">{rupees(total)}</b>
                     </p>
                   </div>
-                  {next && <p className="mt-1.5 text-12 text-action">Order {next.minQty} or more and pay {rupees(next.unitPrice)} a box.</p>}
+                  {next && <p className="mt-2 text-12 text-action">Order {next.minQty} or more and pay {rupees(next.unitPrice)} a box.</p>}
                   {inCart > 0 && <p className="mt-1 text-12 text-muted">{inCart} boxes of this ripeness are in your cart. Adding again replaces that number.</p>}
                 </>
               ) : (
@@ -316,7 +316,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
               {price.error && <p className="mt-1 text-12 text-danger">{price.error instanceof ApiError ? price.error.message : "Couldn't check the price."}</p>}
             </section>
 
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
+            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-3 pt-3 pb-[max(10px,env(safe-area-inset-bottom))] lg:static lg:border-0 lg:bg-transparent lg:p-0">
               <button
                 type="button"
                 onClick={add}
@@ -327,7 +327,7 @@ function DealDetail({ deal, pincode }: { deal: DealReply; pincode: string | null
                 {pricing ? <Loader2 aria-hidden size={20} className="animate-spin" /> : <ShoppingBag aria-hidden size={20} />}
                 {canAdd ? `Add ${n} boxes · ${rupees(total)}` : "Add to cart"}
               </button>
-              <p className="mt-1.5 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
+              <p className="mt-2 hidden text-center text-12 text-muted lg:block">Free delivery. Checkout confirms the price before you pay.</p>
             </div>
           </div>
         </div>

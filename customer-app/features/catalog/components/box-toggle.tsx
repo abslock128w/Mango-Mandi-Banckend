@@ -34,8 +34,9 @@ export function BoxToggle({
             aria-label={`${s} kg box${sku && sku.stock <= 0 ? ", out of stock" : ""}`}
             onClick={() => onChange(s)}
             className={cn(
-              "relative z-0 rounded-[3px] font-medium whitespace-nowrap after:absolute after:-inset-y-3 after:inset-x-0",
-              compact ? "px-1.5 text-11" : "px-3 text-13",
+              "relative z-0 rounded-4 font-medium whitespace-nowrap after:absolute after:inset-x-0",
+              // A 44 px touch: 16 px buttons reach out 14 px above and below, 28 px ones 8 px.
+              compact ? "px-3 text-11 after:-inset-y-3.5" : "px-3 text-13 after:-inset-y-2",
               selected ? "text-ink" : "text-muted",
               sku && sku.stock <= 0 && "line-through decoration-disabled",
             )}
@@ -44,7 +45,7 @@ export function BoxToggle({
               <m.span
                 layoutId={`box-${id}`}
                 transition={uiSpring}
-                className="absolute inset-0 -z-10 rounded-[3px] border-[0.5px] border-line bg-surface shadow-card"
+                className="absolute inset-0 -z-10 rounded-4 border-[0.5px] border-line bg-surface shadow-card"
               />
             )}
             {s} kg

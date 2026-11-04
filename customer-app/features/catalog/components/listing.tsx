@@ -4,16 +4,17 @@ import Image from "next/image";
 import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { PageTransition } from "@/features/shell/page-transition";
 import { useProducts } from "../hooks/queries";
+import { CatalogueError } from "./catalogue-error";
 import { cn } from "@/lib/format";
 import { uiSpring } from "@/lib/motion";
 import { RIPENESS } from "@/lib/ripeness";
 import type { Collection, Product, RipenessStage } from "@/lib/types";
 import { ProductCard, ProductCardSkeleton } from "./product-card";
 import { SECTIONS } from "../sections";
-import { DEFAULT_FILTERS, SORTS, type Filters, type Tab } from "../filters";
+import { DEFAULT_FILTERS, filtersFromQuery, filtersToQuery, SORTS, type Filters, type Tab } from "../filters";
 import { WhenVisible } from "@/components/ui/when-visible";
 
 
@@ -56,7 +57,7 @@ function Chip({ children, active, onClick, count }: { children: React.ReactNode;
       type="button"
       onClick={onClick}
       className={cn(
-        "press flex h-9 shrink-0 items-center gap-1 rounded-8 border px-3 text-12 font-medium whitespace-nowrap",
+        "press tap flex h-9 shrink-0 items-center gap-1 rounded-8 border px-3 text-12 font-medium whitespace-nowrap",
         active ? "border-action bg-tint text-action" : "border-line bg-surface text-ink",
       )}
     >
@@ -80,13 +81,13 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
                 type="button"
                 onClick={() => onSelect(s.id)}
                 aria-current={on ? "true" : undefined}
-                className="press relative flex w-full flex-col items-center gap-1 px-1 py-2.5"
+                className="press relative flex w-full flex-col items-center gap-1 px-1 py-3"
               >
                 <span className={cn("relative size-12 overflow-hidden rounded-12 transition-colors", on ? "bg-brand-soft" : "bg-chip")}>
                   <Image src={s.image} alt="" fill sizes="48px" className="object-cover" />
                 </span>
                 <span className={cn("text-center text-11 leading-tight", on ? "font-bold text-ink" : "text-muted")}>{s.label}</span>
-                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-1.5 right-0 w-1 rounded-l-4 bg-action" />}
+                {on && <m.span layoutId="rail-active" transition={uiSpring} className="absolute inset-y-2 right-0 w-1 rounded-l-4 bg-action" />}
               </button>
             </li>
           );
@@ -96,8 +97,31 @@ function RipenessRail({ active, onSelect }: { active: Collection; onSelect: (id:
   );
 }
 
+// The filters live in the query string: a refresh or a shared link keeps them, and Back undoes them.
+const searchListeners = new Set<() => void>();
+function subscribeSearch(cb: () => void) {
+  searchListeners.add(cb);
+  window.addEventListener("popstate", cb);
+  return () => {
+    searchListeners.delete(cb);
+    window.removeEventListener("popstate", cb);
+  };
+}
+
+function useUrlFilters(): [Filters, (f: Filters) => void] {
+  const search = useSyncExternalStore(subscribeSearch, () => window.location.search, () => "");
+  const filters = useMemo(() => (search ? filtersFromQuery(search) : DEFAULT_FILTERS), [search]);
+  const setFilters = useCallback((f: Filters) => {
+    const next = filtersToQuery(f);
+    if (next === window.location.search) return;
+    window.history.pushState(window.history.state, "", window.location.pathname + next);
+    searchListeners.forEach((cb) => cb());
+  }, []);
+  return [filters, setFilters];
+}
+
 export function Listing({ initial }: { initial: Collection }) {
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [filters, setFilters] = useUrlFilters();
   const [active, setActive] = useState<Collection>(initial);
   const [sheet, setSheet] = useState<{ open: boolean; tab: Tab; loaded: boolean }>({ open: false, tab: "sort", loaded: false });
   const sectionRefs = useRef(new Map<Collection, HTMLElement>());
@@ -105,7 +129,7 @@ export function Listing({ initial }: { initial: Collection }) {
   const reduce = useReducedMotion();
 
   const visibleSections = SECTIONS.filter((s) => !(filters.ripeness && SECTION_STAGE[s.id] && SECTION_STAGE[s.id] !== filters.ripeness));
-  const { data: products } = useProducts();
+  const { data: products, isError, refetch } = useProducts();
 
   const scrollToSection = useCallback(
     (id: Collection, smooth = true) => {
@@ -172,8 +196,9 @@ export function Listing({ initial }: { initial: Collection }) {
               {filters.sort === "relevance" ? "Sort By" : SORTS.find((s) => s.id === filters.sort)?.label} <ChevronDown aria-hidden size={14} />
             </Chip>
           </div>
-          <div className="space-y-6 bg-canvas p-2.5 lg:p-4">
-            {visibleSections.map((s, i) => {
+          <div className="space-y-6 bg-canvas p-3 lg:p-4">
+            {isError && <CatalogueError onRetry={refetch} />}
+            {!isError && visibleSections.map((s, i) => {
               const stage = sectionStage(s.id, filters);
               const list = products ? sortProducts(applyClientFilters(products, stage, filters), filters.sort, stage) : null;
               return (
@@ -186,9 +211,9 @@ export function Listing({ initial }: { initial: Collection }) {
                   aria-labelledby={`sec-${s.id}`}
                   data-section={s.id}
                 >
-                  <h2 id={`sec-${s.id}`} className="px-0.5 pb-2.5 font-display text-15 font-extrabold text-ink lg:text-17">
+                  <h2 id={`sec-${s.id}`} className="px-0.5 pb-3 font-display text-15 font-extrabold text-ink lg:text-17">
                     {s.title}
-                    {list && <span className="ml-1.5 text-12 font-medium text-muted">{list.length} items</span>}
+                    {list && <span className="ml-2 text-12 font-medium text-muted">{list.length} items</span>}
                   </h2>
                   <WhenVisible
                     // First section renders immediately; the rest when scrolled near. Scroll-spy targets stay in place.

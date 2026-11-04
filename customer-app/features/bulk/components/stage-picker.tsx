@@ -38,7 +38,7 @@ export function StagePicker({
               aria-checked={picked}
               onClick={() => onChange(s)}
               className={cn(
-                "press flex min-h-11 items-start gap-2.5 rounded-12 border p-3 text-left",
+                "press flex min-h-11 items-start gap-3 rounded-12 border p-3 text-left",
                 picked ? "border-action bg-tint" : "border-line bg-surface",
                 off?.(s) && !picked && "opacity-60",
               )}

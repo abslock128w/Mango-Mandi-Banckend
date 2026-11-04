@@ -1,7 +1,7 @@
 // App feel (docs/app-feel.md): browser notifications (RFC 8291 + RFC 8292,
 // sent through a stub, never a real push service), live tracking without GPS,
 // favourites, and the switches the shop and panel read.
-import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer, T0, doorProof } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createPublicKey, randomBytes, verify } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -581,6 +581,7 @@ describe('live tracking without GPS', () => {
 
     // The first stop is delivered (with its code, as always): everyone behind moves up.
     const code = (await api.get(`/v1/orders/${stops[0].id}`, { token: stops[0].cust.accessToken })).body.deliveryCode
+    await doorProof(api, rider, stops[0].id) // the door and open-box photos come first (rider app)
     assert.equal((await api.post(`/admin/v1/orders/${stops[0].id}/delivery`, { outcome: 'DELIVERED', code }, { token: rider })).status, 200)
     assert.equal(await tracking(stops[0]), null)
     assert.equal((await tracking(stops[2])).stopsAway, 1)

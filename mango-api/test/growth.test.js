@@ -2,7 +2,8 @@
 // (FUNNEL_ANALYTICS) and the managers' evening WhatsApp summary
 // (MANAGER_DAILY_SUMMARY). Messages go through stub senders, never to Meta or
 // a push service.
-import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { doorProof, adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { deliveryCodeFor } from '../src/delivery-code.js'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -75,7 +76,8 @@ async function deliverForReal(orderId) {
     const r = await api.patch(`/admin/v1/orders/${orderId}/status`, { status }, { token: admin })
     assert.equal(r.status, 204, `${status}: ${JSON.stringify(r.body)}`)
   }
-  const code = (await query('SELECT delivery_code FROM orders WHERE id = $1', [orderId])).rows[0].delivery_code
+  const code = deliveryCodeFor((await query('SELECT id, delivery_code, delivery_code_nonce FROM orders WHERE id = $1', [orderId])).rows[0])
+  await doorProof(api, admin, orderId) // the door and open-box photos come first (rider app)
   const d = await api.post(`/admin/v1/orders/${orderId}/delivery`, { outcome: 'DELIVERED', code }, { token: admin })
   assert.equal(d.status, 200, JSON.stringify(d.body))
 }

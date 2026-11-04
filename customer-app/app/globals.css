@@ -12,9 +12,11 @@
   body {
     @apply bg-canvas text-ink font-sans text-13 antialiased;
   }
+  /* The panel's ring: teal with a light halo, so it shows on teal buttons and photos too. */
   :focus-visible {
     outline: 2px solid var(--color-action);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-surface);
   }
   button {
     cursor: pointer;
@@ -27,6 +29,17 @@
 @utility hairline {
   border-width: 0.5px;
   border-color: var(--color-line);
+}
+
+/* A control that looks smaller than 44 px still takes a 44 x 44 px touch (--tap-min in
+   design/COMPONENTS.md): an invisible box centred on it, part of the control for clicks. */
+@utility tap {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((100% - 44px) / 2));
+  }
 }
 
 @utility no-scrollbar {

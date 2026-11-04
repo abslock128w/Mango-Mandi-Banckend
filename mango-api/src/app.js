@@ -6,6 +6,8 @@ import express from 'express'
 import rateLimit from 'express-rate-limit'
 import helmet from 'helmet'
 import { router as adminRouter } from './admin.js'
+import { finishUpload } from './admin/deliveries.js'
+import { handleUpload } from '@vercel/blob/client'
 import { devRouter, router as customerRouter } from './customer.js'
 import { loadConfig } from './config.js'
 import { isDbUnavailable, isPoolTimeout, query } from './db.js'
@@ -77,9 +79,9 @@ export function createApp() {
 
   app.use(helmet())
   const corsOptions = {
-    origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
+    origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN},${env.RIDER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session', 'X-Step', 'X-Client-Id', 'X-Lat', 'X-Lng', 'X-Accuracy', 'X-Taken-At'],
   }
   // SEC-09: with API_HARDENING the shop and panel can read Retry-After and X-Request-Id.
   app.use(cors((_req, cb) => cb(null, env.API_HARDENING ? { ...corsOptions, exposedHeaders: EXPOSED_HEADERS } : corsOptions)))
@@ -259,6 +261,28 @@ export function createApp() {
 
   app.use(express.json({ limit: '100kb', inflate: false }))
   app.use(loaded)
+
+  // Rider app: Vercel Blob says a rider's photo upload finished (onUploadCompleted, signed with the
+  // Blob token). The phone reports the same upload itself; whichever comes second is a no-op.
+  app.post('/webhooks/blob/delivery-photos', async (req, res) => {
+    if (!env.BLOB_READ_WRITE_TOKEN) return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found', requestId: req.id } })
+    try {
+      await handleUpload({
+        token: env.BLOB_READ_WRITE_TOKEN,
+        request: req,
+        body: req.body,
+        onBeforeGenerateToken: () => Promise.reject(new Error('upload tokens come from /admin/v1/orders/:id/photos/token')),
+        onUploadCompleted: async ({ blob, tokenPayload }) => {
+          const p = JSON.parse(tokenPayload ?? '{}')
+          await finishUpload(p.orderId, blob.pathname, p, { type: 'admin', id: p.actor?.id, label: p.actor?.label ?? 'rider' })
+        },
+      })
+      res.json({ ok: true })
+    } catch (err) {
+      logger.warn({ err: { message: err?.message, code: err?.code } }, 'blob upload callback refused')
+      res.status(400).json({ error: { code: 'BAD_CALLBACK', message: 'Upload callback refused', requestId: req.id } })
+    }
+  })
 
   // Per address. Indian mobile networks put many customers behind one address
   // (carrier NAT), so this is a flood guard, not a per-person limit: floods

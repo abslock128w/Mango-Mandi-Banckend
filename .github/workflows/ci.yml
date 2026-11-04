@@ -21,14 +21,19 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             customer-app/package-lock.json
+            rider-app/package-lock.json
       - run: npm ci
       # The shop (customer-app/) is a Next.js app with its own packages.
       - run: npm ci
         working-directory: customer-app
-      # SEC-12: no high or critical advisory in what the shop and panel ship.
+      # The rider app (rider-app/) too; `npm run lint` lints it.
+      - run: npm ci
+        working-directory: rider-app
+      # SEC-12: no high or critical advisory in what the shop, panel and rider app ship.
       - name: Dependency audit (shipped packages)
-        run: npm audit --omit=dev --audit-level=high && npm --prefix customer-app audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=high && npm --prefix customer-app audit --omit=dev --audit-level=high && npm --prefix rider-app audit --omit=dev --audit-level=high
       - run: npm run typecheck
+      - run: npm --prefix rider-app run typecheck
       - name: Lint (panel and API with eslint.config.mjs; the shop with its own)
         run: npm run lint
       - name: Unit tests (the panel, the scripts and the shop)
@@ -40,6 +45,10 @@ jobs:
           NEXT_PUBLIC_API_URL: https://api.example.in
           # A made-up number for the build check only; production sets the shop's real one.
           NEXT_PUBLIC_SUPPORT_WHATSAPP: '910000000000'
+      - name: Build the rider app
+        run: npm --prefix rider-app run build
+        env:
+          NEXT_PUBLIC_API_URL: https://api.example.in
       # Bundle safety: no secrets, dev routes, demo accounts or mock providers in
       # what ships to browsers (scripts/scan-bundle.mjs; the Vercel builds run it
       # too, with --forbid-localhost, so a build without VITE_API_URL fails).

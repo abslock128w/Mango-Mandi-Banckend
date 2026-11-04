@@ -40,7 +40,7 @@ export default function GoogleMapPicker({
         <Recenter center={center} />
         {/* Fixed centre pin */}
         <div className="pointer-events-none absolute top-1/2 left-1/2 z-10 -translate-x-1/2 -translate-y-full" aria-hidden>
-          <div className="mb-1 rounded-8 bg-ink px-2.5 py-1.5 text-11 font-semibold whitespace-nowrap text-white shadow-sheet">Your order will be delivered here</div>
+          <div className="mb-1 rounded-8 bg-ink px-3 py-2 text-11 font-semibold whitespace-nowrap text-white shadow-sheet">Your order will be delivered here</div>
           <svg viewBox="0 0 32 40" className="mx-auto size-10 drop-shadow">
             <path d="M16 39s13-12.4 13-23A13 13 0 0 0 3 16c0 10.6 13 23 13 23Z" className="fill-action" />
             <circle cx="16" cy="16" r="5" className="fill-white" />

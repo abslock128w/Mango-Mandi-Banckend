@@ -24,7 +24,10 @@
   left: var(--space-3);
   top: var(--space-2);
   z-index: 80;
-  padding: var(--space-2) var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
   border-radius: var(--radius-sm);
   background: var(--color-staff);
   color: var(--color-on-staff);
@@ -61,8 +64,8 @@
   align-self: stretch;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 var(--space-4) 0 18px;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) 0 var(--space-5);
   color: var(--text);
   font-weight: 680;
   font-size: 15px;
@@ -77,7 +80,7 @@
   width: 28px;
   height: 28px;
   flex: none;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   box-shadow: 0 0 0 1px rgb(0 0 0 / 4%), 0 2px 6px -2px rgb(255 133 82 / 50%);
 }
 .app.is-collapsed .brand {
@@ -119,7 +122,7 @@
   gap: var(--space-2);
   width: min(320px, 32vw);
   height: 36px;
-  padding: 0 6px 0 var(--space-3);
+  padding: 0 var(--space-2) 0 var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -213,7 +216,7 @@
   display: none;
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
+  top: calc(100% + var(--space-2));
   z-index: 50;
   min-width: 260px;
   padding: var(--space-1);
@@ -315,7 +318,7 @@
 }
 .nav-group-label {
   display: block;
-  padding: 0 var(--space-3) 6px;
+  padding: 0 var(--space-3) var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-2xs);
   font-weight: 650;
@@ -330,7 +333,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   min-height: 34px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-sm);
@@ -355,10 +358,10 @@
   content: '';
   position: absolute;
   left: -12px;
-  top: 7px;
-  bottom: 7px;
+  top: var(--space-2);
+  bottom: var(--space-2);
   width: 3px;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
   background: var(--color-staff);
 }
 .nav-icon {
@@ -384,7 +387,7 @@
 .collapse-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   width: 100%;
   min-height: 34px;
   padding: 0 var(--space-3);
@@ -522,7 +525,7 @@
     display: flex;
     justify-content: space-around;
     gap: 2px;
-    padding: 6px var(--space-2) calc(6px + env(safe-area-inset-bottom));
+    padding: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom));
     background: color-mix(in srgb, var(--surface) 94%, transparent);
     border-top: 1px solid var(--border);
     backdrop-filter: saturate(1.6) blur(12px);
@@ -538,7 +541,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 3px;
+    gap: var(--space-1);
     width: 100%;
     min-height: 52px;
     padding: 4px 2px;

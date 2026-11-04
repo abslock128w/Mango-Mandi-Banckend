@@ -270,4 +270,7 @@ export const NOTIFICATION_LABEL: Record<NotificationKind, string> = {
   DATE_MOVED: 'Delivery date moved',
   CLAIM_RECEIVED: 'Claim received',
   CLAIM_REJECTED: 'Claim rejected',
+  DELIVERY_CODE: 'Delivery code',
+  GIFT_DELIVERY_CODE: 'Delivery code (gift recipient)',
+  GIFT_OUT_FOR_DELIVERY: 'Out for delivery (gift recipient)',
 }

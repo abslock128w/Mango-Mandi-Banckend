@@ -186,12 +186,14 @@ function Queue() {
               <tr>
                 {pending && (
                   <th scope="col">
-                    <input
-                      type="checkbox"
-                      aria-label="Select all shown reviews"
-                      checked={allChosen}
-                      onChange={() => setSelected(allChosen ? new Set() : new Set(items.slice(0, 50).map((r) => r.id)))}
-                    />
+                    <label className="check-hit">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all shown reviews"
+                        checked={allChosen}
+                        onChange={() => setSelected(allChosen ? new Set() : new Set(items.slice(0, 50).map((r) => r.id)))}
+                      />
+                    </label>
                   </th>
                 )}
                 <th scope="col">Stars</th>
@@ -209,12 +211,14 @@ function Queue() {
                 <tr key={r.id} className={r.flagged ? 'row-flagged' : undefined}>
                   {pending && (
                     <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select review from ${r.displayName} on ${r.orderNumber ?? r.productName}`}
-                        checked={selected.has(r.id)}
-                        onChange={() => toggle(r.id)}
-                      />
+                      <label className="check-hit">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select review from ${r.displayName} on ${r.orderNumber ?? r.productName}`}
+                          checked={selected.has(r.id)}
+                          onChange={() => toggle(r.id)}
+                        />
+                      </label>
                     </td>
                   )}
                   <td>

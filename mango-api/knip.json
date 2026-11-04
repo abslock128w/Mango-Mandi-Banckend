@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "include": [
+    "exports"
+  ],
+  "entry": [
+    "api/**/*.js",
+    "scripts/**/*.{js,mjs}",
+    "ops/**/*.js",
+    "test/**/*.js"
+  ]
+}

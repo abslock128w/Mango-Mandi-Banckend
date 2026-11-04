@@ -4,9 +4,9 @@ import { DotLottieReact, setWasmUrl } from "@lottiefiles/dotlottie-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import { Check, ChevronRight, Loader2 } from "lucide-react";
+import { Check, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, qk } from "@/lib/api/client";
+import { api, ApiError, qk } from "@/lib/api/client";
 import { dayName, plural, rupees, windowLabel } from "@/lib/format";
 import { softSpring } from "@/lib/motion";
 import { useOrder, useSignedInReady } from "../hooks";
@@ -21,7 +21,8 @@ const WAIT_MS = 30_000;
 export function SuccessView({ id }: { id: string }) {
   const qc = useQueryClient();
   const { hydrated, signedIn, ready } = useSignedInReady();
-  const { data: order } = useOrder(id);
+  const orderQ = useOrder(id);
+  const order = orderQ.data;
   const reduce = useReducedMotion();
   const [started] = useState(() => Date.now());
   // The payment may still be settling (webhook or verify in flight): check briefly.
@@ -33,6 +34,14 @@ export function SuccessView({ id }: { id: string }) {
   });
   const paid = status.data?.status === "SUCCEEDED" || (order && order.paymentStatus === "SUCCEEDED");
   const failed = status.data?.status === "FAILED";
+  // Past the wait with no answer: say so and hand over to the order page, rather than spin for ever.
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTimedOut(true), WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  const waiting = !paid && !failed && timedOut;
+  const missing = [orderQ.error, status.error].some((e) => e instanceof ApiError && e.status === 404);
   useEffect(() => {
     if (paid) {
       void qc.invalidateQueries({ queryKey: qk.order(id) });
@@ -40,13 +49,26 @@ export function SuccessView({ id }: { id: string }) {
     }
   }, [paid, qc, id]);
 
-  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/success`} title="Log in to see your order" />;
+  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}/success`} title="Sign in to see your order" />;
+  if (missing)
+    return (
+      <div className="p-8 text-center" role="alert">
+        <p className="text-17 font-bold text-ink">We couldn&apos;t find that order</p>
+        <Link href="/orders" className="mt-3 inline-flex h-11 items-center text-13 font-semibold text-action">
+          See your orders
+        </Link>
+      </div>
+    );
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center px-4 pt-14 pb-10 text-center">
       <div className="relative grid size-40 place-items-center">
         {paid && <Confetti />}
-        {!paid && !failed ? (
+        {waiting ? (
+          <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
+            <Clock aria-hidden size={40} />
+          </span>
+        ) : !paid && !failed ? (
           <span className="grid size-24 place-items-center rounded-full bg-tint text-action">
             <Loader2 aria-hidden size={40} className="animate-spin" />
           </span>
@@ -59,14 +81,16 @@ export function SuccessView({ id }: { id: string }) {
         )}
       </div>
       <m.h1 initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="font-display text-24 font-extrabold text-ink">
-        {paid ? "Order confirmed" : failed ? "Payment didn't go through" : "Confirming your payment"}
+        {paid ? "Order confirmed" : failed ? "Payment didn't go through" : waiting ? "Still waiting for your payment" : "Confirming your payment"}
       </m.h1>
       <p className="mt-1 text-13 text-muted" role="status">
         {paid && order
           ? `Arriving ${dayName(order.deliveryDate)}${order.slot ? `, ${windowLabel(order.slot.startsAt, order.slot.endsAt)}` : ""}.`
           : failed
             ? "No money was taken. You can try again from the order page."
-            : "This takes a few seconds."}
+            : waiting
+              ? "If you paid, it shows on the order page within a few minutes. You won't be charged twice."
+              : "This takes a few seconds."}
       </p>
 
       {order && (
@@ -79,7 +103,7 @@ export function SuccessView({ id }: { id: string }) {
         >
           <div className="flex items-center justify-between">
             <p className="text-13 font-semibold text-ink">Order {order.number}</p>
-            <span className="rounded-4 bg-tint px-1.5 py-0.5 text-11 font-semibold text-action">{paid ? "Paid" : "Waiting"}</span>
+            <span className="rounded-4 bg-tint px-2 py-0.5 text-11 font-semibold text-action">{paid ? "Paid" : "Waiting"}</span>
           </div>
           <ul className="mt-3 space-y-1 text-12 text-ink">
             {order.items.map((l) => (

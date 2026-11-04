@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, Clock, Search, SearchX, ShoppingCart, X } from 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ProductCard, ProductCardSkeleton } from "@/features/catalog/components/product-card";
+import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useProducts } from "@/features/catalog/hooks/queries";
 import { useOpenProduct } from "@/features/product/open";
 import { Logo } from "@/features/shell/logo";
@@ -69,12 +70,12 @@ function SuggestionTree({ items, query, onSearch }: { items: SearchSuggestion[];
               role="option"
               aria-selected={false}
               onClick={(e) => (s.children ? onSearch(s.label) : open(e, s.productId!, "search-suggest", s.ripeness))}
-              className="flex h-9 min-w-0 flex-1 items-center gap-2.5 px-4 text-left text-13 hover:bg-chip"
+              className="flex h-9 min-w-0 flex-1 items-center gap-3 px-4 text-left text-13 hover:bg-chip"
             >
               <Thumb src={s.image} />
               <span className="min-w-0 truncate">
                 <Highlight text={s.label} query={query} />
-                {s.reason && <span className="ml-1.5 text-11 text-muted">· {s.reason}</span>}
+                {s.reason && <span className="ml-2 text-11 text-muted">· {s.reason}</span>}
               </span>
             </button>
             {s.children && (
@@ -97,7 +98,7 @@ function SuggestionTree({ items, query, onSearch }: { items: SearchSuggestion[];
                     <button
                       type="button"
                       onClick={(e) => open(e, c.productId!, "search-suggest", c.ripeness)}
-                      className="flex h-9 w-full items-center gap-2.5 pr-4 pl-4 text-left text-13 hover:bg-chip"
+                      className="flex h-9 w-full items-center gap-3 pr-4 pl-4 text-left text-13 hover:bg-chip"
                     >
                       <Thumb src={c.image} />
                       <Highlight text={c.label} query={query} />
@@ -123,7 +124,7 @@ function SearchCartButton() {
     <button type="button" onClick={() => setOpen(true)} aria-label={count ? `Cart, ${count} items` : "Cart"} className="press relative flex h-[46px] shrink-0 items-center gap-2 rounded-8 bg-deep px-3 text-white">
       <ShoppingCart aria-hidden size={20} strokeWidth={1.75} />
       <span className="hidden text-13 font-bold sm:inline">{count ? `${count} items · ${rupees(total)}` : "My Cart"}</span>
-      {count > 0 && <span className="absolute -top-1.5 -right-1.5 grid size-5 place-items-center rounded-full bg-brand text-9 font-bold text-ink sm:hidden">{count}</span>}
+      {count > 0 && <span className="absolute -top-2 -right-2 grid size-5 place-items-center rounded-full bg-brand text-9 font-bold text-ink sm:hidden">{count}</span>}
     </button>
   );
 }
@@ -147,7 +148,7 @@ export function SearchView() {
   }
   useEffect(() => inputRef.current?.focus(), []);
 
-  const { data: products, isPending } = useProducts();
+  const { data: products, isPending, isError, refetch } = useProducts();
   const suggestions = useMemo(() => (products && debounced ? suggestionsFor(products, debounced) : null), [products, debounced]);
   const results = useMemo(() => (products && submitted ? searchProducts(products, submitted) : null), [products, submitted]);
   const trending = useMemo(() => [...(products ?? []).slice(0, 3).map((p) => p.name), ...IDEAS], [products]);
@@ -166,7 +167,7 @@ export function SearchView() {
   return (
     <div className="min-h-dvh bg-surface">
       <header className="site-header sticky top-0 z-40 border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-content items-center gap-2 px-3 py-2.5 lg:gap-6 lg:px-6 lg:py-4">
+        <div className="mx-auto flex max-w-content items-center gap-2 px-3 py-3 lg:gap-6 lg:px-6 lg:py-4">
           <button type="button" onClick={() => router.back()} aria-label="Back" className="press grid size-11 shrink-0 place-items-center rounded-full text-ink lg:hidden">
             <ArrowLeft size={20} strokeWidth={1.75} />
           </button>
@@ -219,7 +220,7 @@ export function SearchView() {
           suggestions && suggestions.length > 0 ? (
             <SuggestionTree items={suggestions} query={text} onSearch={runSearch} />
           ) : suggestions ? (
-            <button type="button" onClick={() => runSearch(text)} className="flex h-11 w-full items-center gap-2.5 px-4 text-13 text-ink">
+            <button type="button" onClick={() => runSearch(text)} className="flex h-11 w-full items-center gap-3 px-4 text-13 text-ink">
               <Search aria-hidden size={18} className="text-muted" /> Search for &quot;{text}&quot;
             </button>
           ) : null
@@ -229,7 +230,9 @@ export function SearchView() {
               Showing results for <b className="font-bold">&quot;{submitted}&quot;</b>
             </h1>
             {results?.matchedBy === "synonym" && <p className="mt-0.5 text-12 text-muted">Including other names and ripeness</p>}
-            {!results && isPending ? (
+            {!results && isError ? (
+              <CatalogueError onRetry={refetch} className="mt-3" />
+            ) : !results && isPending ? (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {Array.from({ length: 4 }, (_, i) => (
                   <ProductCardSkeleton key={i} />
@@ -238,7 +241,7 @@ export function SearchView() {
             ) : results && results.products.length > 0 ? (
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 lg:gap-3" data-testid="search-results">
                 {results.products.map((p, i) => (
-                  <ProductCard key={`${p.id}-${results.stage}-${results.size}`} product={p} scope="search" index={i} ripeness={results.stage} preferredSize={results.size} />
+                  <ProductCard key={`${p.id}-${results.stage}-${results.size}`} product={p} scope="search" index={i} ripeness={results.stage} preferredSize={results.size} priority={i < 2} />
                 ))}
               </div>
             ) : (
@@ -272,7 +275,7 @@ export function SearchView() {
                 </div>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {recent.map((r) => (
-                    <button key={r} type="button" onClick={() => runSearch(r)} className="press flex h-9 items-center gap-1.5 rounded-8 border border-line px-3 text-12 text-ink">
+                    <button key={r} type="button" onClick={() => runSearch(r)} className="press flex h-9 items-center gap-2 rounded-8 border border-line px-3 text-12 text-ink">
                       <Clock aria-hidden size={14} className="text-muted" /> {r}
                     </button>
                   ))}
@@ -285,7 +288,7 @@ export function SearchView() {
               </h2>
               <div className="mt-3 flex flex-wrap gap-2">
                 {trending.map((t) => (
-                  <button key={t} type="button" onClick={() => runSearch(t)} className="press flex h-9 items-center gap-1.5 rounded-8 border border-line bg-surface px-3 text-12 text-ink">
+                  <button key={t} type="button" onClick={() => runSearch(t)} className="press flex h-9 items-center gap-2 rounded-8 border border-line bg-surface px-3 text-12 text-ink">
                     <Search aria-hidden size={14} className="text-muted" /> {t}
                   </button>
                 ))}

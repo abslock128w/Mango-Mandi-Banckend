@@ -68,7 +68,7 @@ export function OrdersView() {
                   <StatusPill status={o.status} />
                   <span className="text-12 text-muted">{o.number}</span>
                 </div>
-                <p className="mt-1.5 text-13 font-semibold text-ink">
+                <p className="mt-2 text-13 font-semibold text-ink">
                   {rupees(o.total)} · {plural(o.itemCount, "box", "boxes")}
                 </p>
                 <p className="text-12 text-muted">

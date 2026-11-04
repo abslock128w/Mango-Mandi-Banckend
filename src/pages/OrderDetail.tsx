@@ -20,6 +20,7 @@ import type { DeliveryAttempt, OrderDetail as Order, OrderNotification, OrderSta
 import { PACKER_STATUSES, can, canSee, trustAllowed } from '../permissions'
 import { CustomerProfileLink } from '../CustomerLink'
 import { MissedDialog } from '../MissedDialog'
+import { ProofSection, messageState as metaState } from '../LiveProof'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import {
@@ -493,6 +494,7 @@ function OrderView({ order }: { order: Order }) {
               {order.rating.comment ? <p>{order.rating.comment}</p> : <p className="muted small">No comment.</p>}
             </section>
           )}
+          <ProofSection orderId={order.id} proof={order.proof ?? []} leaveAtDoor={order.leaveAtDoor} />
           {order.deliveryAttempts && order.deliveryAttempts.length > 0 && (
             <section className="card">
               <h2>Proof of delivery</h2>
@@ -545,6 +547,12 @@ function OrderView({ order }: { order: Order }) {
                   <li key={i}>
                     {NOTIFICATION_LABEL[n.kind] ?? n.kind} {messageState(n)}{' '}
                     <span className="muted small">{dateTime(n.sentAt ?? n.createdAt)}</span>
+                    {n.providerId && (
+                      <div className="small muted">
+                        WhatsApp {metaState({ status: n.status, deliveryStatus: n.deliveryStatus ?? null, providerId: n.providerId }).text}
+                        {n.providerId !== 'log' ? <> · id {n.providerId}</> : null}
+                      </div>
+                    )}
                     {n.error && n.status !== 'SENT' && <div className="small muted">{n.error}</div>}
                   </li>
                 ))}

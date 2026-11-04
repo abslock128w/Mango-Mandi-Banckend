@@ -4,8 +4,8 @@
 // fruit end in a replacement, never a refund. Money goes back in two cases
 // only: the customer cancels a paid order before packing, or a manager cancels
 // a paid order we can't deliver.
-import { randomInt } from 'node:crypto'
 import { configVersion, getConfig } from './config.js'
+import { deliveryCodeHash, newDeliveryCode } from './delivery-code.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
 import { checkCapacity, chooseSlot, earliestDeliveryDate, firstOpenDay, lockDay, nextDeliveryDay, orderableDates } from './delivery.js'
 import { afterCommit, query, tx } from './db.js'
@@ -849,9 +849,12 @@ export async function setOrderStatus(c, orderId, to, actor, opts = {}) {
   }
   if (to === 'OUT_FOR_DELIVERY') {
     // The customer gives this code to the rider (delivery-proof.js). A retry keeps the code already sent.
-    await c.query('UPDATE orders SET delivery_code = COALESCE(delivery_code, $2), delivery_code_tries = 0 WHERE id = $1', [
-      o.id, String(randomInt(0, 10_000)).padStart(4, '0'),
-    ])
+    // Stored hashed (delivery-code.js); the plaintext column is no longer written (053, dropped by 056).
+    await c.query('UPDATE orders SET delivery_code_tries = 0 WHERE id = $1', [o.id])
+    if (!o.delivery_code_hash) {
+      const fresh = o.delivery_code ? { hash: deliveryCodeHash(o.id, o.delivery_code), nonce: null } : newDeliveryCode(o.id)
+      await c.query('UPDATE orders SET delivery_code_hash = $2, delivery_code_nonce = $3 WHERE id = $1', [o.id, fresh.hash, fresh.nonce])
+    }
   }
   assertTransition(o.status, to)
   await c.query('UPDATE orders SET status = $2 WHERE id = $1', [o.id, to])

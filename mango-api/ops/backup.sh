@@ -108,8 +108,17 @@ echo "backup written: $file ($(du -h "$file" | cut -f1))"
 if [ -n "${BACKUP_UPLOAD_CMD:-}" ]; then
   stage="copying the backup off the server"
   case "$file" in *.gpg) ;; *) fail "copying the backup off the server: refused an unencrypted file" "Refusing to upload an unencrypted dump." ;; esac
-  # The command itself is not printed: it may hold a storage password.
-  BACKUP_FILE="$file" timeout "${BACKUP_UPLOAD_TIMEOUT_S:-3600}" bash -c "$BACKUP_UPLOAD_CMD"
+  # The command itself is not printed: it may hold a storage password. GNU timeout ends a stuck
+  # upload; a Mac has it as gtimeout (Homebrew coreutils), or not at all, and then the upload runs
+  # with no time limit rather than not at all.
+  if command -v timeout >/dev/null 2>&1; then
+    BACKUP_FILE="$file" timeout "${BACKUP_UPLOAD_TIMEOUT_S:-3600}" bash -c "$BACKUP_UPLOAD_CMD"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    BACKUP_FILE="$file" gtimeout "${BACKUP_UPLOAD_TIMEOUT_S:-3600}" bash -c "$BACKUP_UPLOAD_CMD"
+  else
+    echo "no timeout command here: the upload runs without a time limit"
+    BACKUP_FILE="$file" bash -c "$BACKUP_UPLOAD_CMD"
+  fi
   echo "backup copied off the server"
 elif [ "${BACKUP_REQUIRE_UPLOAD:-}" = "true" ]; then
   fail "copying the backup off the server: BACKUP_UPLOAD_CMD is not set" \

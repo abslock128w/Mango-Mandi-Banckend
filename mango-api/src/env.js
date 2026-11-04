@@ -278,6 +278,16 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // DEMO ONLY, while WhatsApp Business and SMS are being set up: one fixed 6-digit login code
+  // that signs anyone in (shop customers and riders) with no message sent; the code is also shown
+  // on the sign-in screen. Never in production: the API refuses to start with it there.
+  DEMO_OTP: z.string().regex(/^\d{6}$/, 'DEMO_OTP must be 6 digits').optional(),
+  // DEMO ONLY, until Razorpay is set up: checkout offers "Pay (test)" / "Fail payment (test)",
+  // which settle the order with no money moving. Refused in production, like DEMO_OTP.
+  DEMO_PAYMENTS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // A public demo with no SMS or WhatsApp account (a Vercel preview only): the login code comes
   // back in the response and the shop shows it. Anyone could then sign in as any number, so the
   // API refuses to start with it outside a preview (preflight).
@@ -331,6 +341,19 @@ const schema = z.object({
   // The channel a login code goes by when the customer didn't choose; the other is the fallback.
   // whatsapp: WhatsApp first (works before Jio DLT is approved).
   OTP_DEFAULT_CHANNEL: z.enum(['sms', 'whatsapp']).default('sms'),
+  // Rider app (docs/rider-app/README.md). The mango check on the open-box photo calls Claude Haiku
+  // with this key. MANGO_CHECK: on (a failed check means retake), shadow (stored, never blocks;
+  // the default, and always when there is no key), off (no call).
+  ANTHROPIC_API_KEY: z.string().default(''),
+  MANGO_CHECK: z.enum(['on', 'shadow', 'off']).optional(),
+  // The rider app's address(es), comma separated: allowed by CORS and for the session routes.
+  RIDER_ORIGIN: z.string().default(''),
+  // Where Vercel Blob tells the API a rider's photo upload finished (onUploadCompleted). Unset: the
+  // API's own address from the request. The phone also reports the upload itself, so this is a backup.
+  BLOB_CALLBACK_URL: z.string().default(''),
+  // Delivery photos (and their Blob files) older than this are removed by the daily maintenance pass;
+  // the rows keep step, time, place and the mango check verdict.
+  DELIVERY_PHOTO_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
   WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
@@ -444,6 +467,16 @@ export function strictDefaults(e, prod) {
 strictDefaults(env, isProd)
 // PAY-08: the daily match with Razorpay is on in production unless set to false.
 env.PAYMENT_DAILY_RECON ??= isProd
+
+// A fixed login code would let anyone sign in as any customer or rider.
+if (env.DEMO_OTP && deployEnv === 'production') {
+  console.error('DEMO_OTP is set on a production deploy: remove it (it lets anyone sign in with a fixed code)')
+  process.exit(1)
+}
+if (env.DEMO_PAYMENTS && deployEnv === 'production') {
+  console.error('DEMO_PAYMENTS is on in a production deploy: turn it off (orders would be marked paid with no money taken)')
+  process.exit(1)
+}
 
 if (env.WHATSAPP_PROVIDER === 'meta' && !(env.WHATSAPP_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID)) {
   console.error('WHATSAPP_PROVIDER=meta needs WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID')

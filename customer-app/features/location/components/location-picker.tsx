@@ -107,7 +107,7 @@ export function LocationPicker() {
         <button type="button" onClick={() => router.back()} aria-label="Back" className="press absolute top-3 left-3 z-[600] grid size-11 place-items-center rounded-full bg-surface text-ink shadow-sheet">
           <ArrowLeft size={20} strokeWidth={1.75} />
         </button>
-        <button type="button" onClick={locateMe} className="press absolute bottom-4 left-1/2 z-[600] flex h-10 -translate-x-1/2 items-center gap-1.5 rounded-8 border border-action bg-surface px-3 text-13 font-semibold text-action shadow-sheet">
+        <button type="button" onClick={locateMe} className="press absolute bottom-4 left-1/2 z-[600] flex h-11 -translate-x-1/2 items-center gap-2 rounded-8 border border-action bg-surface px-3 text-13 font-semibold text-action shadow-sheet">
           <Crosshair aria-hidden size={18} strokeWidth={1.75} /> Go to current location
         </button>
       </div>
@@ -142,7 +142,7 @@ export function LocationPicker() {
           <MapPin aria-hidden size={20} strokeWidth={1.75} className="mt-0.5 shrink-0 text-action" />
           <div className="min-w-0 flex-1">
             {busy && !geo ? (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <div className="skeleton h-4 w-1/2 rounded-4" />
                 <div className="skeleton h-3 w-full rounded-4" />
               </div>
@@ -168,7 +168,7 @@ export function LocationPicker() {
 
         <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Save address as">
           {(["Home", "Work", "Other"] as const).map((l) => (
-            <button key={l} type="button" role="radio" aria-checked={label === l} onClick={() => setLabel(l)} className={cn("press h-9 rounded-8 border px-3 text-12 font-semibold", label === l ? "border-action bg-tint text-action" : "border-line text-ink")}>
+            <button key={l} type="button" role="radio" aria-checked={label === l} onClick={() => setLabel(l)} className={cn("press tap h-9 rounded-8 border px-3 text-12 font-semibold", label === l ? "border-action bg-tint text-action" : "border-line text-ink")}>
               {l}
             </button>
           ))}

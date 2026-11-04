@@ -28,9 +28,9 @@ function Dots() {
   const { selected, count, scrollTo } = useCarousel();
   return (
     // Fixed height: the dots appear once Embla has measured, without pushing the page down.
-    <div className="mt-2.5 flex h-6 justify-center gap-1.5">
+    <div className="mt-3 flex h-6 justify-center gap-1">
       {Array.from({ length: count }, (_, i) => (
-        <button key={i} type="button" onClick={() => scrollTo(i)} aria-label={`Go to slide ${i + 1}`} aria-current={i === selected} className="relative grid h-6 place-items-center px-0.5">
+        <button key={i} type="button" onClick={() => scrollTo(i)} aria-label={`Go to slide ${i + 1}`} aria-current={i === selected} className="relative grid h-6 min-w-6 place-items-center px-1 after:absolute after:inset-x-0 after:-inset-y-2.5">
           <m.span
             className={cn("block h-1.5 rounded-full", i === selected ? "bg-ink" : "bg-line")}
             initial={false}
@@ -59,7 +59,7 @@ function SlideCard({ s, i, total, ready }: { s: Slide; i: number; total: number;
         <div className={cn("absolute inset-0 flex flex-col justify-center bg-gradient-to-r to-transparent p-4 text-ink", TONE[s.tone])}>
           <p className="max-w-[62%] font-display text-19 leading-tight font-extrabold">{s.title}</p>
           <p className="mt-1 max-w-[62%] text-12 font-medium">{s.subtitle}</p>
-          <span className="mt-3 w-fit rounded-8 bg-ink px-3 py-1.5 text-12 font-bold text-white">Order now</span>
+          <span className="mt-3 w-fit rounded-8 bg-ink px-3 py-2 text-12 font-bold text-white">Order now</span>
         </div>
       </Link>
     </CarouselItem>

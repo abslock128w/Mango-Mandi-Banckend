@@ -34,6 +34,15 @@ export default defineConfig({
       },
     },
     { name: "desktop", use: { browserName: "chromium", viewport: { width: 1280, height: 800 } } },
+    // QA matrix (PW_MATRIX=1): the other widths in Chromium, and every width in WebKit.
+    ...(process.env.PW_MATRIX
+      ? [
+          { name: "c-390", use: { browserName: "chromium" as const, viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true } },
+          { name: "c-768", use: { browserName: "chromium" as const, viewport: { width: 768, height: 1024 } } },
+          { name: "c-1440", use: { browserName: "chromium" as const, viewport: { width: 1440, height: 900 } } },
+          ...[360, 390, 768, 1280, 1440].map((w) => ({ name: `wk-${w}`, use: { browserName: "webkit" as const, viewport: { width: w, height: w < 768 ? 844 : 900 }, hasTouch: w < 768 } })),
+        ]
+      : []),
     // NFR-15: Safari on an iPhone, run on its own in CI (PW_WEBKIT=1 --project=iphone).
     ...(process.env.PW_WEBKIT ? [{ name: "iphone", use: { ...devices["iPhone 13"] } }] : []),
   ],

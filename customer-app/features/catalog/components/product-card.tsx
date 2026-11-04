@@ -83,7 +83,7 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
             </m.div>
           </ViewTransition>
           {few && (
-            <span className="absolute top-1 left-1 rounded-4 bg-ribbon px-1.5 py-0.5 text-9 leading-none font-extrabold text-white uppercase">Only {sku.stock} left</span>
+            <span className="absolute top-1 left-1 rounded-4 bg-ribbon px-2 py-0.5 text-9 leading-none font-extrabold text-white uppercase">Only {sku.stock} left</span>
           )}
           {unavailable && (
             <span className="absolute inset-x-0 bottom-2 mx-auto w-fit rounded-4 bg-disabled-ink px-2 py-1 text-9 leading-none font-bold text-white uppercase">Sold out</span>
@@ -96,17 +96,18 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
           <Clock aria-hidden size={10} strokeWidth={2.5} />
           {cardChip(sku, slot?.short)}
         </span>
-        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="mt-1.5">
+        <Link href={href} onClick={(e) => open(e, product.id, scope, stage)} tabIndex={-1} className="tap mt-2 block">
           <h3 className="line-clamp-2 h-9 text-13 leading-[18px] font-semibold text-ink">{name}</h3>
         </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           <RipenessChip stage={stage} />
           <BoxToggle product={product} ripeness={stage} value={size} onChange={setSize} compact />
         </div>
         <div className="mt-auto flex items-end justify-between gap-1 pt-2">
           <div className="flex min-w-0 flex-col">
             <span className="text-12 font-semibold text-ink">{rupees(sku.price)}</span>
-            <span className="text-11 text-muted">{sku.boxLabel} box</span>
+            {/* One line beside ADD even at 360 px (the price column is about 32 px there); the toggle above says "box". */}
+            <span className="text-11 whitespace-nowrap text-muted">{sku.boxLabel}</span>
           </div>
           {/* A box already in the cart keeps its stepper when the day sells out, so it can be removed here. */}
           {unavailable && qty === 0 ? (
@@ -120,24 +121,12 @@ export function ProductCard({ product, ripeness, scope, index = 0, fixed, priori
   );
 }
 
-export function DiscountRibbon({ percent }: { percent: number }) {
-  return (
-    <span
-      className="absolute -top-3 left-0 flex w-7 flex-col items-center bg-ribbon pt-1 pb-2 text-center text-9 leading-[10px] font-extrabold text-white [clip-path:polygon(0_0,100%_0,100%_100%,75%_88%,50%_100%,25%_88%,0_100%)]"
-      aria-label={`${percent}% off`}
-    >
-      <span>{percent}%</span>
-      <span>OFF</span>
-    </span>
-  );
-}
-
 export function ProductCardSkeleton({ fixed }: { fixed?: boolean }) {
   return (
     <div aria-hidden className={cn("flex flex-col rounded-8 border-[0.5px] border-line bg-surface p-3 shadow-card", fixed ? "h-[288px] w-[150px] shrink-0 lg:h-[302px] lg:w-[178px]" : "h-full")}>
       <div className="skeleton aspect-square rounded-8" />
       <div className="skeleton mt-2 h-4 w-20 rounded-4" />
-      <div className="skeleton mt-1.5 h-4 w-full rounded-4" />
+      <div className="skeleton mt-2 h-4 w-full rounded-4" />
       <div className="skeleton mt-1 h-4 w-2/3 rounded-4" />
       <div className="mt-auto flex items-end justify-between pt-2">
         <div className="skeleton h-8 w-12 rounded-4" />

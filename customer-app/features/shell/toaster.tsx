@@ -26,7 +26,7 @@ function ToastItem({ t, desktop }: { t: Toast; desktop: boolean }) {
       role="status"
       className="pointer-events-auto relative w-full overflow-hidden rounded-12 bg-ink text-white shadow-sheet lg:w-[360px]"
     >
-      <div className="flex items-center gap-2.5 py-3 pr-2 pl-3.5">
+      <div className="flex items-center gap-3 py-3 pr-2 pl-4">
         <Icon aria-hidden size={20} strokeWidth={1.75} className={cn("shrink-0", t.tone === "success" ? "text-raw" : t.tone === "danger" ? "text-danger" : "text-brand")} />
         <p className="flex-1 text-13 font-medium">{t.title}</p>
         {t.action?.href && (

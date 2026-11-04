@@ -50,6 +50,8 @@ const nextConfig: NextConfig = {
     return proxy ? [{ source: "/v1/:path((?!dev(?:/|$)).*)", destination: `${proxy}/v1/:path` }] : [];
   },
   turbopack: {
+    // This folder, not the repo root (the repo has several lockfiles).
+    root: process.cwd(),
     rules: {
       "*.css": {
         loaders: ["@tailwindcss/turbopack"],

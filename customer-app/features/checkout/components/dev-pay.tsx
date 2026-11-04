@@ -14,7 +14,10 @@ export function DevPayButtons({ orderId, onSettled }: { orderId: string; onSettl
     setBusy(outcome);
     setError(null);
     try {
-      onSettled(await devPay(orderId, outcome));
+      const status = await devPay(orderId, outcome);
+      // As on Razorpay's page: a failed attempt is said here, and the customer can try again while the boxes are held.
+      if (status === "ATTEMPT_FAILED") setError("The payment didn't go through. Nothing was charged. Try again.");
+      else onSettled(status);
     } catch (e) {
       setError(e instanceof Error ? e.message : "That didn't work. Try again.");
     } finally {
@@ -25,10 +28,10 @@ export function DevPayButtons({ orderId, onSettled }: { orderId: string; onSettl
     <div className="rounded-12 border border-dashed border-line bg-canvas p-3" data-testid="dev-pay">
       <p className="text-12 text-muted">Test mode: no payment service is set up, so no money moves.</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
-        <button type="button" disabled={Boolean(busy)} onClick={() => run("captured")} className="press flex h-12 items-center justify-center gap-1.5 rounded-12 bg-action text-13 font-bold text-white disabled:bg-disabled">
+        <button type="button" disabled={Boolean(busy)} onClick={() => run("captured")} className="press flex h-12 items-center justify-center gap-2 rounded-12 bg-action text-13 font-bold text-white disabled:bg-disabled">
           {busy === "captured" && <Loader2 aria-hidden size={16} className="animate-spin" />} Pay (test)
         </button>
-        <button type="button" disabled={Boolean(busy)} onClick={() => run("failed")} className="press flex h-12 items-center justify-center gap-1.5 rounded-12 border border-line bg-surface text-13 font-semibold text-ink disabled:opacity-60">
+        <button type="button" disabled={Boolean(busy)} onClick={() => run("failed")} className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-line bg-surface text-13 font-semibold text-ink disabled:text-disabled-ink">
           {busy === "failed" && <Loader2 aria-hidden size={16} className="animate-spin" />} Fail payment (test)
         </button>
       </div>

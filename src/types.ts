@@ -346,6 +346,10 @@ export interface OrderDetail {
   channel?: 'app' | 'whatsapp'
   notifications?: OrderNotification[]
   deliveryAttempts?: DeliveryAttempt[]
+  /** Rider app proof: every delivery photo with its step, GPS, times and mango check. */
+  proof?: ProofPhoto[]
+  /** A manager allowed leaving it without the code. */
+  leaveAtDoor?: { by: string; at: string; reason: string } | null
   /** The customer's rating after delivery. */
   rating?: { stars: number; comment: string | null; at: string } | null
   /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
@@ -474,6 +478,9 @@ export type NotificationKind =
   | 'DATE_MOVED'
   | 'CLAIM_RECEIVED'
   | 'CLAIM_REJECTED'
+  | 'DELIVERY_CODE'
+  | 'GIFT_DELIVERY_CODE'
+  | 'GIFT_OUT_FOR_DELIVERY'
 
 /** A WhatsApp update to the customer, sent from an outbox with retries. */
 export interface OrderNotification {
@@ -484,6 +491,9 @@ export interface OrderNotification {
   createdAt: string
   sentAt: string | null
   error: string | null
+  /** Meta's message id ("log" when the log provider stood in), and its later report. */
+  providerId?: string | null
+  deliveryStatus?: string | null
 }
 
 /** A delivery time window. maxBoxes caps boxes per day in this window (null = no cap). */
@@ -679,7 +689,7 @@ export interface ManifestOrder {
   /** A gift: the name and phone above are the recipient's. */
   gift?: { from: string | null; message: string | null } | null
   /** The rider the stop is given to (riders only see their own stops). */
-  rider?: { id: string; email: string | null } | null
+  rider?: { id: string; email: string | null; name?: string | null } | null
   items: { sku: string; productName: string; stage: Ripeness | null; quantity: number }[]
 }
 
@@ -687,6 +697,8 @@ export interface ManifestOrder {
 export interface Rider {
   id: string
   email: string
+  /** The name customers and the rider app see (Staff), or null for an account with only an email. */
+  name: string | null
 }
 
 /** A day's delivery run: one run per slot (or one with no slot), stops by pincode. */
@@ -965,6 +977,21 @@ export interface StaffMember {
   dailySummary?: boolean
   /** Only when the person is added: the one-time code they need to set up two-step sign-in. */
   setupCode?: string
+  /** Rider app: the number a rider signs in with, their name for customers, signed-in phones. */
+  phone?: string | null
+  displayName?: string | null
+  devices?: number
+}
+
+/** A rider's signed-in phone (rider app). */
+export interface RiderDevice {
+  id: string
+  deviceId: string
+  label: string | null
+  createdAt: string
+  lastSeenAt: string | null
+  revokedAt: string | null
+  revokedBy: string | null
 }
 
 /** One staff change. `action` is the route ("PATCH /orders/:id/status") or "auth.login". */
@@ -1541,4 +1568,79 @@ export interface WaFailures {
   updates: { id: string; kind: string; number: string | null; phone: string | null; unknown: boolean; error: string | null; attempts: number; createdAt: string }[]
   messages: { id: string; conversationId: string; type: string; status: WaMessageStatus; error: string | null; attempts: number; phone: string | null; createdAt: string }[]
   events: { id: string; receivedAt: string; attempts: number; error: string | null; gaveUp: boolean }[]
+}
+
+// ---------- Rider app proof (docs/rider-app/README.md) ----------
+
+export type PhotoStep = 'pickup' | 'door' | 'open_box' | 'attempt'
+
+/** The mango check's answer on an open-box photo, as stored. */
+export interface MangoVerdict {
+  mode?: 'on' | 'shadow' | 'off'
+  isMango?: boolean
+  mangoCount?: number
+  boxVisible?: boolean
+  boxOpen?: boolean
+  damage?: 'none' | 'minor' | 'severe'
+  confidence?: number
+  reason?: string
+  wouldPass?: boolean | null
+  error?: string
+  skipped?: boolean
+  model?: string | null
+  ms?: number
+}
+
+export interface ProofPhoto {
+  id: string
+  step: PhotoStep | null
+  attempt?: number | null
+  takenAt: string | null
+  at: string
+  takenBy?: string
+  removed: boolean
+  lat: number | null
+  lng: number | null
+  accuracy: number | null
+  passed: boolean | null
+  needsReview: boolean
+  checkedAt?: string | null
+  verdict: MangoVerdict | null
+}
+
+export interface LiveMessage {
+  id: string
+  kind: NotificationKind
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
+  providerId: string | null
+  deliveryStatus: string | null
+  error: string | null
+  sentAt: string | null
+}
+
+export interface LiveStop {
+  id: string
+  number: string
+  status: OrderStatus
+  pincode: string | null
+  customerName: string | null
+  rider: { id: string; firstName: string } | null
+  /** Where the rider collects it (nearest-rider assignment), or null. */
+  pickupWarehouse?: string | null
+  photos: ProofPhoto[]
+  messages: LiveMessage[]
+  codeTries: number
+  codeLocked: boolean
+  leaveAtDoorAllowed: boolean
+  needsReview: boolean
+  reviewAttemptId: string | null
+}
+
+export interface LiveDeliveries {
+  date: string
+  cursor: string
+  changed: string[]
+  events: { orderId: string; number: string; status: OrderStatus; at: string }[]
+  stops: LiveStop[]
+  riders: { id: string; firstName: string; lat: number; lng: number; accuracy: number | null; at: string }[]
 }

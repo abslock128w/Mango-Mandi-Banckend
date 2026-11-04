@@ -273,6 +273,8 @@ export interface Order {
   retryScheduled?: boolean;
   findingStock?: boolean;
   deliveryCode: string | null;
+  /** The rider's first name while the order is out for delivery (rider app). */
+  rider?: { firstName: string } | null;
   delivery: { at: string; method: string; receivedBy: string | null; hasPhoto: boolean } | null;
   tracking: { stopsAway: number; minutesPerStop: number; etaMinutes: number } | null;
   cancelReason: string | null;
@@ -416,9 +418,3 @@ export interface SearchSuggestion {
   reason?: string;
 }
 
-export interface SearchResult {
-  query: string;
-  matchedBy: "name" | "synonym" | "none";
-  suggestions: SearchSuggestion[];
-  products: Product[];
-}

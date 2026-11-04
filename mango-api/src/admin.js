@@ -11,6 +11,7 @@ import { auditStaffChanges, limitByRole, riderScope, watchRefusals } from './acc
 import { requireAdmin } from './auth.js'
 import { staffReviews } from './review-routes.js'
 import { me, needsSetupFirst, signIn } from './admin/auth.js'
+import { router as riderAuth } from './admin/rider-auth.js'
 import { router as reports } from './admin/reports.js'
 import { router as products } from './admin/products.js'
 import { router as batches } from './admin/batches.js'
@@ -41,6 +42,8 @@ export const router = express.Router()
 
 // Sign-in, refresh and logout: before the gate.
 router.use(signIn)
+// Rider app sign-in: phone code, then a PIN on a bound phone (admin/rider-auth.js).
+router.use(riderAuth)
 // Warehouse paths answer 404 to everyone while WAREHOUSE_V2 is off.
 router.use(warehouseGate)
 

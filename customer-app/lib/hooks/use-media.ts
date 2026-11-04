@@ -19,4 +19,3 @@ export function useMedia(query: string, serverValue = false) {
 
 /** Laptops: bottom sheets become side panels at 1024px and up. */
 export const useIsDesktop = () => useMedia("(min-width: 1024px)");
-export const usePrefersReducedMotion = () => useMedia("(prefers-reduced-motion: reduce)");

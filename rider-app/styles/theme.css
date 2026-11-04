@@ -1,0 +1,39 @@
+/*
+ * Rider app tokens: the shop's "Orchard" palette (customer-app/styles/theme.css),
+ * so riders and customers see the same brand. Text sizes use Tailwind's scale,
+ * one step larger than the shop: riders read it at arm's length, outdoors.
+ * Every text pairing is 4.5:1 or better.
+ */
+@theme {
+  --color-*: initial;
+  --color-brand: #ffb627;
+  --color-blush: #ff8552;
+  --color-brand-soft: #fff0c7;
+  --color-action: #0b6e5b;
+  --color-deep: #0a4a40;
+  --color-tint: #ecf7f2;
+  --color-ripe: #e8590c;
+  --color-ink: #2b1d12;
+  --color-muted: #6b5848;
+  --color-line: #efe3d2;
+  --color-surface: #ffffff;
+  --color-canvas: #fff8ee;
+  --color-chip: #fbf1e3;
+  --color-disabled: #c4b5a5;
+  --color-disabled-ink: #7a6a5e;
+  --color-danger: #c81e3a;
+  --color-danger-soft: #fdebee;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fff4d6;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-scrim: rgb(43 29 18 / 0.55);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 16px;
+  --shadow-card: 0 2px 12px rgba(120, 72, 20, 0.08);
+  --ease-out-card: cubic-bezier(0.22, 1, 0.36, 1);
+}

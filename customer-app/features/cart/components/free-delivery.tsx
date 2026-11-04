@@ -11,7 +11,7 @@ export function DeliveryBadge({ size = 40 }: { size?: number }) {
 
 export function FreeDeliveryNote() {
   return (
-    <div className="flex items-center gap-2.5 rounded-12 bg-surface p-3">
+    <div className="flex items-center gap-3 rounded-12 bg-surface p-3">
       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-tint text-action">
         <Scooter className="size-6" />
       </span>

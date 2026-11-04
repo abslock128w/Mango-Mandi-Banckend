@@ -5,6 +5,7 @@ import { api } from '../api'
 import { RIPENESS_LABEL, date, istDate, telHref } from '../format'
 import { MissedDialog, PhotoField, uploadPhoto } from '../MissedDialog'
 import { canSee } from '../permissions'
+import { LiveProofPanel } from '../LiveProof'
 import { currentPosition } from '../photo'
 import { useSession } from '../session'
 import type { Manifest, ManifestOrder, Rider } from '../types'
@@ -101,6 +102,7 @@ export default function Deliveries() {
           </button>
         </div>
         <span className="spacer" />
+        {canAssign && <AssignNearest day={day} />}
         {!rider && (
           <button type="button" className="btn" onClick={() => window.print()}>
             Print
@@ -119,11 +121,13 @@ export default function Deliveries() {
         </div>
       )}
       {rider && !routeView && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
+      {/* Rider app proof, live (managers and operators): photos, mango checks, WhatsApp status, rider positions. */}
+      {canAssign && <LiveProofPanel day={day} manager={me?.role === 'MANAGER'} />}
       {routeView && q.data ? (
         q.data.runs.length === 0 && !q.data.unassigned ? (
           <>
             <EmptyState>No deliveries on {date(day)}.</EmptyState>
-            <NextDay day={day} onPick={setDay} />
+            <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
           </>
         ) : (
           <RiderRoute key={day} manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
@@ -135,7 +139,7 @@ export default function Deliveries() {
       ) : q.data.runs.length === 0 ? (
         <>
           <EmptyState>No deliveries on {date(day)}.</EmptyState>
-          <NextDay day={day} onPick={setDay} />
+          <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
         </>
       ) : (
         <>
@@ -170,14 +174,19 @@ export default function Deliveries() {
 }
 
 /** On an empty day, points at the next day (within a few) that has deliveries. */
-function NextDay({ day, onPick }: { day: string; onPick: (d: string) => void }) {
-  const days = Array.from({ length: LOOK_AHEAD }, (_, i) => addDays(day, i + 1))
+// A rider may open only today's and tomorrow's run (SEC-02): `lastDay` stops the look-ahead there,
+// rather than asking for days the API refuses and then saying they are empty.
+function NextDay({ day, onPick, lastDay }: { day: string; onPick: (d: string) => void; lastDay: string | null }) {
+  const days = Array.from({ length: LOOK_AHEAD }, (_, i) => addDays(day, i + 1)).filter((d) => !lastDay || d <= lastDay)
   const results = useQueries({
     queries: days.map((d) => ({ queryKey: ['manifest', d], queryFn: () => api.manifest(d), staleTime: 60_000 })),
   })
   if (results.some((r) => r.isPending)) return null
   const i = results.findIndex((r) => (r.data?.runs.length ?? 0) > 0)
-  if (i < 0) return <p className="muted small">Nothing in the next {LOOK_AHEAD} days either.</p>
+  if (i < 0) {
+    if (days.length === 0) return null
+    return <p className="muted small">{days.length === 1 ? `Nothing on ${date(days[0])} either.` : `Nothing in the next ${days.length} days either.`}</p>
+  }
   const next = results[i].data!
   return (
     <p>
@@ -409,11 +418,42 @@ function RiderPicker({ label, riders, value, busy, onPick }: { label: string; ri
         <option value="">{value ? 'Nobody' : 'Give to a rider…'}</option>
         {riders.map((r) => (
           <option key={r.id} value={r.id}>
-            {r.email}
+            {r.name ?? r.email}
           </option>
         ))}
       </select>
     </label>
+  )
+}
+
+/** Gives every unassigned stop on the day to the rider nearest to it, with the pickup warehouse that makes his trip shortest. */
+function AssignNearest({ day }: { day: string }) {
+  const toast = useToast()
+  const refresh = useRefresh(day)
+  const queryClient = useQueryClient()
+  const m = useMutation({
+    mutationFn: () => api.autoAssign(day),
+    onSuccess: (r) => {
+      if (!r.assigned.length && !r.riders) toast.error('There are no riders yet: add one on Staff, with the role Rider')
+      else if (!r.assigned.length) toast.success('Every stop already has a rider')
+      else {
+        const first = r.assigned[0]
+        const where = first.warehouseName ? `, pick up at ${first.warehouseName}` : ''
+        toast.success(
+          r.assigned.length === 1
+            ? `${first.number} given to ${first.riderName}${first.riderKm !== null ? ` (${first.riderKm} km away)` : ''}${where}`
+            : `${count(r.assigned.length, 'stop', 'stops')} given to the nearest riders`,
+        )
+      }
+      refresh()
+      queryClient.invalidateQueries({ queryKey: ['deliveries-live'] })
+    },
+    onError: (err) => toast.error(err),
+  })
+  return (
+    <button type="button" className="btn no-print" disabled={m.isPending} onClick={() => m.mutate()}>
+      {m.isPending ? 'Assigning…' : 'Assign nearest riders'}
+    </button>
   )
 }
 
@@ -606,7 +646,7 @@ function StopCard({
         <span className="print-only" aria-hidden="true">
           ☐ Delivered
         </span>
-        {!picker && me?.role !== 'RIDER' && o.rider?.email && <span className="small muted">Rider: {o.rider.email}</span>}
+        {!picker && me?.role !== 'RIDER' && (o.rider?.name || o.rider?.email) && <span className="small muted">Rider: {o.rider.name ?? o.rider.email}</span>}
         {picker}
       </div>
       <div>

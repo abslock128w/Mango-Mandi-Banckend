@@ -26,9 +26,9 @@ export function PreorderDetail({ id }: { id: string }) {
   if (hydrated && !signedIn)
     return (
       <div className="flex flex-col items-center px-6 py-16 text-center">
-        <p className="text-17 font-bold text-ink">Log in to see this booking</p>
+        <p className="text-17 font-bold text-ink">Sign in to see this booking</p>
         <Link href={`/login?next=${encodeURIComponent(`/preorders/${id}`)}`} className="press mt-4 inline-flex h-11 items-center rounded-12 bg-action px-5 text-15 font-semibold text-white">
-          Log in
+          Sign in
         </Link>
       </div>
     );
@@ -88,7 +88,7 @@ function Detail({ pre }: { pre: Preorder }) {
       <section className="rounded-12 bg-surface p-4" aria-live="polite">
         <div className="flex items-center justify-between gap-2">
           <h2 className="text-15 font-bold text-ink">Booking {pre.number}</h2>
-          <span className={cn("rounded-4 px-1.5 py-0.5 text-11 font-semibold", st.tone)}>{st.label}</span>
+          <span className={cn("rounded-4 px-2 py-0.5 text-11 font-semibold", st.tone)}>{st.label}</span>
         </div>
 
         {pre.status === "PAYMENT_PENDING" && (
@@ -157,7 +157,7 @@ function Detail({ pre }: { pre: Preorder }) {
       </section>
 
       <section className="rounded-12 bg-surface p-4">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-13">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-13">
           <dt className="text-muted">Week</dt>
           <dd className="text-ink">{weekRange(pre.weekStart)}</dd>
           <dt className="text-muted">Deliver to</dt>

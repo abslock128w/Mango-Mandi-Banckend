@@ -11,7 +11,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Page } from '@playwright/test'
 
-export const REPO = path.resolve(__dirname, '..')
+export const REPO = path.resolve(import.meta.dirname, '..')
 /** A DSN of the right shape for a project that does not exist. */
 export const FAKE_DSN = 'https://public@o0.ingest.sentry.io/0'
 const ENVELOPE_URL = 'https://o0.ingest.sentry.io/api/0/envelope/'

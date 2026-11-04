@@ -57,6 +57,12 @@ const DELIVERY = [
   route('POST', '/orders/:id/delivery-photos'),
   route('GET', '/orders/:id/delivery-photos/:photoId'),
   route('POST', '/orders/:id/delivery'),
+  // Rider app (docs/rider-app/README.md): step photos with GPS, pickup, the mango check, where the rider is.
+  route('POST', '/orders/:id/photos/token'),
+  route('POST', '/orders/:id/photos'),
+  route('POST', '/orders/:id/pickup'),
+  route('POST', '/orders/:id/photos/:photoId/check'),
+  route('POST', '/rider/location'),
 ]
 
 /** The warehouse routes a role's permissions cover (warehouse/permissions.js); managers have all of them. */
@@ -93,7 +99,11 @@ export const OPERATOR_ROUTES = [
   // Giving stops to riders (SEC-02): riders see only their own.
   route('GET', '/riders'),
   route('POST', '/manifest/assign'),
+  // Every unassigned stop to its nearest rider, with the pickup warehouse (nearest.js).
+  route('POST', '/manifest/auto-assign'),
   route('GET', '/delivery-reviews'),
+  // The Deliveries page's live view: stops, photos, mango checks, WhatsApp status, rider positions.
+  route('GET', '/deliveries/live'),
   route('POST', '/delivery-reviews/:id'),
   route('GET', '/analytics'),
   route('GET', '/attention'),
@@ -202,7 +212,8 @@ export function limitByRole(req, _res, next) {
 const RIDER_STATUSES = ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED', 'DELIVERED']
 /** Unassigned orders a rider may take by sending them out (POST /orders/:id/dispatch). */
 export const RIDER_TAKES = ['PACKED', 'SHIPPED', 'DELIVERY_FAILED']
-const DISPATCH_PATH = /^\/orders\/[^/]+\/dispatch$/
+// Sending an unassigned stop out takes it: by dispatch (panel), or by the rider app's pickup photo and pickup.
+const DISPATCH_PATH = /^\/orders\/[^/]+\/(dispatch|pickup|photos|photos\/token)$/
 /** Orders a packer may open: being packed or on the road. Not delivered ones (SEC-02). */
 const PACKER_ORDER_STATUSES = ['CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED']
 const ORDER_PATH = /^\/orders\/([^/]+)(?:\/|$)/
@@ -277,6 +288,7 @@ export function redactForPacker(order) {
     // Bills and the customer profile are for managers and operators (docs/trust.md).
     ...('customerId' in order ? { customerId: null, business: null, bill: null } : {}),
     ...('deliveryAttempts' in order ? { deliveryAttempts: order.deliveryAttempts.map((a) => ({ ...a, lat: null, lng: null })) } : {}),
+    ...(Array.isArray(order.proof) ? { proof: order.proof.map((p) => ({ ...p, lat: null, lng: null, accuracy: null })) } : {}),
   }
 }
 

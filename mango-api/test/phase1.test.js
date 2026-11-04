@@ -147,7 +147,8 @@ describe('WhatsApp order updates', () => {
     await move(id, 'PROCESSING')
     await api.post(`/admin/v1/orders/${id}/allocate`, undefined, { token: admin })
     for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) await move(id, s)
-    assert.deepEqual(await notes(id), ['ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING', 'DELIVERED:PENDING'])
+    // Out for delivery also queues the code in its own authentication message (rider app, 053).
+    assert.deepEqual((await notes(id)).sort(), ['DELIVERED:PENDING', 'DELIVERY_CODE:PENDING', 'ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING'])
 
     const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: slot.id })
     await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
@@ -169,11 +170,12 @@ describe('WhatsApp order updates', () => {
     const failing = async () => {
       throw new Error('WhatsApp 500: try later')
     }
-    const t0 = Date.parse('2026-10-15T04:30:00Z')
     const row = async () => (await query('SELECT status, attempts, next_attempt_at FROM notifications WHERE order_id = $1', [o.body.orderId])).rows[0]
+    // From the moment of the send: the test clock keeps ticking, and resetDb (migrations, seed) runs after it is set.
+    const sentAt = now().getTime()
     assert.equal(await sendDueNotifications({ sender: failing }), 0)
     assert.equal((await row()).attempts, 1)
-    assert.ok(Math.abs((await row()).next_attempt_at.getTime() - (t0 + 60_000)) < 5000) // the test clock keeps ticking
+    assert.ok(Math.abs((await row()).next_attempt_at.getTime() - (sentAt + 60_000)) < 5000)
     assert.equal(await sendDueNotifications({ sender: failing }), 0) // not due yet
     assert.equal((await row()).attempts, 1)
     // Each retry waits 1, 5, 15, 60 and 180 minutes; step the clock just past each one.

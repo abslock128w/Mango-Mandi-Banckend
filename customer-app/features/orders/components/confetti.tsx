@@ -23,7 +23,7 @@ export function Confetti({ count = 36 }: { count?: number }) {
       {pieces.map((p) => (
         <m.span
           key={p.i}
-          className={`absolute rounded-[2px] ${p.c}`}
+          className={`absolute rounded-4 ${p.c}`}
           style={{ width: p.w, height: p.w * 0.5 }}
           initial={{ x: 0, y: 0, opacity: 1, rotate: 0, scale: 0.4 }}
           animate={{ x: p.x, y: [0, p.y, p.y + 140], opacity: [1, 1, 0], rotate: p.r + 360, scale: 1 }}

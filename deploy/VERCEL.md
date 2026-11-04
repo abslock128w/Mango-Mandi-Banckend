@@ -98,6 +98,8 @@ API refuses to use it; production refuses `staging` the same way.
 
 ## 2. Create the three Vercel projects
 
+(The rider app is a fourth project, set up in [step 9](#9-the-rider-app-fourth-project).)
+
 For each row in the table above: **Add New → Project**, import this GitHub
 repository, set the **Root Directory**, and leave the build settings as detected.
 Then add the domain under **Settings → Domains** and the DNS record Vercel shows.
@@ -141,7 +143,14 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` | unset; the old secret for a day while rotating | unset | webhooks signed with it are still accepted (preflight warns while it is set) |
 | `WHATSAPP_PAYMENT_CONFIG` | leave unset | unset | Payments on WhatsApp has no reconcile yet (preflight warns when set); unset, chat orders get a Razorpay payment link |
 | `SMS_PROVIDER` and `JIO_SMS_*` | `jio` and Jio's values | `log`, with `LOG_OTP_CODES=true` to read codes in the Vercel logs | see [mango-api/README.md](../mango-api/README.md#login-codes-by-sms-jio); production refuses `LOG_OTP_CODES` |
-| `WHATSAPP_*` | Meta's values | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates) |
+| `WHATSAPP_*` | Meta's values, with `WHATSAPP_PROVIDER=meta` | `log` | see [mango-api/README.md](../mango-api/README.md#whatsapp-order-updates). With `meta`, the rider app's pickup sends the out-for-delivery update and the delivery code at once ([Rider app](#9-the-rider-app-fourth-project)) |
+| `DEMO_OTP` | **never** (the API refuses to start) | a 6-digit code, e.g. `123456`, until WhatsApp Business or Jio SMS is set up | demo only: every phone sign-in (shop and rider app) takes this fixed code, nothing is sent, and the screen shows it. Remove it once codes can be sent |
+| `DEMO_PAYMENTS` | **never** (the API refuses to start) | `true` until Razorpay is set up | demo only: checkout shows "Pay (test)" and "Fail payment (test)"; the order is marked paid with no money taken |
+| `RIDER_ORIGIN` | `https://rider.mandimangoes.in` | the rider app preview URL | the rider app's address: CORS and the session routes allow it |
+| `ANTHROPIC_API_KEY` | from the Claude Console | a separate key, or unset | the mango check on the rider's open-box photo (Claude Haiku). Unset: the check is skipped (shadow) |
+| `MANGO_CHECK` | `shadow` for the first week, then `on` | `shadow` | `on`: a failed check means retake (continue for review after two); `shadow`: stored and shown on the panel, never blocks; `off`: no call |
+| `BLOB_CALLBACK_URL` | leave unset | leave unset | where Blob reports a rider's finished photo upload; unset, the API's own `/webhooks/blob/delivery-photos` |
+| `DELIVERY_PHOTO_RETENTION_DAYS` | leave unset (`90`) | | delivery photo images are deleted after this many days by the daily maintenance pass; the rows, GPS and mango verdicts stay |
 | `OTP_DAILY_LIMIT` | `3000` | `200` | login codes per day before sending pauses; Sentry warns at 80% |
 | `OTP_NEW_NUMBER_SHARE` | `0.6` | | the part of that budget numbers with no account may use; the rest is kept for existing customers |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | from Cloudflare Turnstile | Cloudflare's test keys | a check, usually invisible, before a login code is sent; set both or neither |
@@ -331,6 +340,38 @@ has `VITE_SENTRY_DSN` (step 3). The code is in `shared/error-reports/`.
   (`*.ingest.sentry.io`, `.us.` and `.de.`), so nothing else changes on Vercel.
 - The panel's **Today** page shows a "Needs attention" card when messages, refunds or
   webhooks are failing.
+
+## 9. The rider app (fourth project)
+
+The riders' phone app (`rider-app/`, [rider-app/README.md](../rider-app/README.md)) is a fourth
+Vercel project. Do not deploy it to the demo projects (`mandimangoes-demo`, `mandimangoes-demo-ops`).
+
+1. **Add New → Project**, this repository, **Root Directory** `rider-app`, framework Next.js,
+   **Node.js Version** 24.x. Domain: `rider.mandimangoes.in`.
+2. Environment variables on `mandi-rider`:
+
+   | Variable | Production | Preview | Notes |
+   |----------|-----------|---------|-------|
+   | `NEXT_PUBLIC_API_URL` | `https://api.mandimangoes.in` | the API preview URL | |
+   | `NEXT_PUBLIC_OPS_PHONE` | the ops desk, `+91…` | the same | every "Call ops" button |
+
+3. On `mandi-api`: `RIDER_ORIGIN` (the rider app's address), `ANTHROPIC_API_KEY` and `MANGO_CHECK`
+   (table above), `BLOB_READ_WRITE_TOKEN` (already required: riders' photos upload straight to the
+   private store with a 10-minute client token, JPEG only, 2 MB), and `WHATSAPP_PROVIDER=meta` with
+   the Meta values.
+4. WhatsApp: submit the two delivery templates before the first run. Print Meta's create-template
+   requests with `node mango-api/scripts/whatsapp-template-definitions.mjs --shop https://mandimangoes.in`:
+   `mandi_delivery_code` (AUTHENTICATION, copy-code button, code valid 90 minutes, not delivered after
+   15 minutes) and the new `mandi_out_for_delivery` (UTILITY, no code, rider's first name, Track order
+   button). Edit the existing `mandi_out_for_delivery` in WhatsApp Manager rather than adding a new
+   name. Until Meta approves the new version, the template sync sees no Track order button and the
+   out-for-delivery update is skipped with that reason (the code message still goes); the shop shows
+   both. Details: [docs/whatsapp/TEMPLATES.md](../docs/whatsapp/TEMPLATES.md).
+5. Riders: on **Staff**, give each rider their mobile number and the name customers see. They sign in
+   on their own phone with a code and set a PIN. A lost phone: Staff → the rider → Phones → Revoke.
+6. Migrations 053 and 054 run with the API's build. `migrations-pending/056_drop_delivery_code.sql`
+   moves into `migrations/` in the release after this one (the release before 053 still reads the
+   plaintext code column).
 
 ## Backups and restore drill
 

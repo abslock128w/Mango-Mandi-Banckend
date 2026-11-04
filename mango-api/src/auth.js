@@ -228,7 +228,7 @@ export async function requireCustomer(req, res, next) {
 }
 
 const allowedOrigins = () =>
-  `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean)
+  `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN},${env.RIDER_ORIGIN}`.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean)
 
 /**
  * For routes that act on the refresh cookie (refresh, logout). Browsers send

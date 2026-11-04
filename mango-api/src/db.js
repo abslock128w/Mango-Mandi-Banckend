@@ -76,12 +76,27 @@ export function logIfSlow(sql, ms, slowMs = env.DB_SLOW_QUERY_MS) {
  */
 function timeQueries(client) {
   const proto = Object.getPrototypeOf(client)
+  // Promise calls wait for the client's previous one. Code fans out with Promise.all on one
+  // transaction client (reports, order detail, the warehouse box check); pg 8 queued those
+  // itself but warns, and pg 9 refuses them. Callback calls (pool.query) and submittables
+  // (cursors, streams) go straight to pg, as before.
+  let last = Promise.resolve()
   client.query = function (config, ...rest) {
     const sql = typeof config === 'string' ? config : config?.text
     const start = performance.now()
     // Looked up on every call, so anything that wraps pg.Client's query later (error
     // tracing, a test counting statements) still sees the queries of clients already open.
-    const p = proto.query.call(this, config, ...rest)
+    const direct = typeof rest.at(-1) === 'function' || typeof config?.callback === 'function' || typeof config?.submit === 'function'
+    let p
+    if (direct) p = proto.query.call(this, config, ...rest)
+    else {
+      const run = () => proto.query.call(this, config, ...rest)
+      p = last.then(run, run)
+      last = p.then(
+        () => {},
+        () => {},
+      )
+    }
     if (env.DB_SLOW_QUERY_MS && typeof sql === 'string' && typeof p?.then === 'function') {
       const done = () => logIfSlow(sql, performance.now() - start)
       p.then(done, done)

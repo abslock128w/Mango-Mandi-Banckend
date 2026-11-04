@@ -76,6 +76,10 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (env.SMS_PROVIDER === 'jio' && (!env.JIO_SMS_SUCCESS_PATH || !env.JIO_SMS_SUCCESS_VALUES)) {
     errors.push("JIO_SMS_SUCCESS_PATH and JIO_SMS_SUCCESS_VALUES are required: copy from Jio's API documentation how a reply says the SMS was accepted")
   }
+  if (env.DEMO_PAYMENTS && !preview) errors.push('DEMO_PAYMENTS must be off in production: orders would be marked paid with no money taken')
+  else if (env.DEMO_PAYMENTS) warnings.push('DEMO_PAYMENTS is on: checkout shows test pay buttons and no money moves')
+  if (env.DEMO_OTP && !preview) errors.push('DEMO_OTP must be off in production: anyone could sign in with the fixed code')
+  else if (env.DEMO_OTP) warnings.push('DEMO_OTP is set: every phone sign-in (shop and riders) takes the fixed demo code and no code is sent')
   if (env.DEMO_OTP_ON_SCREEN) {
     if (preview) warnings.push('DEMO_OTP_ON_SCREEN is on: login codes are shown on screen, so anyone can sign in as any number (a demo with made-up data only)')
     else errors.push('DEMO_OTP_ON_SCREEN is on outside a preview: anyone could sign in as any customer. It is for a demo preview only')

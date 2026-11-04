@@ -377,6 +377,22 @@ export function AuthedPhoto({
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
+/**
+ * The control last pressed with a mouse or a finger. Safari does not focus a button when it is
+ * clicked, so when a dialog opens from a click there document.activeElement is <body> or an
+ * ancestor; the dialog gives focus back to this control instead when it closes.
+ */
+let lastPressed: HTMLElement | null = null
+if (typeof document !== 'undefined') {
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      lastPressed = (e.target as Element | null)?.closest?.<HTMLElement>('button, a[href], [role="button"], [tabindex]:not([tabindex="-1"])') ?? null
+    },
+    true,
+  )
+}
+
 export function Dialog({
   title,
   onClose,
@@ -399,7 +415,9 @@ export function Dialog({
   closeRef.current = onClose
 
   useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
+    // Safari leaves focus on <body>, or on the nearest focusable ancestor (<main tabindex=-1>), after a click.
+    const active = document.activeElement as HTMLElement | null
+    const previous = lastPressed?.isConnected && (!active || active === document.body || (active !== lastPressed && active.contains(lastPressed))) ? lastPressed : active
     const el = ref.current
     const first = el?.querySelector<HTMLElement>('[data-autofocus]') ?? el?.querySelector<HTMLElement>(FOCUSABLE)
     first?.focus()
@@ -680,6 +698,13 @@ export function DownloadButton({
 
 // ---------- Error boundary ----------
 
+/**
+ * A screen's code could not be loaded: after a deploy, an open tab asks for file names that
+ * no longer exist (or the connection dropped). Chrome, Firefox and Safari word it differently.
+ */
+export const isModuleLoadError = (e: unknown) =>
+  e instanceof Error && /Importing a module script failed|Failed to fetch dynamically imported module|error loading dynamically imported module|Unable to preload CSS/i.test(e.message)
+
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
 
@@ -688,6 +713,8 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   componentDidCatch(error: Error, info: ReactErrorInfo) {
+    // Not a crash: the page is older than the server's files. Reloading fixes it.
+    if (isModuleLoadError(error)) return
     // Surface for developers; no customer data is in component stacks.
     console.warn('Screen crashed', error, info.componentStack)
     // And to Sentry when it is set up (shared/error-reports); the innermost boundary reports.
@@ -695,6 +722,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   render() {
+    if (this.state.error && isModuleLoadError(this.state.error)) {
+      return (
+        <div className="card error-card" role="alert">
+          <h2>A newer version of Mango Ops is ready</h2>
+          <p className="muted">This screen could not load. Reload to get the latest version; nothing you saved is lost.</p>
+          <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )
+    }
     if (this.state.error) {
       return (
         <div className="card error-card" role="alert">

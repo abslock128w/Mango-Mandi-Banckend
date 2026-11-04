@@ -9,11 +9,11 @@ import type { RipenessStage } from "@/lib/types";
 export function ProductRail({ id, title, stage, href }: { id: string; title: string; stage?: RipenessStage; href: string }) {
   return (
     <section aria-labelledby={`${id}-h`} className="pt-6">
-      <div className="flex items-center justify-between px-4 lg:px-6">
+      <div className="flex items-center justify-between gap-3 px-4 lg:px-6">
         <h2 id={`${id}-h`} className="font-display text-19 font-extrabold text-ink">
           {title}
         </h2>
-        <Link href={href} className="flex h-11 items-center text-15 font-semibold text-deep">
+        <Link href={href} className="flex h-11 shrink-0 items-center text-15 font-semibold whitespace-nowrap text-deep">
           see all <span className="sr-only">{title}</span>
         </Link>
       </div>
@@ -35,7 +35,9 @@ function RailSkeleton() {
 }
 
 function RailCards({ id, stage }: { id: string; stage?: RipenessStage }) {
-  const { data } = useProducts();
+  const { data, isError } = useProducts();
+  // The home page shows one notice for the catalogue; a rail stays empty rather than loading forever.
+  if (isError) return null;
   if (!data) return <RailSkeleton />;
   const inStock = (pid: string) => data.find((p) => p.id === pid)!.skus.some((s) => (!stage || s.ripeness === stage) && s.stock > 0);
   const list = [...data].sort((a, b) => Number(inStock(b.id)) - Number(inStock(a.id)));

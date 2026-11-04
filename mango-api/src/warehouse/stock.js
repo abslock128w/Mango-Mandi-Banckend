@@ -8,7 +8,6 @@
 // pickable place, so it is not shelf stock until someone puts it away (and
 // the put-away adds it back through the usual box delta). The order is then
 // rebalanced, which reserves the unit again (FEFO).
-import { now } from '../clock.js'
 import { newId } from '../ids.js'
 import { ledger, restock } from '../inventory.js'
 import { changeBox, lockBoxes, newDeltas, trackedLine, whError } from './core.js'
@@ -128,5 +127,3 @@ export async function assertBoxesReadyFor(c, orderId, to) {
     throw whError(to === 'PACKED' ? 'PACK_BY_SCAN' : 'DISPATCH_BY_SCAN', `${n} labelled ${n === 1 ? 'box is' : 'boxes are'} not ${want} yet: finish ${to === 'PACKED' ? 'packing' : 'dispatch'} in Warehouse → Scan.`)
   }
 }
-
-export const nowIso = () => now().toISOString()

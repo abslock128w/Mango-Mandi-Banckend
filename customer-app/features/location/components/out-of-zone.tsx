@@ -14,7 +14,7 @@ export function OutOfZone({ pincode, onRetry }: { pincode: string; onRetry: () =
       <p className="mt-1 max-w-[300px] text-13 text-muted">We&apos;re adding areas through the season. Tell us you&apos;d like us there, or try a nearby pincode.</p>
       <div className="mt-5 w-full max-w-[280px] space-y-2">
         {wa && (
-          <a href={wa} target="_blank" rel="noopener noreferrer" className="press flex h-11 w-full items-center justify-center gap-1.5 rounded-8 border border-action text-13 font-semibold text-action">
+          <a href={wa} target="_blank" rel="noopener noreferrer" className="press flex h-11 w-full items-center justify-center gap-2 rounded-8 border border-action text-13 font-semibold text-action">
             <MessageCircle aria-hidden size={16} /> Ask us on WhatsApp
           </a>
         )}

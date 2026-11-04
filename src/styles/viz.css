@@ -100,7 +100,7 @@ a.kpi-link:hover {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 1px 6px 1px 4px;
+  padding: 1px var(--space-2) 1px 4px;
   border-radius: var(--radius-pill);
   font-size: var(--text-2xs);
   font-weight: 650;
@@ -152,7 +152,7 @@ a.kpi-link:hover {
 .fresh-cell {
   width: 7px;
   height: 14px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--surface-3);
 }
 .fresh-cell.on.fresh-raw {
@@ -205,7 +205,7 @@ td.num .age-cell {
 .ripeline-track {
   position: relative;
   height: 40px;
-  margin-top: 22px;
+  margin-top: var(--space-6);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
 }
@@ -254,7 +254,7 @@ td.num .age-cell {
   width: 2px;
   margin-left: -1px;
   background: var(--red-600);
-  border-radius: 1px;
+  border-radius: var(--radius-xs);
 }
 .ripeline-now {
   position: absolute;
@@ -269,7 +269,7 @@ td.num .age-cell {
   bottom: 0;
   left: -1.5px;
   width: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--text);
   box-shadow: 0 0 0 2px var(--surface);
 }
@@ -278,7 +278,7 @@ td.num .age-cell {
   top: 0;
   left: 0;
   transform: translateX(-50%);
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--text);
   color: var(--surface);
@@ -290,7 +290,7 @@ td.num .age-cell {
 .ripeline-axis {
   position: relative;
   height: 22px;
-  margin-top: 6px;
+  margin-top: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
@@ -346,7 +346,7 @@ td.num .age-cell {
 .pipeline-legend li {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .pipeline-legend .tnum {
   color: var(--text);
@@ -355,7 +355,7 @@ td.num .age-cell {
 .pipeline-dot {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .pipe-pending {
   background: var(--color-line-strong);
@@ -508,12 +508,12 @@ td.num .age-cell {
 .chart-legend li {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .legend-swatch {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
 }
 .legend-line {
   width: 14px;
@@ -605,7 +605,7 @@ td.num .age-cell {
 .tip-rows li {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .tip-rows .tip-val {
   margin-left: auto;
@@ -674,7 +674,7 @@ td.num .age-cell {
 }
 .heatmap thead th {
   height: auto;
-  padding: 6px 4px;
+  padding: var(--space-2) 4px;
   text-align: center;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -701,7 +701,7 @@ td.num .age-cell {
   left: 0;
   z-index: 2;
   min-width: 11rem;
-  padding: 6px var(--space-4) 6px var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-2) var(--space-3);
   background: var(--surface);
   color: var(--text);
   text-align: left;
@@ -765,13 +765,13 @@ td.num .age-cell {
 .heat-scale span {
   width: 18px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
 }
 .heat-chip {
   display: inline-block;
   width: 18px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   vertical-align: middle;
   margin-right: 4px;
 }
@@ -804,7 +804,7 @@ td.num .age-cell {
 .slot-meter {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
@@ -833,7 +833,7 @@ td.num .age-cell {
 .updated {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
@@ -888,7 +888,7 @@ td.num .age-cell {
 }
 .tiles-today .tile {
   gap: 0;
-  padding: var(--space-3) var(--space-4) 10px;
+  padding: var(--space-3) var(--space-4) var(--space-3);
 }
 .tiles-today .tile .count {
   font-size: 1.625rem;
@@ -896,7 +896,7 @@ td.num .age-cell {
 .tiles-today .tile .label {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -906,7 +906,7 @@ td.num .age-cell {
   width: 8px;
   height: 8px;
   flex: none;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   background: var(--tile-tone, var(--border-strong));
 }
 .tone-confirmed {
@@ -954,7 +954,7 @@ td.num .age-cell {
   place-items: center;
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--brand-gradient);
   color: var(--color-on-accent);
 }
@@ -1032,7 +1032,7 @@ td.num .age-cell {
   place-items: center;
   min-width: 1.5rem;
   height: 1.25rem;
-  padding: 0 6px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--color-error-soft);
   color: var(--color-error);
@@ -1121,7 +1121,7 @@ td.num .age-cell {
 .detail-meta li {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
 }
 .detail-meta strong {
   color: var(--text);
@@ -1192,7 +1192,7 @@ td.num .age-cell {
 .login-hero-brand img {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 14px -4px rgb(43 29 18 / 35%);
 }
 .login-hero h2 {
@@ -1252,7 +1252,7 @@ td.num .age-cell {
   width: 56px;
   height: 56px;
   margin: 0 0 var(--space-4);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 6px 18px -6px rgb(255 133 82 / 70%);
 }
 .login-card h1 {

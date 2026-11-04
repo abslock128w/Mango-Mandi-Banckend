@@ -61,7 +61,7 @@ export function PreorderView() {
     <PageTransition>
       <div className="mx-auto max-w-content px-4 pt-4 pb-10 lg:px-6">
         <section className="rounded-16 bg-deep p-5 text-white lg:p-8" aria-labelledby="pre-h">
-          <p className="flex items-center gap-1.5 text-12 font-bold tracking-wide text-brand uppercase">
+          <p className="flex items-center gap-2 text-12 font-bold tracking-wide text-brand uppercase">
             <CalendarClock aria-hidden size={16} /> Book ahead
           </p>
           <h1 id="pre-h" className="mt-1 font-display text-24 leading-tight font-extrabold lg:text-36">
@@ -324,7 +324,7 @@ function BookForm({ weeks, stages, cancelPolicy, onStale }: { weeks: PreorderWee
           className="press flex h-14 w-full items-center justify-center gap-2 rounded-12 bg-action text-17 font-bold text-white disabled:bg-disabled"
         >
           {book.isPending && <Loader2 aria-hidden size={20} className="animate-spin" />}
-          {!signedIn ? (waitlist ? "Log in to join the waitlist" : "Log in to book") : !pincode ? "Set your pincode" : waitlist ? "Join the waitlist" : `Book and pay ${rupees(total)}`}
+          {!signedIn ? (waitlist ? "Sign in to join the waitlist" : "Sign in to book") : !pincode ? "Set your pincode" : waitlist ? "Join the waitlist" : `Book and pay ${rupees(total)}`}
         </button>
         {!signedIn && <p className="text-center text-12 text-muted">You log in with your mobile number, then come back here to book and pay.</p>}
       </form>

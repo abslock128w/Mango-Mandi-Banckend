@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-216 routes; 23 ask for step-up.
+226 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -37,6 +37,8 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /staff` | ✓ |  |  |  |  | With STAFF_STEP_UP: adding staff | Each change |
 | `DELETE /staff/:id` | ✓ |  |  |  |  | With STAFF_STEP_UP: removing someone | Each change |
 | `PATCH /staff/:id` | ✓ |  |  |  |  | With STAFF_STEP_UP: changing a role or password | Each change |
+| `GET /staff/:id/devices` | ✓ |  |  |  |  |  |  |
+| `POST /staff/:id/devices/:deviceId/revoke` | ✓ |  |  |  |  |  | Each change |
 | `POST /staff/:id/two-step/reset` | ✓ |  |  |  |  | With STAFF_STEP_UP: resetting someone's two-step sign-in | Each change |
 | `POST /staff/:id/two-step/setup-code` | ✓ |  |  |  |  | With STAFF_STEP_UP: giving out a two-step setup code | Each change |
 | `POST /staff/sign-out-all` | ✓ |  |  |  |  | Always: signing every staff member out | Each change |
@@ -51,6 +53,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /gift-orders/:id` | ✓ | ✓ |  |  |  |  |  |
 | `GET /manifest` | ✓ | ✓ | ✓ |  | ✓ |  | Views (STAFF_AUDIT_TRAIL) |
 | `POST /manifest/assign` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /manifest/auto-assign` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /manifest/dispatch` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
 | `GET /orders` | ✓ | ✓ |  |  |  |  | Searches (STAFF_AUDIT_TRAIL) |
 | `GET /orders/:id` | ✓ | ✓ | ✓ |  |  |  | Views (STAFF_AUDIT_TRAIL) |
@@ -61,6 +64,11 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /orders/:id/delivery-photos` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
 | `GET /orders/:id/delivery-photos/:photoId` | ✓ | ✓ | ✓ |  | ✓ |  | Views (STAFF_AUDIT_TRAIL) |
 | `POST /orders/:id/dispatch` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
+| `POST /orders/:id/handover-override` | ✓ |  |  |  |  |  | Each change |
+| `POST /orders/:id/photos` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
+| `POST /orders/:id/photos/:photoId/check` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
+| `POST /orders/:id/photos/token` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
+| `POST /orders/:id/pickup` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |
 | `POST /orders/:id/rebalance` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /orders/:id/reschedule` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /orders/:id/returned-stock` | ✓ | ✓ |  |  |  |  | Each change |
@@ -299,3 +307,10 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /whatsapp/messages/:id/retry` | ✓ | ✓ |  |  |  |  | Each change |
 | `GET /whatsapp/overview` | ✓ |  |  |  |  |  |  |
 | `POST /whatsapp/templates/sync` | ✓ |  |  |  |  |  | Each change |
+
+## Other
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /deliveries/live` | ✓ | ✓ |  |  |  |  |  |
+| `POST /rider/location` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |

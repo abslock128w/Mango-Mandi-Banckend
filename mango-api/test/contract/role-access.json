@@ -1,0 +1,3134 @@
+{
+ "DELETE /admin/v1/bulk-listings/:id/photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "DELETE /admin/v1/calendar/:date": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "DELETE /admin/v1/pincodes/:pincode": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "DELETE /admin/v1/products/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "DELETE /admin/v1/products/:sku/photo": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "DELETE /admin/v1/reviews/:id/reply": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "DELETE /admin/v1/staff/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "DELETE /v1/cart/bulk/:listingId": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/cart/items/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/me": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/me/addresses/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/me/favourites/:sku": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/me/push/subscription": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/reviews/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "DELETE /v1/stock-alerts/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /admin/v1/analytics": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/analytics/funnel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/analytics/margins": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/attention": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/audit": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/auth/config": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/auth/me": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/batches": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/batches/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/batches/:id/ledger": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/batches/:id/lines/:lineId/repair": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/batches/:id/purchases": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/bulk-listings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/bulk-listings/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/bulk-listings/:id/history": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/bulk-listings/:id/photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/calendar": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/claims": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/claims/:id/photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/config": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/coverage": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/customers/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/daily-summary/preview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/deliveries/live": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/delivery-reviews": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/exports/:kind": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/farms": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/gift-orders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/gift-orders/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/help/requests": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/help/requests/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/manifest": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/me/daily-summary": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/orders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/orders/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/orders/:id/bill": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/orders/:id/delivery-photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/pack-list": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/pincodes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/planning/forecast": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/preorder-capacity": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/preorders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/products": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/promos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/purchases": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/referrals": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/reviews": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/reviews/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/reviews/:id/photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/reviews/insights": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/riders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/settings/switches": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/slots": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/staff": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/staff/:id/devices": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/subscriptions": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/summary": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/boxes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/warehouse/boxes/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/boxes/:id/events": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/boxes/:id/label.pdf": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/exceptions": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/export/:report": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/warehouse/locations": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/locations/:id/label.pdf": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/lots": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/warehouse/lots/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/lots/:id/labels.pdf": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/operations": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/warehouse/operations/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/orders/:id/pick-list": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/overview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/pick-queue": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/warehouse/products": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/recalls": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/recalls/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/reconciliation": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/repacks": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/repacks/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/repacks/:id/labels.pdf": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/settings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/stocktakes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/warehouse/stocktakes/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/trace/boxes/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/trace/lots/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/warehouse/write-offs": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/whatsapp/conversations": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/whatsapp/conversations/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/whatsapp/failures": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/whatsapp/media/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/whatsapp/overview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "GET /health": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /internal/maintenance": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /metrics": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /ready": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/auth/config": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/bulk-deals": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /v1/bulk-deals/:id": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/bulk-deals/:id/photos/:photoId": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/bulk-deals/:id/price": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /v1/cart": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/catalogue": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /v1/claims": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/delivery/check": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /v1/delivery/slots": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /v1/gifts": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/gifts/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/gifts/:id/bill": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/gifts/template.csv": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/addresses": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/export": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/favourites": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/help": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/help/requests": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/help/requests/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/language": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/push": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/referral": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/reviews": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/subscriptions": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/subscriptions/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/orders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/orders/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/orders/:id/bill": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/orders/:id/delivery-photo": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/orders/:id/payment-status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/policy": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/preorders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/preorders/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/preorders/weeks": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/products": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/products/:sku/photo": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/products/:sku/reviews": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/review-photos/:id": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/reviews/:id/photos/:photoId": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/stock-alerts": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /webhooks/whatsapp": {
+  "anonymous": "forbidden",
+  "customer": "forbidden",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "forbidden"
+ },
+ "PATCH /admin/v1/batches/:id/lines/:lineId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/batches/:id/purchases/:purchaseId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/batches/:id/status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/bulk-listings/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/farms/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/orders/:id/status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/pincodes/:pincode": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/products/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/promos/:code": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/slots/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/staff/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/warehouse/locations/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/warehouse/lots/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/warehouse/products/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /v1/me": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "PATCH /v1/reviews/:id": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /admin/v1/auth/google": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/auth/login": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/auth/logout": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "POST /admin/v1/auth/refresh": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /admin/v1/auth/two-step": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/batches": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/batches/:id/lines/:lineId/repair": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/batches/:id/lines/:lineId/short-arrival": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/batches/:id/purchases": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/batches/:id/qc": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-listings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-listings/:id/archive": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-listings/:id/photos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-listings/:id/publish": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-listings/:id/unpublish": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/claims/:id/resolve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/claims/:id/review": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/customers/:id/reveal": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/customers/search": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/delivery-reviews/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/farms": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/help/requests/:id/reopen": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/help/requests/:id/reply": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/help/requests/:id/resolve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/manifest/assign": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/manifest/auto-assign": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/manifest/dispatch": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/me/password": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/me/two-step/disable": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/me/two-step/enable": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/me/two-step/setup": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "POST /admin/v1/notifications/:id/retry": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/allocate": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/delivery": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/delivery-photos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/dispatch": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/handover-override": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/photos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/photos/:photoId/check": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/photos/token": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/pickup": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/rebalance": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/orders/:id/reschedule": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/:id/returned-stock": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/orders/bulk-reschedule": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/pincodes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/preorder-capacity/:weekStart/:sku/recount": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/preorders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/preorders/:id/keep": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/products": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/promos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/refunds/:id/paid-another-way": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/reviews/:id/approve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/reviews/:id/hide": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/reviews/:id/reject": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/reviews/bulk": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/location": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/logout": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/otp/request": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/otp/verify": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/pin/set": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/pin/unlock": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/rider/session/refresh": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/slots": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/staff": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/staff/:id/devices/:deviceId/revoke": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/staff/:id/two-step/reset": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/staff/:id/two-step/setup-code": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/staff/sign-out-all": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/subscriptions/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/subscriptions/:id/pause": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/damage": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/holds": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/holds/:kind/release": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/measure": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/reissue": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/reprint": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/boxes/:id/restock": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/locations": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/lots": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/lots/:id/add-boxes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/close": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/confirm-count": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/continue": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/put-away": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/qc": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/void": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/:id/void-boxes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/lots/preview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/operations": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/operations/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/operations/:id/finalize": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/operations/:id/scans": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/operations/:id/undo": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/recalls": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/recalls/:id/continue": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/recalls/:id/release": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/resolve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/stocktakes/:id/approve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/stocktakes/:id/reject": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/stocktakes/:id/review": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/write-offs": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/warehouse/write-offs/:id/approve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/warehouse/write-offs/:id/reject": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/webhook-failures/:id/refund": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/webhook-failures/:id/resolve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/whatsapp/check": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/assign": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/close": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/hand-back": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/opt-out": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/reply": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/whatsapp/conversations/:id/take-over": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/whatsapp/events/:id/replay": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/whatsapp/messages/:id/retry": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/whatsapp/templates/sync": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "conflict"
+ },
+ "POST /internal/maintenance": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/auth/google": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/auth/logout": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "POST /v1/auth/otp/request": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/auth/otp/verify": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/auth/token/refresh": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/cart/bulk": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/cart/items": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/checkout/confirm": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/checkout/quote": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/claims": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/claims/photos": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/dev/mark-paid-at-gateway": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/dev/pay": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/dev/pay-gift": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/dev/pay-preorder": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/dev/reconcile": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "POST /v1/events": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "POST /v1/gifts/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/gifts/:id/recipients/:orderId/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/gifts/:id/verify-payment": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/gifts/confirm": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/gifts/quote": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/favourites/merge": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/help/requests": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/help/requests/:id/messages": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/phone/request": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/phone/verify": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/referral/apply": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/sign-out-everywhere": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions/:id/cycles/:cycleId/pay": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions/:id/pause": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions/:id/resume": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/subscriptions/:id/skip": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/orders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/orders/:id/demo-pay": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/orders/:id/reschedule": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/orders/:id/verify-payment": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/preorders": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/preorders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/reviews": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/reviews/photos": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/reviews/photos/upload-token": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/stock-alerts": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /webhooks/blob/delivery-photos": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /webhooks/razorpay": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /webhooks/whatsapp": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "PUT /admin/v1/bulk-listings/:id/photos/order": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/calendar/:date": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/config": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/me/daily-summary": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/preorder-capacity/:weekStart/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/products/:sku/photo": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/reviews/:id/reply": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/settings/switches/:key": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/whatsapp/automations/:kind": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /v1/me/favourites/:sku": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "PUT /v1/me/language": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "PUT /v1/me/push/subscription": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "PUT /v1/orders/:id/rating": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ }
+}

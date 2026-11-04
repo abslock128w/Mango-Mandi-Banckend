@@ -1,4 +1,5 @@
 "use client";
+import { CatalogueError } from "@/features/catalog/components/catalogue-error";
 import { useDeliveryDate, useProducts } from "@/features/catalog/hooks/queries";
 import { PageTransition } from "@/features/shell/page-transition";
 import { dayName } from "@/lib/format";
@@ -17,7 +18,7 @@ const SLIDES: Slide[] = [
 
 /** Home, composed in the shop (the API has no layout endpoint). */
 export function HomeView() {
-  const { data: products } = useProducts();
+  const { data: products, isError, refetch } = useProducts();
   const date = useDeliveryDate();
   const day = date ? dayName(date) : null;
   return (
@@ -25,6 +26,7 @@ export function HomeView() {
       <div className="mx-auto max-w-content">
         <UnpaidBanner />
         <HeroCarousel slides={SLIDES} />
+        {isError && <CatalogueError onRetry={refetch} className="mx-4 mt-4 lg:mx-6" />}
         <VarietyGrid title="Shop by variety" products={products?.slice().sort((a, b) => Number(Boolean(a.variety.contents)) - Number(Boolean(b.variety.contents)))} />
         <ProductRail id="ripe" title={day ? `Ripe for ${day.toLowerCase() === "tomorrow" ? "tomorrow" : day}` : "Ripe and ready"} stage="RIPE" href="/c/ripe" />
         <BookAheadCard />

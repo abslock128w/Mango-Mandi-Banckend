@@ -4,7 +4,7 @@ import { cspPlugin } from './scripts/csp'
 import { errorReportDefine, sourceMapUpload } from './scripts/sentry'
 
 export default defineConfig(async ({ mode }) => {
-  const env = { ...loadEnv(mode, __dirname, 'VITE_'), ...process.env }
+  const env = { ...loadEnv(mode, import.meta.dirname, 'VITE_'), ...process.env }
   // Error reports (shared/error-reports): their tags, and the optional source map upload.
   const sourceMaps = await sourceMapUpload(env)
   return {

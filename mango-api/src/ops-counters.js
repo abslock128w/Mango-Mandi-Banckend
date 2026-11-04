@@ -21,8 +21,8 @@ import { isDbUnavailable, isPoolTimeout, query } from './db.js'
 import { env } from './env.js'
 import { logger } from './logger.js'
 
-/** The kinds counted. Every 5xx answer counts as exactly one of the first three. */
-export const OPS_KINDS = ['api-5xx', 'db-busy', 'db-unavailable', 'api-slow']
+// The kinds counted: api-5xx, db-busy, db-unavailable and api-slow. Every 5xx answer counts as
+// exactly one of the first three.
 
 /** After a write fails because the database is unreachable or busy, wait this long before the next. */
 const PAUSE_MS = 30_000

@@ -135,3 +135,42 @@ export function signWebhook(body) {
   const raw = JSON.stringify(body)
   return { raw, signature: createHmac('sha256', env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex') }
 }
+
+// ---------------------------------------------------------------- rider app (053)
+
+let proofJpeg = null
+/** A small real JPEG for step photos. */
+export async function stepJpeg() {
+  const { default: sharp } = await import('sharp')
+  proofJpeg ??= await sharp({ create: { width: 24, height: 18, channels: 3, background: '#f4a300' } }).jpeg().toBuffer()
+  return proofJpeg
+}
+
+/** Uploads a step photo the way the rider app does (raw JPEG with X- headers). Returns the response. */
+export async function stepPhoto(api, token, orderId, step, extra = {}) {
+  return api.raw('POST', `/admin/v1/orders/${orderId}/photos`, {
+    token,
+    headers: { 'Content-Type': 'image/jpeg', 'X-Step': step, 'X-Client-Id': extra.clientId ?? newId('cl').replace(/[^A-Za-z0-9_-]/g, ''), ...(extra.headers ?? {}) },
+    raw: extra.bytes ?? (await stepJpeg()),
+  })
+}
+
+/**
+ * The door and open-box photos, with the mango check run (no key in tests: shadow,
+ * which passes), so the customer's code can be typed. Returns the open-box check.
+ */
+export async function doorProof(api, token, orderId) {
+  const door = await stepPhoto(api, token, orderId, 'door')
+  if (door.status !== 201) throw new Error(`door photo: ${door.status} ${JSON.stringify(door.body)}`)
+  const box = await stepPhoto(api, token, orderId, 'open_box')
+  if (box.status !== 201) throw new Error(`open-box photo: ${box.status} ${JSON.stringify(box.body)}`)
+  const check = await api.post(`/admin/v1/orders/${orderId}/photos/${box.body.id}/check`, {}, { token })
+  if (check.status !== 200) throw new Error(`check: ${check.status} ${JSON.stringify(check.body)}`)
+  return check.body
+}
+
+/** A manager allows leaving the order without the code (a photo and who took it). */
+export async function allowLeaveAtDoor(api, managerToken, orderId, reason = 'Customer asked on the phone') {
+  const r = await api.post(`/admin/v1/orders/${orderId}/handover-override`, { reason }, { token: managerToken })
+  if (r.status !== 204) throw new Error(`handover override: ${r.status} ${JSON.stringify(r.body)}`)
+}

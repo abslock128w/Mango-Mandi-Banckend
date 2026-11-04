@@ -41,16 +41,21 @@ router.patch(
   '/pincodes/:pincode',
   asyncHandler(async (req, res) => {
     const b = parse(
-      z.object({ city: z.string().trim().min(1).max(80).optional(), zone: z.string().trim().max(80).nullable().optional(), active: z.boolean().optional() }),
+      z.object({
+        city: z.string().trim().min(1).max(80).optional(), zone: z.string().trim().max(80).nullable().optional(), active: z.boolean().optional(),
+        // The area's centre, for the nearest-rider assignment (nearest.js).
+        lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(),
+      }),
       req.body,
     )
     const row = await tx(async (c) => {
       const { rows: was } = await c.query('SELECT * FROM pincodes WHERE pincode = $1 FOR UPDATE', [req.params.pincode])
       if (!was.length) throw notFound('Pincode not found')
       const { rows } = await c.query(
-        `UPDATE pincodes SET city = COALESCE($2, city), zone = CASE WHEN $5 THEN $3 ELSE zone END, active = COALESCE($4, active)
+        `UPDATE pincodes SET city = COALESCE($2, city), zone = CASE WHEN $5 THEN $3 ELSE zone END, active = COALESCE($4, active),
+                lat = COALESCE($6, lat), lng = COALESCE($7, lng)
           WHERE pincode = $1 RETURNING *`,
-        [req.params.pincode, b.city ?? null, b.zone ?? null, b.active ?? null, 'zone' in b],
+        [req.params.pincode, b.city ?? null, b.zone ?? null, b.active ?? null, 'zone' in b, b.lat ?? null, b.lng ?? null],
       )
       await auditInTx(c, req, { before: beforeOf(pincodeDto(was[0]), Object.keys(b)) })
       return rows[0]

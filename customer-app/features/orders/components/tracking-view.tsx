@@ -115,7 +115,7 @@ function PayBox({ order, onPaid }: { order: Order; onPaid: () => void }) {
             type="button"
             disabled={pay.isPending}
             onClick={() => pay.mutate()}
-            className="press mt-3 flex h-12 w-full items-center justify-center gap-1.5 rounded-12 bg-action text-15 font-bold text-white disabled:bg-disabled"
+            className="press mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-12 bg-action text-15 font-bold text-white disabled:bg-disabled"
           >
             {pay.isPending && <Loader2 aria-hidden size={18} className="animate-spin" />} Pay {rupees(order.total)}
           </button>
@@ -182,7 +182,7 @@ function MoveSheet({ order, open, onOpenChange, onMoved }: { order: Order; open:
           type="button"
           disabled={!day || needSlot || move.isPending}
           onClick={() => move.mutate()}
-          className="press flex h-12 w-full items-center justify-center gap-1.5 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled"
+          className="press flex h-12 w-full items-center justify-center gap-2 rounded-12 bg-action text-15 font-semibold text-white disabled:bg-disabled"
         >
           {move.isPending && <Loader2 aria-hidden size={18} className="animate-spin" />}
           {day ? `Move to ${dayName(day)}` : "Move"}
@@ -219,7 +219,7 @@ function CancelSheet({ order, open, onOpenChange, onDone }: { order: Order; open
             type="button"
             disabled={cancel.isPending}
             onClick={() => cancel.mutate()}
-            className="press flex h-12 items-center justify-center gap-1.5 rounded-12 bg-danger text-15 font-semibold text-white disabled:opacity-60"
+            className="press flex h-12 items-center justify-center gap-2 rounded-12 bg-danger text-15 font-semibold text-white disabled:bg-disabled"
           >
             {cancel.isPending && <Loader2 aria-hidden size={18} className="animate-spin" />} Cancel order
           </button>
@@ -238,7 +238,7 @@ function DeliveryPhoto({ orderId }: { orderId: string }) {
     );
   return (
     <>
-      <button type="button" disabled={photo.isPending} onClick={() => photo.mutate()} className="press mt-2 flex h-11 items-center gap-1.5 rounded-8 border border-line px-3 text-13 font-semibold text-ink">
+      <button type="button" disabled={photo.isPending} onClick={() => photo.mutate()} className="press mt-2 flex h-11 items-center gap-2 rounded-8 border border-line px-3 text-13 font-semibold text-ink">
         {photo.isPending ? <Loader2 aria-hidden size={16} className="animate-spin" /> : <ImageIcon aria-hidden size={16} />} See delivery photo
       </button>
       {photo.error && <p className="mt-1 text-12 text-danger">The photo isn&apos;t available right now.</p>}
@@ -262,7 +262,7 @@ function BillDownload({ order }: { order: Order }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-12 bg-surface p-3">
       <span className="text-12 text-muted">Bill {order.bill!.number}</span>
-      <button type="button" disabled={download.isPending} onClick={() => download.mutate()} className="press flex h-11 items-center gap-1.5 rounded-8 border border-line px-3 text-13 font-semibold text-ink">
+      <button type="button" disabled={download.isPending} onClick={() => download.mutate()} className="press flex h-11 items-center gap-2 rounded-8 border border-line px-3 text-13 font-semibold text-ink">
         {download.isPending ? <Loader2 aria-hidden size={16} className="animate-spin" /> : <Download aria-hidden size={16} />} Download bill
       </button>
       {download.error && <p className="w-full text-12 text-danger">Couldn&apos;t download the bill. Try again.</p>}
@@ -273,7 +273,7 @@ function BillDownload({ order }: { order: Order }) {
 export function TrackingView({ id }: { id: string }) {
   const { hydrated, signedIn } = useSignedInReady();
   const { data: order, isError, error, refetch } = useOrder(id);
-  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}`} title="Log in to see this order" />;
+  if (hydrated && !signedIn) return <SignInPrompt next={`/order/${id}`} title="Sign in to see this order" />;
   if (isError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
@@ -346,15 +346,25 @@ function OrderDetail({ order }: { order: Order }) {
 
         {order.status === "PAYMENT_PENDING" && <PayBox order={order} onPaid={refresh} />}
 
+        {order.status === "OUT_FOR_DELIVERY" && order.rider?.firstName && (
+          <Section>
+            <p className="flex items-center gap-2 text-15 font-bold text-ink" data-testid="rider-name">
+              <Bike aria-hidden size={18} className="text-action" />
+              Out for delivery with {order.rider.firstName}
+            </p>
+          </Section>
+        )}
+
         {order.deliveryCode && (
           <Section className="border border-action text-center">
-            <p className="flex items-center justify-center gap-1.5 text-13 font-semibold text-ink">
+            <p className="flex items-center justify-center gap-2 text-13 font-semibold text-ink">
               <KeyRound aria-hidden size={16} /> Delivery code
             </p>
             <p className="mt-1 font-display text-36 font-extrabold tracking-[0.3em] text-ink" aria-label={`Delivery code ${order.deliveryCode.split("").join(" ")}`} data-testid="delivery-code">
               {order.deliveryCode}
             </p>
             <p className="text-12 text-muted">Share it with the delivery partner when the box reaches you.</p>
+            <p className="mt-1 text-12 font-semibold text-ink">Share this code with the rider only after you have seen your mangoes.</p>
           </Section>
         )}
 
@@ -414,7 +424,7 @@ function OrderDetail({ order }: { order: Order }) {
             ))}
             {canClaim && (
               <>
-                <Link href={`/order/${order.id}/claim`} className="press mt-3 flex h-11 items-center justify-center gap-1.5 rounded-8 border border-line text-13 font-semibold text-ink">
+                <Link href={`/order/${order.id}/claim`} className="press mt-3 flex h-11 items-center justify-center gap-2 rounded-8 border border-line text-13 font-semibold text-ink">
                   <CircleAlert aria-hidden size={16} /> Report a problem
                 </Link>
                 <p className="mt-1 text-center text-11 text-muted">Damaged or wrong boxes are replaced free until {dateTime(order.claimUntil!)}.</p>
@@ -430,14 +440,14 @@ function OrderDetail({ order }: { order: Order }) {
 
       <div className="space-y-3 lg:sticky lg:top-[96px] lg:self-start">
         <Section title={plural(boxes, "box", "boxes")}>
-          <ul className="space-y-2.5">
+          <ul className="space-y-3">
             {order.items.map((i, n) => (
               <li key={`${i.sku}${i.stage}${n}`} className="flex items-start justify-between gap-2 text-12">
                 <span className="min-w-0">
                   <span className="block font-semibold text-ink">
                     {i.quantity} × {i.name}
                   </span>
-                  <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-muted">
+                  <span className="mt-0.5 flex flex-wrap items-center gap-2 text-muted">
                     <RipenessChip stage={i.stage} />
                     {i.eatBy && <span>Best by {dayName(i.eatBy)}</span>}
                   </span>
@@ -462,7 +472,7 @@ function OrderDetail({ order }: { order: Order }) {
 
         <div className="grid gap-2">
           {movable && (
-            <button type="button" onClick={() => setMoving(true)} className="press flex h-12 items-center justify-center gap-1.5 rounded-12 border border-line bg-surface text-13 font-semibold text-ink">
+            <button type="button" onClick={() => setMoving(true)} className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-line bg-surface text-13 font-semibold text-ink">
               <CalendarDays aria-hidden size={16} /> Move delivery day
             </button>
           )}
@@ -471,13 +481,13 @@ function OrderDetail({ order }: { order: Order }) {
               type="button"
               onClick={() => reorder(order)}
               data-testid="reorder"
-              className="press flex h-12 items-center justify-center gap-1.5 rounded-12 border border-action bg-tint text-13 font-semibold text-action"
+              className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-action bg-tint text-13 font-semibold text-action"
             >
               <RotateCcw aria-hidden size={16} /> Buy again
             </button>
           )}
           {help && (
-            <a href={help} target="_blank" rel="noreferrer" className="press flex h-12 items-center justify-center gap-1.5 rounded-12 border border-line bg-surface text-13 font-semibold text-ink">
+            <a href={help} target="_blank" rel="noreferrer" className="press flex h-12 items-center justify-center gap-2 rounded-12 border border-line bg-surface text-13 font-semibold text-ink">
               <MessageCircle aria-hidden size={16} /> Help on WhatsApp
             </a>
           )}

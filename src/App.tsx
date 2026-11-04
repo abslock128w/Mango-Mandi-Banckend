@@ -99,7 +99,7 @@ function SignOutListener({ onSignOut }: { onSignOut: () => void }) {
     function handle(e: Event) {
       const reason = (e as CustomEvent<{ reason?: string }>).detail?.reason
       onSignOut()
-      navigate(reason === 'expired' ? '/login?reason=expired' : '/login', { replace: true })
+      navigate(reason === 'expired' || reason === 'elsewhere' ? `/login?reason=${reason}` : '/login', { replace: true })
     }
     window.addEventListener(SIGNOUT_EVENT, handle)
     return () => window.removeEventListener(SIGNOUT_EVENT, handle)
@@ -113,17 +113,24 @@ export default function App() {
   const queryClient = useQueryClient()
 
   // One silent refresh on load restores a session from the httpOnly cookie.
+  const [unreachable, setUnreachable] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let cancelled = false
     api.bootstrap().then((restored) => {
       if (cancelled) return
-      setMe(restored)
-      setBooting(false)
+      if (restored === 'unavailable') {
+        setUnreachable(true)
+      } else {
+        setUnreachable(false)
+        setMe(restored)
+        setBooting(false)
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [attempt])
 
   const [onSignOut] = useState(() => () => {
     setMe(null)
@@ -135,7 +142,17 @@ export default function App() {
       <ApiBaseBanner apiSet={API_SET} />
       <OfflineBanner />
       <SignOutListener onSignOut={onSignOut} />
-      {booting ? (
+      {booting && unreachable ? (
+        <main className="boot-unreachable">
+          <div role="alert">
+            <h1>Can&apos;t reach Mango Ops</h1>
+            <p>The server is busy or your connection dropped. If you were signed in, you still are.</p>
+            <button type="button" className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
+        </main>
+      ) : booting ? (
         <Spinner label="Restoring session" />
       ) : (
         // Layout has its own boundary around the screen, so the menu stays while a

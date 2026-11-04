@@ -65,7 +65,8 @@ export async function createGatewayOrder({ amount, receipt, orderId }) {
     const o = await razorpay('POST', '/orders', { amount, currency: 'INR', receipt, notes: { orderId } })
     return gatewayId(o, 'order_', 'create order')
   }
-  if (isProd) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
+  // DEMO_PAYMENTS (demo deploys only, env.js): a stand-in gateway order, settled by POST /v1/orders/:id/demo-pay.
+  if (isProd && !env.DEMO_PAYMENTS) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
   return `order_dev_${newId('rzp').slice(4)}`
 }
 
@@ -98,7 +99,8 @@ export async function createPaymentLink({ amount, number, orderId, preorderId, n
     if (typeof link?.short_url !== 'string' || !/^https:\/\//.test(link.short_url)) throw new Error('Razorpay payment link reply has no https short_url')
     return { id: gatewayId(link, 'plink_', 'payment link'), url: link.short_url }
   }
-  if (isProd) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
+  // DEMO_PAYMENTS (demo deploys only, env.js): a stand-in gateway order, settled by POST /v1/orders/:id/demo-pay.
+  if (isProd && !env.DEMO_PAYMENTS) throw new HttpError(503, 'PAYMENTS_UNAVAILABLE', 'Payments are not configured')
   const id = `plink_dev_${newId('l').slice(2)}`
   return { id, url: `https://rzp.io/i/${id}` }
 }

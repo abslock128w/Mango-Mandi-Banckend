@@ -18,7 +18,7 @@ module.exports = {
       assertions: {
         // Median of the runs, not LHCI's default best run.
         "categories:performance": ["error", { minScore: 0.9, aggregationMethod: "median" }],
-        "categories:accessibility": ["error", { minScore: 0.95, aggregationMethod: "median" }],
+        "categories:accessibility": ["error", { minScore: 1, aggregationMethod: "median" }],
         "largest-contentful-paint": ["error", { maxNumericValue: 2500, aggregationMethod: "median" }],
         "cumulative-layout-shift": ["error", { maxNumericValue: 0.1, aggregationMethod: "median" }],
       },

@@ -74,6 +74,8 @@ import type {
   ReviewQueue,
   Role,
   StaffMember,
+  LiveDeliveries,
+  RiderDevice,
   Summary,
   DailySummaryPreview,
   DailySummarySetting,
@@ -144,6 +146,18 @@ function signOutLocally() {
   accessToken = null
   window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'expired' } }))
 }
+
+/**
+ * Signing out in one tab signs out the others. Their access tokens would otherwise keep working
+ * until they lapse (up to 15 minutes): on a shared computer the next person would find the panel
+ * still open in another tab. BroadcastChannel reaches every tab of this panel in this browser.
+ */
+const sessionChannel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('mango-ops-session')
+sessionChannel?.addEventListener('message', (e: MessageEvent<{ type?: string }>) => {
+  if (e.data?.type !== 'signed-out' || !accessToken) return
+  accessToken = null
+  window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'elsewhere' } }))
+})
 
 /** A Blob body is sent as-is (photos); anything else as JSON. */
 async function send(method: string, path: string, body?: unknown, retried = false, extra?: Record<string, string>): Promise<Response> {
@@ -220,12 +234,20 @@ async function firstStep(path: string, body: unknown): Promise<SignInResult> {
 
 export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
-  async bootstrap(): Promise<Me | null> {
+  /**
+   * Restores a session from the refresh cookie on load. 'unavailable' when the API is busy,
+   * rate-limited or unreachable: that says nothing about the session, so the panel must not
+   * show the sign-in form for it (the person is still signed in once the API answers).
+   */
+  async bootstrap(): Promise<Me | null | 'unavailable'> {
     if (!API_SET) return null
-    if ((await refreshOnce()) !== 'ok') return null
+    const refreshed = await refreshOnce()
+    if (refreshed === 'unavailable') return 'unavailable'
+    if (refreshed !== 'ok') return null
     try {
       return await request<Me>('GET', '/auth/me')
-    } catch {
+    } catch (e) {
+      if (e instanceof TypeError || (e instanceof ApiError && (e.status === 0 || e.status >= 500 || e.status === 429))) return 'unavailable'
       accessToken = null
       return null
     }
@@ -289,6 +311,7 @@ export const api = {
       // ignore
     }
     accessToken = null
+    sessionChannel?.postMessage({ type: 'signed-out' })
     window.dispatchEvent(new CustomEvent(SIGNOUT_EVENT, { detail: { reason: 'logout' } }))
   },
 
@@ -435,6 +458,9 @@ export const api = {
     request<{ dispatched: string[]; skipped: { number: string; reason: string }[] }>('POST', '/manifest/dispatch', { date }),
   riders: () => request<Rider[]>('GET', '/riders'),
   /** Gives stops to a rider (null: to nobody): the listed orders, or every order still to deliver in a slot. */
+  /** Every unassigned stop on the date to its nearest rider, with the warehouse that makes his trip shortest. */
+  autoAssign: (date: string) =>
+    request<{ assigned: { orderId: string; number: string; riderName: string; riderKm: number | null; warehouseName: string | null }[]; riders: number }>('POST', '/manifest/auto-assign', { date }),
   assignRiders: (input: { date: string; riderId: string | null; orderIds?: string[]; slotId?: string | null }) =>
     request<{ assigned: string[] }>('POST', '/manifest/assign', input),
   uploadDeliveryPhoto: (orderId: string, photo: Blob) => request<{ id: string }>('POST', `/orders/${id(orderId)}/delivery-photos`, photo),
@@ -443,6 +469,10 @@ export const api = {
     const res = await send('GET', `/orders/${id(orderId)}/delivery-photos/${id(photoId)}`)
     return URL.createObjectURL(await res.blob())
   },
+  /** Rider app: the day's stops with photos, mango checks, WhatsApp status and rider positions; `since` lists what changed after it. */
+  liveDeliveries: (date: string, since?: string | null) => request<LiveDeliveries>('GET', `/deliveries/live${qs({ date, since: since ?? undefined })}`),
+  /** A manager lets the rider leave this order without the code (a photo and who took it). */
+  allowLeaveAtDoor: (orderId: string, reason: string) => request<void>('POST', `/orders/${id(orderId)}/handover-override`, { reason }),
   recordDelivery: (
     orderId: string,
     body:
@@ -536,10 +566,15 @@ export const api = {
     request<Promo>('PATCH', `/promos/${id(code)}`, { ...patch, ...confirmBody(confirmCode) }),
   staff: () => request<StaffMember[]>('GET', '/staff'),
   // Staff changes carry `confirmCode` when the server asks the manager to confirm it is them (SEC-07, STAFF_STEP_UP).
-  addStaff: (input: { email: string; role: Role; password: string }, confirmCode?: string) =>
+  addStaff: (input: { email: string; role: Role; password: string; phone?: string; displayName?: string }, confirmCode?: string) =>
     request<StaffMember>('POST', '/staff', { ...input, ...confirmBody(confirmCode) }),
   updateStaff: (staffId: string, patch: { role?: Role; password?: string }, confirmCode?: string) =>
     request<StaffMember>('PATCH', `/staff/${id(staffId)}`, { ...patch, ...confirmBody(confirmCode) }),
+  /** Rider app details: the sign-in number and the name customers see (no confirmation asked). */
+  updateRiderDetails: (staffId: string, patch: { phone?: string | null; displayName?: string | null }) =>
+    request<StaffMember>('PATCH', `/staff/${id(staffId)}`, patch),
+  riderDevices: (staffId: string) => request<RiderDevice[]>('GET', `/staff/${id(staffId)}/devices`),
+  revokeRiderDevice: (staffId: string, deviceRowId: string) => request<void>('POST', `/staff/${id(staffId)}/devices/${id(deviceRowId)}/revoke`, {}),
   removeStaff: (staffId: string, confirmCode?: string) => request<void>('DELETE', `/staff/${id(staffId)}`, confirmBody(confirmCode)),
   /** `reads`: also list views of customer details (recorded with STAFF_AUDIT_TRAIL on the server). */
   audit: (f: { staff?: string | null; from?: string | null; to?: string | null; page?: number; reads?: boolean } = {}) =>
