@@ -1,6 +1,6 @@
 // Runs all of MandiMangoes on this computer with one command, on Windows, Mac or Linux:
 // a private Postgres (downloaded by npm, nothing to install), the API with demo data,
-// the shop and the staff panel, then opens them in the browser.
+// the shop (the static site in shop/) and the staff panel, then opens them in the browser.
 //
 //   node scripts/start-local.mjs            (add --no-open to skip the browser)
 //   node scripts/start-local.mjs --phone    (also open the shop on your phone, see below)
@@ -48,7 +48,7 @@ export function localPlan(argv, wifiIps = []) {
   const api = {
     NODE_ENV: 'development',
     COOKIE_SECURE: 'false',
-    // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopEnv).
+    // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopCmd).
     ENABLE_DEV_ROUTES: 'true',
     // An unexpected error shows its cause in the panel and shop, not only in this window.
     SHOW_ERROR_DETAILS: 'true',
@@ -88,11 +88,13 @@ export function localPlan(argv, wifiIps = []) {
     // Shared: login codes stay out of the API's answers and are printed here instead.
     ...(shared ? { OTP_CODE_IN_RESPONSE: 'false', LOG_OTP_CODES: 'true', SMS_PROVIDER: 'log' } : {}),
   }
-  // Shared, the shop calls its own address and Next.js passes /v1 (never /v1/dev) to the API, so
-  // phones need only port 5174. On this computer alone it calls the API directly.
-  const shopEnv = shared ? { NEXT_PUBLIC_API_URL: '', SHOP_API_PROXY: API } : { NEXT_PUBLIC_API_URL: API }
-  // The shop is a Next.js app with its own packages in customer-app/ (started from there).
-  const shopCmd = `npx next dev --port 5174${wifi.length ? ' --hostname 0.0.0.0' : ''}`
+  // The shop is the static site in shop/ (no packages), served by scripts/serve-shop.mjs from the
+  // repo root. On this computer alone it calls the API directly (shop/config.js says
+  // http://localhost:3000). Shared, it calls its own address: the server answers /config.js with
+  // apiUrl '' (this same origin) and passes /v1 (never /v1/dev) to the API, so phones need only
+  // port 5174.
+  const shopEnv = {}
+  const shopCmd = `node scripts/serve-shop.mjs --port 5174${wifi.length ? ' --host 0.0.0.0' : ''}${shared ? ` --api ${API}` : ''}`
   return { link, shared, wifi, api, shopEnv, shopCmd }
 }
 
@@ -247,14 +249,9 @@ async function main() {
   }
 
   if (installNeeded(root)) {
-    say('Installing the staff panel (first run or after an update, a few minutes)')
+    say('Installing the staff panel (first run or after an update, a few minutes; the shop needs nothing)')
     await run('npm ci --no-audit --no-fund --loglevel=error', root)
     markInstalled(root)
-  }
-  if (installNeeded(path.join(root, 'customer-app'))) {
-    say('Installing the shop (first run or after an update)')
-    await run('npm ci --no-audit --no-fund --loglevel=error', path.join(root, 'customer-app'))
-    markInstalled(path.join(root, 'customer-app'))
   }
   if (installNeeded(path.join(root, 'rider-app'))) {
     say('Installing the rider app (first run or after an update)')
@@ -298,7 +295,7 @@ async function main() {
 
   say('Starting the shop and the staff panel')
   start('npx vite --port 5173 --strictPort --force', root, { VITE_API_URL: API }, true)
-  start(PLAN.shopCmd, path.join(root, 'customer-app'), PLAN.shopEnv, true)
+  start(PLAN.shopCmd, root, PLAN.shopEnv, true)
   start('npx next dev --port 5175', path.join(root, 'rider-app'), { NEXT_PUBLIC_API_URL: API }, true)
   await waitFor(SHOP)
   await waitFor(PANEL)

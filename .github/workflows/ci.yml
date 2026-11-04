@@ -39,8 +39,8 @@ jobs:
       - name: Unit tests (the panel, the scripts and the shop)
         run: npm run test:unit && npm run shop:test
       - run: npm run build
-      - name: Build the customer app
-        run: npm run shop:build
+      - name: Build the previous Next.js shop (customer-app/, kept until retired)
+        run: npm --prefix customer-app run build
         env:
           NEXT_PUBLIC_API_URL: https://api.example.in
           # A made-up number for the build check only; production sets the shop's real one.

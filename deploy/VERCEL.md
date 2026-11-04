@@ -9,7 +9,7 @@ want to leave Vercel.) For every release after the first, follow
 | Vercel project | Root directory | Serves | Example domain |
 |----------------|----------------|--------|----------------|
 | `mandi-api` | `mango-api` | the API, the Razorpay and WhatsApp webhooks, the maintenance job | `api.mandimangoes.in` |
-| `mandi-shop` | `customer-app` | the customer shop | `mandimangoes.in` and `www.` |
+| `mandi-shop` | `shop` | the customer shop (static, [shop/README.md](../shop/README.md)) | `mandimangoes.in` and `www.` |
 | `mandi-admin` | `/` (repo root) | the staff panel (hidden from search engines) | `ops.mandimangoes.in` |
 
 Each folder already has its `vercel.json`, so Vercel needs no build settings typed in.
@@ -104,9 +104,10 @@ For each row in the table above: **Add New → Project**, import this GitHub
 repository, set the **Root Directory**, and leave the build settings as detected.
 Then add the domain under **Settings → Domains** and the DNS record Vercel shows.
 
-All three run on **Node.js 24**. `mandi-api` and `mandi-admin` take it from their
-`package.json` (`engines`); for `mandi-shop` (a Next.js app with its own `package.json`)
-set it under **Settings → Build and Deployment → Node.js Version → 24.x**.
+`mandi-api` and `mandi-admin` run on **Node.js 24**, taken from their `package.json`
+(`engines`). The shop (`shop/`) is static files plus a one-file build step, so its Node.js
+version no longer matters. Keep **Include files outside the root directory** on (the default)
+for `mandi-shop`: its build runs the repo's `scripts/scan-bundle.mjs`.
 
 Put the shop and the panel on the same domain as the API (`mandimangoes.in`,
 `ops.mandimangoes.in`, `api.mandimangoes.in`). The sign-in cookie then works with
@@ -165,13 +166,27 @@ secrets with `openssl rand -hex 32`. Never commit them.
 
 `TRUST_PROXY` and the database pool size are set for Vercel automatically.
 
-### `mandi-shop` and `mandi-admin`
+### `mandi-shop`
+
+The shop's build (`node build-config.mjs`, from `shop/vercel.json`) writes `shop/config.js`
+from these and then runs the bundle scan. The `NEXT_PUBLIC_*` variables of the old Next.js
+shop (`customer-app/`) no longer apply; delete them from the project.
 
 | Variable | Production | Preview | Notes |
 |----------|-----------|---------|-------|
-| `VITE_API_URL` (`mandi-admin`), `NEXT_PUBLIC_API_URL` (`mandi-shop`) | `https://api.mandimangoes.in` | the API preview URL | |
-| `NEXT_PUBLIC_SUPPORT_WHATSAPP` (`mandi-shop` only) | the shop's help WhatsApp number, country code and number, digits only (91 and the 10-digit number) | the same, or a team number | **required**: a production build of the shop fails without it, so every page has a help contact (footer, order page, /help, /terms) |
-| `VITE_SENTRY_DSN` (`mandi-admin` only for now; the Next.js shop has no Sentry yet) | the DSN of `mandimangoes-panel` | the same | errors in browsers go to Sentry. Unset: no reports, and no Sentry code in the build |
+| `API_URL` | `https://api.mandimangoes.in` | the API preview URL | **required** on production: an `https://` origin, no path, no trailing slash, not localhost; the build fails otherwise. Unset on a preview: `http://localhost:3000`. If it is not `https://api.mandimangoes.in`, also change `connect-src` in `shop/vercel.json` (it cannot read variables) |
+| `SUPPORT_WHATSAPP` | the shop's help WhatsApp number, country code and number, digits only (91 and the 10-digit number) | the same, or a team number | optional; the build fails on anything but digits |
+
+The shop calls the API from the browser with its sign-in cookie, so the API's
+`CUSTOMER_ORIGIN` (in `mandi-api`, above) must list the shop's exact origins: production
+`https://mandimangoes.in,https://www.mandimangoes.in`, a preview its own preview URL.
+
+### `mandi-admin`
+
+| Variable | Production | Preview | Notes |
+|----------|-----------|---------|-------|
+| `VITE_API_URL` | `https://api.mandimangoes.in` | the API preview URL | |
+| `VITE_SENTRY_DSN` (`mandi-admin` only for now; the shop has no Sentry yet) | the DSN of `mandimangoes-panel` | the same | errors in browsers go to Sentry. Unset: no reports, and no Sentry code in the build |
 | `VITE_SENTRY_ENVIRONMENT` | leave unset (`production`) | leave unset (`preview`) | the environment tag; Vercel's own environment when unset. Reports are also tagged with the git commit being built (`VERCEL_GIT_COMMIT_SHA`, which Vercel provides while "Automatically expose System Environment Variables" is on, the default) |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | optional: an organization auth token (Sentry → Settings → Developer Settings → Organization Tokens; mark it **Sensitive** in Vercel), the organization slug, and `mandimangoes-shop` or `mandimangoes-panel` | the same, or leave unset | readable stack traces. With all three, the build uploads its source maps to that project and deletes them before the site is served. Unset, nothing changes. A failed upload only warns; the deploy goes on |
 
