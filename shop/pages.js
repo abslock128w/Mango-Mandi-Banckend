@@ -10,6 +10,7 @@ const PAGES = [
   [/^\/orders\/?$/, () => signedInThen('Your orders', ordersView)],
   [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => trackView(decodeURIComponent(m[1])))],
   [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
+  [/^\/login\/?$/, () => loginView()],
 ]
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
 let homeScroll = 0, nameEditing = false
@@ -17,9 +18,9 @@ let homeScroll = 0, nameEditing = false
 const isPage = (path) => PAGES.some(([re]) => re.test(path))
 const pageOpen = () => document.body.classList.contains('page-open')
 
-function go(path) {
+function go(path, { replace = false } = {}) {
   // An entry this app pushed is marked, so the back button knows it can go back within the site.
-  if (location.pathname + location.hash !== path) history.pushState({ mm: true }, '', path)
+  if (location.pathname + location.search + location.hash !== path) history[replace ? 'replaceState' : 'pushState']({ mm: true }, '', path)
   route()
 }
 
@@ -64,12 +65,33 @@ function hidePage() {
 }
 
 /** Signed in already: go on. Otherwise sign in on the page first (the checkout's own steps). */
+/** Signed in already: go on. Otherwise the sign-in page first, which comes back here once the code is verified. */
 function signedInThen(title, then) {
   MM.restore().then(() => {
     if (!pageOpen()) return
     if (MM.profile()) then()
-    else startSteps(title, false, then)
+    else go(`/login?next=${encodeURIComponent(location.pathname)}`, { replace: true })
   })
+}
+
+/** Where the sign-in page goes afterwards: only a path on this site (never another site's address). */
+function loginNext() {
+  const next = new URLSearchParams(location.search).get('next') || '/account'
+  return /^\/(?!\/)[\w\-/]*$/.test(next) ? next : '/account'
+}
+
+// ---- The sign-in page (/login): the phone and code steps, then on to where the customer was going.
+
+function loginView() {
+  MM.restore().then(() => {
+    if (!pageOpen()) return
+    if (MM.profile()) return go(loginNext(), { replace: true })
+    startSteps('Sign in', false, () => go(loginNext(), { replace: true }), 'login')
+  })
+}
+
+function loginIntro() {
+  return `<div class="login-intro"><img class="brand-light" src="assets/brand-original.jpeg" alt=""><img class="brand-dark" src="assets/brand-dark.webp" alt=""><p>Sign in with your mobile number to see your orders, keep your addresses and check out faster. New here? Your account is made when you verify the code.</p></div>`
 }
 
 /** The page's heading: a back button, the title, and on the account pages their tabs. */

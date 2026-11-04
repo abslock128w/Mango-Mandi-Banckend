@@ -32,8 +32,9 @@ is one tap, on the shelf and in the product sheet.
 
 ## Pages (`pages.js`)
 
-Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`) and the
-profile (`/account`) are full pages, not sheets. They replace the home page in place (History
+Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`), the
+profile (`/account`) and sign-in (`/login?next=…`) are full pages, not sheets. Signed out, the account
+pages send the customer to `/login`, which returns them to the page they wanted (only a path on this site). They replace the home page in place (History
 API, so back and forward work and the links can be reloaded or shared); `vercel.json` and
 `scripts/serve-shop.mjs` serve `index.html` for them. app.js's checkout and order flows draw
 wherever `view` points: the page, or the form sheet for pre-orders and bulk enquiries.

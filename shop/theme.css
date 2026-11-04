@@ -108,3 +108,4 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .product-tag.liquid,[data-theme="dark"] .image-note.liquid{background:linear-gradient(170deg,#211f19eb,#1a1813d6)}
 [data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:linear-gradient(165deg,#2c2920eb,#1d1b15d6 50%,#2a2720e6)}
 [data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23f5,#211f19e6);box-shadow:inset 0 0 0 1px #ffffff14,0 4px 14px #0007}
+[data-theme="dark"] .login-intro .brand-light{display:none}[data-theme="dark"] .login-intro .brand-dark{display:block}

@@ -43,6 +43,10 @@
   ],
   "rewrites": [
     {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
       "source": "/account",
       "destination": "/index.html"
     },

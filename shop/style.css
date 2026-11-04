@@ -308,3 +308,11 @@ body[data-page="checkout"] .dock-mini{display:none!important}
 .name-form{flex:1;display:flex;align-items:flex-end;gap:10px}.name-form .field{flex:1}.name-form .button{min-height:46px}
 .inline-link{display:inline-flex;padding:0;max-width:none;font-weight:600;color:var(--accent)}
 @media(max-width:700px){.profile-card{align-items:flex-start}.name-form{flex-direction:column;align-items:stretch}}
+/* Forms on the pages (checkout, sign-in): the button sits below the field with room, as in the sheets. */
+.co-card form .button.full,.co-card form>.button{margin-top:16px}
+/* Sign-in page. */
+.login-intro{display:flex;align-items:center;gap:18px;margin:-4px 0 16px}
+.login-intro img{flex-shrink:0;width:120px;height:56px;object-fit:cover;object-position:50% 50%;border-radius:12px}
+.login-intro .brand-dark{display:none}
+.login-intro p{font-size:13px;line-height:1.7;color:var(--muted)}
+@media(max-width:700px){.login-intro{flex-direction:column;align-items:flex-start;gap:10px}}
