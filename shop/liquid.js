@@ -138,7 +138,7 @@
 
   // ---- Who reacts. JELLY squashes on press; MAGNET also leans toward a mouse pointer;
   // MATERIAL (kept in step with the "Liquid glass material" block in style.css) catches the light.
-  const JELLY = '.button, .quick-add, .icon-button, .bag-button, .occasion, .box-card, .stage-dot, .heart, .segmented button, .text-button, .bulk-shortcut, .photo-label, .quantity button, .guide-choice, .dock-orb, .dock-mini, .faq summary, .sort-select, .detail-thumbs button, .remove, .date-card, .slot-card, .address-card, .locate-button, .page-tabs a'
+  const JELLY = '.button, .quick-add, .icon-button, .bag-button, .occasion, .box-card, .stage-dot, .heart, .segmented button, .text-button, .bulk-shortcut, .photo-label, .quantity button, .guide-choice, .dock-orb, .dock-mini, .faq summary, .sort-select, .detail-thumbs button, .remove, .date-card, .slot-card, .address-card, .locate-button, .page-tabs a, .theme-switch'
   const MAGNET = '.button, .quick-add, .icon-button, .bag-button, .occasion, .photo-label, .dock-orb, .bulk-shortcut, .sort-select'
   const MATERIAL = '.glass, .liquid'
 

@@ -17,8 +17,8 @@
     root.dataset.theme = theme
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.content = theme === 'dark' ? '#0e0d0a' : '#174631'
-    document.querySelectorAll('[data-theme-toggle]').forEach((b) =>
-      b.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'))
+    // The header toggle is a switch: on means dark.
+    document.querySelectorAll('[data-theme-toggle]').forEach((b) => b.setAttribute('aria-checked', theme === 'dark'))
   }
 
   apply(saved() || (system.matches ? 'dark' : 'light'))

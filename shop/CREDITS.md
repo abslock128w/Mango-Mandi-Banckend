@@ -51,8 +51,8 @@ They are illustrative: they show the variety type, not the actual fruit in a giv
 
 ## Fonts (`assets/fonts/`)
 
-- **Besley** by Owen Earl (indestructible type*), SIL Open Font License 1.1.
-- **Schibsted Grotesk** by Bakken & Bæck for Schibsted, SIL Open Font License 1.1.
+- **Young Serif** by Bastien Sozeau, SIL Open Font License 1.1.
+- **Figtree** by Erik Kennedy, SIL Open Font License 1.1.
 
 Both downloaded as WOFF2 (latin and latin-ext) from [Fontsource](https://fontsource.org).
 
