@@ -143,20 +143,12 @@ function photoButton(v, stage) {
     : `<button class="fruit-photo" data-product="${esc(v.name)}" aria-label="${label}"></button>`
 }
 
-function stageSwitch(v, stage) {
-  return `<span class="stage-switch" role="group" aria-label="${esc(v.name)} ripeness">${STAGES.map((x) => {
-    const on = x.apiStage === stage
-    const out = stock && soldOut(v, x.apiStage)
-    return `<button class="stage-dot${on ? ' selected' : ''}${out ? ' out' : ''}" data-card-stage="${esc(v.name)}" data-stage="${x.apiStage}" aria-pressed="${on}" aria-label="${x.stage}${out ? ', sold out' : ''}" title="${x.stage}"><span class="dot ${x.id}"></span></button>`
-  }).join('')}</span>`
-}
-
 function cardHTML(v) {
   const stage = stageFor(v), st = stageOf(stage), sku = boxFor(v, stage), s = skuOf(sku)
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
   const tag = out ? 'Sold out for now' : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
-  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}<button class="quick-add liquid" data-refract data-add="${name}" aria-label="Add a ${esc(boxText(s))} of ${st.stage.toLowerCase()} ${name} to bag" ${out ? 'disabled' : ''}>+</button></div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxCards(v, stage, sku, 'card')}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span>${filter === 'all' ? stageSwitch(v, stage) : ''}</div></div></article>`
+  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}<button class="quick-add liquid" data-refract data-add="${name}" aria-label="Add a ${esc(boxText(s))} of ${st.stage.toLowerCase()} ${name} to bag" ${out ? 'disabled' : ''}>+</button></div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxCards(v, stage, sku, 'card')}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -334,10 +326,7 @@ document.addEventListener('click', (e) => {
   else if (b.dataset.occasion) setOccasion(b.dataset.occasion)
   else if (b.dataset.add) add(b.dataset.add)
   else if (b.dataset.product) productDetail(b.dataset.product)
-  else if (b.dataset.cardStage) {
-    cardStage[b.dataset.cardStage] = b.dataset.stage
-    rerenderCard(b.dataset.cardStage, `[data-stage="${b.dataset.stage}"]`)
-  } else if (b.dataset.favorite) {
+  else if (b.dataset.favorite) {
     const id = b.dataset.favorite
     favorites = favorites.includes(id) ? favorites.filter((x) => x !== id) : [...favorites, id]
     save('mm-favorites', favorites)

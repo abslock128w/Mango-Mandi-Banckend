@@ -30,6 +30,29 @@ was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
 Box size is two cards (3 kg / 5 kg, each with its price) instead of a dropdown, so picking a box
 is one tap, on the shelf and in the product sheet.
 
+## Pages (`pages.js`)
+
+Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`) and the
+profile (`/account`) are full pages, not sheets. They replace the home page in place (History
+API, so back and forward work and the links can be reloaded or shared); `vercel.json` and
+`scripts/serve-shop.mjs` serve `index.html` for them. app.js's checkout and order flows draw
+wherever `view` points: the page, or the form sheet for pre-orders and bulk enquiries.
+
+Checkout has a step bar (Area · Sign in · Delivery · Payment · Done), delivery dates and slots as
+cards, the customer's saved addresses (`GET /v1/me/addresses`) as cards, and "Use my current
+location": the browser's position, turned into an address and pincode by OpenStreetMap's
+Nominatim (allowed in the CSP `connect-src`). The profile shows the name and phone, saved
+addresses (remove), favourites, the WhatsApp reminder switch (`PATCH /v1/me`), pre-orders and
+sign out, with a Profile / My orders tab bar.
+
+## Theme and type
+
+`theme.js` (in `<head>`, so there is no flash) sets light or dark from the device setting until
+the viewer uses the header toggle, then remembers it (`mm-theme`). `theme.css` holds the dark
+colours: a warm near-black with a brighter mango yellow (#ffc93c) for accents and buying actions.
+Headings are Besley (a Clarendon-style serif), text is Schibsted Grotesk; both SIL OFL, served
+from `assets/fonts/` (see `assets/fonts.css`).
+
 ## Liquid glass (`liquid.js`)
 
 The control layer (header, search, bag, rails, chips, tags and quick add on photos, close

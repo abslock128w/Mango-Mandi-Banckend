@@ -73,5 +73,8 @@ window.MM={
   cancelPreorder:id=>auth(`/preorders/${enc(id)}/cancel`,'POST'),
   helpInfo:()=>auth('/me/help'),
   helpRequest:body=>auth('/me/help/requests','POST',body),
+  addresses:()=>auth('/me/addresses'),
+  deleteAddress:id=>auth(`/me/addresses/${enc(id)}`,'DELETE'),
+  updateMe:body=>auth('/me','PATCH',body),
 };
 })();

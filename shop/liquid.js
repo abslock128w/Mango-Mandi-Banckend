@@ -2,15 +2,12 @@
    and edge refraction where the browser can do it (Chromium: an SVG displacement map in
    backdrop-filter; elsewhere the plain blur stays).
 
-   window.Liquid = { press, release, pull, pop, flip, scan, setLevel, level }
+   window.Liquid = { press, release, pull, pop, flip, scan }
    - press/release: squash on touch, wobble back on release (delegated for JELLY below).
    - pull: hover magnet, the control leans toward the pointer (mouse only).
    - pop: a jiggle kick (bag count change, toast, dialog open).
    - flip: a lens slides from where it was to where it is now, stretching with its speed.
    - scan(root): give [data-refract] elements their refraction map.
-   - setLevel('low' | 'medium' | 'high'): how liquid it all is. The viewer picks it with the
-     "Liquid" control in the shop bar; kept in localStorage (`mm-glass`), medium by default.
-     Every level keeps the same see-through glass; only the motion and edge bending change.
 
    Motion uses the individual `translate` and `scale` properties, so it composes with GSAP's
    and the CSS `transform`s already on these elements. Loaded last, after dock.js. */
@@ -18,22 +15,11 @@
   const motion = !matchMedia('(prefers-reduced-motion: reduce)').matches
   const opaque = matchMedia('(prefers-reduced-transparency: reduce)').matches
 
-  // ---- Levels. damp sets the wobble (damping ratio ≈ damp / 41: high ≈ 0.3 wobbles a lot,
-  // low ≈ 0.65 barely overshoots); squash/widen the press; stretch the most a sliding lens
-  // stretches; pop the size of event jiggles; reach the hover lean; bend the edge refraction.
-  const LEVELS = {
-    low: { damp: 27, slideDamp: 32, squash: 0.97, widen: 1.015, stretch: 0.05, pop: 0.18, reach: 0, bend: 0.45 },
-    medium: { damp: 17, slideDamp: 28, squash: 0.93, widen: 1.03, stretch: 0.18, pop: 0.55, reach: 0.55, bend: 0.75 },
-    high: { damp: 12, slideDamp: 25, squash: 0.88, widen: 1.05, stretch: 0.32, pop: 1, reach: 1, bend: 1 },
-  }
-  const ORDER = ['low', 'medium', 'high']
-  let level = 'medium'
-  try {
-    const saved = localStorage.getItem('mm-glass')
-    if (LEVELS[saved]) level = saved
-  } catch {}
-  let tune = LEVELS[level]
-  document.documentElement.dataset.glass = level
+  // ---- How liquid it is (fixed at the "medium" feel). damp sets the wobble (damping ratio
+  // ≈ damp / 41, so ≈ 0.4 here); slideDamp a sliding lens (≈ 0.68, it never leaves its rail);
+  // squash/widen the press; stretch the most a sliding lens stretches; pop the size of event
+  // jiggles; reach the hover lean; bend the edge refraction.
+  const tune = { damp: 17, slideDamp: 28, squash: 0.93, widen: 1.03, stretch: 0.18, pop: 0.55, reach: 0.55, bend: 0.75 }
 
   // ---- Springs.
   const STIFF = 420
@@ -151,7 +137,7 @@
 
   // ---- Who reacts. JELLY squashes on press; MAGNET also leans toward a mouse pointer;
   // MATERIAL (kept in step with the "Liquid glass material" block in style.css) catches the light.
-  const JELLY = '.button, .quick-add, .icon-button, .bag-button, .occasion, .box-card, .stage-dot, .heart, .segmented button, .text-button, .bulk-shortcut, .photo-label, .quantity button, .guide-choice, .dock-orb, .dock-mini, .faq summary, .sort-select, .detail-thumbs button, .remove, .glass-level button'
+  const JELLY = '.button, .quick-add, .icon-button, .bag-button, .occasion, .box-card, .stage-dot, .heart, .segmented button, .text-button, .bulk-shortcut, .photo-label, .quantity button, .guide-choice, .dock-orb, .dock-mini, .faq summary, .sort-select, .detail-thumbs button, .remove, .date-card, .slot-card, .address-card, .locate-button, .page-tabs a'
   const MAGNET = '.button, .quick-add, .icon-button, .bag-button, .occasion, .photo-label, .dock-orb, .bulk-shortcut, .sort-select'
   const MATERIAL = '.glass, .liquid'
 
@@ -212,7 +198,7 @@
     magnet = null
   })
 
-  // ---- Refraction: an edge-bending displacement map per size and level (cached), as in the dock's lens.
+  // ---- Refraction: an edge-bending displacement map per size (cached), as in the dock's lens.
   const canRefract = !opaque && CSS.supports('backdrop-filter', 'blur(2px) url(#mm-x)')
   let defs = null
 
@@ -282,37 +268,6 @@
     root.querySelectorAll('[data-refract]').forEach(refract)
   }
 
-  // ---- The intensity control (.glass-level in index.html): three stops with a sliding bead.
-  function showLevel(animate) {
-    document.querySelectorAll('.glass-level').forEach((control) => {
-      const track = control.querySelector('.glass-level-track'), bead = control.querySelector('.glass-level-bead')
-      const from = bead ? bead.offsetLeft : 0
-      track.style.setProperty('--i', ORDER.indexOf(level))
-      control.querySelectorAll('[data-glass-level]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.glassLevel === level))
-      if (animate && bead) flip(bead, from - bead.offsetLeft)
-    })
-  }
-
-  function setLevel(next, animate = true) {
-    if (!LEVELS[next]) return
-    level = next
-    tune = LEVELS[next]
-    document.documentElement.dataset.glass = next
-    try {
-      localStorage.setItem('mm-glass', next)
-    } catch {}
-    showLevel(animate)
-    scan()
-  }
-
-  document.addEventListener('click', (e) => {
-    const b = e.target instanceof Element ? e.target.closest('[data-glass-level]') : null
-    if (!b) return
-    setLevel(b.dataset.glassLevel)
-    pop(b.closest('.glass-level'), 1)
-    if (typeof window.toast === 'function') window.toast(`Liquid glass: ${b.textContent.trim()}`)
-  })
-
   // ---- Jiggle on events the page already has.
   const count = document.querySelector('.header .bag-count')
   if (count) {
@@ -337,9 +292,8 @@
     clearTimeout(resizing)
     resizing = setTimeout(() => scan(), 200)
   })
-  showLevel(false)
   document.fonts.ready.then(() => scan())
   scan()
 
-  window.Liquid = { press, release, pull, pop, flip, scan, setLevel, get level() { return level } }
+  window.Liquid = { press, release, pull, pop, flip, scan }
 })()
