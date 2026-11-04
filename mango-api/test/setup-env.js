@@ -8,6 +8,9 @@ process.env.LOG_LEVEL ??= 'silent'
 process.env.SEED_DEMO_DATA = 'false'
 process.env.REFRESH_REUSE_GRACE_MS = '2000'
 process.env.ENABLE_DEV_ROUTES = 'true'
+// The event stream (GET /admin/v1/events) ends quickly, so the route walks that read every answer to the end finish.
+process.env.EVENTS_STREAM_MS ??= '300'
+process.env.EVENTS_LISTEN_LINGER_MS ??= '0'
 // The warehouse routes are on in tests so the role matrix covers them; every product still starts with box tracking off.
 process.env.WAREHOUSE_V2 ??= 'true'
 process.env.WAREHOUSE_STOCKTAKE ??= 'true'

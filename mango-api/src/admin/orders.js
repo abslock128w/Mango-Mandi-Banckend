@@ -3,7 +3,7 @@ import express from 'express'
 import { z } from 'zod'
 import { auditInTx, isPacker, redactForPacker } from '../access.js'
 import { requireManager } from '../auth.js'
-import { addDays, isDate, todayIST } from '../clock.js'
+import { addDays, isDate, now, todayIST } from '../clock.js'
 import { attemptsFor, recordStaffDelivery } from '../delivery-proof.js'
 import { query, tx } from '../db.js'
 import { orderableDates } from '../delivery.js'
@@ -38,6 +38,12 @@ router.get(
         to: z.string().refine(isDate, 'to must be YYYY-MM-DD').optional(),
         q: z.string().trim().max(40).optional(),
         atRisk: z.enum(['true', 'false']).optional(),
+        // Mango Ops v2 saved views (docs/design/ops-dashboard-v2.md §4): the delivery day, its slot,
+        // not packed yet, and unpaid for longer than this many minutes. All optional.
+        delivery: z.string().refine(isDate, 'delivery must be YYYY-MM-DD').optional(),
+        slot: z.string().max(40).optional(),
+        unpacked: z.enum(['true']).optional(),
+        olderThanMinutes: z.coerce.number().int().min(1).max(100_000).optional(),
         page: z.coerce.number().int().min(1).max(10_000).default(1),
       }),
       Object.fromEntries(Object.entries(req.query).filter(([, v]) => v !== '')),
@@ -52,6 +58,10 @@ router.get(
     if (f.from) add(`(o.placed_at AT TIME ZONE 'Asia/Kolkata')::date >= ?`, f.from)
     if (f.to) add(`(o.placed_at AT TIME ZONE 'Asia/Kolkata')::date <= ?`, f.to)
     if (f.atRisk) add('o.at_risk = ?', f.atRisk === 'true')
+    if (f.delivery) add('o.delivery_date = ?', f.delivery)
+    if (f.slot) add('o.slot_id = ?', f.slot)
+    if (f.unpacked) where.push("o.status IN ('CONFIRMED', 'PROCESSING')")
+    if (f.olderThanMinutes) add('o.placed_at < ?', new Date(now().getTime() - f.olderThanMinutes * 60_000))
     if (f.q) {
       params.push(`${likeEscape(f.q)}%`, `%${likeEscape(f.q)}%`)
       // ADM-1: callers give a name or an area as often as a number.
@@ -72,6 +82,8 @@ router.get(
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
+        // The slot and rider, for the workbench's Due and Rider columns.
+        slotId: o.slot_id ?? null, riderId: o.rider_id ?? null,
         // A delivery of a gift order to many recipients (MULTI_GIFT).
         ...(o.gift_order_id ? { giftOrderId: o.gift_order_id } : {}),
       })),

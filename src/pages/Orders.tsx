@@ -7,6 +7,7 @@ import { ALL_ORDER_STATUSES, type GiftOrderListItem, type OrderStatus, type Ripe
 import { ExportPanel } from '../ExportPanel'
 import { useSession } from '../session'
 import { Badge, EmptyState, LinkRow, OrderBadge, QueryError, RowLink, Spinner, StatusFilter, scrollRegion, usePageTitle } from '../ui'
+import { OrdersWorkbench, SavedViews } from './OrdersWorkbench'
 
 export default function Orders() {
   const [params, setParams] = useSearchParams()
@@ -15,6 +16,11 @@ export default function Orders() {
   const to = params.get('to') ?? ''
   const q = params.get('q') ?? ''
   const page = Math.max(1, Number(params.get('page') ?? '1') || 1)
+  // Saved views (Mango Ops v2): the delivery day, its slot, not packed yet, unpaid for N minutes.
+  const delivery = params.get('delivery')
+  const slot = params.get('slot')
+  const unpacked = params.get('unpacked')
+  const olderThanMinutes = params.get('olderThanMinutes')
   // Gift orders to many recipients (MULTI_GIFT, docs/gifting.md): each with its deliveries, shown while the switch is on.
   const { me } = useSession()
   const giftsOn = Boolean(me?.features?.multiGift)
@@ -45,13 +51,15 @@ export default function Orders() {
   }, [search])
 
   const list = useQuery({
-    queryKey: ['orders', { status, from, to, q, page }],
-    queryFn: () => api.orders({ status, from, to, q, page }),
+    queryKey: ['orders', { status, from, to, q, page, delivery, slot, unpacked, olderThanMinutes }],
+    queryFn: () => api.orders({ status, from, to, q, page, delivery, slot, unpacked, olderThanMinutes }),
     placeholderData: keepPreviousData,
     enabled: !gifts,
   })
 
   const totalPages = list.data ? Math.max(1, Math.ceil(list.data.total / list.data.pageSize)) : 1
+  const slotsQ = useQuery({ queryKey: ['slots'], queryFn: api.slots, staleTime: 5 * 60_000, enabled: !gifts })
+  const canAct = me?.role === 'MANAGER' || me?.role === 'OPERATOR'
 
   return (
     <>
@@ -88,6 +96,7 @@ export default function Orders() {
         </>
       ) : (
       <>
+      <SavedViews slots={slotsQ.data ?? []} />
       <StatusFilter
         className="mb-3"
         value={status}
@@ -110,6 +119,8 @@ export default function Orders() {
           <input
             id="o-q"
             type="search"
+            data-page-search
+            aria-keyshortcuts="/"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -127,47 +138,7 @@ export default function Orders() {
         <EmptyState>No orders match these filters.</EmptyState>
       ) : (
         <>
-          <div {...scrollRegion('Orders', { cards: true })}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Customer</th>
-                  <th className="num">Items</th>
-                  <th className="num">Total</th>
-                  <th>Status</th>
-                  <th>Delivery</th>
-                  <th>Placed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((o) => (
-                  <LinkRow key={o.id}>
-                    <td className="card-title">
-                      <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink>
-                      {o.channel === 'whatsapp' && <div className="muted small">via WhatsApp</div>}
-                      {o.giftOrderId && <div className="muted small">Gift delivery</div>}
-                    </td>
-                    <td data-label="Customer">
-                      {o.customerName ?? '—'}
-                      {o.phone && <div className="muted small">{o.phone}</div>}
-                    </td>
-                    <td className="num" data-label="Items">
-                      {o.itemCount}
-                    </td>
-                    <td className="num" data-label="Total">
-                      {rupees(o.total)}
-                    </td>
-                    <td className="card-status">
-                      <OrderBadge status={o.status} />
-                    </td>
-                    <td data-label="Delivery">{date(o.deliveryDate)}</td>
-                    <td data-label="Placed">{dateTime(o.placedAt)}</td>
-                  </LinkRow>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <OrdersWorkbench items={list.data.items} canAct={canAct} />
           <div className="pager">
             <span className="muted small">
               {list.data.total} orders · page {list.data.page} of {totalPages}

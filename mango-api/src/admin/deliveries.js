@@ -11,6 +11,7 @@ import {
 } from '../delivery-proof.js'
 import { query, tx } from '../db.js'
 import { env } from '../env.js'
+import { notify } from '../events.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { addEvent } from '../orders.js'
@@ -537,6 +538,8 @@ router.post(
         WHERE NOT EXISTS (SELECT 1 FROM rider_locations WHERE rider_id = $2 AND at > $7)`,
       [newId('loc'), req.admin.id, Math.round(b.lat * 1e6) / 1e6, Math.round(b.lng * 1e6) / 1e6, b.accuracy ?? null, at, new Date(at.getTime() - LOCATION_EVERY_MS)],
     )
+    // Mango Ops v2: the panel's map moves the rider's dot (events.js); a dropped repeat says nothing.
+    if (r.rowCount === 1) await notify({ query }, 'rider.position', { riderId: req.admin.id, at: at.toISOString() })
     res.json({ stored: r.rowCount === 1 })
   }),
 )

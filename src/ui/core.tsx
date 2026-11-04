@@ -16,7 +16,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Link } from 'react-router-dom'
-import { errorMessage } from './api'
+import { errorMessage } from '../api'
 import {
   BATCH_STATUS_LABEL,
   CLAIM_STATUS_LABEL,
@@ -25,10 +25,10 @@ import {
   orderTone,
   telHref,
   type Tone,
-} from './format'
-import { MANAGER_ONLY_HINT } from './permissions'
-import type { BatchStatus, ClaimStatus, OrderStatus } from './types'
-import { reportError } from '../shared/error-reports/index.ts'
+} from '../format'
+import { MANAGER_ONLY_HINT } from '../permissions'
+import type { BatchStatus, ClaimStatus, OrderStatus } from '../types'
+import { reportError } from '../../shared/error-reports/index.ts'
 
 // ---------- Badges ----------
 

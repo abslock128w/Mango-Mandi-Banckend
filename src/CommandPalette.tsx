@@ -1,9 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { CornerDownLeft, MapPin, Package, Search, ShoppingBag } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bike, Clock, CornerDownLeft, Keyboard, MapPin, Moon, Package, PackagePlus, Pin, Search, ShoppingBag, Sun, Truck, Zap } from 'lucide-react'
 import { api } from './api'
-import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, date } from './format'
+import { BATCH_STATUS_LABEL, ORDER_STATUS_LABEL, date, istDate } from './format'
+import { remember, useRecent, type RecentItem } from './ops/prefs'
+import { applyTheme, readTheme, shownTheme } from './theme'
+import type { OrderDetail } from './types'
 import { canSee } from './permissions'
 import { useSession } from './session'
 import type { NavGroup } from './nav'
@@ -14,7 +17,11 @@ interface Item {
   label: string
   hint?: string
   icon: ReactNode
-  to: string
+  /** Where it goes, or `run` for an action done here (switching the theme). */
+  to?: string
+  run?: () => void
+  /** Kept in Recent when opened. */
+  recent?: RecentItem['kind']
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N} ]/gu, '')
@@ -33,16 +40,22 @@ function useDebounced<T>(value: T, ms: number): T {
  * the orders search), a batch (variety, farm) or a pincode. Only lists the API already serves, and
  * only for roles that may read them. A combobox: arrow keys move, Enter opens, Escape closes.
  */
-export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]; onClose: () => void }) {
+export default function CommandPalette({ groups, onClose, onShortcuts, pin }: { groups: NavGroup[]; onClose: () => void; onShortcuts?: () => void; pin?: { label: string; pinned: boolean; toggle: () => void } | null }) {
   const { me } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
+  const queryClient = useQueryClient()
+  const [recent] = useRecent()
   const [text, setText] = useState('')
   const [active, setActive] = useState(0)
   const input = useRef<HTMLInputElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const listId = useId()
-  const term = text.trim()
-  const debounced = useDebounced(term, 250)
+  // ">" lists actions only; "#1042" jumps to that order.
+  const actionsOnly = text.trimStart().startsWith('>')
+  const jump = /^#\s*(\d{2,8})$/.exec(text.trim())?.[1] ?? null
+  const term = actionsOnly ? text.trim().slice(1).trim() : jump ?? text.trim()
+  const debounced = useDebounced(term, jump ? 0 : 250)
 
   const ordersOn = canSee(me?.role, 'orders')
   const batchesOn = canSee(me?.role, 'batches')
@@ -51,7 +64,7 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
   const orders = useQuery({
     queryKey: ['palette-orders', debounced],
     queryFn: () => api.orders({ q: debounced, page: 1 }),
-    enabled: ordersOn && debounced.length >= 3,
+    enabled: ordersOn && (debounced.length >= 3 || (Boolean(jump) && debounced.length >= 2)),
     staleTime: 30_000,
   })
   const batches = useQuery({ queryKey: ['palette-batches'], queryFn: () => api.batches(null), enabled: batchesOn && term.length >= 2, staleTime: 60_000 })
@@ -64,14 +77,54 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
     return () => previous?.focus?.()
   }, [])
 
+  // The order open on this page, if any: its actions come first ("Assign rider to ORD-1042").
+  const here = /^\/orders\/([^/]+)$/.exec(location.pathname)?.[1]
+  const hereOrder = here ? queryClient.getQueryData<OrderDetail>(['order', here]) : undefined
+
+  const actions = useMemo<Item[]>(() => {
+    const role = me?.role
+    const today = istDate(0)
+    const tomorrow = istDate(1)
+    const floor = role === 'MANAGER' || role === 'OPERATOR'
+    const theme = shownTheme(readTheme()) === 'dark' ? 'light' : 'dark'
+    const list: (Item | false)[] = [
+      Boolean(hereOrder) && floor && !['DELIVERED', 'CANCELLED', 'RTO', 'PAYMENT_PENDING'].includes(hereOrder!.status) && {
+        id: 'act:assign-here', group: 'Actions', label: `Assign rider to ${hereOrder!.number}`, hint: `delivery ${date(hereOrder!.deliveryDate)}`,
+        icon: <Bike aria-hidden="true" strokeWidth={1.75} />, to: `/deliveries?date=${hereOrder!.deliveryDate}&tab=unassigned&stop=${hereOrder!.id}`,
+      },
+      canSee(role, 'batches') && { id: 'act:receive', group: 'Actions', label: 'Receive a batch', icon: <PackagePlus aria-hidden="true" strokeWidth={1.75} />, to: '/batches?receive=1' },
+      floor && { id: 'act:dispatch', group: 'Actions', label: "Dispatch today's run", hint: 'Deliveries, by slot', icon: <Truck aria-hidden="true" strokeWidth={1.75} />, to: `/deliveries?date=${today}&tab=slot` },
+      floor && { id: 'act:assign', group: 'Actions', label: 'Give stops without a rider to riders', hint: 'today', icon: <Zap aria-hidden="true" strokeWidth={1.75} />, to: `/deliveries?date=${today}&tab=unassigned` },
+      canSee(role, 'packList') && { id: 'act:pack', group: 'Actions', label: 'Open the pack list for tomorrow', icon: <Package aria-hidden="true" strokeWidth={1.75} />, to: `/pack-list?date=${tomorrow}` },
+      { id: 'act:theme', group: 'Actions', label: `Switch to ${theme} theme`, icon: theme === 'dark' ? <Moon aria-hidden="true" strokeWidth={1.75} /> : <Sun aria-hidden="true" strokeWidth={1.75} />, run: () => applyTheme(theme) },
+      Boolean(pin) && { id: 'act:pin', group: 'Actions', label: pin!.pinned ? `Unpin ${pin!.label}` : `Pin ${pin!.label} to the sidebar`, icon: <Pin aria-hidden="true" strokeWidth={1.75} />, run: pin!.toggle },
+      Boolean(onShortcuts) && { id: 'act:keys', group: 'Actions', label: 'Keyboard shortcuts', icon: <Keyboard aria-hidden="true" strokeWidth={1.75} />, run: onShortcuts },
+    ]
+    return list.filter((x): x is Item => Boolean(x))
+  }, [me?.role, hereOrder, pin, onShortcuts])
+
   const items = useMemo<Item[]>(() => {
     const q = norm(term)
+    const acts = actions.filter((a) => !q || norm(`${a.label} ${a.hint ?? ''}`).includes(q))
+    if (actionsOnly) return acts
+    if (jump) {
+      const hit = (orders.data?.items ?? []).find((o) => o.number.replace(/\D/g, '').endsWith(jump))
+      const out: Item[] = hit
+        ? [{ id: `order:${hit.id}`, group: 'Orders', label: hit.number, hint: [hit.customerName, ORDER_STATUS_LABEL[hit.status]].filter(Boolean).join(' · '), icon: <ShoppingBag aria-hidden="true" strokeWidth={1.75} />, to: `/orders/${hit.id}`, recent: 'order' }]
+        : []
+      out.push({ id: 'order-search', group: 'Orders', label: `Search orders for “${jump}”`, icon: <Search aria-hidden="true" strokeWidth={1.75} />, to: `/orders?q=${encodeURIComponent(jump)}` })
+      return out
+    }
     const pages: Item[] = groups.flatMap((g) =>
       g.links
         .filter((l) => !q || norm(`${l.label} ${g.label} ${l.keywords ?? ''}`).includes(q))
         .map((l) => ({ id: `page:${l.to}`, group: 'Go to', label: l.label, hint: g.label, icon: <l.icon aria-hidden="true" strokeWidth={1.75} />, to: l.to })),
     )
-    const out: Item[] = q ? pages : pages.slice(0, 8)
+    const recentItems: Item[] = q
+      ? []
+      : recent.map((r) => ({ id: `recent:${r.id}`, group: 'Recent', label: r.label, hint: r.hint, icon: <Clock aria-hidden="true" strokeWidth={1.75} />, to: r.to }))
+    // Typed: the screens it names first, then actions. Empty: a few actions, Recent, then screens.
+    const out: Item[] = q ? [...pages, ...acts] : [...acts.slice(0, 4), ...recentItems, ...pages.slice(0, 8)]
     if (ordersOn && term.length >= 3) {
       for (const o of (orders.data?.items ?? []).slice(0, 6)) {
         out.push({
@@ -81,6 +134,7 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
           hint: [o.customerName, ORDER_STATUS_LABEL[o.status], `delivery ${date(o.deliveryDate)}`].filter(Boolean).join(' · '),
           icon: <ShoppingBag aria-hidden="true" strokeWidth={1.75} />,
           to: `/orders/${o.id}`,
+          recent: 'order',
         })
       }
       out.push({ id: 'order-search', group: 'Orders', label: `Search orders for “${term}”`, icon: <Search aria-hidden="true" strokeWidth={1.75} />, to: `/orders?q=${encodeURIComponent(term)}` })
@@ -94,6 +148,7 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
           hint: [`plucked ${date(b.pluckedOn)}`, b.farm, BATCH_STATUS_LABEL[b.status], `${b.available} available`].filter(Boolean).join(' · '),
           icon: <Package aria-hidden="true" strokeWidth={1.75} />,
           to: `/batches/${b.id}`,
+          recent: 'batch',
         })
       }
     }
@@ -110,7 +165,7 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
       }
     }
     return out
-  }, [term, groups, ordersOn, batchesOn, pincodesOn, orders.data, batches.data, pincodes.data])
+  }, [term, groups, ordersOn, batchesOn, pincodesOn, orders.data, batches.data, pincodes.data, actions, actionsOnly, jump, recent])
 
   useEffect(() => setActive(0), [term])
   const current = items[Math.min(active, items.length - 1)]
@@ -118,8 +173,10 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
 
   function go(item: Item | undefined) {
     if (!item) return
+    if (item.recent && item.to) remember({ id: item.id, label: item.label, hint: item.hint, to: item.to, kind: item.recent })
     onClose()
-    navigate(item.to)
+    if (item.run) item.run()
+    else if (item.to) navigate(item.to)
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -167,7 +224,7 @@ export default function CommandPalette({ groups, onClose }: { groups: NavGroup[]
             aria-controls={listId}
             aria-activedescendant={current ? `${listId}-${current.id}` : undefined}
             aria-autocomplete="list"
-            placeholder={ordersOn ? 'Jump to a screen, or find an order, batch or pincode…' : 'Jump to a screen…'}
+            placeholder={ordersOn ? 'Jump to a screen, find an order, batch or pincode; > for actions, #1042 for an order' : 'Jump to a screen; > for actions'}
             value={text}
             onChange={(e) => setText(e.target.value)}
             autoComplete="off"

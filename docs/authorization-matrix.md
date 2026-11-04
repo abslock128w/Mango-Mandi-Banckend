@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-226 routes; 23 ask for step-up.
+231 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -76,6 +76,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /orders/bulk-reschedule` | ✓ |  |  |  |  |  | Each change |
 | `GET /pack-list` | ✓ | ✓ | ✓ |  |  |  |  |
 | `GET /riders` | ✓ | ✓ |  |  |  |  |  |
+| `GET /riders/:id/trail` | ✓ | ✓ |  |  |  |  |  |
 
 ## Batches, farms and purchases
 
@@ -203,6 +204,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /analytics` | ✓ | ✓ |  |  |  |  |  |
 | `GET /analytics/funnel` | ✓ |  |  |  |  |  |  |
 | `GET /analytics/margins` | ✓ |  |  |  |  |  |  |
+| `GET /analytics/ops` | ✓ | ✓ |  |  |  |  |  |
 | `GET /attention` | ✓ | ✓ |  |  |  |  |  |
 | `GET /daily-summary/preview` | ✓ |  |  |  |  |  |  |
 | `GET /exports/:kind` | ✓ |  |  |  |  |  | Each view |
@@ -312,5 +314,8 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 
 | Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
 |---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /day` | ✓ | ✓ |  |  |  |  |  |
 | `GET /deliveries/live` | ✓ | ✓ |  |  |  |  |  |
+| `GET /events` | ✓ | ✓ |  |  |  |  |  |
+| `GET /live` | ✓ | ✓ |  |  |  |  |  |
 | `POST /rider/location` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |

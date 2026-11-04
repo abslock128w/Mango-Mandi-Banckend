@@ -1,0 +1,216 @@
+/*
+ * Leaflet themed with the Orchard tokens (loaded with the map, src/ui/MapCanvas.tsx). In dark mode
+ * the OpenStreetMap tiles are inverted, as most dark dashboards do; markers keep their own colours.
+ * Stops take the pipeline tones (viz.css .pipe-*), riders the staff green, warehouses the ink.
+ */
+.map-view {
+  position: relative;
+  height: 100%;
+  min-height: 220px;
+}
+.map-frame {
+  position: relative;
+  height: 100%;
+  min-height: inherit;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.map-canvas,
+.map-loading {
+  position: absolute;
+  inset: 0;
+}
+.map-canvas.leaflet-container {
+  font: inherit;
+  background: var(--surface-2);
+}
+.map-empty {
+  position: absolute;
+  inset: auto var(--space-3) var(--space-3);
+  z-index: 500;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-xs);
+}
+.skip-map {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.skip-map:focus {
+  left: var(--space-2);
+  top: var(--space-2);
+  z-index: 1000;
+  width: auto;
+  height: auto;
+  clip: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--link);
+}
+.map-fit {
+  position: absolute;
+  right: var(--space-2);
+  top: var(--space-2);
+  z-index: 800;
+  box-shadow: var(--shadow-xs);
+}
+.leaflet-control-zoom a,
+.leaflet-bar a {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--surface) 88%, transparent) !important;
+  color: var(--text-2);
+  font-size: 11px;
+}
+.leaflet-control-attribution a {
+  color: var(--link);
+  text-decoration: underline;
+}
+.leaflet-tooltip {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+}
+.map-marker {
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 0;
+}
+.map-rider-mark {
+  position: relative;
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+@media (pointer: coarse) {
+  .leaflet-touch .leaflet-bar a,
+  .leaflet-control-zoom a {
+    width: 44px !important;
+    height: 44px !important;
+    line-height: 44px !important;
+  }
+  .skip-map {
+    min-height: var(--tap-min);
+    display: inline-flex;
+    align-items: center;
+  }
+}
+.map-house {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--surface);
+  background: var(--color-ink);
+  color: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+}
+.map-pin-body {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  border: 2px solid var(--surface);
+  background: var(--tile-tone, var(--chart-1));
+  box-shadow: var(--shadow-xs);
+}
+.map-pin-body b {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 2px;
+  border-radius: var(--radius-pill);
+  transform: rotate(45deg);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.map-stop.pipe-confirmed .map-pin-body {
+  background: color-mix(in srgb, var(--chart-1) 45%, var(--surface));
+}
+.map-stop.pipe-packed .map-pin-body {
+  background: var(--chart-1);
+}
+.map-stop.pipe-out .map-pin-body {
+  background: var(--chart-3);
+}
+.map-stop.pipe-shipped .map-pin-body {
+  background: var(--chart-2);
+}
+.map-stop.pipe-failed .map-pin-body {
+  background: var(--color-error);
+}
+.map-stop.is-on .map-pin-body {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 1px;
+}
+.map-rider-dot {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 3px solid var(--surface);
+  background: var(--color-staff);
+  box-shadow: var(--shadow-xs);
+}
+.map-rider-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--color-staff);
+  animation: rider-pulse 2s ease-out infinite;
+}
+.map-rider.is-on .map-rider-dot {
+  outline: 3px solid var(--color-focus);
+}
+@keyframes rider-pulse {
+  from {
+    transform: scale(0.8);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-rider-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+.map-trail {
+  stroke: var(--color-staff);
+  stroke-dasharray: 4 6;
+}
+.map-heat {
+  stroke: var(--color-accent-strong);
+  fill: var(--color-accent);
+}
+:root[data-theme='dark'] .map-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .map-tiles {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+  }
+}

@@ -233,6 +233,9 @@ export interface OrderListItem {
   channel?: 'app' | 'whatsapp'
   /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
   giftOrderId?: string
+  /** Mango Ops v2: the slot and the rider (absent from older servers). */
+  slotId?: string | null
+  riderId?: string | null
 }
 
 /** A gift order to many recipients (MULTI_GIFT, docs/gifting.md): one payment, one bill, a delivery order per recipient. */

@@ -4,6 +4,7 @@
 // fruit end in a replacement, never a refund. Money goes back in two cases
 // only: the customer cancels a paid order before packing, or a manager cancels
 // a paid order we can't deliver.
+import { notifyOrder } from './events.js'
 import { configVersion, getConfig } from './config.js'
 import { deliveryCodeHash, newDeliveryCode } from './delivery-code.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
@@ -98,6 +99,8 @@ export async function addEvent(c, orderId, from, to, actor, reason = null) {
     [id, orderId, from, to, actor.label ?? actor.id, reason, now()],
   )
   await enqueueForEvent(c, orderId, id, from, to)
+  // Mango Ops v2 live updates: the panel hears of the step when this transaction commits (events.js).
+  await notifyOrder(c, orderId, to)
   return id
 }
 

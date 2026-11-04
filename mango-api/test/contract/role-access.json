@@ -161,6 +161,15 @@
   "OPERATOR": "forbidden",
   "MANAGER": "notfound"
  },
+ "GET /admin/v1/analytics/ops": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "GET /admin/v1/attention": {
   "anonymous": "signin",
   "customer": "signin",
@@ -341,6 +350,15 @@
   "OPERATOR": "forbidden",
   "MANAGER": "notfound"
  },
+ "GET /admin/v1/day": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "GET /admin/v1/deliveries/live": {
   "anonymous": "signin",
   "customer": "signin",
@@ -351,6 +369,15 @@
   "MANAGER": "refused"
  },
  "GET /admin/v1/delivery-reviews": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/events": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "forbidden",
@@ -412,6 +439,15 @@
   "QC": "forbidden",
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
+ },
+ "GET /admin/v1/live": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
  },
  "GET /admin/v1/manifest": {
   "anonymous": "signin",
@@ -592,6 +628,15 @@
   "QC": "forbidden",
   "OPERATOR": "ok",
   "MANAGER": "ok"
+ },
+ "GET /admin/v1/riders/:id/trail": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
  },
  "GET /admin/v1/settings/switches": {
   "anonymous": "signin",
