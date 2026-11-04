@@ -50,6 +50,7 @@ sign out, with a Profile / My orders tab bar.
 `theme.js` (in `<head>`, so there is no flash) sets light or dark from the device setting until
 the viewer uses the header toggle, then remembers it (`mm-theme`). `theme.css` holds the dark
 colours: a warm near-black with a brighter mango yellow (#ffc93c) for accents and buying actions.
+The light theme keeps the original mango-house palette (forest green, cream) with no yellow accents.
 Headings are Besley (a Clarendon-style serif), text is Schibsted Grotesk; both SIL OFL, served
 from `assets/fonts/` (see `assets/fonts.css`).
 

@@ -76,3 +76,19 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .date-card[aria-pressed="true"],[data-theme="dark"] .slot-card[aria-pressed="true"],[data-theme="dark"] .address-card[aria-pressed="true"],[data-theme="dark"] .page-tabs a[aria-current="page"],[data-theme="dark"] .avatar{background:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e)}
 [data-theme="dark"] .date-card[aria-pressed="true"] small,[data-theme="dark"] .slot-card[aria-pressed="true"] small,[data-theme="dark"] .address-card[aria-pressed="true"] small{color:#3d3313}
 [data-theme="dark"] .toggle-row input::after{background:#f2ebd6}
+/* Mango yellow lives only in the dark theme (the light theme keeps the original mango-house green). */
+[data-theme="dark"]{--accent:#ffc93c;--accent-soft:#ffb81f;--accent-ink:#15130c;--accent-bead:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e);--accent-glow:#ffc93c40}
+[data-theme="dark"] ::selection{background:#ffd766;color:#15130c}
+[data-theme="dark"] .announcement{background:linear-gradient(90deg,#f4b21a,#ffd45a 50%,#f4b21a);color:#15130c;font-weight:500}
+[data-theme="dark"] .announcement a{color:#15130c}
+[data-theme="dark"] .hero-dots b{background:#ffc93c}
+[data-theme="dark"] .pulse{background:#ffc93c;box-shadow:0 0 0 4px #ffc93c40}
+[data-theme="dark"] .promise-bar svg{color:#ffb81f}
+[data-theme="dark"] .desktop-nav .active:after{background:#ffc93c;height:3px;border-radius:2px}
+[data-theme="dark"] .bag-count,[data-theme="dark"] .liquid-navigation .bag-count{background:#ffc93c;color:#15130c;font-weight:600}
+[data-theme="dark"] .selection-pill,[data-theme="dark"] .detail-lens,[data-theme="dark"] .occasion.selected,[data-theme="dark"] .faq details[open] .faq-orb,[data-theme="dark"] .quick-add.liquid:hover{background:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e);color:#15130c;box-shadow:inset 0 1px 1px #ffffffb3,inset 0 -2px 4px #8a5a0040,0 4px 12px #ffc93c40}
+[data-theme="dark"] .occasion.selected{border-color:#f2b01e}
+[data-theme="dark"] .segmented button.selected,[data-theme="dark"] .detail-stages button.selected{color:#15130c;font-weight:600}
+[data-theme="dark"] .bulk h2 em,[data-theme="dark"] .bulk-type{color:#ffd766}[data-theme="dark"] .bulk-type small{color:#f3e3a6}
+[data-theme="dark"] footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#ffc93c00,#ffc93c,#ffc93c00) 1}
+[data-theme="dark"] .liquid-lens{background:linear-gradient(145deg,#fff6d040,#ffd45a24 50%,#ffffff0a)}
