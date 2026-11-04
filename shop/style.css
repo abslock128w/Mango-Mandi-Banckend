@@ -136,3 +136,13 @@ h1 em,.section-heading h2 em,.season-copy h2 em,.story-title h2 em,.faq h2 em{ba
 .bulk{background:radial-gradient(55% 110% at 100% 50%,#f6b81c38,#f6b81c00 70%),var(--green)}
 .bulk h2 em{color:var(--mango-light)}.bulk-type{color:var(--mango-light)}.bulk-type small{color:#f3e3a6}
 footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#f6b81c00,#f6b81c,#f6b81c00) 1}
+/* Liquid intensity control (liquid.js setLevel): Low / Med / High with a sliding mango bead. */
+.greeting{align-items:center}
+.glass-level{display:flex;align-items:center;gap:9px;margin:-4px 18px -4px auto;padding:3px 3px 3px 11px;border-radius:20px;font-size:11px;--glass-blur:14px}
+.glass-level-label{display:flex;align-items:center;gap:5px;color:var(--muted)}
+.glass-level-label svg{width:13px;height:13px;color:var(--mango-deep)}
+.glass-level-track{position:relative;display:grid;grid-template-columns:repeat(3,1fr);padding:2px;border-radius:16px;background:#e6ebdcb3;box-shadow:inset 0 1px 2px #183c211a;isolation:isolate}
+.glass-level-bead{position:absolute;top:2px;bottom:2px;left:calc(2px + var(--i,1) * (100% - 4px) / 3);width:calc((100% - 4px) / 3);border-radius:14px;z-index:-1;background:linear-gradient(180deg,#ffffff8c,#fff0 52%),linear-gradient(180deg,#ffd45a,#f6b81c 62%,#e8a00c);box-shadow:inset 0 1px 1px #ffffffd9,inset 0 -2px 3px #a8650030,0 3px 8px #e8a00c4d;will-change:translate,scale}
+.glass-level-track button{min-width:42px;min-height:26px;padding:0 8px;border-radius:14px;font-size:11px;color:var(--muted);transition:color .25s var(--ease)}
+.glass-level-track button[aria-pressed="true"]{color:var(--mango-ink);font-weight:600}
+@media(max-width:700px){.greeting .natural{display:none}.glass-level{margin-right:0;padding-left:9px;gap:6px}.glass-level-track button{min-width:38px;padding:0 6px}}
