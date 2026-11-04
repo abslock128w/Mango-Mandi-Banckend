@@ -15,11 +15,11 @@
     "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\"",
     "lint": "eslint . && npm --prefix customer-app run lint && npm --prefix rider-app run lint",
     "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/.next/static",
-    "shop:dev": "npm --prefix customer-app run dev -- --port 5174",
-    "shop:build": "npm --prefix customer-app run build",
-    "shop:preview": "npm --prefix customer-app run start -- --port 5174",
-    "shop:install": "npm --prefix customer-app ci",
-    "shop:test": "npm --prefix customer-app test"
+    "shop:dev": "node scripts/serve-shop.mjs --port 5174",
+    "shop:build": "node shop/build-config.mjs",
+    "shop:preview": "node scripts/serve-shop.mjs --port 5174",
+    "shop:install": "echo \"the shop (shop/) has no packages\"",
+    "shop:test": "node --check shop/app.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js"
   },
   "dependencies": {
     "@sentry/browser": "11.7.0",
