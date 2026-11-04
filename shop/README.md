@@ -3,11 +3,32 @@
 The customer storefront at `mandimangoes.in`: the "glass" design from the owner's
 `mango-house` repository (its `dist/` folder, which stays the design source), wired to
 mango-api's `/v1` storefront API. It is a static site with no build tool and no packages:
-`index.html`, `style.css`, `dock.css`, `app.js`, `dock.js`, `api.js`, `sw.js`,
-`manifest.webmanifest`, `config.js` and `assets/` (GSAP and the fonts are served from here).
+`index.html`, `style.css`, `dock.css`, `catalog.js`, `shelf.js`, `app.js`, `dock.js`, `api.js`,
+`sw.js`, `manifest.webmanifest`, `config.js` and `assets/` (GSAP, the fonts and the mango
+photos are served from here).
 
 It replaces the Next.js shop in [`customer-app/`](../customer-app/README.md), which stays in
 the repo until it is retired (see the checklist at the end).
+
+## The catalogue
+
+The shelf has one card per variety the API sells (`GET /v1/products`, grouped by `variety`).
+The words and photos come from the MangoKart catalogue, kept in `catalog.js`: for each of the
+15 varieties and the Mixed Box, its region, origin, flavour, story, season, sweetness,
+"best for" line, search words and occasions, plus a photo per stage in `assets/mangoes/`
+(Unsplash, see [`CREDITS.md`](CREDITS.md)). Prices, boxes and stock always come from the API;
+a variety in `catalog.js` that the API does not sell is not shown, and an API variety missing
+from `catalog.js` gets a plain card with the design's stage photo. A photo uploaded on the
+panel (`photoUrl`) replaces the illustrative one.
+
+`shelf.js` draws the shelf: the ripeness rail, the occasion pills, the sort, the stage dots on
+each card, search (with MangoKart's synonyms, e.g. "pickle" → raw Totapuri, "hapus" →
+Alphonso), and the product sheet. `app.js` keeps the bag, checkout, orders, pre-orders and
+bulk enquiries. The three are classic scripts sharing globals, loaded in that order. Why it
+was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
+
+To add a variety: add it on the panel's Products page (that is what the shop sells), then add
+a row to `ROWS` in `catalog.js` with the same name, and its photos to `assets/mangoes/`.
 
 ## How it talks to the API
 
