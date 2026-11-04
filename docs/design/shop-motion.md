@@ -1,5 +1,7 @@
 # MandiMangoes shop: motion plan ("the Apple way")
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Scope: `customer-app/` (Next 16, React 19, Tailwind v4, `motion` 14 via LazyMotion/domMax, Base UI Drawer,
 Embla, React `<ViewTransition>`). The shop is built and works; this plan makes it *feel* like a native app:
 every movement physical, interruptible, brief, and in the service of continuity. Nothing here changes what

@@ -170,7 +170,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 
 The shop's build (`node build-config.mjs`, from `shop/vercel.json`) writes `shop/config.js`
 from these and then runs the bundle scan. The `NEXT_PUBLIC_*` variables of the old Next.js
-shop (`customer-app/`) no longer apply; delete them from the project.
+shop (retired on 4 Nov 2026) no longer apply; delete them from the project.
 
 | Variable | Production | Preview | Notes |
 |----------|-----------|---------|-------|

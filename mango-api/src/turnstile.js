@@ -10,7 +10,7 @@ import { HttpError } from './errors.js'
 import { logger } from './logger.js'
 
 const VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-/** The action the shop's widget is rendered with (customer-app/src/auth-ui.tsx). */
+/** The action the shop's widget is rendered with (shop/app.js, mountCaptcha). */
 export const TURNSTILE_ACTION = 'otp'
 
 /** The shop's hostnames (CUSTOMER_ORIGIN): a token solved on any other site is refused (SEC-04). */

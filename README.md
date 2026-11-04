@@ -8,8 +8,8 @@ with a delivered order by sending a replacement, not a refund.
 The backend it talks to, **mango-api**, lives in [`mango-api/`](mango-api/README.md) in
 this repo: the `/admin/v1` API this panel uses, the `/v1` storefront API, payments, and
 the ripeness and stock engine. The customer shop is the static site in [`shop/`](shop/README.md)
-(no packages: `npm run shop:dev`, against an API on :3000); [`customer-app/`](customer-app/README.md) is the
-previous Next.js shop, kept until it is retired. Going live on Vercel and Neon is in
+(no packages: `npm run shop:dev`, against an API on :3000); it replaced the previous Next.js
+shop, which was retired on 4 Nov 2026. Going live on Vercel and Neon is in
 [`deploy/VERCEL.md`](deploy/VERCEL.md); on a single server, [`deploy/README.md`](deploy/README.md).
 
 ## What it does
@@ -58,7 +58,10 @@ src/
   main.tsx          React + Query + Toast providers; starts error reports
   pages/            one file per screen
 shared/
-  error-reports/    browser errors to Sentry, shared with the shop (off without VITE_SENTRY_DSN)
+  error-reports/    the panel's browser errors to Sentry (off without VITE_SENTRY_DSN)
+shop/               the customer shop: static files, no packages (shop/README.md)
+rider-app/          the riders' app (Next.js, its own packages)
+mango-api/          the API (mango-api/README.md)
 tests/
   fixtures.ts       console-error-failing fixture
   mock-api.ts       in-memory /admin/v1 stand-in for backend-free specs
@@ -123,8 +126,8 @@ E2E_EMAIL=manager@mandimangoes.test E2E_PASSWORD=manager123 VITE_API_URL=http://
 - **Contract** (`tests/contract.spec.ts`) — calls the real API for every read the mock
   answers and fails if the mock has a field the API lacks or types differently, so the
   mock cannot drift from the server.
-- **CSP** (`tests/csp.spec.ts`) — the Content-Security-Policy in `scripts/csp.ts` matches
-  `vercel.json`; every spec runs under the dev server's policy and fails on a violation.
+- **CSP** (`tests/csp.spec.ts`) — the panel's Content-Security-Policy in `scripts/csp.ts` matches
+  `vercel.json`, and `shop/vercel.json`'s shop policy allows only what the shop loads; every spec runs under the dev server's policy and fails on a violation.
 
 - **Smoke** (`tests/smoke.spec.ts`) — auth guard, session-ended banner, offline
   banner, config banner. Runs without a backend.
@@ -144,10 +147,11 @@ fails any test that logs a console error.
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push to `main` and every PR: `npm ci`,
-typecheck (panel, tests and customer app), production builds of both apps, then the
-smoke, screens and accessibility specs on Chromium. A second job runs the mango-api tests
-against Postgres 16, and a third starts mango-api with demo data and runs the
-day-in-the-life spec and the customer app's journey against it. A fourth builds the
+typecheck (panel and tests, and the rider app), lint, unit tests and the shop's syntax
+check (`npm run shop:test`), builds of the panel, the shop's config and the rider app, the
+bundle scan, then the panel specs on Chromium and WebKit. A second job runs the mango-api
+tests against Postgres 16, and a third starts mango-api with demo data and runs the
+day-in-the-life and contract specs against it. A fourth builds the
 production Docker images and validates the server config in `deploy/`.
 The Playwright report is uploaded as an artifact on failure.
 

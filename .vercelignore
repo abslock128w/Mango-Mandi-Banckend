@@ -2,7 +2,6 @@
 .local
 **/node_modules
 **/.next
-customer-app/tests/unit/__snapshots__
 dist
 test-results*
 playwright-report*

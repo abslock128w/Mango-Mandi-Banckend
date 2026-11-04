@@ -1,5 +1,7 @@
 # Screenshot baselines (QA pass, 2 Nov 2026)
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../../../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Full-page screenshots of every screen, taken on this branch against the local stack
 (`scripts/start-local.mjs`, demo data) after the visual fixes. WebP, quality 45, at CSS-pixel width.
 They are for reading and comparing by eye; the automated comparisons are the Playwright visual

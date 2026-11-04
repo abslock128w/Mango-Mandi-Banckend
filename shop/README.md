@@ -6,8 +6,8 @@ mango-api's `/v1` storefront API. It is a static site with no build tool and no 
 `index.html`, `style.css`, `dock.css`, `app.js`, `dock.js`, `api.js`, `sw.js`,
 `manifest.webmanifest`, `config.js` and `assets/` (GSAP and the fonts are served from here).
 
-It replaces the Next.js shop in [`customer-app/`](../customer-app/README.md), which stays in
-the repo until it is retired (see the checklist at the end).
+It replaces the Next.js shop that lived in `customer-app/`, retired on 4 Nov 2026 (see the
+checklist at the end).
 
 ## How it talks to the API
 
@@ -95,19 +95,21 @@ variables). If `API_URL` is anything other than `https://api.mandimangoes.in`, f
 preview API on `*.vercel.app`, edit `connect-src` (and keep it in step with `API_URL`), or
 every API call is blocked by the browser.
 
-## Retiring `customer-app/` (follow-ups)
+## Retiring `customer-app/` (done, 4 Nov 2026)
 
-`customer-app/` stays until these move to `shop/` or are removed:
+Kept as a record. Each item was moved to `shop/` or removed, then `customer-app/` was deleted:
 
-- [ ] CI (`.github/workflows/ci.yml`): `npm ci`, audit, lint and the unit step in
+- [x] CI (`.github/workflows/ci.yml`): `npm ci`, audit, lint and the unit step in
       `customer-app`; the "Build the customer app" step (it ran `npm run shop:build`, which now
       builds this folder; point it at `npm --prefix customer-app run build` until retired) and
       `npm run shop:test`; the e2e jobs (Chromium and WebKit) that run `customer-app/tests`.
-- [ ] `npm run scan:bundle` scans `customer-app/.next/static`: scan `shop` instead.
-- [ ] Root `typecheck` and `lint` run customer-app's.
-- [ ] `tests/csp.spec.ts` imports `customer-app/lib/csp`: test `shop/vercel.json`'s CSP instead.
-- [ ] Docker: `deploy/shop.Dockerfile`, the `shop` service in `deploy/compose.yml` and
+- [x] `npm run scan:bundle` scans `customer-app/.next/static`: scan `shop` instead.
+- [x] Root `typecheck` and `lint` run customer-app's.
+- [x] `tests/csp.spec.ts` imports `customer-app/lib/csp`: test `shop/vercel.json`'s CSP instead.
+- [x] Docker: `deploy/shop.Dockerfile`, the `shop` service in `deploy/compose.yml` and
       `reverse_proxy shop:3001` in `deploy/Caddyfile` still build and serve the Next.js shop;
-      serve this folder as static files instead (with the same headers and rewrites).
-- [ ] `scripts/qa-journey.sh` builds and starts the Next.js shop.
-- [ ] Then delete `customer-app/` and its mentions in the docs.
+      serve this folder as static files instead (with the same headers and rewrites). Done:
+      `deploy/web.Dockerfile` copies `shop/` into the Caddy image and writes its `config.js`.
+- [x] `scripts/qa-journey.sh` builds and starts the Next.js shop. Removed, with
+      `tests/cross-app.spec.ts`, which drove the old shop's UI.
+- [x] Then delete `customer-app/` and its mentions in the docs.
