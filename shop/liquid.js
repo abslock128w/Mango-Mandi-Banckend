@@ -2,10 +2,11 @@
    and edge refraction where the browser can do it (Chromium: an SVG displacement map in
    backdrop-filter; elsewhere the plain blur stays).
 
-   window.Liquid = { press, release, pull, pop, flip, scan }
+   window.Liquid = { press, release, pull, pop, flip, scan, enter }
+   - enter: a sheet or page arriving (rise, swell, settle), compositor-only.
    - press/release: squash on touch, wobble back on release (delegated for JELLY below).
    - pull: hover magnet, the control leans toward the pointer (mouse only).
-   - pop: a jiggle kick (bag count change, toast, dialog open).
+   - pop: a jiggle kick (bag count change, toast).
    - flip: a lens slides from where it was to where it is now, stretching with its speed.
    - scan(root): give [data-refract] elements their refraction map.
 
@@ -297,5 +298,26 @@
   document.fonts.ready.then(() => scan())
   scan()
 
-  window.Liquid = { press, release, pull, pop, flip, scan }
+  /**
+   * A sheet or page arriving: it rises, swells a touch past full size, squashes back and settles, like the
+   * glass beads. Only transform and opacity, run by the Web Animations API with will-change set first, so the
+   * browser draws the sheet once and moves and scales that picture: an earlier GSAP scale made phones redraw
+   * the whole sheet each frame and flash it half-drawn. `soft` is the gentler version for a page.
+   */
+  function enter(el, { soft = false } = {}) {
+    if (!motion || !el || !el.animate) return
+    const lift = soft ? 18 : 34, swell = soft ? 0.006 : 0.014
+    el.style.willChange = 'transform, opacity'
+    const run = el.animate([
+      { opacity: 0, transform: `translateY(${lift}px) scale(${soft ? 0.985 : 0.955})` },
+      { opacity: 1, transform: `translateY(-4px) scale(${1 + swell}, ${1 - swell * 0.8})`, offset: 0.56 },
+      { opacity: 1, transform: `translateY(1.5px) scale(${1 - swell * 0.25}, ${1 + swell * 0.35})`, offset: 0.8 },
+      { opacity: 1, transform: 'none' },
+    ], { duration: soft ? 480 : 600, easing: 'cubic-bezier(.22,.8,.26,1)' })
+    const done = () => { el.style.willChange = '' }
+    run.onfinish = done
+    run.oncancel = done
+  }
+
+  window.Liquid = { press, release, pull, pop, flip, scan, enter }
 })()

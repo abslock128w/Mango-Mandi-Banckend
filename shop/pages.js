@@ -45,6 +45,7 @@ function showPage(path) {
   $('#home').hidden = true
   $('#page-view').hidden = false
   window.scrollTo({ top: 0, behavior: 'instant' })
+  window.Liquid?.enter($('#page-view'), { soft: true })
 }
 
 function hidePage() {
