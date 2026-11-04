@@ -4,6 +4,7 @@
 // fruit end in a replacement, never a refund. Money goes back in two cases
 // only: the customer cancels a paid order before packing, or a manager cancels
 // a paid order we can't deliver.
+import { orderNumberSql } from './order-number.js'
 import { notifyOrder } from './events.js'
 import { configVersion, getConfig } from './config.js'
 import { deliveryCodeHash, newDeliveryCode } from './delivery-code.js'
@@ -132,9 +133,12 @@ const orderItems = async (c, orderId) =>
  * With `allOrNothing` a shortfall throws 409 STOCK_INSUFFICIENT (and the
  * caller's transaction rolls back); otherwise the order is flagged at-risk.
  */
+export { orderNumberSql }
+
 export async function createOrder(c, o, actor) {
   const id = newId('ord')
-  const { rows } = await c.query(`SELECT 'ORD-' || nextval('order_seq') AS number`)
+  // 10 digits, shown as #7434060801 (order-number.js).
+  const { rows } = await c.query(`SELECT ${orderNumberSql("nextval('order_seq')")} AS number`)
   const number = rows[0].number
   const subtotal = o.lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
   const discount = o.discount ?? 0
@@ -439,7 +443,7 @@ export async function recordDuplicatePayment(c, { orderId = null, preorderId = n
  * cancels the order when it runs out. 'abandoned' is ours: the payment could
  * not even be started, so the order is cancelled at once.
  */
-export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
+export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null, details = null }, actor = SYSTEM) {
   const o = await lockOrder(c, orderId)
   if (o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED') {
     if (outcome === 'captured' && paymentId && o.payment_id && paymentId !== o.payment_id) {
@@ -468,8 +472,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
     // Paid after the customer or staff cancelled: keep it cancelled and refund the payment.
     await c.query(
       `UPDATE orders SET payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id), payment_method = COALESCE($3, payment_method),
-              payment_amount = COALESCE($4, payment_amount), refund_requested_at = $5 WHERE id = $1`,
-      [o.id, paymentId, method, amount, now()],
+              payment_amount = COALESCE($4, payment_amount), refund_requested_at = $5, payment_details = COALESCE($6, payment_details) WHERE id = $1`,
+      [o.id, paymentId, method, amount, now(), details],
     )
     await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', actor, `Payment arrived after the ${o.customer_cancelled_at ? 'customer' : 'shop'} cancelled; full refund requested`)
     return { order: o, result: 'refund_due' }
@@ -488,9 +492,10 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   await lockOrderLines(c, o.id, ['held'])
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
-            payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL
+            payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL,
+            payment_details = COALESCE($5, payment_details)
       WHERE id = $1`,
-    [o.id, paymentId, method, amount],
+    [o.id, paymentId, method, amount, details],
   )
   const confirmEvent = await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
   o.status = 'CONFIRMED'

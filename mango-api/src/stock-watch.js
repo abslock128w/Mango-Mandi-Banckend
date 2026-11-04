@@ -7,6 +7,7 @@
 //     which staff put back on the shelf or write off;
 //   - preorder capacity counters that disagree with their bookings (INV-06)
 //     and trucks still in transit after their arrival date (INV-08).
+import { orderSeqSql } from './order-number.js'
 import { diffDays, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { badRequest, conflict, notFound } from './errors.js'
@@ -74,7 +75,7 @@ export async function overdueOrders(c, at = now(), limit = 100) {
       WHERE o.status = ANY($1)
         AND NOT (o.status = 'DELIVERY_FAILED' AND o.delivery_failures >= $5)
         AND (o.delivery_date < $2 OR (o.status = 'OUT_FOR_DELIVERY' AND ofd.at < $3))
-      ORDER BY o.delivery_date, o.number LIMIT $4`,
+      ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT $4`,
     [UNDELIVERED, today, new Date(at.getTime() - hours * 3_600_000), limit, MAX_DELIVERY_ATTEMPTS],
   )
   return rows.map((o) => {
@@ -118,7 +119,7 @@ export async function returnedStockPending(c, limit = 100) {
   const { rows } = await c.query(
     `SELECT o.id, o.number, o.status, SUM(s.quantity)::int AS boxes FROM order_stock s JOIN orders o ON o.id = s.order_id
       WHERE s.state = 'packed' AND o.status IN ('CANCELLED', 'RTO')
-      GROUP BY o.id, o.number, o.status ORDER BY o.number LIMIT $1`,
+      GROUP BY o.id, o.number, o.status ORDER BY ${orderSeqSql('o.number')} LIMIT $1`,
     [limit],
   )
   return rows.map((r) => ({ id: r.id, number: r.number, status: r.status, boxes: r.boxes }))

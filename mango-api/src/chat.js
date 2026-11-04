@@ -470,15 +470,16 @@ const TYPED_INTENTS = [
   ['CATALOGUE', /\b(price|prices|rate|rates|catalogue|catalog|what do you have|varieties|available|in stock)\b/],
 ]
 const TAP_STATES = new Set(['IDLE', 'PICK', 'CART', 'SLOT', 'CONFIRM', 'AWAITING_PAYMENT', 'PRE_WEEK', 'PRE_CONFIRM', 'PRE_AWAITING'])
-/** An order or booking number typed in a message: ORD-1093, PRE-1001. */
-const NUMBER = /\b(ORD|PRE)-?(\d{3,})\b/i
+/** An order or booking number typed in a message: ORD-1093, PRE-1001, #7434060801 or 7434060801 (a bare
+    10 digits too: it is only looked up among this customer's own orders). */
+const NUMBER = /\b(ORD|PRE)-?(\d{3,})\b|#?\b([1-9]\d{9})\b/i
 
 /** One order of this customer's, by the number they typed. Never another customer's: the phone is the identity. */
 async function orderByNumber(c, s, said) {
   const m = NUMBER.exec(said)
   if (!m) return null
-  const number = `${m[1].toUpperCase()}-${m[2]}`
-  const table = m[1].toUpperCase() === 'PRE' ? 'preorders' : 'orders'
+  const number = m[3] ?? `${m[1].toUpperCase()}-${m[2]}`
+  const table = !m[3] && m[1].toUpperCase() === 'PRE' ? 'preorders' : 'orders'
   const { rows } = await c.query(`SELECT * FROM ${table} WHERE number = $1 AND customer_id = $2`, [number, s.customerId])
   if (!rows.length) {
     return [buttons(`I can't find ${number} on this WhatsApp number. Orders show here only for the number they were placed with.`, [['ORDERS', 'My orders'], ['MENU', 'Menu']])]

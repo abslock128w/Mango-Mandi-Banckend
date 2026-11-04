@@ -7,6 +7,7 @@
 // the order's 12-month retention or an account deletion removes.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
 import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { paymentDetails } from '../src/payments.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -613,6 +614,29 @@ test('a long bill breaks across pages', () => {
   assert.match(text, /box 60/)
   assert.match(text, /Rs\. 1,13,940\.00/)
   assert.match(text, /could not be printed/, 'a name the font cannot print is called out')
+})
+
+// The Razorpay payment's details: kept from the payment entity (UPI ID masked), printed on the bill.
+test('a bill prints how it was paid: method, UPI reference, Razorpay payment id, the #order number', () => {
+  const details = paymentDetails({
+    id: 'pay_QX12ab34CD', method: 'upi', vpa: 'asha.rao@okicici', amount: BOX, currency: 'INR', created_at: 1793800000,
+    acquirer_data: { rrn: '431298765432', upi_transaction_id: 'ICI12345' }, card: null, bank: null, wallet: null,
+  })
+  assert.deepEqual(details, { gateway: 'Razorpay', paymentId: 'pay_QX12ab34CD', method: 'upi', upiRef: '431298765432', vpa: 'as******@okicici', paidAt: '2026-11-04T13:46:40.000Z' })
+  assert.equal(paymentDetails({ id: 'pay_C', method: 'card', card: { network: 'Visa', last4: '4242' } }).card, 'Visa ending 4242')
+  assert.equal(paymentDetails(null), null)
+  const snapshot = {
+    kind: 'RECEIPT', title: 'Receipt', seller: { legalName: 'MandiMangoes', addressLines: ['Bengaluru'], stateCode: '29', stateName: 'Karnataka', gstin: null },
+    buyer: {}, placeOfSupply: { stateCode: '29', stateName: 'Karnataka' }, order: { number: '7434060801', placedAt: '2026-11-04T10:12:00Z' },
+    lines: [{ sku: 'ALP-3', description: 'Alphonso 3 kg, ripe', hsn: '08045020', qty: 1, unitPrice: BOX, amount: BOX, gstRate: 0 }],
+    subtotal: BOX, discount: 0, deliveryFee: 0, tax: null, total: BOX, paid: BOX, notes: [], payment: details,
+  }
+  const text = pdfText(billPdf({ number: 'MM/26-27/000043', kind: 'RECEIPT', bill_date: '2026-11-04', snapshot }))
+  assert.match(text, /#7434060801/)
+  assert.match(text, /Paid by\s+UPI, as\*+@okicici/)
+  assert.match(text, /UPI reference \(RRN\)\s+431298765432/)
+  assert.match(text, /Razorpay payment ID\s+pay_QX12ab34CD/)
+  assert.match(text, /Paid on\s+4 Nov 2026/)
 })
 
 // Keep setNow untouched for other files.

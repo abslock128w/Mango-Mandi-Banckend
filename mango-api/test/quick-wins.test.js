@@ -114,6 +114,13 @@ describe('reorder reminder', () => {
     const cust = await customerToken(api)
     const o = await delivered(cust)
     assert.equal(await sendReorderReminders(weekLater(o.deliveryDate)), 0, 'off by default')
+    // The name can be set on its own, and an empty or missing change is refused.
+    const named = await api.patch('/v1/me', { name: '  Asha Rao ' }, { token: cust.accessToken })
+    assert.equal(named.status, 200, JSON.stringify(named.body))
+    assert.equal(named.body.name, 'Asha Rao')
+    assert.equal(named.body.remindersOptIn, false)
+    assert.equal((await api.patch('/v1/me', { name: '' }, { token: cust.accessToken })).status, 400)
+    assert.equal((await api.patch('/v1/me', {}, { token: cust.accessToken })).status, 400)
     const me = await api.patch('/v1/me', { remindersOptIn: true }, { token: cust.accessToken })
     assert.equal(me.body.remindersOptIn, true)
     assert.equal((await api.get('/v1/me', { token: cust.accessToken })).body.remindersOptIn, true)
