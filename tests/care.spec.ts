@@ -17,10 +17,9 @@ async function features(page: Page, role: Role, on: { helpDesk?: boolean; subscr
   )
 }
 
-/** Opens the Customers links: the Menu on a phone, the Customers group on a wide screen. */
+/** Shows the Customers links: the Menu on a phone; on a wide screen they are in the sidebar already. */
 async function openCustomers(page: Page) {
   if ((page.viewportSize()?.width ?? 1280) < 900) await page.getByRole('button', { name: 'Menu' }).click()
-  else await page.getByRole('button', { name: 'Customers' }).click()
 }
 
 const json = (route: Route, status: number, body: unknown) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -159,7 +158,8 @@ test('switched off: no Help desk or Subscriptions link, and the pages say they a
   await features(page, 'MANAGER', {})
   await page.goto('/today')
   await openCustomers(page)
-  await expect(page.getByRole('link', { name: 'Claims', exact: true })).toBeVisible()
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav.getByRole('link', { name: 'Claims', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Help desk' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Subscriptions' })).toHaveCount(0)
   await page.goto('/help-desk')
@@ -193,7 +193,7 @@ test('an operator answers a help request: inbox, filters, the thread, a reply, r
   await expect(page.getByText('******3210').first()).toBeVisible()
   // No full phone number anywhere on the page.
   await expect(page.locator('body')).not.toContainText('9876543210')
-  await expect(page.getByRole('link', { name: 'claims' })).toHaveAttribute('href', '/claims')
+  await expect(page.getByRole('main').getByRole('link', { name: 'claims' })).toHaveAttribute('href', '/claims')
 
   // Filters go to the API.
   // Status: chips on a wide screen, a select on a phone.

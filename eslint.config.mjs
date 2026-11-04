@@ -18,9 +18,10 @@ const nodeGlobals = Object.fromEntries(
 
 export default [
   // .claude/ holds agents' worktree copies of this repo.
-  { ignores: ['**/node_modules/**', 'dist/**', 'playwright-report*/**', 'test-results*/**', '.claude/**'] },
+  // customer-app/ is the Next.js shop, linted by its own config (npm --prefix customer-app run lint).
+  { ignores: ['**/node_modules/**', 'dist/**', 'playwright-report*/**', 'test-results*/**', '.claude/**', 'customer-app/**'] },
   {
-    files: ['src/**/*.{ts,tsx}', 'customer-app/src/**/*.{ts,tsx}', 'shared/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'shared/**/*.{ts,tsx}'],
     languageOptions: { parser: tsParser, ecmaVersion: 'latest', sourceType: 'module' },
     plugins: { 'react-hooks': reactHooks, '@typescript-eslint': tsPlugin },
     linterOptions: { reportUnusedDisableDirectives: 'error' },
@@ -53,16 +54,6 @@ export default [
     // `new Promise((r) => setTimeout(r, ms))` is the tests' sleep.
     files: ['mango-api/test/**/*.js'],
     rules: { 'require-await': 'off', 'no-promise-executor-return': 'off' },
-  },
-  {
-    // The shop's service worker: plain JavaScript served as is (docs/app-feel.md).
-    files: ['customer-app/public/sw.js'],
-    languageOptions: {
-      ecmaVersion: 'latest',
-      sourceType: 'script',
-      globals: Object.fromEntries(['self', 'caches', 'fetch', 'Request', 'Response', 'URL', 'console'].map((name) => [name, 'readonly'])),
-    },
-    rules: { 'no-undef': 'error', 'no-unused-vars': ['error', { caughtErrors: 'none' }], 'require-await': 'error', 'no-unreachable': 'error' },
   },
   {
     files: ['mango-api/ops/load/**/*.js'],

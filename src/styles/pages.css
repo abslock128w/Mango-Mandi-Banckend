@@ -1,0 +1,758 @@
+/* Page-specific styles: reviews, products, bulk deals, warehouse, trust, rider route, ops, care, WhatsApp. */
+/* Sign in with Google */
+.google-btn {
+  display: flex;
+  justify-content: center;
+  min-height: var(--tap-min);
+  margin-bottom: var(--space-1);
+}
+.or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: var(--space-3) 0;
+}
+.or::before,
+.or::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.claim-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.claim-photos img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 6px;
+  display: block;
+}
+.qr {
+  display: block;
+  width: 200px;
+  height: 200px;
+  margin: var(--space-2) 0;
+  image-rendering: pixelated;
+}
+.secret-key {
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  word-break: break-all;
+}
+.recovery-codes {
+  font-family: var(--font-mono);
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: var(--space-1) var(--space-8);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) 0 var(--space-4);
+  list-style: none;
+  border: 1px dashed currentColor;
+  border-radius: 6px;
+}
+.setup-wrap {
+  max-width: 560px;
+  margin: var(--space-8) auto;
+  padding: 0 16px;
+}
+.review-filters {
+  align-items: flex-end;
+}
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: 0.6rem var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--amber-100);
+  border-radius: var(--radius);
+}
+.review-stars {
+  color: var(--amber-500);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.review-excerpt {
+  max-width: 28rem;
+  overflow-wrap: anywhere;
+}
+.review-excerpt .badge {
+  margin: 0 var(--space-1) var(--space-1) 0;
+}
+tr.row-flagged td {
+  background: var(--red-100);
+}
+.review-comment {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.review-detail .badge {
+  margin-left: 0.35rem;
+}
+.review-photo-picks ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+}
+.review-photo-picks li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.review-photo-picks img {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  border-radius: var(--radius);
+  display: block;
+}
+.review-reply,
+.reason-form {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+}
+.review-reply h3 {
+  margin-top: 0;
+}
+.review-history {
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+.photo-pick {
+  display: flex;
+  gap: 0.85rem;
+  align-items: flex-start;
+}
+.product-photo-preview {
+  width: 96px;
+  height: 96px;
+  flex: none;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.product-photo-empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+}
+.product-thumb {
+  display: block;
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.photo-pick:has(input[type='file']:focus-visible) label.btn {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}/* ---------- Bulk Deals ---------- */
+.bulk-editor {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .bulk-editor {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+.bulk-side {
+  display: grid;
+  gap: var(--space-4);
+}
+.bulk-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.tier-table input {
+  width: 100%;
+  min-width: 6rem;
+}
+.bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.bulk-photos {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.bulk-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.bulk-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bulk-history li {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.bulk-fields .check-inline {
+  margin-right: var(--space-4);
+}
+
+/* ---------- Warehouse (src/warehouse) ---------- */
+
+.wh-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.wh-counts {
+  list-style: none;
+  padding: 0;
+}
+.wh-counts .tile {
+  height: 100%;
+}
+.wh-counts .count,
+.wh-counts .label {
+  display: block;
+}
+/* Label/value pairs in a two-column grid that becomes one column on a phone. */
+.wh-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.wh-facts dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.wh-facts dd {
+  margin: 0;
+  font-weight: 600;
+}
+.wh-session-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0 0 var(--space-3);
+}
+.wh-session-counts dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.wh-session-counts dd {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+.wh-progress {
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin-bottom: var(--space-4);
+  accent-color: var(--green-700);
+}
+.wh-scan-form {
+  border-width: 2px;
+  border-color: var(--green-700);
+}
+.wh-scan-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.wh-scan-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  letter-spacing: 0.04em;
+}
+.wh-scan-row .btn {
+  min-height: 56px;
+}
+.wh-stop {
+  font-size: var(--text-md);
+}
+.wh-scan-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.wh-scan {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-left-width: 6px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.wh-scan-meta {
+  grid-column: 2;
+}
+.wh-scan-accepted {
+  border-left-color: var(--color-success);
+}
+.wh-scan-warning {
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+.wh-scan-rejected {
+  border-left-color: var(--color-error);
+  background: var(--color-error-soft);
+}
+.wh-scan-duplicate {
+  border-left-color: var(--color-info);
+}
+.wh-scan-undone .wh-scan-msg {
+  text-decoration: line-through;
+}
+/* Camera scanning (9.7): the view fits a phone and never pushes the page sideways. */
+.wh-camera {
+  margin-top: var(--space-3);
+}
+.wh-camera-view {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  max-height: 50vh;
+  margin-top: var(--space-2);
+  border-radius: var(--radius);
+  background: var(--text);
+  object-fit: cover;
+}
+.wh-camera-view[hidden] {
+  display: none;
+}
+.wh-camera-pick select {
+  width: auto;
+  max-width: 100%;
+}
+/* Repack finish: weight and fruit side by side when there is room. */
+.wh-new-boxes {
+  margin-bottom: var(--space-2);
+}
+.wh-new-box {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0 var(--space-3);
+}
+.wh-review > li + li {
+  margin-top: var(--space-2);
+}
+.wh-codes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+}
+.wh-holds li,
+.wh-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.wh-parts li,
+.wh-open-list li {
+  border-top: 0;
+}
+.wh-list li > ul li {
+  border-top: 0;
+  padding: var(--space-1) 0;
+}
+@media (max-width: 640px) {
+  .wh-scan-row {
+    flex-direction: column;
+  }
+  .wh-session-counts {
+    gap: var(--space-2) var(--space-4);
+  }
+}
+.bill-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---------- Rider route, one stop at a time (LIVE_TRACKING, docs/app-feel.md) ---------- */
+
+.route-switch {
+  margin-bottom: var(--space-3);
+}
+.route-start .btn-big {
+  width: 100%;
+}
+.route-current h2 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-1);
+}
+.route-address {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-2);
+}
+/* The two main buttons, side by side; on a phone they are fixed to the bottom of the screen, under the
+   thumb, whatever the rider scrolls to, and the route leaves room below its list so nothing hides under them. */
+.route-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+@media (max-width: 640px) {
+  .route-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    margin: 0;
+    padding: var(--space-2) var(--space-4) calc(var(--space-2) + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .rider-route.has-current {
+    padding-bottom: calc(56px + 2 * var(--space-2) + var(--space-4) + env(safe-area-inset-bottom));
+  }
+}
+.route-list-title {
+  font-size: var(--text-md);
+  margin: var(--space-4) 0 var(--space-2);
+}
+.route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.route-stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--tap-min);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.route-stop:first-child {
+  border-top: none;
+}
+.route-stop.current {
+  background: var(--green-100);
+  margin: 0 calc(-1 * var(--space-2));
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+  border-radius: var(--radius);
+}
+.route-n {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+.route-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.route-who .small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Today's evening summary preview (MANAGER_DAILY_SUMMARY). */
+.summary-preview {
+  white-space: pre-wrap;
+  font-family: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 12px;
+}
+
+/* Staff operations (docs/ops.md): the forecast, farms and purchases, Settings. */
+.ops-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin-bottom: var(--space-3);
+}
+.ops-range .field {
+  margin-bottom: 0;
+}
+.ops-working {
+  margin-top: var(--space-2);
+}
+.ops-working summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.ops-suggest {
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+.switch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.switch-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.switch-item:first-child {
+  border-top: 0;
+}
+.switch-text {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.switch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- Gift orders to many recipients (MULTI_GIFT, docs/gifting.md) ---------- */
+
+.gift-head h2 {
+  margin: 0;
+}
+/* ---------- Help desk (docs/care.md) ---------- */
+.help-search {
+  display: flex;
+  gap: var(--space-2);
+}
+.help-search input {
+  flex: 1;
+  min-width: 0;
+}
+.help-thread {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.help-message-staff {
+  border-left: 3px solid var(--green-700);
+}
+
+/* WhatsApp page (src/pages/WhatsApp.tsx) */
+.wa-thread {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+.wa-message {
+  max-width: 44rem;
+}
+.wa-out {
+  justify-self: end;
+  border-left: 3px solid var(--green-700);
+}
+.wa-photo {
+  display: block;
+  max-width: 16rem;
+  max-height: 16rem;
+  margin: var(--space-2) 0;
+  border-radius: 8px;
+}
+.wa-preview {
+  max-width: 20rem;
+  overflow-wrap: anywhere;
+}
+.block-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ---------- Pack list ---------- */
+
+.pack-counter {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-md);
+}
+.pack-order {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+/* Pack and warehouse primary actions: 48px, for gloved hands and quick taps. */
+.pack-order .btn-primary,
+.pack-order .btn,
+.wh-scan-row .btn {
+  min-height: var(--tap-work);
+}
+
+/* ---------- Delivery run ---------- */
+
+.stops {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.stop {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+  break-inside: avoid;
+}
+.stop:first-child {
+  border-top: none;
+}
+.stop-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+/* Stays in view, under the top bar, while the rider scrolls the run. */
+.run-summary {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  margin: 0 0 var(--space-4);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+.folded {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.folded > div {
+  min-width: 0;
+}
+.stops-compact {
+  margin-top: 6px;
+}
+.stop-line .badge {
+  flex: none;
+}
+.stop-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  white-space: nowrap;
+  min-width: 0;
+}
+.stop-line:first-child {
+  border-top: none;
+}
+.stop-line-who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.delivery-photo {
+  display: block;
+  max-width: min(100%, 320px);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-top: 6px;
+}
+
+/* ---------- Staff ---------- */
+
+.role-hints {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.1rem;
+  color: var(--text-2);
+}
+.role-hints li + li {
+  margin-top: var(--space-1);
+}
+.pack-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.pack-progress .pack-counter {
+  margin: 0;
+}
+.pack-bar {
+  flex: 1 1 200px;
+  max-width: 360px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.pack-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-success);
+  transition: width var(--motion-slow) var(--ease);
+}

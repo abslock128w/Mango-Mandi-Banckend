@@ -1,8 +1,9 @@
-// Checks every text/background pair in design/tokens.css passes WCAG AA (4.5:1), in light and dark.
+// Checks every text/background pair in design/tokens.css passes WCAG AA (4.5:1), in light and dark,
+// and every non-text mark 3:1. Run: node design/check-contrast.mjs
 import { readFileSync } from 'node:fs'
 const css = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8')
 const darkAt = css.indexOf('prefers-color-scheme: dark')
-const read = (part) => Object.fromEntries([...part.matchAll(/--(color-[a-z-]+):\s*(#[0-9a-f]{6})/g)].map((m) => [m[1], m[2]]))
+const read = (part) => Object.fromEntries([...part.matchAll(/--(color-[a-z0-9-]+):\s*(#[0-9a-f]{6})/g)].map((m) => [m[1], m[2]]))
 const light = read(css.slice(0, darkAt))
 const dark = { ...light, ...read(css.slice(darkAt)) }
 const lum = (hex) => {
@@ -19,10 +20,14 @@ const pairs = [
   ['success', 'surface'], ['success', 'success-soft'], ['warning', 'surface'], ['warning', 'warning-soft'],
   ['error', 'surface'], ['error', 'error-soft'], ['info', 'surface'], ['info', 'info-soft'],
   ['on-disabled', 'disabled'], ['on-staff', 'staff'], ['staff-strong', 'surface'], ['staff-strong', 'bg'],
-  ['ink', 'staff-soft'],
+  ['ink', 'staff-soft'], ['staff', 'surface'], ['staff', 'bg'], ['staff-strong', 'staff-soft'],
+  // The panel's Orchard palette: secondary text, sunken surfaces, promos, badges on their soft fills.
+  ['ink-2', 'bg'], ['ink-2', 'surface'], ['muted', 'surface-2'], ['ink', 'surface-2'], ['ink', 'surface-3'],
+  ['promo', 'surface'], ['promo', 'promo-soft'], ['accent-strong', 'accent-soft'], ['ink', 'warning-soft'],
+  ['success', 'bg'], ['warning', 'bg'], ['error', 'bg'], ['info', 'bg'], ['on-accent', 'saffron'],
 ]
 // Non-text marks (focus ring, empty stars) need 3:1 (WCAG 1.4.11).
-const marks = [['focus', 'bg'], ['focus', 'surface'], ['star-empty', 'bg'], ['star-empty', 'surface']]
+const marks = [['focus', 'bg'], ['focus', 'surface'], ['star-empty', 'bg'], ['star-empty', 'surface'], ['staff', 'surface-2']]
 let bad = 0
 for (const [mode, t] of [['light', light], ['dark', dark]]) {
   for (const [fg, bg] of pairs) {

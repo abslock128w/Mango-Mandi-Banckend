@@ -6,7 +6,7 @@ import { confirmItsMe, mockApi } from './mock-api'
 // journey runs against a real, seeded mango-api (like the day-in-the-life spec)
 // and skips unless E2E_EMAIL / E2E_PASSWORD are set.
 
-const PHOTO = path.join(__dirname, '..', 'customer-app', 'tests', 'fixtures', 'mango.jpg')
+const PHOTO = path.join(__dirname, 'fixtures', 'mango.jpg')
 
 test('only managers get Bulk Deals', async ({ page }) => {
   await mockApi(page, { signedIn: true, role: 'OPERATOR' })

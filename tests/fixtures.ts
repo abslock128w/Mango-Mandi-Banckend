@@ -36,15 +36,16 @@ export { expect }
 
 type Page = import('@playwright/test').Page
 
-/** The main navigation. Its links are behind Menu on a phone and inside group dropdowns on a desktop. */
+/** The main navigation: the sidebar from 900px; the tab bar and the Menu sheet below that. */
 export const mainNav = (page: Page) => page.getByRole('navigation', { name: 'Main' })
 
 /** The main navigation even while it is hidden (behind the closed Menu on a phone). */
 const mainNavAnyState = (page: Page) => page.getByRole('navigation', { name: 'Main', includeHidden: true })
 
 /**
- * Opens whatever holds the nav link `name`: the Menu below 900px, or the link's group dropdown
- * on a desktop (a group with one link is a plain link and needs nothing). Returns the link.
+ * Opens whatever holds the nav link `name` and returns it. From 900px every link is in the sidebar,
+ * so nothing needs opening. Below 900px the role's main screens are in the bottom tab bar and the
+ * rest are behind Menu.
  */
 export async function openNavTo(page: Page, name: string) {
   const link = mainNav(page).getByRole('link', { name, exact: true })
@@ -53,15 +54,7 @@ export async function openNavTo(page: Page, name: string) {
   // which closes a menu opened a moment before. So open it again until the link shows.
   await expect(async () => {
     if (await link.isVisible()) return
-    if (await menu.isVisible()) {
-      if ((await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
-    } else {
-      const group = mainNav(page)
-        .locator('.nav-group')
-        .filter({ has: page.getByRole('link', { name, exact: true, includeHidden: true }) })
-      const button = group.locator('.nav-group-btn')
-      if ((await button.count()) && (await button.getAttribute('aria-expanded')) !== 'true') await button.click()
-    }
+    if ((await menu.isVisible()) && (await menu.getAttribute('aria-expanded')) !== 'true') await menu.click()
     await expect(link).toBeVisible({ timeout: 1000 })
   }).toPass({ timeout: 10_000 })
   return link
@@ -79,9 +72,12 @@ export async function screenLoaded(page: Page) {
   await expect(page.getByRole('status', { name: 'Loading' })).toHaveCount(0)
 }
 
-/** A nav link whether or not its menu is open: use for checks that a role never gets a screen. */
+/**
+ * A nav link whether or not its menu is open: use for checks that a role never gets a screen. Counted
+ * in the grouped list, which has every screen once (the phone tab bar repeats the main ones).
+ */
 export const navLinkAnyState = (page: Page, name: string) =>
-  mainNavAnyState(page).getByRole('link', { name, exact: true, includeHidden: true })
+  mainNavAnyState(page).locator('.nav-groups').getByRole('link', { name, exact: true, includeHidden: true })
 
 /** The account button in the top bar (named "<email> · <role>"); opens its menu. */
 export async function openAccount(page: Page) {

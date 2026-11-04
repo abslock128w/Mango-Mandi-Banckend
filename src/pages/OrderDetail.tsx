@@ -187,11 +187,27 @@ function OrderView({ order }: { order: Order }) {
   return (
     <>
       <BackLink to={back.to}>{back.label}</BackLink>
-      <div className="topbar">
+      <div className="detail-head">
         <h1>Order {order.number}</h1>
         <OrderBadge status={order.status} />
-        <span className="muted">Placed {dateTime(order.placedAt)}</span>
       </div>
+      <ul className="detail-meta">
+        <li>
+          <span className="muted">Placed {dateTime(order.placedAt)}</span>
+        </li>
+        <li>
+          Delivery <strong>{date(order.deliveryDate)}</strong>
+          {order.slot && <span>· {order.slot.label}</span>}
+        </li>
+        {order.customerName && (
+          <li>
+            For <strong>{order.customerName}</strong>
+          </li>
+        )}
+        <li>
+          Total <strong className="tnum">{rupees(order.total)}</strong>
+        </li>
+      </ul>
 
       {order.atRisk && (
         <div className="notice notice-warn" role="status">
@@ -239,7 +255,7 @@ function OrderView({ order }: { order: Order }) {
         </div>
       )}
 
-      <div className="card btn-row" aria-label="Order actions">
+      <div className="card btn-row action-bar" aria-label="Order actions">
         {ALLOCATABLE.includes(order.status) && (
           <button
             type="button"
@@ -296,7 +312,7 @@ function OrderView({ order }: { order: Order }) {
         )}
       </div>
 
-      <div className="grid-2">
+      <div className="grid-2 detail-cols">
         <div>
           <section className="card">
             <h2>Items</h2>

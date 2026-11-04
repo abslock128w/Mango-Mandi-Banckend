@@ -62,7 +62,7 @@ export const attentionQuery = { queryKey: ['attention'], queryFn: api.attention,
  * that failed or named an order we don't have. Hidden when all is well; a failed
  * load says so, with a retry.
  */
-export default function NeedsAttention() {
+export default function NeedsAttention({ whenClear = null }: { whenClear?: ReactNode } = {}) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const q = useQuery(attentionQuery)
@@ -441,7 +441,7 @@ export default function NeedsAttention() {
       </li>
     )) },
   ].filter((g) => g.items.length > 0)
-  if (groups.length === 0 && !loadError) return null
+  if (groups.length === 0 && !loadError) return <>{whenClear}</>
 
   return (
     <section className="card attention" aria-labelledby="attention-title">

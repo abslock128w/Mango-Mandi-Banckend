@@ -1,0 +1,108 @@
+/*
+ * Print: the pack list and the delivery manifest go to paper. Black on white, no shell, tables
+ * repeat their heading row on every page and a card or stop never splits across pages.
+ */
+@media print {
+  :root {
+    --text: #000;
+    --text-2: #000;
+    --text-muted: #333;
+    --bg: #fff;
+    --surface: #fff;
+    --surface-2: #fff;
+    --surface-3: #eee;
+    --border: #999;
+    --border-strong: #666;
+    color-scheme: light;
+  }
+  @page {
+    margin: 12mm;
+  }
+  html,
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+  }
+  .app {
+    display: block;
+  }
+  .app-header,
+  .sidebar,
+  .sheet-backdrop,
+  .skip-link,
+  .no-print,
+  .banner,
+  .toasts,
+  .back-link,
+  .crumbs,
+  .pack-bar {
+    display: none !important;
+  }
+  .print-only {
+    display: block;
+  }
+  th.print-only,
+  td.print-only {
+    display: table-cell;
+  }
+  main.content {
+    max-width: none;
+    padding: 0;
+  }
+  h1 {
+    font-size: 16pt;
+  }
+  .card {
+    border: 1px solid #999;
+    border-radius: 4px;
+    box-shadow: none;
+    padding: 8pt 10pt;
+    margin-bottom: 8pt;
+    break-inside: avoid;
+  }
+  .table-wrap {
+    border-color: #999;
+    border-radius: 0;
+    overflow: visible;
+  }
+  table {
+    font-size: 10pt;
+  }
+  thead {
+    display: table-header-group;
+  }
+  th {
+    position: static;
+    background: #fff !important;
+    color: #000;
+    border-bottom: 1.5px solid #000;
+  }
+  tr,
+  .stop,
+  .pack-order {
+    break-inside: avoid;
+  }
+  .badge {
+    background: none !important;
+    color: #000 !important;
+    border: 1px solid #000 !important;
+  }
+  .badge::before {
+    display: none !important;
+  }
+  .run-summary {
+    position: static;
+    box-shadow: none;
+    border: 0;
+    padding: 0;
+    backdrop-filter: none;
+  }
+  a {
+    color: #000;
+    text-decoration: none;
+  }
+  .table-cards tr {
+    box-shadow: none;
+  }
+}

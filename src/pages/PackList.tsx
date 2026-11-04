@@ -156,13 +156,18 @@ function PackCounter({ orders }: { orders: PackListOrder[] }) {
   const packed = orders.filter((o) => packState(o) === 'packed').length
   const left = orders.length - packed
   return (
-    <p className="pack-counter" role="status">
-      <strong>
-        {packed} of {orders.length} packed
-      </strong>
-      <span className="muted"> · </span>
-      {left === 0 ? <span className="text-good">All packed</span> : <span>{left} to pack</span>}
-    </p>
+    <div className="pack-progress">
+      <p className="pack-counter" role="status">
+        <strong>
+          {packed} of {orders.length} packed
+        </strong>
+        <span className="muted"> · </span>
+        {left === 0 ? <span className="text-good">All packed</span> : <span>{left} to pack</span>}
+      </p>
+      <span className="pack-bar" aria-hidden="true">
+        <span style={{ width: `${orders.length ? (packed / orders.length) * 100 : 0}%` }} />
+      </span>
+    </div>
   )
 }
 

@@ -1,0 +1,132 @@
+/*
+ * MangoKart design tokens (Tailwind v4, CSS-first). Palette "Orchard":
+ * saffron-to-blush mango skin for the brand, deep leaf teal for actions,
+ * warm cream surfaces and espresso ink. Layout, type scale and radii keep the
+ * quick-commerce conventions. Components use these utilities only; no hex
+ * values outside this file (and its mirror in styles/tokens.ts).
+ * Every text pairing is 4.5:1 or better.
+ */
+@theme {
+  /* Reset Tailwind's default palette so only brand tokens exist. */
+  --color-*: initial;
+
+  /* Brand: Alphonso saffron blushing to ripe-mango orange. */
+  --color-brand: #ffb627;
+  --color-blush: #ff8552;
+  --color-brand-soft: #fff0c7;
+  /* Actions: mango-leaf teal (ADD, steppers, primary buttons, links). */
+  --color-action: #0b6e5b;
+  --color-deep: #0a4a40;
+  --color-tint: #ecf7f2;
+  /* Ripeness: raw leaf, semi-ripe saffron, ripe orange. */
+  --color-ripe: #e8590c;
+  --color-ripe-soft: #fdeadf;
+  --color-semi: #f5a524;
+  --color-semi-soft: #fef3dc;
+  --color-raw: #7cb342;
+  --color-raw-soft: #eef6e3;
+  /* Warm neutrals. */
+  --color-ink: #2b1d12;
+  --color-muted: #6b5848;
+  --color-faint: #7a6656;
+  --color-line: #efe3d2;
+  --color-surface: #ffffff;
+  --color-canvas: #fff8ee;
+  --color-chip: #fbf1e3;
+  --color-disabled: #c4b5a5;
+  --color-disabled-ink: #7a6a5e;
+  --color-danger: #c81e3a;
+  --color-danger-soft: #fdebee;
+  /* Offers: burnt orange ribbon. */
+  --color-ribbon: #c2410c;
+  --color-ribbon-soft: #fdeee4;
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-scrim: rgb(43 29 18 / 0.55);
+  --color-success-ink: #ffffff;
+
+  /* Type */
+  --font-display: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --text-9: 9px;
+  --text-9--line-height: 12px;
+  --text-11: 11px;
+  --text-11--line-height: 15px;
+  --text-12: 12px;
+  --text-12--line-height: 16px;
+  --text-13: 13px;
+  --text-13--line-height: 18px;
+  --text-15: 15px;
+  --text-15--line-height: 20px;
+  --text-17: 17px;
+  --text-17--line-height: 22px;
+  --text-19: 19px;
+  --text-19--line-height: 24px;
+  --text-21: 21px;
+  --text-21--line-height: 26px;
+  --text-24: 24px;
+  --text-24--line-height: 30px;
+  --text-27: 27px;
+  --text-27--line-height: 33px;
+  --text-36: 36px;
+  --text-36--line-height: 42px;
+
+  /* Shape */
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-16: 16px;
+  --radius-full: 9999px;
+
+  --shadow-card: 2px 2px 10px rgba(120, 72, 20, 0.06);
+  --shadow-sheet: 0 -4px 24px rgba(80, 45, 10, 0.12);
+
+  /* Layout */
+  --container-content: 1200px;
+  --spacing-rail: 80px;
+  --spacing-header: 64px;
+
+  /* Breakpoints (360 first) */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+
+  /* Motion */
+  --ease-out-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-rise: rise 240ms ease-out both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+}
+
+:root {
+  --header-h: 143px;
+}
+@media (min-width: 1024px) {
+  :root {
+    --header-h: 87px;
+  }
+}

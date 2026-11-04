@@ -9,7 +9,7 @@ import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
 import { activeSlots, checkCapacity, earliestDeliveryDate, orderableDates, slotsForDate, slotView } from './delivery.js'
-import { env, isProd } from './env.js'
+import { demoOtpOnScreen, env, isProd } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError, unauthorized } from './errors.js'
 import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
@@ -167,8 +167,10 @@ async function issueCode(phone, channel, ip) {
   if (!env.PROVIDER_CHECKS) await store()
   const via = await sendOtp(phone, code, channel)
   if (env.PROVIDER_CHECKS) await store()
-  // SEC-01: never in production, and not when the shop is on a public link (start-local --phone).
-  return isProd || !env.OTP_CODE_IN_RESPONSE ? { sent: true, channel: via } : { sent: true, channel: via, devCode: code }
+  // SEC-01: never in production, and not when the shop is on a public link (start-local --phone),
+  // except on a demo preview that asked for codes on screen (DEMO_OTP_ON_SCREEN).
+  const show = demoOtpOnScreen() || (!isProd && env.OTP_CODE_IN_RESPONSE)
+  return show ? { sent: true, channel: via, devCode: code } : { sent: true, channel: via }
 }
 
 /** Checks a code inside a transaction. Returns an error to throw after commit (so wrong tries count), or null. */

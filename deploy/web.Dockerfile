@@ -1,4 +1,4 @@
-# Builds the customer shop and the staff panel, then serves both with Caddy.
+# Builds the staff panel and serves it with Caddy, which also fronts the shop and the API.
 FROM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
@@ -7,12 +7,8 @@ COPY . .
 ARG VITE_API_URL
 RUN test -n "$VITE_API_URL" || (echo "VITE_API_URL build arg is required" && exit 1)
 ENV VITE_API_URL=$VITE_API_URL
-# The shop's help WhatsApp number; the shop build stops with a clear message without it.
-ARG VITE_SUPPORT_WHATSAPP
-ENV VITE_SUPPORT_WHATSAPP=$VITE_SUPPORT_WHATSAPP
-RUN npm run build && npm run shop:build
+RUN npm run build
 
 FROM caddy:2.8-alpine
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /src/dist /srv/admin
-COPY --from=build /src/customer-app/dist /srv/shop

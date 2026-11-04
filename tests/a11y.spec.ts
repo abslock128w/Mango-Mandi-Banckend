@@ -87,15 +87,24 @@ test('the phone menu, open, has no WCAG A/AA violations', async ({ page }) => {
   await scan(page)
 })
 
-test('a desktop group dropdown and the account menu, open, have no WCAG A/AA violations', async ({ page }) => {
+test('the desktop sidebar and the account menu, open, have no WCAG A/AA violations', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await mockApi(page, { signedIn: true })
   await page.goto('/today')
-  await page.getByRole('button', { name: 'Fulfilment' }).click()
-  await expect(page.getByRole('link', { name: 'Pack list' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Pack list' })).toBeVisible()
   await scan(page)
   const account = await openAccount(page)
   await expect(account.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await scan(page)
+})
+
+test('the command palette, open, has no WCAG A/AA violations', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/today')
+  await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible()
+  await page.getByRole('button', { name: 'Search' }).click()
+  const palette = page.getByRole('dialog', { name: 'Search and jump to' })
+  await expect(palette.getByRole('option').first()).toBeVisible()
   await scan(page)
 })
 
@@ -223,7 +232,7 @@ test('Tab 1 is "Skip to content", and it moves focus to the page', async ({ page
   await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('main'))).toBe(true)
 })
 
-test('phone: Menu opens with focus inside, Escape closes it and returns focus', async ({ page }) => {
+test('phone: the tab bar has the main screens, Menu opens the rest with focus inside, Escape closes it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   await mockApi(page, { signedIn: true })
   await page.goto('/today')
@@ -233,57 +242,77 @@ test('phone: Menu opens with focus inside, Escape closes it and returns focus', 
 
   const menu = page.getByRole('button', { name: 'Menu' })
   const nav = page.getByRole('navigation', { name: 'Main' })
+  // The tab bar: the manager's four main screens, always in view at the bottom.
+  for (const name of ['Today', 'Orders', 'Pack list', 'Deliveries']) await expect(nav.getByRole('link', { name, exact: true })).toBeInViewport()
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
-  await expect(nav.getByRole('link', { name: 'Orders', exact: true })).toBeHidden()
-  await page.keyboard.press('Tab') // skip link
-  await page.keyboard.press('Tab') // Mango Ops
-  await page.keyboard.press('Tab')
-  await expect(menu).toBeFocused()
+  await expect(nav.getByRole('link', { name: 'Batches', exact: true })).toBeHidden()
+  await menu.focus()
   await page.keyboard.press('Enter')
   await expect(menu).toHaveAttribute('aria-expanded', 'true')
-  await expect(nav.getByRole('link', { name: 'Today' })).toBeFocused()
+  // The sheet starts with what the tab bar doesn't have.
+  await expect(nav.getByRole('link', { name: 'Batches', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(nav.getByRole('link', { name: 'Orders', exact: true })).toBeFocused()
+  await expect(nav.getByRole('link', { name: 'Planning', exact: true })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(menu).toBeFocused()
-  await expect(nav.getByRole('link', { name: 'Orders', exact: true })).toBeHidden()
+  await expect(nav.getByRole('link', { name: 'Batches', exact: true })).toBeHidden()
 
   // Choosing a link closes the menu and puts focus on the new page.
   await page.keyboard.press('Enter')
-  await page.keyboard.press('Tab')
   await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/orders$/)
+  await expect(page).toHaveURL(/\/batches$/)
   await expect(menu).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('main#main')).toBeFocused()
 })
 
-test('desktop: the groups sit on one row, open with focus inside and close on Escape', async ({ page }) => {
+test('desktop: the sidebar shows every group, and collapses to icons that keep their names', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   await mockApi(page, { signedIn: true })
   await page.goto('/today')
   await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible()
   const nav = page.getByRole('navigation', { name: 'Main' })
-  const buttons = ['Fulfilment', 'Stock', 'Customers', 'Admin'].map((name) => nav.getByRole('button', { name }))
-  const tops = await Promise.all([nav.getByRole('link', { name: 'Today' }), ...buttons].map(async (l) => (await l.boundingBox())!.y))
-  expect(new Set(tops.map(Math.round)).size).toBe(1)
   await expect(page.getByRole('button', { name: 'Menu' })).toBeHidden()
+  for (const name of ['Today', 'Orders', 'Batches', 'Claims', 'Staff']) await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
+  const batches = nav.getByRole('link', { name: 'Batches', exact: true })
+  const wide = (await batches.boundingBox())!.width
 
-  const stock = nav.getByRole('button', { name: 'Stock' })
-  await stock.focus()
+  await nav.getByRole('button', { name: 'Collapse sidebar' }).click()
+  await expect(batches).toBeVisible()
+  expect((await batches.boundingBox())!.width).toBeLessThan(wide / 2)
+  await expect(batches).toHaveAttribute('title', 'Batches')
+  // The choice is remembered.
+  await page.reload()
+  await expect(nav.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
+  await nav.getByRole('button', { name: 'Expand sidebar' }).click()
+  await expect(nav.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible()
+})
+
+test('Ctrl+K opens the command palette: arrow to a screen, or search orders for what was typed', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/today')
+  await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible()
+  await page.keyboard.press('Control+k')
+  const palette = page.getByRole('dialog', { name: 'Search and jump to' })
+  const box = palette.getByRole('combobox', { name: 'Search screens, orders, batches and pincodes' })
+  await expect(box).toBeFocused()
+  await box.fill('pack')
+  await expect(palette.getByRole('option', { name: /Pack list/ })).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('Enter')
-  await expect(stock).toHaveAttribute('aria-expanded', 'true')
-  await expect(nav.getByRole('link', { name: 'Batches' })).toBeFocused()
+  await expect(page).toHaveURL(/\/pack-list/)
+  await expect(palette).toHaveCount(0)
+
+  await page.keyboard.press('Control+k')
+  await box.fill('1042')
+  const search = palette.getByRole('option', { name: 'Search orders for “1042”' })
+  await expect(search).toBeVisible()
+  await search.click()
+  await expect(page).toHaveURL(/\/orders\?q=1042/)
+
+  // Escape closes it.
+  await page.keyboard.press('Control+k')
   await page.keyboard.press('Escape')
-  await expect(stock).toHaveAttribute('aria-expanded', 'false')
-  await expect(stock).toBeFocused()
-  await expect(nav.getByRole('link', { name: 'Batches' })).toBeHidden()
-
-  // Tabbing out of an open group closes it.
-  await page.keyboard.press('Enter')
-  for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
-  await expect(nav.getByRole('button', { name: 'Customers' })).toBeFocused()
-  await expect(stock).toHaveAttribute('aria-expanded', 'false')
+  await expect(palette).toHaveCount(0)
 })
 
 test('batch detail: QC and Ledger are real tabs with arrow keys', async ({ page }) => {

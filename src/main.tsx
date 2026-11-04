@@ -6,11 +6,14 @@ import { ApiError } from './api'
 import App from './App'
 import { ErrorBoundary, ToastProvider } from './ui'
 import { startErrorReports } from '../shared/error-reports/index.ts'
+import { applyTheme, readTheme } from './theme'
 import '../design/tokens.css'
 import './styles.css'
 
 // Browser errors to Sentry when the build has VITE_SENTRY_DSN (shared/error-reports).
 startErrorReports('panel')
+// The saved light/dark choice, before the first paint.
+applyTheme(readTheme())
 
 const queryClient = new QueryClient({
   defaultOptions: {

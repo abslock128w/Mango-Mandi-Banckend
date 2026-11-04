@@ -259,6 +259,11 @@ const schema = z.object({
   // Previews get their own first manager, so the production password is never in a preview.
   PREVIEW_ADMIN_EMAIL: z.string().email().optional(),
   PREVIEW_ADMIN_PASSWORD: z.string().min(12).optional(),
+  // Development only (scripts/start-local.mjs reads .local/manager-login.json): the one manager
+  // login to use on this computer, the same as the demo's. Set, it replaces the seeded test
+  // accounts; production never reads it.
+  LOCAL_MANAGER_EMAIL: z.string().email().optional(),
+  LOCAL_MANAGER_PASSWORD: z.string().min(12).optional(),
   SMS_PROVIDER: z.enum(['log', 'jio']).default('log'),
   // With SMS_PROVIDER=log, write login codes to the log. Off unless asked for: outside
   // production the API already returns the code as devCode; on a preview it is the only way in.
@@ -272,6 +277,13 @@ const schema = z.object({
   OTP_CODE_IN_RESPONSE: z
     .enum(['true', 'false'])
     .default('true')
+    .transform((v) => v === 'true'),
+  // A public demo with no SMS or WhatsApp account (a Vercel preview only): the login code comes
+  // back in the response and the shop shows it. Anyone could then sign in as any number, so the
+  // API refuses to start with it outside a preview (preflight).
+  DEMO_OTP_ON_SCREEN: z
+    .enum(['true', 'false'])
+    .default('false')
     .transform((v) => v === 'true'),
   // The pepper for stored login-code hashes. Unset: JWT_SECRET, as before. Setting it later keeps
   // codes already sent working (they are checked against both until they lapse in 5 minutes).
@@ -400,6 +412,8 @@ export const errorDetailsOn = () => !isProd && env.SHOW_ERROR_DETAILS
 export const devRoutesOn = () => !isProd && env.ENABLE_DEV_ROUTES && !env.RAZORPAY_KEY_ID && !env.RAZORPAY_KEY_SECRET
 /** Which deployment this is: Vercel's production or preview, else NODE_ENV. */
 export const deployEnv = process.env.VERCEL_ENV || env.NODE_ENV
+/** Codes on screen for a demo: only ever on a Vercel preview (DEMO_OTP_ON_SCREEN). */
+export const demoOtpOnScreen = () => env.DEMO_OTP_ON_SCREEN && deployEnv === 'preview'
 
 // Fail closed: without NODE_ENV=production the API runs its development
 // stand-ins (a fake payment gateway, login codes in the response, /v1/dev).

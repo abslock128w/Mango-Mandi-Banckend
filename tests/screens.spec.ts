@@ -524,8 +524,11 @@ test('Analytics: season tiles, weekly charts with hover detail, and the tables',
   await expect(page.getByText('9.5%')).toBeVisible()
   const bar = page.getByRole('group', { name: /Weekly boxes, 3 weeks, highest 52/ })
   await expect(bar).toBeVisible()
-  await page.getByLabel('Week of 12 Oct: 52 boxes, 30 orders, ₹46,800').first().hover()
-  await expect(page.locator('.tip').first()).toContainText('52 boxes')
+  // Hovering a week's bar shows that week's numbers (the drawing is hidden from screen readers; the table has them).
+  await bar.locator('.recharts-bar-rectangle').last().hover()
+  await expect(bar.locator('.tip')).toContainText('Week of 12 Oct')
+  await expect(bar.locator('.tip')).toContainText('52 boxes')
+  await expect(page.getByRole('group', { name: /Weekly sales, 3 weeks, highest ₹46,800/ })).toBeVisible()
   const weeks = page.getByRole('region', { name: 'Week by week' })
   await expect(weeks.getByRole('row', { name: /12 Oct/ })).toContainText('52')
   await expect(page.getByRole('region', { name: 'By product' }).getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('10%')

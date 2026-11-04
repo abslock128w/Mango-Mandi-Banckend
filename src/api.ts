@@ -90,7 +90,15 @@ import type {
   StockForecast,
 } from './types'
 
-export const API_URL: string = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
+const RAW_API_URL = (import.meta.env.VITE_API_URL ?? '').trim()
+/**
+ * The API's address; "" with VITE_API_URL=/ means this same origin (a demo whose panel and API
+ * are on different vercel.app names forwards /admin/v1 to the API, so Safari keeps the
+ * sign-in cookie, which it blocks as third-party otherwise).
+ */
+export const API_URL: string = RAW_API_URL.replace(/\/+$/, '')
+/** Whether the build was told where the API is at all (the panel shows a banner if not). */
+export const API_SET = RAW_API_URL !== ''
 const BASE = `${API_URL}/admin/v1`
 
 export const SIGNOUT_EVENT = 'admin:signout'
@@ -213,7 +221,7 @@ async function firstStep(path: string, body: unknown): Promise<SignInResult> {
 export const api = {
   /** Restores a session from the refresh cookie. Returns null if there is none. */
   async bootstrap(): Promise<Me | null> {
-    if (!API_URL) return null
+    if (!API_SET) return null
     if ((await refreshOnce()) !== 'ok') return null
     try {
       return await request<Me>('GET', '/auth/me')
@@ -236,7 +244,7 @@ export const api = {
 
   /** Whether "Sign in with Google" is set up. */
   async authConfig(): Promise<{ googleClientId: string | null }> {
-    if (!API_URL) return { googleClientId: null }
+    if (!API_SET) return { googleClientId: null }
     const res = await fetch(`${BASE}/auth/config`)
     if (!res.ok) return { googleClientId: null }
     return (await res.json()) as { googleClientId: string | null }

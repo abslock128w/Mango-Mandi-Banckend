@@ -24,6 +24,29 @@ export function rupees(paise: number | null | undefined): string {
 }
 
 
+const rupeeCompact = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', notation: 'compact', maximumFractionDigits: 1 })
+const rupeeWhole = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
+const countFmt = new Intl.NumberFormat('en-IN')
+
+/** Paise → "₹4.7L" / "₹1.2Cr": Indian compact money for KPI cards and chart axes. */
+export function rupeesCompact(paise: number | null | undefined): string {
+  if (paise === null || paise === undefined) return '—'
+  return rupeeCompact.format(paise / 100)
+}
+
+/** Paise → "₹46,800": whole rupees, Indian grouping. */
+export function rupeesWhole(paise: number | null | undefined): string {
+  if (paise === null || paise === undefined) return '—'
+  return rupeeWhole.format(Math.round(paise / 100))
+}
+
+/** 1234567 → "12,34,567" (Indian grouping). */
+export function count(n: number | null | undefined): string {
+  if (n === null || n === undefined) return '—'
+  return countFmt.format(n)
+}
+
+
 const IST = 'Asia/Kolkata'
 
 const dateFmt = new Intl.DateTimeFormat('en-IN', {

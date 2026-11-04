@@ -1,56 +1,47 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig, devices } from "@playwright/test";
 
-// Runs the customer app against a real, seeded mango-api in development mode
-// (it needs the API's test login codes and test payments). Point at it with
-// VITE_API_URL. Locally the specs skip when the API isn't reachable; in CI
-// (CI=true) they fail instead. SHOP_PORT and PANEL_PORT move the dev servers off 5174 and 5173.
-
-const port = Number(process.env.SHOP_PORT ?? 5174)
-const panelPort = Number(process.env.PANEL_PORT ?? 5173)
-
-// NFR-15: Safari on an iPhone (WebKit). Only with PW_WEBKIT=1, which CI sets after
-// `npx playwright install --with-deps webkit`; without it the run is Chromium only, as before.
-const webkit = process.env.PW_WEBKIT === '1'
+// The journey runs against a real mango-api (start-local, or CI's e2e job). The API accepts
+// the shop from CUSTOMER_ORIGIN (http://localhost:5174) and has test payments on /v1/dev,
+// which only `next dev` uses.
+const PORT = Number(process.env.E2E_PORT ?? 5174);
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 
 export default defineConfig({
-  testDir: './tests',
-  fullyParallel: false,
-  forbidOnly: !!process.env.CI,
-  retries: 0,
-  reporter: process.env.CI ? [['list'], ['html', { open: 'never', outputFolder: '../playwright-report-shop' }]] : 'list',
-  outputDir: '../test-results-shop',
+  testDir: "e2e",
+  timeout: 90_000,
+  expect: { timeout: 10_000 },
+  retries: process.env.CI ? 1 : 0,
+  reporter: [["list"], ["html", { open: "never", outputFolder: "../playwright-report-shop" }]],
+  outputDir: "../test-results-shop",
+  // Each spec signs in its own customer; one at a time keeps the one-unpaid-order rule simple.
+  workers: 1,
   use: {
-    baseURL: `http://localhost:${port}`,
-    trace: 'retain-on-failure',
-    launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
+    baseURL: `http://localhost:${PORT}`,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    // Optional: point at any Chromium build (e.g. CHROME_PATH=/Applications/Brave Browser.app/...).
+    launchOptions: process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
   },
   projects: [
-    { name: 'phone', use: { ...devices['Pixel 5'], viewport: { width: 390, height: 844 } } },
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
-    // Its own launch options: PW_CHROMIUM_PATH is a Chromium binary. In WebKit, page.route never
-    // sees requests from a page the shop's service worker controls, so the worker is blocked here;
-    // app-feel.spec.ts, which tests the worker itself, allows it again.
-    // WebKit on a CI runner takes about 2.5 times as long as Chromium for the same journey, so it gets 60s.
-    ...(webkit ? [{ name: 'iphone', timeout: 60_000, use: { ...devices['iPhone 13'], launchOptions: {}, serviceWorkers: 'block' as const } }] : []),
-  ],
-  webServer: [
     {
-      command: `npm run shop:dev -- --port ${port} --strictPort`,
-      cwd: '..',
-      url: `http://localhost:${port}`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-      // A made-up help number for the tests (UX-1); the real shop's comes from its build settings.
-      env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000', VITE_SUPPORT_WHATSAPP: process.env.VITE_SUPPORT_WHATSAPP ?? '910000000000' },
+      name: "mobile",
+      use: {
+        browserName: "chromium",
+        viewport: { width: 360, height: 780 },
+        deviceScaleFactor: 2,
+        isMobile: true,
+        hasTouch: true,
+      },
     },
-    // The staff panel, for the reviews journey (a manager publishes the review).
-    {
-      command: `npm run dev -- --port ${panelPort} --strictPort`,
-      cwd: '..',
-      url: `http://localhost:${panelPort}`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-      env: { VITE_API_URL: process.env.VITE_API_URL ?? 'http://localhost:3000' },
-    },
+    { name: "desktop", use: { browserName: "chromium", viewport: { width: 1280, height: 800 } } },
+    // NFR-15: Safari on an iPhone, run on its own in CI (PW_WEBKIT=1 --project=iphone).
+    ...(process.env.PW_WEBKIT ? [{ name: "iphone", use: { ...devices["iPhone 13"] } }] : []),
   ],
-})
+  webServer: {
+    command: `npx next dev --port ${PORT}`,
+    env: { NEXT_PUBLIC_API_URL: API },
+    url: `http://localhost:${PORT}`,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
+});
