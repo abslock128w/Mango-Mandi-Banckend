@@ -16,7 +16,9 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 /* Header, search. */
 [data-theme="dark"] .desktop-nav a{color:#c9bfa3}
 [data-theme="dark"] .desktop-nav a:hover,[data-theme="dark"] .desktop-nav .active{color:#ffc93c}
-[data-theme="dark"] .brand img{border-radius:10px}
+/* The logo: the supplied artwork has a cream background and dark green letters that vanish on black, so dark mode
+   shows assets/brand-dark.webp, the same artwork with its background removed and the letters in cream. */
+.brand .brand-dark{display:none}[data-theme="dark"] .brand .brand-light{display:none}[data-theme="dark"] .brand .brand-dark{display:block;mix-blend-mode:normal}
 [data-theme="dark"] .search.liquid{border-color:#ffffff1f}
 [data-theme="dark"] .search input{color:var(--ink)}
 [data-theme="dark"] .search input::placeholder,[data-theme="dark"] .search kbd{color:#8f876f}
