@@ -79,5 +79,6 @@ window.MM={
   deleteAddress:id=>auth(`/me/addresses/${enc(id)}`,'DELETE'),
   updateMe:body=>auth('/me','PATCH',body),
   deliveryPhoto:id=>authBlob(`/orders/${enc(id)}/delivery-photo`),
+  invoice:id=>authBlob(`/orders/${enc(id)}/bill`),
 };
 })();

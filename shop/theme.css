@@ -96,3 +96,4 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .map-frame,[data-theme="dark"] .track-map,[data-theme="dark"] .leaflet-container{background:#22201a}
 [data-theme="dark"] .leaflet-tile-pane{filter:brightness(.78) contrast(1.05) saturate(.85)}
 [data-theme="dark"] .tracker li.missed .tracker-dot{background:#e5937a}
+[data-theme="dark"] .ticker-row span{color:#ffd766}[data-theme="dark"] .ticker-row svg{color:#b8c495}

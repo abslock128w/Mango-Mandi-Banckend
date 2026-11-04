@@ -54,7 +54,7 @@ moves the map onto their door; the spot becomes an address and pincode through N
 the Search button only, as Nominatim's usage policy requires (no search-as-you-type, at most one
 request a second). A typed or saved address is never overwritten by the map; the map offers its
 address instead. The API stores the address as text only, so the pin travels in the text as a
-` · Pin: lat,lng` suffix: riders and staff see the exact spot, saved addresses bring the pin back,
+` · Location: lat,lng` suffix (the bill leaves it out): riders and staff see the exact spot, saved addresses bring the pin back,
 and the order page reads it to show its map.
 
 `/orders/:id` is the tracking page: a status headline (with the rider's first name and the rough
@@ -65,6 +65,20 @@ the boxes with their best-by dates, and pay, cancel and WhatsApp help. It refres
 
 On phones and touch screens the sheets are solid and nothing is blurred behind them, and the
 glass skips edge refraction: blur over blur redrawn while a sheet animated in made phones flicker.
+
+### Order numbers and invoices
+
+New orders are numbered with 10 digits and shown as `#7434060801` (mango-api `orders.js`: the
+order sequence scrambled by a factor coprime with 9e9, so numbers are unique and gapless underneath
+but don't reveal order volume; `restore.js` turns them back into the sequence). Older orders keep
+`ORD-1024`. The shop and the panel add the `#`; the panel and chat search accept it.
+
+The invoice is the API's numbered bill (`GET /v1/orders/:id/bill`, PDF; feature switch
+`BILLS_ENABLED`). The shop offers "Download invoice" on the payment-success step and on the order
+page; managers and operators download it from the order in the panel (Bill card). Since migration
+`056_payment_details` the order keeps the Razorpay payment's details (`payment_details`: method,
+payment ID, UPI reference number (RRN), masked UPI ID, card network and last four, bank or wallet,
+time), the bill prints them under the total, and the order page shows them.
 
 ## Theme and type
 

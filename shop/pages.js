@@ -162,6 +162,23 @@ function tracker(o) {
   }).join('')}</ol>`
 }
 
+const PAY_METHODS = { upi: 'UPI', card: 'Card', netbanking: 'Net banking', wallet: 'Wallet', emi: 'EMI', paylater: 'Pay later', demo: 'Test payment' }
+
+/** How the order was paid, with the references a bank or UPI app shows (the invoice prints the same). */
+function paymentBlock(o) {
+  const p = o.payment
+  if (!p) return ''
+  const how = [PAY_METHODS[p.method] || p.method || 'Online', p.vpa, p.card, p.bank, p.wallet].filter(Boolean).map(esc).join(' · ')
+  const rows = [
+    ['Paid by', how],
+    p.upiRef && ['UPI ref no.', esc(p.upiRef)],
+    p.bankRef && ['Bank ref', esc(p.bankRef)],
+    p.paymentId && [`${esc(p.gateway || 'Razorpay')} payment ID`, esc(p.paymentId)],
+    p.paidAt && ['Paid on', when(p.paidAt)],
+  ].filter(Boolean)
+  return `<dl class="pay-facts">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
+}
+
 async function trackView(id, quiet = false, seq = ++sheetSeq) {
   if (!quiet) {
     lastTrack = ''
@@ -191,7 +208,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
   const canCancel = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'].includes(o.status)
   const pin = addressPin(o.deliveryAddress)
   const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim()
-  host().innerHTML = head(`Order ${esc(o.number)}`) + marker(seq) + `
+  host().innerHTML = head(`Order ${esc(orderNo(o.number))}`) + marker(seq) + `
     <section class="page-card track-hero status-${esc(o.status.toLowerCase())}">
       <h2>${title}</h2><p>${sub}</p>
       ${tracker(o)}
@@ -213,10 +230,12 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       ${o.discount ? `<div class="subtotal"><span>Discount</span><strong>−${currency(o.discount)}</strong></div>` : ''}
       <div class="subtotal"><span>Total</span><strong>${currency(o.total)}</strong></div>
       <p class="cart-disclaimer">Placed ${when(o.placedAt)} · Prices include GST.</p>
+      ${paymentBlock(o)}
     </section>
     <section class="page-card page-actions">
-      ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${o.number}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
-      ${canCancel ? `<button class="button secondary" data-cancel-order="${esc(o.id)}" data-number="${esc(o.number)}">Cancel order</button>` : ''}
+      ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${orderNo(o.number)}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
+      ${o.bill ? `<button class="button primary" data-invoice="${esc(o.id)}" data-number="${esc(o.number)}">Download invoice ${icon('arrow')}</button>` : ''}
+      ${canCancel ? `<button class="button secondary" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">Cancel order</button>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`
   if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})

@@ -1194,6 +1194,8 @@ router.get(
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       tracking,
+      // How it was paid (the bill prints the same): method, Razorpay payment id, UPI reference, masked UPI ID or card.
+      payment: o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED' ? { ...(o.payment_details ?? {}), paymentId: o.payment_details?.paymentId ?? o.payment_id ?? null, method: o.payment_details?.method ?? o.payment_method ?? null } : null,
       ...proof,
     })
   }),
@@ -1493,7 +1495,7 @@ router.post(
     if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
     const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
     const o = await ownOrder({ query }, req)
-    const r = await tx((c) => processPayment(c, { orderId: o.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo' }))
+    const r = await tx((c) => processPayment(c, { orderId: o.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo', details: { gateway: 'Test mode', method: 'demo', paidAt: now().toISOString() } }))
     await sendDueRefunds(refundsFor({ ...r, orderId: o.id }))
     res.json({ result: r.result })
   }),

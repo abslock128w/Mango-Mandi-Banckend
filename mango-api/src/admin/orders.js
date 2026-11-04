@@ -1,4 +1,5 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { auditInTx, isPacker, redactForPacker } from '../access.js'
@@ -63,7 +64,9 @@ router.get(
     if (f.unpacked) where.push("o.status IN ('CONFIRMED', 'PROCESSING')")
     if (f.olderThanMinutes) add('o.placed_at < ?', new Date(now().getTime() - f.olderThanMinutes * 60_000))
     if (f.q) {
-      params.push(`${likeEscape(f.q)}%`, `%${likeEscape(f.q)}%`)
+      // "#7434060801" as the shop shows it.
+      const q = f.q.replace(/^#(?=\d)/, '')
+      params.push(`${likeEscape(q)}%`, `%${likeEscape(q)}%`)
       // ADM-1: callers give a name or an area as often as a number.
       const [starts, has] = [`$${params.length - 1}`, `$${params.length}`]
       where.push(`(o.number ILIKE ${starts} OR o.phone ILIKE ${has} OR o.customer_name ILIKE ${has} OR o.delivery_address ILIKE ${has} OR o.gift_recipient_name ILIKE ${has})`)
@@ -72,7 +75,7 @@ router.get(
     const total = (await query(`SELECT COUNT(*)::int AS n FROM orders o ${w}`, params)).rows[0].n
     const { rows } = await query(
       `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count
-         FROM orders o ${w} ORDER BY o.placed_at DESC, o.number DESC LIMIT ${PAGE_SIZE} OFFSET ${(f.page - 1) * PAGE_SIZE}`,
+         FROM orders o ${w} ORDER BY o.placed_at DESC, ${orderSeqSql('o.number')} DESC LIMIT ${PAGE_SIZE} OFFSET ${(f.page - 1) * PAGE_SIZE}`,
       params,
     )
     res.json({
@@ -373,7 +376,7 @@ router.get(
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id
         WHERE o.delivery_date = $1 AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
-        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, o.number`,
+        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, ${orderSeqSql('o.number')}`,
       [date],
     )
     const ids = orders.map((o) => o.id)
