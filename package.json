@@ -19,7 +19,7 @@
     "shop:build": "node shop/build-config.mjs",
     "shop:preview": "node scripts/serve-shop.mjs --port 5174",
     "shop:install": "echo \"the shop (shop/) has no packages\"",
-    "shop:test": "node --check shop/theme.js && node --check shop/catalog.js && node --check shop/shelf.js && node --check shop/map-picker.js && node --check shop/location.js && node --check shop/pages.js && node --check shop/app.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js && node --check shop/liquid.js"
+    "shop:test": "node --check shop/theme.js && node --check shop/catalog.js && node --check shop/shelf.js && node --check shop/map-picker.js && node --check shop/location.js && node --check shop/pages.js && node --check shop/app.js && node --check shop/review.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js && node --check shop/liquid.js"
   },
   "dependencies": {
     "@sentry/browser": "11.7.0",

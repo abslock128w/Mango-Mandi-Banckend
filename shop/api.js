@@ -68,6 +68,7 @@ window.MM={
   paymentStatus:id=>auth(`/orders/${enc(id)}/payment-status`),
   demoPay:(id,outcome)=>auth(`/orders/${enc(id)}/demo-pay`,'POST',{outcome}),
   orders:()=>auth('/orders'),
+  rateOrder:(id,body)=>auth(`/orders/${enc(id)}/rating`,'PUT',body),
   order:id=>auth(`/orders/${enc(id)}`),
   cancelOrder:id=>auth(`/orders/${enc(id)}/cancel`,'POST'),
   preorderWeeks:sku=>raw('/preorders/weeks'+qs({sku})),

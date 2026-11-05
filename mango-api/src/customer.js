@@ -1126,12 +1126,20 @@ router.get(
   '/orders',
   asyncHandler(async (req, res) => {
     const { rows } = await query(
-      `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count
+      `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count,
+              EXISTS (SELECT 1 FROM order_ratings r WHERE r.order_id = o.id) AS rated,
+              EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id) AS has_bill,
+              (SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'DELIVERED') AS delivered_at
          FROM orders o WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT 100`,
       [req.customer.id],
     )
+    const bills = isOn('BILLS_ENABLED')
     res.json(rows.map((o) => ({
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at,
+      // The shop's orders list offers the invoice (BILLS_ENABLED), and its review pop-up asks about a delivered order not yet rated.
+      hasBill: bills && o.has_bill,
+      rated: o.rated,
+      deliveredAt: o.status === 'DELIVERED' ? o.delivered_at : null,
       // Lets the shop point to an unpaid order that is still held (FE-5).
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
       // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
@@ -1149,7 +1157,7 @@ router.get(
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
       customerDelivery({ query }, o),
-      query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [o.id]),
+      query('SELECT stars, comment, packaging, condition, sweetness, updated_at FROM order_ratings WHERE order_id = $1', [o.id]),
       o.status === 'CANCELLED'
         ? query(`SELECT reason, created_at FROM order_events WHERE order_id = $1 AND status = 'CANCELLED' ORDER BY created_at DESC, id DESC LIMIT 1`, [o.id])
         : { rows: [] },
@@ -1166,7 +1174,7 @@ router.get(
     const claimWindowHours = getConfig().claimWindowHours
     const deliveredAt = delivered.rows[0]?.at ?? null
     res.json({
-      rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
+      rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
       deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
@@ -1296,17 +1304,37 @@ router.post(
   }),
 )
 
-/** Stars (1 to 5) and an optional note on a delivered order. Can be changed later. */
+/**
+ * How a delivered order went: stars (1 to 5) and an optional note, and from the shop's review
+ * pop-up the packaging, the condition on arrival and the sweetness (each 1 to 5). Stars may be
+ * left out when any of the three is given: they are then the three's average, rounded.
+ * Can be changed later.
+ */
+const SCORE = z.number().int().min(1).max(5)
 router.put(
   '/orders/:id/rating',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ stars: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional().nullable() }), req.body)
+    const b = parse(
+      z
+        .object({
+          stars: SCORE.optional(),
+          packaging: SCORE.optional().nullable(),
+          condition: SCORE.optional().nullable(),
+          sweetness: SCORE.optional().nullable(),
+          comment: z.string().trim().max(500).optional().nullable(),
+        })
+        .refine((v) => v.stars != null || v.packaging != null || v.condition != null || v.sweetness != null, { message: 'Give a rating from 1 to 5', path: ['stars'] }),
+      req.body,
+    )
     const o = await ownOrder({ query }, req)
     if (o.status !== 'DELIVERED') throw badRequest('You can rate an order once it is delivered', 'NOT_DELIVERED')
+    const given = [b.packaging, b.condition, b.sweetness].filter((n) => n != null)
+    const stars = b.stars ?? Math.round(given.reduce((a, n) => a + n, 0) / given.length)
     await query(
-      `INSERT INTO order_ratings (order_id, customer_id, stars, comment, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)
-       ON CONFLICT (order_id) DO UPDATE SET stars = EXCLUDED.stars, comment = EXCLUDED.comment, updated_at = EXCLUDED.updated_at`,
-      [o.id, req.customer.id, b.stars, b.comment || null, now()],
+      `INSERT INTO order_ratings (order_id, customer_id, stars, comment, packaging, condition, sweetness, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+       ON CONFLICT (order_id) DO UPDATE SET stars = EXCLUDED.stars, comment = EXCLUDED.comment, packaging = EXCLUDED.packaging,
+         condition = EXCLUDED.condition, sweetness = EXCLUDED.sweetness, updated_at = EXCLUDED.updated_at`,
+      [o.id, req.customer.id, stars, b.comment || null, b.packaging ?? null, b.condition ?? null, b.sweetness ?? null, now()],
     )
     res.status(204).end()
   }),

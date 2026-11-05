@@ -262,6 +262,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
     <section class="page-card page-actions">
       ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${orderNo(o.number)}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
       ${o.bill ? `<button class="button primary" data-invoice="${esc(o.id)}" data-number="${esc(o.number)}">Download invoice ${icon('arrow')}</button>` : ''}
+      ${o.status === 'DELIVERED' ? `<button class="button secondary" data-review="${esc(o.id)}">${o.rating ? 'Edit your review' : 'Rate this order'}</button>` : ''}
       ${canCancel ? `<button class="button secondary" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">Cancel order</button>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`

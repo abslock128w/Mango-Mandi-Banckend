@@ -114,7 +114,7 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM order_events WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
-    c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
+    c.query('SELECT stars, comment, packaging, condition, sweetness, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
     isOn('BILLS_ENABLED') ? billFor(c, orderId) : null,
     c.query(
       `SELECT id, step, attempt, lat, lng, accuracy, taken_at, created_at, taken_by, verdict, check_passed, needs_review, checked_at, removed_at
@@ -124,7 +124,7 @@ export async function orderDetail(c, orderId) {
   ])
   const r = rating.rows[0]
   return {
-    rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
+    rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     // The account behind the order, for the customer profile (CUSTOMER_PROFILES_ENABLED).
     customerId: o.customer_id,

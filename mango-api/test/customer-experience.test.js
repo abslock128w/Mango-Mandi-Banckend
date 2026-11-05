@@ -160,6 +160,18 @@ describe('ratings', () => {
     const staff = (await api.get(`/admin/v1/orders/${b.body.orderId}`, { token: admin })).body
     assert.equal(staff.rating.stars, 1)
 
+    // The shop's review pop-up: packaging, condition and sweetness; stars are their average when left out.
+    assert.equal((await put(a.body.orderId, {})).status, 400)
+    assert.equal((await put(a.body.orderId, { packaging: 0, condition: 5, sweetness: 5 })).status, 400)
+    assert.equal((await put(a.body.orderId, { packaging: 5, condition: 4, sweetness: 5, comment: 'Sweet, one soft spot' })).status, 204)
+    const aspects = (await api.get(`/v1/orders/${a.body.orderId}`, { token: cust.accessToken })).body.rating
+    assert.deepEqual([aspects.stars, aspects.packaging, aspects.condition, aspects.sweetness, aspects.comment], [5, 5, 4, 5, 'Sweet, one soft spot'])
+    const staffA = (await api.get(`/admin/v1/orders/${a.body.orderId}`, { token: admin })).body.rating
+    assert.deepEqual([staffA.packaging, staffA.condition, staffA.sweetness], [5, 4, 5])
+    // The orders list says which delivered orders are rated, so the pop-up asks once.
+    const list = (await api.get('/v1/orders', { token: cust.accessToken })).body
+    assert.deepEqual(list.map((o) => [o.status, o.rated]), [['DELIVERED', true], ['DELIVERED', true]])
+
     const day = a.body.deliveryDate
     const stats = (await api.get(`/admin/v1/analytics?from=${day}&to=${day}`, { token: admin })).body
     assert.equal(stats.totals.ratings, 2)
