@@ -34,7 +34,7 @@ import { cancelAlert, createAlert, listAlerts } from './engagement.js'
 import { readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
 import { billFor, billView } from './bills.js'
-import { customerBills } from './bill-routes.js'
+import { customerBills, linkedBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
 import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
@@ -482,6 +482,8 @@ router.use(cartBulk)
 router.use(customerReviews)
 // The bill PDF of the customer's own paid order (BILLS_ENABLED).
 router.use(customerBills)
+// No sign-in: the signed invoice link sent on WhatsApp (bill-link.js).
+router.use(linkedBills)
 // Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
 router.use(appFeel)
 // /me/referral...: refer a friend (REFERRALS, docs/growth.md).

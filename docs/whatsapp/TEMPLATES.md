@@ -11,6 +11,7 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | Kind | Template | Category | Variables | Button |
 |------|----------|----------|-----------|--------|
 | ORDER_CONFIRMED | `mandi_order_confirmed` | UTILITY | 4 | Open order |
+| ORDER_CONFIRMED (with the invoice) | `mandi_order_confirmed_invoice` | UTILITY | 4 | Track order, Download invoice |
 | REPLACEMENT_CONFIRMED | `mandi_replacement_confirmed` | UTILITY | 4 | Open order |
 | RIPENESS_GUIDE | `mandi_ripeness_guide` | UTILITY | 4 | — |
 | DATE_MOVED | `mandi_date_moved` | UTILITY | 4 | Open order |
@@ -51,6 +52,17 @@ The wording is a suggestion for the submission. Keep the variables, their order 
   4. slot (example: 7 AM to 11 AM)
 
 Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}.
+
+### ORDER_CONFIRMED with the invoice
+
+- Template: `mandi_order_confirmed_invoice`, category UTILITY, the same 4 variables in the same order
+- Sent in place of `mandi_order_confirmed` when the order has a bill (`BILLS_ENABLED`) and `WHATSAPP_ORDER_INVOICE=true`. One message: the confirmation, a button to track the order and a button to the invoice. The PDF itself is not attached.
+- Buttons, in this order (the order matters: the API fills them by position):
+  1. URL button "Track order", `https://<shop>/orders/{{1}}` (the order id; example: ord_3f9c2a7b1d4e5f60a1b2)
+  2. URL button "Download invoice", `https://<api>/v1/invoice/{{1}}` (a signed link that opens the invoice PDF without a sign-in for 180 days; example: ord_3f9c2a7b1d4e5f60a1b2.t9x2k1.Zk3mQ0aB7cD9eF1gH2iJ4kL6mN8oP0qR)
+- Until Meta approves it, and for an order without a bill, `mandi_order_confirmed` is sent as before. After a template sync, a template that is missing, not approved or without its buttons is not used.
+
+Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}. Your invoice is ready.
 
 ## REPLACEMENT_CONFIRMED
 

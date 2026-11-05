@@ -128,6 +128,7 @@
   "GET /v1/gifts/:id": "customer",
   "GET /v1/gifts/:id/bill": "customer",
   "GET /v1/gifts/template.csv": "customer",
+  "GET /v1/invoice/:link": "public",
   "GET /v1/me": "customer",
   "GET /v1/me/addresses": "customer",
   "GET /v1/me/export": "customer",

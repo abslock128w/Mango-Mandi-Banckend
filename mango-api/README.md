@@ -111,6 +111,15 @@ button (a button variable sent to a template without one is refused by Meta). Th
 recipient's copy of `mandi_out_for_delivery` carries the button too; the order page asks them to
 sign in as the buyer.
 
+**Confirmation with the invoice.** `mandi_order_confirmed_invoice` is one message with the
+confirmation and two dynamic URL buttons, in this order: "Track order",
+`https://<shop>/orders/{{1}}` (the order id), and "Download invoice",
+`https://<api>/v1/invoice/{{1}}` (a signed link, `src/bill-link.js`, that opens the bill's PDF
+without a sign-in for 180 days; the PDF is not attached to the message). It replaces
+`mandi_order_confirmed` for an order that has a bill (`BILLS_ENABLED`) once
+`WHATSAPP_ORDER_INVOICE=true`; set that only after Meta approves the template. Orders without
+a bill, and every order until then, get `mandi_order_confirmed` as before.
+
 Suggested wording for the two new templates (the owner words the final text in WhatsApp
 Manager): "Hi {{1}}, we have your report about order {{2}}. We will look at it and reply here
 within a day." and "Hi {{1}}, we looked into your report about order {{2}} and could not offer

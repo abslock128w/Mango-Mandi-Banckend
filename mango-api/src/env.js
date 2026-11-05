@@ -79,6 +79,13 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // The order confirmation with two URL buttons, "Track order" and "Download invoice"
+  // (<prefix>order_confirmed_invoice), sent in place of the plain confirmation when the order has
+  // a bill (BILLS_ENABLED). Turn on only once Meta has approved that template (docs/whatsapp/TEMPLATES.md).
+  WHATSAPP_ORDER_INVOICE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The Warehouse area (boxes, labels, scanning: docs/warehouse/). Off: its routes answer 404 and the panel hides it.
   WAREHOUSE_V2: z
     .enum(['true', 'false'])

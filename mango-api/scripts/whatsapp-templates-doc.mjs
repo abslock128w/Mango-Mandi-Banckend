@@ -18,6 +18,9 @@ const PREFIX = 'mandi_'
 const SUMMARY_TEMPLATE = 'mandimangoes_daily_summary'
 const nameOf = (a) => (a.kind === 'MANAGER_DAILY_SUMMARY' ? SUMMARY_TEMPLATE : `${PREFIX}${(a.template ?? a.kind).toLowerCase()}`)
 
+/** The confirmation's second template, with the invoice button (registry `invoice`). */
+const INVOICE_BODY = 'Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}. Your invoice is ready.'
+
 /** Suggested body text. {{n}} are the variables in the registry's order. Utility wording carries no offer. */
 const BODY = {
   ORDER_CONFIRMED: 'Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}.',
@@ -76,6 +79,7 @@ export function render() {
   ]
   for (const a of AUTOMATIONS) {
     out.push(`| ${a.kind} | \`${nameOf(a)}\` | ${a.category} | ${a.params.length} | ${a.button ? (BUTTON_SHORT[a.button] ?? 'Open order') : '—'} |`)
+    if (a.invoice) out.push(`| ${a.kind} (with the invoice) | \`${PREFIX}${a.invoice.template.toLowerCase()}\` | ${a.category} | ${a.params.length} | Track order, Download invoice |`)
   }
   out.push(`| LOGIN_CODE | \`${PREFIX}login_code\` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |`, '')
   for (const a of AUTOMATIONS) {
@@ -91,6 +95,16 @@ export function render() {
     out.push('- Variables:')
     a.params.forEach((p, i) => out.push(`  ${i + 1}. ${p} (example: ${a.example[i] ?? '—'})`))
     out.push('', `Suggested wording: ${BODY[a.kind] ?? '(write it in WhatsApp Manager)'}`, '')
+    if (a.invoice) {
+      out.push(`### ${a.kind} with the invoice`, '')
+      out.push(`- Template: \`${PREFIX}${a.invoice.template.toLowerCase()}\`, category ${a.category}, the same ${a.params.length} variables in the same order`)
+      out.push(`- Sent in place of \`${nameOf(a)}\` when the order has a bill (\`BILLS_ENABLED\`) and \`${a.invoice.flag}=true\`. One message: the confirmation, a button to track the order and a button to the invoice. The PDF itself is not attached.`)
+      out.push('- Buttons, in this order (the order matters: the API fills them by position):')
+      out.push('  1. URL button "Track order", `https://<shop>/orders/{{1}}` (the order id; example: ord_3f9c2a7b1d4e5f60a1b2)')
+      out.push('  2. URL button "Download invoice", `https://<api>/v1/invoice/{{1}}` (a signed link that opens the invoice PDF without a sign-in for 180 days; example: ord_3f9c2a7b1d4e5f60a1b2.t9x2k1.Zk3mQ0aB7cD9eF1gH2iJ4kL6mN8oP0qR)')
+      out.push(`- Until Meta approves it, and for an order without a bill, \`${nameOf(a)}\` is sent as before. After a template sync, a template that is missing, not approved or without its buttons is not used.`)
+      out.push('', `Suggested wording: ${INVOICE_BODY}`, '')
+    }
   }
   out.push('## LOGIN_CODE', '')
   out.push(`- Template: \`${PREFIX}login_code\`, category AUTHENTICATION, Meta's fixed authentication wording with a copy-code button`)

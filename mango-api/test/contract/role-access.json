@@ -1160,6 +1160,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/invoice/:link": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /v1/me": {
   "anonymous": "signin",
   "customer": "ok",

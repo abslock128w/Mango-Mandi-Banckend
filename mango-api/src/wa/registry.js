@@ -13,13 +13,15 @@
 //              never after STOP or STOP OFFERS.
 // category is what we ask Meta for; Meta decides the final category.
 
-/** @typedef {{ kind: string, template?: string, category: 'UTILITY'|'MARKETING'|'AUTHENTICATION', consent: 'updates'|'requested'|'marketing', params: string[], example: string[], trigger: string, flag?: string, button?: 'order-link'|'order-link-flag'|'track-order'|'copy-code', auth?: { codeExpirationMinutes: number, messageSendTtlSeconds: number }, fallback: string }} Automation */
+/** @typedef {{ kind: string, template?: string, category: 'UTILITY'|'MARKETING'|'AUTHENTICATION', consent: 'updates'|'requested'|'marketing', params: string[], example: string[], trigger: string, flag?: string, button?: 'order-link'|'order-link-flag'|'track-order'|'copy-code', invoice?: { template: string, flag: string }, auth?: { codeExpirationMinutes: number, messageSendTtlSeconds: number }, fallback: string }} Automation */
 
 const ORDER_FALLBACK = 'Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.'
 
 /** @type {Automation[]} */
 export const AUTOMATIONS = [
-  { kind: 'ORDER_CONFIRMED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'delivery date', 'slot'], example: ['Asha', 'ORD-1093', 'Fri, 16 Oct', '7 AM to 11 AM'], trigger: 'A verified payment (Razorpay or Meta payment webhook, or the reconcile) moves the order to CONFIRMED. This is also the payment confirmation.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
+  { kind: 'ORDER_CONFIRMED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'delivery date', 'slot'], example: ['Asha', 'ORD-1093', 'Fri, 16 Oct', '7 AM to 11 AM'], trigger: 'A verified payment (Razorpay or Meta payment webhook, or the reconcile) moves the order to CONFIRMED. This is also the payment confirmation.', button: 'order-link-flag', fallback: ORDER_FALLBACK,
+    // With a bill (BILLS_ENABLED) and WHATSAPP_ORDER_INVOICE=true it goes out as this template instead: the same variables, two URL buttons.
+    invoice: { template: 'ORDER_CONFIRMED_INVOICE', flag: 'WHATSAPP_ORDER_INVOICE' } },
   { kind: 'REPLACEMENT_CONFIRMED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'delivery date', 'slot'], example: ['Asha', 'ORD-1094', 'Sat, 17 Oct', '7 AM to 11 AM'], trigger: 'Staff approve a claim and the free replacement order is CONFIRMED.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
   { kind: 'RIPENESS_GUIDE', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'when each box is ready', 'storage tip'], example: ['Asha', 'ORD-1093', 'Alphonso 3kg Box (raw): ready around Mon, 19 Oct', 'Keep them in a paper bag at room temperature.'], trigger: 'A minute after ORDER_CONFIRMED, only when a box arrives raw or semi-ripe.', fallback: ORDER_FALLBACK },
   { kind: 'DATE_MOVED', category: 'UTILITY', consent: 'updates', params: ['name', 'order number', 'new date', 'slot'], example: ['Asha', 'ORD-1093', 'Sat, 17 Oct', '7 AM to 11 AM'], trigger: 'Staff move the order (one or a whole day), the customer moves it, or a late payment lands on the next date with stock.', button: 'order-link-flag', fallback: ORDER_FALLBACK },
