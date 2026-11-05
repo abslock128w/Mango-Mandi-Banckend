@@ -9,27 +9,78 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Strict-Transport-Security", "value": "max-age=31536000" },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000"
+        },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://checkout.razorpay.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.mandimangoes.in https://mandi-api-staging.vercel.app https://*.razorpay.com https://challenges.cloudflare.com; frame-src https://*.razorpay.com https://challenges.cloudflare.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://*.razorpay.com; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' https://checkout.razorpay.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://nominatim.openstreetmap.org https://api.mandimangoes.in https://mandi-api-staging.vercel.app https://*.razorpay.com https://challenges.cloudflare.com; frame-src https://*.razorpay.com https://challenges.cloudflare.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://*.razorpay.com; frame-ancestors 'none'"
         }
       ]
     },
     {
       "source": "/(sw\\.js|config\\.js)",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ],
   "rewrites": [
-    { "source": "/preorders/:id", "destination": "/index.html" },
-    { "source": "/order/:id", "destination": "/index.html" },
-    { "source": "/orders/:id", "destination": "/index.html" },
-    { "source": "/help/requests/:id", "destination": "/index.html" },
-    { "source": "/account/:path*", "destination": "/index.html" },
-    { "source": "/invite/:code", "destination": "/index.html" }
+    {
+      "source": "/login",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/account",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/orders",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/checkout",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/preorders/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/order/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/orders/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/help/requests/:id",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/account/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/invite/:code",
+      "destination": "/index.html"
+    }
   ]
 }

@@ -167,6 +167,26 @@ const DESC_W = COL.hsn - COL.desc - 10
  * The bill as a PDF. `bill` is a bills row (snapshot, number, dates, buyer,
  * cancelled_at). Every page carries the bill number and "page x of y".
  */
+/** Order numbers are shown as the shop shows them: #7434060801 (older ones keep ORD-1024). */
+export const orderNo = (n) => (/^\d{10}$/.test(String(n ?? '')) ? `#${n}` : String(n ?? ''))
+
+const METHODS = { upi: 'UPI', card: 'Card', netbanking: 'Net banking', wallet: 'Wallet', emi: 'EMI', paylater: 'Pay later', cardless_emi: 'Cardless EMI', demo: 'Test payment' }
+
+/** The payment lines under the total: how, the references a bank or UPI app shows, and when. */
+export function paymentLines(p) {
+  if (!p) return []
+  const how = [METHODS[p.method] || p.method || 'Online', p.vpa, p.card, p.bank, p.wallet].filter(Boolean).join(', ')
+  const when = p.paidAt ? new Date(p.paidAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
+  return [
+    ['Paid by', how],
+    p.upiRef && ['UPI reference (RRN)', p.upiRef],
+    p.bankRef && ['Bank reference', p.bankRef],
+    p.authCode && ['Authorisation code', p.authCode],
+    p.paymentId && [`${p.gateway || 'Razorpay'} payment ID`, p.paymentId],
+    when && ['Paid on', `${when} IST`],
+  ].filter(Boolean)
+}
+
 export function billPdf(bill) {
   const s = bill.snapshot
   const title = s.title ?? BILL_TITLES[bill.kind]
@@ -228,7 +248,7 @@ export function billPdf(bill) {
   }
   kv(`${s.kind === 'RECEIPT' ? 'Receipt' : s.kind === 'BILL_OF_SUPPLY' ? 'Bill' : 'Invoice'} no.`, bill.number, true)
   kv('Date', dayLabel(bill.bill_date))
-  kv('Order', s.order.number)
+  kv('Order', orderNo(s.order.number))
   kv('Order placed', dayLabel(s.order.placedAt))
   kv('Place of supply', `${s.placeOfSupply.stateName} (${s.placeOfSupply.stateCode})`)
   page.y = Math.min(leftBottom, ry) - 8
@@ -327,6 +347,20 @@ export function billPdf(bill) {
   page.text(COL.rate - 40, page.y, 'Paid online', { align: 'right', gray: 0.35 })
   page.text(COL.amount, page.y, rupees(s.paid ?? s.total), { align: 'right', gray: 0.35 })
   page.y -= 24
+
+  // How it was paid (bills issued before payment details were kept have none).
+  const pay = paymentLines(s.payment)
+  if (pay.length) {
+    room(pay.length * 13 + 24)
+    page.text(MARGIN, page.y, 'Payment', { bold: true, size: 9 })
+    page.y -= 13
+    for (const [k, v] of pay) {
+      page.text(MARGIN, page.y, k, { size: 8.5, gray: 0.35 })
+      page.text(MARGIN + 130, page.y, v, { size: 8.5 })
+      page.y -= 12
+    }
+    page.y -= 10
+  }
 
   // Notes and declarations.
   const notes = [...(s.notes ?? [])]

@@ -1,0 +1,111 @@
+/* Dark theme (theme.js sets html[data-theme="dark"]). A warm near-black with a brighter mango
+   yellow, #ffc93c, for accents and buying actions: dark ink (#15130c) on yellow is about 12:1,
+   yellow on the black about 11:1, and the cream text about 15:1. Loaded after style.css and dock.css. */
+html.theme-switching *,html.theme-switching *::before,html.theme-switching *::after{transition:background-color .4s,color .4s,border-color .4s,fill .4s!important}
+[data-theme="dark"]{color-scheme:dark;--cream:#0e0d0a;--paper:#191712;--green:#ffc93c;--ink:#f2ebd6;--muted:#b3a98e;--line:#34302a;--sage:#25231b;--shadow:0 14px 34px #0009;--mango:#ffc93c;--mango-light:#ffd766;--mango-deep:#ffb81f;--mango-ink:#15130c}
+[data-theme="dark"] body{background:#0e0d0a}
+[data-theme="dark"] ::-webkit-scrollbar-thumb{background:#3a362c}
+[data-theme="dark"] .skip{color:#15130c}
+/* Glass: dark smoked glass with a fainter rim. */
+[data-theme="dark"] .glass,[data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion{background:linear-gradient(165deg,#2c2920b8,#1a181378 46%,#2a2720a8);box-shadow:inset 0 1px 0 #ffffff29,inset 0 -1px 1px #ffffff0f,inset 1px 0 1px #ffffff14,inset 0 -12px 20px -14px #0009,0 10px 28px #0000008c,0 1px 2px #0006}
+[data-theme="dark"] .glass::before,[data-theme="dark"] .liquid::before,[data-theme="dark"] .icon-button::before,[data-theme="dark"] .quantity::before,[data-theme="dark"] .occasion::before{background:linear-gradient(135deg,#ffffff66,#ffffff0d 28%,#fff0 55%,#ffffff33)}
+[data-theme="dark"] .glass::after,[data-theme="dark"] .liquid::after,[data-theme="dark"] .icon-button::after,[data-theme="dark"] .quantity::after,[data-theme="dark"] .occasion::after{opacity:.45}
+[data-theme="dark"] .is-lit::after{opacity:.75}
+[data-theme="dark"] .icon-button:hover,[data-theme="dark"] .occasion:hover{background:linear-gradient(165deg,#3a3628d9,#26231bb3)}
+[data-theme="dark"] .shop-top,[data-theme="dark"] .collection-toolbar{background:#0e0d0aeb}
+/* Header, search. */
+[data-theme="dark"] .desktop-nav a{color:#c9bfa3}
+[data-theme="dark"] .desktop-nav a:hover,[data-theme="dark"] .desktop-nav .active{color:#ffc93c}
+/* The logo: the supplied artwork has a cream background and dark green letters that vanish on black, so dark mode
+   shows assets/brand-dark.webp, the same artwork with its background removed and the letters in cream. */
+.brand .brand-dark{display:none}[data-theme="dark"] .brand .brand-light{display:none}[data-theme="dark"] .brand .brand-dark{display:block;mix-blend-mode:normal}
+[data-theme="dark"] .search.liquid{border-color:#ffffff1f}
+[data-theme="dark"] .search input{color:var(--ink)}
+[data-theme="dark"] .search input::placeholder,[data-theme="dark"] .search kbd{color:#8f876f}
+/* Hero and sections. */
+[data-theme="dark"] .hero{background:radial-gradient(110% 95% at 0% 100%,#4a3a0c 0%,#2a2410 36%,#191712 72%)}
+[data-theme="dark"] h1+p,[data-theme="dark"] .hero-note,[data-theme="dark"] .hero-leaf,[data-theme="dark"] .promise-bar,[data-theme="dark"] .price-note,[data-theme="dark"] .season-copy p,[data-theme="dark"] footer p,[data-theme="dark"] footer>span{color:var(--muted)}
+[data-theme="dark"] .hero-bottom{background:linear-gradient(90deg,#3a2f0e,#241f12 55%,#1d1a14);color:#d9c88f}
+[data-theme="dark"] .hero-dots i{background:#6b5d32}
+[data-theme="dark"] em{color:#e9c46a}
+[data-theme="dark"] h1 em,[data-theme="dark"] .section-heading h2 em,[data-theme="dark"] .season-copy h2 em,[data-theme="dark"] .story-title h2 em,[data-theme="dark"] .faq h2 em,[data-theme="dark"] .page-head h1 em{background:linear-gradient(100deg,#ffb81f,#ffd766 55%,#ffc93c);-webkit-background-clip:text;background-clip:text;color:transparent}
+[data-theme="dark"] .season{background:linear-gradient(135deg,#231d0c,#352a0e 70%,#45360c)}
+[data-theme="dark"] .season-copy small{color:#d9c88f}
+[data-theme="dark"] .story-values article>span{color:#9d947a}
+[data-theme="dark"] .bulk{background:radial-gradient(55% 110% at 100% 50%,#ffc93c2e,#ffc93c00 70%),#10261b}
+[data-theme="dark"] .text-button:hover{color:#ffd766}
+/* Buttons: yellow beads with dark ink. */
+[data-theme="dark"] .primary,[data-theme="dark"] .cream{background:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e);color:#15130c;box-shadow:inset 0 1px 1px #ffffffb3,inset 0 -2px 5px #8a5a0040,0 6px 18px #ffc93c2e}
+[data-theme="dark"] .primary:hover,[data-theme="dark"] .cream:hover{background:linear-gradient(180deg,#ffffff80,#fff0 52%),linear-gradient(180deg,#ffe08a,#ffd04f 60%,#f7bb2c);box-shadow:inset 0 1px 1px #fff,inset 0 -2px 5px #8a5a0040,0 10px 26px #ffc93c40}
+[data-theme="dark"] .primary svg{color:#15130c}
+[data-theme="dark"] .secondary{background:linear-gradient(180deg,#2e2b23,#23211b);color:var(--ink);box-shadow:inset 0 1px 1px #ffffff1f,0 4px 12px #0006}
+/* Product cards. */
+[data-theme="dark"] .product-card{background:#191712;box-shadow:inset 0 0 0 1px #ffffff0d}
+[data-theme="dark"] .product-card:hover{box-shadow:0 16px 36px #000a,0 0 0 1px #ffc93c33}
+[data-theme="dark"] .product-image,[data-theme="dark"] .product-image .fruit-photo.photo,[data-theme="dark"] .detail-image.photo,[data-theme="dark"] .cart-thumb.photo{background:#22201a}
+[data-theme="dark"] .product-tag.liquid{background:linear-gradient(165deg,#1d1b15d9,#1d1b15a6);color:var(--ink)}
+[data-theme="dark"] .heart{color:#a59c80}
+[data-theme="dark"] .heart.saved svg{fill:#ffc93c;color:#ffc93c}
+[data-theme="dark"] .product-desc,[data-theme="dark"] .product-price small{color:var(--muted)}
+[data-theme="dark"] .product-status,[data-theme="dark"] .detail-origin,[data-theme="dark"] .detail-contents svg{color:#b8c495}
+[data-theme="dark"] .box-cards{background:linear-gradient(180deg,#24211acc,#1c1a14cc);box-shadow:inset 0 1px 3px #0009,inset 0 -1px 0 #ffffff0d}
+[data-theme="dark"] .box-lens{background:linear-gradient(165deg,#ffe08a,#ffc93c 58%,#f2b01e);box-shadow:inset 0 1px 1px #ffffffb3,0 4px 12px #ffc93c33}
+[data-theme="dark"] .box-card strong{color:#c9bfa3}
+[data-theme="dark"] .box-card[aria-pressed="true"] strong{color:#15130c}
+[data-theme="dark"] .box-card[aria-pressed="true"] small{color:#3d3313}
+[data-theme="dark"] .box-card:disabled small{color:#e5937a}
+[data-theme="dark"] .sort-select.liquid,[data-theme="dark"] .weight-select{color:var(--ink);border-color:#ffffff1f;background-color:#1f1d17}
+/* Sheets, forms, bag, toast. */
+[data-theme="dark"] .sheet{background:#17150fe8;box-shadow:inset 0 1px 0 #ffffff1f,inset 0 0 0 1px #ffffff12,0 30px 90px #000c}
+[data-theme="dark"] .sheet::backdrop{background:#000000a8}
+[data-theme="dark"] .field input,[data-theme="dark"] .field select,[data-theme="dark"] .field textarea{background:#1f1d17;border-color:#3a352b;color:var(--ink)}
+[data-theme="dark"] .field input::placeholder,[data-theme="dark"] .field textarea::placeholder{color:#7f7862}
+[data-theme="dark"] .prototype-tag{background:#2a2618;color:#e6d9a8}
+[data-theme="dark"] .success>svg{background:#2a2618;color:#ffc93c}
+[data-theme="dark"] .toast.glass{background:linear-gradient(165deg,#2a2618eb,#3a3216cc);color:var(--ink)}
+[data-theme="dark"] .bag-count{color:#15130c}
+/* Dock (dock.css). */
+[data-theme="dark"] .liquid-navigation{color:var(--ink)}
+[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:linear-gradient(165deg,#2c2920c7,#1a18138c 50%,#2a2720b8);box-shadow:inset 0 1px 0 #ffffff29,inset 1px 0 1px #ffffff14,0 8px 24px #000a}
+[data-theme="dark"] .liquid-tab.is-current{color:#ffc93c}
+[data-theme="dark"] .dock-search input{color:var(--ink)}
+[data-theme="dark"] .dock-search input::placeholder,[data-theme="dark"] .dock-mini-copy small{color:#a59c80}
+@media(prefers-reduced-transparency:reduce){[data-theme="dark"] .glass,[data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion,[data-theme="dark"] .sheet,[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:#1f1d17}}
+/* Pages and cards added with the checkout, orders and profile pages. */
+[data-theme="dark"]{--surface:#191712;--chip:#211f19}
+[data-theme="dark"] .page-card{box-shadow:inset 0 0 0 1px #ffffff12,0 10px 30px #0006}
+[data-theme="dark"] .page-tabs{box-shadow:inset 0 1px 2px #0009}
+[data-theme="dark"] .date-card[aria-pressed="true"],[data-theme="dark"] .slot-card[aria-pressed="true"],[data-theme="dark"] .address-card[aria-pressed="true"],[data-theme="dark"] .page-tabs a[aria-current="page"],[data-theme="dark"] .avatar{background:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e)}
+[data-theme="dark"] .date-card[aria-pressed="true"] small,[data-theme="dark"] .slot-card[aria-pressed="true"] small,[data-theme="dark"] .address-card[aria-pressed="true"] small{color:#3d3313}
+[data-theme="dark"] .toggle-row input::after{background:#f2ebd6}
+/* Mango yellow lives only in the dark theme (the light theme keeps the original mango-house green). */
+[data-theme="dark"]{--accent:#ffc93c;--accent-soft:#ffb81f;--accent-ink:#15130c;--accent-bead:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e);--accent-glow:#ffc93c40}
+[data-theme="dark"] ::selection{background:#ffd766;color:#15130c}
+[data-theme="dark"] .announcement{background:linear-gradient(90deg,#f4b21a,#ffd45a 50%,#f4b21a);color:#15130c;font-weight:500}
+[data-theme="dark"] .announcement a{color:#15130c}
+[data-theme="dark"] .hero-dots b{background:#ffc93c}
+[data-theme="dark"] .pulse{background:#ffc93c;box-shadow:0 0 0 4px #ffc93c40}
+[data-theme="dark"] .promise-bar svg{color:#ffb81f}
+[data-theme="dark"] .desktop-nav .active:after{background:#ffc93c;height:3px;border-radius:2px}
+[data-theme="dark"] .bag-count,[data-theme="dark"] .liquid-navigation .bag-count{background:#ffc93c;color:#15130c;font-weight:600}
+[data-theme="dark"] .selection-pill,[data-theme="dark"] .detail-lens,[data-theme="dark"] .occasion.selected,[data-theme="dark"] .faq details[open] .faq-orb,[data-theme="dark"] .quick-add.liquid:hover{background:linear-gradient(180deg,#ffffff6b,#fff0 52%),linear-gradient(180deg,#ffd766,#ffc93c 60%,#f2b01e);color:#15130c;box-shadow:inset 0 1px 1px #ffffffb3,inset 0 -2px 4px #8a5a0040,0 4px 12px #ffc93c40}
+[data-theme="dark"] .occasion.selected{border-color:#f2b01e}
+[data-theme="dark"] .segmented button.selected,[data-theme="dark"] .detail-stages button.selected{color:#15130c;font-weight:600}
+[data-theme="dark"] .bulk h2 em,[data-theme="dark"] .bulk-type{color:#ffd766}[data-theme="dark"] .bulk-type small{color:#f3e3a6}
+[data-theme="dark"] footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#ffc93c00,#ffc93c,#ffc93c00) 1}
+[data-theme="dark"] .liquid-lens{background:linear-gradient(145deg,#fff6d040,#ffd45a24 50%,#ffffff0a)}
+@media(max-width:700px),(pointer:coarse){[data-theme="dark"] .sheet{background:#17150f}[data-theme="dark"] .sheet::backdrop{background:#000000b3}}
+[data-theme="dark"] .map-frame,[data-theme="dark"] .track-map,[data-theme="dark"] .leaflet-container{background:#22201a}
+[data-theme="dark"] .leaflet-tile-pane{filter:brightness(.78) contrast(1.05) saturate(.85)}
+[data-theme="dark"] .tracker li.missed .tracker-dot{background:#e5937a}
+[data-theme="dark"] .ticker-row span{color:#ffd766}[data-theme="dark"] .ticker-row svg{color:#b8c495}
+[data-theme="dark"] .theme-switch-track{background:#2a2720;box-shadow:inset 0 1px 3px #000c,inset 0 -1px 0 #ffffff14}
+[data-theme="dark"] .theme-switch-knob{background:linear-gradient(180deg,#ffd766,#f2b01e);box-shadow:0 2px 8px #ffc93c55}
+[data-theme="dark"] .theme-switch .ts-in{color:#15130c}[data-theme="dark"] .theme-switch .ts-end{color:#b3a98e}
+/* Dark glass opacity to match: solid-feeling buttons, slightly see-through bars. */
+[data-theme="dark"] .glass{background:linear-gradient(165deg,#2c2920dd,#1d1b15c2 46%,#2a2720d4)}
+[data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion{background:linear-gradient(170deg,#2f2c23f5,#211f19e6 55%,#2c2920f0)}
+[data-theme="dark"] .product-tag.liquid,[data-theme="dark"] .image-note.liquid{background:linear-gradient(170deg,#211f19eb,#1a1813d6)}
+[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:linear-gradient(165deg,#2c2920eb,#1d1b15d6 50%,#2a2720e6)}
+[data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23f5,#211f19e6);box-shadow:inset 0 0 0 1px #ffffff14,0 4px 14px #0007}
+[data-theme="dark"] .login-intro .brand-light{display:none}[data-theme="dark"] .login-intro .brand-dark{display:block}

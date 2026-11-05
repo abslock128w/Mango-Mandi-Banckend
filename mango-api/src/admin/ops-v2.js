@@ -1,6 +1,7 @@
 // Mango Ops v2 (docs/design/ops-dashboard-v2.md): the control tower's reads. All additive, for
 // managers and operators (access.js): the operating day per slot, the live map, a rider's trail,
 // the ops analytics, and the live event stream.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
@@ -128,7 +129,7 @@ router.get(
                 COALESCE(o.gift_recipient_name, o.customer_name) AS customer_name, p.zone, p.city, p.lat, p.lng, s.starts_at, s.ends_at,
                 COALESCE((SELECT SUM(quantity) FROM order_items i WHERE i.order_id = o.id), 0)::int AS boxes
            FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode LEFT JOIN delivery_slots s ON s.id = o.slot_id
-          WHERE o.delivery_date = $1 AND o.status = ANY($2) ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, o.number`,
+          WHERE o.delivery_date = $1 AND o.status = ANY($2) ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, ${orderSeqSql('o.number')}`,
         [date, DAY_STATUSES],
       ),
       query('SELECT id, name, address, lat, lng FROM warehouses WHERE active ORDER BY id'),

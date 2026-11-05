@@ -1,4 +1,5 @@
 // Deliveries: the rider manifest, dispatch, rider assignment, proof of delivery.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { isPacker, redactForPacker, RIDER_TAKES } from '../access.js'
@@ -138,7 +139,7 @@ router.post(
     }
     const { rows } = await query(
       `SELECT id, number, status FROM orders WHERE delivery_date = $1 ${slotFilter}
-          AND status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED') ORDER BY number`,
+          AND status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'DELIVERY_FAILED') ORDER BY ${orderSeqSql('number')}`,
       params,
     )
     const assignTo = rider ? req.admin.id : (b.riderId ?? null)
@@ -462,7 +463,7 @@ router.get(
               (SELECT name FROM warehouses w WHERE w.id = o.pickup_warehouse_id) AS pickup_warehouse,
               COALESCE(o.gift_recipient_name, o.customer_name) AS customer_name, r.display_name AS rider_name, r.email AS rider_email
          FROM orders o LEFT JOIN admin_users r ON r.id = o.rider_id
-        WHERE o.delivery_date = $1 AND o.status = ANY($2) ORDER BY o.number`,
+        WHERE o.delivery_date = $1 AND o.status = ANY($2) ORDER BY ${orderSeqSql('o.number')}`,
       [date, MANIFEST_STATUSES],
     )
     const ids = orders.map((o) => o.id)

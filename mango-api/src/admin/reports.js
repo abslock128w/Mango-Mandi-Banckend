@@ -1,4 +1,5 @@
 // The dashboard summary, analytics, needs attention, and the staff audit trail.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { requireManager } from '../auth.js'
@@ -48,7 +49,7 @@ router.get(
       ),
       query(
         `SELECT id, number, delivery_date, at_risk_reason FROM orders
-          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, number`,
+          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, ${orderSeqSql('number')}`,
       ),
       // INV-G: paid orders past their date, or out for delivery too long.
       overdueOrders({ query }),
@@ -201,7 +202,7 @@ export async function attentionReport(at = now()) {
       `SELECT o.id, o.number, o.delivery_date, o.at_risk, COALESCE(o.at_risk_reason, n.last_error) AS at_risk_reason FROM orders o
          LEFT JOIN LATERAL (SELECT last_error FROM notifications WHERE order_id = o.id AND kind = 'DELIVERY_FAILED' ORDER BY created_at DESC LIMIT 1) n ON $2
         WHERE o.status = 'DELIVERY_FAILED' AND o.delivery_failures < $1 AND (o.at_risk OR ($2 AND n.last_error LIKE $3))
-        ORDER BY o.delivery_date, o.number LIMIT 50`,
+        ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT 50`,
       [MAX_DELIVERY_ATTEMPTS, env.DELIVERY_CHECKS, `${RETRY_NEEDS_DAY}:%`],
     ),
     // PAY-B12: chargebacks still open at Razorpay (answered in the Razorpay dashboard).

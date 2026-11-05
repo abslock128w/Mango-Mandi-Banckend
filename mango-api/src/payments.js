@@ -196,6 +196,35 @@ async function findOrderId(c, entity, link = null) {
 }
 
 /**
+ * The receipt-worthy facts of a Razorpay payment entity, kept on the order (payment_details) and
+ * printed on its bill: method, payment id, the UPI reference number (the RRN customers see in their
+ * UPI app), the UPI ID masked, card network and last four, bank or wallet, and when it was paid.
+ */
+export function paymentDetails(p) {
+  if (!p || typeof p !== 'object') return null
+  const a = p.acquirer_data && typeof p.acquirer_data === 'object' ? p.acquirer_data : {}
+  const card = p.card && typeof p.card === 'object' ? p.card : {}
+  const maskVpa = (v) => {
+    const [user, host] = String(v).split('@')
+    return host ? `${user.slice(0, 2)}${'*'.repeat(Math.max(2, user.length - 2))}@${host}` : null
+  }
+  const out = {
+    gateway: 'Razorpay',
+    paymentId: p.id,
+    method: p.method,
+    upiRef: a.rrn ?? a.upi_transaction_id,
+    bankRef: a.bank_transaction_id,
+    authCode: a.auth_code,
+    vpa: p.vpa ? maskVpa(p.vpa) : null,
+    card: card.last4 ? `${card.network || 'Card'} ending ${card.last4}` : null,
+    bank: p.bank,
+    wallet: p.wallet,
+    paidAt: typeof p.created_at === 'number' ? new Date(p.created_at * 1000).toISOString() : null,
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => typeof v === 'string' && v !== ''))
+}
+
+/**
  * MULTI_GIFT: the gift order a payment is for. Only our own Razorpay order id
  * is trusted (a gift order is paid in Checkout, never by a link).
  */
@@ -219,7 +248,7 @@ export async function applyCapture(c, table, id, p) {
   if (table === 'preorders') {
     return processPreorderPayment(c, { preorderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
   }
-  return (await processPayment(c, { orderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+  return (await processPayment(c, { orderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method, details: paymentDetails(p) })).result
 }
 
 /**
@@ -376,6 +405,7 @@ async function routeWebhook(event, eventId, mark) {
       paymentId: entity.id ?? null,
       amount: typeof entity.amount === 'number' ? entity.amount : null,
       method: entity.method ?? null,
+      details: kind === 'payment.failed' ? null : paymentDetails(entity),
     })
     return { result: r.result, orderId }
   }).then((out) => {

@@ -3,11 +3,116 @@
 The customer storefront at `mandimangoes.in`: the "glass" design from the owner's
 `mango-house` repository (its `dist/` folder, which stays the design source), wired to
 mango-api's `/v1` storefront API. It is a static site with no build tool and no packages:
-`index.html`, `style.css`, `dock.css`, `app.js`, `dock.js`, `api.js`, `sw.js`,
-`manifest.webmanifest`, `config.js` and `assets/` (GSAP and the fonts are served from here).
+`index.html`, `style.css`, `dock.css`, `catalog.js`, `shelf.js`, `app.js`, `dock.js`, `api.js`,
+`sw.js`, `manifest.webmanifest`, `config.js` and `assets/` (GSAP, the fonts and the mango
+photos are served from here).
 
 It replaces the Next.js shop that lived in `customer-app/`, retired on 4 Nov 2026 (see the
 checklist at the end).
+
+## The catalogue
+
+The shelf has one card per variety the API sells (`GET /v1/products`, grouped by `variety`).
+The words and photos come from the MangoKart catalogue, kept in `catalog.js`: for each of the
+15 varieties and the Mixed Box, its region, origin, flavour, story, season, sweetness,
+"best for" line, search words and occasions, plus a photo per stage in `assets/mangoes/`
+(Unsplash, see [`CREDITS.md`](CREDITS.md)). Prices, boxes and stock always come from the API;
+a variety in `catalog.js` that the API does not sell is not shown, and an API variety missing
+from `catalog.js` gets a plain card with the design's stage photo. A photo uploaded on the
+panel (`photoUrl`) replaces the illustrative one.
+
+`shelf.js` draws the shelf: the ripeness rail, the occasion pills, the sort, the stage dots on
+each card, search (with MangoKart's synonyms, e.g. "pickle" → raw Totapuri, "hapus" →
+Alphonso), and the product sheet. `app.js` keeps the bag, checkout, orders, pre-orders and
+bulk enquiries. The three are classic scripts sharing globals, loaded in that order. Why it
+was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
+
+Box size is two cards (3 kg / 5 kg, each with its price) instead of a dropdown, so picking a box
+is one tap, on the shelf and in the product sheet.
+
+## Pages (`pages.js`)
+
+Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`), the
+profile (`/account`) and sign-in (`/login?next=…`) are full pages, not sheets. Signed out, the account
+pages send the customer to `/login`, which returns them to the page they wanted (only a path on this site). They replace the home page in place (History
+API, so back and forward work and the links can be reloaded or shared); `vercel.json` and
+`scripts/serve-shop.mjs` serve `index.html` for them. app.js's checkout and order flows draw
+wherever `view` points: the page, or the form sheet for pre-orders and bulk enquiries.
+
+Checkout has a step bar (Area · Sign in · Delivery · Payment · Done), delivery dates and slots as
+cards, the customer's saved addresses (`GET /v1/me/addresses`) as cards, and "Use my current
+location": the browser's position, turned into an address and pincode by OpenStreetMap's
+Nominatim (allowed in the CSP `connect-src`). The profile shows the name and phone, saved
+addresses (remove), favourites, the WhatsApp reminder switch (`PATCH /v1/me`), pre-orders and
+sign out, with a Profile / My orders tab bar.
+
+### Deliver to (location.js)
+
+The shop bar starts with a "Deliver to" chip. Its sheet sets the area up front, by current location,
+the map (with building search), a saved address or a pincode; the shop then shows that area's stock
+and delivery days. First-time visitors get the sheet once, offering their current location. Only the
+area is asked here: checkout starts from it (pincode, map pin, saved address, street from the
+location) and asks for the flat and building. The profile page sets the customer's name
+(`PATCH /v1/me {name}`; on an API without it, the name is kept on the device).
+
+### Delivery map and order tracking
+
+`map-picker.js` adds a map to the checkout's delivery step: Leaflet 1.9.4 (served from
+`assets/leaflet/`, BSD-2) with OpenStreetMap tiles. The pin stays in the middle and the customer
+moves the map onto their door; the spot becomes an address and pincode through Nominatim
+(the pincode switches if it differs). Search finds a building, society or street on Enter or
+the Search button only, as Nominatim's usage policy requires (no search-as-you-type, at most one
+request a second). A typed or saved address is never overwritten by the map; the map offers its
+address instead. The API stores the address as text only, so the pin travels in the text as a
+` · Location: lat,lng` suffix (the bill leaves it out): riders and staff see the exact spot, saved addresses bring the pin back,
+and the order page reads it to show its map.
+
+`/orders/:id` is the tracking page: a status headline (with the rider's first name and the rough
+arrival time from live tracking while out for delivery), a five-step tracker with times from the
+order's history, the delivery code, the delivery photo once delivered, the address with its map,
+the boxes with their best-by dates, and pay, cancel and WhatsApp help. It refreshes every 30 s
+(5 s while awaiting payment) and only redraws when the order changed.
+
+On phones and touch screens the sheets are solid and nothing is blurred behind them, and the
+glass skips edge refraction: blur over blur redrawn while a sheet animated in made phones flicker.
+
+### Order numbers and invoices
+
+New orders are numbered with 10 digits and shown as `#7434060801` (mango-api `orders.js`: the
+order sequence scrambled by a factor coprime with 9e9, so numbers are unique and gapless underneath
+but don't reveal order volume; `restore.js` turns them back into the sequence). Older orders keep
+`ORD-1024`. The shop and the panel add the `#`; the panel and chat search accept it.
+
+The invoice is the API's numbered bill (`GET /v1/orders/:id/bill`, PDF; feature switch
+`BILLS_ENABLED`). The shop offers "Download invoice" on the payment-success step and on the order
+page; managers and operators download it from the order in the panel (Bill card). Since migration
+`056_payment_details` the order keeps the Razorpay payment's details (`payment_details`: method,
+payment ID, UPI reference number (RRN), masked UPI ID, card network and last four, bank or wallet,
+time), the bill prints them under the total, and the order page shows them.
+
+## Theme and type
+
+`theme.js` (in `<head>`, so there is no flash) sets light or dark from the device setting until
+the viewer uses the header toggle, then remembers it (`mm-theme`). `theme.css` holds the dark
+colours: a warm near-black with a brighter mango yellow (#ffc93c) for accents and buying actions.
+The light theme keeps the original mango-house palette (forest green, cream) with no yellow accents.
+Headings are Young Serif (a warm, sign-painter serif), text is Figtree; both SIL OFL, served
+from `assets/fonts/` (see `assets/fonts.css`).
+
+## Liquid glass (`liquid.js`)
+
+The control layer (header, search, bag, rails, chips, tags and quick add on photos, close
+buttons, steppers, sheets, the dock) uses one glass material in `style.css`: a thin bright
+tint, heavy blur and saturation, a specular rim, and a light that follows the pointer.
+`liquid.js` adds spring physics: controls squash when pressed and wobble back, lean toward a
+mouse, and the ripeness pill, the sheet's ripeness lens and the box lens slide like a drop
+(stretching with speed, wobbling as they land). The bag button, dock bag bar, toast and
+dialogs jiggle when they change. Elements with `data-refract` also bend what is behind their
+edges (an SVG displacement map in `backdrop-filter`, Chromium only; elsewhere they keep the
+blur). Reduced motion turns the physics off; reduced transparency makes the glass opaque.
+
+To add a variety: add it on the panel's Products page (that is what the shop sells), then add
+a row to `ROWS` in `catalog.js` with the same name, and its photos to `assets/mangoes/`.
 
 ## How it talks to the API
 
