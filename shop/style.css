@@ -335,3 +335,24 @@ body[data-page="checkout"] .dock-mini{display:none!important}
 .order-row{border-top:1px solid var(--line)}
 .order-row .guide-choice{border-top:0}
 .order-row .order-invoice{max-width:none;margin:-10px 0 12px 36px;padding:6px 0;text-decoration:underline}
+
+/* Payment success: the ring draws, the disc fills, the tick is written, a burst flies out, then the words and buttons rise in turn. */
+.pay-done{position:relative;width:84px;height:84px;margin:0 auto 22px}
+.pay-done svg{position:relative;width:100%;height:100%;display:block;overflow:visible;animation:pay-pop .55s var(--ease) .5s both}
+.pay-done-disc{fill:var(--green);transform-origin:center;transform-box:fill-box;animation:pay-fill .45s var(--ease) .42s both}
+.pay-done-ring{fill:none;stroke:var(--green);stroke-width:2.5;stroke-linecap:round;stroke-dasharray:1;transform:rotate(-90deg);transform-origin:center;transform-box:fill-box;animation:pay-draw .55s cubic-bezier(.65,0,.35,1) both}
+.pay-done-tick{fill:none;stroke:#fffcf6;stroke-width:3.6;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;animation:pay-draw .38s cubic-bezier(.65,0,.35,1) .72s both}
+.pay-done-pulse{position:absolute;inset:0;border-radius:50%;border:2px solid var(--green);opacity:0;animation:pay-pulse .9s ease-out .6s both}
+.pay-done i{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px;border-radius:50%;background:var(--yellow);opacity:0;transform:rotate(var(--a)) translateY(-18px) scale(.4);animation:pay-burst .8s var(--ease) .62s both}
+.pay-done i:nth-of-type(3n){background:var(--green);width:5px;height:5px;margin:-2.5px}
+.pay-done i:nth-of-type(4n){background:#e98a3c;border-radius:2px}
+.success.paid>h2,.success.paid>p,.success.paid>.button,.success.paid>.text-button{animation:pay-rise .6s var(--ease) both}
+.success.paid>h2{animation-delay:.8s}.success.paid>p{animation-delay:.92s}.success.paid>.button{animation-delay:1.04s}.success.paid>.button.secondary{animation-delay:1.12s}.success.paid>.text-button{animation-delay:1.2s}
+@keyframes pay-draw{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+@keyframes pay-fill{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes pay-pop{0%{transform:scale(1)}45%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes pay-pulse{0%{transform:scale(1);opacity:.55}100%{transform:scale(1.9);opacity:0}}
+@keyframes pay-burst{0%{opacity:0;transform:rotate(var(--a)) translateY(-18px) scale(.4)}25%{opacity:1}100%{opacity:0;transform:rotate(var(--a)) translateY(calc(-1*var(--d))) scale(1)}}
+@keyframes pay-rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+[data-theme="dark"] .pay-done-disc{fill:#8fc79f}[data-theme="dark"] .pay-done-ring{stroke:#8fc79f}[data-theme="dark"] .pay-done-pulse{border-color:#8fc79f}[data-theme="dark"] .pay-done-tick{stroke:#12241a}
+@media(prefers-reduced-motion:reduce){.pay-done *,.pay-done svg,.success.paid>*{animation-delay:0s!important}.pay-done i,.pay-done-pulse{display:none}}
