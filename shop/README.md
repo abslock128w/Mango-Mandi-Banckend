@@ -153,6 +153,7 @@ it from the environment:
 | Variable | Meaning |
 |----------|---------|
 | `API_URL` | mango-api's origin, e.g. `https://api.mandimangoes.in`: no path, no trailing slash. Required when `VERCEL_ENV=production`, where it must be `https://` and not localhost. Unset elsewhere: `http://localhost:3000` |
+| `API_VIA_SHOP` | `true` when the shop and the API are on different sites (two `*.vercel.app` addresses). The shop then calls `/v1` on its own address and `vercel.json` forwards it to `API_URL` (the build refuses a mismatch), so the sign-in cookie belongs to the shop and phones keep it between visits. Leave unset when both are under one domain |
 | `SUPPORT_WHATSAPP` | the help WhatsApp number, digits only with the country code (`919800000000`). Optional |
 
 A bad value stops the build with a message. After writing `config.js` it runs
@@ -173,6 +174,7 @@ variables, or `git checkout shop/config.js`, to put the default back before comm
 - **Headers** on every path: CSP, `X-Frame-Options: DENY`, `nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, HSTS; `Cache-Control: no-cache` on
   `/sw.js` and `/config.js` so a new release and a new API address reach browsers at once.
+- **Rewrite** `/v1/:path*` to the API, used only with `API_VIA_SHOP=true`.
 - **Rewrites** to `/index.html`: `/preorders/:id`, `/order/:id`, `/orders/:id`,
   `/help/requests/:id`, `/account/:path*`, `/invite/:code`. Vercel serves a file that exists
   before it applies rewrites, so `assets/` and the other files are not shadowed.

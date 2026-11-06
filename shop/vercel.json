@@ -43,6 +43,10 @@
   ],
   "rewrites": [
     {
+      "source": "/v1/:path*",
+      "destination": "https://mandi-api-staging.vercel.app/v1/:path*"
+    },
+    {
       "source": "/login",
       "destination": "/index.html"
     },
