@@ -12,7 +12,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .glass::after,[data-theme="dark"] .liquid::after,[data-theme="dark"] .icon-button::after,[data-theme="dark"] .quantity::after,[data-theme="dark"] .occasion::after{opacity:.45}
 [data-theme="dark"] .is-lit::after{opacity:.75}
 [data-theme="dark"] .icon-button:hover,[data-theme="dark"] .occasion:hover{background:linear-gradient(165deg,#3a3628d9,#26231bb3)}
-[data-theme="dark"] .shop-top,[data-theme="dark"] .collection-toolbar{background:#0e0d0aeb}
+[data-theme="dark"] .shop-top::before,[data-theme="dark"] .collection-toolbar::before{background:#0e0d0aeb}
 /* Header, search. */
 [data-theme="dark"] .desktop-nav a{color:#c9bfa3}
 [data-theme="dark"] .desktop-nav a:hover,[data-theme="dark"] .desktop-nav .active{color:#ffc93c}
