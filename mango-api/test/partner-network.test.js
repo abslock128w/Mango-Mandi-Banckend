@@ -560,6 +560,8 @@ describe('product proposals', () => {
     assert.equal(d.documents.length, 1)
     assert.equal(d.commercialAppeal, LONG)
     assert.equal(d.addsToShop, false)
+    // Supplier type is the organisation type they chose, in words; can-manage stays its own answer.
+    assert.equal(d.supplierType, 'Farmer / individual producer')
     assert.ok(!d.allowedStatuses.includes('APPROVED'), 'operators can not approve')
     d = (await api.post(A(`/product-proposals/${p.id}/request-sample`), { note: '2 tins to the Pune office' }, { token: operator })).body
     assert.equal(d.status, 'SAMPLE_REQUESTED')

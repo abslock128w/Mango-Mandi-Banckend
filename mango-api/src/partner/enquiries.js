@@ -168,7 +168,8 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
          sample_available, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)`,
       [proposalId, `${reference}-P`, id, a.pd_productName, a.pd_category, a.pd_description ?? null, a.pd_stage ?? null, a.pd_source ?? null,
-        q.questions.pd_canManage.options.find((o) => o.value === a.pd_canManage)?.label ?? null,
+        // Supplier type = the kind of organisation they said they represent ("Not answered" stays null).
+        q.questions.businessType.options?.find((o) => o.value === a.businessType)?.label ?? null,
         a.pd_cost ?? null, a.pd_price ?? null, a.pd_capacity ?? null, a.fs_certifications ?? null, a.pd_samples ?? null, at],
     )
   }
