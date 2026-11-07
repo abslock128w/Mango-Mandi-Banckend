@@ -34,6 +34,8 @@ export interface Me {
     /** Customer care (docs/care.md): the Help desk and Subscriptions pages. */
     helpDesk?: boolean
     subscriptions?: boolean
+    /** Partner Network (PARTNER_NETWORK, docs/partner-network.md). On unless the API says false. */
+    partnerNetwork?: boolean
   }
 }
 
