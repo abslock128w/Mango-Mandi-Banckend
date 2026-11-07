@@ -96,6 +96,9 @@ describe('questionnaire', () => {
     assert.equal(cats.options.length, 9)
     assert.equal(r.body.uploads.maxFiles, 10)
     assert.deepEqual(r.body.captcha, { siteKeyRequired: false, siteKey: null, action: 'partner' })
+    // Every text question carries the limit the check applies, so the shop never guesses it.
+    const all = r.body.steps.flatMap((st) => st.sections.flatMap((sec) => sec.questions))
+    for (const q of all.filter((x) => ['TEXT', 'TEXTAREA', 'EMAIL'].includes(x.type))) assert.ok(Number.isInteger(q.max) && q.max > 0, q.key)
     const one = await api.get('/v1/partner-network/questionnaires/LOGISTICS')
     assert.deepEqual(one.body.steps.find((s) => s.key === 'specifics').sections.map((s) => s.key), ['logistics'])
     assert.equal((await api.get('/v1/partner-network/questionnaires/NOPE')).status, 404)

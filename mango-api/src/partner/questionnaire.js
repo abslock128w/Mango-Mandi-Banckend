@@ -56,6 +56,7 @@ const opts = (pairs) => pairs.map(([value, label]) => ({ value, label }))
 const YES_NO_OPEN = opts([['YES', 'Yes'], ['NO', 'No'], ['OPEN', 'Open to discussion']])
 const LONG = { min: 20, max: 3000 }
 const SHORT = { max: 200 }
+const DEFAULT_MAX = { TEXT: 200, TEXTAREA: 3000, EMAIL: 200 }
 
 /** Every question of version 2026-11-v1, by key. */
 const Q1 = {
@@ -236,6 +237,8 @@ export function publicQuestionnaire(categories, version = CURRENT_VERSION) {
     const d = q.questions[key]
     const out = { key, label: d.label, type: d.type, required: d.required === true ? true : d.required ? 'whenShown' : false }
     for (const f of ['description', 'placeholder', 'min', 'max', 'pattern', 'patternMessage', 'default']) if (d[f] !== undefined) out[f] = d[f]
+    // The limits the check applies when a question names none, served so a form never has to guess them.
+    if (out.max === undefined && DEFAULT_MAX[d.type]) out.max = DEFAULT_MAX[d.type]
     if (d.showIf) out.showIf = d.showIf
     if (d.patternUnlessCountryNot) out.patternOnlyWhen = { key: 'country', equals: d.patternUnlessCountryNot }
     if (key === 'categories' || key === 'primaryCategory') out.options = catOptions
@@ -301,14 +304,14 @@ function checkOne(key, def, raw, answers, categories) {
   switch (def.type) {
     case 'TEXT':
     case 'TEXTAREA': {
-      const [v, err] = text(def.min, def.max ?? (def.type === 'TEXT' ? 200 : 3000))
+      const [v, err] = text(def.min, def.max ?? DEFAULT_MAX[def.type])
       if (err) return [undefined, err]
       const patternApplies = def.pattern && (!def.patternUnlessCountryNot || String(answers.country ?? 'India').trim().toLowerCase() === def.patternUnlessCountryNot.toLowerCase())
       if (patternApplies && !new RegExp(def.pattern).test(v)) return [undefined, def.patternMessage ?? 'Check the format']
       return [v, null]
     }
     case 'EMAIL': {
-      const [v, err] = text(3, def.max ?? 200)
+      const [v, err] = text(3, def.max ?? DEFAULT_MAX.EMAIL)
       if (err) return [undefined, err]
       return EMAIL_RE.test(v) ? [v.toLowerCase(), null] : [undefined, 'Enter a valid email address']
     }
