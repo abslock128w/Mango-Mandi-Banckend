@@ -150,6 +150,25 @@ export const OPERATOR_ROUTES = [
   route('GET', '/subscriptions'),
   route('POST', '/subscriptions/:id/pause'),
   route('POST', '/subscriptions/:id/cancel'),
+  // Partner Network (docs/partner-network.md): reading, notes, follow-ups, contact records, priority,
+  // assignment and the everyday status moves. Approve, reject, close, reopen, convert, export and
+  // category changes are managers' (and proposal decisions are refused to operators in partner/staff.js).
+  route('GET', '/partner-network/overview'),
+  route('GET', '/partner-network/enquiries'),
+  route('GET', '/partner-network/enquiries/:id'),
+  route('PATCH', '/partner-network/enquiries/:id'),
+  route('POST', '/partner-network/enquiries/:id/notes'),
+  route('POST', '/partner-network/enquiries/:id/followups'),
+  route('PATCH', '/partner-network/enquiries/:id/followups/:followupId'),
+  route('POST', '/partner-network/enquiries/:id/contact-attempts'),
+  route('POST', '/partner-network/enquiries/:id/request-info'),
+  route('GET', '/partner-network/enquiries/:id/documents/:documentId'),
+  route('GET', '/partner-network/product-proposals'),
+  route('GET', '/partner-network/product-proposals/:id'),
+  route('PATCH', '/partner-network/product-proposals/:id'),
+  route('POST', '/partner-network/product-proposals/:id/notes'),
+  route('POST', '/partner-network/product-proposals/:id/request-sample'),
+  route('GET', '/partner-network/categories'),
   ...warehouseFor('OPERATOR'),
 ]
 
