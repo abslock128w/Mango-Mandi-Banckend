@@ -135,7 +135,9 @@ export function LoadError({ error, onRetry, notFound }: { error: unknown; onRetr
 export function withMessage(link: string, channel: 'WHATSAPP' | 'EMAIL', message: string, subject?: string): string {
   const join = link.includes('?') ? '&' : '?'
   if (channel === 'WHATSAPP') return `${link}${join}text=${encodeURIComponent(message)}`
-  return `${link}${join}${subject ? `subject=${encodeURIComponent(subject)}&` : ''}body=${encodeURIComponent(message)}`
+  // The API's mailto: link may already carry the subject.
+  const addSubject = subject && !/[?&]subject=/i.test(link)
+  return `${link}${join}${addSubject ? `subject=${encodeURIComponent(subject)}&` : ''}body=${encodeURIComponent(message)}`
 }
 
 /**
@@ -319,13 +321,20 @@ export function NotesPanel({
 
 // ---------- Activity ----------
 
+const CODE_LABEL: Record<string, string> = { ...PROPOSAL_STATUS_LABEL, ...ENQUIRY_STATUS_LABEL, ...PRIORITY_LABEL }
+
+/** The API's summaries can name statuses by their codes ("NEW → UNDER_REVIEW"); show the words. */
+export function readable(summary: string): string {
+  return summary.replace(/\b[A-Z][A-Z_]{2,}\b/g, (code) => CODE_LABEL[code] ?? code)
+}
+
 export function ActivityTimeline({ activity }: { activity: Activity[] }) {
   if (activity.length === 0) return <EmptyState>Nothing has happened yet.</EmptyState>
   return (
     <ol className="timeline" aria-label="Activity history">
       {activity.map((a) => (
         <li key={a.id}>
-          <strong>{a.summary}</strong>
+          <strong>{readable(a.summary)}</strong>
           <div className="muted small">
             {a.actor ?? 'The applicant or the system'} · {dateTime(a.at)}
           </div>

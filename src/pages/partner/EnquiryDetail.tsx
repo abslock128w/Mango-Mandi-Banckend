@@ -491,6 +491,7 @@ function isoToIst(iso: string): { day: string; time: string } {
 
 function followupError(err: unknown): unknown {
   if (err instanceof ApiError && err.code === 'FOLLOWUP_EXISTS') return 'A follow-up is already scheduled for that moment. Pick another time, or edit the one that is there.'
+  if (err instanceof ApiError && err.code === 'ENQUIRY_ENDED') return 'This enquiry is rejected or closed. Reopen it before scheduling a follow-up.'
   return err
 }
 
@@ -806,7 +807,7 @@ function ConvertDialog({
         <p>Records a business opportunity and marks the enquiry as converted. It does not create an account, a product or a payment.</p>
         <div className="field">
           <label htmlFor={`${uid}-title`}>Opportunity title</label>
-          <input id={`${uid}-title`} value={title} maxLength={200} onChange={(ev) => setTitle(ev.target.value)} aria-describedby={`${uid}-hint`} data-autofocus />
+          <input id={`${uid}-title`} value={title} maxLength={160} onChange={(ev) => setTitle(ev.target.value)} aria-describedby={`${uid}-hint`} data-autofocus />
           <p id={`${uid}-hint`} className="hint">
             Required, at least 3 characters. For example “Pune retail pilot, 40 boxes a week”.
           </p>

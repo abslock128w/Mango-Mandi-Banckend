@@ -15,7 +15,7 @@ export default function Categories() {
   const isManager = me?.role === 'MANAGER'
   const q = useQuery({ queryKey: ['pn-categories'], queryFn: pn.categories })
   const [editing, setEditing] = useState<PartnerCategory | null>(null)
-  const rows = q.data ? [...q.data].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)) : []
+  const rows = q.data ? [...q.data.categories].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name)) : []
   return (
     <>
       <div className="topbar">
@@ -137,11 +137,11 @@ function EditCategory({ category, onClose }: { category: PartnerCategory; onClos
         </p>
         <div className="field">
           <label htmlFor={`${uid}-name`}>Name</label>
-          <input id={`${uid}-name`} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+          <input id={`${uid}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor={`${uid}-desc`}>Description</label>
-          <textarea id={`${uid}-desc`} rows={3} maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <textarea id={`${uid}-desc`} rows={3} maxLength={600} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor={`${uid}-order`}>Display order</label>

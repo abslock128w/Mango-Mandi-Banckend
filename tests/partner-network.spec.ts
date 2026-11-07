@@ -78,12 +78,12 @@ function pnState(role: Role) {
       ],
       notes: [{ id: 'n_1', note: 'Grows Alphonso and Kesar.', author: 'ops@mandimangoes.test', createdAt: '2026-11-05T08:00:00Z', about: 'ENQUIRY' }],
       followups: [followup()],
-      activity: [{ id: 'a_1', type: 'SUBMITTED', summary: 'Enquiry submitted', oldValue: null, newValue: null, actor: null, at: '2026-11-05T06:30:00Z' }],
+      activity: [{ id: 'a_2', type: 'STATUS_CHANGED', summary: 'Status changed: NEW → UNDER_REVIEW', oldValue: 'NEW', newValue: 'UNDER_REVIEW', actor: 'ops@mandimangoes.test', at: '2026-11-06T06:30:00Z' }, { id: 'a_1', type: 'SUBMITTED', summary: 'Enquiry submitted', oldValue: null, newValue: null, actor: null, at: '2026-11-05T06:30:00Z' }],
       proposal: { id: 'pp_1', reference: 'MMP-P-4KD2', status: 'SUBMITTED' },
       opportunity: null,
       allowedStatuses: ['UNDER_REVIEW', 'CONTACTED'],
       actions: { approve: manager, reject: manager, close: manager, reopen: false, convert: manager, assign: true, export: manager },
-      contact: { tel: 'tel:+919876543210', whatsapp: 'https://wa.me/919876543210', mailto: 'mailto:ravi@patilagro.example' },
+      contact: { tel: 'tel:+919876543210', whatsapp: 'https://wa.me/919876543210', mailto: 'mailto:ravi@patilagro.example?subject=Your%20MandiMangoes%20partnership%20enquiry%20MMP-7K2QXD9T' },
     } as Record<string, unknown>,
     proposal: {
       ...PROPOSAL_ROW, description: 'Pulp from Ratnagiri Alphonso, no added sugar.', productStage: 'Selling locally', supplierType: 'Farmer-processor', qualityCertifications: 'FSSAI',
@@ -187,12 +187,12 @@ async function pnMock(page: Page, role: Role) {
       s.proposal.status = 'SAMPLE_REQUESTED'
       return json(route, 200, s.proposal)
     }
-    if (path === '/categories') return json(route, 200, s.categories)
+    if (path === '/categories') return json(route, 200, { categories: s.categories, states: ['Kerala', 'Maharashtra'] })
     const cat = /^\/categories\/([A-Z_]+)$/.exec(path)
     if (cat && method === 'PATCH') {
       if (role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
       s.categories = s.categories.map((c) => (c.code === cat[1] ? { ...c, ...(body as object) } : c))
-      return json(route, 200, s.categories.find((c) => c.code === cat[1]))
+      return json(route, 200, { categories: s.categories })
     }
     return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Not found', requestId: 'req_pn' } })
   })
@@ -355,7 +355,10 @@ test('an enquiry shows every answer, its documents, notes and history', async ({
   const panel = page.getByRole('tabpanel')
   const seen = new Set<string>()
   for (const tab of ['Overview', 'Personal information', 'Business information', 'Partnership proposal', 'Category-specific answers']) {
-    await page.getByRole('tab', { name: tab, exact: true }).click()
+    const t = page.getByRole('tab', { name: tab, exact: true })
+    await t.click()
+    await expect(t).toHaveAttribute('aria-selected', 'true')
+    await expect(panel).toHaveAttribute('aria-labelledby', (await t.getAttribute('id'))!)
     for (const a of ALL_ANSWERS) {
       const term = panel.getByRole('term').filter({ hasText: a.label })
       if ((await term.count()) === 0) continue
@@ -391,6 +394,7 @@ test('an enquiry shows every answer, its documents, notes and history', async ({
 
   await page.getByRole('tab', { name: 'Activity history' }).click()
   await expect(panel.getByText('Enquiry submitted')).toBeVisible()
+  await expect(panel.getByText('Status changed: New → Under review')).toBeVisible()
 })
 
 test('follow-ups: one request per click, a clash at the same moment, then mark done', async ({ page }) => {
@@ -409,7 +413,7 @@ test('follow-ups: one request per click, a clash at the same moment, then mark d
 
   await panel.getByLabel('Time (IST)').fill('15:30')
   await panel.getByRole('button', { name: 'Schedule follow-up' }).click()
-  await expect(panel.getByText('Confirm the sample date')).toBeVisible()
+  await expect(panel.getByRole('list', { name: 'Follow-ups' }).getByText('Confirm the sample date')).toBeVisible()
   const posts = pn.calls.filter((c) => c.method === 'POST' && c.path === '/enquiries/enq_1/followups')
   expect(posts).toHaveLength(2)
   const sent = posts[1].body as { scheduledAt: string; assignedTo?: string; notes: string }
@@ -484,7 +488,7 @@ test('call, WhatsApp and email open on the device and are recorded; request more
   const mail = page.getByRole('link', { name: /^Email/ })
   await expect(call).toHaveAttribute('href', 'tel:+919876543210')
   await expect(wa).toHaveAttribute('href', 'https://wa.me/919876543210')
-  await expect(mail).toHaveAttribute('href', 'mailto:ravi@patilagro.example')
+  await expect(mail).toHaveAttribute('href', /^mailto:ravi@patilagro\.example\?subject=/)
   await call.click()
   await wa.click()
   await mail.click()

@@ -74,7 +74,8 @@ export const pn = {
   requestSample: (proposalId: string, note?: string) =>
     apiRequest<unknown>('POST', `${P}/product-proposals/${id(proposalId)}/request-sample`, note ? { note } : {}),
 
-  categories: () => apiRequest<PartnerCategory[]>('GET', `${P}/categories`),
+  /** The categories with their enquiry counts, and the list of Indian states. */
+  categories: () => apiRequest<{ categories: PartnerCategory[]; states: string[] }>('GET', `${P}/categories`),
   patchCategory: (code: string, patch: Partial<Pick<PartnerCategory, 'name' | 'description' | 'active' | 'displayOrder'>>) =>
     apiRequest<unknown>('PATCH', `${P}/categories/${id(code)}`, patch),
 }

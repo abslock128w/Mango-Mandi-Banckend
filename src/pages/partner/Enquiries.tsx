@@ -139,7 +139,7 @@ export default function Enquiries() {
           <label htmlFor={`${uid}-category`}>Category</label>
           <select id={`${uid}-category`} value={get('category')} onChange={(e) => update({ category: e.target.value || null })}>
             <option value="">All categories</option>
-            {(categories.data ?? []).map((c) => (
+            {(categories.data?.categories ?? []).map((c) => (
               <option key={c.code} value={c.code}>
                 {c.name}
               </option>
