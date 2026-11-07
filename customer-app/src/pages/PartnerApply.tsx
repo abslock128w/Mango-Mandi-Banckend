@@ -319,7 +319,7 @@ function ApplyForm({
         {step.sections.map((s) => {
           const qs = s.questions.filter((qq) => shown.includes(qq))
           if (!qs.length) return null
-          const many = step.sections.length > 1 || s.title !== step.title
+          const many = step.sections.length > 1 || Boolean(s.categories)
           return (
             <section key={s.key} className="partner-section" aria-labelledby={many ? `sec-${s.key}` : undefined}>
               {many && <h3 id={`sec-${s.key}`}>{s.title}</h3>}
@@ -454,15 +454,23 @@ function Question({
   const id = `q-${q.key}`
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
   const set = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => onChange(q.key, e.target.value)
+  // The question's description sits between its label and its box, where it is read before typing.
+  const hintId = q.description ? `${id}-hint` : undefined
+  const hint = q.description ? (
+    <p id={hintId} className="muted small partner-hint">
+      {q.description}
+    </p>
+  ) : null
 
   switch (q.type) {
     case 'TEXTAREA': {
       const counterId = `${id}-count`
       const left = q.max ? q.max - text.trim().length : null
       return (
-        <Field id={id} label={<QLabel q={q} />} hint={q.description} error={error} describedBy={q.max ? counterId : undefined}>
+        <Field id={id} label={<QLabel q={q} />} error={error} describedBy={[hintId, q.max ? counterId : undefined].filter(Boolean).join(' ') || undefined}>
           {(control) => (
             <>
+              {hint}
               <textarea {...control} rows={q.max && q.max > 600 ? 5 : 3} value={text} placeholder={q.placeholder} onChange={set} />
               {left !== null && (
                 <p id={counterId} className={left < 0 ? 'counter warn' : 'counter'}>
@@ -476,26 +484,34 @@ function Question({
     }
     case 'CURRENCY':
       return (
-        <Field id={id} label={<QLabel q={q} />} hint={q.description} error={error}>
+        <Field id={id} label={<QLabel q={q} />} error={error} describedBy={hintId}>
           {(control) => (
-            <div className="prefixed">
+            <>
+              {hint}
+              <div className="prefixed">
               <span aria-hidden="true">₹</span>
-              <input {...control} type="text" inputMode="decimal" autoComplete="off" value={text} placeholder={q.placeholder} onChange={set} />
-            </div>
+                <input {...control} type="text" inputMode="decimal" autoComplete="off" value={text} placeholder={q.placeholder} onChange={set} />
+              </div>
+            </>
           )}
         </Field>
       )
     case 'SELECT':
       return (
-        <Field id={id} label={<QLabel q={q} />} hint={q.description} error={error}>
-          <select value={text} onChange={set} autoComplete={AUTOCOMPLETE[q.key]}>
+        <Field id={id} label={<QLabel q={q} />} error={error} describedBy={hintId}>
+          {(control) => (
+            <>
+              {hint}
+              <select {...control} value={text} onChange={set} autoComplete={AUTOCOMPLETE[q.key]}>
             <option value="">{t('partner.choose')}</option>
-            {optionsFor(q, answers).map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+                {optionsFor(q, answers).map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </Field>
       )
     case 'RADIO':
@@ -550,8 +566,12 @@ function Question({
       const type = q.type === 'EMAIL' ? 'email' : q.type === 'PHONE' ? 'tel' : q.type === 'DATE' ? 'date' : 'text'
       const inputMode = q.type === 'PHONE' || q.type === 'NUMBER' ? 'numeric' : q.type === 'EMAIL' ? 'email' : undefined
       return (
-        <Field id={id} label={<QLabel q={q} />} hint={q.description} error={error}>
-          <input
+        <Field id={id} label={<QLabel q={q} />} error={error} describedBy={hintId}>
+          {(control) => (
+            <>
+              {hint}
+              <input
+            {...control}
             type={type}
             inputMode={inputMode}
             autoComplete={AUTOCOMPLETE[q.key] ?? 'off'}
@@ -559,6 +579,8 @@ function Question({
             placeholder={q.placeholder}
             onChange={set}
           />
+            </>
+          )}
         </Field>
       )
     }

@@ -125,7 +125,8 @@ export default function App() {
   const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
   const bump = useBump(boxes)
   const help = helpLink()
-  // Partner With Us (PARTNER_NETWORK): a footer link and, on a desktop, one in the top menu. Never a bottom tab.
+  // Partner With Us (PARTNER_NETWORK): a footer link (and a card on the Account page), never a tab or a top-menu
+  // item: shopping keeps the header, and a sixth item there squeezed the search box at 1280px.
   const partner = useFeatures().partnerNetwork === true
   // Forms with a button at the bottom (checkout, claims, reviews, the partner enquiry) hide the tabs so they never cover it.
   const focused = /^\/(checkout|review\/|reviews\/|partner\/apply)|\/claim$/.test(location.pathname)
@@ -212,11 +213,6 @@ export default function App() {
           {/* Desktop only: the same links as the bottom tabs, in the header, with the cart count. */}
           <nav aria-label={t('nav.main')} className="top-nav">
             {mainLinks}
-            {partner && (
-              <NavLink to="/partner" className="tab tab-quiet">
-                <span>{t('nav.partner')}</span>
-              </NavLink>
-            )}
           </nav>
         </div>
       </header>

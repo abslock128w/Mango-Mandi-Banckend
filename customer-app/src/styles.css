@@ -2511,6 +2511,7 @@ main:focus {
 .partner-start {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-1);
   align-self: flex-start;
   min-height: var(--tap-min);
   font-weight: 600;
@@ -2778,8 +2779,5 @@ main:focus {
   }
   .partner-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .top-nav .tab-quiet {
-    color: var(--muted);
   }
 }
