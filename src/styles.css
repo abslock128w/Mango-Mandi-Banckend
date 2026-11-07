@@ -2291,6 +2291,14 @@ tr.row-flagged td {
 .pn-inline-form .field {
   flex: 1;
   min-width: 10rem;
+  margin-bottom: 0;
+}
+.pn-filters .field,
+.pn-page-size.field {
+  margin-bottom: 0;
+}
+.pn-table th {
+  vertical-align: bottom;
 }
 .pn-filters {
   align-items: end;
@@ -2337,9 +2345,24 @@ tr.row-flagged td {
   gap: var(--space-2) var(--space-3);
 }
 /* An overdue follow-up: a red edge as well as the word "Overdue". */
-.pn-overdue {
+.pn-overdue,
+.plain-list li.pn-overdue {
   border-left: 3px solid var(--color-error);
   padding-left: var(--space-3);
+}
+/* Eight counts fit on one row on a desktop. */
+.tiles.pn-counts {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+/* The wide lists scroll sideways on a desktop rather than break references and emails mid-word. */
+@media (min-width: 640.02px) {
+  .pn-table td {
+    white-space: nowrap;
+  }
+  .pn-table td.pn-wrap {
+    white-space: normal;
+    min-width: 10rem;
+  }
 }
 .pn-doc {
   display: flex;
@@ -2359,7 +2382,7 @@ tr.row-flagged td {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
 }
-.pn-email {
+.pn-kv .pn-email {
   overflow-wrap: anywhere;
 }
 /* A sortable column: the whole header is the button; aria-sort on the th says the order. */
@@ -2423,5 +2446,11 @@ tr.row-flagged td {
   }
   to {
     opacity: 0.55;
+  }
+}
+/* The enquiries' order on a phone, where the sortable header row is hidden. */
+@media (min-width: 640.02px) {
+  .pn-sort-phone {
+    display: none;
   }
 }

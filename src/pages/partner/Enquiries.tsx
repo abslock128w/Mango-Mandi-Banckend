@@ -14,6 +14,18 @@ import { ENQUIRY_STATUSES, PRIORITIES, type EnquiryQuery, type EnquirySort } fro
 const PAGE_SIZES = [10, 25, 50, 100]
 const FILTER_KEYS = ['q', 'status', 'category', 'state', 'priority', 'assignedTo', 'from', 'to'] as const
 
+/** On a phone the table is cards with no header row, so the order is picked here instead. */
+const PHONE_SORTS: [value: string, label: string][] = [
+  ['submitted:desc', 'Newest first'],
+  ['submitted:asc', 'Oldest first'],
+  ['name:asc', 'Name, A to Z'],
+  ['name:desc', 'Name, Z to A'],
+  ['priority:desc', 'Priority, highest first'],
+  ['status:asc', 'Status'],
+  ['state:asc', 'State, A to Z'],
+  ['reference:asc', 'Reference'],
+]
+
 const COLUMNS: { key: string; label: string; sort?: EnquirySort }[] = [
   { key: 'reference', label: 'Reference', sort: 'reference' },
   { key: 'name', label: 'Applicant', sort: 'name' },
@@ -179,6 +191,23 @@ export default function Enquiries() {
           <input id={`${uid}-to`} type="date" value={get('to')} onChange={(e) => update({ to: e.target.value || null })} />
         </div>
       </div>
+      <div className="field pn-sort-phone">
+        <label htmlFor={`${uid}-sort`}>Sort by</label>
+        <select
+          id={`${uid}-sort`}
+          value={`${sort}:${dir}`}
+          onChange={(e) => {
+            const [k, d] = e.target.value.split(':')
+            update({ sort: k, dir: d })
+          }}
+        >
+          {[...PHONE_SORTS, ...(PHONE_SORTS.some(([v]) => v === `${sort}:${dir}`) ? [] : [[`${sort}:${dir}`, `${COLUMNS.find((c) => c.sort === sort)?.label ?? 'Submitted'}, ${dir === 'asc' ? 'ascending' : 'descending'}`] as [string, string]])].map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
       {anyFilter && (
         <p className="mb-3">
           <button
@@ -240,16 +269,16 @@ export default function Enquiries() {
                           <span className="mono">{e.reference}</span>
                         </RowLink>
                       </td>
-                      <td data-label="Applicant">
+                      <td data-label="Applicant" className="pn-wrap">
                         {e.name}
                         {e.businessName && <div className="muted small">{e.businessName}</div>}
                       </td>
                       <td data-label="Primary category">{e.primaryCategory?.name ?? '—'}</td>
-                      <td data-label="Additional categories">{more.length ? more.map((c) => c.name).join(', ') : '—'}</td>
+                      <td data-label="Additional categories" className="pn-wrap">{more.length ? more.map((c) => c.name).join(', ') : '—'}</td>
                       <td data-label="City">{e.city ?? '—'}</td>
                       <td data-label="State">{e.state ?? '—'}</td>
                       <td data-label="Mobile">{e.mobile ?? '—'}</td>
-                      <td data-label="Email" className="pn-email">
+                      <td data-label="Email">
                         {e.email ?? '—'}
                       </td>
                       <td data-label="Submitted">{dateTime(e.submittedAt)}</td>

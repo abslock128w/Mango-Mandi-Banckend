@@ -3,7 +3,7 @@
 // Call, WhatsApp and Email open on this device and are recorded as contact attempts;
 // the panel never sends a message itself. Decisions (approve, reject, close, reopen,
 // convert) are for managers, and the API checks the same (docs/partner-network.md).
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api'
@@ -144,7 +144,7 @@ function EnquiryView({ e }: { e: Detail }) {
             Request more information
           </button>
           {managerActions.map((a) => (
-            <button key={a} type="button" className={`btn${a === 'approve' || a === 'convert' ? ' btn-primary' : ''}`} onClick={() => setDialog({ kind: a } as Dialogs)}>
+            <button key={a} type="button" className={`btn${a === managerActions[0] && (a === 'approve' || a === 'convert') ? ' btn-primary' : ''}`} onClick={() => setDialog({ kind: a } as Dialogs)}>
               {ACTION_LABEL[a]}
             </button>
           ))}
@@ -652,11 +652,14 @@ function AddFollowup({ e, staff, myEmail, onSaved }: { e: Detail; staff: StaffOp
       toast.success('Follow-up scheduled')
     },
   })
+  // One request at a time: a double click must not schedule it twice. A ref, because the
+  // mutation's pending state reaches the button a moment after the first click.
+  const sending = useRef(false)
   function submit(ev: FormEvent) {
     ev.preventDefault()
-    // One request at a time: a double click must not schedule it twice.
-    if (add.isPending) return
-    add.mutate()
+    if (sending.current) return
+    sending.current = true
+    add.mutate(undefined, { onSettled: () => void (sending.current = false) })
   }
   return (
     <section className="card" aria-labelledby={`${uid}-h`}>

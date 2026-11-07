@@ -1,6 +1,6 @@
 // Pieces the Partner Network pages share: labels, badges, the section's sub-navigation,
 // loading skeletons, contact links, documents, notes and the activity timeline.
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api'
@@ -59,7 +59,7 @@ export function PriorityText({ priority }: { priority: Priority }) {
 }
 
 /** Rupees as numbers (not paise): "₹1,250". */
-const inrFmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
+const inrFmt = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 0, maximumFractionDigits: 2 })
 export function inr(n: number | null | undefined): string {
   return n === null || n === undefined ? '—' : inrFmt.format(n)
 }
@@ -268,9 +268,13 @@ export function NotesPanel({
       toast.success('Note added')
     },
   })
+  // A ref as well as the button state, so a double click adds the note once.
+  const sending = useRef(false)
   function submit(e: FormEvent) {
     e.preventDefault()
-    if (text.trim() && !add.isPending) add.mutate(text.trim())
+    if (!text.trim() || sending.current) return
+    sending.current = true
+    add.mutate(text.trim(), { onSettled: () => void (sending.current = false) })
   }
   return (
     <>
