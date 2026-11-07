@@ -10,6 +10,7 @@ import { MyReviews } from './Review'
 import { FavouritesCard, NotificationsCard } from './AppFeelCards'
 import { ReferralCard } from './Referral'
 import { YourSubscriptions } from './Subscriptions'
+import { useFeatures } from '../features'
 
 export default function Account() {
   const { profile } = useStore()
@@ -77,6 +78,8 @@ export default function Account() {
       <MyReviews />
 
       <YourData />
+
+      <PartnerCard />
 
       <section className="card narrow" aria-labelledby="delete-account">
         <h2 id="delete-account">{t('account.deleteTitle')}</h2>
@@ -253,6 +256,20 @@ function YourData() {
         {download.isPending ? t('account.preparing') : t('account.download')}
       </button>
       <ErrorNote error={download.error} />
+    </section>
+  )
+}
+
+/** Partner With Us (PARTNER_NETWORK, docs/partner-network.md): a way in for suppliers and businesses. Nothing while it is off. */
+function PartnerCard() {
+  const on = useFeatures().partnerNetwork === true
+  const t = useT()
+  if (!on) return null
+  return (
+    <section className="card narrow" aria-labelledby="partner-with-us">
+      <h2 id="partner-with-us">{t('nav.partner')}</h2>
+      <p className="small muted">{t('partner.accountBody')}</p>
+      <Link to="/partner" className="btn">{t('partner.accountLink')}</Link>
     </section>
   )
 }

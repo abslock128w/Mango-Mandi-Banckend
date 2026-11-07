@@ -5,6 +5,7 @@
 
 import { ApiError, readAnswer } from './answer'
 import { currentLang, t, type Key } from './i18n-core.ts'
+import type { Answers, PartnerNetwork, PartnerSubmitted } from './partner-form.ts'
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
@@ -92,6 +93,8 @@ export interface ShopFeatures {
   multiGift?: boolean
   /** The shop in Hindi and Kannada as well as English (SHOP_LANGUAGES, docs/languages.md). */
   languages?: boolean
+  /** Partner With Us: the business enquiry pages and their links (PARTNER_NETWORK, docs/partner-network.md). */
+  partnerNetwork?: boolean
 }
 /** The shop's languages (the API's GET/PUT /v1/me/language). */
 export type ShopLanguage = 'en' | 'hi' | 'kn'
@@ -1076,6 +1079,20 @@ export const api = {
   cancelGiftRecipient: (giftOrderId: string, orderId: string) => request<void>('POST', `/gifts/${id(giftOrderId)}/recipients/${id(orderId)}/cancel`),
   giftBillUrl: (giftOrderId: string) => fileUrl(`/gifts/${id(giftOrderId)}/bill`, 'BILL_UNAVAILABLE', 'The bill could not be downloaded. Try again in a minute.'),
   giftTemplateUrl: () => fileUrl('/gifts/template.csv', 'TEMPLATE_UNAVAILABLE', 'The template could not be downloaded. Try again in a minute.'),
+
+  /** Partner With Us (docs/partner-network.md): the categories and the questionnaire. 404 while the switch is off. */
+  partnerNetwork: () => raw<PartnerNetwork>('GET', '/partner-network'),
+  /** Sends an enquiry. The key is made once per form fill, so a retry never makes a second one. */
+  submitPartnerEnquiry: (input: { questionnaireVersion: string; answers: Answers; captchaToken?: string }, idempotencyKey: string) =>
+    raw<PartnerSubmitted>('POST', '/partner-network/enquiries', input, { 'Idempotency-Key': idempotencyKey }),
+  /** Uploads one supporting document after the enquiry is saved: the raw file, with the upload token. */
+  uploadPartnerDocument: (reference: string, uploadToken: string, file: File, category: string) =>
+    raw<{ id: string; name: string; category: string; size: number }>(
+      'POST',
+      `/partner-network/enquiries/${id(reference)}/documents${qs({ category, name: file.name })}`,
+      file,
+      { 'X-Upload-Token': uploadToken },
+    ),
 
   /** Development only: the API's stand-in for Razorpay. */
   devPay: (orderId: string, outcome: 'captured' | 'failed') => raw<{ result: string }>('POST', '/dev/pay', { orderId, outcome }),
