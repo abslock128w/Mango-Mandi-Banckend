@@ -400,7 +400,8 @@ function OverviewTab({ e }: { e: Detail }) {
             <dt>Best time to call</dt>
             <dd>{e.callbackTime ?? '—'}</dd>
             <dt>Wants to start</dt>
-            <dd>{e.startTimeline ?? '—'}</dd>
+            {/* The answer as the applicant saw it ("Within a month"); the column holds its code. */}
+            <dd>{e.sections.flatMap((sec) => sec.answers).find((x) => x.key === 'startWhen')?.value ?? e.startTimeline ?? '—'}</dd>
             <dt>Assigned to</dt>
             <dd>
               {e.assignedTo?.email ?? 'No one'}
