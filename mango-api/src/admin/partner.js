@@ -14,7 +14,7 @@ import { auditNow } from '../staff-audit.js'
 import { CATEGORY_CODES, INDIAN_STATES } from '../partner/questionnaire.js'
 import {
   addFollowup, addNote, categoriesForStaff, CONTACT_CHANNELS, decide, documentRow, ENQUIRY_STATUSES, enquiryDetail, EXPORT_MAX_ROWS, exportCsv,
-  listEnquiries, listProposals, overview, PRIORITIES, PROPOSAL_STATUSES, proposalDetail, proposalEnquiry, recordContact, requestInfo, updateCategory,
+  listEnquiries, listProposals, overview, PRIORITIES, PROPOSAL_FINAL, PROPOSAL_STATUSES, proposalDetail, proposalEnquiry, recordContact, requestInfo, updateCategory,
   updateEnquiry, updateFollowup, updateProposal,
 } from '../partner/staff.js'
 
@@ -33,7 +33,8 @@ const reason = text(5, 1000, 'Say why (5 characters or more). It is kept in the 
 
 const listFilters = z.object({
   q: z.string().trim().max(120).optional(),
-  status: z.enum(ENQUIRY_STATUSES).optional(),
+  // One status or several, comma-separated (NEW,UNDER_REVIEW is "pending review").
+  status: z.string().max(200).transform((s) => s.split(',').filter(Boolean)).pipe(z.array(z.enum(ENQUIRY_STATUSES)).max(7)).optional(),
   category: z.enum(CATEGORY_CODES).optional(),
   state: z.string().trim().max(80).optional(),
   priority: z.enum(PRIORITIES).optional(),
@@ -208,7 +209,8 @@ router.get(
   asyncHandler(async (req, res) => {
     const f = parse(
       z.object({
-        status: z.enum(PROPOSAL_STATUSES).optional(), q: z.string().trim().max(120).optional(),
+        // One status, several comma-separated, or "open" for every status that is not final.
+        status: z.string().max(200).transform((s) => (s === 'open' ? PROPOSAL_STATUSES.filter((x) => !PROPOSAL_FINAL.includes(x)) : s.split(',').filter(Boolean))).pipe(z.array(z.enum(PROPOSAL_STATUSES)).max(8)).optional(), q: z.string().trim().max(120).optional(),
         page: z.coerce.number().int().min(1).max(10_000).default(1), pageSize: z.coerce.number().int().min(10).max(100).default(25),
       }),
       clean(req.query),

@@ -63,6 +63,13 @@ const ACTIVITY_WORDS = {
   PROPOSAL_NOTE_ADDED: 'Product proposal note added',
   SAMPLE_REQUESTED: 'Samples requested',
 }
+const STATUS_WORDS = {
+  NEW: 'New', UNDER_REVIEW: 'Under review', CONTACTED: 'Contacted', NEGOTIATION: 'Negotiation', CONVERTED: 'Converted', REJECTED: 'Rejected', CLOSED: 'Closed',
+  LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent',
+  SUBMITTED: 'Submitted', UNDER_EVALUATION: 'Under evaluation', SAMPLE_REQUESTED: 'Sample requested', QUALITY_REVIEW: 'Quality review',
+  COMMERCIAL_REVIEW: 'Commercial review', APPROVED: 'Approved',
+}
+const word = (v) => (v == null ? 'none' : STATUS_WORDS[v] ?? v)
 const CHANNEL_WORDS = { PHONE: 'a phone call', WHATSAPP: 'WhatsApp', EMAIL: 'an email' }
 
 async function activity(c, enquiryId, admin, type, { oldValue = null, newValue = null, metadata = null, proposalId = null } = {}) {
@@ -137,7 +144,7 @@ function listWhere(f, admin) {
     else if (digits.length >= 4) parts.push(`e.mobile_number LIKE ${v(`%${digits}`)}`)
     where.push(`(${parts.join(' OR ')})`)
   }
-  if (f.status) where.push(`e.status = ${v(f.status)}`)
+  if (f.status?.length) where.push(`e.status = ANY(${v(f.status)})`)
   if (f.priority) where.push(`e.priority = ${v(f.priority)}`)
   if (f.state) where.push(`e.state = ${v(f.state)}`)
   if (f.category) where.push(`EXISTS (SELECT 1 FROM partner_enquiry_categories ec WHERE ec.enquiry_id = e.id AND ec.category_code = ${v(f.category)})`)
@@ -211,7 +218,7 @@ function activityView(a) {
   const words = ACTIVITY_WORDS[a.activity_type] ?? a.activity_type
   let summary = words
   const md = a.metadata ?? {}
-  if (a.activity_type === 'STATUS_CHANGED' || a.activity_type === 'PRIORITY_CHANGED' || a.activity_type === 'PROPOSAL_STATUS_CHANGED') summary = `${words}: ${a.old_value ?? 'none'} → ${a.new_value}`
+  if (a.activity_type === 'STATUS_CHANGED' || a.activity_type === 'PRIORITY_CHANGED' || a.activity_type === 'PROPOSAL_STATUS_CHANGED') summary = `${words}: ${word(a.old_value)} → ${word(a.new_value)}`
   else if (a.activity_type === 'ASSIGNED') summary = a.new_value ? `Assigned to ${a.new_value}` : 'Unassigned'
   else if (a.activity_type === 'CONTACT_OPENED') summary = `Opened ${CHANNEL_WORDS[a.new_value] ?? a.new_value} from the panel (not a record that anything was sent)`
   else if (a.activity_type === 'INFO_REQUESTED') summary = `More information requested by ${CHANNEL_WORDS[a.new_value] ?? a.new_value} (opened from the panel; sent by staff)`
@@ -264,12 +271,13 @@ export async function enquiryDetail(c, id, admin) {
     sections,
     documents: await documentsOf(c, id),
     notes: await notesOf(c, id),
-    followups: followups.map((f) => followupView(f)),
+    followups: followups.map((f) => followupView({ ...f, reference: e.reference, applicant_name: e.applicant_name })),
     activity: acts.map(activityView),
     proposal: proposal ? { id: proposal.id, reference: proposal.reference, status: proposal.status } : null,
     opportunity: opp ? { title: opp.title, notes: opp.notes, createdAt: opp.created_at, createdBy: opp.creator ?? null } : null,
     allowedStatuses: PLAIN_MOVES[e.status],
     actions: actionsFor(e, admin),
+    staff: await assignableStaff(c),
     contact: contactLinks(e.mobile_number, e.email, e.reference),
   }
 }
@@ -459,9 +467,9 @@ export async function overview(c) {
 export async function listProposals(c, f) {
   const where = []
   const vals = []
-  if (f.status) {
+  if (f.status?.length) {
     vals.push(f.status)
-    where.push(`p.status = $${vals.length}`)
+    where.push(`p.status = ANY($${vals.length})`)
   }
   if (f.q) {
     vals.push(`%${f.q.trim().replace(/[\\%_]/g, (m) => `\\${m}`)}%`)
@@ -501,6 +509,7 @@ export async function proposalDetail(c, id, admin) {
     notes: await notesOf(c, p.enquiry_id, id),
     activity: acts.map(activityView),
     allowedStatuses: proposalMoves(p, admin),
+    actions: Object.fromEntries([['approve', 'APPROVED'], ['reject', 'REJECTED'], ['close', 'CLOSED']].map(([k, s]) => [k, proposalMoves(p, admin).includes(s)])),
     contact: contactLinks(p.mobile_number, p.email, p.enquiry_reference),
     enquiry: { id: p.enquiry_id, reference: p.enquiry_reference, status: p.enquiry_status },
     addsToShop: false,

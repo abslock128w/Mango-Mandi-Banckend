@@ -201,8 +201,9 @@ The `Followup` shape:
 
 Query parameters, all optional:
 
-- `q`: a name, phone (any format), email or reference;
-- `status`, `category` (any ticked category), `state`, `priority`;
+- `q`: a name, business name, phone (any format), email or reference;
+- `status`: one status, or several comma-separated (`NEW,UNDER_REVIEW` is "pending review");
+- `category` (any ticked category), `state`, `priority`;
 - `assignedTo`: a staff id, `me` or `none`;
 - `from` and `to`: submission dates, `YYYY-MM-DD` in IST;
 - `sort`: `submitted` (the default), `name`, `status`, `priority`, `state` or `reference`;
@@ -216,15 +217,18 @@ The other enquiry routes:
 - `GET /enquiries/:id` returns the detail below.
 - `PATCH /enquiries/:id` takes `{ status?, priority?, assignedTo?: id | null, reason? }`. It is strict: any other key is a 400. The status must be in `allowedStatuses`; final statuses go through the action routes. It returns the detail.
 - `POST /enquiries/:id/notes` takes `{ note }` (1 to 3000 characters).
-- `POST /enquiries/:id/followups` takes `{ scheduledAt: ISO datetime, assignedTo?: id, notes? }`. It answers 409 `FOLLOWUP_EXISTS` when a pending follow-up already exists at that moment, and 400 when the time is in the past.
+
+Notes, follow-ups, contact attempts, information requests and the action routes all answer with the full detail.
+
+- `POST /enquiries/:id/followups` takes `{ scheduledAt: ISO datetime, assignedTo?: id, notes? }`. It answers 409 `FOLLOWUP_EXISTS` when a pending follow-up already exists at that moment, 409 `ENQUIRY_ENDED` on a rejected or closed enquiry, and 400 when the time is in the past. Assignees must be managers or operators (400 otherwise); the default is the person scheduling it.
 - `PATCH /enquiries/:id/followups/:followupId` takes `{ scheduledAt?, assignedTo?, notes?, status?: 'DONE'|'CANCELLED'|'PENDING' }`.
 - `POST /enquiries/:id/contact-attempts` takes `{ channel: 'PHONE'|'WHATSAPP'|'EMAIL', note? }`. It records that staff opened a call, WhatsApp chat or email from the panel. It does not mean anything was sent or that the applicant answered.
 - `POST /enquiries/:id/request-info` takes `{ channel: 'WHATSAPP'|'EMAIL'|'PHONE', message }`. It records the request; a NEW or UNDER_REVIEW enquiry moves to CONTACTED. The panel opens the WhatsApp or email link with the message, and the person sends it themselves.
 - The action routes, all for managers only:
   - `POST /enquiries/:id/approve` takes `{ note? }`.
   - `POST /enquiries/:id/reject` takes `{ reason }` (5 or more characters).
-  - `POST /enquiries/:id/close` takes `{ reason }`.
-  - `POST /enquiries/:id/reopen` takes `{ reason }`.
+  - `POST /enquiries/:id/close` takes `{ reason }` (5 or more characters).
+  - `POST /enquiries/:id/reopen` takes `{ reason }` (5 or more characters).
   - `POST /enquiries/:id/convert` takes `{ title, notes? }`.
 
   Each returns the detail. A status that does not allow the action gives 409 `INVALID_TRANSITION`.
@@ -246,7 +250,8 @@ The enquiry detail:
   "proposal": { "id", "reference", "status" } | null,
   "opportunity": { "title", "notes", "createdAt", "createdBy" } | null,
   "allowedStatuses": ["..."], "actions": { "approve", "reject", "close", "reopen", "convert", "assign", "export" },
-  "contact": { "tel": "tel:+91...", "whatsapp": "https://wa.me/91...", "mailto": "mailto:..." }
+  "staff": [{ "id", "email", "role" }],
+  "contact": { "tel": "tel:+91...", "whatsapp": "https://wa.me/91...", "mailto": "mailto:...?subject=..." }
 }
 ```
 
@@ -254,13 +259,18 @@ How the detail reads:
 
 - `sections` holds every question that was shown to the applicant, in order. An unanswered optional question has `value: null`, which the panel shows as "Not answered".
 - `actions` holds booleans for the current staff member and status.
+- `allowedStatuses` holds only the plain moves the PATCH route takes; final statuses go through the actions.
+- `staff` lists the managers and operators an enquiry or follow-up can be assigned to.
+- `notes` include the product proposal's notes, marked `about: "PROPOSAL"`.
+- Activity `summary` is written in words ("Status changed: New → Under review").
 
 ### Product proposals
 
-- `GET /product-proposals` takes `?status=&q=&page=&pageSize=` and returns `{ items: [ProposalRow], total, page, pageSize }`.
+- `GET /product-proposals` takes `?status=&q=&page=&pageSize=`; `status` is one status, several comma-separated, or `open` (every status that is not final), and returns `{ items: [ProposalRow], total, page, pageSize }`.
 - `GET /product-proposals/:id` returns the ProposalRow plus:
   - `description`, `productStage`, `supplierType`, `qualityCertifications`, `commercialAppeal`, `canManage` and `relationships`;
-  - `documents` (the enquiry's files), `notes` (this proposal's), `activity` and `allowedStatuses`;
+  - `documents` (the enquiry's files), `notes` (this proposal's), `activity`, `allowedStatuses` and `actions: { approve, reject, close }`;
+  - `addsToShop: false`, as a reminder that approving adds no product;
   - `contact`, and `enquiry: { id, reference, status }`.
 - `PATCH /product-proposals/:id` takes `{ status, reason? }`. The reason is required for APPROVED, REJECTED and CLOSED.
 - `POST /product-proposals/:id/notes` takes `{ note }`.
@@ -268,8 +278,8 @@ How the detail reads:
 
 ### Categories
 
-- `GET /categories` returns `[{ code, name, description, active, displayOrder, enquiries }]`.
-- `PATCH /categories/:code` takes `{ name?, description?, active?, displayOrder? }`. It is for managers only. Codes are fixed, because the questionnaire refers to them.
+- `GET /categories` returns `{ categories: [{ code, name, description, active, displayOrder, enquiries }], states }`, where `states` is the list of Indian states.
+- `PATCH /categories/:code` takes `{ name?, description?, active?, displayOrder? }` and returns `{ categories }`. A description is required (2 to 600 characters), and the last open category can't be switched off. It is for managers only. Codes are fixed, because the questionnaire refers to them.
 
 ## Messages
 

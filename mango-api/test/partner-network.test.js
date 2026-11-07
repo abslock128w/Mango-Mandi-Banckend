@@ -368,6 +368,8 @@ describe('staff', () => {
     assert.equal((await q('category=SALES_DISTRIBUTION')).total, 2)
     assert.equal((await q('category=PRODUCT_DEVELOPMENT')).total, 1)
     assert.equal((await q('status=NEW')).total, 3)
+    assert.equal((await q('status=NEW,UNDER_REVIEW')).total, 3)
+    assert.equal((await api.get(A('/enquiries?status=NEW,BOGUS'), { token: manager })).status, 400)
     assert.equal((await q('assignedTo=none')).total, 3)
     assert.deepEqual((await q('sort=name&dir=asc')).items.map((x) => x.name), ['Arun Das', 'Meera Shah', 'Ravi Kumar'])
     const p = await q('pageSize=10&page=2')
@@ -392,6 +394,7 @@ describe('staff', () => {
     assert.deepEqual(d.allowedStatuses, ['UNDER_REVIEW', 'CONTACTED'])
     assert.equal(d.actions.approve, false, 'operators can not approve')
     assert.equal(d.proposal.reference, `${ref}-P`)
+    assert.ok(d.staff.some((x) => x.role === 'OPERATOR') && !d.staff.some((x) => x.role === 'PACKER'))
     assert.equal((await api.get(A(`/enquiries/${id}`), { token: manager })).body.actions.approve, true)
   })
 
@@ -418,7 +421,7 @@ describe('staff', () => {
     assert.equal(r.body.priority, 'HIGH')
     assert.equal(r.body.assignedTo.email, 'ops@mandimangoes.test')
     assert.equal(r.body.assignedBy.email, 'ops@mandimangoes.test')
-    assert.ok(r.body.activity.some((a) => a.type === 'STATUS_CHANGED' && a.summary.includes('NEW → UNDER_REVIEW')))
+    assert.ok(r.body.activity.some((a) => a.type === 'STATUS_CHANGED' && a.summary.includes('New → Under review')))
     assert.ok(r.body.activity.some((a) => a.type === 'ASSIGNED'))
     r = await api.patch(A(`/enquiries/${id}`), { status: 'CONVERTED' }, { token: manager })
     assert.equal(r.status, 409)
@@ -540,6 +543,8 @@ describe('product proposals', () => {
     const r = await submit(answers(['PRODUCT_DEVELOPMENT']))
     const list = (await api.get(A('/product-proposals'), { token: operator })).body
     assert.equal(list.total, 1)
+    assert.equal((await api.get(A('/product-proposals?status=open'), { token: operator })).body.total, 1)
+    assert.equal((await api.get(A('/product-proposals?status=APPROVED,CLOSED'), { token: operator })).body.total, 0)
     const p = list.items[0]
     assert.equal(p.productName, 'Mango pulp')
     assert.equal(p.procurementPrice, 180)
@@ -564,7 +569,7 @@ describe('product proposals', () => {
     d = (await api.patch(A(`/product-proposals/${p.id}`), { status: 'APPROVED', reason: 'Good margin and supply' }, { token: manager })).body
     assert.equal(d.status, 'APPROVED')
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n, productsBefore, 'approval adds no product')
-    assert.ok(d.activity.some((a) => a.type === 'PROPOSAL_STATUS_CHANGED' && a.summary.includes('→ APPROVED')))
+    assert.ok(d.activity.some((a) => a.type === 'PROPOSAL_STATUS_CHANGED' && a.summary.includes('→ Approved')))
     // The enquiry's own notes list shows proposal notes too, marked as such.
     const e = (await api.get(A(`/enquiries/${await enquiryId(r.body.reference)}`), { token: manager })).body
     assert.ok(e.notes.some((n) => n.about === 'PROPOSAL'))
