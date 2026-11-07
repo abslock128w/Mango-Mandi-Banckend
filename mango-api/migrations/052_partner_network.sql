@@ -219,6 +219,8 @@ CREATE TABLE partner_opportunities (
 -- The outbox carries the applicant's "we received your enquiry" and the
 -- business team's alerts (both templates need Meta approval: WHATSAPP_PARTNER_UPDATES).
 ALTER TABLE notifications ADD COLUMN partner_enquiry_id TEXT REFERENCES partner_enquiries (id) ON DELETE CASCADE;
+-- The template's words, fixed when queued (what happened, reference, detail, link).
+ALTER TABLE notifications ADD COLUMN partner_params JSONB;
 -- Both checks keep everything 041 (care) added.
 ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_target;
 ALTER TABLE notifications ADD CONSTRAINT notifications_target CHECK (

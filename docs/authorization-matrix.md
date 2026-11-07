@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-216 routes; 23 ask for step-up.
+239 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -299,3 +299,31 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /whatsapp/messages/:id/retry` | ✓ | ✓ |  |  |  |  | Each change |
 | `GET /whatsapp/overview` | ✓ |  |  |  |  |  |  |
 | `POST /whatsapp/templates/sync` | ✓ |  |  |  |  |  | Each change |
+
+## Other
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /partner-network/categories` | ✓ | ✓ |  |  |  |  |  |
+| `PATCH /partner-network/categories/:code` | ✓ |  |  |  |  |  | Each change |
+| `GET /partner-network/enquiries` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/enquiries/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `PATCH /partner-network/enquiries/:id` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/approve` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/close` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/contact-attempts` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/convert` | ✓ |  |  |  |  |  | Each change |
+| `GET /partner-network/enquiries/:id/documents/:documentId` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /partner-network/enquiries/:id/followups` | ✓ | ✓ |  |  |  |  | Each change |
+| `PATCH /partner-network/enquiries/:id/followups/:followupId` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/reject` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/reopen` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/request-info` | ✓ | ✓ |  |  |  |  | Each change |
+| `GET /partner-network/enquiries/export.csv` | ✓ |  |  |  |  |  |  |
+| `GET /partner-network/overview` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/product-proposals` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/product-proposals/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `PATCH /partner-network/product-proposals/:id` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/product-proposals/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/product-proposals/:id/request-sample` | ✓ | ✓ |  |  |  |  | Each change |
