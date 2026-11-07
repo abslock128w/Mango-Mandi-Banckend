@@ -1,8 +1,6 @@
 // The Partner With Us form as GET /v1/partner-network serves it, built from the API's own
 // questionnaire (mango-api/src/partner/questionnaire.js) and the categories migration 052 adds,
 // so the shop's unit tests and mocked specs always follow the real definition.
-import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import type { PartnerNetwork } from '../src/partner-form.ts'
 
 /** The nine categories as migration 052_partner_network.sql adds them. */
@@ -18,8 +16,9 @@ export const CATEGORIES = [
   { code: 'OTHER', name: 'Other Opportunities', description: 'Anything that does not fit above. Tell us your idea.' },
 ]
 
-// A path held in a variable: the module is JavaScript, read at run time, not type-checked here.
-const QUESTIONNAIRE = pathToFileURL(path.join(import.meta.dirname ?? __dirname, '../../mango-api/src/partner/questionnaire.js')).href
+// Held in a variable: the module is the API's JavaScript, loaded at run time and not type-checked
+// here. Relative to this file, both under Node's test runner (ESM) and Playwright (CommonJS).
+const QUESTIONNAIRE = '../../mango-api/src/partner/questionnaire.js'
 
 /** The whole GET /v1/partner-network answer. */
 export async function partnerNetwork(): Promise<PartnerNetwork> {
