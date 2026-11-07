@@ -1,17 +1,25 @@
-/* Pages: /checkout, /orders, /orders/:id (and the API's /order/:id), /account.
+/* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /preorder, /bulk.
    They replace the home page (main#home) with #page-view, keep the header, footer and dock, and
    use the History API, so back and forward work and the addresses can be shared or reloaded
    (shop/vercel.json and scripts/serve-shop.mjs serve index.html for them). Checkout and orders
    reuse app.js's flows, which draw wherever `view` points; the profile page is here.
+   The home page's old sections (#preorder, #bulk, #partner) are pages now: those anchors open them (anchorPage).
+   Every route change fires `mm:route` on window (dock.js and the desktop nav mark the current tab from it).
    Loaded before app.js, so top-level code only declares and listens. */
 
 const PAGES = [
+  [/^\/cart\/?$/, () => renderCartPage()],
   [/^\/checkout\/?$/, () => checkout()],
   [/^\/orders\/?$/, () => signedInThen('Your orders', ordersView)],
   [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => trackView(decodeURIComponent(m[1])))],
   [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
   [/^\/login\/?$/, () => loginView()],
+  [/^\/preorder\/?$/, () => preorderPage()],
+  [/^\/bulk\/?$/, () => bulkPage()],
 ]
+// The home page's old sections, now pages: /#bulk (an old link, a bookmark) opens /bulk.
+const ANCHOR_PAGES = { preorder: '/preorder', bulk: '/bulk', partner: '/partner' }
+const anchorPage = () => (location.pathname === '/' || location.pathname === '/index.html') && ANCHOR_PAGES[location.hash.slice(1)] || null
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
 let homeScroll = 0, nameEditing = false
 
@@ -25,20 +33,26 @@ function go(path, { replace = false } = {}) {
 }
 
 function route() {
+  const moved = anchorPage()
+  if (moved) history.replaceState(history.state, '', moved)
   const path = location.pathname
   for (const [re, open] of PAGES) {
     const m = path.match(re)
     if (!m) continue
     showPage(path)
     open(m)
+    routed()
     return
   }
   hidePage()
+  routed()
 }
+const routed = () => window.dispatchEvent(new CustomEvent('mm:route', { detail: { path: location.pathname } }))
 
 function showPage(path) {
   if (!pageOpen()) homeScroll = scrollY
   closeDialogs()
+  setBar('')
   view = '#page-body'
   ++sheetSeq
   document.body.classList.add('page-open')
@@ -52,6 +66,7 @@ function showPage(path) {
 function hidePage() {
   if (!pageOpen()) return
   document.body.classList.remove('page-open')
+  setBar('')
   delete document.body.dataset.page
   $('#page-view').hidden = true
   $('#page-body').innerHTML = ''
@@ -103,6 +118,33 @@ function pageHead(title) {
     }).join('')}</nav>`
     : ''
   return `<div class="page-head"><button class="icon-button" data-page-back aria-label="Back">${icon('back')}</button><h1>${title}</h1></div>${tabs}`
+}
+
+// ---- The pre-order and bulk pages: the season's copy, then the booking (app.js preorderForm) or the enquiry
+// (app.js bulkForm) drawn inline in the page's own container instead of the form sheet.
+
+function preorderPage() {
+  host().innerHTML = pageHead('Pre-order') + `
+    <section class="door-hero season">
+      <div class="season-art"><img src="assets/hero.webp" alt="Sun-kissed mangoes among orchard leaves"><span class="season-stamp">Some things<br>are worth<br><em>the wait.</em></span></div>
+      <div class="season-copy"><h2>First in line.<br><em>First taste of summer.</em></h2><p>Reserve your mango moment before the season begins. Choose your ripeness, box and harvest week, and we’ll keep your box ready.</p><small>Paid in full by Razorpay · cancel any time before packing for a full refund.</small><button class="button secondary door-mine" data-preorders hidden>My pre-orders ${icon('arrow')}</button></div>
+    </section>
+    <section class="page-card door-flow" id="pre-box" aria-label="Book a pre-order"></section>`
+  preorderForm('#pre-box')
+  MM.restore().then(() => {
+    const b = $('#page-body .door-mine')
+    if (b) b.hidden = !MM.profile()
+  })
+}
+
+function bulkPage() {
+  host().innerHTML = pageHead('Bulk orders') + `
+    <section class="door-hero bulk">
+      <div><h2>Big on mangoes?<br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above 50 kg? Let’s make it happen.</p></div>
+      <div class="bulk-type" aria-hidden="true">50<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>
+    </section>
+    <section class="page-card door-flow" id="bulk-box" aria-label="Bulk enquiry"></section>`
+  bulkForm('#bulk-box')
 }
 
 // ---- The profile page.
@@ -361,6 +403,8 @@ document.addEventListener('change', (e) => {
 })
 
 window.addEventListener('popstate', route)
+// A home anchor typed or followed on the home page itself (#bulk) changes only the hash.
+window.addEventListener('hashchange', () => { if (anchorPage()) route() })
 // Signing out on an account page leaves it.
 window.addEventListener('mm:profile', () => {
   if (pageOpen() && !MM.profile() && ['account', 'orders'].includes(document.body.dataset.page)) go('/')

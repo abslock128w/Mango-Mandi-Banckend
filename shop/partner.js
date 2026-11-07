@@ -1,6 +1,6 @@
-/* Partner Network (docs/partner-network.md): the home section (#partner), /partner (the pitch and the
+/* Partner Network (docs/partner-network.md): the home doorway and dock tab (links), /partner (the pitch and the
    status check) and /partner/apply (the questionnaire GET /v1/partner-network serves, one step at a time).
-   While the feature is off every route answers 404: the home section and its links hide, and the pages
+   While the feature is off every route answers 404: the links to it hide, and the pages
    say it is not open right now. The form's rules are a port of customer-app/src/partner-form.ts: which
    sections apply to the ticked categories, which questions show, and the same checks the API makes.
    Answers are kept in localStorage (mm-partner-draft) until the enquiry is received; files are sent after,
@@ -231,14 +231,6 @@ const PN_FLAVOUR = {
   OTHER: ['search', 'Something else? Surprise us.'],
 }
 const pnFlavour = (code) => PN_FLAVOUR[code] || ['leaf', '']
-/** Shown while the categories load, or if they can't be fetched: the four the home section leads with. */
-const PN_STATIC = [
-  { code: 'FARMERS_SUPPLIERS', name: 'Farmers & Suppliers' },
-  { code: 'SALES_DISTRIBUTION', name: 'Sales & Distribution Partners' },
-  { code: 'RETAIL_RESELLER', name: 'Retail & Reseller Partners' },
-  { code: 'CORPORATE', name: 'Corporate & Institutional Partnerships' },
-]
-const PN_HOME_ORDER = ['FARMERS_SUPPLIERS', 'SALES_DISTRIBUTION', 'RETAIL_RESELLER', 'CORPORATE', 'LOGISTICS', 'MARKETING']
 
 // ---- The questionnaire, fetched once per visit (again after a 409 QUESTIONNAIRE_CHANGED).
 
@@ -260,28 +252,8 @@ function partnerOn() {
   document.querySelectorAll('[data-partner-link]').forEach((el) => { el.hidden = false })
 }
 
-// ---- The home section.
-
-function pnHomeCards(categories, total) {
-  const pick = PN_HOME_ORDER.map((c) => categories.find((x) => x.code === c)).filter(Boolean).slice(0, 4)
-  const list = pick.length >= 4 ? pick : [...pick, ...categories.filter((c) => !pick.includes(c))].slice(0, 4)
-  const more = Math.max(0, total - list.length)
-  return list.map((c) => {
-    const [ic, line] = pnFlavour(c.code)
-    return `<a class="pn-home-card glass" href="/partner/apply?category=${encodeURIComponent(c.code)}" data-route><span class="pn-icon">${icon(ic)}</span><strong>${esc(c.name)}</strong><small>${esc(line)}</small></a>`
-  }).join('') + (more ? `<a class="pn-home-more" href="/partner" data-route>+${more} more ways to partner ${icon('arrow')}</a>` : '')
-}
-
-function partnerHome() {
-  const box = document.getElementById('partner-cards')
-  if (!box) return
-  box.innerHTML = pnHomeCards(PN_STATIC, 9)
-  partnerNetwork().then((net) => {
-    partnerOn()
-    if (net.categories && net.categories.length) box.innerHTML = pnHomeCards(net.categories, net.categories.length)
-  }, () => {})
-}
-document.addEventListener('DOMContentLoaded', partnerHome)
+// ---- The links to /partner (the home doorway, the dock tab, the nav and footer): shown only while the feature is on.
+document.addEventListener('DOMContentLoaded', () => partnerNetwork().then(partnerOn, () => {}))
 
 // ---- Shared bits of the pages.
 

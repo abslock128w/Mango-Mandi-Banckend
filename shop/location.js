@@ -20,6 +20,7 @@ function renderWhereChip() {
   const el = $('#where-label')
   if (el) el.textContent = whereLabel()
   $$('.where-chip').forEach((b) => b.classList.toggle('is-set', Boolean(where.pincode)))
+  if (typeof renderCartPage === 'function') renderCartPage() // the bag page's delivery card
 }
 
 /** Checks the pincode, keeps what was chosen, reloads stock and closes the sheet. */

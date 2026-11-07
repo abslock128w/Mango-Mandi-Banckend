@@ -66,11 +66,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bag-count{color:#15130c}
 /* Dock (dock.css). */
 [data-theme="dark"] .liquid-navigation{color:var(--ink)}
-[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:linear-gradient(165deg,#2c2920c7,#1a18138c 50%,#2a2720b8);box-shadow:inset 0 1px 0 #ffffff29,inset 1px 0 1px #ffffff14,0 8px 24px #000a}
-[data-theme="dark"] .liquid-tab.is-current{color:#ffc93c}
-[data-theme="dark"] .dock-search input{color:var(--ink)}
-[data-theme="dark"] .dock-search input::placeholder,[data-theme="dark"] .dock-mini-copy small{color:#a59c80}
-@media(prefers-reduced-transparency:reduce){[data-theme="dark"] .glass,[data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion,[data-theme="dark"] .sheet,[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:#1f1d17}}
+@media(prefers-reduced-transparency:reduce){[data-theme="dark"] .glass,[data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion,[data-theme="dark"] .sheet{background:#1f1d17}}
 /* Pages and cards added with the checkout, orders and profile pages. */
 [data-theme="dark"]{--surface:#191712;--chip:#211f19}
 [data-theme="dark"] .page-card{box-shadow:inset 0 0 0 1px #ffffff12,0 10px 30px #0006}
@@ -93,7 +89,6 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .segmented button.selected,[data-theme="dark"] .detail-stages button.selected{color:#15130c;font-weight:600}
 [data-theme="dark"] .bulk h2 em,[data-theme="dark"] .bulk-type{color:#ffd766}[data-theme="dark"] .bulk-type small{color:#f3e3a6}
 [data-theme="dark"] footer{border-top:2px solid transparent;border-image:linear-gradient(90deg,#ffc93c00,#ffc93c,#ffc93c00) 1}
-[data-theme="dark"] .liquid-lens{background:linear-gradient(145deg,#fff6d040,#ffd45a24 50%,#ffffff0a)}
 @media(max-width:700px),(pointer:coarse){[data-theme="dark"] .sheet{background:#17150f}[data-theme="dark"] .sheet::backdrop{background:#000000b3}}
 [data-theme="dark"] .map-frame,[data-theme="dark"] .track-map,[data-theme="dark"] .leaflet-container{background:#22201a}
 [data-theme="dark"] .leaflet-tile-pane{filter:brightness(.78) contrast(1.05) saturate(.85)}
@@ -106,16 +101,12 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .glass{background:linear-gradient(165deg,#2c2920dd,#1d1b15c2 46%,#2a2720d4)}
 [data-theme="dark"] .liquid,[data-theme="dark"] .icon-button,[data-theme="dark"] .quantity,[data-theme="dark"] .occasion{background:linear-gradient(170deg,#2f2c23f5,#211f19e6 55%,#2c2920f0)}
 [data-theme="dark"] .product-tag.liquid,[data-theme="dark"] .image-note.liquid{background:linear-gradient(170deg,#211f19eb,#1a1813d6)}
-[data-theme="dark"] .liquid-rail,[data-theme="dark"] .dock-orb,[data-theme="dark"] .dock-search,[data-theme="dark"] .dock-mini{background:linear-gradient(165deg,#2c2920eb,#1d1b15d6 50%,#2a2720e6)}
 [data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23f5,#211f19e6);box-shadow:inset 0 0 0 1px #ffffff14,0 4px 14px #0007}
 [data-theme="dark"] .login-intro .brand-light{display:none}[data-theme="dark"] .login-intro .brand-dark{display:block}
 
 /* Partner Network (partner.js) in the dark. */
-[data-theme="dark"] .partner-home{background:radial-gradient(55% 85% at 100% 0%,#ffc93c2e,#ffc93c00 70%),linear-gradient(160deg,#1c1a14,#15140f);box-shadow:inset 0 0 0 1px #ffffff12}
-[data-theme="dark"] .partner-rings i{border-color:#ffc93c2b}[data-theme="dark"] .partner-rings i:nth-child(2){border-color:#ffc93c1a}[data-theme="dark"] .partner-rings i:nth-child(3){background:radial-gradient(circle,#ffc93c33,#ffc93c00 70%)}
-[data-theme="dark"] .partner-kicker{color:#c9bfa3}[data-theme="dark"] .partner-kicker svg{color:#ffc93c}
 [data-theme="dark"] .pn-icon,[data-theme="dark"] .pn-drop-icon,[data-theme="dark"] .pn-how li:last-child>span{background:#ffc93c;color:#15130c}
-[data-theme="dark"] .pn-home-card:nth-child(2) .pn-icon,[data-theme="dark"] .pn-home-card:nth-child(3) .pn-icon,[data-theme="dark"] .pn-way:nth-child(3n+2) .pn-icon{background:#2f2a18;color:#ffd766;box-shadow:inset 0 0 0 1px #ffc93c40}
+[data-theme="dark"] .pn-way:nth-child(3n+2) .pn-icon{background:#2f2a18;color:#ffd766;box-shadow:inset 0 0 0 1px #ffc93c40}
 [data-theme="dark"] .pn-way:nth-child(3n) .pn-icon,[data-theme="dark"] .pn-cat .pn-icon,[data-theme="dark"] .pn-how li>span,[data-theme="dark"] .pn-closed-art,[data-theme="dark"] .pn-tag{background:#2a271d;color:#ffd766}
 [data-theme="dark"] .pn-cat:has(input:checked) .pn-icon{background:#ffc93c;color:#15130c}
 [data-theme="dark"] .pn-hero{background:radial-gradient(55% 110% at 100% 50%,#ffc93c2e,#ffc93c00 70%),#10261b}
@@ -145,3 +136,25 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .pn-up-state.is-good{color:#a6d79a}[data-theme="dark"] .pn-bar{background:#ffffff14}
 [data-theme="dark"] .pn-next-steps{background:#1f1d17;box-shadow:inset 0 0 0 1px #ffffff10}
 [data-theme="dark"] .pn-consent .pn-hint a{color:var(--ink)}
+/* Visibility (style.css's last block) in the dark: the accent is the mango yellow with near-black ink on it; the dock
+   is a solid near-black bar; the bag bar's count turns dark on the yellow bar. */
+[data-theme="dark"]{--accent:#ffc93c;--accent-hover:#ffd766;--on-accent:#15130c;--on-accent-soft:#15130c1f;--dock-bg:#15140f;--dock-ink:#f2ebd6;--dock-line:#3a352b;--dock-field:#1f1d17;--dock-press:#25231b;--focus:#ffd766;--pulse-ring:#ffd766b3;--control-line:#5a5344}
+[data-theme="dark"] .liquid-navigation{color:var(--dock-ink)}
+[data-theme="dark"] .dock-row{box-shadow:0 -6px 22px #0009}
+[data-theme="dark"] .dock-mini,[data-theme="dark"] .dock-orb{box-shadow:0 10px 26px #0000008c}
+[data-theme="dark"] .liquid-navigation .dock-mini .mini-count{background:#15130c;color:#ffd766;box-shadow:0 0 0 2px var(--accent)}
+[data-theme="dark"] .bag-button,[data-theme="dark"] .bag-button.liquid{background:var(--accent);color:var(--on-accent);box-shadow:0 6px 16px #0000008c}
+[data-theme="dark"] .bag-button .bag-count{background:#15130c;color:#ffd766}
+[data-theme="dark"] .selection-pill{background:var(--accent);box-shadow:none}
+[data-theme="dark"] .segmented,[data-theme="dark"] .segmented.glass,[data-theme="dark"] .sort-select,[data-theme="dark"] .sort-select.liquid{background:#1f1d17;color:var(--ink)}
+[data-theme="dark"] .segmented button:not(.selected){color:var(--ink)}
+[data-theme="dark"] .product-tag,[data-theme="dark"] .product-tag.liquid{background:#1f1d17;color:var(--ink)}
+[data-theme="dark"] .quick-add,[data-theme="dark"] .quick-add.liquid,[data-theme="dark"] .card-stepper{background:var(--accent);color:var(--on-accent);box-shadow:0 4px 12px #0000008c}
+[data-theme="dark"] .quick-add:hover,[data-theme="dark"] .quick-add.liquid:hover{background:var(--accent-hover);color:var(--on-accent)}
+[data-theme="dark"] .quick-add.is-out,[data-theme="dark"] .quick-add:disabled{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1.5px var(--control-line)}
+[data-theme="dark"] .doorway{background:#1a1813;box-shadow:inset 0 0 0 1px var(--line),0 6px 18px #0006}
+[data-theme="dark"] .button.primary{background:var(--accent);color:var(--on-accent)}
+/* The bag page and checkout (style.css): the savings green, the pay bar, the Sort button in the dark. */
+[data-theme="dark"]{--save-bg:#1d4a2c;--save-ink:#e6f7ea;--save-text:#7fd99a}
+[data-theme="dark"] .pay-bar{box-shadow:0 -8px 24px #0009}
+[data-theme="dark"] .sort-button{background:#1f1d17}

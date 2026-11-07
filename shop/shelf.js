@@ -128,9 +128,11 @@ function pickBox(b) {
     return
   }
   cardBox[name] = sku
-  const card = b.closest('.product-card'), st = stageById(card.dataset.kind), s = skuOf(sku)
-  $('.product-price', card).innerHTML = `${currency(s.price)}<small>/ box</small>`
-  $('.quick-add', card).setAttribute('aria-label', `Add a ${boxText(s)} of ${st.stage.toLowerCase()} ${name} to bag`)
+  const card = b.closest('.product-card'), s = skuOf(sku)
+  $('.product-price', card).innerHTML = priceHTML(s)
+  const action = $('.card-action', card)
+  action.dataset.sku = sku
+  refreshActions(action)
   window.Liquid?.pop($('.product-price', card), 0.35)
 }
 
@@ -143,12 +145,44 @@ function photoButton(v, stage) {
     : `<button class="fruit-photo" data-product="${esc(v.name)}" aria-label="${label}"></button>`
 }
 
+/** The card's price: bold, with the retail price struck through beside it when the API sends one (mrp). */
+function priceHTML(s) {
+  const was = Number(s.mrp || s.compareAtPrice || s.retailPrice) || 0
+  return `${currency(s.price)}${was > s.price ? `<s class="price-was" aria-label="was ${currency(was)}">${currency(was)}</s>` : ''}<small>/ box</small>`
+}
+
+/** The card's buying control: "Add", or once this box and stage are in the bag a − qty + stepper; "Sold out" when none are left. */
+function cardAction(v, sku, stage, out) {
+  const s = skuOf(sku), st = stageOf(stage)
+  if (!s) return ''
+  const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
+  if (out) return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now">Sold out</button>`
+  const line = cart.find((x) => x.sku === sku && x.stage === stage)
+  if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
+  const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
+  return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}">+</button></div>`
+}
+
+/** Redraw the cards' Add/stepper controls from the bag (all, or one), keeping focus on the control that was used. */
+function refreshActions(only) {
+  const active = document.activeElement
+  ;(only ? [only] : $$('.card-action')).forEach((el) => {
+    const v = shelf.find((x) => x.name === el.dataset.variety)
+    if (!v) return
+    const had = el.contains(active), html = cardAction(v, el.dataset.sku, el.dataset.stage, el.dataset.out === '1')
+    if (el.innerHTML === html) return
+    el.innerHTML = html
+    if (had) ($('[data-card-qty="1"]', el) || $('.quick-add', el))?.focus()
+  })
+}
+window.addEventListener('mm:cart', () => refreshActions())
+
 function cardHTML(v) {
   const stage = stageFor(v), st = stageOf(stage), sku = boxFor(v, stage), s = skuOf(sku)
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
   const tag = out ? 'Sold out for now' : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
-  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}<button class="quick-add liquid" data-refract data-add="${name}" aria-label="Add a ${esc(boxText(s))} of ${st.stage.toLowerCase()} ${name} to bag" ${out ? 'disabled' : ''}>+</button></div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxCards(v, stage, sku, 'card')}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -325,6 +359,16 @@ document.addEventListener('click', (e) => {
   if (b.dataset.filter) setFilter(b.dataset.filter)
   else if (b.dataset.occasion) setOccasion(b.dataset.occasion)
   else if (b.dataset.add) add(b.dataset.add)
+  else if (b.dataset.cardQty) {
+    const { sku, stage, variety } = b.dataset
+    if (b.dataset.cardQty === '1') add(variety, sku, stage)
+    else {
+      const i = cart.findIndex((x) => x.sku === sku && x.stage === stage)
+      if (i < 0) return
+      if (--cart[i].qty <= 0) cart.splice(i, 1)
+      updateCart()
+    }
+  }
   else if (b.dataset.product) productDetail(b.dataset.product)
   else if (b.dataset.favorite) {
     const id = b.dataset.favorite
