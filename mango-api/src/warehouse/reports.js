@@ -2,6 +2,7 @@
 // reconciliation, trace, recalls, product settings and CSV exports
 // (docs/warehouse/REPORTS.md). Everything here is computed from the boxes,
 // their events and the stock counters at request time.
+import { orderSeqSql } from '../order-number.js'
 import { addDays, now, todayIST } from '../clock.js'
 import { newId } from '../ids.js'
 import { auditLedger, LINE_LOCK_ORDER } from '../inventory.js'
@@ -68,7 +69,7 @@ async function pickQueueRows(c, { date = null, limit = 200 } = {}) {
        FROM orders o JOIN order_stock s ON s.order_id = o.id JOIN products p ON p.sku = s.sku
       WHERE o.status IN ('CONFIRMED', 'PROCESSING') AND (o.payment_status = 'SUCCEEDED' OR o.replacement_for IS NOT NULL)
         AND s.state = 'committed' AND p.box_tracking_enabled AND ($1::date IS NULL OR o.delivery_date = $1)
-      GROUP BY o.id ORDER BY o.delivery_date, o.number LIMIT $2`,
+      GROUP BY o.id ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT $2`,
     [date, limit],
   )
   return rows
@@ -294,7 +295,7 @@ export async function traceBox(c, box, who) {
 async function ordersFor(c, ids, who) {
   if (!ids.length) return []
   const withPeople = can(who.role, 'recall.view_customers')
-  const { rows } = await c.query(`SELECT id, number, status, delivery_date, customer_name, phone FROM orders WHERE id = ANY($1) ORDER BY number`, [ids])
+  const { rows } = await c.query(`SELECT id, number, status, delivery_date, customer_name, phone FROM orders WHERE id = ANY($1) ORDER BY ${orderSeqSql('number')}`, [ids])
   return rows.map((o) => ({ id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, ...(withPeople ? { customerName: o.customer_name, phone: o.phone } : {}) }))
 }
 

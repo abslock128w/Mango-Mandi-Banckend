@@ -11,6 +11,7 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | Kind | Template | Category | Variables | Button |
 |------|----------|----------|-----------|--------|
 | ORDER_CONFIRMED | `mandi_order_confirmed` | UTILITY | 4 | Open order |
+| ORDER_CONFIRMED (with the invoice) | `mandi_order_confirmed_invoice` | UTILITY | 4 | Track order, Download invoice |
 | REPLACEMENT_CONFIRMED | `mandi_replacement_confirmed` | UTILITY | 4 | Open order |
 | RIPENESS_GUIDE | `mandi_ripeness_guide` | UTILITY | 4 | — |
 | DATE_MOVED | `mandi_date_moved` | UTILITY | 4 | Open order |
@@ -33,6 +34,8 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | REFERRAL_REWARD | `mandi_referral_reward` | MARKETING | 5 | — |
 | HELP_REPLY | `mandi_help_reply` | UTILITY | 3 | — |
 | SUBSCRIPTION_DUE | `mandi_subscription_due` | UTILITY | 4 | — |
+| PARTNER_ENQUIRY_RECEIVED | `mandi_partner_enquiry_received` | UTILITY | 3 | — |
+| PARTNER_TEAM_ALERT | `mandi_partner_team_alert` | UTILITY | 4 | — |
 | MANAGER_DAILY_SUMMARY | `mandimangoes_daily_summary` | UTILITY | 8 | — |
 | LOGIN_CODE | `mandi_login_code` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |
 
@@ -51,6 +54,17 @@ The wording is a suggestion for the submission. Keep the variables, their order 
   4. slot (example: 7 AM to 11 AM)
 
 Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}.
+
+### ORDER_CONFIRMED with the invoice
+
+- Template: `mandi_order_confirmed_invoice`, category UTILITY, the same 4 variables in the same order
+- Sent in place of `mandi_order_confirmed` when the order has a bill (`BILLS_ENABLED`) and `WHATSAPP_ORDER_INVOICE=true`. One message: the confirmation, a button to track the order and a button to the invoice. The PDF itself is not attached.
+- Buttons, in this order (the order matters: the API fills them by position):
+  1. URL button "Track order", `https://<shop>/orders/{{1}}` (the order id; example: ord_3f9c2a7b1d4e5f60a1b2)
+  2. URL button "Download invoice", `https://<api>/v1/invoice/{{1}}` (a signed link that opens the invoice PDF without a sign-in for 180 days; example: ord_3f9c2a7b1d4e5f60a1b2.t9x2k1.Zk3mQ0aB7cD9eF1gH2iJ4kL6mN8oP0qR)
+- Until Meta approves it, and for an order without a bill, `mandi_order_confirmed` is sent as before. After a template sync, a template that is missing, not approved or without its buttons is not used.
+
+Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}. Your invoice is ready.
 
 ## REPLACEMENT_CONFIRMED
 
@@ -392,6 +406,39 @@ Suggested wording: Hi {{1}}, we replied to your help request {{2}}. Read it here
   4. link (example: https://mandimangoes.in/account/subscriptions/sub_1)
 
 Suggested wording: Hi {{1}}, your next subscription box, {{2}}, is set for {{3}}. Pay here to confirm it: {{4}}
+
+## PARTNER_ENQUIRY_RECEIVED
+
+- Template: `mandi_partner_enquiry_received`
+- Category: UTILITY
+- Who may receive it: Asked for by the person: sent unless the number sent STOP
+- Sent when: Someone sends a Partner With Us enquiry and agrees to be contacted (PARTNER_NETWORK, docs/partner-network.md).
+- Only with `WHATSAPP_PARTNER_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the confirmation page shows the reference.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry reference (example: MMP-7K2QXD9T)
+  3. partnership type (example: Farmers & Suppliers)
+
+Suggested wording: (write it in WhatsApp Manager)
+
+## PARTNER_TEAM_ALERT
+
+- Template: `mandi_partner_team_alert`
+- Category: UTILITY
+- Who may receive it: Asked for by the person: sent unless the number sent STOP
+- Sent when: To the numbers in PARTNER_ALERT_PHONES: a new enquiry or product proposal, an enquiry assigned, converted or rejected, and a follow-up due or overdue.
+- Only with `WHATSAPP_PARTNER_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the Partner Network overview shows the same.
+- Variables:
+  1. what happened (example: New partner enquiry)
+  2. enquiry reference (example: MMP-7K2QXD9T)
+  3. detail (example: Farmers & Suppliers, Ratnagiri, Maharashtra)
+  4. panel link (example: https://ops.mandimangoes.in/partner-network/enquiries/pen_1)
+
+Suggested wording: (write it in WhatsApp Manager)
 
 ## MANAGER_DAILY_SUMMARY
 

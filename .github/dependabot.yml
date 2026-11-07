@@ -2,8 +2,8 @@
 # (API suite twice, N-1, e2e) like any other pull request; merge only when green.
 # Minor and patch updates are grouped per folder so the queue stays short;
 # major versions come one per pull request, to be read before merging.
-# The shop (customer-app/) has no package.json of its own: it builds from the
-# root one, so the root entry covers the panel and the shop together.
+# The shop (shop/) is a static site with no packages, so the root entry covers
+# the panel (and the shop's build script, which only uses Node).
 version: 2
 updates:
   - package-ecosystem: npm

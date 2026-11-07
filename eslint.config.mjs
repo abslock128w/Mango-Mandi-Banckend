@@ -18,8 +18,9 @@ const nodeGlobals = Object.fromEntries(
 
 export default [
   // .claude/ holds agents' worktree copies of this repo.
-  // customer-app/ is the Next.js shop and rider-app/ the riders' app, each linted by its own config.
-  { ignores: ['**/node_modules/**', 'dist/**', 'playwright-report*/**', 'test-results*/**', '.claude/**', 'customer-app/**', 'rider-app/**'] },
+  // rider-app/ is the riders' app, linted by its own config. shop/ is plain browser JavaScript
+  // with no packages, checked by `npm run shop:test`.
+  { ignores: ['**/node_modules/**', 'dist/**', 'playwright-report*/**', 'test-results*/**', '.claude/**', 'rider-app/**'] },
   {
     files: ['src/**/*.{ts,tsx}', 'shared/**/*.{ts,tsx}'],
     languageOptions: { parser: tsParser, ecmaVersion: 'latest', sourceType: 'module' },

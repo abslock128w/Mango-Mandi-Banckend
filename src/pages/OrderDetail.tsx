@@ -491,6 +491,20 @@ function OrderView({ order }: { order: Order }) {
                 </strong>{' '}
                 <span className="muted small">{dateTime(order.rating.at)}</span>
               </p>
+              {(order.rating.packaging ?? order.rating.condition ?? order.rating.sweetness) != null && (
+                <p className="small">
+                  {(
+                    [
+                      ['Packaging', order.rating.packaging],
+                      ['Condition', order.rating.condition],
+                      ['Sweetness', order.rating.sweetness],
+                    ] as const
+                  )
+                    .filter(([, n]) => n != null)
+                    .map(([label, n]) => `${label} ${n}/5`)
+                    .join(' · ')}
+                </p>
+              )}
               {order.rating.comment ? <p>{order.rating.comment}</p> : <p className="muted small">No comment.</p>}
             </section>
           )}

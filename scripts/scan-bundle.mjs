@@ -2,7 +2,7 @@
 // Bundle safety (OPS readiness, Phase 3): scans the built shop and panel for
 // things that must never ship to a browser.
 //
-//   node scripts/scan-bundle.mjs dist customer-app/dist                  (CI)
+//   node scripts/scan-bundle.mjs dist shop                               (CI: npm run scan:bundle)
 //   node scripts/scan-bundle.mjs dist --forbid-localhost                 (a production build)
 //
 // It fails (exit 1) on:

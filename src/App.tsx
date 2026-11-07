@@ -34,6 +34,11 @@ const Customers = lazy(() => import('./pages/Customers'))
 const HelpDesk = lazy(() => import('./pages/HelpDesk'))
 const WhatsApp = lazy(() => import('./pages/WhatsApp'))
 const Subscriptions = lazy(() => import('./pages/Subscriptions'))
+const PnOverview = lazy(() => import('./pages/partner/Overview'))
+const PnEnquiries = lazy(() => import('./pages/partner/Enquiries'))
+const PnEnquiryDetail = lazy(() => import('./pages/partner/EnquiryDetail'))
+const PnProposals = lazy(() => import('./pages/partner/Proposals'))
+const PnCategories = lazy(() => import('./pages/partner/Categories'))
 const CustomerProfilePage = lazy(() => import('./pages/Customers').then((m) => ({ default: m.CustomerProfilePage })))
 const WhOverview = lazy(() => import('./warehouse/pages/Overview'))
 const WhReceive = lazy(() => import('./warehouse/pages/Receive'))
@@ -85,6 +90,12 @@ function WhOnly({ perm, children }: { perm: WhPermission | 'scan'; children: Rea
 function SwitchedOn({ feature, children }: { feature: 'purchaseRecords' | 'panelSwitches'; children: ReactNode }) {
   const { me } = useSession()
   return opsAllowed(me, feature) ? <>{children}</> : <NotFound notAllowed />
+}
+
+/** Partner Network (docs/partner-network.md): hidden only when /auth/me says its switch is off. */
+function PartnerOn({ children }: { children: ReactNode }) {
+  const { me } = useSession()
+  return me?.features?.partnerNetwork === false ? <NotFound /> : <>{children}</>
 }
 
 function Home() {
@@ -184,6 +195,12 @@ export default function App() {
               <Route path="/whatsapp/:id" element={<Only screen="whatsapp"><WhatsApp /></Only>} />
               <Route path="/help-desk" element={<Only screen="helpDesk"><HelpDesk /></Only>} />
               <Route path="/help-desk/:id" element={<Only screen="helpDesk"><HelpDesk /></Only>} />
+              <Route path="/partner-network" element={<Only screen="partnerNetwork"><PartnerOn><PnOverview /></PartnerOn></Only>} />
+              <Route path="/partner-network/enquiries" element={<Only screen="partnerNetwork"><PartnerOn><PnEnquiries /></PartnerOn></Only>} />
+              <Route path="/partner-network/enquiries/:id" element={<Only screen="partnerNetwork"><PartnerOn><PnEnquiryDetail /></PartnerOn></Only>} />
+              <Route path="/partner-network/proposals" element={<Only screen="partnerNetwork"><PartnerOn><PnProposals /></PartnerOn></Only>} />
+              <Route path="/partner-network/proposals/:id" element={<Only screen="partnerNetwork"><PartnerOn><PnProposals /></PartnerOn></Only>} />
+              <Route path="/partner-network/categories" element={<Only screen="partnerNetwork"><PartnerOn><PnCategories /></PartnerOn></Only>} />
               <Route path="/subscriptions" element={<Only screen="subscriptions"><Subscriptions /></Only>} />
               <Route path="/pincodes" element={<Only screen="pincodes"><Pincodes /></Only>} />
               <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />

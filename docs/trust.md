@@ -1,5 +1,7 @@
 # Trust pack: bills, customer profiles, CSV exports
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Three features for MandiMangoes, each behind its own switch:
 
 | Feature | What it does | Who | Switch |

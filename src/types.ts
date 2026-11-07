@@ -34,6 +34,8 @@ export interface Me {
     /** Customer care (docs/care.md): the Help desk and Subscriptions pages. */
     helpDesk?: boolean
     subscriptions?: boolean
+    /** Partner Network (PARTNER_NETWORK, docs/partner-network.md). On unless the API says false. */
+    partnerNetwork?: boolean
   }
 }
 
@@ -354,7 +356,7 @@ export interface OrderDetail {
   /** A manager allowed leaving it without the code. */
   leaveAtDoor?: { by: string; at: string; reason: string } | null
   /** The customer's rating after delivery. */
-  rating?: { stars: number; comment: string | null; at: string } | null
+  rating?: { stars: number; comment: string | null; packaging?: number | null; condition?: number | null; sweetness?: number | null; at: string } | null
   /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
   returnedBoxes?: number
   /** The customer's account, for their profile (null on old guest orders). */

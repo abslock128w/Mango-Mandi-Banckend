@@ -1,5 +1,7 @@
 # Audit part B fixes: what was built
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 The security, integrations and platform leftovers of the 24 Oct 2026 audit.
 One row per finding, with evidence: [audit-2026-10-24-status-B.md](audit-2026-10-24-status-B.md).
 

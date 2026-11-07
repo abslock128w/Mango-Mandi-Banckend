@@ -40,9 +40,15 @@ const enc=encodeURIComponent;
 const qs=o=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(o))if(v!==null&&v!==undefined&&v!=='')p.set(k,String(v));const s=p.toString();return s?`?${s}`:''};
 const idem=()=>({'Idempotency-Key':window.crypto&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`});
 const auth=(path,method='GET',body,headers)=>api(path,{method,body,headers,auth:true});
+// A signed-in file (the delivery photo), as a Blob for an object URL.
+async function authBlob(path){if(!token&&profile)await refreshOnce();const go=()=>fetch(`${base()}/v1${path}`,{credentials:'include',headers:{'X-Session':'cookie',...(token?{Authorization:`Bearer ${token}`}:{})}});let res=await go();if(res.status===401&&profile&&await refreshOnce())res=await go();if(!res.ok)throw fail(res.status,'ERROR','Not available');return res.blob()}
+// A file's raw bytes (a Partner Network document), not JSON. XHR rather than fetch, so the page can show how far each upload has got.
+function sendFile(path,file,headers={},onProgress){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open('POST',`${base()}/v1${path}`);x.setRequestHeader('Content-Type',file.type||'application/octet-stream');for(const[k,v]of Object.entries(headers))x.setRequestHeader(k,v);if(onProgress)x.upload.onprogress=e=>{if(e.lengthComputable)onProgress(e.loaded/e.total)};x.onerror=()=>no(fail(0,'NETWORK','You seem to be offline. Check your connection and try again.'));x.onload=()=>readAnswer(new Response(x.status===204?null:x.responseText,{status:x.status})).then(ok,no);x.send(file)})}
 window.MM={
   api,idem,toRupees,
   profile:()=>profile,
+  // After the profile changes here (the name, saved on the profile page).
+  rememberProfile:p=>setProfile({...profile,...p}),
   restore:()=>profile&&!token?refreshOnce():Promise.resolve(!!token),
   async signOut(){try{await raw('/auth/logout',{method:'POST',body:{}})}catch{}signedOut()},
   // public
@@ -54,6 +60,11 @@ window.MM={
   slots:(pincode,deliveryDate)=>raw('/delivery/slots'+qs({pincode,delivery_date:deliveryDate})),
   otpRequest:(phone,channel,captchaToken)=>raw('/auth/otp/request',{method:'POST',body:{phone,...(channel?{channel}:{}),...(captchaToken?{captchaToken}:{})}}),
   async otpVerify(phone,code){return signedIn(await raw('/auth/otp/verify',{method:'POST',body:{phone,code}}))},
+  // Partner Network (docs/partner-network.md): no sign-in; every route answers 404 while the feature is off.
+  partnerNetwork:()=>raw('/partner-network'),
+  partnerEnquiry:(body,key)=>raw('/partner-network/enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
+  partnerDocument:(reference,uploadToken,file,category,onProgress)=>sendFile(`/partner-network/enquiries/${enc(reference)}/documents`+qs({category,name:file.name}),file,{'X-Upload-Token':uploadToken},onProgress),
+  partnerStatus:reference=>raw(`/partner-network/enquiries/${enc(reference)}`),
   // signed in
   me:()=>auth('/me'),
   cart:()=>auth('/cart'),
@@ -64,6 +75,7 @@ window.MM={
   paymentStatus:id=>auth(`/orders/${enc(id)}/payment-status`),
   demoPay:(id,outcome)=>auth(`/orders/${enc(id)}/demo-pay`,'POST',{outcome}),
   orders:()=>auth('/orders'),
+  rateOrder:(id,body)=>auth(`/orders/${enc(id)}/rating`,'PUT',body),
   order:id=>auth(`/orders/${enc(id)}`),
   cancelOrder:id=>auth(`/orders/${enc(id)}/cancel`,'POST'),
   preorderWeeks:sku=>raw('/preorders/weeks'+qs({sku})),
@@ -73,5 +85,10 @@ window.MM={
   cancelPreorder:id=>auth(`/preorders/${enc(id)}/cancel`,'POST'),
   helpInfo:()=>auth('/me/help'),
   helpRequest:body=>auth('/me/help/requests','POST',body),
+  addresses:()=>auth('/me/addresses'),
+  deleteAddress:id=>auth(`/me/addresses/${enc(id)}`,'DELETE'),
+  updateMe:body=>auth('/me','PATCH',body),
+  deliveryPhoto:id=>authBlob(`/orders/${enc(id)}/delivery-photo`),
+  invoice:id=>authBlob(`/orders/${enc(id)}/bill`),
 };
 })();

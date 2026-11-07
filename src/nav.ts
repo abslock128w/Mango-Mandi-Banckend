@@ -8,9 +8,11 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  ClipboardPen,
   Cog,
   Contact,
   HandCoins,
+  Handshake,
   Headset,
   LayoutDashboard,
   LifeBuoy,
@@ -35,6 +37,8 @@ import {
   Warehouse,
   Wheat,
   FileBarChart,
+  FolderKanban,
+  Inbox,
   Layers,
   type LucideIcon,
 } from 'lucide-react'
@@ -93,6 +97,17 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     ],
   },
   {
+    // Partner Network (docs/partner-network.md): managers and operators; on unless /auth/me says off.
+    id: 'partners',
+    label: 'Partner Network',
+    links: [
+      ['/partner-network', 'Partner overview', 'partnerNetwork', Handshake, 'partner with us business'],
+      ['/partner-network/enquiries', 'Enquiries', 'partnerNetwork', Inbox, 'partner applications leads'],
+      ['/partner-network/proposals', 'Product proposals', 'partnerNetwork', ClipboardPen, 'partner products samples'],
+      ['/partner-network/categories', 'Partner categories', 'partnerNetwork', FolderKanban, 'partnership types'],
+    ],
+  },
+  {
     id: 'admin',
     label: 'Admin',
     links: [
@@ -128,6 +143,8 @@ function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'settings') return !!me?.features?.panelSwitches
   if (screen === 'helpDesk') return !!me?.features?.helpDesk
   if (screen === 'subscriptions') return !!me?.features?.subscriptions
+  // On unless the API says it is off (PARTNER_NETWORK).
+  if (screen === 'partnerNetwork') return me?.features?.partnerNetwork !== false
   return true
 }
 
@@ -158,6 +175,7 @@ export function primaryLinks(groups: NavGroup[], max = 4): NavItem[] {
 
 /** True when `path` is this link's page or one under it (a detail page). */
 export function isHere(to: string, path: string): boolean {
-  if (to === '/warehouse') return path === '/warehouse'
+  // An overview whose pages sit under its path is only current on its own page.
+  if (to === '/warehouse' || to === '/partner-network') return path === to
   return path === to || path.startsWith(`${to}/`)
 }

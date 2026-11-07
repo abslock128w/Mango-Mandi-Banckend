@@ -14,6 +14,8 @@ import { enqueueLinkPush, enqueueOrderPush } from './push.js'
 import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
 import { deliveryCodeFor } from './delivery-code.js'
+import { billLink } from './bill-link.js'
+import { isOn } from './feature-switches.js'
 import { sendOutcome, templateName, whatsappSender } from './whatsapp.js'
 import { refusal } from './wa/consent.js'
 import { jitter, recordTemplateSent } from './wa/conversations.js'
@@ -222,6 +224,10 @@ export function paramsFor(n) {
       // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
       // {{2}} is "10%" for a percent code, "Rs 100" for a flat one.
       return [name, n.reward_kind === 'PERCENT' ? `${n.reward_amount ?? 0}%` : rupees(n.reward_amount ?? 0), n.reward_code ?? '', n.reward_ends_on ? dateWords(n.reward_ends_on) : 'soon', rupees(n.reward_min ?? 0)]
+    case 'PARTNER_ENQUIRY_RECEIVED':
+    case 'PARTNER_TEAM_ALERT':
+      // Fixed when queued (partner/alerts.js), so a late retry still says what happened then.
+      return (n.partner_params ?? []).map(String)
     case 'MANAGER_DAILY_SUMMARY':
       // Made when the summary was taken (manager-summary.js), so a late retry still says what the day was.
       return (n.summary_params ?? []).map(String)
@@ -259,6 +265,37 @@ export function orderLinkFor(n) {
   if (ORDER_LINK_NEW.has(n.kind)) return n.order_id
   if (ORDER_LINK_ALWAYS.has(n.kind) || (env.WHATSAPP_ORDER_LINKS && ORDER_LINK_WITH_FLAG.has(n.kind))) return n.order_id
   return null
+}
+
+/**
+ * The order confirmation that carries the invoice: <prefix>order_confirmed_invoice, the same
+ * four body variables as the plain confirmation and two URL buttons, "Track order"
+ * (https://<shop>/orders/{{1}}, the order id) and "Download invoice"
+ * (https://<api>/v1/invoice/{{1}}, the signed link of bill-link.js; a link to the PDF, not the file).
+ * Used in place of the plain confirmation when the order has a bill (BILLS_ENABLED), once Meta has
+ * approved the template (WHATSAPP_ORDER_INVOICE=true). An order without a bill (bills off, a free
+ * replacement, a bill not issued yet) and a template Meta has not approved get the plain confirmation.
+ */
+export const INVOICE_TEMPLATE = 'ORDER_CONFIRMED_INVOICE'
+export function sendsInvoice(n) {
+  if (n.kind !== 'ORDER_CONFIRMED' || !n.order_id || !n.has_bill) return false
+  if (!env.WHATSAPP_ORDER_INVOICE || !isOn('BILLS_ENABLED')) return false
+  // After a template sync: only when Meta has this template, approved and with its buttons.
+  if (n.templates?.size) {
+    const t = n.templates.get(templateName(INVOICE_TEMPLATE))
+    if (!t || t.status !== 'APPROVED' || t.url_button === false) return false
+  }
+  return true
+}
+
+/** The Meta template one queued message goes out with. */
+export const templateOf = (n) => (sendsInvoice(n) ? templateName(INVOICE_TEMPLATE) : templateFor(n.kind))
+
+/** The URL button variables of a message, in the template's button order (none: an empty list). */
+export function buttonsFor(n) {
+  if (sendsInvoice(n)) return [n.order_id, billLink(n.order_id)]
+  const link = orderLinkFor(n)
+  return link ? [link] : []
 }
 
 async function mark(id, fields) {
@@ -345,7 +382,8 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
             sb.status AS subscription_status,
             COALESCE(o.customer_id, p.customer_id) AS target_customer_id,
             (SELECT cu.reminders_opt_in FROM customers cu WHERE cu.id = o.customer_id) AS reminders_opt_in,
-            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled
+            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled,
+            EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id AND b.cancelled_at IS NULL) AS has_bill
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN wa_consent wc ON wc.phone = n.phone LEFT JOIN wa_automations wau ON wau.kind = n.kind
        LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN admin_users rd ON rd.id = o.rider_id
@@ -445,19 +483,21 @@ async function sendOne(n, sender, at) {
     return false
   }
   const params = paramsFor(n)
-  const known = n.templates?.get(templateFor(n.kind))
+  const template = templateOf(n)
+  const buttons = buttonsFor(n)
+  const known = n.templates?.get(template)
   if (known && known.status !== 'APPROVED') {
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} is ${known.status} at Meta, not approved` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} is ${known.status} at Meta, not approved` })
     return false
   }
   if (known && ORDER_LINK_NEW.has(n.kind) && known.url_button === false) {
     // Still Meta's older version (with the code, no Track order button): its wording would be wrong.
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
     return false
   }
   if (known && known.body_params != null && known.body_params !== params.length) {
     // Meta would refuse it (wrong number of variables): stop before calling, with the reason.
-    await mark(n.id, { status: 'FAILED', last_error: `template ${templateFor(n.kind)} takes ${known.body_params} variables, this message has ${params.length}` })
+    await mark(n.id, { status: 'FAILED', last_error: `template ${template} takes ${known.body_params} variables, this message has ${params.length}` })
     metrics.notificationsFailed.inc({ kind: n.kind })
     return false
   }
@@ -468,15 +508,15 @@ async function sendOne(n, sender, at) {
       return false
     }
     // The delivery code is a secret: never in the log (the shop page shows it).
-    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: orderLinkFor(n) }
-    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${templateFor(n.kind)}`)
+    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: buttons[0] ?? null, ...(buttons.length > 1 ? { invoiceLink: buttons[1] } : {}) }
+    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${template}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
-    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: null, notificationId: n.id })
+    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template, summary: updateSummary(n), providerId: null, notificationId: n.id })
     return true
   }
   let providerId
   try {
-    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params, urlParam: orderLinkFor(n) })
+    providerId = await sender({ phone: n.phone, template, params, urlParam: buttons[0] ?? null, ...(buttons.length > 1 ? { urlParams: buttons } : {}) })
   } catch (err) {
     const attempts = n.attempts + 1
     const outcome = sendOutcome(err)
@@ -504,7 +544,7 @@ async function sendOne(n, sender, at) {
   const fields = { status: 'SENT', sent_at: at, provider_id: providerId ?? null, attempts: n.attempts + 1, last_error: null }
   await mark(n.id, fields).catch(() => mark(n.id, fields)).catch((err) => logger.error({ err, id: n.id }, 'message sent but not recorded'))
   metrics.notificationsSent.inc({ kind: n.kind })
-  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
+  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateOf(n), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
   return true
 }
 

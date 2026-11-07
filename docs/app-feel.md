@@ -1,5 +1,7 @@
 # App feel (roadmap step 3)
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 The shop installs like an app, can send order updates as browser notifications,
 shows how many stops away the rider is, sorts and filters the home page, and
 keeps favourites. Riders get a one-stop-at-a-time route view on the panel's

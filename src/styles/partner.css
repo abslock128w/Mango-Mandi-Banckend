@@ -1,0 +1,194 @@
+
+/* ---------- Partner Network (src/pages/partner) ---------- */
+.pn-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+.pn-subnav a[aria-current='page'] {
+  background: var(--green-100);
+  border-color: var(--green-700);
+  color: var(--green-900);
+  font-weight: 600;
+}
+.pn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-4);
+}
+.pn-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-2);
+}
+.pn-inline-form .field {
+  flex: 1;
+  min-width: 10rem;
+  margin-bottom: 0;
+}
+.pn-filters .field,
+.pn-page-size.field {
+  margin-bottom: 0;
+}
+.pn-table th {
+  vertical-align: bottom;
+}
+.pn-filters {
+  align-items: end;
+}
+.pn-tabs-wrap {
+  overflow-x: auto;
+  margin-bottom: var(--space-4);
+  padding: var(--space-1) var(--space-1) 0; /* room for the tabs' focus ring inside the scroller */
+}
+.pn-tabs-wrap .tabs {
+  margin-bottom: 0;
+  min-width: max-content;
+}
+.pn-answers {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.pn-answer dt {
+  font-weight: 600;
+}
+.pn-answer dd {
+  margin: var(--space-1) 0 0;
+}
+@media (min-width: 640px) {
+  dl.pn-kv {
+    grid-template-columns: minmax(9rem, max-content) 1fr;
+  }
+}
+@media (max-width: 639.98px) {
+  dl.pn-kv {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  dl.pn-kv dd {
+    margin-bottom: var(--space-2);
+  }
+}
+.pn-line,
+.pn-followup {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-3);
+}
+/* An overdue follow-up: a red edge as well as the word "Overdue". */
+.pn-overdue,
+.plain-list li.pn-overdue {
+  border-left: 3px solid var(--color-error);
+  padding-left: var(--space-3);
+}
+/* Eight counts fit on one row on a desktop. */
+.tiles.pn-counts {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+/* The wide lists scroll sideways on a desktop rather than break references and emails mid-word. */
+@media (min-width: 640.02px) {
+  .pn-table td {
+    white-space: nowrap;
+  }
+  .pn-table td.pn-wrap {
+    white-space: normal;
+    min-width: 10rem;
+  }
+}
+.pn-doc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.pn-doc-text {
+  flex: 1;
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+.pn-doc-preview {
+  display: block;
+  max-width: 12rem;
+  max-height: 12rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.pn-kv .pn-email {
+  overflow-wrap: anywhere;
+}
+/* A sortable column: the whole header is the button; aria-sort on the th says the order. */
+.pn-sort {
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+.pn-sort:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.pn-sort-mark {
+  min-width: 0.8em;
+}
+/* The Open button sits above the row's stretched link so it gets its own click. */
+.pn-row-action {
+  position: relative;
+  z-index: 1;
+}
+.pn-pager {
+  flex-wrap: wrap;
+}
+.pn-page-size select {
+  width: auto;
+}
+.pn-radio {
+  margin-right: var(--space-4);
+}
+/* Loading: grey bars where the content will be, still under reduced motion. */
+.pn-skeleton-line {
+  height: 1rem;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.pn-skeleton-line:nth-child(3n) {
+  width: 70%;
+}
+.pn-skeleton-tile {
+  min-height: 72px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pn-skeleton-line,
+  .pn-skeleton-tile {
+    animation: pn-pulse 1.2s ease-in-out infinite alternate;
+  }
+}
+@keyframes pn-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+/* The enquiries' order on a phone, where the sortable header row is hidden. */
+@media (min-width: 640.02px) {
+  .pn-sort-phone {
+    display: none;
+  }
+}
