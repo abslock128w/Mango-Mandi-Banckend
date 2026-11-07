@@ -6,8 +6,9 @@
 // While PARTNER_NETWORK is off every route answers 404.
 import express from 'express'
 import { z } from 'zod'
+import { requireManager } from '../auth.js'
 import { query, tx } from '../db.js'
-import { asyncHandler, forbidden, notFound, parse } from '../errors.js'
+import { asyncHandler, notFound, parse } from '../errors.js'
 import { isOn } from '../feature-switches.js'
 import { photoBytes } from '../photos.js'
 import { auditNow } from '../staff-audit.js'
@@ -23,9 +24,6 @@ const P = '/partner-network'
 
 router.use(P, (_req, _res, next) => next(isOn('PARTNER_NETWORK') ? undefined : notFound()))
 
-const managerOnly = (req) => {
-  if (req.admin.role !== 'MANAGER') throw forbidden('Only a manager can do this')
-}
 const ID = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/)
 const DAY = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD')
 const text = (min, max, msg) => z.string().trim().min(min, msg ?? `Write at least ${min} characters`).max(max, `Keep it under ${max} characters`)
@@ -61,8 +59,8 @@ router.get(
 
 router.get(
   `${P}/enquiries/export.csv`,
+  requireManager,
   asyncHandler(async (req, res) => {
-    managerOnly(req)
     const f = parse(listFilters, clean(req.query))
     const { csv, count } = await exportCsv({ query }, f, req.admin)
     await auditNow(req, 'EXPORT partner enquiries', { detail: { rows: count, max: EXPORT_MAX_ROWS, filters: { ...f, q: f.q ? '(search)' : undefined } } })
@@ -173,8 +171,8 @@ const ACTION_BODIES = {
 for (const [action, schema] of Object.entries(ACTION_BODIES)) {
   router.post(
     `${P}/enquiries/:id/${action}`,
+    requireManager,
     asyncHandler(async (req, res) => {
-      managerOnly(req)
       const b = parse(schema, req.body ?? {})
       await tx(async (c) => {
         const moved = await decide(c, req.params.id, req.admin, action, b)
@@ -265,8 +263,8 @@ router.get(`${P}/categories`, asyncHandler(async (_req, res) => res.json({ categ
 
 router.patch(
   `${P}/categories/:code`,
+  requireManager,
   asyncHandler(async (req, res) => {
-    managerOnly(req)
     const b = parse(
       z.object({
         name: text(2, 80).optional(), description: text(2, 600).optional(), active: z.boolean().optional(), displayOrder: z.number().int().min(0).max(1000).optional(),
