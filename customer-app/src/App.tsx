@@ -11,6 +11,7 @@ import { Spinner, pageTitle } from './ui'
 import { useShellWorker } from './pwa'
 import { trackStep, useFunnel } from './growth'
 import { useT } from './i18n'
+import { useFeatures } from './features'
 import { t as tr, type Key } from './i18n-core.ts'
 
 // Home is in the first download; every other page's code loads when it is first opened.
@@ -38,6 +39,8 @@ const BulkDeal = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: 
 const InvitePage = lazy(() => import('./pages/Referral').then((m) => ({ default: m.InvitePage })))
 const GiftMany = lazy(() => import('./pages/GiftMany'))
 const GiftOrderPage = lazy(() => import('./pages/GiftOrder'))
+const Partner = lazy(() => import('./pages/Partner'))
+const PartnerApply = lazy(() => import('./pages/PartnerApply'))
 
 /** A page whose code is still loading. */
 function Page({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
@@ -99,11 +102,13 @@ function routeTitleKey(path: string): Key {
   if (/^\/invite\//.test(path)) return 'title.invite'
   if (path === '/gifts/new') return 'title.giftMany'
   if (/^\/gifts\/[^/]+$/.test(path)) return 'title.giftOrder'
+  if (path === '/partner') return 'title.partner'
+  if (path === '/partner/apply') return 'title.partnerApply'
   return 'title.notFound'
 }
 
 /** Pages laid out across the wider desktop container (tiles, product and checkout columns); the rest stay one readable column. */
-const WIDE = /^\/($|mangoes\/|bulk($|\/)|checkout$)/
+const WIDE = /^\/($|mangoes\/|bulk($|\/)|checkout$|partner$)/
 
 function RequireSignIn({ children }: { children: JSX.Element }) {
   const { profile } = useStore()
@@ -120,8 +125,10 @@ export default function App() {
   const boxes = cart.reduce((n, l) => n + l.qty, 0) + bulk.reduce((n, l) => n + l.qty, 0)
   const bump = useBump(boxes)
   const help = helpLink()
-  // Forms with a button at the bottom (checkout, claims, reviews) hide the tabs so they never cover it.
-  const focused = /^\/(checkout|review\/|reviews\/)|\/claim$/.test(location.pathname)
+  // Partner With Us (PARTNER_NETWORK): a footer link and, on a desktop, one in the top menu. Never a bottom tab.
+  const partner = useFeatures().partnerNetwork === true
+  // Forms with a button at the bottom (checkout, claims, reviews, the partner enquiry) hide the tabs so they never cover it.
+  const focused = /^\/(checkout|review\/|reviews\/|partner\/apply)|\/claim$/.test(location.pathname)
   // The app shell worker follows the API's switches (SHOP_INSTALL, WEB_PUSH).
   useShellWorker()
   // The anonymous funnel steps follow the API's switch (FUNNEL_ANALYTICS); the visit is counted here.
@@ -205,6 +212,11 @@ export default function App() {
           {/* Desktop only: the same links as the bottom tabs, in the header, with the cart count. */}
           <nav aria-label={t('nav.main')} className="top-nav">
             {mainLinks}
+            {partner && (
+              <NavLink to="/partner" className="tab tab-quiet">
+                <span>{t('nav.partner')}</span>
+              </NavLink>
+            )}
           </nav>
         </div>
       </header>
@@ -236,6 +248,8 @@ export default function App() {
           <Route path="/invite/:code" element={<Page><InvitePage /></Page>} />
           <Route path="/gifts/new" element={<RequireSignIn><Page><GiftMany /></Page></RequireSignIn>} />
           <Route path="/gifts/:id" element={<RequireSignIn><Page><GiftOrderPage /></Page></RequireSignIn>} />
+          <Route path="/partner" element={<Page><Partner /></Page>} />
+          <Route path="/partner/apply" element={<Page><PartnerApply /></Page>} />
           <Route
             path="*"
             element={
@@ -264,6 +278,12 @@ export default function App() {
           )}
           {' · '}
           <Link to="/terms">{t('title.terms')}</Link> · <Link to="/quality">{t('title.quality')}</Link> · <Link to="/privacy">{t('title.privacy')}</Link>
+          {partner && (
+            <>
+              {' · '}
+              <Link to="/partner">{t('nav.partner')}</Link>
+            </>
+          )}
         </p>
       </footer>
       {!focused && (
