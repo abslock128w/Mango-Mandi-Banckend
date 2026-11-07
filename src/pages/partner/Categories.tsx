@@ -95,7 +95,7 @@ function EditCategory({ category, onClose }: { category: PartnerCategory; onClos
   const [active, setActive] = useState(category.active)
   const [order, setOrder] = useState(String(category.displayOrder))
   const orderNum = Number(order)
-  const valid = name.trim().length >= 2 && order.trim() !== '' && Number.isInteger(orderNum) && orderNum >= 0
+  const valid = name.trim().length >= 2 && description.trim().length >= 2 && order.trim() !== '' && Number.isInteger(orderNum) && orderNum >= 0
   const save = useMutation({
     mutationFn: () => {
       // Only what changed, so a stale form never overwrites someone else's edit of another field.
@@ -141,7 +141,7 @@ function EditCategory({ category, onClose }: { category: PartnerCategory; onClos
         </div>
         <div className="field">
           <label htmlFor={`${uid}-desc`}>Description</label>
-          <textarea id={`${uid}-desc`} rows={3} maxLength={600} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <textarea id={`${uid}-desc`} rows={3} required minLength={2} maxLength={600} value={description} onChange={(e) => setDescription(e.target.value)} />
         </div>
         <div className="field">
           <label htmlFor={`${uid}-order`}>Display order</label>

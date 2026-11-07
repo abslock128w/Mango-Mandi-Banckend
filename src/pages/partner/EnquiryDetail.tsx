@@ -59,14 +59,16 @@ export default function EnquiryDetailPage() {
   )
 }
 
-/** The staff an enquiry can be assigned to. Only the list endpoint carries them (see the report on API gaps). */
-function useStaff() {
-  return useQuery({
+/** The staff an enquiry can be assigned to: the detail carries them; an older API only had them on the list. */
+function useStaff(e: Detail) {
+  const fallback = useQuery({
     queryKey: ['pn-staff'],
     queryFn: () => pn.enquiries({ pageSize: 10 }),
     select: (d) => d.staff,
     staleTime: 5 * 60_000,
+    enabled: !e.staff,
   })
+  return e.staff ?? fallback.data ?? []
 }
 
 type Dialogs =
@@ -84,7 +86,7 @@ function EnquiryView({ e }: { e: Detail }) {
   const tabParam = params.get('tab') as Tab | null
   const tab: Tab = tabParam && TAB_KEYS.includes(tabParam) ? tabParam : 'overview'
   const [dialog, setDialog] = useState<Dialogs>(null)
-  const staff = useStaff()
+  const staff = useStaff(e)
 
   function saved(next?: Detail) {
     if (next && typeof next === 'object' && 'reference' in next) queryClient.setQueryData(['pn-enquiry', e.id], next)
@@ -153,7 +155,7 @@ function EnquiryView({ e }: { e: Detail }) {
         {me?.role !== 'MANAGER' && <DisabledReason>Approve, reject, close, reopen and convert: requires manager role.</DisabledReason>}
       </section>
 
-      <ManageCard e={e} staff={staff.data ?? []} onSaved={saved} />
+      <ManageCard e={e} staff={staff} onSaved={saved} />
 
       <div className="pn-tabs-wrap">
         <Tabs id="pn-enquiry" label="Enquiry details" tabs={tabs} value={tab} onChange={(t) => setParams(t === 'overview' ? {} : { tab: t }, { replace: true })} />
@@ -180,7 +182,7 @@ function EnquiryView({ e }: { e: Detail }) {
             />
           </section>
         )}
-        {tab === 'followups' && <FollowupsTab e={e} staff={staff.data ?? []} myEmail={me?.email} onSaved={() => saved()} />}
+        {tab === 'followups' && <FollowupsTab e={e} staff={staff} myEmail={me?.email} onSaved={() => saved()} />}
         {tab === 'activity' && (
           <section className="card">
             <h2>Activity history</h2>

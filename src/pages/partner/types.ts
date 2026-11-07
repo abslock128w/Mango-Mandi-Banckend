@@ -203,6 +203,8 @@ export interface EnquiryDetail extends EnquiryRow {
   proposal: { id: string; reference: string; status: ProposalStatus } | null
   opportunity: { title: string; notes: string | null; createdAt: string; createdBy: string | null } | null
   allowedStatuses: EnquiryStatus[]
+  /** Managers and operators an enquiry or follow-up can be assigned to. */
+  staff?: StaffOption[]
   actions: EnquiryActions
   contact: ContactLinks
 }
