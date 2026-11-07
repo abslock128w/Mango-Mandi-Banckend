@@ -130,7 +130,7 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
@@ -138,6 +138,9 @@ describe('every route is filed', () => {
       'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
       // The invoice link in the WhatsApp order confirmation: the signed link is the permission (src/bill-link.js, test/whatsapp-invoice.test.js).
       'GET /v1/invoice/:link',
+      // Partner With Us (docs/partner-network.md): the form, and an enquiry with its documents. No sign-in by design;
+      // rate limited, Turnstile when configured, strict fields, an upload token per enquiry (test/partner-network.test.js).
+      'GET /v1/partner-network/', 'GET /v1/partner-network/categories', 'GET /v1/partner-network/enquiries/:reference', 'GET /v1/partner-network/questionnaires/:category',
       'GET /v1/policy', 'GET /v1/preorders/weeks', 'GET /v1/products', 'GET /v1/products/:sku/photo', 'GET /v1/products/:sku/reviews', 'GET /v1/review-photos/:id',
       'POST /admin/v1/auth/google', 'POST /admin/v1/auth/login', 'POST /admin/v1/auth/logout', 'POST /admin/v1/auth/refresh', 'POST /admin/v1/auth/two-step',
       // Rider app sign-in (admin/rider-auth.js): phone code, PIN on a bound phone, refresh, sign out (test/rider-app.test.js).
@@ -146,6 +149,7 @@ describe('every route is filed', () => {
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',
       // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
       'POST /v1/events',
+      'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
     ])
   })
 })

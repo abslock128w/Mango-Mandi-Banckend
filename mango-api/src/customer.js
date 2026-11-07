@@ -47,6 +47,7 @@ import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
+import { partnerPublic } from './partner/routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
@@ -409,6 +410,8 @@ router.get('/policy', (_req, res) => {
       funnel: isOn('FUNNEL_ANALYTICS'),
       // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
       multiGift: isOn('MULTI_GIFT'),
+      // Partner With Us links (PARTNER_NETWORK, docs/partner-network.md).
+      partnerNetwork: isOn('PARTNER_NETWORK'),
       // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
       languages: isOn('SHOP_LANGUAGES'),
     },
@@ -474,6 +477,8 @@ router.get(
 router.use(publicBulk)
 // POST /events: the shop's anonymous funnel steps (FUNNEL_ANALYTICS), before the sign-in gate.
 router.use(growthPublic)
+// Partner With Us: the business enquiry form, no sign-in (docs/partner-network.md).
+router.use('/partner-network', partnerPublic)
 
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).

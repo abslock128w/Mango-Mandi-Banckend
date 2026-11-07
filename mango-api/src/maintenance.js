@@ -46,6 +46,7 @@ import { settleReferrals } from './referrals.js'
 import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
+import { queueFollowupAlerts } from './partner/alerts.js'
 import { runSubscriptionJobs } from './subscriptions.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
 import { counterProblems, stepProblems } from './alert-checks.js'
@@ -403,6 +404,8 @@ async function steps(forceAll) {
   if (isOn('MANAGER_DAILY_SUMMARY')) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
   // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
   if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
+  // Partner Network follow-ups due within the hour or overdue: one team alert each (WHATSAPP_PARTNER_UPDATES, docs/partner-network.md).
+  if (isOn('PARTNER_NETWORK') && env.WHATSAPP_PARTNER_UPDATES && env.PARTNER_ALERT_PHONES.length) out.partnerFollowups = await step('partner-followups', () => queueFollowupAlerts())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Chat and staff replies decided but not sent (an instance died, or a retry is due): docs/whatsapp/RELIABILITY.md.
   out.chatSent = await step('whatsapp-messages', () => sendDueMessages(chatMessenger), { sliceMs: SLICE.notifications })

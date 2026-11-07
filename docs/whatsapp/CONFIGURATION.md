@@ -40,6 +40,7 @@ The API refuses to start with `WHATSAPP_PROVIDER=meta` and no token or phone num
 | `WHATSAPP_REVIEW_REQUESTS` | "How were your mangoes?" a day after delivery |
 | `WHATSAPP_CLAIM_UPDATES` | Claim received / claim rejected |
 | `WHATSAPP_CARE_UPDATES` | Help replies and subscription payment reminders |
+| `WHATSAPP_PARTNER_UPDATES` | Partner With Us: the applicant's receipt, and team alerts to `PARTNER_ALERT_PHONES` (docs/partner-network.md) |
 | `WHATSAPP_ORDER_LINKS` | The "Open order" URL button on order updates (only once the new template versions with the button are approved) |
 | `WHATSAPP_ORDER_INVOICE` | The order confirmation with "Track order" and "Download invoice" buttons, `mandi_order_confirmed_invoice`, for orders with a bill (`BILLS_ENABLED`); only once Meta approved that template (TEMPLATES.md) |
 | `WHATSAPP_PAYMENT_CONFIG` | Paying inside WhatsApp (Razorpay payment configuration name). Leave unset: chat orders get a Razorpay link, which has the payment reconcile |

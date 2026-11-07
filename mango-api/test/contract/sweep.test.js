@@ -100,6 +100,9 @@ test('without a token, only the public routes answer', () => {
     'GET /metrics',
     'GET /ready',
     'GET /v1/auth/config',
+    // Partner With Us (docs/partner-network.md): the form and its categories, no sign-in by design.
+    'GET /v1/partner-network/',
+    'GET /v1/partner-network/categories',
     'GET /v1/policy',
     'GET /v1/preorders/weeks',
     'GET /v1/products',
@@ -117,7 +120,8 @@ test('a customer token opens nothing on the staff API but its sign-in config and
 
 test('a staff token opens nothing that needs a signed-in customer', () => {
   const bad = results
-    .filter((r) => r.role !== 'customer' && r.role !== 'anonymous' && r.key.includes(' /v1/') && r.status === 401 && r.body?.error?.code !== 'INVALID_TOKEN')
+    // UPLOAD_TOKEN_INVALID: a Partner With Us document upload needs its enquiry's upload token, not a sign-in.
+    .filter((r) => r.role !== 'customer' && r.role !== 'anonymous' && r.key.includes(' /v1/') && r.status === 401 && !['INVALID_TOKEN', 'UPLOAD_TOKEN_INVALID'].includes(r.body?.error?.code))
     .map((r) => `${r.role} ${r.key} ${r.body?.error?.code}`)
   assert.deepEqual([...new Set(bad)], [])
 })

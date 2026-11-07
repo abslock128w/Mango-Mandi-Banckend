@@ -88,6 +88,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_claim_received` | a customer reports a problem with a delivered order (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number; "Open order" URL button |
 | `mandi_claim_rejected` | staff reject a claim; a replacement sends `mandi_replacement_confirmed` instead (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number, the reason staff gave (shown to the customer); "Open order" URL button |
 | `mandi_help_reply` | staff reply to a help request (utility, docs/care.md). **New: needs Meta approval; only sent once `HELP_CENTRE=true` and `WHATSAPP_CARE_UPDATES=true`** | name, request number ("HLP-12"), link to the request |
+| `mandi_partner_enquiry_received` | someone sends a Partner With Us enquiry and agrees to be contacted (utility, docs/partner-network.md). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | name, enquiry reference ("MMP-7K2QXD9T"), partnership type |
+| `mandi_partner_team_alert` | to the numbers in `PARTNER_ALERT_PHONES`: a new enquiry or product proposal, one assigned, converted or rejected, a follow-up due or overdue (utility). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | what happened, enquiry reference, detail, panel link |
 | `mandi_subscription_due` | a subscription's next box is set up and waits for payment, `SUBSCRIPTION_LEAD_DAYS` before it (utility). **New: needs Meta approval; only sent once `SUBSCRIPTIONS=true` and `WHATSAPP_CARE_UPDATES=true`** | name, box ("2 × Alphonso 3kg Box"), date ("Sat, 17 Oct"), link to the subscription |
 
 An order without a slot says "during the day" in place of the slot.
@@ -305,6 +307,18 @@ the system makes (late payments, failed-delivery retries, replacements) keep the
 if it has room, else take the first with room, and never fail because of a slot.
 Slots are switched off rather than deleted, so old orders keep theirs. The pack list
 is sorted by slot.
+
+## Partner Network
+
+The shop's Partner With Us form (`/v1/partner-network`, no sign-in) and the panel's Partner
+Network section (`/admin/v1/partner-network`, managers and operators). Behaviour, statuses and
+routes: [docs/partner-network.md](../docs/partner-network.md). Migrations 058 and 059.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PARTNER_NETWORK` | `true` | On unless `false`; managers can also turn it off on the panel's Settings page. Off: every partner route answers 404 and the shop hides its links. |
+| `WHATSAPP_PARTNER_UPDATES` | `false` | The applicant's receipt and the team alerts on WhatsApp (`mandi_partner_enquiry_received`, `mandi_partner_team_alert`). Turn on only after Meta approves both. |
+| `PARTNER_ALERT_PHONES` | empty | Comma-separated Indian mobile numbers for the team alerts. Empty: no team alerts (the panel's Overview shows the same). |
 
 ## The rules it enforces
 

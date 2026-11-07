@@ -183,6 +183,22 @@ const schema = z.object({
   // WhatsApp for both: mandi_help_reply and mandi_subscription_due. Turn on once Meta approves them;
   // until then customers see replies and reminders in the shop (and as browser notifications with WEB_PUSH).
   WHATSAPP_CARE_UPDATES: flag(),
+  // Partner Network (docs/partner-network.md): the shop's Partner With Us form and the panel's
+  // Partner Network section. On unless set to false; managers can also turn it off on the panel.
+  PARTNER_NETWORK: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // WhatsApp for it: the applicant's "we received your enquiry" (mandi_partner_enquiry_received) and
+  // the business team's alerts (mandi_partner_team_alert). Turn on once Meta approves both.
+  WHATSAPP_PARTNER_UPDATES: flag(),
+  // Who gets the team alerts: comma-separated Indian mobile numbers. Unset: no team alerts (the panel shows the same).
+  PARTNER_ALERT_PHONES: z
+    .string()
+    .default('')
+    .transform((s) => s.split(',').map((p) => p.trim()).filter(Boolean))
+    .refine((list) => list.every((p) => /^(\+91)?[6-9]\d{9}$/.test(p.replace(/[\s-]/g, ''))), 'PARTNER_ALERT_PHONES must be Indian mobile numbers, comma-separated')
+    .transform((list) => list.map((p) => `+91${p.replace(/[\s-]/g, '').replace(/^\+91/, '')}`)),
   // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English, chosen by each customer
   // (saved to their account once signed in). Off: the shop is English only (docs/languages.md).
   SHOP_LANGUAGES: flag(),
