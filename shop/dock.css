@@ -43,3 +43,11 @@ footer{padding-bottom:calc(100px + env(safe-area-inset-bottom))}
 @media(prefers-reduced-motion:reduce){.liquid-navigation,.dock-mini,.liquid-tab{transition:none}.dock-mini.is-pulse{animation:none}}
 /* /cart and /checkout have their own sticky "To pay" bar (style.css .pay-bar), so the dock and its bag bar step aside there. */
 body[data-page="cart"] .liquid-navigation,body[data-page="checkout"] .liquid-navigation{display:none}
+/* /bulk keeps the dock's tabs but has its own sticky bar (the bulk list): the bag bar steps aside and the bar sits on the tabs. */
+body[data-page="bulk"] .dock-mini{display:none}
+@media(max-width:900px){
+body[data-page="bulk"] .pay-bar{bottom:calc(68px + env(safe-area-inset-bottom));padding-bottom:10px}
+html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:calc(220px + env(safe-area-inset-bottom))}
+html.pay-bar-on body[data-page="bulk"] .toast{bottom:calc(180px + env(safe-area-inset-bottom))}
+body[data-page="bulk"] .liquid-navigation.is-away~.pay-bar,body[data-page="bulk"]:has(.liquid-navigation.is-away) .pay-bar{display:none}
+}

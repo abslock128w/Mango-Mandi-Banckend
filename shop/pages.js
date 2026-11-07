@@ -120,8 +120,138 @@ function pageHead(title) {
   return `<div class="page-head"><button class="icon-button" data-page-back aria-label="Back">${icon('back')}</button><h1>${title}</h1></div>${tabs}`
 }
 
-// ---- The pre-order and bulk pages: the season's copy, then the booking (app.js preorderForm) or the enquiry
-// (app.js bulkForm) drawn inline in the page's own container instead of the form sheet.
+// ---- The pre-order and bulk pages: the season's copy, then the shop's product cards (doorCard). On /preorder a card's
+// "Pre-order" opens the booking panel (app.js renderPreorder) in #pre-box under the cards; on /bulk the cards fill a
+// bulk list (localStorage `mm-bulk`, not the bag) that the sticky bar (#pay-bar) sends as an enquiry (app.js bulkForm)
+// once it reaches 100 kg.
+
+const BULK_MIN_KG = 100
+const doorPick = { pre: {}, bulk: {} } // variety → { sku, stage } picked on its card
+let bulkList = null
+
+/** The shop's catalogue, once GET /v1/products has answered (shelf.js loadProducts), or after 15 s without it. */
+function shelfReady() {
+  return new Promise((ok) => {
+    const t0 = Date.now()
+    ;(function poll() {
+      if (skus.length) {
+        if (!shelf.length) buildShelf()
+        ok()
+      } else if (Date.now() - t0 > 15000) ok()
+      else setTimeout(poll, 150)
+    })()
+  })
+}
+
+const kgText = (s) => String(s.boxSize).replace('kg', ' kg')
+
+/** A card in the shop's look (photo, variety, description, bold price, box picker, ripeness pills) with the page's own
+    action. `o`: { kind: 'pre' | 'bulk', sku, stage, boxes, stages, extra, action, muted, chosen }. */
+function doorCard(v, o) {
+  const st = stageOf(o.stage), s = o.boxes.find((b) => b.sku === o.sku) || o.boxes[0]
+  const name = esc(v.name), src = v.c.photos && v.c.photos[o.stage]
+  const key = `data-door="${o.kind}" data-variety="${name}"`
+  const i = Math.max(0, o.boxes.indexOf(s))
+  const boxes = o.boxes.length > 1
+    ? `<div class="box-cards" role="group" aria-label="${name} box size" style="--n:${o.boxes.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${o.boxes.map((b) => `<button class="box-card" data-door-box="${esc(b.sku)}" ${key} aria-pressed="${b.sku === s.sku}"><strong>${esc(kgText(b))}</strong><small>${currency(b.price)}</small></button>`).join('')}</div>`
+    : `<p class="door-one-box">${esc(kgText(s))} box</p>`
+  const stages = `<div class="door-stages" role="group" aria-label="${name} ripeness">${STAGES.filter((x) => o.stages.includes(x.apiStage)).map((x) => `<button data-door-stage="${x.apiStage}" ${key} aria-pressed="${x.apiStage === o.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>`
+  return `<article class="product-card door-card${o.muted ? ' is-muted' : ''}${o.chosen ? ' is-chosen' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image"><div class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</div>${o.muted ? '<span class="product-tag door-tag">Coming this season</span>' : ''}</div><div class="product-info"><div class="product-topline"><h3>${name}</h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxes}</div>${stages}${o.extra || ''}<div class="card-action door-action">${o.action}</div></div></article>`
+}
+
+/** Re-find the control that was used after a redraw (by its data attributes) and focus it. */
+function refocus(root, attrs) {
+  if (!attrs) return
+  const sel = Object.entries(attrs).map(([k, v]) => `[${k}="${CSS.escape(v)}"]`).join('')
+  ;($(sel, root) || null)?.focus()
+}
+const usedAttrs = (b, names) => b ? Object.fromEntries(names.filter((n) => b.hasAttribute(n)).map((n) => [n, b.getAttribute(n)])) : null
+
+// ---- /preorder
+
+/** The varieties with pre-order weeks, each with its boxes (price from the weeks) and their weeks in order. */
+function preVarieties() {
+  const map = new Map()
+  for (const w of pre.weeks) {
+    if (!map.has(w.variety)) map.set(w.variety, new Map())
+    const boxes = map.get(w.variety)
+    if (!boxes.has(w.sku)) boxes.set(w.sku, { sku: w.sku, name: w.name, variety: w.variety, boxSize: w.boxSize, price: w.price, weeks: [] })
+    boxes.get(w.sku).weeks.push(w)
+  }
+  return [...map].map(([name, boxes]) => {
+    const list = [...boxes.values()].sort((a, b) => kgOf(a) - kgOf(b))
+    list.forEach((b) => b.weeks.sort((x, y) => x.weekStart.localeCompare(y.weekStart)))
+    const c = shelf.find((v) => v.name === name)?.c || contentFor(name, list.map((b) => ({ ...(skuOf(b.sku) || {}), ...b })))
+    return { name, c, skus: list }
+  }).sort((a, b) => (b.c.popularity || 0) - (a.c.popularity || 0) || a.name.localeCompare(b.name))
+}
+
+function prePick(v) {
+  const p = doorPick.pre[v.name] ||= {}
+  if (!v.skus.some((b) => b.sku === p.sku)) p.sku = (v.skus.find((b) => (b.weeks || []).some((w) => w.remaining > 0)) || v.skus[0]).sku
+  if (!pre.stages.includes(p.stage)) {
+    const st = stageFor(v)
+    p.stage = pre.stages.includes(st) ? st : pre.stage
+  }
+  return p
+}
+
+function renderPreGrid(focus) {
+  const grid = $('#pre-grid')
+  if (!grid) return
+  const alert = pre.error && !pre.weeks.length ? `<p class="prototype-tag" role="alert">${esc(pre.error)}</p>` : ''
+  if (!pre.weeks.length) {
+    grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Coming this season</h2><p>Pre-orders open soon. Check back before the season.</p>${alert}</div><div class="product-grid door-grid">${shelf.map((v) => {
+      const p = doorPick.pre[v.name] ||= { sku: v.skus[0].sku, stage: stageFor(v) }
+      return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, muted: true, action: `<button class="quick-add" disabled aria-label="Pre-order ${esc(v.name)}: opens soon">Pre-order</button>` })
+    }).join('')}</div>`
+    refocus(grid, focus)
+    return
+  }
+  const list = preVarieties()
+  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Choose your box</h2><p>${list.length} ${list.length === 1 ? 'variety' : 'varieties'} open for pre-order. Pick a ripeness and box, then tap Pre-order.</p></div><div class="product-grid door-grid">${list.map((v) => {
+    const p = prePick(v), box = v.skus.find((b) => b.sku === p.sku)
+    const open = box.weeks.some((w) => w.remaining > 0)
+    const weeks = `<p class="door-weeks"><span>Harvest weeks:</span> ${box.weeks.map((w) => w.remaining > 0 ? `<b>${fmtWeek(w.weekStart)}</b>` : `<span class="is-out"><s>${fmtWeek(w.weekStart)}</s> Sold out</span>`).join(', ')}</p>`
+    const action = open
+      ? `<button class="quick-add" data-pre-open="${esc(v.name)}" aria-label="Pre-order a ${esc(kgText(box))} box of ${esc(stageOf(p.stage).stage.toLowerCase())} ${esc(v.name)}">Pre-order</button>`
+      : `<button class="quick-add is-out" disabled aria-label="${esc(v.name)} ${esc(kgText(box))} box: every week is sold out">Sold out</button>`
+    return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, extra: weeks, action, chosen: pre.open && v.skus.some((b) => b.sku === pre.sku) })
+  }).join('')}</div>`
+  refocus(grid, focus)
+}
+
+/** "Pre-order" on a card: the booking panel for that box, stage and its first open week, under the cards. */
+function openPreBooking(name) {
+  const v = preVarieties().find((x) => x.name === name)
+  if (!v) return
+  const p = prePick(v), box = v.skus.find((b) => b.sku === p.sku) || v.skus[0]
+  Object.assign(pre, { sku: box.sku, stage: p.stage, weekStart: (box.weeks.find((w) => w.remaining > 0) || box.weeks[0]).weekStart, qty: 1, error: '', offer: false, unpaid: null, force: false, open: true })
+  preBox = view = '#pre-box'
+  renderPreorder()
+  const panel = $('#pre-box')
+  if (!panel || panel.hidden) return
+  panel.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
+  const h = $('.flow-head', panel)
+  if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
+}
+
+/** A choice inside the booking panel (box, ripeness, week, quantity). */
+function prePanel(b) {
+  const d = b.dataset
+  if (d.preBox) { pre.sku = d.preBox; pre.weekStart = null }
+  else if (d.preStage) pre.stage = d.preStage
+  else if (d.preWeek) pre.weekStart = d.preWeek
+  else if (d.preStep) pre.qty += Number(d.preStep)
+  pre.error = ''
+  pre.offer = false
+  preFix()
+  const w = pre.weeks.find((x) => x.sku === pre.sku)
+  if (w) doorPick.pre[w.variety] = { sku: pre.sku, stage: pre.stage }
+  renderPreorder()
+  refocus(preHost(), usedAttrs(b, ['data-pre-box', 'data-pre-stage', 'data-pre-week', 'data-pre-step']))
+  if (d.preStep && document.activeElement === document.body) $('[data-pre-step]:not(:disabled)', preHost())?.focus()
+}
 
 function preorderPage() {
   host().innerHTML = pageHead('Pre-order') + `
@@ -129,7 +259,8 @@ function preorderPage() {
       <div class="season-art"><img src="assets/hero.webp" alt="Sun-kissed mangoes among orchard leaves"><span class="season-stamp">Some things<br>are worth<br><em>the wait.</em></span></div>
       <div class="season-copy"><h2>First in line.<br><em>First taste of summer.</em></h2><p>Reserve your mango moment before the season begins. Choose your ripeness, box and harvest week, and we’ll keep your box ready.</p><small>Paid in full by Razorpay · cancel any time before packing for a full refund.</small><button class="button secondary door-mine" data-preorders hidden>My pre-orders ${icon('arrow')}</button></div>
     </section>
-    <section class="page-card door-flow" id="pre-box" aria-label="Book a pre-order"></section>`
+    <section class="door-cards" id="pre-grid" aria-label="Boxes open for pre-order"></section>
+    <section class="page-card door-flow pre-flow" id="pre-box" aria-label="Book a pre-order" hidden></section>`
   preorderForm('#pre-box')
   MM.restore().then(() => {
     const b = $('#page-body .door-mine')
@@ -137,15 +268,134 @@ function preorderPage() {
   })
 }
 
+// ---- /bulk
+
+const bulkLines = () => bulkList ??= read('mm-bulk', []).filter((x) => x && typeof x.sku === 'string' && STAGES.some((p) => p.apiStage === x.stage) && Number.isInteger(x.qty) && x.qty > 0)
+
+function bulkTotals() {
+  return bulkLines().reduce((t, x) => {
+    const s = skuOf(x.sku)
+    t.boxes += x.qty
+    t.kg += (s ? kgOf(s) : 0) * x.qty
+    return t
+  }, { boxes: 0, kg: 0 })
+}
+
+/** The list as the enquiry shows and sends it: one line per box and ripeness. */
+function bulkSummary() {
+  return bulkLines().map((x) => {
+    const s = skuOf(x.sku), kg = (s ? kgOf(s) : 0) * x.qty
+    return { sku: x.sku, stage: x.stage, boxes: x.qty, kg, label: `${s ? s.variety : x.sku} · ${s ? kgText(s) + ' box' : 'box'} · ${stageOf(x.stage).stage}` }
+  })
+}
+
+function bulkPick(v) {
+  const p = doorPick.bulk[v.name] ||= {}
+  if (!v.skus.some((s) => s.sku === p.sku)) p.sku = v.skus[0].sku
+  if (!STAGES.some((x) => x.apiStage === p.stage)) p.stage = stageFor(v)
+  return p
+}
+
+function bulkAction(v, p) {
+  const s = skuOf(p.sku), st = stageOf(p.stage)
+  const what = esc(`${kgText(s)} boxes of ${st.stage.toLowerCase()} ${v.name}`)
+  const key = `data-sku="${esc(p.sku)}" data-stage="${esc(p.stage)}"`
+  const line = bulkLines().find((x) => x.sku === p.sku && x.stage === p.stage)
+  if (!line) return `<button class="quick-add" data-bulk-qty="1" ${key} aria-label="Add ${what} to your bulk list">Add to bulk list</button>`
+  return `<div class="card-stepper" role="group" aria-label="${what} in your bulk list"><button data-bulk-qty="-1" ${key} aria-label="One box fewer">−</button><span aria-live="polite">${line.qty}</span><button data-bulk-qty="1" ${key} aria-label="One box more">+</button></div><p class="door-kg"><span>${line.qty} ${line.qty === 1 ? 'box' : 'boxes'} · ${line.qty * kgOf(s)} kg</span><button class="door-more" data-bulk-qty="10" ${key} aria-label="Ten more ${what}">+10 boxes</button></p>`
+}
+
+function renderBulkGrid(focus) {
+  const grid = $('#bulk-grid')
+  if (!grid) return
+  if (!shelf.length) {
+    grid.innerHTML = '<p class="page-note">Loading the mangoes…</p>'
+    return
+  }
+  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>Pick boxes by ripeness and size. Once your list reaches ${BULK_MIN_KG} kg, send it to us and we’ll come back with a quote. Prices shown are our shop prices per box.</p></div><div class="product-grid door-grid">${shelf.map((v) => {
+    const p = bulkPick(v)
+    return doorCard(v, { kind: 'bulk', sku: p.sku, stage: p.stage, boxes: v.skus, stages: STAGES.map((x) => x.apiStage), action: bulkAction(v, p), chosen: bulkLines().some((x) => v.skus.some((s) => s.sku === x.sku)) })
+  }).join('')}</div>`
+  refocus(grid, focus)
+}
+
+/** The sticky bar on /bulk: the list's weight and boxes, and "Send enquiry" once it reaches 100 kg. */
+function bulkBar() {
+  if (document.body.dataset.page !== 'bulk') return
+  const t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
+  setBar(`${ok ? '' : `<p class="pay-bar-hint" role="status">Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
+}
+
+function bulkStep(b) {
+  const { sku, stage } = b.dataset, delta = Number(b.dataset.bulkQty), list = bulkLines()
+  let line = list.find((x) => x.sku === sku && x.stage === stage)
+  if (!line && delta > 0) list.push(line = { sku, stage, qty: 0 })
+  if (!line) return
+  line.qty = Math.min(5000, line.qty + delta)
+  if (line.qty <= 0) list.splice(list.indexOf(line), 1)
+  save('mm-bulk', list)
+  const focus = usedAttrs(b, ['data-bulk-qty', 'data-sku', 'data-stage'])
+  renderBulkGrid(focus)
+  if (!$('#bulk-grid').contains(document.activeElement)) refocus($('#bulk-grid'), { 'data-bulk-qty': '1', 'data-sku': sku, 'data-stage': stage })
+  bulkBar()
+  // An open enquiry form follows the list.
+  const box = $('#bulk-box')
+  if (box && !box.hidden && $('#bulk-form', box)) bulkForm('#bulk-box')
+}
+
+function openBulkEnquiry() {
+  const box = $('#bulk-box')
+  if (!box || bulkTotals().kg < BULK_MIN_KG) return
+  box.hidden = false
+  bulkForm('#bulk-box')
+  box.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
+  const h = $('.flow-head', box)
+  if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
+}
+
 function bulkPage() {
   host().innerHTML = pageHead('Bulk orders') + `
     <section class="door-hero bulk">
-      <div><h2>Big on mangoes?<br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above 50 kg? Let’s make it happen.</p></div>
-      <div class="bulk-type" aria-hidden="true">50<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>
+      <div><h2>Big on mangoes?<br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above ${BULK_MIN_KG} kg? Let’s make it happen.</p></div>
+      <div class="bulk-type" aria-hidden="true">${BULK_MIN_KG}<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>
     </section>
-    <section class="page-card door-flow" id="bulk-box" aria-label="Bulk enquiry"></section>`
-  bulkForm('#bulk-box')
+    <section class="door-cards" id="bulk-grid" aria-label="Mangoes for your bulk list"></section>
+    <section class="page-card door-flow" id="bulk-box" aria-label="Bulk enquiry" hidden></section>`
+  bulkBar()
+  renderBulkGrid()
+  shelfReady().then(() => {
+    if (document.body.dataset.page !== 'bulk') return
+    renderBulkGrid()
+    bulkBar()
+  })
 }
+
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button,a') : null
+  if (!b) return
+  const d = b.dataset
+  if (d.doorStage || d.doorBox) {
+    const kind = d.door, name = d.variety
+    doorPick[kind][name] = { ...doorPick[kind][name], [d.doorStage ? 'stage' : 'sku']: d.doorStage || d.doorBox }
+    const focus = usedAttrs(b, ['data-door-stage', 'data-door-box', 'data-variety'])
+    if (kind === 'pre') renderPreGrid(focus)
+    else renderBulkGrid(focus)
+  } else if (d.preOpen) openPreBooking(d.preOpen)
+  else if (d.preBox || d.preStage || d.preWeek || d.preStep) prePanel(b)
+  else if (d.bulkQty) bulkStep(b)
+  else if (b.id === 'bulk-send') openBulkEnquiry()
+  else if (b.hasAttribute('data-bulk-edit')) {
+    e.preventDefault()
+    $('#bulk-grid')?.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
+  }
+})
+// Another tab changed the bulk list: follow it.
+window.addEventListener('storage', (e) => {
+  if (e.key !== 'mm-bulk') return
+  bulkList = null
+  renderBulkGrid()
+  bulkBar()
+})
 
 // ---- The profile page.
 
