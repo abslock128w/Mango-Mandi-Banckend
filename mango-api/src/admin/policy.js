@@ -43,5 +43,6 @@ export const STEP_UP_ROUTES = [
 export const READ_AUDITED_ROUTES = [
   'GET /orders/:id', 'GET /manifest', 'GET /claims', 'GET /orders/:id/delivery-photos/:photoId', 'GET /claims/:id/photos/:photoId',
   'GET /whatsapp/conversations/:id', 'GET /whatsapp/media/:id',
+  'GET /partner-network/enquiries/:id', 'GET /partner-network/enquiries/:id/documents/:documentId', 'GET /partner-network/product-proposals/:id',
 ]
 export const ALWAYS_AUDITED_READS = ['GET /customers/:id', 'GET /orders/:id/bill', 'GET /exports/:kind']

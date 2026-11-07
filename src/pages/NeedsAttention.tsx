@@ -13,6 +13,7 @@ const STEP_LABEL: Record<string, string> = {
   'webhook-replay': 'Replaying stored webhooks',
   'whatsapp-messages': 'Sending WhatsApp chat replies',
   'whatsapp-templates': 'Reading WhatsApp templates from Meta',
+  'partner-followups': 'Queuing Partner Network follow-up alerts',
   refunds: 'Sending refunds',
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
