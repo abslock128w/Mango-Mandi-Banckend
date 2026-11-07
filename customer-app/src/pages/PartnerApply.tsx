@@ -13,6 +13,7 @@ import {
   applicableSteps,
   buildAnswers,
   fileProblem,
+  fileSize,
   initialAnswers,
   keepMatchingAnswers,
   megabytes,
@@ -704,7 +705,7 @@ function FilePicker({
               <li key={f.id}>
                 <div className="partner-file-name">
                   <span>{f.file.name}</span>
-                  <span className="muted small">{megabytes(f.file.size)}</span>
+                  <span className="muted small">{fileSize(f.file.size)}</span>
                 </div>
                 <label htmlFor={selectId} className="small">
                   {t('partner.files.kind', { name: f.file.name })}

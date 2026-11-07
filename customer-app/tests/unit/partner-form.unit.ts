@@ -5,6 +5,7 @@ import {
   buildAnswers,
   checkAnswer,
   fileProblem,
+  fileSize,
   initialAnswers,
   isShown,
   keepMatchingAnswers,
@@ -181,4 +182,7 @@ test('files are checked for type and size before upload', () => {
   assert.equal(fileProblem({ type: 'application/pdf', size: 1000 }, net.uploads), null)
   assert.equal(fileProblem({ type: 'application/zip', size: 1000 }, net.uploads), 'type')
   assert.equal(fileProblem({ type: 'image/png', size: net.uploads.maxFileBytes + 1 }, net.uploads), 'size')
+  assert.equal(fileSize(40), '1 KB')
+  assert.equal(fileSize(240 * 1024), '240 KB')
+  assert.equal(fileSize(1.4 * 1024 * 1024), '1.4 MB')
 })

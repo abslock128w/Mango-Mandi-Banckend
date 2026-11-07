@@ -355,3 +355,6 @@ export function fileProblem(file: { type: string; size: number }, uploads: Partn
 
 /** "5 MB" for the upload limit. */
 export const megabytes = (bytes: number) => `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
+
+/** A picked file's size: "240 KB" under a megabyte, "1.4 MB" above. */
+export const fileSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : megabytes(bytes))
