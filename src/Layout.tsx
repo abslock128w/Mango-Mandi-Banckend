@@ -10,7 +10,7 @@ import { WH_LINKS, whLinkAllowed } from './warehouse/access'
 type NavItem = [to: string, label: string, screen: Screen]
 
 /**
- * The navigation in five groups. Each role still sees exactly the screens canSee allows;
+ * The navigation in groups. Each role still sees exactly the screens canSee allows;
  * a group with no allowed screen is left out, and a group with one is a plain link.
  */
 const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
@@ -48,6 +48,16 @@ const GROUPS: { id: string; label: string; links: NavItem[] }[] = [
     ],
   },
   {
+    id: 'partners',
+    label: 'Partner Network',
+    links: [
+      ['/partner-network', 'Partner overview', 'partnerNetwork'],
+      ['/partner-network/enquiries', 'Enquiries', 'partnerNetwork'],
+      ['/partner-network/proposals', 'Product proposals', 'partnerNetwork'],
+      ['/partner-network/categories', 'Partner categories', 'partnerNetwork'],
+    ],
+  },
+  {
     id: 'admin',
     label: 'Admin',
     links: [
@@ -68,6 +78,8 @@ function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'settings') return !!me?.features?.panelSwitches
   if (screen === 'helpDesk') return !!me?.features?.helpDesk
   if (screen === 'subscriptions') return !!me?.features?.subscriptions
+  // On unless the API says it is off: the contract has no /auth/me field for it yet.
+  if (screen === 'partnerNetwork') return me?.features?.partnerNetwork !== false
   return true
 }
 
@@ -211,7 +223,8 @@ export default function Layout() {
                     <ul id={panelId(id)} className="nav-group-list" aria-labelledby={`${panelId(id)}-label`}>
                       {g.links.map(([to, label]) => (
                         <li key={to}>
-                          <NavLink to={to} className={navLinkClass}>
+                          {/* An overview whose pages sit under its path is only current on its own page. */}
+                          <NavLink to={to} className={navLinkClass} end={g.links.some(([other]) => other.startsWith(`${to}/`))}>
                             {label}
                           </NavLink>
                         </li>

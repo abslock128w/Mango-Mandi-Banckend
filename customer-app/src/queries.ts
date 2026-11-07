@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
-import { api } from './api'
+import { ApiError, api } from './api'
 
 // Queries shared between the home page, the product page and the route that prefetches the
 // product page's data while its code loads, so they always use the same keys.
@@ -29,3 +29,15 @@ export const productReviewsQuery = (sku: string, stars: number | null = null, wi
 
 /** The shop's live rules and which app-feel parts are switched on (GET /v1/policy). */
 export const policyQuery = () => queryOptions({ queryKey: ['policy'], queryFn: api.policy, staleTime: 10 * 60_000 })
+
+/**
+ * Partner With Us (docs/partner-network.md): the categories and the questionnaire. A 404 means
+ * the switch is off, so it is not asked again.
+ */
+export const partnerNetworkQuery = () =>
+  queryOptions({
+    queryKey: ['partner-network'],
+    queryFn: api.partnerNetwork,
+    staleTime: 5 * 60_000,
+    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+  })

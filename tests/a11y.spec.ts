@@ -264,7 +264,7 @@ test('desktop: the groups sit on one row, open with focus inside and close on Es
   await page.goto('/today')
   await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible()
   const nav = page.getByRole('navigation', { name: 'Main' })
-  const buttons = ['Fulfilment', 'Stock', 'Customers', 'Admin'].map((name) => nav.getByRole('button', { name }))
+  const buttons = ['Fulfilment', 'Stock', 'Customers', 'Partner Network', 'Admin'].map((name) => nav.getByRole('button', { name }))
   const tops = await Promise.all([nav.getByRole('link', { name: 'Today' }), ...buttons].map(async (l) => (await l.boundingBox())!.y))
   expect(new Set(tops.map(Math.round)).size).toBe(1)
   await expect(page.getByRole('button', { name: 'Menu' })).toBeHidden()

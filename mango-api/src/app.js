@@ -79,7 +79,8 @@ export function createApp() {
   const corsOptions = {
     origin: `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN}`.split(',').map((s) => s.trim()).filter(Boolean),
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session'],
+    // X-Upload-Token: a Partner With Us document upload (partner/enquiries.js).
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-Session', 'X-Upload-Token'],
   }
   // SEC-09: with API_HARDENING the shop and panel can read Retry-After and X-Request-Id.
   app.use(cors((_req, cb) => cb(null, env.API_HARDENING ? { ...corsOptions, exposedHeaders: EXPOSED_HEADERS } : corsOptions)))

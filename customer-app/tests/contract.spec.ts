@@ -140,6 +140,8 @@ const POLICY = object<ShopPolicy>({
       multiGift: optional('boolean'),
       // Shop languages (docs/languages.md).
       languages: optional('boolean'),
+      // Partner With Us (docs/partner-network.md).
+      partnerNetwork: optional('boolean'),
     }),
   ),
   // Gift orders to many recipients (MULTI_GIFT): sent only while it is on.

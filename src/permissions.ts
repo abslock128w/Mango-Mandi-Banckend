@@ -9,6 +9,8 @@
 // PACKER: the pack list, deliveries and order steps through delivery.
 // QC: receiving batches, QC and stock counts.
 // RIDER: the day's deliveries, marked with the customer's code or a photo.
+// Partner Network (docs/partner-network.md): managers and operators; the decisions,
+// the CSV export and category edits are for managers.
 
 import type { Me, OrderStatus, Role } from './types'
 
@@ -63,11 +65,12 @@ export type Screen =
   | 'helpDesk'
   | 'subscriptions'
   | 'whatsapp'
+  | 'partnerNetwork'
 
 const SCREENS: Record<Role, ReadonlySet<Screen> | 'all'> = {
   MANAGER: 'all',
   // Operators see farms without costs (docs/ops.md); Settings is for managers.
-  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers', 'farms', 'helpDesk', 'subscriptions', 'whatsapp']),
+  OPERATOR: new Set<Screen>(['today', 'batches', 'orders', 'orderDetail', 'packList', 'deliveries', 'claims', 'pincodes', 'planning', 'preorders', 'analytics', 'reviews', 'customers', 'farms', 'helpDesk', 'subscriptions', 'whatsapp', 'partnerNetwork']),
   PACKER: new Set<Screen>(['packList', 'deliveries', 'orderDetail']),
   // QC sees the Reviews page's ripeness accuracy only (no moderation).
   QC: new Set<Screen>(['batches', 'reviews']),

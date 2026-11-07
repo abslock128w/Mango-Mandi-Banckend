@@ -46,9 +46,13 @@ function loadTurnstile() {
  * unless the API has a site key. Each token works once, so the widget is
  * reset after every request and solves itself again (usually invisibly).
  */
-function useTurnstile(onError: (message: string) => void) {
-  const config = useQuery({ queryKey: ['auth-config'], queryFn: api.authConfig, staleTime: Infinity, retry: false })
-  const siteKey = config.data?.turnstileSiteKey ?? null
+export function useTurnstile(onError: (message: string) => void, opts: { action?: string; siteKey?: string | null; needed?: boolean } = {}) {
+  // Sign-in reads the site key from /v1/auth/config. A form whose own API answer names the key
+  // (Partner With Us) passes it (null: none), and `needed: false` keeps the widget off altogether.
+  const { action = 'otp', needed = true } = opts
+  const own = opts.siteKey !== undefined
+  const config = useQuery({ queryKey: ['auth-config'], queryFn: api.authConfig, staleTime: Infinity, retry: false, enabled: needed && !own })
+  const siteKey = !needed ? null : own ? (opts.siteKey ?? null) : (config.data?.turnstileSiteKey ?? null)
   const box = useRef<HTMLDivElement>(null)
   const widget = useRef<string | null>(null)
   const [token, setToken] = useState<string | null>(null)
@@ -64,7 +68,7 @@ function useTurnstile(onError: (message: string) => void) {
         widget.current = window.turnstile.render(box.current, {
           sitekey: siteKey,
           // The API checks this action and the hostname (mango-api src/turnstile.js).
-          action: 'otp',
+          action,
           size: 'flexible',
           callback: (t: string) => setToken(t),
           'expired-callback': () => setToken(null),
@@ -77,7 +81,7 @@ function useTurnstile(onError: (message: string) => void) {
       if (widget.current) window.turnstile?.remove(widget.current)
       widget.current = null
     }
-  }, [siteKey])
+  }, [siteKey, action])
 
   return {
     needed: Boolean(siteKey),
