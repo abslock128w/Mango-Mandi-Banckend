@@ -61,7 +61,7 @@ Use two staff phones that are not customers yet.
 ## Afternoon: switch on and watch (about 1 hour, then the evening)
 
 15. Turn on the optional switches whose templates are approved (`WHATSAPP_CLAIM_UPDATES`,
-    `WHATSAPP_CARE_UPDATES`, `WHATSAPP_REVIEW_REQUESTS`, `WHATSAPP_ORDER_LINKS`), one at a time,
+    `WHATSAPP_CARE_UPDATES`, `WHATSAPP_PARTNER_UPDATES` with `PARTNER_ALERT_PHONES`, `WHATSAPP_REVIEW_REQUESTS`, `WHATSAPP_ORDER_LINKS`), one at a time,
     redeploying after each. *Check:* Read templates from Meta shows them Ready.
 16. Put the WhatsApp number on the shop (`VITE_SUPPORT_WHATSAPP`) and the boxes.
 17. Write the evidence in the go-live log: date, who ran it, the steps above with pass / fail.
