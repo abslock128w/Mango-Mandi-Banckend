@@ -820,3 +820,88 @@ body[data-page="bulk"] .pay-bar-total strong{font-size:20px;overflow:hidden;text
 @media(max-width:560px){.product-grid.door-grid{grid-template-columns:1fr;gap:14px}.door-grid .product-image{aspect-ratio:16/10}.door-grid .product-image .fruit-photo{background-position-y:50%}}
 @media(max-width:360px){.door-stages button{font-size:12px;gap:4px}.door-stages .dot{display:none}}
 @media(prefers-reduced-motion:reduce){.pre-flow,.door-grid *{scroll-behavior:auto;transition:none!important}}
+/* ---- Polish pass: one focus ring, solid toast, photo shimmer and skeleton cards, empty states, wide card pages. */
+:root{--card:#fffdf8;--sk-base:#e8eddb;--sk-hi:#f7f9f0;--toast-bg:var(--paper);--toast-line:var(--line)}
+/* One ring for everything: --focus, 3px, 2px off the edge. Headings focused by script (tabindex=-1) don't ring. */
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.theme-switch:focus-visible,.stars label:has(input:focus-visible),.pn-pill input:focus-visible+span,.pn-check input:focus-visible+.pn-box,.pn-cat:has(input:focus-visible),.pn-drop:focus-within{outline:3px solid var(--focus);outline-offset:2px}
+.sort-button:focus-within{outline:0}
+.sort-button:has(:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+.product-image .fruit-photo:focus-visible,.detail-thumbs button:focus-visible{outline-offset:-3px}
+[tabindex="-1"]:focus{outline:none}
+/* The skip link appears only when the keyboard lands on it. */
+.skip{top:-80px;border-radius:12px;font-weight:600;transition:none}
+.skip:focus{top:-80px}
+.skip:focus-visible{top:10px;outline:3px solid var(--focus);outline-offset:2px}
+/* Toast: a solid surface above the bag bar, readable at a glance. */
+.toast{background:var(--toast-bg);color:var(--ink);border:1px solid var(--toast-line);box-shadow:0 12px 30px #183c2124,0 2px 6px #183c2114;-webkit-backdrop-filter:none;backdrop-filter:none;font-size:14px;font-weight:600;line-height:1.35;padding:13px 20px;border-radius:18px;text-align:center;max-width:min(440px,calc(100% - 32px))}
+@media(max-width:700px){.toast{font-size:14px;padding:13px 18px}}
+html.pay-bar-on .toast{bottom:calc(112px + env(safe-area-inset-bottom))}
+/* Photos still on their way shimmer softly; placeholder cards (skeletons) while the catalogue loads. */
+@keyframes mm-shimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+html .product-image .fruit-photo.photo:not(.is-loaded),html .door-grid .product-image .fruit-photo.photo:not(.is-loaded),.is-skeleton .fruit-photo,.is-skeleton .sk-line,.is-skeleton .sk-block{background:linear-gradient(100deg,var(--sk-base) 35%,var(--sk-hi) 50%,var(--sk-base) 65%) var(--sk-base);background-size:250% 100%;animation:mm-shimmer 1.5s linear infinite}
+.product-card.is-skeleton{pointer-events:none;box-shadow:inset 0 0 0 1px var(--line)}
+.product-card.is-skeleton .product-image{background:var(--sk-base)}
+.product-card.is-skeleton .fruit-photo{display:block;width:100%;height:100%}
+.is-skeleton .product-info{display:flex;flex-direction:column;gap:10px;padding:14px 6px 6px}
+.is-skeleton .sk-line{display:block;height:14px;border-radius:7px;width:85%}
+.is-skeleton .sk-title{height:22px;width:55%}
+.is-skeleton .sk-short{width:40%}
+.is-skeleton .sk-block{display:block;height:46px;border-radius:16px;margin-top:6px}
+@media(prefers-reduced-motion:reduce){html .product-image .fruit-photo.photo:not(.is-loaded),html .door-grid .product-image .fruit-photo.photo:not(.is-loaded),.is-skeleton .fruit-photo,.is-skeleton .sk-line,.is-skeleton .sk-block{animation:none;background:var(--sk-base)}}
+/* Cards lift a little under the mouse; buttons darken on hover and give a little on press. Never with reduced motion. */
+.door-grid .product-card{background:var(--card)}
+@media(hover:hover){
+.card-stepper button:hover,.bag-stepper button:hover{background:#0000001a}
+.liquid-tab:not(.is-current):hover{background:var(--dock-press)}
+.dock-mini:hover,.dock-orb:hover{filter:brightness(.93)}
+.pay-bar .button.primary:not(:disabled):hover{background:var(--accent-hover)}
+}
+@media(hover:hover) and (prefers-reduced-motion:no-preference){
+.product-card:not(.is-skeleton){transition:transform .3s var(--ease),box-shadow .3s var(--ease)}
+.product-card:not(.is-skeleton):hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+}
+@media(prefers-reduced-motion:no-preference){
+.card-stepper button:active,.bag-stepper button:active,.liquid-tab:active,.dock-mini:active,.door-stages button:active,.pre-stepper button:active{transform:scale(.98)}
+.card-stepper button,.bag-stepper button,.door-stages button{transition:background-color .15s ease,transform .12s ease}
+}
+@media(prefers-reduced-motion:reduce){.product-card:hover,.door-grid .product-card:hover{transform:none}.product-card:hover .fruit-photo{transform:none}}
+/* Empty states: a heading, one line, one button, centred in their card. */
+.empty-state{text-align:center}
+.page-card .empty-state{padding:28px 8px;box-shadow:none;background:none}
+.empty-state>svg{width:40px;height:40px;stroke-width:1.8;color:var(--accent);margin:0 auto 14px;display:block}
+.empty-state h2{font-size:clamp(24px,5vw,28px);text-wrap:balance}
+.empty-state p{text-wrap:pretty}
+.door-intro .door-empty-go{margin-top:16px;min-height:52px;padding:0 24px;gap:12px;font-size:16px;font-weight:700}
+/* The sign-in page: one intro line above the card. */
+.login-intro{display:block;margin:-4px 0 16px;font-size:15px;line-height:1.55;color:var(--muted);max-width:56ch}
+/* Checkout's location step: a single-line pincode field like the phone field. */
+.co-pin-input{height:56px;font-size:18px;font-weight:600;letter-spacing:.08em;font-variant-numeric:tabular-nums}
+.co-pin-input::placeholder{letter-spacing:0;font-weight:400}
+/* Panels opened under the cards land below the sticky header, not under it. */
+#pre-box,#bulk-box,#bulk-grid,#pre-grid{scroll-margin-top:calc(var(--head-h,96px) + 12px)}
+/* Headings don't leave a single word on its own line. */
+.page-head h1,.door-hero h2,.flow-head,.section-heading h2,.sheet-head h2{text-wrap:balance}
+/* Wide screens: the card pages (/preorder, /bulk, /partner's categories) use the full width, three cards across like the shop. */
+@media(min-width:1000px){
+body[data-page="preorder"] .page-body,body[data-page="bulk"] .page-body,body[data-page="partner"] .page-body:has(.pn-ways){max-width:none}
+body[data-page="preorder"] .product-grid.door-grid,body[data-page="bulk"] .product-grid.door-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+body[data-page="preorder"] #pre-box,body[data-page="bulk"] #bulk-box{max-width:820px;margin-inline:auto}
+.pn-ways{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.pn-ways .pn-way{height:100%;margin:0}
+body[data-page="partner"] .page-body:has(.pn-ways) .pn-status{max-width:none}
+}
+@media(min-width:1500px){body[data-page="preorder"] .product-grid.door-grid,body[data-page="bulk"] .product-grid.door-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+/* The not-found page. */
+body[data-page="not-found"] .empty-state .bag-explore{display:inline-flex}
+/* Four checkout steps don't fit a phone on one line: only the current step keeps its word (the others stay for screen readers). */
+@media(max-width:520px){.co-steps-4{flex-wrap:nowrap}.co-steps-4 li:not(.current) .co-step-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+.empty-state.not-found{padding:32px 20px}
+.empty-state.not-found p{margin:0 auto 22px;max-width:36ch}
+.pn-status-form{max-width:640px}
+.co-card .field input.co-pin-input,.field input.co-pin-input{height:56px;font-size:18px}
+/* The pincode is short and its Continue lives in the bar: the bar stays while it is typed. */
+@media(pointer:coarse){body[data-page="checkout"]:has(#page-body .co-pin-input:focus) .pay-bar:not([hidden]){display:block}}
+.search:has(input:focus-visible),.map-search:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+/* /bulk on wide screens: the sticky list bar lines up with the full-width grid above it. */
+@media(min-width:1000px){body[data-page="bulk"] .pay-bar-row,body[data-page="bulk"] .pay-bar-hint{max-width:min(1280px,calc(100vw - 80px))}}

@@ -105,6 +105,10 @@
     {
       "source": "/partner/:path*",
       "destination": "/index.html"
+    },
+    {
+      "source": "/((?!v1/|assets/)[^.]*)",
+      "destination": "/index.html"
     }
   ]
 }

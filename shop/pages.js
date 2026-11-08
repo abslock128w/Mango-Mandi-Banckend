@@ -44,8 +44,22 @@ function route() {
     routed()
     return
   }
+  // Any other path that isn't a file: a small not-found page (old server links still land on the shop).
+  if (missingPath(path)) {
+    showPage(path)
+    document.body.dataset.page = 'not-found'
+    notFoundView()
+    routed()
+    return
+  }
   hidePage()
   routed()
+}
+const missingPath = (p) => p !== '/' && p !== '/index.html' && !/^\/(invite|help|account|preorders)\//.test(p) && !PAGES.some(([re]) => re.test(p))
+
+function notFoundView() {
+  document.title = 'Page not found · Mango Mandi'
+  host().innerHTML = pageHead('That page isn’t here') + `<section class="page-card empty-cart bag-empty empty-state not-found"><p>The link may be old, or the address may have a typo. The mangoes are all still here.</p><a class="button primary bag-explore" href="/" data-route>Back to the mangoes ${icon('arrow')}</a></section>`
 }
 const routed = () => window.dispatchEvent(new CustomEvent('mm:route', { detail: { path: location.pathname } }))
 
@@ -57,6 +71,8 @@ function showPage(path) {
   ++sheetSeq
   document.body.classList.add('page-open')
   document.body.dataset.page = path.split('/')[1]
+  const skip = $('.skip')
+  if (skip) { skip.textContent = 'Skip to content'; skip.setAttribute('href', '#page-view') }
   $('#home').hidden = true
   $('#page-view').hidden = false
   window.scrollTo({ top: 0, behavior: 'instant' })
@@ -67,6 +83,8 @@ function hidePage() {
   if (!pageOpen()) return
   document.body.classList.remove('page-open')
   setBar('')
+  const skip = $('.skip')
+  if (skip) { skip.textContent = 'Skip to mangoes'; skip.setAttribute('href', '#shop') }
   delete document.body.dataset.page
   $('#page-view').hidden = true
   $('#page-body').innerHTML = ''
@@ -106,7 +124,7 @@ function loginView() {
 }
 
 function loginIntro() {
-  return `<div class="login-intro"><img class="brand-light" src="assets/brand-original.jpeg" alt=""><img class="brand-dark" src="assets/brand-dark.webp" alt=""><p>Sign in with your mobile number to see your orders, keep your addresses and check out faster. New here? Your account is made when you verify the code.</p></div>`
+  return `<p class="login-intro">Sign in with your mobile number to see your orders and check out faster. We’ll send you a 6-digit code; new here, your account is made when you verify it.</p>`
 }
 
 /** The page's heading: a back button, the title, and on the account pages their tabs. */
@@ -201,7 +219,7 @@ function renderPreGrid(focus) {
   if (!grid) return
   const alert = pre.error && !pre.weeks.length ? `<p class="prototype-tag" role="alert">${esc(pre.error)}</p>` : ''
   if (!pre.weeks.length) {
-    grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Coming this season</h2><p>Pre-orders open soon. Check back before the season.</p>${alert}</div><div class="product-grid door-grid">${shelf.map((v) => {
+    grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Coming this season</h2><p>Pre-orders open soon. Until then, this season’s boxes are in the shop.</p>${alert}<a class="button primary door-empty-go" href="/" data-route>Shop the mangoes ${icon('arrow')}</a></div><div class="product-grid door-grid">${shelf.map((v) => {
       const p = doorPick.pre[v.name] ||= { sku: v.skus[0].sku, stage: stageFor(v) }
       return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, muted: true, action: `<button class="quick-add" disabled aria-label="Pre-order ${esc(v.name)}: opens soon">Pre-order</button>` })
     }).join('')}</div>`
@@ -231,7 +249,7 @@ function openPreBooking(name) {
   renderPreorder()
   const panel = $('#pre-box')
   if (!panel || panel.hidden) return
-  panel.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
+  requestAnimationFrame(() => panel.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' }))
   const h = $('.flow-head', panel)
   if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
 }
@@ -309,7 +327,9 @@ function renderBulkGrid(focus) {
   const grid = $('#bulk-grid')
   if (!grid) return
   if (!shelf.length) {
-    grid.innerHTML = '<p class="page-note">Loading the mangoes…</p>'
+    grid.innerHTML = grid.dataset.waited
+      ? `<div class="page-card empty-cart bag-empty empty-state">${icon('box')}<h2>The mangoes are a moment away.</h2><p>We couldn’t load the boxes just now. Try again in a minute.</p><button class="button primary bag-explore" data-bulk-retry>Try again ${icon('arrow')}</button></div>`
+      : `<div class="product-grid door-grid" aria-busy="true">${skeletonCards(6)}</div>`
     return
   }
   grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>Pick boxes by ripeness and size. Once your list reaches ${BULK_MIN_KG} kg, send it to us and we’ll come back with a quote. Prices shown are our shop prices per box.</p></div><div class="product-grid door-grid">${shelf.map((v) => {
@@ -365,6 +385,8 @@ function bulkPage() {
   renderBulkGrid()
   shelfReady().then(() => {
     if (document.body.dataset.page !== 'bulk') return
+    const g = $('#bulk-grid')
+    if (g) g.dataset.waited = '1'
     renderBulkGrid()
     bulkBar()
   })
@@ -384,6 +406,12 @@ document.addEventListener('click', (e) => {
   else if (d.preBox || d.preStage || d.preWeek || d.preStep) prePanel(b)
   else if (d.bulkQty) bulkStep(b)
   else if (b.id === 'bulk-send') openBulkEnquiry()
+  else if (b.hasAttribute('data-bulk-retry')) {
+    loadProducts()
+    $('#bulk-grid').dataset.waited = ''
+    renderBulkGrid()
+    shelfReady().then(() => { const g = $('#bulk-grid'); if (g) { g.dataset.waited = '1'; renderBulkGrid(); bulkBar() } })
+  }
   else if (b.hasAttribute('data-bulk-edit')) {
     e.preventDefault()
     $('#bulk-grid')?.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
@@ -578,6 +606,12 @@ document.addEventListener('click', (e) => {
   const a = e.target instanceof Element ? e.target.closest('a') : null
   if (!a) return
   const href = a.getAttribute('href') || ''
+  if (a.classList.contains('skip') && pageOpen()) {
+    e.preventDefault()
+    const h = $('#page-body h1')
+    if (h) { h.tabIndex = -1; h.focus() }
+    return
+  }
   if (a.hasAttribute('data-route')) {
     e.preventDefault()
     closeDialogs()

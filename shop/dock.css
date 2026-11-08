@@ -68,3 +68,7 @@ html.bag-open .toast{bottom:calc(166px + env(safe-area-inset-bottom))}
 body[data-page="bulk"] .pay-bar{bottom:calc(94px + env(safe-area-inset-bottom));border-radius:26px;border-bottom:1px solid var(--glass-edge);left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right))}
 }
 @media(prefers-reduced-transparency:reduce){.dock-row,.pay-bar{background:var(--dock-bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
+/* A sheet (any <dialog>) is open: the dock and the bag bar step out of its way, and the sheet keeps room for the home indicator. */
+body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(calc(100% + 24px));transition:opacity .18s ease,transform .22s ease,visibility .22s}
+@media(prefers-reduced-motion:reduce){body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{transition:none}}
+@media(max-width:700px){.sheet{padding-bottom:calc(22px + env(safe-area-inset-bottom))}}

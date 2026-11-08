@@ -222,13 +222,28 @@ function visibleShelf() {
     order(a, b))
 }
 
+/** Placeholder cards (the real card's size) while GET /v1/products is on its way; index.html starts with six. */
+const skeletonCards = (n) => '<div class="product-card is-skeleton" aria-hidden="true"><div class="product-image"><span class="fruit-photo"></span></div><div class="product-info"><span class="sk-line sk-title"></span><span class="sk-line"></span><span class="sk-line sk-short"></span><span class="sk-block"></span></div></div>'.repeat(n)
+
+// A card photo that has arrived stops its shimmer (style.css .fruit-photo.photo:not(.is-loaded)).
+document.addEventListener('load', (e) => {
+  const t = e.target
+  if (t instanceof HTMLImageElement && t.parentElement && t.parentElement.classList.contains('fruit-photo')) t.parentElement.classList.add('is-loaded')
+}, true)
+document.addEventListener('error', (e) => {
+  const t = e.target
+  if (t instanceof HTMLImageElement && t.parentElement && t.parentElement.classList.contains('fruit-photo')) t.parentElement.classList.add('is-loaded')
+}, true)
+
 function renderProducts() {
   const grid = $('#products')
   if (!skus.length) {
-    grid.innerHTML = ''
+    if (!grid.querySelector('.is-skeleton')) grid.innerHTML = skeletonCards(6)
+    grid.setAttribute('aria-busy', 'true')
     $('#no-results').hidden = true
     return
   }
+  grid.removeAttribute('aria-busy')
   if (!shelf.length) buildShelf()
   const list = visibleShelf()
   grid.innerHTML = list.map(cardHTML).join('')
@@ -237,7 +252,7 @@ function renderProducts() {
   if (!list.length) {
     $('#search-suggest').innerHTML = CATALOG.trending.map((t) => `<button class="occasion" data-trending="${esc(t)}">${esc(t)}</button>`).join('')
   }
-  if (window.gsap && !reduced) gsap.fromTo('.product-card', { y: 12, opacity: 0.5 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.06, ease: 'power3.out' })
+  if (window.gsap && !reduced) gsap.fromTo('.product-card', { y: 12, opacity: 0.5 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.06, ease: 'power3.out', clearProps: 'transform,translate,rotate,scale,opacity' })
   window.Liquid?.scan(grid)
 }
 

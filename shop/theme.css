@@ -158,3 +158,9 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"]{--save-bg:#1d4a2c;--save-ink:#e6f7ea;--save-text:#7fd99a}
 [data-theme="dark"] .pay-bar{box-shadow:0 -8px 24px #0009}
 [data-theme="dark"] .sort-button{background:#1f1d17}
+/* Polish pass: the dark toast (the dock's surface), shimmer and skeletons, card surface. */
+[data-theme="dark"]{--card:#191712;--sk-base:#22201a;--sk-hi:#2e2b22;--toast-bg:var(--dock-bg);--toast-line:var(--dock-line)}
+[data-theme="dark"] .toast,[data-theme="dark"] .toast.glass{background:var(--dock-bg);color:var(--ink);box-shadow:0 12px 30px #000a}
+[data-theme="dark"] .card-stepper button:hover,[data-theme="dark"] .bag-stepper button:hover{background:#00000024}
+/* A chosen ripeness pill is mango-yellow in the dark: its ripe (yellow) dot gets a dark ring so it stays visible. */
+[data-theme="dark"] [aria-pressed="true"] .dot.ripe,[data-theme="dark"] .selected .dot.ripe{box-shadow:0 0 0 2px var(--on-accent)}
