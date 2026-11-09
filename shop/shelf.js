@@ -77,6 +77,8 @@ async function loadProducts() {
 // ---- What a card shows
 
 const soldOut = (v, stage) => stock !== null && v.skus.every((s) => qtyOf(s.sku, stage) === 0)
+/** When every box is out on the chosen day: the first day one of them is back, or null. */
+const nextFor = (v, stage) => v.skus.map((s) => nextOf(s.sku, stage)).filter(Boolean).sort()[0] || null
 
 function stageFor(v) {
   if (filter !== 'all') return stageById(filter).apiStage
@@ -87,6 +89,9 @@ function stageFor(v) {
   if (stock) {
     const inStock = ['RIPE', 'SEMI_RIPE', 'RAW'].find((st) => v.skus.some((s) => qtyOf(s.sku, st) > 0))
     if (inStock) return inStock
+    // Nothing on the chosen day: show the ripeness that is back soonest, so the card can offer that day.
+    const soon = ['RAW', 'SEMI_RIPE', 'RIPE'].map((st) => [st, nextFor(v, st)]).filter((x) => x[1]).sort((a, b) => (a[1] < b[1] ? -1 : 1))[0]
+    if (soon) return soon[0]
   }
   return 'RIPE'
 }
@@ -156,7 +161,11 @@ function cardAction(v, sku, stage, out) {
   const s = skuOf(sku), st = stageOf(stage)
   if (!s) return ''
   const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
-  if (out) return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now">Sold out</button>`
+  if (out) {
+    const next = nextFor(v, stage)
+    if (next) return `<button class="quick-add is-next" data-pick-date="${esc(next)}" aria-label="${what}: available from ${esc(fmtDate(next))}. Show that day">Deliver ${esc(fmtDate(next))}</button>`
+    return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now">Sold out</button>`
+  }
   const line = cart.find((x) => x.sku === sku && x.stage === stage)
   if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
   const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
@@ -180,7 +189,8 @@ window.addEventListener('mm:cart', () => refreshActions())
 function cardHTML(v) {
   const stage = stageFor(v), st = stageOf(stage), sku = boxFor(v, stage), s = skuOf(sku)
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
-  const tag = out ? 'Sold out for now' : hit ? hit.reason : v.c.bestFor
+  const next = out ? nextFor(v, stage) : null
+  const tag = out ? (next ? `From ${fmtDate(next)}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
   return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
