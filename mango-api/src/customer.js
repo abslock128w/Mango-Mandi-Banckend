@@ -4,7 +4,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
 import { ACCESS_TTL_S, forgetCustomer, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
-import { isDate, now, todayIST } from './clock.js'
+import { addDays, isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
@@ -40,6 +40,7 @@ import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
 import { languages } from './language-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
+import { backorderEta, backorderPolicy, canBackorder, leadDays, markBackorder, windowDays } from './backorders.js'
 import { setConsent } from './wa/consent.js'
 import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
@@ -422,6 +423,8 @@ router.get('/policy', (_req, res) => {
       languages: isOn('SHOP_LANGUAGES'),
     },
     ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
+    // Backorders: a box with no stock can still be ordered, delivered in leadDays–windowDays days (mango-api/README.md).
+    backorders: backorderPolicy(),
     // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
     // Named only while one is on, so an API with both off answers as before.
     ...(isOn('HELP_CENTRE') || isOn('SUBSCRIPTIONS')
@@ -860,16 +863,21 @@ router.post(
       req.body,
     )
     const quote = await tx(async (c) => {
-      const { date } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
+      const { date, dates } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
       const pool = await availability(c, date)
       const bulk = await bulkQuoteLines(c, req.customer.id, pool, date)
       if (!rows.length && !bulk.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
       const retail = rows.map((l) => {
         if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
-        if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty) throw new StockError(l.sku)
+        // Backorders: short on this day, the line is still sold (sourced for a day far enough out) unless backorders are off.
+        const short = (pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty
+        if (short && !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
         const price = findProduct(l.sku).price
-        return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }
+        return {
+          sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date),
+          ...(short ? { backorder: true } : {}),
+        }
       })
       // One order line per box and ripeness: the same box can't be both a regular and a bulk line.
       for (const b of bulk) {
@@ -897,6 +905,7 @@ router.post(
       const data = {
         pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
         promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount, total: subtotal - discount,
+        ...(retail.some((l) => l.backorder) ? { backorder: true, backorderEta: backorderEta() } : {}),
       }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
@@ -1015,7 +1024,7 @@ router.post(
       const q = rows[0]
       // A gift order's quote (MULTI_GIFT) is confirmed at /gifts/confirm, never here.
       if (!q || q.expires_at <= now() || q.data.kind === 'multi-gift') throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
-      const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      const { date, dates } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
       const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
       // PAY-B10: a product taken off sale after the quote is not sold on it.
@@ -1025,6 +1034,14 @@ router.post(
         }
       }
       await checkUnpaidLimit(c, req.customer.id, quoted.reduce((t, l) => t + l.qty, 0))
+      // Backorders: a regular line short of stock on the day is placed anyway (for a day far enough out) and
+      // fulfilled when stock arrives; bulk lines and everything with backorders off stay all-or-nothing.
+      const pool = await availability(c, date)
+      const backorder = quoted.some((l) => {
+        if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) >= l.qty) return false
+        if (l.listingId || !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
+        return true
+      })
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
       const retailSubtotal = quoted.filter((l) => !l.listingId).reduce((t, l) => t + l.unitPrice * l.qty, 0)
@@ -1034,7 +1051,7 @@ router.post(
         c,
         {
           customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address,
-          deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
+          deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: !backorder,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: quoted.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice, listingId: l.listingId ?? null, pricing: l.pricing ?? null })),
           discount: promo?.discount ?? 0, promoCode: promo?.code ?? null,
@@ -1042,6 +1059,7 @@ router.post(
         },
         req.actor,
       )
+      if (backorder) await markBackorder(c, created.id)
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
       if (b.funnelId) await rememberCheckout(c, created.id, b.funnelId)
       if (b.business) {
@@ -1139,6 +1157,16 @@ async function ownOrder(c, req) {
   return rows[0]
 }
 
+/** INV-B, and backorders: paid (or, for a backorder, placed) but some boxes have no stock yet. */
+const findingStock = (o) => Boolean(o.at_risk) && (['CONFIRMED', 'PROCESSING'].includes(o.status) || (o.backorder && o.status === 'PAYMENT_PENDING'))
+
+/** A backorder's fields on the customer's order views: the ETA only while its boxes are still being sourced. */
+const backorderView = (o) => {
+  if (!o.backorder) return {}
+  const sourcing = findingStock(o)
+  return { backorder: true, ...(sourcing ? { backorderEta: { from: o.delivery_date, to: addDays(o.delivery_date, windowDays() - leadDays()) } } : {}) }
+}
+
 router.get(
   '/orders',
   asyncHandler(async (req, res) => {
@@ -1161,6 +1189,7 @@ router.get(
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
       // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
       ...(o.gift_order_id ? { giftOrderId: o.gift_order_id, giftRecipient: o.gift_recipient_name } : {}),
+      ...backorderView(o),
     })))
   }),
 )
@@ -1211,7 +1240,9 @@ router.get(
       // INV-E: a retry the boxes can't make (too old, no younger stock) waits for staff, who call.
       retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
       // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
-      findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
+      findingStock: findingStock(o),
+      // Backorders: some boxes are being sourced; until they are, the date the shop promised them for.
+      ...backorderView(o),
       // The bill, once the order is paid (BILLS_ENABLED): download it from /orders/:id/bill.
       bill: billView(bill),
       business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
@@ -1222,6 +1253,7 @@ router.get(
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
         // A bulk deal line keeps the name and tier it was sold under.
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
+        backordered: Boolean(i.backordered),
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       tracking,

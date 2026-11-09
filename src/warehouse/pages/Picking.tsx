@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { date } from '../../format'
-import { Badge, EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion, usePageTitle } from '../../ui'
+import { BackorderBadge, Badge, EmptyState, LinkRow, QueryError, RowLink, Spinner, scrollRegion, usePageTitle } from '../../ui'
 import { wh } from '../api'
 
 export default function Picking() {
@@ -39,7 +39,7 @@ export default function Picking() {
                       {o.number}
                     </RowLink>
                   </td>
-                  <td className="card-status">{o.atRisk ? <Badge tone="bad">At risk</Badge> : <Badge>Waiting</Badge>}</td>
+                  <td className="card-status">{o.backorder ? <BackorderBadge awaiting={o.atRisk} /> : o.atRisk ? <Badge tone="bad">At risk</Badge> : <Badge>Waiting</Badge>}</td>
                   <td data-label="Delivery">{date(o.deliveryDate)}</td>
                   <td className="num" data-label="To pick">
                     {o.toPick}

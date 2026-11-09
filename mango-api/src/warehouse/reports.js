@@ -63,7 +63,7 @@ export async function overview(c, warehouseId) {
 
 async function pickQueueRows(c, { date = null, limit = 200 } = {}) {
   const { rows } = await c.query(
-    `SELECT o.id, o.number, o.status, o.delivery_date, o.slot_id, o.at_risk,
+    `SELECT o.id, o.number, o.status, o.delivery_date, o.slot_id, o.at_risk, o.backorder,
             sum(s.quantity) FILTER (WHERE s.state = 'committed')::int AS to_pick,
             (SELECT count(*)::int FROM boxes b WHERE b.order_id = o.id AND b.lifecycle = 'picked') AS picked
        FROM orders o JOIN order_stock s ON s.order_id = o.id JOIN products p ON p.sku = s.sku
@@ -78,6 +78,7 @@ async function pickQueueRows(c, { date = null, limit = 200 } = {}) {
 export async function pickQueue(c, { date = null } = {}) {
   return (await pickQueueRows(c, { date })).map((r) => ({
     orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, atRisk: r.at_risk, toPick: r.to_pick, picked: r.picked,
+    backorder: r.backorder,
   }))
 }
 
@@ -127,7 +128,7 @@ export async function exceptions(c, warehouseId) {
   const cap = 50
   const q = async (sql, params) => (await c.query(sql, params)).rows
   const [atRisk, heldOnOrders, unverified, staleOps, expiring, failedNotes, pendingWo, staging, investigations, counts, missing] = await Promise.all([
-    q(`SELECT o.id, o.number, o.status, o.delivery_date, o.at_risk_reason FROM orders o
+    q(`SELECT o.id, o.number, o.status, o.delivery_date, o.at_risk_reason, o.backorder FROM orders o
         WHERE o.at_risk AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
           AND EXISTS (SELECT 1 FROM order_items i JOIN products p ON p.sku = i.sku WHERE i.order_id = o.id AND p.box_tracking_enabled)
         ORDER BY o.delivery_date LIMIT $1`, [cap]),
@@ -161,7 +162,7 @@ export async function exceptions(c, warehouseId) {
   ])
   const fmt = (r) => ({ ...r, ...(r.code && /^[0-9A-Z]{9}$/.test(r.code) ? { code: formatBoxCode(r.code) } : {}) })
   return {
-    shortfallOrders: atRisk.map((r) => ({ orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, reason: r.at_risk_reason })),
+    shortfallOrders: atRisk.map((r) => ({ orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, reason: r.at_risk_reason, backorder: r.backorder })),
     heldBoxesOnOrders: heldOnOrders.map((r) => ({ boxId: r.id, code: formatBoxCode(r.code), orderId: r.order_id, number: r.number, holds: r.holds })),
     unreceivedLots: unverified.map((r) => ({ lotId: r.id, code: r.code, createdAt: r.created_at, waiting: r.waiting })),
     staleSessions: staleOps.map((r) => ({ operationId: r.id, type: r.type, owner: r.email, lastActivityAt: r.last_activity_at })),

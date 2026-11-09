@@ -513,7 +513,9 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // capacity, so check the day still has room before re-allocating on it (INV-5).
   const full = !stale && (lateFrom || holdLapsed) && !(await hasRoom(c, o))
   const r = stale || full ? { atRisk: true } : await rebalanceOrder(c, o.id, actor)
-  if (r?.atRisk) {
+  // A backorder is short by design: it keeps the day the customer was promised and the rebalance fills it.
+  const awaitingStock = o.backorder && !stale && !full
+  if (r?.atRisk && !awaitingStock) {
     // The stock (or the date) is gone: deliver on the next date that has stock.
     const from = stale ? earliest : o.delivery_date
     const dates = (await orderableDates(c)).filter((d) => d >= from)
@@ -531,7 +533,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // INV-B: no stock on any date. Don't tell the customer a date we can't keep:
   // the confirmation waits until stock is found (setRisk sends it then).
   const stuck = (await c.query('SELECT at_risk FROM orders WHERE id = $1', [o.id])).rows[0].at_risk
-  if (stuck) await holdConfirmation(c, o.id, confirmEvent)
+  // A backorder's confirmation names the day it was promised for, so it goes out as usual.
+  if (stuck && !o.backorder) await holdConfirmation(c, o.id, confirmEvent)
   // Moved off the date the customer picked: say so. They can still cancel for a
   // full refund until the order is packed, and the message tells them that.
   else if (o.delivery_date !== chosenDate) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')

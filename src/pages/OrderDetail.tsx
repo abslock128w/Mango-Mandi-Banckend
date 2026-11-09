@@ -26,6 +26,7 @@ import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import {
   AuthedPhoto,
   BackLink,
+  BackorderBadge,
   Badge,
   ConfirmDialog,
   Dialog,
@@ -191,6 +192,7 @@ function OrderView({ order }: { order: Order }) {
       <div className="detail-head">
         <h1>Order {order.number}</h1>
         <OrderBadge status={order.status} />
+        {order.backorder && <BackorderBadge awaiting={order.atRisk} />}
       </div>
       <ul className="detail-meta">
         <li>
@@ -210,7 +212,13 @@ function OrderView({ order }: { order: Order }) {
         </li>
       </ul>
 
-      {order.atRisk && (
+      {order.atRisk && order.backorder && (
+        <div className="notice notice-info" role="status">
+          <strong>Backorder, awaiting stock:</strong> {order.atRiskReason ?? 'some boxes have no stock yet'}. The customer was told it comes on{' '}
+          {date(order.deliveryDate)}. The hourly re-check allocates the boxes as soon as stock arrives; after receiving a batch you can Rebalance now.
+        </div>
+      )}
+      {order.atRisk && !order.backorder && (
         <div className="notice notice-warn" role="status">
           <strong>At risk:</strong> {order.atRiskReason ?? 'this order no longer has valid stock.'} Move it to a date with
           stock, or wait for new stock to arrive.
@@ -334,6 +342,11 @@ function OrderView({ order }: { order: Order }) {
                         {it.productName}
                         <div className="muted small">{it.sku}</div>
                         {it.bulk && <BulkItemNote bulk={it.bulk} />}
+                        {it.backordered && (
+                          <div>
+                            <Badge tone={order.atRisk ? 'warn' : 'neutral'}>{order.atRisk ? 'Backordered · awaiting stock' : 'Backordered'}</Badge>
+                          </div>
+                        )}
                       </td>
                       <td>{ripenessLabel(it.stage)}</td>
                       <td className="num">{it.quantity}</td>

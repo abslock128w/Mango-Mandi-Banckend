@@ -206,6 +206,15 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+  // Backorders (mango-api/README.md, Checkout → Backorders): a box with no stock on the chosen day can still be
+  // ordered for a day at least BACKORDER_LEAD_DAYS out; staff fulfil it when stock arrives. The shop says
+  // "delivered in <lead>–<window> days". On unless set to false.
+  BACKORDERS: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  BACKORDER_LEAD_DAYS: z.coerce.number().int().min(1).max(14).default(2),
+  BACKORDER_WINDOW_DAYS: z.coerce.number().int().min(1).max(21).default(3),
   // Bulk enquiries one phone number may send in 24 hours.
   BULK_ENQUIRY_DAILY_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
   // WhatsApp for it: "we got your enquiry" (mandi_bulk_enquiry_received) and "your quote is ready"

@@ -48,7 +48,7 @@ router.get(
         [SELLABLE_STATUSES],
       ),
       query(
-        `SELECT id, number, delivery_date, at_risk_reason FROM orders
+        `SELECT id, number, delivery_date, at_risk_reason, backorder FROM orders
           WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, ${orderSeqSql('number')}`,
       ),
       // INV-G: paid orders past their date, or out for delivery too long.
@@ -62,7 +62,8 @@ router.get(
       lowStock: shopProducts()
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
-      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      // backorder: sold before stock arrived; the panel shows it as awaiting stock, not as an at-risk alarm.
+      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason, backorder: o.backorder })),
       overdueOrders: overdue,
       // FE-3: the panel marks stock past this age from the live rule, not a constant.
       maxSellableAge: cfg.maxSellableAge,

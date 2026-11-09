@@ -195,6 +195,31 @@ An order can be a gift: `gift { recipientName, recipientPhone, message }` at che
 pack list marks it (no price slip, the note goes in the box) and the rider sees the
 recipient's name and phone. Order updates and the delivery code still go to the buyer.
 
+### Backorders
+
+With `BACKORDERS` on (the default), a customer can always order. A regular box short of stock on
+the chosen day is still quoted and placed, as long as the day is at least `BACKORDER_LEAD_DAYS`
+(default 2) from today (IST); the shop promises delivery "in `BACKORDER_LEAD_DAYS`–
+`BACKORDER_WINDOW_DAYS` days" (default 2–3) and reads both numbers from `GET /v1/policy`
+(`backorders: { enabled, leadDays, windowDays }`).
+
+- **Quote**: a short line comes back with `backorder: true`, and the quote with `backorder: true`
+  and `backorderEta: { from, to }`. A day earlier than today + lead answers 409 `BACKORDER_DATE`
+  with `{ earliest, sku }` (the first bookable day far enough out), so the shop can move the date.
+  With the switch off, a short line is 409 `STOCK_INSUFFICIENT` as before.
+- **Confirm**: the order is created without all-or-nothing; the boxes in stock are held as usual,
+  the rest are recorded as a shortfall (`at_risk`, so the hourly `rebalance-at-risk` fills them when
+  stock arrives), `orders.backorder` is set and the short lines get `order_items.backordered`.
+  Payment is unchanged; a paid backorder keeps its day and its confirmation goes out as usual
+  (a genuine no-stock order's is held).
+- **Customer views**: `/v1/orders` and `/v1/orders/:id` return `backorder: true` and, while boxes
+  are still being sourced, `backorderEta`; `findingStock` stays true until they are allocated; each
+  item has `backordered`.
+- **Staff**: the panel shows a Backorder badge ("awaiting stock" until allocated). Backorders waiting
+  for stock are not at-risk alarms: the ops queue lists them as a quiet item, and the
+  `mango_orders_at_risk` gauge leaves them out (maintenance reports them as `backordersAwaitingStock`).
+- Bulk deals and gift orders to many recipients stay all-or-nothing.
+
 ## Bulk Deals
 
 Listings for large orders (offices, events, big families), sold from the same products, stock,

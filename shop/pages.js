@@ -487,7 +487,9 @@ function trackHeadline(o) {
   const arriving = `Arriving ${fmtDate(o.deliveryDate)}${slot}`
   switch (o.status) {
     case 'PAYMENT_PENDING': return ['Waiting for payment', o.holdExpiresAt ? `Your mangoes are held until ${fmtTime(o.holdExpiresAt)}.` : arriving]
-    case 'CONFIRMED': return [o.findingStock ? 'Confirmed. Finding your mangoes' : 'Confirmed', o.findingStock ? 'We’re lining up the right fruit for your date and will message you if anything changes.' : arriving]
+    // Backorders: some boxes are being sourced for this order's day.
+    case 'CONFIRMED': if (o.backorder && o.findingStock) return ['Confirmed. Being sourced', `Being sourced · delivery ${fmtDate(o.deliveryDate)}${slot}. We’ll message you once your mangoes are in.`]
+      return [o.findingStock ? 'Confirmed. Finding your mangoes' : 'Confirmed', o.findingStock ? 'We’re lining up the right fruit for your date and will message you if anything changes.' : arriving]
     case 'PROCESSING': case 'PACKED': return ['Packed and ready', arriving]
     case 'SHIPPED': case 'OUT_FOR_DELIVERY': return [`${name ? esc(name) + ' is' : 'Your mangoes are'} on the way`, o.tracking ? `About ${o.tracking.etaMinutes} min · ${o.tracking.stopsAway ? `${o.tracking.stopsAway} ${o.tracking.stopsAway === 1 ? 'stop' : 'stops'} before yours` : 'you’re next'}` : `Arriving today${slot}`]
     case 'DELIVERED': return ['Delivered', o.delivery ? `${when(o.delivery.at)}${o.delivery.receivedBy ? ` · received by ${esc(o.delivery.receivedBy)}` : ''}` : 'Enjoy your mangoes.']
@@ -574,7 +576,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       <h3>Your box${(o.items || []).length > 1 ? 'es' : ''}</h3>
       ${(o.items || []).map((l) => {
         const st = stageOf(l.stage)
-        return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(l.name)}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small><div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
+        return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(l.name)}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small>${l.backordered && o.findingStock ? `<small class="co-sourcing">${icon('leaf')}Being sourced · delivery ${fmtDate(o.deliveryDate)}</small>` : ''}<div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
       }).join('')}
       ${o.discount ? `<div class="subtotal"><span>Discount</span><strong>−${currency(o.discount)}</strong></div>` : ''}
       <div class="subtotal"><span>Total</span><strong>${currency(o.total)}</strong></div>

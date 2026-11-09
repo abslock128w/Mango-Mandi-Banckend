@@ -9,7 +9,7 @@ import NeedsAttention, { attentionQuery } from './NeedsAttention'
 import { useDeliveryToasts } from '../LiveProof'
 import { SummaryPreviewButton } from './DailySummary'
 import { useSession } from '../session'
-import { DayStrip, EmptyState, LinkRow, MapView, QueryError, QueueItem, RowLink, Stat, freshnessOpacity, scrollRegion, usePageTitle, useToast, type MapMarker } from '../ui'
+import { BackorderBadge, DayStrip, EmptyState, LinkRow, MapView, QueryError, QueueItem, RowLink, Stat, freshnessOpacity, scrollRegion, usePageTitle, useToast, type MapMarker } from '../ui'
 import { snoozeUntil } from '../ops/prefs'
 import { SEVERITY_LABEL, type QueueEntry, type Severity } from '../ops/queue'
 import { ago, clock, minutesSince, tomorrowStartIST } from '../ops/time'
@@ -80,7 +80,9 @@ export default function Today() {
   // Only the first answer is waited for: a query that failed is pending again while it is
   // asked again, and hiding Needs attention then would remount it and ask again, forever.
   const waiting = attention.isPending && attention.errorUpdateCount === 0
-  const atRisk = s.atRiskOrders ?? []
+  // Backorders waiting for stock are expected: listed on their own, not as orders at risk.
+  const atRisk = (s.atRiskOrders ?? []).filter((o) => !o.backorder)
+  const backorders = (s.atRiskOrders ?? []).filter((o) => o.backorder)
   const overdue = s.overdueOrders ?? []
   const healthy = s.batchesNearLimit.length === 0 && s.lowStock.length === 0
   // Every tile opens the page it counts, filtered.
@@ -167,6 +169,35 @@ export default function Today() {
                     <td>{date(o.deliveryDate)}</td>
                     <td>{ORDER_STATUS_LABEL[o.status] ?? o.status}</td>
                     <td className="text-danger">{o.reason}</td>
+                  </LinkRow>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {!waiting && backorders.length > 0 && (
+        <section className="card">
+          <h2>Backorders awaiting stock</h2>
+          <p className="muted">Sold before stock arrived. The boxes are allocated automatically when a batch comes in.</p>
+          <div {...scrollRegion('Backorders awaiting stock')}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Delivery</th>
+                  <th>Waiting for</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backorders.map((o) => (
+                  <LinkRow key={o.id}>
+                    <td>
+                      <RowLink to={`/orders/${o.id}`}>{o.number}</RowLink> <BackorderBadge awaiting />
+                    </td>
+                    <td>{date(o.deliveryDate)}</td>
+                    <td>{o.reason ?? '—'}</td>
                   </LinkRow>
                 ))}
               </tbody>

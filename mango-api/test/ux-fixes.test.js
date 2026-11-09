@@ -99,6 +99,8 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
       bills: true,
       // App feel, growth and gift-to-many switches: all off unless set.
       features: { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false, referrals: false, funnel: false, multiGift: false, partnerNetwork: true, bulkEnquiries: true, languages: false },
+      // Backorders: on by default; the test environment turns them off (setup-env.js), with the default numbers.
+      backorders: { enabled: false, leadDays: 2, windowDays: 3 },
     })
   })
 

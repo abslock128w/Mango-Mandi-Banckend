@@ -12,7 +12,7 @@ import { usePref } from '../ops/prefs'
 import { dueOf } from '../ops/time'
 import { useNow } from '../ops/useQueue'
 import type { DeliverySlot, OrderListItem, Ripeness } from '../types'
-import { DataTable, OrderBadge, PeekDrawer, QueryError, Spinner, rowsToCsv, usePeek, useToast, type Column } from '../ui'
+import { BackorderBadge, DataTable, OrderBadge, PeekDrawer, QueryError, Spinner, rowsToCsv, usePeek, useToast, type Column } from '../ui'
 
 /** The URL parameters a view is made of. */
 const VIEW_KEYS = ['status', 'from', 'to', 'q', 'delivery', 'slot', 'unpacked', 'olderThanMinutes'] as const
@@ -196,7 +196,17 @@ export function OrdersWorkbench({ items, canAct }: { items: OrderListItem[]; can
     { key: 'customer', header: 'Customer', sort: (a, b) => (a.customerName ?? '').localeCompare(b.customerName ?? ''), cell: (o) => <>{o.customerName ?? '—'}{o.phone && <div className="muted small">{o.phone}</div>}</> },
     { key: 'items', header: 'Items', num: true, sort: (a, b) => a.itemCount - b.itemCount, cell: (o) => o.itemCount },
     { key: 'total', header: 'Total', num: true, sort: (a, b) => a.total - b.total, cell: (o) => rupees(o.total) },
-    { key: 'status', header: 'Status', card: 'status', sort: (a, b) => ORDER_STATUS_LABEL[a.status].localeCompare(ORDER_STATUS_LABEL[b.status]), cell: (o) => <OrderBadge status={o.status} /> },
+    { key: 'status', header: 'Status', card: 'status', sort: (a, b) => ORDER_STATUS_LABEL[a.status].localeCompare(ORDER_STATUS_LABEL[b.status]), cell: (o) => (
+        <>
+          <OrderBadge status={o.status} />
+          {o.backorder && (
+            <>
+              {' '}
+              <BackorderBadge awaiting={o.atRisk} />
+            </>
+          )}
+        </>
+      ) },
     { key: 'delivery', header: 'Delivery', sort: (a, b) => a.deliveryDate.localeCompare(b.deliveryDate), cell: (o) => date(o.deliveryDate) },
     {
       key: 'due',
@@ -315,7 +325,14 @@ function OrderPeek({ id, onClose }: { id: string; onClose: () => void }) {
       ) : (
         <>
           <p className="mt-0">
-            <OrderBadge status={o!.status} /> · {rupees(o!.total)} · delivery {date(o!.deliveryDate)}
+            <OrderBadge status={o!.status} />
+            {o!.backorder && (
+              <>
+                {' '}
+                <BackorderBadge awaiting={o!.atRisk} />
+              </>
+            )}{' '}
+            · {rupees(o!.total)} · delivery {date(o!.deliveryDate)}
             {o!.slot ? `, ${o!.slot.label} ${o!.slot.startsAt}–${o!.slot.endsAt}` : ''}
           </p>
           <dl>

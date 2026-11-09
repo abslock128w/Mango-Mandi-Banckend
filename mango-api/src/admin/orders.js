@@ -85,6 +85,8 @@ router.get(
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
+        // Backorders: some boxes were sold before stock arrived (awaiting stock while atRisk).
+        backorder: Boolean(o.backorder),
         // The slot and rider, for the workbench's Due and Rider columns.
         slotId: o.slot_id ?? null, riderId: o.rider_id ?? null,
         // A delivery of a gift order to many recipients (MULTI_GIFT).
@@ -136,6 +138,8 @@ export async function orderDetail(c, orderId) {
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
+    // Backorders: sold before stock arrived; awaiting stock while atRisk (expected, not a problem).
+    backorder: Boolean(o.backorder),
     // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
     retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
@@ -153,6 +157,7 @@ export async function orderDetail(c, orderId) {
       linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
       // A bulk deal line: the listing and the price tier it was sold at (kept on the item, so later edits never change it).
       bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier, listingVersion: i.pricing.listingVersion } : null,
+      backordered: Boolean(i.backordered),
     })),
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     // INV-F: boxes on a cancelled or returned order that staff still have to put back or write off.

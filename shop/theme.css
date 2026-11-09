@@ -183,3 +183,9 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .hero .hero-note{color:var(--muted)}
 [data-theme="dark"] .promise-bar{color:#d9c88f}
 
+
+/* Backorders (style.css): dark parity. Yellow on #1f1d17 is about 10:1. */
+[data-theme="dark"] .quick-add.is-later{background:#1f1d17;color:var(--accent);outline-color:var(--accent)}[data-theme="dark"] .quick-add.is-later:hover{background:#2a2720}
+[data-theme="dark"] .bag-ready.is-sourcing{background:#2a2720;border-color:var(--accent)}
+[data-theme="dark"] .date-card.is-unfit{background-image:repeating-linear-gradient(135deg,transparent 0 6px,#ffffff0d 6px 7px);color:var(--ink)}
+[data-theme="dark"] .date-card[aria-pressed="true"] .date-sourced{color:#3d3313}

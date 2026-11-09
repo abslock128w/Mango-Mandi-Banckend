@@ -139,7 +139,7 @@ export interface Summary {
   batchesNearLimit: { id: string; variety: string; ageDays: number; available: number }[]
   lowStock: { sku: string; productName: string; available: number }[]
   /** Open orders the stock engine could not keep whole. Ops must act on these. */
-  atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null; backorder?: boolean }[]
   /** Paid orders past their delivery date, or out for delivery too long (INV-G). */
   overdueOrders?: OverdueOrder[]
   /** Batches this many days old or older are past the sell limit (the live rule). */
@@ -233,6 +233,8 @@ export interface OrderListItem {
   deliveryDate: string
   placedAt: string
   atRisk?: boolean
+  /** Backorders: sold before stock arrived; awaiting stock while atRisk (absent from older servers). */
+  backorder?: boolean
   /** Where the customer placed it: the app or the WhatsApp chat. */
   channel?: 'app' | 'whatsapp'
   /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
@@ -291,6 +293,8 @@ export interface OrderItem {
   unitPrice?: number
   /** Sold under a bulk deal: the deal, its version and the tier, as at confirmation. */
   bulk?: { listingId: string; title: string; listingVersion: number | null; tier: { minQty: number; maxQty: number | null; unitPrice: number } } | null
+  /** Backorders: this line was short of stock when the order was placed. */
+  backordered?: boolean
 }
 
 export type StockState = 'held' | 'committed' | 'packed' | 'released'
@@ -342,6 +346,8 @@ export interface OrderDetail {
   } | null
   atRisk?: boolean
   atRiskReason?: string | null
+  /** Backorders: sold before stock arrived. While atRisk it is awaiting stock (expected, not a problem). */
+  backorder?: boolean
   /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
   retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null

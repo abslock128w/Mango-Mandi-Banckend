@@ -447,8 +447,14 @@ async function steps(forceAll) {
     out.rebalanced = await step('rebalance-at-risk', () => rebalanceAllOpen({ atRiskOnly: true }))
   }
   await step('health', () => checkHealth(out), { minMs: 0 })
-  const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
+  // Backorders waiting for stock are expected, not a problem: counted apart from the at-risk alarm.
+  const risk = await query(
+    `SELECT COUNT(*) FILTER (WHERE NOT backorder)::int AS n, COUNT(*) FILTER (WHERE backorder)::int AS backorders
+       FROM orders WHERE at_risk AND status = ANY($1)`,
+    [OPEN_STATUSES],
+  )
   out.atRisk = risk.rows[0].n
+  out.backordersAwaitingStock = risk.rows[0].backorders
   metrics.ordersAtRisk.set(out.atRisk)
   metrics.maintenanceLastRun.set(Date.now() / 1000)
   // The run counts as a tick even if some work was put off: /ready and the
