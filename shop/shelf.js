@@ -5,10 +5,10 @@
    so app.js globals (cart, favorites, filter, skus, stock, toast, …) are used at call time. */
 
 // The ripeness stages, in the words of the glass design. `id` matches the filter rail. Ripe is kept only so old
-// bags and orders still read; the shop sells Raw and Semi-raw (SOLD).
+// bags and orders still read; the shop sells Raw and Semi-ripe (SOLD).
 const STAGES = [
   { id: 'raw', stage: 'Raw', apiStage: 'RAW', pos: '0%', care: 'Keep in a cool, ventilated place. Wash before preparing.' },
-  { id: 'semi', stage: 'Semi-raw', apiStage: 'SEMI_RIPE', pos: '50%', care: 'Allow to ripen at room temperature, out of direct sunlight. Check daily.' },
+  { id: 'semi', stage: 'Semi-ripe', apiStage: 'SEMI_RIPE', pos: '50%', care: 'Allow to ripen at room temperature, out of direct sunlight. Check daily.' },
   { id: 'ripe', stage: 'Ripe', apiStage: 'RIPE', pos: '100%', care: 'Refrigerate once ripe and enjoy soon. Wash before cutting.', hidden: true },
 ]
 const SOLD = STAGES.filter((x) => !x.hidden)
@@ -18,7 +18,7 @@ const stageById = (id) => STAGES.find((s) => s.id === id)
 const CATALOG = window.MM_CATALOG || { varieties: [], ripeness: {}, occasions: [], synonyms: [], trending: [] }
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const STOP_WORDS = new Set(['mango', 'mangoes', 'for', 'the', 'a', 'an', 'and', 'of', 'box'])
-const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', 'semi-raw': 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', ripe: 'SEMI_RIPE' }
+const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', ripe: 'SEMI_RIPE' }
 
 let shelf = [] // [{ name, c: content, skus: [api product] }]
 let occasion = 'all'
