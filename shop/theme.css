@@ -165,3 +165,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 /* A chosen ripeness pill is mango-yellow in the dark: its ripe (yellow) dot gets a dark ring so it stays visible. */
 [data-theme="dark"] [aria-pressed="true"] .dot.ripe,[data-theme="dark"] .selected .dot.ripe{box-shadow:0 0 0 2px var(--on-accent)}
 [data-theme="dark"] .quick-add.is-next{background:#1f1d17;color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent)}[data-theme="dark"] .quick-add.is-next:hover{background:#2a2720}
+[data-theme="dark"]{--warn-bg:#3b1a15;--warn-ink:#ffcfc6;--warn-line:#ff8a75}
+[data-theme="dark"] .bag-moved-icon{background:#15130c}
+[data-theme="dark"] .bag-ready{background:#2a2720}
+[data-theme="dark"] .date-card.is-unfit{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--control-line)}

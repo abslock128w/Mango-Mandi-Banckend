@@ -379,6 +379,9 @@ router.get(
           sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', photoUrl: p.photoUrl, stage,
           fruitsPerBox: p.fruitsPerBox, fruitWeightG: p.fruitWeightG,
           qty, eatBy: eatByFor(stage, date), nextAvailableDate: qty > 0 ? null : (later.find(([, lp]) => lp.get(key) > 0)?.[0] ?? null),
+          // Boxes free on the chosen day and each later bookable day (0 included), so the shop can
+          // move an order to the first day everything in the bag is ready.
+          availability: [...byDate].map(([d, lp]) => ({ date: d, qty: lp.get(key) ?? 0 })),
         }
       }),
     )

@@ -905,7 +905,25 @@ body[data-page="not-found"] .empty-state .bag-explore{display:inline-flex}
 .search:has(input:focus-visible),.map-search:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
 /* /bulk on wide screens: the sticky list bar lines up with the full-width grid above it. */
 @media(min-width:1000px){body[data-page="bulk"] .pay-bar-row,body[data-page="bulk"] .pay-bar-hint{max-width:min(1280px,calc(100vw - 80px))}}
-/* A box that is out on the chosen day but back on a later one: the card offers that day. */
+/* A box that is out on the chosen day but ready on a later one: still addable (the order moves to that day), outlined so it reads differently. */
 .quick-add.is-next{background:var(--paper);color:var(--accent);box-shadow:inset 0 0 0 2px var(--accent);font-size:14px}
 .quick-add.is-next:hover{background:var(--sage)}
 .where-days{margin:4px 0 6px}.where-days-note{margin:0 0 16px;font-size:12px;color:var(--muted)}
+:root{--warn-bg:#fdecea;--warn-ink:#8c1d13;--warn-line:#b3261e}
+/* The bag's delivery day (app.js bagDelivery): a quiet line when every box is ready on the chosen day, a notice when a box moves the order later, a warning when no one day has it all. */
+.bag-delivery{display:flex;align-items:center;gap:8px;margin:-4px 0 12px;padding:0 4px;font-size:14px;color:var(--muted)}
+.bag-delivery svg{width:18px;height:18px;color:var(--save-text);stroke-width:2.2}
+.bag-moved{display:flex;align-items:flex-start;gap:12px;margin:0 0 12px;padding:14px 16px;border-radius:14px;background:var(--sage);border-left:4px solid var(--accent);color:var(--ink)}
+.bag-moved-icon{flex:none;display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--paper);color:var(--accent)}
+.bag-moved-icon svg{width:20px;height:20px;stroke-width:2}
+.bag-moved p{margin:0;font-size:15px;line-height:1.45;color:var(--ink)}
+.bag-moved strong{font-weight:700}
+.bag-moved .bag-keep{display:inline-flex;max-width:none;text-align:left;min-height:44px;padding:8px 0;font-size:15px;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.bag-moved.is-stuck{background:var(--warn-bg);border-left-color:var(--warn-line)}
+.bag-moved.is-stuck p,.bag-moved.is-stuck .bag-moved-icon{color:var(--warn-ink)}
+.co-moved{margin:6px 0 4px}
+.bag-ready{display:inline-block;margin-top:5px;padding:2px 9px;border-radius:999px;background:var(--sage);box-shadow:inset 0 0 0 1px var(--accent);color:var(--accent);font-size:12px;font-weight:700;line-height:1.5}
+/* Checkout: a day that can't take the whole bag stays visible but reads as unavailable; tapping it says which boxes. */
+.date-card.is-unfit{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--control-line);cursor:not-allowed}
+.date-card.is-unfit:hover{box-shadow:inset 0 0 0 1px var(--control-line)}
+.date-card .date-unfit{font-size:11px;letter-spacing:0;text-transform:none;line-height:1.15;text-align:center;color:var(--muted)}

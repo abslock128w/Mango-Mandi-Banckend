@@ -52,6 +52,11 @@ describe('catalogue', () => {
     const ripe = cat.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'RIPE')
     assert.ok(ripe.qty > 0)
     assert.equal(ripe.nextAvailableDate, null)
+    // Every bookable day from the chosen one on, with its count (0 included), in date order.
+    assert.deepEqual(raw.availability.map((a) => a.date), cat.body.deliveryDates.filter((d) => d >= cat.body.deliveryDate))
+    assert.equal(raw.availability[0].qty, 0)
+    assert.ok(raw.availability.find((a) => a.date === raw.nextAvailableDate).qty > 0)
+    assert.equal(ripe.availability[0].qty, ripe.qty)
     // Nothing anywhere: no date to promise.
     assert.equal(cat.body.items.find((i) => i.sku === 'BAD-5' && i.stage === 'RIPE').nextAvailableDate, null)
   })

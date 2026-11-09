@@ -97,8 +97,8 @@ function stageFor(v) {
 }
 
 function boxFor(v, stage, chosen = cardBox[v.name]) {
-  if (chosen && v.skus.some((s) => s.sku === chosen) && qtyOf(chosen, stage) !== 0) return chosen
-  const first = v.skus.find((s) => qtyOf(s.sku, stage) > 0) || v.skus.find((s) => s.sku === chosen) || v.skus[0]
+  if (chosen && v.skus.some((s) => s.sku === chosen) && (qtyOf(chosen, stage) !== 0 || (!v.skus.some((s) => qtyOf(s.sku, stage) > 0) && maxOn(chosen, stage) > 0))) return chosen
+  const first = v.skus.find((s) => qtyOf(s.sku, stage) > 0) || (chosen && v.skus.find((s) => s.sku === chosen && maxOn(s.sku, stage) > 0)) || v.skus.find((s) => maxOn(s.sku, stage) > 0) || v.skus.find((s) => s.sku === chosen) || v.skus[0]
   return first.sku
 }
 
@@ -107,7 +107,7 @@ function boxFor(v, stage, chosen = cardBox[v.name]) {
 function boxCards(v, stage, selected, scope) {
   const i = Math.max(0, v.skus.findIndex((s) => s.sku === selected))
   return `<div class="box-cards" role="group" aria-label="${esc(v.name)} box size" style="--n:${v.skus.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${v.skus.map((s) => {
-    const out = qtyOf(s.sku, stage) === 0, on = s.sku === selected
+    const out = qtyOf(s.sku, stage) === 0 && maxOn(s.sku, stage) === 0, on = s.sku === selected
     return `<button class="box-card" data-box="${esc(v.name)}" data-sku="${esc(s.sku)}" data-scope="${scope}" aria-pressed="${on}" ${out ? 'disabled' : ''}><strong>${esc(String(s.boxSize).replace('kg', ' kg'))}</strong><small>${out ? 'Sold out' : currency(s.price)}</small></button>`
   }).join('')}</div>`
 }
@@ -156,19 +156,21 @@ function priceHTML(s) {
   return `${currency(s.price)}${was > s.price ? `<s class="price-was" aria-label="was ${currency(was)}">${currency(was)}</s>` : ''}<small>/ box</small>`
 }
 
-/** The card's buying control: "Add", or once this box and stage are in the bag a − qty + stepper; "Sold out" when none are left. */
+/** The card's buying control: "Add", or once this box and stage are in the bag a − qty + stepper. A box out on the
+    chosen day but ready on a later one can still be added (the order then goes on the first day the whole bag is
+    ready, app.js bagDate); "Sold out" only when no bookable day has it. */
 function cardAction(v, sku, stage, out) {
   const s = skuOf(sku), st = stageOf(stage)
   if (!s) return ''
   const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
-  if (out) {
-    const next = nextFor(v, stage)
-    if (next) return `<button class="quick-add is-next" data-pick-date="${esc(next)}" aria-label="${what}: available from ${esc(fmtDate(next))}. Show that day">Deliver ${esc(fmtDate(next))}</button>`
+  const line = cart.find((x) => x.sku === sku && x.stage === stage)
+  const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
+  if (!line && (out || qtyOf(sku, stage) === 0)) {
+    const next = nextOf(sku, stage) || (maxOn(sku, stage) > 0 ? nextFor(v, stage) : null)
+    if (next) return `<button class="quick-add is-next" data-add="${esc(v.name)}" ${key} aria-label="${what}: delivered from ${esc(fmtDate(next))}. Add to bag">Add</button>`
     return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now">Sold out</button>`
   }
-  const line = cart.find((x) => x.sku === sku && x.stage === stage)
   if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
-  const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
   return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}">+</button></div>`
 }
 
@@ -190,9 +192,9 @@ function cardHTML(v) {
   const stage = stageFor(v), st = stageOf(stage), sku = boxFor(v, stage), s = skuOf(sku)
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
   const next = out ? nextFor(v, stage) : null
-  const tag = out ? (next ? `From ${fmtDate(next)}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
+  const tag = out ? (next ? `Delivers ${fmtDate(next)}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
-  return `<article class="product-card${out ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+  return `<article class="product-card${out && !next ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -320,19 +322,24 @@ function add(name, sku, stage) {
   sku = sku || boxFor(v, stage)
   const s = skuOf(sku), st = stageOf(stage)
   if (!s) return
-  if (qtyOf(sku, stage) === 0) {
-    toast(`The ${boxText(s)} of ${st.stage.toLowerCase()} ${v.name} is sold out.`)
-    return
-  }
   const match = cart.find((x) => x.sku === sku && x.stage === stage)
   if (match && match.qty >= 20) {
     toast('For larger quantities, use our bulk enquiry.')
     return
   }
+  // Out on the chosen day is fine when a later day has it: the order moves to the first day the whole bag is ready.
+  const why = bumpError(sku, stage, (match ? match.qty : 0) + 1)
+  if (why) {
+    toast(why)
+    return
+  }
+  const before = bagDate()
   if (match) match.qty++
   else cart.push({ sku, stage, qty: 1, weight: kgOf(s) })
+  const after = bagDate()
   updateCart()
-  toast(`${String(s.boxSize).replace('kg', ' kg')} of ${st.stage.toLowerCase()} ${v.name} added`)
+  if (after && where.deliveryDate && after > where.deliveryDate && after !== before) toast(`Added. ${st.stage} ${v.name} is ready ${fmtDate(after)}, so this order will be delivered then.`)
+  else toast(`${String(s.boxSize).replace('kg', ' kg')} of ${st.stage.toLowerCase()} ${v.name} added`)
   if (window.gsap && !reduced) gsap.fromTo('.bag-count', { scale: 1.5 }, { scale: 1, duration: 0.5, ease: 'elastic.out(1,.5)' })
 }
 
@@ -360,7 +367,8 @@ function renderDetail(focus) {
   const v = shelf.find((x) => x.name === detail.name)
   if (!v) return
   const c = v.c, st = stageOf(detail.stage), s = skuOf(detail.sku), r = CATALOG.ripeness[detail.stage] || {}
-  const out = soldOut(v, detail.stage)
+  // Out on the chosen day but ready later: still addable, and the button says the day.
+  const never = stock !== null && maxOn(detail.sku, detail.stage) === 0, later = !never && qtyOf(detail.sku, detail.stage) === 0 ? nextOf(detail.sku, detail.stage) : null
   const main = detail.photo || (c.photos && c.photos[detail.stage])
   const gallery = [...new Set([c.photos && c.photos[detail.stage], ...(c.gallery || [])].filter(Boolean))].slice(0, 3)
   const sweet = c.sweetness ? `<span class="sweet-meter" role="img" aria-label="${c.sweetness} out of 5">${[1, 2, 3, 4, 5].map((n) => `<i class="${n <= c.sweetness ? 'on' : ''}"></i>`).join('')}</span>` : ''
@@ -370,9 +378,9 @@ function renderDetail(focus) {
     c.bestFor && ['Best for', esc(c.bestFor)],
   ].filter(Boolean)
   $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${STAGES.findIndex((x) => x.apiStage === detail.stage)}"><span class="detail-lens" aria-hidden="true"></span>${STAGES.map((x) => {
-    const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage)
+    const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage)
     return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
-  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${out ? 'disabled' : ''}>${out ? 'Sold out for now' : `Add to bag ${icon('bag')}`}</button><p class="detail-care">${st.care}</p></div></div>`
+  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? 'Sold out for now' : later ? `Add · delivers ${esc(fmtDate(later))} ${icon('bag')}` : `Add to bag ${icon('bag')}`}</button><p class="detail-care">${st.care}</p></div></div>`
   if (focus) $(focus, $('#product-dialog'))?.focus()
 }
 
@@ -383,7 +391,7 @@ document.addEventListener('click', (e) => {
   if (!b) return
   if (b.dataset.filter) setFilter(b.dataset.filter)
   else if (b.dataset.occasion) setOccasion(b.dataset.occasion)
-  else if (b.dataset.add) add(b.dataset.add)
+  else if (b.dataset.add) add(b.dataset.add, b.dataset.sku, b.dataset.stage)
   else if (b.dataset.cardQty) {
     const { sku, stage, variety } = b.dataset
     if (b.dataset.cardQty === '1') add(variety, sku, stage)

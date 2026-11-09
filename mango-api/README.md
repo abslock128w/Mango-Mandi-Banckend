@@ -387,6 +387,9 @@ below override both.
   order, and Analytics shows the average and lists 1 and 2 star orders to call back.
 - **Sold-out choices** in the catalogue carry `nextAvailableDate`, the next bookable day
   with stock for that box and ripeness, so the shop can offer that day instead.
+  Every item also carries `availability`, `[{date, qty}]` for the chosen day and each later
+  bookable day (0 included). The shop uses it to let a box that is only ready later go in the
+  bag, and moves the order to the earliest day on which everything in the bag is in stock.
 
 All the numbers above live in the versioned `app_config` table (`GET/PUT
 /admin/v1/config`). Each order records the version it was placed under.
