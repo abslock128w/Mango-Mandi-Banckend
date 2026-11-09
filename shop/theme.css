@@ -169,3 +169,9 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bag-moved-icon{background:#15130c}
 [data-theme="dark"] .bag-ready{background:#2a2720}
 [data-theme="dark"] .date-card.is-unfit{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--control-line)}
+/* Bulk enquiries: the banner keeps dark ink on the yellow accent; quote cards on the warm dark surface. */
+[data-theme="dark"] .bulk-banner{box-shadow:0 10px 26px #0009}
+[data-theme="dark"] .has-updates .update-dot{box-shadow:0 0 0 2px #191712}
+[data-theme="dark"] .bq-item{background:#15140f}
+[data-theme="dark"] .bq-chip.is-declined,[data-theme="dark"] .bq-chip.is-closed{background:#25231b;color:#b3a98e}
+[data-theme="dark"] .bq-note{background:#25231b}

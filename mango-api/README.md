@@ -90,6 +90,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_help_reply` | staff reply to a help request (utility, docs/care.md). **New: needs Meta approval; only sent once `HELP_CENTRE=true` and `WHATSAPP_CARE_UPDATES=true`** | name, request number ("HLP-12"), link to the request |
 | `mandi_partner_enquiry_received` | someone sends a Partner With Us enquiry and agrees to be contacted (utility, docs/partner-network.md). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | name, enquiry reference ("MMP-7K2QXD9T"), partnership type |
 | `mandi_partner_team_alert` | to the numbers in `PARTNER_ALERT_PHONES`: a new enquiry or product proposal, one assigned, converted or rejected, a follow-up due or overdue (utility). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | what happened, enquiry reference, detail, panel link |
+| `mandi_bulk_enquiry_received` | someone sends a bulk enquiry (over 100 kg) from the shop (utility). **New: needs Meta approval; sent while `WHATSAPP_BULK_UPDATES=true` (the default)** | name, enquiry number ("BLK-0012"), quantity ("120 kg (40 boxes)") |
+| `mandi_bulk_quote` | staff send a quote for a bulk enquiry from the panel, again for each new quote (utility). **New: needs Meta approval; sent while `WHATSAPP_BULK_UPDATES=true`** | name, enquiry number, total ("Rs 52,500"), summary, link to the quote on the Account page |
 | `mandi_subscription_due` | a subscription's next box is set up and waits for payment, `SUBSCRIPTION_LEAD_DAYS` before it (utility). **New: needs Meta approval; only sent once `SUBSCRIPTIONS=true` and `WHATSAPP_CARE_UPDATES=true`** | name, box ("2 × Alphonso 3kg Box"), date ("Sat, 17 Oct"), link to the subscription |
 
 An order without a slot says "during the day" in place of the slot.
@@ -319,6 +321,35 @@ routes: [docs/partner-network.md](../docs/partner-network.md). Migrations 058 an
 | `PARTNER_NETWORK` | `true` | On unless `false`; managers can also turn it off on the panel's Settings page. Off: every partner route answers 404 and the shop hides its links. |
 | `WHATSAPP_PARTNER_UPDATES` | `false` | The applicant's receipt and the team alerts on WhatsApp (`mandi_partner_enquiry_received`, `mandi_partner_team_alert`). Turn on only after Meta approves both. |
 | `PARTNER_ALERT_PHONES` | empty | Comma-separated Indian mobile numbers for the team alerts. Empty: no team alerts (the panel's Overview shows the same). |
+
+## Bulk enquiries
+
+The shop's bulk enquiry form (orders above 100 kg, from the `/bulk` list or a typed quantity) and
+the panel's Bulk enquiries section (managers and operators). Staff price an enquiry (one line per
+requested box with a unit price, extra costs such as special packaging, a note and a valid-until
+date), and the quote goes to the customer on WhatsApp (`mandi_bulk_quote`) and to the shop's Account
+page, where a badge, a banner and a toast point to it and the customer accepts or declines it.
+Totals are worked out by the API; money is in paise. Migrations 060 and 061.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /v1/bulk-enquiries` | anyone (a signed-in customer's token links it to the account) | `{name, business?, email?, phone, city, notes?, lines?: [{sku, stage, boxes}], quantityKg?, ripeness?}`; over 100 kg (from the lines when sent, else `quantityKg`); `Idempotency-Key` honoured; `BULK_ENQUIRY_DAILY_LIMIT` per phone a day. Answers `{id, number, status}` |
+| `GET /v1/me/bulk-enquiries`, `GET /v1/me/bulk-enquiries/:id` | signed-in customer | their enquiries: sent signed in, or from the number they signed in with; `unread` while a quote is unopened |
+| `POST /v1/me/bulk-enquiries/:id/seen` | signed-in customer | they opened the quote (clears the shop's badge) |
+| `POST /v1/me/bulk-enquiries/:id/respond` | signed-in customer | `{decision: 'ACCEPT' \| 'DECLINE', message?}` on a QUOTED enquiry |
+| `GET /admin/v1/bulk-enquiries?status&q` | managers, operators | the list (newest first) with `counts` per status; `q` searches number, name, business, city and phone digits |
+| `GET /admin/v1/bulk-enquiries/:id` | managers, operators | one enquiry: the requested lines with catalogue prices, the quote and its text, events, WhatsApp messages |
+| `POST /admin/v1/bulk-enquiries/:id/quote` | managers, operators | `{lines: [{label, sku?, stage?, qty, unitPrice}], extras: [{label, amount}], note?, validUntil?}` (paise). Replaces any earlier quote (an unsent earlier quote message is skipped), queues `BULK_QUOTE` and a browser notification, sends at once |
+| `POST /admin/v1/bulk-enquiries/:id/close` | managers, operators | `{reason?}` |
+| `POST /admin/v1/bulk-enquiries/:id/note` | managers, operators | `{text}`, kept in the enquiry's events |
+
+New enquiries, quotes, answers and closes go out on the panel's live stream as `bulk.enquiry`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BULK_ENQUIRIES` | `true` | On unless `false`; managers can also turn it off on the panel's Settings page. Off: every route above answers 404 and the panel hides the section. |
+| `BULK_ENQUIRY_DAILY_LIMIT` | `5` | Enquiries one phone number may send in 24 hours. |
+| `WHATSAPP_BULK_UPDATES` | `true` | "We got your enquiry" and "your quote is ready" on WhatsApp. Until Meta approves both templates they fail or are skipped with the reason; the panel shows it and offers an Open in WhatsApp link with the quote written out. |
 
 ## The rules it enforces
 

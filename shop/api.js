@@ -3,7 +3,7 @@
    the signed-in profile in localStorage `mm-profile`. Money: paise converted to rupees on the way in. */
 (()=>{
 const PROFILE_KEY='mm-profile';
-const MONEY=new Set(['price','unitPrice','linePrice','subtotal','discount','total','retailPrice','fromPrice','savingPerBox']);
+const MONEY=new Set(['price','unitPrice','linePrice','subtotal','discount','total','retailPrice','fromPrice','savingPerBox','extrasTotal']);
 // An empty apiUrl means the API is proxied on the shop's own origin.
 const base=()=>{const u=(window.MM_CONFIG||{}).apiUrl;return(u?String(u):location.origin).replace(/\/$/,'')};
 function toRupees(v){if(Array.isArray(v))return v.map(toRupees);if(v&&typeof v==='object'){const o={};for(const[k,x]of Object.entries(v))o[k]=MONEY.has(k)&&typeof x==='number'?x/100:toRupees(x);return o}return v}
@@ -40,6 +40,8 @@ const enc=encodeURIComponent;
 const qs=o=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(o))if(v!==null&&v!==undefined&&v!=='')p.set(k,String(v));const s=p.toString();return s?`?${s}`:''};
 const idem=()=>({'Idempotency-Key':window.crypto&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`});
 const auth=(path,method='GET',body,headers)=>api(path,{method,body,headers,auth:true});
+// A public route that also knows a signed-in customer (the bulk enquiry): the token goes along when there is one, and a stale one never blocks it.
+async function maybeAuth(path,opts){if(!token&&profile)await refreshOnce();return raw(path,opts)}
 // A signed-in file (the delivery photo), as a Blob for an object URL.
 async function authBlob(path){if(!token&&profile)await refreshOnce();const go=()=>fetch(`${base()}/v1${path}`,{credentials:'include',headers:{'X-Session':'cookie',...(token?{Authorization:`Bearer ${token}`}:{})}});let res=await go();if(res.status===401&&profile&&await refreshOnce())res=await go();if(!res.ok)throw fail(res.status,'ERROR','Not available');return res.blob()}
 // A file's raw bytes (a Partner Network document), not JSON. XHR rather than fetch, so the page can show how far each upload has got.
@@ -65,6 +67,11 @@ window.MM={
   partnerEnquiry:(body,key)=>raw('/partner-network/enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
   partnerDocument:(reference,uploadToken,file,category,onProgress)=>sendFile(`/partner-network/enquiries/${enc(reference)}/documents`+qs({category,name:file.name}),file,{'X-Upload-Token':uploadToken},onProgress),
   partnerStatus:reference=>raw(`/partner-network/enquiries/${enc(reference)}`),
+  // Bulk enquiries (mango-api README): sent signed in or not; quotes on the Account page. Extras' `amount` stays in paise (shown with /100).
+  bulkEnquiry:(body,key)=>maybeAuth('/bulk-enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
+  myBulkEnquiries:()=>auth('/me/bulk-enquiries'),
+  bulkSeen:id=>auth(`/me/bulk-enquiries/${enc(id)}/seen`,'POST',{}),
+  bulkRespond:(id,decision,message)=>auth(`/me/bulk-enquiries/${enc(id)}/respond`,'POST',{decision,...(message?{message}:{})}),
   // signed in
   me:()=>auth('/me'),
   cart:()=>auth('/cart'),

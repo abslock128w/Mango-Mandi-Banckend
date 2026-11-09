@@ -27,6 +27,7 @@ const Products = lazy(() => import('./pages/Products'))
 const Promos = lazy(() => import('./pages/Promos'))
 const Farms = lazy(() => import('./pages/Farms'))
 const Settings = lazy(() => import('./pages/Settings'))
+const BulkEnquiries = lazy(() => import('./pages/BulkEnquiries'))
 const BulkDeals = lazy(() => import('./pages/BulkDeals'))
 const BulkDealEditor = lazy(() => import('./pages/BulkDeals').then((m) => ({ default: m.BulkDealEditor })))
 const Reviews = lazy(() => import('./pages/Reviews'))
@@ -207,6 +208,8 @@ export default function App() {
               <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />
               <Route path="/staff" element={<Only screen="staff"><Staff /></Only>} />
               <Route path="/products" element={<Only screen="products"><Products /></Only>} />
+              <Route path="/bulk-enquiries" element={<Only screen="bulkEnquiries"><BulkEnquiries /></Only>} />
+              <Route path="/bulk-enquiries/:id" element={<Only screen="bulkEnquiries"><BulkEnquiries /></Only>} />
               <Route path="/bulk-deals" element={<Only screen="bulkDeals"><BulkDeals /></Only>} />
               <Route path="/bulk-deals/:id" element={<Only screen="bulkDeals"><BulkDealEditor /></Only>} />
               <Route path="/promos" element={<Only screen="promos"><Promos /></Only>} />

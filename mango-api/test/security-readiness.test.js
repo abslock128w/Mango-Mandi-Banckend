@@ -110,6 +110,8 @@ const ISOLATION_CASES = [
   'GET /v1/me/help/requests/:id', 'POST /v1/me/help/requests/:id/messages', 'POST /v1/me/help/requests',
   'GET /v1/me/subscriptions/:id', 'POST /v1/me/subscriptions/:id/pause', 'POST /v1/me/subscriptions/:id/resume', 'POST /v1/me/subscriptions/:id/cancel',
   'POST /v1/me/subscriptions/:id/skip', 'POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', 'POST /v1/me/subscriptions',
+  // Bulk enquiries (mango-api README): the caller's own, by account or by their number (test/bulk-enquiries.test.js).
+  'GET /v1/me/bulk-enquiries/:id', 'POST /v1/me/bulk-enquiries/:id/seen', 'POST /v1/me/bulk-enquiries/:id/respond',
 ]
 const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
@@ -130,7 +132,7 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us, the bulk enquiry form', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
@@ -147,6 +149,9 @@ describe('every route is filed', () => {
       'POST /admin/v1/rider/logout', 'POST /admin/v1/rider/otp/request', 'POST /admin/v1/rider/otp/verify', 'POST /admin/v1/rider/pin/set',
       'POST /admin/v1/rider/pin/unlock', 'POST /admin/v1/rider/session/refresh',
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',
+      // Bulk enquiries (mango-api README): the shop's form. No sign-in by design; rate limited per connection and
+      // per phone, strict fields, an Idempotency-Key (test/bulk-enquiries.test.js). It answers the number only.
+      'POST /v1/bulk-enquiries',
       // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
       'POST /v1/events',
       'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
@@ -254,6 +259,9 @@ describe('customer to customer', () => {
     const sub = await api.post('/v1/me/subscriptions', subBody, A)
     assert.equal(sub.status, 201, JSON.stringify(sub.body))
     const cycle = sub.body.cycles[0].id
+    // A bulk enquiry from A's number, priced by staff.
+    const bulk = (await api.post('/v1/bulk-enquiries', { name: 'A', phone: '9876500101', city: 'Bengaluru', quantityKg: 150 }, { headers: { 'Idempotency-Key': newId('k') } })).body
+    assert.equal((await api.post(`/admin/v1/bulk-enquiries/${bulk.id}/quote`, { lines: [{ label: 'Mangoes per kg', qty: 150, unitPrice: 15_000 }] }, { token: manager })).status, 201)
     // The owner reaches each of them: what follows is about ownership, not the objects.
     assert.equal((await api.get(`/v1/orders/${done.orderId}/delivery-photo`, A)).status, 200)
     assert.equal((await api.get(`/v1/reviews/${rid}/photos/${reviewPhoto}`, A)).status, 200)
@@ -277,6 +285,7 @@ describe('customer to customer', () => {
       help: (await query('SELECT t.status, (SELECT COUNT(*)::int FROM help_messages m WHERE m.ticket_id = t.id) AS messages FROM help_tickets t ORDER BY t.id')).rows,
       subscriptions: (await query('SELECT id, status, paused_at, cancelled_at, customer_id FROM subscriptions ORDER BY id')).rows,
       cycles: (await query('SELECT id, status, order_id FROM subscription_cycles ORDER BY id')).rows,
+      bulk: (await query('SELECT id, status, quote_seen_at, customer_id FROM bulk_enquiries ORDER BY id')).rows,
     })
     const before = await snapshot()
 
@@ -320,6 +329,9 @@ describe('customer to customer', () => {
       ['POST /v1/me/subscriptions/:id/skip', () => api.post(`/v1/me/subscriptions/${sub.body.id}/skip`, { scheduledFor: sub.body.cycles[0].scheduledFor }, B), () => api.post('/v1/me/subscriptions/sub_none/skip', { scheduledFor: sub.body.cycles[0].scheduledFor }, B)],
       ['POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', () => api.post(`/v1/me/subscriptions/${sub.body.id}/cycles/${cycle}/pay`, {}, { ...B, headers: { 'Idempotency-Key': newId('k') } }), () => api.post('/v1/me/subscriptions/sub_none/cycles/cyc_none/pay', {}, { ...B, headers: { 'Idempotency-Key': newId('k') } })],
       ['POST /v1/me/subscriptions', () => api.post('/v1/me/subscriptions', subBody, B), () => api.post('/v1/me/subscriptions', { ...subBody, addressId: 'adr_none' }, B)],
+      ['GET /v1/me/bulk-enquiries/:id', () => api.get(`/v1/me/bulk-enquiries/${bulk.id}`, B), () => api.get('/v1/me/bulk-enquiries/benq_none', B)],
+      ['POST /v1/me/bulk-enquiries/:id/seen', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/seen`, {}, B), () => api.post('/v1/me/bulk-enquiries/benq_none/seen', {}, B)],
+      ['POST /v1/me/bulk-enquiries/:id/respond', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/respond`, { decision: 'ACCEPT' }, B), () => api.post('/v1/me/bulk-enquiries/benq_none/respond', { decision: 'ACCEPT' }, B)],
     ]
     assert.deepEqual([...new Set(cases.map(([r]) => r))].sort(), [...ISOLATION_CASES].sort(), 'a case for every isolation route')
     for (const [route, theirs, none] of cases) {

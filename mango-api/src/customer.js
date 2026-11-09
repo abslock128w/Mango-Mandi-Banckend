@@ -48,6 +48,7 @@ import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
 import { partnerPublic } from './partner/routes.js'
+import { bulkEnquiryMe, bulkEnquiryPublic } from './bulk-enquiry-routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
@@ -415,6 +416,8 @@ router.get('/policy', (_req, res) => {
       multiGift: isOn('MULTI_GIFT'),
       // Partner With Us links (PARTNER_NETWORK, docs/partner-network.md).
       partnerNetwork: isOn('PARTNER_NETWORK'),
+      // The bulk enquiry form sends to the panel, and quotes show on the Account page (mango-api/README.md, Bulk enquiries).
+      bulkEnquiries: isOn('BULK_ENQUIRIES'),
       // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
       languages: isOn('SHOP_LANGUAGES'),
     },
@@ -482,6 +485,8 @@ router.use(publicBulk)
 router.use(growthPublic)
 // Partner With Us: the business enquiry form, no sign-in (docs/partner-network.md).
 router.use('/partner-network', partnerPublic)
+// Bulk enquiries: the shop's form, no sign-in needed (mango-api/README.md, Bulk enquiries).
+router.use(bulkEnquiryPublic)
 
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
@@ -500,6 +505,8 @@ router.use(growthMe)
 router.use(customerGifts)
 // Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
 router.use(care)
+// The caller's bulk enquiries and quotes: /me/bulk-enquiries (bulk-enquiry-routes.js).
+router.use(bulkEnquiryMe)
 // The shop language the customer chose: /me/language (language-routes.js, docs/languages.md).
 router.use(languages)
 

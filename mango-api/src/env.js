@@ -199,6 +199,22 @@ const schema = z.object({
     .transform((s) => s.split(',').map((p) => p.trim()).filter(Boolean))
     .refine((list) => list.every((p) => /^(\+91)?[6-9]\d{9}$/.test(p.replace(/[\s-]/g, ''))), 'PARTNER_ALERT_PHONES must be Indian mobile numbers, comma-separated')
     .transform((list) => list.map((p) => `+91${p.replace(/[\s-]/g, '').replace(/^\+91/, '')}`)),
+  // Bulk enquiries (mango-api/README.md, Bulk enquiries): the shop's bulk enquiry form (over 100 kg) lands in the panel's
+  // Bulk enquiries section, where staff price it and send the quote; the customer accepts it on the Account page.
+  // On unless set to false; managers can also turn it off on the panel.
+  BULK_ENQUIRIES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Bulk enquiries one phone number may send in 24 hours.
+  BULK_ENQUIRY_DAILY_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
+  // WhatsApp for it: "we got your enquiry" (mandi_bulk_enquiry_received) and "your quote is ready"
+  // (mandi_bulk_quote). On unless set to false; until Meta approves the templates the sender skips them
+  // with the reason (after a template sync), and the shop and panel show the same.
+  WHATSAPP_BULK_UPDATES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
   // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English, chosen by each customer
   // (saved to their account once signed in). Off: the shop is English only (docs/languages.md).
   SHOP_LANGUAGES: flag(),

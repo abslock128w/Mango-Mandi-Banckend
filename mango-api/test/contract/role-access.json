@@ -251,6 +251,24 @@
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
  },
+ "GET /admin/v1/bulk-enquiries": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/bulk-enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /admin/v1/bulk-listings": {
   "anonymous": "signin",
   "customer": "signin",
@@ -1259,6 +1277,24 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/me/bulk-enquiries": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/bulk-enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "GET /v1/me/export": {
   "anonymous": "signin",
   "customer": "signin",
@@ -1805,6 +1841,33 @@
   "RIDER": "forbidden",
   "PACKER": "forbidden",
   "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/close": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/note": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/quote": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
@@ -2924,6 +2987,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/bulk-enquiries": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /v1/cart/bulk": {
   "anonymous": "signin",
   "customer": "refused",
@@ -3069,6 +3141,24 @@
   "MANAGER": "signin"
  },
  "POST /v1/gifts/quote": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-enquiries/:id/respond": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-enquiries/:id/seen": {
   "anonymous": "signin",
   "customer": "notfound",
   "RIDER": "signin",

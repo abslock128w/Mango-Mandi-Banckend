@@ -103,14 +103,14 @@ function signedInThen(title, then) {
   MM.restore().then(() => {
     if (!pageOpen()) return
     if (MM.profile()) then()
-    else go(`/login?next=${encodeURIComponent(location.pathname)}`, { replace: true })
+    else go(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replace: true })
   })
 }
 
 /** Where the sign-in page goes afterwards: only a path on this site (never another site's address). */
 function loginNext() {
   const next = new URLSearchParams(location.search).get('next') || '/account'
-  return /^\/(?!\/)[\w\-/]*$/.test(next) ? next : '/account'
+  return /^\/(?!\/)[\w\-/]*(\?[\w\-=&%.]*)?$/.test(next) ? next : '/account'
 }
 
 // ---- The sign-in page (/login): the phone and code steps, then on to where the customer was going.
@@ -429,9 +429,9 @@ window.addEventListener('storage', (e) => {
 
 async function accountView(seq = ++sheetSeq) {
   host().innerHTML = head('Your profile') + marker(seq) + '<p>Loading your profile…</p>'
-  let me = MM.profile() || {}, addresses = [], error = ''
+  let me = MM.profile() || {}, addresses = [], enquiries = null, error = ''
   try {
-    ;[me, addresses] = await Promise.all([MM.me(), MM.addresses().catch(() => [])])
+    ;[me, addresses, enquiries] = await Promise.all([MM.me(), MM.addresses().catch(() => []), MM.myBulkEnquiries().then((r) => r.items || [], () => null)])
   } catch (e) {
     error = e.status === 401 ? 'Please sign in again.' : e.message
   }
@@ -456,6 +456,7 @@ async function accountView(seq = ++sheetSeq) {
       <h3>Favourites</h3>
       ${favs.length ? `<div class="fav-chips">${favs.map((n) => `<button class="occasion" data-fav-open="${esc(n)}">${icon('heart')}${esc(n)}</button>`).join('')}</div>` : '<p class="page-note">Tap the heart on a mango to keep it here.</p>'}
     </section>
+    ${bulkSection(enquiries)}
     <section class="page-card">
       <h3>Updates</h3>
       <label class="toggle-row"><span><strong>WhatsApp reminders</strong><small>A note a week after delivery to ask how your mangoes were.</small></span><input type="checkbox" role="switch" data-reminders ${me.remindersOptIn ? 'checked' : ''}></label>
@@ -464,6 +465,7 @@ async function accountView(seq = ++sheetSeq) {
       <button class="button secondary" data-preorders>My pre-orders ${icon('sun')}</button>
       <button class="button secondary" data-signout>Sign out</button>
     </section>`
+  if (enquiries) bulkOpened(enquiries)
 }
 
 // ---- The order tracking page (/orders/:id).
@@ -597,6 +599,199 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
   }
   if (!ENDED.includes(o.status)) again()
 }
+
+// ---- Bulk enquiries (mango-api README, Bulk enquiries): the form's send, the Account page's section with
+// each quote, and the signs that a quote is waiting (a dot on the account button, a banner, a toast).
+
+const BULK_STATUS = { NEW: 'Sent · waiting for our quote', QUOTED: 'Quote ready', ACCEPTED: 'Accepted · we’ll call to arrange delivery', DECLINED: 'Declined', CLOSED: 'Closed' }
+let bulkMine = []
+const paise = (n) => currency((Number(n) || 0) / 100)
+
+function bulkError(e) {
+  if (e.code === 'NETWORK') return 'You seem to be offline. Your details are still here: send it again when you’re back online.'
+  if (e.status === 404) return 'Bulk enquiries are paused right now. Message us on WhatsApp instead.'
+  return e.message || 'We couldn’t send your enquiry. Please try again.'
+}
+
+/** The bulk form's submit (app.js): sends it to Mango Mandi, then shows the enquiry number. */
+async function sendBulkEnquiry(form) {
+  if (form.dataset.busy) return
+  const data = Object.fromEntries(new FormData(form)), listed = !!form.querySelector('.bulk-lines')
+  const lines = listed ? bulkSummary().map(({ sku, stage, boxes, kg }) => ({ sku, stage, boxes, kg })) : []
+  const kg = listed ? bulkTotals().kg : Number(data.quantity)
+  const fail = (message) => {
+    const el = $('.bulk-error', form)
+    if (el) { el.textContent = message; el.hidden = false; el.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' }) }
+  }
+  if (listed ? !lines.length || kg <= BULK_MIN_KG : !(kg > BULK_MIN_KG)) return fail(`Bulk enquiries are for more than ${BULK_MIN_KG} kg.`)
+  const phone = normPhone(data.phone)
+  if (!/^[6-9]\d{9}$/.test(phone)) return fail('Enter a 10-digit Indian mobile number, so we can send the quote on WhatsApp.')
+  save('mm-bulk-draft', { name: data.name || '', business: data.business || '', email: data.email || '', phone: data.phone || '', city: data.city || '' })
+  const body = {
+    name: String(data.name || '').trim(), business: String(data.business || '').trim() || null, email: String(data.email || '').trim() || null, phone,
+    city: String(data.city || '').trim(), notes: String(data.notes || '').trim() || null,
+    ...(listed ? { lines } : { quantityKg: Math.round(kg), ripeness: data.ripeness || null }),
+  }
+  // One key per filled-in form: a retry after a dropped connection is the same enquiry.
+  form.dataset.key ||= MM.idem()['Idempotency-Key']
+  const button = form.querySelector('[type="submit"]')
+  form.dataset.busy = '1'
+  if (button) { button.disabled = true; button.firstChild.textContent = 'Sending… ' }
+  $('.bulk-error', form).hidden = true
+  let r
+  try {
+    r = await MM.bulkEnquiry(body, form.dataset.key)
+  } catch (e) {
+    delete form.dataset.busy
+    if (button) { button.disabled = false; button.firstChild.textContent = 'Send enquiry ' }
+    return fail(bulkError(e))
+  }
+  if (listed) { save('mm-bulk', []); bulkList = null; renderBulkGrid(); bulkBar() }
+  const box = form.closest('#bulk-box') ? '#bulk-box' : '#form-dialog'
+  const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim(), waOk = /^\d+$/.test(wa)
+  const text = [`Mango Mandi — Bulk enquiry ${r.number}`, `Name: ${body.name}`, ...(body.business ? [`Business: ${body.business}`] : []), `Phone: +91 ${phone}`, ...(body.email ? [`Email: ${body.email}`] : []), `City: ${body.city}`,
+    ...(listed ? lines.map((l) => `${skuOf(l.sku) ? boxLabel(skuOf(l.sku)) : l.sku} · ${stageOf(l.stage).stage} · ${l.boxes} ${l.boxes === 1 ? 'box' : 'boxes'} · ${l.kg} kg`) : [`Quantity: ${body.quantityKg} kg${body.ripeness ? ` (${body.ripeness})` : ''}`]),
+    ...(body.notes ? [`Note: ${body.notes}`] : [])].join('\n')
+  const signed = !!MM.profile()
+  $(box).innerHTML = (box === '#form-dialog' ? formHeader('Enquiry sent') : flowHead('Enquiry sent')) + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry ${esc(r.number)} sent.</h2>
+    <p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>
+    ${signed ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(r.id)}" data-route>View in account ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
+    ${waOk ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : ''}
+    <button class="text-button" data-close style="margin:15px auto 0">Back to the mangoes</button></div>`
+  const h = $('h2', $(box))
+  if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
+  $(box).scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
+  bulkWatch()
+}
+
+function bulkSection(items) {
+  if (!items) return ''
+  if (!items.length && !(policy?.features?.bulkEnquiries ?? true)) return ''
+  return `<section class="page-card bulk-mine" aria-labelledby="bulk-mine-h">
+      <h3 id="bulk-mine-h">Bulk enquiries</h3>
+      ${items.length ? `<ul class="bq-list">${items.map(bulkItem).join('')}</ul>` : `<p class="page-note">Ordering more than ${BULK_MIN_KG} kg? <a href="/bulk" data-route>Send a bulk enquiry</a> and we’ll send you a price.</p>`}
+    </section>`
+}
+
+function bulkItem(x) {
+  const q = x.quote, what = `${x.quantityKg} kg${x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''}`
+  const open = x.status === 'QUOTED' && q
+  return `<li class="bq-item${x.unread ? ' is-new' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}">
+    <div class="bq-head"><div><strong>${esc(x.number)}</strong><small>${fmtDate(String(x.createdAt).slice(0, 10))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.unread ? 'New quote' : BULK_STATUS[x.status] || esc(x.status)}</span></div>
+    ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(x.number)}">
+      <ul class="bq-lines">${q.lines.map((l) => `<li><span>${esc(l.label)} <small>× ${l.qty} @ ${currency(l.unitPrice)}</small></span><strong>${currency(l.linePrice)}</strong></li>`).join('')}
+      ${q.extras.map((e) => `<li class="bq-extra"><span>${esc(e.label)}</span><strong>${paise(e.amount)}</strong></li>`).join('')}</ul>
+      ${q.note ? `<p class="bq-note">${esc(q.note)}</p>` : ''}
+      <p class="bq-total"><span>Total${q.validUntil ? ` <small>valid until ${fmtDate(q.validUntil)}</small>` : ''}</span><strong>${currency(q.total)}</strong></p>
+      ${open ? `<div class="bq-actions"><button class="button primary" data-bulk-accept="${esc(x.id)}">Accept quote ${icon('check')}</button><button class="button secondary" data-bulk-decline="${esc(x.id)}">Decline</button></div>
+        <form class="bq-decline" data-bulk-decline-form="${esc(x.id)}" hidden><label class="field">Tell us why <small>(optional)</small><textarea name="message" rows="2" maxlength="1000" placeholder="Price, timing, quantity…"></textarea></label><div class="bq-actions"><button class="button primary" type="submit">Decline quote</button><button class="text-button" type="button" data-bulk-decline-cancel>Keep it</button></div></form>` : ''}
+      ${x.status === 'ACCEPTED' ? `<p class="bq-done">${icon('check')}<span>You accepted this quote. We’ll call you to arrange delivery and payment.</span></p>` : ''}
+      ${x.status === 'DECLINED' ? `<p class="bq-done">You declined this quote${x.customerMessage ? `: “${esc(x.customerMessage)}”` : ''}. Message us if you’d like a new one.</p>` : ''}
+    </div>` : ''}
+  </li>`
+}
+
+/** The account page is open: the quotes it shows are seen, and ?enquiry=<id> scrolls to that one. */
+function bulkOpened(items) {
+  bulkMine = items
+  const want = new URLSearchParams(location.search).get('enquiry')
+  const unseen = items.filter((x) => x.unread)
+  if (unseen.length) {
+    Promise.all(unseen.map((x) => MM.bulkSeen(x.id).catch(() => null))).then(() => {
+      for (const x of unseen) x.unread = false
+      bulkSigns()
+    })
+  }
+  const el = want && document.getElementById(`enquiry-${want}`)
+  if (el) {
+    el.classList.add('is-target')
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }))
+  }
+}
+
+async function bulkAnswer(id, decision, message, button) {
+  if (button) button.disabled = true
+  try {
+    const next = await MM.bulkRespond(id, decision, message)
+    toast(decision === 'ACCEPT' ? `Quote accepted. We’ll call you to arrange delivery.` : 'Quote declined. Thank you for letting us know.')
+    bulkMine = bulkMine.map((x) => (x.id === id ? next : x))
+    const li = document.getElementById(`enquiry-${id}`)
+    if (li) { li.outerHTML = bulkItem(next); document.getElementById(`enquiry-${id}`)?.querySelector('.bq-chip')?.setAttribute('tabindex', '-1') }
+    bulkSigns()
+  } catch (e) {
+    if (button) button.disabled = false
+    toast(e.message)
+  }
+}
+
+// ---- The signs: a dot on the account buttons, a banner on the shop and bulk pages, a toast once per quote.
+
+const BULK_DISMISSED = 'mm-bulk-dismissed', BULK_TOASTED = 'mm-bulk-toasted'
+async function bulkWatch() {
+  if (!window.MM || !MM.profile()) { bulkMine = []; bulkSigns(); return }
+  try { bulkMine = (await MM.myBulkEnquiries()).items || [] } catch { return }
+  bulkSigns()
+  const toasted = read(BULK_TOASTED, [])
+  const fresh = bulkMine.filter((x) => x.unread && !toasted.includes(`${x.id}:${x.quotedAt}`))
+  if (fresh.length && document.body.dataset.page !== 'account') {
+    toast(fresh.length === 1 ? `New bulk quote ready: ${fresh[0].number}` : `${fresh.length} new bulk quotes ready`)
+    save(BULK_TOASTED, [...toasted, ...fresh.map((x) => `${x.id}:${x.quotedAt}`)].slice(-30))
+  }
+}
+
+function bulkSigns() {
+  const unread = bulkMine.filter((x) => x.unread)
+  for (const a of $$('a[href="/account"], [data-account]')) {
+    a.classList.toggle('has-updates', unread.length > 0)
+    if (!a.querySelector('.update-dot')) a.insertAdjacentHTML('beforeend', '<span class="update-dot" aria-hidden="true"></span>')
+    const base = a.dataset.baseLabel ||= a.getAttribute('aria-label') || 'Your profile and orders'
+    a.setAttribute('aria-label', unread.length ? `${base} (${unread.length === 1 ? 'a new bulk quote' : `${unread.length} new bulk quotes`})` : base)
+  }
+  const dismissed = read(BULK_DISMISSED, [])
+  const show = unread.find((x) => !dismissed.includes(`${x.id}:${x.quotedAt}`))
+  let bar = $('#bulk-quote-banner')
+  if (!show || document.body.dataset.page === 'account') { if (bar) bar.hidden = true; return }
+  if (!bar) {
+    bar = document.createElement('aside')
+    bar.id = 'bulk-quote-banner'
+    bar.className = 'bulk-banner wrap'
+    bar.setAttribute('aria-label', 'Your bulk quote')
+    $('header.header').insertAdjacentElement('afterend', bar)
+  }
+  bar.innerHTML = `<a class="bulk-banner-go" href="/account?enquiry=${encodeURIComponent(show.id)}" data-route>${icon('box')}<span><strong>Your bulk quote is ready</strong><small>${esc(show.number)} · ${currency(show.quote.total)}</small></span><span class="bulk-banner-cta">View quote ${icon('arrow')}</span></a><button class="bulk-banner-close" data-bulk-dismiss="${esc(show.id)}:${esc(show.quotedAt)}" aria-label="Hide this for now">${icon('close')}</button>`
+  bar.hidden = false
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button') : null
+  if (!b) return
+  const d = b.dataset
+  if (d.bulkAccept) bulkAnswer(d.bulkAccept, 'ACCEPT', null, b)
+  else if (d.bulkDecline) {
+    const f = document.querySelector(`[data-bulk-decline-form="${CSS.escape(d.bulkDecline)}"]`)
+    if (f) { f.hidden = false; f.previousElementSibling.hidden = true; f.querySelector('textarea').focus({ preventScroll: true }); f.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }) }
+  } else if (b.hasAttribute('data-bulk-decline-cancel')) {
+    const f = b.closest('form')
+    f.hidden = true
+    f.previousElementSibling.hidden = false
+    f.previousElementSibling.querySelector('[data-bulk-decline]')?.focus()
+  } else if (d.bulkDismiss) {
+    save(BULK_DISMISSED, [...read(BULK_DISMISSED, []), d.bulkDismiss].slice(-30))
+    bulkSigns()
+  } else if (d.bulkSignin) {
+    closeDialogs()
+    go(`/login?next=${encodeURIComponent(`/account?enquiry=${d.bulkSignin}`)}`)
+  }
+})
+document.addEventListener('submit', (e) => {
+  const id = e.target.dataset && e.target.dataset.bulkDeclineForm
+  if (!id) return
+  e.preventDefault()
+  bulkAnswer(id, 'DECLINE', String(new FormData(e.target).get('message') || '').trim() || null, e.target.querySelector('[type="submit"]'))
+})
+// Signing in or out, and moving between pages (the banner stays off the account page, where the quote is).
+window.addEventListener('mm:profile', () => bulkWatch())
+window.addEventListener('mm:route', () => bulkSigns())
 
 // ---- Events.
 

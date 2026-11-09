@@ -36,6 +36,8 @@ export interface Me {
     subscriptions?: boolean
     /** Partner Network (PARTNER_NETWORK, docs/partner-network.md). On unless the API says false. */
     partnerNetwork?: boolean
+    /** Bulk enquiries (BULK_ENQUIRIES, mango-api README). On unless the API says false. */
+    bulkEnquiries?: boolean
   }
 }
 
@@ -1648,4 +1650,76 @@ export interface LiveDeliveries {
   events: { orderId: string; number: string; status: OrderStatus; at: string }[]
   stops: LiveStop[]
   riders: { id: string; firstName: string; lat: number; lng: number; accuracy: number | null; at: string }[]
+}
+
+// ---------------------------------------------------------------- bulk enquiries (mango-api README, Bulk enquiries)
+
+export type BulkEnquiryStatus = 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CLOSED'
+
+export interface BulkEnquiryRow {
+  id: string
+  number: string
+  status: BulkEnquiryStatus
+  createdAt: string
+  updatedAt: string
+  name: string
+  business: string | null
+  phone: string
+  city: string
+  customerId: string | null
+  quantityKg: number
+  boxes: number
+  /** The latest quote's total, paise. */
+  total: number | null
+  quotedAt: string | null
+  quoteSeenAt: string | null
+  respondedAt: string | null
+}
+
+export interface BulkEnquiryList {
+  items: BulkEnquiryRow[]
+  counts: Record<BulkEnquiryStatus | 'ALL', number>
+}
+
+export interface BulkQuoteLine {
+  label: string
+  sku?: string
+  stage?: Ripeness
+  qty: number
+  /** Paise. */
+  unitPrice: number
+  linePrice?: number
+}
+
+export interface BulkQuote {
+  lines: (BulkQuoteLine & { linePrice: number })[]
+  extras: { label: string; amount: number }[]
+  note: string | null
+  validUntil: string | null
+  subtotal: number
+  extrasTotal: number
+  total: number
+}
+
+export interface BulkQuoteInput {
+  lines: BulkQuoteLine[]
+  extras: { label: string; amount: number }[]
+  note?: string | null
+  validUntil?: string | null
+}
+
+export interface BulkEnquiryDetail extends BulkEnquiryRow {
+  email: string | null
+  notes: string | null
+  ripeness: string | null
+  lines: { sku: string; stage: Ripeness; boxes: number; kg: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null }[]
+  quote: BulkQuote | null
+  quotedByEmail: string | null
+  customerMessage: string | null
+  closedAt: string | null
+  /** The quote written out, for the Open in WhatsApp link. */
+  quoteText: string | null
+  events: { id: string; type: string; actor: string; detail: Record<string, unknown> | null; at: string }[]
+  messages: { id: string; kind: 'BULK_ENQUIRY_RECEIVED' | 'BULK_QUOTE'; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; round: number | null; deliveryStatus: string | null; error: string | null; sentAt: string | null; createdAt: string }[]
+  whatsappOn: boolean
 }

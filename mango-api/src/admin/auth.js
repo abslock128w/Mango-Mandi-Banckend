@@ -243,6 +243,8 @@ me.get(
         ...(isOn('SUBSCRIPTIONS') ? { subscriptions: true } : {}),
         // Partner Network (docs/partner-network.md): always named, so the panel hides the section when it is off.
         partnerNetwork: isOn('PARTNER_NETWORK'),
+        // Bulk enquiries (mango-api/README.md, Bulk enquiries): always named, so the panel hides the section when it is off.
+        bulkEnquiries: isOn('BULK_ENQUIRIES'),
       },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),

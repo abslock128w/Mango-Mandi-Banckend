@@ -46,6 +46,8 @@ const BODY = {
   REFERRAL_REWARD: 'Hi {{1}}, thank you for bringing a friend to MandiMangoes. Here is {{2}} off your next order of {{5}} or more: code {{3}}, valid until {{4}}.',
   HELP_REPLY: 'Hi {{1}}, we replied to your help request {{2}}. Read it here: {{3}}',
   SUBSCRIPTION_DUE: 'Hi {{1}}, your next subscription box, {{2}}, is set for {{3}}. Pay here to confirm it: {{4}}',
+  BULK_ENQUIRY_RECEIVED: 'Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.',
+  BULK_QUOTE: 'Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}',
   MANAGER_DAILY_SUMMARY: 'MandiMangoes, {{1}}: {{2}} orders, {{3}} taken. Delivered {{4}} boxes, failed {{5}}. New claims {{6}}, unhappy ratings {{7}}, needs attention {{8}}.',
 }
 

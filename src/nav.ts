@@ -22,6 +22,7 @@ import {
   Package,
   PackageCheck,
   PackageOpen,
+  PackageSearch,
   PackagePlus,
   QrCode,
   Repeat,
@@ -113,6 +114,7 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     links: [
       ['/analytics', 'Analytics', 'analytics', BarChart3, 'reports sales wastage'],
       ['/products', 'Products', 'products', Tags, 'catalogue price sku'],
+      ['/bulk-enquiries', 'Bulk enquiries', 'bulkEnquiries', PackageSearch, 'customer bulk requests quotes wholesale'],
       ['/bulk-deals', 'Bulk Deals', 'bulkDeals', HandCoins, 'wholesale listings'],
       ['/promos', 'Promos', 'promos', Tag, 'coupons codes offers'],
       ['/staff', 'Staff', 'staff', Users, 'people roles activity audit'],
@@ -145,6 +147,8 @@ function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'subscriptions') return !!me?.features?.subscriptions
   // On unless the API says it is off (PARTNER_NETWORK).
   if (screen === 'partnerNetwork') return me?.features?.partnerNetwork !== false
+  // On unless the API says it is off (BULK_ENQUIRIES).
+  if (screen === 'bulkEnquiries') return me?.features?.bulkEnquiries !== false
   return true
 }
 

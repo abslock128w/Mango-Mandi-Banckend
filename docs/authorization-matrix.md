@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-254 routes; 23 ask for step-up.
+259 routes; 23 ask for step-up.
 
 ## Your account
 
@@ -136,6 +136,16 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `PUT /bulk-listings/:id/photos/order` | ✓ |  |  |  |  |  | Each change |
 | `POST /bulk-listings/:id/publish` | ✓ |  |  |  |  |  | Each change |
 | `POST /bulk-listings/:id/unpublish` | ✓ |  |  |  |  |  | Each change |
+
+## Bulk enquiries
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /bulk-enquiries` | ✓ | ✓ |  |  |  |  |  |
+| `GET /bulk-enquiries/:id` | ✓ | ✓ |  |  |  |  |  |
+| `POST /bulk-enquiries/:id/close` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/note` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/quote` | ✓ | ✓ |  |  |  |  | Each change |
 
 ## Preorders
 

@@ -228,6 +228,10 @@ export function paramsFor(n) {
     case 'PARTNER_TEAM_ALERT':
       // Fixed when queued (partner/alerts.js), so a late retry still says what happened then.
       return (n.partner_params ?? []).map(String)
+    case 'BULK_ENQUIRY_RECEIVED':
+    case 'BULK_QUOTE':
+      // Fixed when queued (bulk-enquiries.js): a quote's total and link are as they were sent.
+      return (n.bulk_params ?? []).map(String)
     case 'MANAGER_DAILY_SUMMARY':
       // Made when the summary was taken (manager-summary.js), so a late retry still says what the day was.
       return (n.summary_params ?? []).map(String)

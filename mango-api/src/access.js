@@ -185,6 +185,12 @@ export const OPERATOR_ROUTES = [
   route('POST', '/partner-network/product-proposals/:id/notes'),
   route('POST', '/partner-network/product-proposals/:id/request-sample'),
   route('GET', '/partner-network/categories'),
+  // Bulk enquiries (mango-api/README.md, Bulk enquiries): reading, quoting, notes and closing (admin/bulk-enquiries.js).
+  route('GET', '/bulk-enquiries'),
+  route('GET', '/bulk-enquiries/:id'),
+  route('POST', '/bulk-enquiries/:id/quote'),
+  route('POST', '/bulk-enquiries/:id/close'),
+  route('POST', '/bulk-enquiries/:id/note'),
   ...warehouseFor('OPERATOR'),
 ]
 

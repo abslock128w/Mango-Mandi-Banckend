@@ -109,4 +109,5 @@ export type LiveEvent =
   | { type: 'order.changed'; data: { id: string; number: string; status: OrderStatus; date: string | null } }
   | { type: 'rider.position'; data: { riderId: string; at: string } }
   | { type: 'attention.changed'; data: { count: number } }
+  | { type: 'bulk.enquiry'; data: { id: string; number: string; status: string; change: 'created' | 'quoted' | 'responded' | 'closed' } }
   | { type: 'bye'; data: unknown }

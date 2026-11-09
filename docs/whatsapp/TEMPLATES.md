@@ -36,6 +36,8 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | SUBSCRIPTION_DUE | `mandi_subscription_due` | UTILITY | 4 | — |
 | PARTNER_ENQUIRY_RECEIVED | `mandi_partner_enquiry_received` | UTILITY | 3 | — |
 | PARTNER_TEAM_ALERT | `mandi_partner_team_alert` | UTILITY | 4 | — |
+| BULK_ENQUIRY_RECEIVED | `mandi_bulk_enquiry_received` | UTILITY | 3 | — |
+| BULK_QUOTE | `mandi_bulk_quote` | UTILITY | 5 | — |
 | MANAGER_DAILY_SUMMARY | `mandimangoes_daily_summary` | UTILITY | 8 | — |
 | LOGIN_CODE | `mandi_login_code` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |
 
@@ -439,6 +441,40 @@ Suggested wording: (write it in WhatsApp Manager)
   4. panel link (example: https://ops.mandimangoes.in/partner-network/enquiries/pen_1)
 
 Suggested wording: (write it in WhatsApp Manager)
+
+## BULK_ENQUIRY_RECEIVED
+
+- Template: `mandi_bulk_enquiry_received`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Someone sends a bulk enquiry (over 100 kg) from the shop (BULK_ENQUIRIES, mango-api/README.md, Bulk enquiries).
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the shop shows the enquiry number on screen and on the Account page.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry number (example: BLK-0012)
+  3. quantity (example: 120 kg (40 boxes))
+
+Suggested wording: Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.
+
+## BULK_QUOTE
+
+- Template: `mandi_bulk_quote`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Staff send a quote for a bulk enquiry from the panel (again for each new quote).
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the quote is on the Account page in the shop (with a banner and a badge), and the panel offers an Open in WhatsApp link with the quote written out.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry number (example: BLK-0012)
+  3. total (example: Rs 52,500)
+  4. summary (example: 40 × Alphonso 3 kg box, special packaging)
+  5. link (example: https://mandimangoes.in/account?enquiry=benq_1)
+
+Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}
 
 ## MANAGER_DAILY_SUMMARY
 
