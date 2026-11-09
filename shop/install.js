@@ -2,7 +2,7 @@
    app: Chrome/Android install through beforeinstallprompt, iPhone gets the Share → Add to Home Screen steps.
    Never shown once installed (standalone), and "Not now" rests it for a month (localStorage mm-install). */
 (() => {
-  const KEY = 'mm-install', REST_DAYS = 30, DELAY = 2600
+  const KEY = 'mm-install', REST_DAYS = 30, DELAY = 400
   const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
   const ua = navigator.userAgent
   const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -47,7 +47,7 @@ ${showSteps ? steps() : `<button class="button primary full" type="button" data-
   function show() {
     if (shown || standalone() || resting() || !phone() || !homePage()) return
     if (typeof openDialog !== 'function') return
-    // Something else is up (the first-visit "Where should we deliver?" sheet): come back once it closes.
+    // Something else is already up (a deep link's product or order sheet): come back once it closes.
     const busy = document.querySelector('dialog[open]')
     if (busy || document.body.classList.contains('locked')) {
       if (busy) busy.addEventListener('close', () => setTimeout(show, 900), { once: true })

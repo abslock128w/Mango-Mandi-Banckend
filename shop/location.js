@@ -138,7 +138,11 @@ function offerWhereOnce() {
     localStorage.setItem('mm-where-asked', '1')
   } catch {}
   if (asked || where.pincode) return
+  // On a phone the home-screen sheet (install.js) comes first; the delivery question follows once it closes.
   setTimeout(() => {
-    if (!pageOpen() && !$('dialog[open]') && !where.pincode) whereSheet({ first: true })
+    const ask = () => { if (!pageOpen() && !$('dialog[open]') && !where.pincode) whereSheet({ first: true }) }
+    const install = $('#install-dialog[open]')
+    if (install) install.addEventListener('close', () => setTimeout(ask, 500), { once: true })
+    else ask()
   }, 1600)
 }
