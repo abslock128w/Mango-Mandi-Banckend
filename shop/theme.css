@@ -175,3 +175,11 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bq-item{background:#15140f}
 [data-theme="dark"] .bq-chip.is-declined,[data-theme="dark"] .bq-chip.is-closed{background:#25231b;color:#b3a98e}
 [data-theme="dark"] .bq-note{background:#25231b}
+[data-theme="dark"] .hero{background:linear-gradient(118deg,#12301f 0%,#1a2a1a 36%,#2a2410 68%,#4a3a0c 100%)}
+[data-theme="dark"] .hero-kicker{background:#ffc93c1f;color:#ffd666}
+[data-theme="dark"] .hero-copy .hero-lead{color:#d9d4c3}
+[data-theme="dark"] .hero-vows li{color:#e8dfb8}
+[data-theme="dark"] .hero-vows svg{background:#ffc93c;color:#15130c}
+[data-theme="dark"] .hero .hero-note{color:var(--muted)}
+[data-theme="dark"] .promise-bar{color:#d9c88f}
+

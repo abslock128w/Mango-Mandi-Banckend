@@ -956,3 +956,19 @@ body[data-page="not-found"] .empty-state .bag-explore{display:inline-flex}
 @media(max-width:380px){.bulk-banner-cta{font-size:0;gap:0;padding:8px}.bulk-banner-cta svg{width:18px;height:18px}}
 @media(prefers-reduced-motion:no-preference){.bq-item.is-target{animation:bq-flash 1.6s var(--ease)}}
 @keyframes bq-flash{0%{box-shadow:0 0 0 6px var(--accent)}100%{box-shadow:0 0 0 1px var(--accent)}}
+/* Hero, slide one: a century of growing. Green at the roots, mango-gold at the tip. */
+.hero{background:linear-gradient(118deg,#cfdfc3 0%,#dfe6cd 38%,#efe4b0 72%,#f6d777 100%)}
+.hero-kicker{display:inline-flex;align-items:center;gap:8px;margin:0 0 14px;padding:8px 14px;border-radius:999px;background:#17463114;color:var(--green);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.hero-kicker svg{width:14px;height:14px}
+.hero-copy .hero-lead{font-size:17px;line-height:1.55;color:#2f3f2b;max-width:46ch;margin:0 0 18px}
+.hero-vows{list-style:none;margin:0 0 6px;padding:0;display:grid;grid-template-columns:repeat(2,auto);justify-content:start;gap:10px 22px}
+.hero-vows li{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:600;color:var(--green);line-height:1.3}
+.hero-vows svg{flex:none;width:22px;height:22px;padding:4px;border-radius:50%;background:var(--green);color:#fff}
+.hero .hero-note{font-size:12px;color:#4d5a44}
+.promise-bar{font-size:14px;font-weight:600;color:#3f4f3a;padding:24px 0;gap:64px}
+.promise-bar svg{width:20px;height:20px;color:var(--green)}
+@media(max-width:1000px){.hero-copy .hero-lead{font-size:15px}.hero-vows li{font-size:14px}.hero-vows{gap:8px 16px}}
+@media(max-width:700px){.hero{max-height:none}.hero-kicker{font-size:11px;padding:6px 11px;margin-bottom:10px}.hero-copy .hero-lead{font-size:14px;margin-bottom:12px;max-width:none}.hero-vows{grid-template-columns:1fr 1fr;gap:8px 10px}.hero-vows li{font-size:13px;gap:7px}.hero-vows svg{width:18px;height:18px;padding:3px}.promise-bar{font-size:12px;gap:12px;flex-wrap:wrap;justify-content:center}.promise-bar svg{width:16px;height:16px}}
+.kicker-short{display:none}
+@media(max-width:700px){.kicker-long,.vow-more{display:none}.kicker-short{display:inline}.hero-kicker{white-space:nowrap}.hero-vows{grid-template-columns:1fr;gap:7px;margin-bottom:4px}.hero-vows li{font-size:14px}}
+
