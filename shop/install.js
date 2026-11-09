@@ -34,16 +34,14 @@
   const plusIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg>'
   const dotsIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>'
 
-  function html() {
-    const how = deferred
-      ? `<button class="button primary full" type="button" data-install-go>Add to Home Screen ${icon('arrow')}</button>`
-      : iOS
-        ? `<ol class="install-steps"><li><span class="install-key">${shareIcon}</span><span>Tap <strong>Share</strong> at the bottom of Safari</span></li><li><span class="install-key">${plusIcon}</span><span>Choose <strong>Add to Home Screen</strong></span></li><li><span class="install-key">${icon('check')}</span><span>Tap <strong>Add</strong>. That’s it.</span></li></ol>`
-        : `<ol class="install-steps"><li><span class="install-key">${dotsIcon}</span><span>Open your browser’s <strong>menu</strong></span></li><li><span class="install-key">${plusIcon}</span><span>Choose <strong>Add to Home screen</strong> or <strong>Install app</strong></span></li></ol>`
-    return `<div class="install-top"><img src="assets/app-icon.png" alt="" width="64" height="64" class="install-icon"><div><p class="install-kicker">Mango Mandi</p><h2>Keep the mangoes a tap away.</h2></div><button class="icon-button" data-close aria-label="Not now">${icon('close')}</button></div>
-<p class="install-copy">Add Mango Mandi to your home screen. It opens like an app, remembers your bag and delivery spot, and there’s nothing to download from a store.</p>
-<ul class="install-perks"><li>${icon('box')}<span>Reorder your favourite boxes in two taps</span></li><li>${icon('pin')}<span>Your area and delivery day are saved</span></li><li>${icon('leaf')}<span>See each day’s ripeness as it comes in</span></li></ul>
-${how}<button class="text-button install-later" type="button" data-close>Not now</button>`
+  const steps = () => iOS
+    ? `<ol class="install-steps"><li><span class="install-key">${shareIcon}</span><span>Tap <strong>Share</strong> at the bottom of Safari</span></li><li><span class="install-key">${plusIcon}</span><span>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong></span></li></ol>`
+    : `<ol class="install-steps"><li><span class="install-key">${dotsIcon}</span><span>Open your browser’s <strong>menu</strong></span></li><li><span class="install-key">${plusIcon}</span><span>Choose <strong>Add to Home screen</strong> or <strong>Install app</strong></span></li></ol>`
+  // One button. Chrome installs on the tap (beforeinstallprompt); Safari has no such call, so the tap shows the two Share steps.
+  function html(showSteps) {
+    return `<div class="install-top"><img src="assets/app-icon.png" alt="" width="64" height="64" class="install-icon"><div><p class="install-kicker">Mango Mandi</p><h2>Add the app to your home screen.</h2></div><button class="icon-button" data-close aria-label="Not now">${icon('close')}</button></div>
+<p class="install-copy">No app store needed. It opens like an app and remembers your bag and delivery area.</p>
+${showSteps ? steps() : `<button class="button primary full" type="button" data-install-go>${plusIcon} Add to Home Screen</button>`}<button class="text-button install-later" type="button" data-close>Not now</button>`
   }
 
   function show() {
@@ -69,7 +67,8 @@ ${how}<button class="text-button install-later" type="button" data-close>Not now
   document.addEventListener('click', async (e) => {
     const go = e.target.closest('[data-install-go]')
     if (!go) return
-    if (!deferred) return
+    const d0 = document.getElementById('install-dialog')
+    if (!deferred) { if (d0) d0.innerHTML = html(true); return }
     go.disabled = true
     const p = deferred; deferred = null
     try { p.prompt(); const r = await p.userChoice; if (r?.outcome === 'accepted') done(); else rest() } catch { rest() }
