@@ -274,8 +274,8 @@ function prePanel(b) {
 function preorderPage() {
   host().innerHTML = pageHead('Pre-order') + `
     <section class="door-hero season">
-      <div class="season-art"><img src="assets/hero.webp" alt="Sun-kissed mangoes among orchard leaves"><span class="season-stamp">Some things<br>are worth<br><em>the wait.</em></span></div>
-      <div class="season-copy"><h2>First in line.<br><em>First taste of summer.</em></h2><p>Reserve your mango moment before the season begins. Choose your ripeness, box and harvest week, and we’ll keep your box ready.</p><small>Paid in full by Razorpay · cancel any time before packing for a full refund.</small><button class="button secondary door-mine" data-preorders hidden>My pre-orders ${icon('arrow')}</button></div>
+      <div class="season-art"><img src="assets/hero.webp" alt="Sun-kissed mangoes among orchard leaves"><span class="season-stamp">Some things <br>are worth <br><em>the wait.</em></span></div>
+      <div class="season-copy"><h2>First in line. <br><em>First taste of summer.</em></h2><p>Reserve your mango moment before the season begins. Choose your ripeness, box and harvest week, and we’ll keep your box ready.</p><small>Paid in full by Razorpay · cancel any time before packing for a full refund.</small><button class="button secondary door-mine" data-preorders hidden>My pre-orders ${icon('arrow')}</button></div>
     </section>
     <section class="door-cards" id="pre-grid" aria-label="Boxes open for pre-order"></section>
     <section class="page-card door-flow pre-flow" id="pre-box" aria-label="Book a pre-order" hidden></section>`
@@ -343,7 +343,7 @@ function renderBulkGrid(focus) {
 function bulkBar() {
   if (document.body.dataset.page !== 'bulk') return
   const t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
-  setBar(`${ok ? '' : `<p class="pay-bar-hint" role="status">Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
+  setBar(`${ok ? '' : `<p class="pay-bar-hint is-next" role="status">${icon('info')}<span>Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</span></p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
 }
 
 function bulkStep(b) {
@@ -376,7 +376,7 @@ function openBulkEnquiry() {
 function bulkPage() {
   host().innerHTML = pageHead('Bulk orders') + `
     <section class="door-hero bulk">
-      <div><h2>Big on mangoes?<br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above ${BULK_MIN_KG} kg? Let’s make it happen.</p></div>
+      <div><h2>Big on mangoes? <br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above ${BULK_MIN_KG} kg? Let’s make it happen.</p></div>
       <div class="bulk-type" aria-hidden="true">${BULK_MIN_KG}<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>
     </section>
     <section class="door-cards" id="bulk-grid" aria-label="Mangoes for your bulk list"></section>

@@ -176,7 +176,7 @@ function cardAction(v, sku, stage, out) {
     return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now, not on any delivery day this week">${icon('close')}<span>Sold out</span></button><small class="quick-add-why">Not on any delivery day this week</small>`
   }
   if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
-  return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}"${line.qty >= 20 ? ' aria-disabled="true" title="20 boxes is the most per order"' : ''}>+</button></div>${line.qty >= 20 ? `<small class="quick-add-why">${icon('close')}<span>20 max · bulk enquiry for more</span></small>` : ''}`
+  return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}"${line.qty >= 20 ? ' aria-disabled="true" title="20 boxes is the most per order"' : ''}>+</button></div>${line.qty >= 20 ? `<small class="quick-add-why is-next">${icon('info')}<span>20 max · bulk enquiry for more</span></small>` : ''}`
 }
 
 /** Redraw the cards' Add/stepper controls from the bag (all, or one), keeping focus on the control that was used. */

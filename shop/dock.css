@@ -72,3 +72,15 @@ body[data-page="bulk"] .pay-bar{bottom:calc(94px + env(safe-area-inset-bottom));
 body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(calc(100% + 24px));transition:opacity .18s ease,transform .22s ease,visibility .22s}
 @media(prefers-reduced-motion:reduce){body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{transition:none}}
 @media(max-width:700px){.sheet{padding-bottom:calc(22px + env(safe-area-inset-bottom))}}
+
+/* ===== Polish pass (Nov 2026): the bag bar is 56px tall, 10px above the dock, its shadow cast upward only; the toast
+   rides above it at most 32px narrower than the screen; the bars' glass is dense enough that nothing reads through. */
+.dock-mini{min-height:56px;height:56px;padding-top:6px;padding-bottom:6px;box-shadow:0 -6px 18px #1746311f}
+[data-theme="dark"] .dock-mini{box-shadow:0 -6px 18px #0008}
+.toast{max-width:calc(100% - 32px)}
+@media(max-width:900px){
+.dock-mini{bottom:calc(100% + 10px)}
+html.bag-open .toast{bottom:calc(160px + env(safe-area-inset-bottom))}
+.pay-bar{background:rgba(255,252,246,.95);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+[data-theme="dark"] .pay-bar{background:rgba(21,20,15,.95)}
+}

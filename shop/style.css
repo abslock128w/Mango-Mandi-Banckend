@@ -1005,3 +1005,109 @@ p.co-sourcing{justify-content:center;margin:4px 0 14px;font-size:14px}
 .date-card[aria-pressed="true"] .date-sourced{color:inherit}
 .date-caption{display:flex;align-items:flex-start;gap:6px;margin:0 0 8px;font-size:12.5px;line-height:1.4;color:var(--muted)}
 .date-caption svg{flex:none;width:13px;height:13px;margin-top:2px;stroke-width:2.2;color:var(--warn-line)}
+
+/* ===== Polish pass (Nov 2026): one place for the tokens and fixes below, so they win over the layers above. =====
+   Radii: cards 22px, controls 999px pills or 16px. Shadows: --shadow (floating) and --shadow-sm (resting cards).
+   Icons: 16/20/24. Buttons: primary 52px, secondary 44px. Body copy: --body; --muted is for captions of 12px or less. */
+:root{--r-card:22px;--r-control:16px;--shadow-sm:0 4px 14px #183c2112;--body:#3a4a3a;--veil:rgba(248,245,236,.94);--veil-line:#24442d14;--info:var(--accent);--control-line:#7a8370}
+
+/* Paragraph copy reads in --body, not --muted. */
+.hero-copy .hero-lead,.story-title p,.story-values p,.grow-head p,.grow-steps p,.faq details p,footer p,footer>span,.section-heading p,.season-copy p,.door-hero .season-copy p,.door-hero p{color:var(--body)}
+@media(max-width:700px){
+.story-title p,.story-values p,.grow-head p,.grow-steps p,.faq details p{font-size:14px;line-height:1.65}
+.section-heading p{font-size:13px;line-height:1.55;max-width:none}
+/* The story section's rhythm: 40px between sections, 20px inside. */
+.story{padding-top:40px;padding-bottom:40px}
+.story-values{margin-top:24px}
+.story-values article{padding:20px 0}
+.story-values h3{margin:0 0 8px}
+.grow{margin-top:40px}
+.grow-head{margin-bottom:24px}
+.grow-quote{margin-top:40px}
+.faq{padding-top:40px}
+}
+
+/* Hero vows: the last vow keeps its words in one text box, so the flex gap can't open "natural,  from  tree". */
+.hero-vows li>span{min-width:0}
+.hero-vows svg{width:24px;height:24px;padding:4px}
+
+/* "Your mango. Your moment." on phones: heading, subline, then the ripeness link as a 44px pill. */
+@media(max-width:700px){
+#shop .section-heading{flex-direction:column;align-items:flex-start;gap:12px}
+#shop .section-heading h2{max-width:none}
+#shop .section-heading .text-button{display:inline-flex;align-items:center;gap:8px;max-width:none;min-height:44px;padding:0 18px;border-radius:999px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--control-line);color:var(--ink);font-size:14px;font-weight:600;line-height:1;white-space:nowrap}
+#shop .section-heading .text-button svg{width:16px;height:16px;stroke-width:2}
+}
+
+/* The sticky stack: one continuous frosted veil behind the header, "Deliver to" row and filter toolbar
+   (dock.js sets html.is-scrolled and --veil-h to the stack's bottom edge), and denser glass on each piece. */
+html.is-scrolled body::before{content:"";position:fixed;z-index:19;top:0;left:0;right:0;height:var(--veil-h,0px);background:var(--veil);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 1px 0 var(--veil-line);pointer-events:none}
+.shop-top::before,.collection-toolbar::before{background:var(--veil);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+.header.glass{background:linear-gradient(165deg,#fffffff7,#fffcf0eb 46%,#fffffff2);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+.where-chip{background:linear-gradient(170deg,#fffffffa,#fffcf3f0)}
+@media(prefers-reduced-transparency:reduce){html.is-scrolled body::before{background:var(--cream);-webkit-backdrop-filter:none;backdrop-filter:none}}
+body.locked::before{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+
+/* Horizontal card rows (checkout and "where" delivery days, occasion chips): snap to cards, keep 12px of room
+   after the last one, and fade the right edge until the row is scrolled to its end. */
+@property --edge{syntax:'<length>';inherits:false;initial-value:0px}
+@keyframes edge-fade{0%,92%{--edge:36px}100%{--edge:0px}}
+.date-cards,.occasion-row{scroll-snap-type:x mandatory;scroll-padding-inline:2px;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent);mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent)}
+.date-cards{padding-inline-end:12px}
+.date-cards>.date-card,.occasion-row>*{scroll-snap-align:start}
+@supports (animation-timeline:scroll()){.date-cards,.occasion-row{animation:edge-fade linear both;animation-timeline:scroll(self inline)}}
+/* A long variety in a sold-out day ("Imam Pasand sold out") wraps to two lines, then ellipsis. */
+.date-card .date-unfit span,.date-card .date-sourced span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-width:100%;overflow-wrap:anywhere}
+.date-card.is-unfit{max-width:104px}
+
+/* Next-step messages get a neutral info icon in the accent colour; the red cross stays for errors. */
+.pay-bar-why.is-next svg,.bag-cap svg,.quick-add-why.is-next svg{color:var(--info)}
+.bag-cap{color:var(--ink)}
+.pay-bar-hint.is-next{display:flex;align-items:flex-start;gap:6px}
+.pay-bar-hint.is-next svg,.pay-bar-why svg,.bag-cap svg,.quick-add-why svg,.date-card .date-unfit svg,.date-card .date-sourced svg{flex:none;width:16px;height:16px;margin-top:1px;stroke-width:2.2}
+.pay-bar-hint.is-next svg{color:var(--info)}
+
+/* The address field: a short placeholder, the example as a hint under it. */
+.field .field-hint{display:block;margin-top:6px;font-size:12px;font-weight:500;line-height:1.4;color:var(--muted)}
+
+/* Pages with the sticky pay bar (cart, checkout, bulk): 48px from the last card to the footer, and the footer
+   padded by exactly what the bar (and dock) covers + 24px. dock.js measures --bar-clear from the rendered bar. */
+html.pay-bar-on .page-view,html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:48px}
+#page-body>:last-child{margin-bottom:0}
+html.pay-bar-on footer,html.pay-bar-on.bag-open footer{padding-bottom:calc(var(--bar-clear,150px) + 24px)}
+html.pay-bar-on .toast,html.pay-bar-on body[data-page="bulk"] .toast{bottom:calc(var(--bar-clear,150px) + 12px)}
+/* Short pages (login, orders, account): the page fills the screen so the footer meets the bottom edge. */
+body.page-open .page-view{min-height:calc(100dvh - var(--above-h,140px) - var(--footer-h,200px))}
+
+/* Desktop grid: 4 columns from 1400px, 3 from 1000px; photos 4:3 so a row fits a 900px screen. */
+@media(min-width:1000px){#products .product-image{aspect-ratio:4/3}}
+@media(min-width:1400px){#products.product-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* Radii and shadows on one scale. */
+.page-card,.product-card,.hero,.door-hero,.grow-steps li,.doorway,.header{border-radius:var(--r-card)}
+.product-card .product-image{border-radius:14px}
+.page-card{box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.doorway{box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.where-chip,.sort-button,.segmented,.segmented button,.occasion,.theme-switch,.bag-change{border-radius:999px}
+.where-chip{box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+
+/* Icons on 16/20/24. */
+.hero-kicker svg,.tiny-leaf svg,.product-status svg,.theme-switch .ts-in{width:16px;height:16px}
+.theme-switch .ts-end{width:16px;height:16px;top:8px}
+.header-icon svg,.search svg,.sort-button svg,.icon-button svg,.bag-delivery svg,.text-button svg,.heart svg{width:20px;height:20px}
+.bulk-shortcut>svg,.story-title>svg,.doorway-chev{width:24px;height:24px}
+.natural svg,.hero-bottom svg,.detail-contents svg,.fav-chips svg,.pn-tick svg,.bag-ready.is-sourcing svg,.date-caption svg{width:16px;height:16px}
+.page-head .icon-button svg{width:20px;height:20px}
+.where-chip>svg:first-child{width:32px;height:32px;padding:8px}
+
+/* Buttons: primary 52px, secondary 44px; the theme switch is a full 44px target. */
+.button.primary,.pay-bar .pay-bar-go,.pay-bar .pay-bar-go.button{min-height:52px}
+.button.secondary{min-height:44px}
+.theme-switch{min-height:44px;min-width:44px}
+
+/* One focus ring: 2px accent, 2px off the edge, on everything you can reach by keyboard. */
+:is(a,button,input,select,textarea,summary,[tabindex]:not([tabindex="-1"]),[role=switch],[role=button]):focus-visible,
+.liquid-tab:focus-visible,.dock-orb:focus-visible,.dock-mini:focus-visible,.date-card:focus-visible,.slot-card:focus-visible,.box-card:focus-visible,.heart:focus-visible,.quick-add:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sort-button:has(select:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.date-cards:has(:focus-visible){-webkit-mask-image:none;mask-image:none}
+@media(max-width:700px){.hero-vows{margin-top:12px}}

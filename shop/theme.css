@@ -189,3 +189,12 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bag-ready.is-sourcing{background:#2a2720;border-color:var(--accent)}
 [data-theme="dark"] .date-card.is-unfit{background-image:repeating-linear-gradient(135deg,transparent 0 6px,#ffffff0d 6px 7px);color:var(--ink)}
 [data-theme="dark"] .date-card[aria-pressed="true"] .date-sourced{color:#3d3313}
+
+/* ===== Polish pass (Nov 2026): dark parity for style.css's polish block. */
+[data-theme="dark"]{--shadow-sm:0 4px 14px #0007;--body:#cfc9b8;--veil:rgba(14,13,10,.93);--veil-line:#ffffff12;--info:var(--accent);--control-line:#7a725e}
+[data-theme="dark"] .hero-copy .hero-lead,[data-theme="dark"] .season-copy p,[data-theme="dark"] footer p,[data-theme="dark"] footer>span,[data-theme="dark"] .story-title p,[data-theme="dark"] .story-values p,[data-theme="dark"] .grow-head p,[data-theme="dark"] .grow-steps p,[data-theme="dark"] .faq details p,[data-theme="dark"] .section-heading p{color:var(--body)}
+[data-theme="dark"] .shop-top::before,[data-theme="dark"] .collection-toolbar::before{background:var(--veil)}
+[data-theme="dark"] .header.glass{background:linear-gradient(165deg,#2c2920f7,#1d1b15f0 46%,#2a2720f5)}
+[data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23fa,#211f19f5)}
+[data-theme="dark"] .bag-cap{color:var(--ink)}
+[data-theme="dark"] .heart.saved{color:#ffc93c;background:#ffc93c1f;border-radius:999px}

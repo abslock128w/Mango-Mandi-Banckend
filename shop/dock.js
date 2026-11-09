@@ -35,5 +35,27 @@ const touch=matchMedia('(pointer:coarse)'),TYPING='input:not([type=checkbox],[ty
 function keyboard(){const a=document.activeElement,vv=window.visualViewport,inset=vv?Math.max(0,innerHeight-vv.height-vv.offsetTop):0,up=inset>100,own=!!a&&dock.contains(a),typing=!!a&&!own&&a.matches(TYPING);dock.style.bottom=own&&up?`${inset}px`:'';dock.classList.toggle('is-away',typing&&(up||touch.matches))}
 if(window.visualViewport)visualViewport.addEventListener('resize',keyboard);document.addEventListener('focusin',keyboard);document.addEventListener('focusout',()=>setTimeout(keyboard,60));
 
+// ---- Layout measures for CSS (style.css polish block). --bar-clear: how much of the screen the sticky pay bar (and
+// the dock under it) covers, so the footer pads exactly that + 24px. --above-h/--footer-h: so a short page fills the
+// screen and the footer meets the bottom edge. --veil-h + html.is-scrolled: the bottom edge of the sticky header stack,
+// for the one frosted veil behind it once the announcement has scrolled away.
+const root=document.documentElement,payBar=document.querySelector('#pay-bar'),pageView=document.querySelector('#page-view'),foot=document.querySelector('footer'),head=document.querySelector('.header'),ann=document.querySelector('.announcement'),home=document.querySelector('#home'),shopTop=document.querySelector('.shop-top'),toolbar=document.querySelector('.collection-toolbar');
+const setPx=(k,v)=>{const s=Math.round(v)+'px';if(root.style.getPropertyValue(k)!==s)root.style.setProperty(k,s)};
+let barTop=0,veilQueued=false;
+function veil(){veilQueued=false;const on=!ann||ann.getBoundingClientRect().bottom<=0;root.classList.toggle('is-scrolled',on);if(!on)return;
+let edge=head?head.getBoundingClientRect().bottom:0;
+if(home&&!home.hidden){const st=shopTop&&shopTop.getBoundingClientRect();if(st&&st.height&&st.top<=edge+12)edge=Math.max(edge,st.bottom);
+const tb=toolbar&&toolbar.getBoundingClientRect();if(tb&&tb.height&&tb.top<=barTop+.5)edge=Math.max(edge,tb.bottom)}
+setPx('--veil-h',edge)}
+function measure(){if(toolbar)barTop=parseFloat(getComputedStyle(toolbar).top)||0;
+if(payBar&&!payBar.hidden&&getComputedStyle(payBar).visibility!=='hidden'){const r=payBar.getBoundingClientRect();if(r.height){setPx('--bar-h',r.height);setPx('--bar-clear',innerHeight-r.top)}}
+if(pageView&&!pageView.hidden)setPx('--above-h',pageView.getBoundingClientRect().top+scrollY);
+if(foot)setPx('--footer-h',foot.offsetHeight);veil()}
+addEventListener('scroll',()=>{if(!veilQueued){veilQueued=true;requestAnimationFrame(veil)}},{passive:true});
+addEventListener('resize',measure);window.addEventListener('mm:route',()=>requestAnimationFrame(measure));
+if('ResizeObserver' in window){const ro=new ResizeObserver(()=>measure());[payBar,foot,head].forEach(el=>el&&ro.observe(el))}
+if(payBar)new MutationObserver(()=>requestAnimationFrame(measure)).observe(payBar,{attributes:true,attributeFilter:['hidden']});
+measure();
+
 mark();syncBag();
 })();
