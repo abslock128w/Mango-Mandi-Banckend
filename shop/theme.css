@@ -199,3 +199,8 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .bag-cap{color:var(--ink)}
 [data-theme="dark"] .heart.saved{color:#ffc93c;background:#ffc93c1f;border-radius:999px}
 [data-theme="dark"] .button.primary:disabled,[data-theme="dark"] .pay-bar .pay-bar-go:disabled{background:#2a2720;color:#9a9381;box-shadow:inset 0 0 0 1.5px #4d473b;opacity:1}
+
+/* ===== Polish round 2 (dark) */
+[data-theme="dark"] .success p.co-sourcing.is-chip{background:#2a2720}
+[data-theme="dark"] .door-card .quick-add.is-out{box-shadow:inset 0 0 0 1.5px #4d473b}
+[data-theme="dark"] .search.liquid:focus-within{border-color:#ffffff1f;box-shadow:0 10px 28px #0006}

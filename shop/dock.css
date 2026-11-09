@@ -84,3 +84,10 @@ html.bag-open .toast{bottom:calc(160px + env(safe-area-inset-bottom))}
 .pay-bar{background:rgba(255,252,246,.95);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
 [data-theme="dark"] .pay-bar{background:rgba(21,20,15,.95)}
 }
+
+/* ===== Polish round 2: on phones a page ends 32px above the footer; the room for the bars (dock, bag bar, pay bar:
+   --bar-clear from dock.js) is the footer's bottom padding, after its last line, never a gap before it. */
+@media(max-width:900px){
+.page-view,html.pay-bar-on .page-view,body[data-page="bulk"] .page-view,html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:32px}
+body.page-open .page-view{min-height:0}
+}

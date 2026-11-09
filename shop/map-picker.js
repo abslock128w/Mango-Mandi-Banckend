@@ -36,7 +36,7 @@ const MapPick = (() => {
   function build() {
     box = document.createElement('div')
     box.className = 'map-picker'
-    box.innerHTML = `<form class="map-search liquid" role="search">${icon('search')}<input name="map-q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Search your building, society or street" aria-label="Search for your building or street"><button type="submit" class="map-search-go">Search</button></form>
+    box.innerHTML = `<form class="map-search liquid" role="search">${icon('search')}<input name="map-q" type="search" enterkeyhint="search" autocomplete="off" placeholder="Building, society or street" aria-label="Search for your building or street"><button type="submit" class="map-search-go">Search</button></form>
       <div class="map-results" hidden></div>
       <div class="map-frame"><div class="map-canvas"></div><span class="map-pin" aria-hidden="true">${icon('pin')}</span><span class="map-pin-shadow" aria-hidden="true"></span></div>
       <p class="map-hint" aria-live="polite">Move the map so the pin sits on your door.</p>`

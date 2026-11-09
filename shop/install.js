@@ -41,7 +41,7 @@
   function html(showSteps) {
     return `<div class="install-top"><img src="assets/app-icon.png" alt="" width="64" height="64" class="install-icon"><div><p class="install-kicker">Mango Mandi</p><h2>Add the app to your home screen.</h2></div><button class="icon-button" data-close aria-label="Not now">${icon('close')}</button></div>
 <p class="install-copy">No app store needed. It opens like an app and remembers your bag and delivery area.</p>
-${showSteps ? steps() : `<button class="button primary full" type="button" data-install-go>${plusIcon} Add to Home Screen</button>`}<button class="text-button install-later" type="button" data-close>Not now</button>`
+${showSteps ? steps() : `<button class="button primary full" type="button" data-install-go autofocus>${plusIcon} Add to Home Screen</button>`}<button class="text-button install-later" type="button" data-close>Not now</button>`
   }
 
   function show() {
@@ -59,9 +59,22 @@ ${showSteps ? steps() : `<button class="button primary full" type="button" data-
     d.innerHTML = html()
     d.addEventListener('close', () => { if (!read(KEY, null)?.done) rest() }, { once: true })
     openDialog('#install-dialog')
+    quietFocus(d)
   }
 
-  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (shown) { const d = document.getElementById('install-dialog'); if (d?.open) d.innerHTML = html() } })
+  // The sheet opens on its one action, "Add to Home Screen" (showModal honours autofocus), without a focus ring until
+  // the customer reaches for the keyboard.
+  function quietFocus(d) {
+    const go = d.querySelector('[data-install-go]')
+    if (!go) return
+    if (document.activeElement !== go) go.focus({ preventScroll: true })
+    go.setAttribute('data-quiet-focus', '')
+    const loud = () => { go.removeAttribute('data-quiet-focus'); document.removeEventListener('keydown', loud, true) }
+    document.addEventListener('keydown', loud, true)
+    go.addEventListener('blur', loud, { once: true })
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (shown) { const d = document.getElementById('install-dialog'); if (d?.open) { d.innerHTML = html(); quietFocus(d) } } })
   window.addEventListener('appinstalled', () => { done(); deferred = null; const d = document.getElementById('install-dialog'); if (d?.open) { d.close(); document.body.classList.remove('locked') } ; if (typeof toast === 'function') toast('Mango Mandi is on your home screen.') })
 
   document.addEventListener('click', async (e) => {

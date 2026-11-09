@@ -172,7 +172,7 @@ function doorCard(v, o) {
   const i = Math.max(0, o.boxes.indexOf(s))
   const boxes = o.boxes.length > 1
     ? `<div class="box-cards" role="group" aria-label="${name} box size" style="--n:${o.boxes.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${o.boxes.map((b) => `<button class="box-card" data-door-box="${esc(b.sku)}" ${key} aria-pressed="${b.sku === s.sku}"><strong>${esc(kgText(b))}</strong><small>${currency(b.price)}</small></button>`).join('')}</div>`
-    : `<p class="door-one-box">${esc(kgText(s))} box</p>`
+    : `<p class="door-one-box">${icon('box')}${esc(kgText(s))} box</p>`
   const stages = `<div class="door-stages" role="group" aria-label="${name} ripeness">${SOLD.filter((x) => o.stages.includes(x.apiStage)).map((x) => `<button data-door-stage="${x.apiStage}" ${key} aria-pressed="${x.apiStage === o.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>`
   return `<article class="product-card door-card${o.muted ? ' is-muted' : ''}${o.chosen ? ' is-chosen' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image"><div class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</div>${o.muted ? '<span class="product-tag door-tag">Coming this season</span>' : ''}</div><div class="product-info"><div class="product-topline"><h3>${name}</h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxes}</div>${stages}${o.extra || ''}<div class="card-action door-action">${o.action}</div></div></article>`
 }
@@ -233,7 +233,7 @@ function renderPreGrid(focus) {
     const weeks = `<p class="door-weeks"><span>Harvest weeks:</span> ${box.weeks.map((w) => w.remaining > 0 ? `<b>${fmtWeek(w.weekStart)}</b>` : `<span class="is-out"><s>${fmtWeek(w.weekStart)}</s> Sold out</span>`).join(', ')}</p>`
     const action = open
       ? `<button class="quick-add" data-pre-open="${esc(v.name)}" aria-label="Pre-order a ${esc(kgText(box))} box of ${esc(stageOf(p.stage).stage.toLowerCase())} ${esc(v.name)}">Pre-order</button>`
-      : `<button class="quick-add is-out" disabled aria-label="${esc(v.name)} ${esc(kgText(box))} box: every week is sold out">Sold out</button>`
+      : `<button class="quick-add is-out" disabled aria-label="${esc(v.name)} ${esc(kgText(box))} box: every week is sold out">${icon('close')}Sold out · this harvest is spoken for</button>`
     return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, extra: weeks, action, chosen: pre.open && v.skus.some((b) => b.sku === pre.sku) })
   }).join('')}</div>`
   refocus(grid, focus)
@@ -343,7 +343,11 @@ function renderBulkGrid(focus) {
 function bulkBar() {
   if (document.body.dataset.page !== 'bulk') return
   const t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
-  setBar(`${ok ? '' : `<p class="pay-bar-hint is-next" role="status">${icon('info')}<span>Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</span></p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong>${t.kg} kg · ${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
+  // Just sent (the "Enquiry sent" card is on screen and the list is empty): say so, no disabled button or hint.
+  if (!t.boxes && [...document.querySelectorAll('#bulk-box .bulk-sent')].some((el) => el.getClientRects().length)) {
+    return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Enquiry sent · we’ll quote on WhatsApp</span></p></div>`)
+  }
+  setBar(`${ok ? '' : `<p class="pay-bar-hint is-next" role="status">${icon('info')}<span>Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</span></p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong><span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span></strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
 }
 
 function bulkStep(b) {
@@ -509,7 +513,7 @@ function tracker(o) {
   }
   return `<ol class="tracker" aria-label="Order progress">${TRACK_STEPS.map(([label, list], i) => {
     const state = i < at ? 'done' : i === at ? (o.status === 'DELIVERY_FAILED' ? 'missed' : 'current') : ''
-    return `<li class="${state}"${i === at ? ' aria-current="step"' : ''}><span class="tracker-dot">${i < at || (i === at && o.status === 'DELIVERED') ? icon('check') : ''}</span><strong>${label}</strong><small>${i <= at ? stamp(list) : ''}</small></li>`
+    return `<li class="${state}"${i === at ? ' aria-current="step"' : ''}><span class="tracker-dot">${i < at || (i === at && o.status === 'DELIVERED') ? icon('check') : ''}</span><strong>${label}</strong><small>${i <= at ? stamp(list).split(', ').map((x) => `<span>${esc(x)}</span>`).join(', ') : ''}</small></li>`
   }).join('')}</ol>`
 }
 
@@ -576,7 +580,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       <h3>Your box${(o.items || []).length > 1 ? 'es' : ''}</h3>
       ${(o.items || []).map((l) => {
         const st = stageOf(l.stage)
-        return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(l.name)}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small>${l.backordered && o.findingStock ? `<small class="co-sourcing">${icon('leaf')}Being sourced · delivery ${fmtDate(o.deliveryDate)}</small>` : ''}<div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
+        return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(boxName(l.name, l.sku))}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small>${l.backordered && o.findingStock ? `<small class="co-sourcing">${icon('leaf')}Being sourced · delivery ${fmtDate(o.deliveryDate)}</small>` : ''}<div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
       }).join('')}
       ${o.discount ? `<div class="subtotal"><span>Discount</span><strong>−${currency(o.discount)}</strong></div>` : ''}
       <div class="subtotal"><span>Total</span><strong>${currency(o.total)}</strong></div>
@@ -655,11 +659,12 @@ async function sendBulkEnquiry(form) {
     ...(listed ? lines.map((l) => `${skuOf(l.sku) ? boxLabel(skuOf(l.sku)) : l.sku} · ${stageOf(l.stage).stage} · ${l.boxes} ${l.boxes === 1 ? 'box' : 'boxes'} · ${l.kg} kg`) : [`Quantity: ${body.quantityKg} kg${body.ripeness ? ` (${body.ripeness})` : ''}`]),
     ...(body.notes ? [`Note: ${body.notes}`] : [])].join('\n')
   const signed = !!MM.profile()
-  $(box).innerHTML = (box === '#form-dialog' ? formHeader('Enquiry sent') : flowHead('Enquiry sent')) + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry ${esc(r.number)} sent.</h2>
+  $(box).innerHTML = (box === '#form-dialog' ? formHeader('Enquiry sent') : flowHead('Enquiry sent')) + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry <span class="no-wrap">${esc(r.number)}</span> sent.</h2>
     <p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>
     ${signed ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(r.id)}" data-route>View in account ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
     ${waOk ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : ''}
-    <button class="text-button" data-close style="margin:15px auto 0">Back to the mangoes</button></div>`
+    <button class="text-button" data-close style="margin:15px auto 0">Back to the mangoes ${icon('arrow')}</button></div>`
+  bulkBar()
   const h = $('h2', $(box))
   if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
   $(box).scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })

@@ -1113,3 +1113,59 @@ body.page-open .page-view{min-height:calc(100dvh - var(--above-h,140px) - var(--
 @media(max-width:700px){.hero-vows{margin-top:12px}}
 /* Disabled primary buttons read as disabled in both themes (not just faded). */
 .button.primary:disabled,.pay-bar .pay-bar-go:disabled{background:var(--chip,#e9eddf);color:var(--muted);box-shadow:inset 0 0 0 1.5px var(--control-line);opacity:1;cursor:not-allowed}
+
+/* ===== Polish round 2 (Nov 2026) ===== */
+/* Phones: the hero's "Find your mango" keeps 28px off the card's bottom edge (app.js clears the entrance tween's transform). */
+@media(max-width:700px){.hero-copy{padding-top:22px;padding-bottom:28px}}
+/* Chip and day rows: 16px after the last one so it scrolls fully into view, and a wider fade on the right edge. */
+.occasion-row,.date-cards.where-days{padding-inline-end:16px}
+@keyframes edge-fade-48{0%,92%{--edge:48px}100%{--edge:0px}}
+@supports (animation-timeline:scroll()){.occasion-row,.date-cards.where-days{animation-name:edge-fade-48}}
+/* The bulk bar never truncates: the figures shrink to fit, and stack ("110 kg ·" / "34 boxes") when they still can't. */
+body[data-page="bulk"] .pay-bar-total strong{font-size:clamp(16px,4.5vw,20px);overflow:visible;text-overflow:clip;white-space:normal}
+.pay-bar-total strong>span{white-space:nowrap}
+/* The bulk bar right after an enquiry is sent: a confirmation, no button. */
+.pay-bar-row.is-sent{min-height:52px}
+.pay-bar-sent{display:flex;align-items:center;gap:10px;margin:0;font-size:16px;font-weight:700;line-height:1.3;color:var(--ink)}
+.pay-bar-sent svg{flex:none;width:24px;height:24px;padding:4px;border-radius:50%;background:var(--accent);color:var(--on-accent);stroke-width:2.6}
+/* References and order numbers stay on one line ("BLK-0015", "#9682393141"). */
+.no-wrap{white-space:nowrap}
+/* The success card: as much room under the last action as above the check. */
+.co-card .success,.bulk-sent{padding-bottom:20px}
+.success>:last-child{margin-bottom:0}
+/* The success page's sourcing note: one centred chip, the leaf on the first line. */
+.success p.co-sourcing.is-chip{display:flex;align-items:flex-start;justify-content:flex-start;gap:8px;width:fit-content;max-width:100%;margin:4px auto 18px;padding:8px 14px;border-radius:16px;background:var(--sage);color:var(--accent);font-size:14px;font-weight:600;line-height:1.45;text-align:left}
+.success p.co-sourcing.is-chip svg{flex:none;width:16px;height:16px;margin-top:2px}
+/* The bulk hero's paragraph in the light on-accent tone, as on the "Grow with us" hero. */
+.door-hero.bulk p{color:#c8d1b8}
+/* Search fields: one ring, on the pill; the field inside draws none. */
+:is(.search,.map-search,.dock-search) input:focus-visible:focus{outline:none;box-shadow:none}
+.search:has(input:focus-visible),.map-search:has(input:focus-visible),.search:focus-within,.map-search:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.search.liquid:focus-within{border-color:#ffffffb3;box-shadow:inset 0 1px 0 #fff,0 10px 28px #24442d1c}
+/* The install sheet opens focused on its action, with no ring until a key is pressed (install.js quietFocus). */
+.install-sheet [data-install-go][data-quiet-focus]:focus-visible{outline:none}
+/* Sold out on a pre-order card: the cross and the reason; a lone box size is a label, not a button. */
+.quick-add.is-out{white-space:normal;line-height:1.3;padding-inline:14px;text-align:center}
+.quick-add.is-out svg{flex:none;width:16px;height:16px}
+.door-one-box{display:inline-flex;align-items:center;gap:6px;padding:0;border-radius:0;background:none;color:var(--body);font-size:14px;font-weight:600}
+.door-one-box svg{flex:none;width:16px;height:16px;color:var(--accent);stroke-width:2}
+/* Text actions: one style. Accent, semibold, underlined 3px below (solid on hover and focus), 44px tall on phones. */
+.text-button{display:flex;align-items:center;gap:6px;width:fit-content;max-width:100%;color:var(--accent);font-size:14px;font-weight:600;line-height:1.4;text-align:left;text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,currentColor 45%,transparent)}
+.text-button:hover,.text-button:focus-visible{color:var(--accent);text-decoration-color:currentColor}
+.text-button svg{flex:none;width:16px;height:16px;stroke-width:2.2}
+:is(p,.form-footer) .text-button{font-size:inherit}
+#shop .section-heading .text-button{text-decoration:none;width:auto}
+@media(max-width:900px){.text-button{min-height:44px}
+:is(p,.form-footer) .text-button{position:relative;min-height:0}
+:is(p,.form-footer) .text-button::after{content:'';position:absolute;inset:-12px -4px}}
+/* Order timeline: five equal columns, the time under its step in 11px, wrapping only at the comma. */
+.tracker{grid-template-columns:repeat(5,minmax(0,1fr))}
+.tracker small{display:block;font-size:11px;line-height:1.35;text-align:center;min-height:2.7em}
+.tracker small span{white-space:nowrap}
+/* "Or enter your pincode": the field and Check on one 52px line. */
+.where-pin input{height:52px;min-height:52px;box-sizing:border-box}
+.where-pin .button{height:52px;min-height:52px}
+@media(min-width:901px){.co-card .success{padding-bottom:23px}}
+
+/* OTP footer */
+.co-code .form-footer:last-child{margin-bottom:0}
