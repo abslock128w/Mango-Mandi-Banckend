@@ -198,3 +198,4 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23fa,#211f19f5)}
 [data-theme="dark"] .bag-cap{color:var(--ink)}
 [data-theme="dark"] .heart.saved{color:#ffc93c;background:#ffc93c1f;border-radius:999px}
+[data-theme="dark"] .button.primary:disabled,[data-theme="dark"] .pay-bar .pay-bar-go:disabled{background:#2a2720;color:#9a9381;box-shadow:inset 0 0 0 1.5px #4d473b;opacity:1}
