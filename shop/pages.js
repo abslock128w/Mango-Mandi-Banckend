@@ -173,7 +173,7 @@ function doorCard(v, o) {
   const boxes = o.boxes.length > 1
     ? `<div class="box-cards" role="group" aria-label="${name} box size" style="--n:${o.boxes.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${o.boxes.map((b) => `<button class="box-card" data-door-box="${esc(b.sku)}" ${key} aria-pressed="${b.sku === s.sku}"><strong>${esc(kgText(b))}</strong><small>${currency(b.price)}</small></button>`).join('')}</div>`
     : `<p class="door-one-box">${esc(kgText(s))} box</p>`
-  const stages = `<div class="door-stages" role="group" aria-label="${name} ripeness">${STAGES.filter((x) => o.stages.includes(x.apiStage)).map((x) => `<button data-door-stage="${x.apiStage}" ${key} aria-pressed="${x.apiStage === o.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>`
+  const stages = `<div class="door-stages" role="group" aria-label="${name} ripeness">${SOLD.filter((x) => o.stages.includes(x.apiStage)).map((x) => `<button data-door-stage="${x.apiStage}" ${key} aria-pressed="${x.apiStage === o.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>`
   return `<article class="product-card door-card${o.muted ? ' is-muted' : ''}${o.chosen ? ' is-chosen' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image"><div class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</div>${o.muted ? '<span class="product-tag door-tag">Coming this season</span>' : ''}</div><div class="product-info"><div class="product-topline"><h3>${name}</h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxes}</div>${stages}${o.extra || ''}<div class="card-action door-action">${o.action}</div></div></article>`
 }
 
@@ -288,7 +288,7 @@ function preorderPage() {
 
 // ---- /bulk
 
-const bulkLines = () => bulkList ??= read('mm-bulk', []).filter((x) => x && typeof x.sku === 'string' && STAGES.some((p) => p.apiStage === x.stage) && Number.isInteger(x.qty) && x.qty > 0)
+const bulkLines = () => bulkList ??= read('mm-bulk', []).filter((x) => x && typeof x.sku === 'string' && SOLD.some((p) => p.apiStage === x.stage) && Number.isInteger(x.qty) && x.qty > 0)
 
 function bulkTotals() {
   return bulkLines().reduce((t, x) => {
@@ -310,7 +310,7 @@ function bulkSummary() {
 function bulkPick(v) {
   const p = doorPick.bulk[v.name] ||= {}
   if (!v.skus.some((s) => s.sku === p.sku)) p.sku = v.skus[0].sku
-  if (!STAGES.some((x) => x.apiStage === p.stage)) p.stage = stageFor(v)
+  if (!SOLD.some((x) => x.apiStage === p.stage)) p.stage = stageFor(v)
   return p
 }
 
@@ -334,7 +334,7 @@ function renderBulkGrid(focus) {
   }
   grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>Pick boxes by ripeness and size. Once your list reaches ${BULK_MIN_KG} kg, send it to us and we’ll come back with a quote. Prices shown are our shop prices per box.</p></div><div class="product-grid door-grid">${shelf.map((v) => {
     const p = bulkPick(v)
-    return doorCard(v, { kind: 'bulk', sku: p.sku, stage: p.stage, boxes: v.skus, stages: STAGES.map((x) => x.apiStage), action: bulkAction(v, p), chosen: bulkLines().some((x) => v.skus.some((s) => s.sku === x.sku)) })
+    return doorCard(v, { kind: 'bulk', sku: p.sku, stage: p.stage, boxes: v.skus, stages: SOLD_API, action: bulkAction(v, p), chosen: bulkLines().some((x) => v.skus.some((s) => s.sku === x.sku)) })
   }).join('')}</div>`
   refocus(grid, focus)
 }

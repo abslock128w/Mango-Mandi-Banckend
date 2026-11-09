@@ -92,13 +92,13 @@
     synonyms: [
       { terms: ['pickle', 'achar', 'achaar', 'kairi', 'chutney', 'sour'], variety: 'Totapuri', stage: 'RAW', reason: 'Best for pickle' },
       { terms: ['pickle', 'achar', 'kairi'], variety: 'Banganapalli', stage: 'RAW', reason: 'Firm raw slices' },
-      { terms: ['dessert', 'sweet', 'aamras', 'shrikhand', 'premium'], variety: 'Alphonso', stage: 'RIPE', reason: 'Most loved for desserts' },
-      { terms: ['aamras', 'dessert'], variety: 'Kesar', stage: 'RIPE', reason: 'Classic aamras mango' },
-      { terms: ['hapus'], variety: 'Alphonso', stage: 'RIPE', reason: 'Hapus is Alphonso' },
-      { terms: ['juice', 'pulp', 'shake', 'smoothie'], variety: 'Raspuri', stage: 'RIPE', reason: 'Juiciest pulp' },
+      { terms: ['dessert', 'sweet', 'aamras', 'shrikhand', 'premium'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Most loved for desserts' },
+      { terms: ['aamras', 'dessert'], variety: 'Kesar', stage: 'SEMI_RIPE', reason: 'Classic aamras mango' },
+      { terms: ['hapus'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Hapus is Alphonso' },
+      { terms: ['juice', 'pulp', 'shake', 'smoothie'], variety: 'Raspuri', stage: 'SEMI_RIPE', reason: 'Juiciest pulp' },
       { terms: ['gift', 'assorted', 'sampler', 'mix', 'combo'], variety: 'Mixed Box', stage: null, reason: 'Four varieties in one box' },
       { terms: ['panna', 'green', 'raw'], variety: 'Totapuri', stage: 'RAW', reason: 'Tangy raw mango' },
-      { terms: ['benishan'], variety: 'Banganapalli', stage: 'RIPE', reason: 'Benishan is Banganapalli' },
+      { terms: ['benishan'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Benishan is Banganapalli' },
     ],
 
     trending: ['Alphonso', 'Raw mango for pickle', 'Kesar', 'Mixed Box', 'Dasheri', 'Mango for aamras'],

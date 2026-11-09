@@ -4,18 +4,21 @@
    app.js) once a pincode is known. Loaded before app.js: top-level code here only declares,
    so app.js globals (cart, favorites, filter, skus, stock, toast, …) are used at call time. */
 
-// The three ripeness stages, in the words of the glass design. `id` matches the filter rail.
+// The ripeness stages, in the words of the glass design. `id` matches the filter rail. Ripe is kept only so old
+// bags and orders still read; the shop sells Raw and Semi-raw (SOLD).
 const STAGES = [
   { id: 'raw', stage: 'Raw', apiStage: 'RAW', pos: '0%', care: 'Keep in a cool, ventilated place. Wash before preparing.' },
   { id: 'semi', stage: 'Semi-raw', apiStage: 'SEMI_RIPE', pos: '50%', care: 'Allow to ripen at room temperature, out of direct sunlight. Check daily.' },
-  { id: 'ripe', stage: 'Ripe', apiStage: 'RIPE', pos: '100%', care: 'Refrigerate once ripe and enjoy soon. Wash before cutting.' },
+  { id: 'ripe', stage: 'Ripe', apiStage: 'RIPE', pos: '100%', care: 'Refrigerate once ripe and enjoy soon. Wash before cutting.', hidden: true },
 ]
+const SOLD = STAGES.filter((x) => !x.hidden)
+const SOLD_API = SOLD.map((x) => x.apiStage)
 const stageOf = (apiStage) => STAGES.find((s) => s.apiStage === apiStage) || STAGES[0]
 const stageById = (id) => STAGES.find((s) => s.id === id)
 const CATALOG = window.MM_CATALOG || { varieties: [], ripeness: {}, occasions: [], synonyms: [], trending: [] }
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const STOP_WORDS = new Set(['mango', 'mangoes', 'for', 'the', 'a', 'an', 'and', 'of', 'box'])
-const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', 'semi-raw': 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', ripe: 'RIPE' }
+const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', 'semi-raw': 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', ripe: 'SEMI_RIPE' }
 
 let shelf = [] // [{ name, c: content, skus: [api product] }]
 let occasion = 'all'
@@ -87,13 +90,13 @@ function stageFor(v) {
   const hit = hits.get(v.name)
   if (hit && hit.stage) return hit.stage
   if (stock) {
-    const inStock = ['RIPE', 'SEMI_RIPE', 'RAW'].find((st) => v.skus.some((s) => qtyOf(s.sku, st) > 0))
+    const inStock = ['SEMI_RIPE', 'RAW'].find((st) => v.skus.some((s) => qtyOf(s.sku, st) > 0))
     if (inStock) return inStock
     // Nothing on the chosen day: show the ripeness that is back soonest, so the card can offer that day.
-    const soon = ['RAW', 'SEMI_RIPE', 'RIPE'].map((st) => [st, nextFor(v, st)]).filter((x) => x[1]).sort((a, b) => (a[1] < b[1] ? -1 : 1))[0]
+    const soon = SOLD_API.map((st) => [st, nextFor(v, st)]).filter((x) => x[1]).sort((a, b) => (a[1] < b[1] ? -1 : 1))[0]
     if (soon) return soon[0]
   }
-  return 'RIPE'
+  return 'SEMI_RIPE'
 }
 
 function boxFor(v, stage, chosen = cardBox[v.name]) {
@@ -377,7 +380,7 @@ function renderDetail(focus) {
     sweet && ['Sweetness', sweet],
     c.bestFor && ['Best for', esc(c.bestFor)],
   ].filter(Boolean)
-  $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${STAGES.findIndex((x) => x.apiStage === detail.stage)}"><span class="detail-lens" aria-hidden="true"></span>${STAGES.map((x) => {
+  $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
     const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage)
     return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
   }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? 'Sold out for now' : later ? `Add · delivers ${esc(fmtDate(later))} ${icon('bag')}` : `Add to bag ${icon('bag')}`}</button><p class="detail-care">${st.care}</p></div></div>`
