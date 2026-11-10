@@ -454,7 +454,7 @@ async function accountView(seq = ++sheetSeq) {
     </section>
     <section class="page-card">
       <h3>Saved addresses</h3>
-      ${addresses.length ? addresses.map((a) => `<div class="address-row"><div><strong>${esc(a.name || 'Saved address')}</strong><small>${esc(addressText(a.address))} · ${esc(a.pincode)}</small></div><button class="text-button" data-remove-address="${esc(a.id)}">Remove</button></div>`).join('') : '<p class="page-note">The addresses you deliver to are saved here after your first order, ready to pick at checkout.</p>'}
+      ${addresses.length ? addresses.map((a) => `<div class="address-row"><div><strong>${esc(a.name || 'Saved address')}</strong><small>${esc(addressText(a.address))} <span class="no-wrap">· ${esc(a.pincode)}</span></small></div><button class="text-button" data-remove-address="${esc(a.id)}">Remove</button></div>`).join('') : '<p class="page-note">The addresses you deliver to are saved here after your first order, ready to pick at checkout.</p>'}
     </section>
     <section class="page-card">
       <h3>Favourites</h3>
@@ -466,7 +466,7 @@ async function accountView(seq = ++sheetSeq) {
       <label class="toggle-row"><span><strong>WhatsApp reminders</strong><small>A note a week after delivery to ask how your mangoes were.</small></span><input type="checkbox" role="switch" data-reminders ${me.remindersOptIn ? 'checked' : ''}></label>
     </section>
     <section class="page-card page-actions">
-      <button class="button secondary" data-preorders>My pre-orders ${icon('sun')}</button>
+      <button class="button secondary" data-preorders>${icon('sun')} My pre-orders</button>
       <button class="button secondary" data-signout>Sign out</button>
     </section>`
   if (enquiries) bulkOpened(enquiries)
@@ -528,10 +528,10 @@ function paymentBlock(o) {
     ['Paid by', how],
     p.upiRef && ['UPI ref no.', esc(p.upiRef)],
     p.bankRef && ['Bank ref', esc(p.bankRef)],
-    p.paymentId && [`${esc(p.gateway || 'Razorpay')} payment ID`, esc(p.paymentId)],
+    p.paymentId && [`${esc(p.gateway || 'Razorpay')} payment ID`, esc(p.paymentId), 'pay-id'],
     p.paidAt && ['Paid on', when(p.paidAt)],
   ].filter(Boolean)
-  return `<dl class="pay-facts">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
+  return `<dl class="pay-facts">${rows.map(([k, v, c]) => `<div${c ? ` class="${c}"` : ''}><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`
 }
 
 async function trackView(id, quiet = false, seq = ++sheetSeq) {
@@ -587,11 +587,11 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       <p class="cart-disclaimer">Placed ${when(o.placedAt)} · Prices include GST.</p>
       ${paymentBlock(o)}
     </section>
-    <section class="page-card page-actions">
+    <section class="page-card page-actions track-actions">
       ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${orderNo(o.number)}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
       ${o.bill ? `<button class="button primary" data-invoice="${esc(o.id)}" data-number="${esc(o.number)}">Download invoice ${icon('arrow')}</button>` : ''}
       ${o.status === 'DELIVERED' ? `<button class="button secondary" data-review="${esc(o.id)}">${o.rating ? 'Edit your review' : 'Rate this order'}</button>` : ''}
-      ${canCancel ? `<button class="button secondary" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">Cancel order</button>` : ''}
+      ${canCancel ? `<button class="button secondary is-danger" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">${icon('close')} Cancel order</button>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`
   if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})
@@ -629,9 +629,16 @@ async function sendBulkEnquiry(form) {
     const el = $('.bulk-error', form)
     if (el) { el.textContent = message; el.hidden = false; el.scrollIntoView({ block: 'nearest', behavior: reduced ? 'instant' : 'smooth' }) }
   }
+  // The shop's own inline errors (the form is novalidate): each invalid field says what it needs, the first one takes focus.
+  $('.bulk-error', form).hidden = true
+  if (!checkFields(form, [
+    ['name', (v) => v ? '' : 'Tell us your name.'],
+    ['phone', (v) => /^[6-9]\d{9}$/.test(normPhone(v)) ? '' : 'Enter a 10-digit mobile number.'],
+    ['email', (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? '' : 'That email doesn’t look right.'],
+    ['city', (v) => v ? '' : 'Tell us the delivery city.'],
+  ])) return
   if (listed ? !lines.length || kg <= BULK_MIN_KG : !(kg > BULK_MIN_KG)) return fail(`Bulk enquiries are for more than ${BULK_MIN_KG} kg.`)
   const phone = normPhone(data.phone)
-  if (!/^[6-9]\d{9}$/.test(phone)) return fail('Enter a 10-digit Indian mobile number, so we can send the quote on WhatsApp.')
   save('mm-bulk-draft', { name: data.name || '', business: data.business || '', email: data.email || '', phone: data.phone || '', city: data.city || '' })
   const body = {
     name: String(data.name || '').trim(), business: String(data.business || '').trim() || null, email: String(data.email || '').trim() || null, phone,
@@ -659,7 +666,8 @@ async function sendBulkEnquiry(form) {
     ...(listed ? lines.map((l) => `${skuOf(l.sku) ? boxLabel(skuOf(l.sku)) : l.sku} · ${stageOf(l.stage).stage} · ${l.boxes} ${l.boxes === 1 ? 'box' : 'boxes'} · ${l.kg} kg`) : [`Quantity: ${body.quantityKg} kg${body.ripeness ? ` (${body.ripeness})` : ''}`]),
     ...(body.notes ? [`Note: ${body.notes}`] : [])].join('\n')
   const signed = !!MM.profile()
-  $(box).innerHTML = (box === '#form-dialog' ? formHeader('Enquiry sent') : flowHead('Enquiry sent')) + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry <span class="no-wrap">${esc(r.number)}</span> sent.</h2>
+  // One heading: the card's own ("Enquiry BLK-… sent."); the sheet keeps only its close button.
+  $(box).innerHTML = (box === '#form-dialog' ? `<div class="sheet-head is-bare"><button class="icon-button" data-close aria-label="Close form">${icon('close')}</button></div>` : '') + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry <span class="no-wrap">${esc(r.number)}</span> sent.</h2>
     <p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>
     ${signed ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(r.id)}" data-route>View in account ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
     ${waOk ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : ''}

@@ -28,7 +28,7 @@ dock.querySelector('.mini-total').textContent=t.priced&&t.price>0?currency(t.pri
 mini.setAttribute('aria-label',`View bag: ${count} ${count===1?'box':'boxes'}, ${t.kg} kg${t.priced&&t.price>0?', '+currency(t.price):''}`);
 if(shownCount!==null&&count>shownCount&&shownCount>0){mini.classList.remove('is-pulse');void mini.offsetWidth;mini.classList.add('is-pulse')}shownCount=count}
 mini.addEventListener('animationend',()=>mini.classList.remove('is-pulse'));
-window.addEventListener('mm:cart',e=>syncBag(e.detail));
+window.addEventListener('mm:cart',e=>{syncBag(e.detail);requestAnimationFrame(()=>measure())});
 
 // ---- The keyboard: the dock rides above it only for its own search field. While any other field is being typed in, the dock steps out of the way.
 const touch=matchMedia('(pointer:coarse)'),TYPING='input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset],[type=file],[type=color]),textarea,[contenteditable=""],[contenteditable=true]';
@@ -48,7 +48,10 @@ if(home&&!home.hidden){const st=shopTop&&shopTop.getBoundingClientRect();if(st&&
 const tb=toolbar&&toolbar.getBoundingClientRect();if(tb&&tb.height&&tb.top<=barTop+.5)edge=Math.max(edge,tb.bottom)}
 setPx('--veil-h',edge)}
 function measure(){if(toolbar)barTop=parseFloat(getComputedStyle(toolbar).top)||0;
-if(payBar&&!payBar.hidden&&getComputedStyle(payBar).visibility!=='hidden'){const r=payBar.getBoundingClientRect();if(r.height){setPx('--bar-h',r.height);setPx('--bar-clear',innerHeight-r.top)}}
+if(payBar&&!payBar.hidden&&getComputedStyle(payBar).visibility!=='hidden'&&payBar.getBoundingClientRect().height){const r=payBar.getBoundingClientRect();setPx('--bar-h',r.height);setPx('--bar-clear',innerHeight-r.top)}
+// No pay bar: the dock (and the bag bar riding 10px above it) is what covers the bottom; from layout, not the slide-in animation.
+else if(getComputedStyle(dock).display!=='none'){const lift=mini.classList.contains('is-shown')&&getComputedStyle(mini).display!=='none'?mini.offsetHeight+10:0;setPx('--bar-clear',Math.max(0,innerHeight-dock.offsetTop+lift))}
+else setPx('--bar-clear',0)
 if(pageView&&!pageView.hidden)setPx('--above-h',pageView.getBoundingClientRect().top+scrollY);
 if(foot)setPx('--footer-h',foot.offsetHeight);veil()}
 addEventListener('scroll',()=>{if(!veilQueued){veilQueued=true;requestAnimationFrame(veil)}},{passive:true});

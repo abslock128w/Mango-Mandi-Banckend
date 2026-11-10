@@ -45,11 +45,11 @@ async function whereSheet({ first = false } = {}) {
     ${where.pincode && (where.deliveryDates || []).length ? `<div class="field">Delivery day for ${esc(where.pincode)}</div><div class="date-cards where-days" role="group" aria-label="Delivery day">${where.deliveryDates.map((x) => { const dt = new Date(x + 'T00:00:00'); return `<button type="button" class="date-card" data-pick-date="${esc(x)}" aria-pressed="${x === where.deliveryDate}" aria-label="${esc(fmtDate(x))}"><small>${esc(dt.toLocaleDateString('en-IN', { weekday: 'short' }))}</small><strong>${dt.getDate()}</strong><small>${esc(dt.toLocaleDateString('en-IN', { month: 'short' }))}</small></button>` }).join('')}</div><p class="where-days-note">Stock changes by the day as the mangoes ripen. Pick a later day to see what’s coming.</p>` : ''}
     <button class="button primary full" data-where-locate>${icon('pin')} Use my current location</button>
     <p class="where-error prototype-tag" role="alert" hidden></p>
-    ${saved.length ? `<div class="field">Your saved addresses</div><div class="address-cards">${saved.map((a) => `<button type="button" class="address-card" data-where-saved="${esc(a.id)}" aria-pressed="${a.id === where.savedId}"><strong>${esc(shortAddress(a))}</strong><small>${esc(addressText(a.address))} · ${esc(a.pincode)}</small></button>`).join('')}</div>` : ''}
+    ${saved.length ? `<div class="field">Your saved addresses</div><div class="address-cards">${saved.map((a) => `<button type="button" class="address-card" data-where-saved="${esc(a.id)}" aria-pressed="${a.id === where.savedId}"><strong>${esc(shortAddress(a))}</strong><small>${esc(addressText(a.address))} <span class="no-wrap">· ${esc(a.pincode)}</span></small></button>`).join('')}</div>` : ''}
     <div class="field">Or find it on the map</div>
     <div id="where-map-slot" class="map-slot"></div>
-    <button class="button secondary full" data-where-map disabled>Deliver to the pin</button>
-    <form id="where-pin" class="where-pin"><label class="field">Or enter your pincode<input name="pin" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6-digit pincode" value="${esc(where.pincode || '')}"></label><button class="button secondary" type="submit">Check</button></form>
+    <button class="button secondary full" data-where-map disabled>${icon('pin')}<span>Move the map to choose a spot</span></button>
+    <form id="where-pin" class="where-pin" novalidate><label class="field">Or enter your pincode<input name="pin" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6-digit pincode" value="${esc(where.pincode || '')}"></label><button class="button secondary" type="submit">Check</button></form>
     ${first ? '<button class="text-button where-skip" data-close>Just browsing for now</button>' : ''}`
   if (!d.open) openDialog('#where-dialog')
   const center = where.lat ? { lat: where.lat, lng: where.lng } : null
@@ -61,7 +61,7 @@ async function whereSheet({ first = false } = {}) {
       const b = $('[data-where-map]', d)
       if (b) {
         b.disabled = !/^[1-9]\d{5}$/.test(g.pincode || '')
-        b.innerHTML = b.disabled ? 'We couldn’t find a pincode here' : `Deliver to ${esc(g.area || 'the pin')} · ${esc(g.pincode)}`
+        b.innerHTML = b.disabled ? `${icon('info')}<span>We couldn’t find a pincode here</span>` : `${icon('pin')}<span>Deliver to ${esc(g.area || 'the pin')} · ${esc(g.pincode)}</span>`
       }
     },
   }).catch(() => {})
@@ -125,7 +125,7 @@ document.addEventListener('submit', (e) => {
   if (e.target.id !== 'where-pin') return
   e.preventDefault()
   const pin = String(new FormData(e.target).get('pin') || '').trim()
-  if (!/^[1-9]\d{5}$/.test(pin)) return whereError('Enter a 6-digit pincode.')
+  if (!checkFields(e.target, [['pin', (v) => /^[1-9]\d{5}$/.test(v) ? '' : 'Enter a 6-digit pincode.']])) return
   whereDo(() => setWhere(pin))
 })
 
