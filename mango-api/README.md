@@ -169,7 +169,7 @@ full refund until packing.
 
 - **Ripeness guide.** A minute after the confirmation, an order with a raw or semi-ripe box gets
   `mandi_ripeness_guide`: the day each box will be ready to eat (raw +5 days, semi-ripe +2 from
-  the delivery date, the same days the eat-by date assumes) and how to keep them. Ripe-only orders skip it. The shop's order page shows
+  the delivery date, the same days the eat-by date assumes) and how to keep them. Orders that are all ripe (sold before ripe stopped being sold) skip it. The shop's order page shows
   the same "ready to eat around" date.
 - **Back in stock.** A box sold out on every open day shows "Tell me when it's back" in the shop
   (signed in). The alert lasts 14 days, at most 10 open per customer, one per box and ripeness.
@@ -393,13 +393,20 @@ below override both.
   replacement needs a manager when the customer had 2 or more in 90 days, or when they
   say "not delivered" on an order their own delivery code confirmed.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
-  a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
-  shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
-  ripener). Nothing older than 7 days on its delivery date is sold (fewer when the
-  product has a shorter `shelf_life_days`), and batches retire at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
-  sells only for dates after its arrival, at 85% of its count.
+  a batch reaches the warehouse at age 1 (`transitDays`), sells as raw at ages 1–3 and
+  semi-ripe at 4–7, and is spoilt, never sold, from age 8 (batches retire then). Nothing is
+  sold as ripe: QC may still record a ripe reading, which shifts a batch by up to a day
+  (QC'd ripe while the profile expected semi-ripe = a fast ripener; past the last window
+  inside the cap it stays semi-ripe), and orders sold as ripe before this rule stay
+  honoured by boxes that are semi-ripe on the day. Nothing older than 7 days on its
+  delivery date is sold (fewer when the product has a shorter `shelf_life_days`).
+  Physical stock needs an intake QC before it is sold; stock still in transit sells only
+  for dates after its arrival, at 85% of its count. With next-day delivery a batch that
+  arrives at age 1 is in practice delivered raw at ages 2 and 3 only, and the last day it
+  can be ordered is the day before its last delivery day (`sellWindow`, delivery.js).
+  Migration 063 moved existing databases to these rules.
 - **Delivery dates.** Order before 18:00 IST for next-day delivery, after it for the day
-  after. Closed days and per-day box limits come from the delivery calendar. Customers
+  after. There is no same-day delivery. Closed days and per-day box limits come from the delivery calendar. Customers
   can book up to 5 days ahead.
 - **Holds and FEFO.** Checkout holds stock for 10 minutes, oldest batch first, with a
   conditional `UPDATE` so two buyers can never take the same box. A database `CHECK`

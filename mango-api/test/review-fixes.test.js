@@ -44,7 +44,7 @@ const captured = (id, order) => ({ event: 'payment.captured', payload: { payment
 const order = async (id) => (await query('SELECT * FROM orders WHERE id = $1', [id])).rows[0]
 
 async function paidOrder(cust, sku = 'ALP-3') {
-  const c = await checkout(api, cust.accessToken, [{ sku, stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku, stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await pay(c.body.orderId)
   return c.body
@@ -98,7 +98,7 @@ describe('races', () => {
     for (let i = 0; i < 50; i++) buyers.push((await customerToken(api)).accessToken)
     const quotes = []
     for (const token of buyers) {
-      await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })
+      await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
       quotes.push((await api.post('/v1/checkout/quote', { pincode: '560034', slotId: slot.body.id }, { token })).body.quoteId)
     }
     const results = await Promise.all(
@@ -115,7 +115,7 @@ describe('races', () => {
 
   test('a webhook storm plus payment catch-up confirms the order once', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
-    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await api.post('/v1/dev/mark-paid-at-gateway', { orderId: c.body.orderId, outcome: 'captured' })
     const event = captured('pay_storm', c.body)
     const results = await Promise.all([
@@ -190,7 +190,7 @@ describe('races', () => {
 describe('payments', () => {
   test('a failed attempt keeps the hold, so the customer can try again and pay', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
-    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const failed = { event: 'payment.failed', payload: { payment: { entity: { id: 'pay_fail', order_id: c.body.razorpayOrderId, amount: c.body.total } } } }
     assert.equal((await hook(failed)).body.result, 'attempt_failed')
     assert.equal((await order(c.body.orderId)).status, 'PAYMENT_PENDING')
@@ -201,7 +201,7 @@ describe('payments', () => {
 
   test('a second payment for a paid order is refunded; the order is untouched', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
-    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await hook(captured('pay_a', c.body))).body.result, 'confirmed')
     assert.equal((await hook(captured('pay_b', c.body))).body.result, 'duplicate_payment')
     await drainBackground() // the refund goes out after the webhook has been answered (PAY-B1)

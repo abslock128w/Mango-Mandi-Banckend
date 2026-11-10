@@ -110,7 +110,7 @@ function refundDesk() {
 
 async function paidOrder(paymentId, qty = 1) {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })).body.result, 'confirmed')
   if (paymentId) await query('UPDATE orders SET payment_id = $2 WHERE id = $1', [c.body.orderId, paymentId])
@@ -127,7 +127,7 @@ async function bookedPreorder(cust) {
   assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 10 }, { token: manager })).status, 200)
   const b = await api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
     { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
   )
   assert.equal(b.status, 201, JSON.stringify(b.body))
@@ -216,7 +216,7 @@ describe('PAY-B5: the lazy hold sweep does not cancel an order Razorpay may have
   test('S2: A pays inside the hold, its webhook is late, B checks out: A ends CONFIRMED on its date', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } })
     const a = await customerToken(api)
-    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(ca.status, 201, JSON.stringify(ca.body))
     // 9.5 minutes in, inside the 10-minute hold, A pays at Razorpay. The webhook is delayed.
     at(9.5 * MIN)
@@ -224,7 +224,7 @@ describe('PAY-B5: the lazy hold sweep does not cancel an order Razorpay may have
     // 10.5 minutes in, B wants the same last box.
     at(10.5 * MIN)
     const b = await customerToken(api)
-    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.notEqual(cb.status, 201, 'B must not get the box A paid for')
     assert.equal(cb.body.error.code, 'STOCK_INSUFFICIENT')
     assert.equal((await order(ca.body.orderId)).status, 'PAYMENT_PENDING')
@@ -240,10 +240,10 @@ describe('PAY-B5: the lazy hold sweep does not cancel an order Razorpay may have
   test('an unpaid order is swept lazily once Razorpay has been asked after its hold, or 2 minutes after it', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } })
     const a = await customerToken(api)
-    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     at(10.5 * MIN)
     const b = await customerToken(api)
-    assert.equal((await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 409)
+    assert.equal((await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])).status, 409)
     // A's own payment-status check asks Razorpay: nothing was paid.
     assert.equal((await api.get(`/v1/orders/${ca.body.orderId}/payment-status`, { token: a.accessToken })).body.orderStatus, 'PAYMENT_PENDING')
     const again = await checkout(api, b.accessToken, [], { key: newId('idem') })
@@ -253,11 +253,11 @@ describe('PAY-B5: the lazy hold sweep does not cancel an order Razorpay may have
     // Never reconciled (the scheduler is down): swept 2 minutes after its hold ran out.
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-5': 1 } })
     const c = await customerToken(api)
-    const cc = await checkout(api, c.accessToken, [{ sku: 'ALP-5', stage: 'RIPE', qty: 1 }])
+    const cc = await checkout(api, c.accessToken, [{ sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(cc.status, 201, JSON.stringify(cc.body))
     const d = await customerToken(api)
     at(10.5 * MIN + 11.5 * MIN)
-    assert.equal((await checkout(api, d.accessToken, [{ sku: 'ALP-5', stage: 'RIPE', qty: 1 }])).status, 409)
+    assert.equal((await checkout(api, d.accessToken, [{ sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }])).status, 409)
     at(10.5 * MIN + 13 * MIN)
     const late = await checkout(api, d.accessToken, [], { key: newId('idem') })
     assert.equal(late.status, 201, JSON.stringify(late.body))
@@ -269,10 +269,10 @@ describe('PAY-B1: the webhook answers before any gateway call', () => {
   test('a capture after a cancel is refunded after the 200, not before it', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, { token: cust.accessToken })).status, 204)
     const desk = refundDesk()
-    const c2 = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c2 = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     // Each Razorpay call takes 1.5 s; the refund is two calls.
     const gw = stubRazorpay((m, p, b) => desk.handle(m, p, b) ?? (p.endsWith('/capture') ? { id: 'pay_L2', status: 'captured' } : null), { delayMs: 1500 })
     try {
@@ -307,7 +307,7 @@ describe('PAY-B1: the webhook answers before any gateway call', () => {
   test('a refund that fails in the background is left for maintenance', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, { token: cust.accessToken })
     let down = true
     const desk = refundDesk()
@@ -333,7 +333,7 @@ describe('PAY-B3 / OPS-24: the shop hands Checkout’s reply to the API, which c
   test('dev gateway: a signed reply confirms the order; bad or foreign replies are refused', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const rzp = c.body.razorpayOrderId
     await api.post('/v1/dev/mark-paid-at-gateway', { orderId: c.body.orderId, outcome: 'captured' })
     const url = `/v1/orders/${c.body.orderId}/verify-payment`
@@ -359,9 +359,9 @@ describe('PAY-B3 / OPS-24: the shop hands Checkout’s reply to the API, which c
   test('with keys: the signature is checked with the key secret, then the payment is fetched and checked like a webhook', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const cust2 = await customerToken(api)
-    const c2 = await checkout(api, cust2.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c2 = await checkout(api, cust2.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const rzp = c.body.razorpayOrderId
     const amounts = { [rzp]: c.body.total, [c2.body.razorpayOrderId]: 100 } // the second was paid short
     const gw = stubRazorpay((m, p) => {
@@ -393,7 +393,7 @@ describe('PAY-B3 / OPS-24: the shop hands Checkout’s reply to the API, which c
   test('payment-status asks Razorpay a minute after checkout, at most every 30 seconds', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const rzp = c.body.razorpayOrderId
     let paid = false
     const gw = stubRazorpay((m, p) =>
@@ -426,7 +426,7 @@ describe('PAY-B4: a retry starts the payment a crashed first try never stored', 
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
     const token = cust.accessToken
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })
     const body = { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }
     const confirm = () => api.post('/v1/checkout/confirm', body, { token, headers: { 'Idempotency-Key': 'crash-1' } })
@@ -453,7 +453,7 @@ describe('PAY-B10: a product taken off sale after the quote is not sold on it', 
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
     const token = cust.accessToken
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     await query(`UPDATE products SET active = FALSE WHERE sku = 'ALP-3'`)

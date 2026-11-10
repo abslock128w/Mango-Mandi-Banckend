@@ -68,7 +68,7 @@ async function download(path, token) {
 
 async function placed(qty = 1, extra = {}) {
   const cust = extra.cust ?? (await customerToken(api))
-  for (const it of [{ sku: 'ALP-3', stage: 'RIPE', qty }]) assert.equal((await api.post('/v1/cart/items', it, { token: cust.accessToken })).status, 204)
+  for (const it of [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }]) assert.equal((await api.post('/v1/cart/items', it, { token: cust.accessToken })).status, 204)
   const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: extra.promoCode }, { token: cust.accessToken })
   assert.equal(q.status, 200, JSON.stringify(q.body))
   const o = await api.post(
@@ -133,7 +133,7 @@ describe('GSTIN and numbering rules', () => {
 
   test('the document follows the seller and the goods: Receipt, Bill of Supply, never a Tax Invoice without tax', () => {
     const o = { number: 'MM-1', subtotal: 2 * BOX, discount: 0, total: 2 * BOX, pincode: '560034', placed_at: new Date(), delivery_date: '2026-10-16' }
-    const items = [{ sku: 'ALP-3', product_name: 'Alphonso 3 kg', stage: 'RIPE', quantity: 2, unit_price: BOX, line_price: 2 * BOX, hsn_code: '08045020', gst_rate: 0 }]
+    const items = [{ sku: 'ALP-3', product_name: 'Alphonso 3 kg', stage: 'SEMI_RIPE', quantity: 2, unit_price: BOX, line_price: 2 * BOX, hsn_code: '08045020', gst_rate: 0 }]
     const cfg = (env) => readTrustConfig({ NODE_ENV: 'test', ...env })
     assert.equal(composeBill(o, items, cfg(UNREGISTERED)).kind, 'RECEIPT')
     const bos = composeBill(o, items, cfg(REGISTERED))
@@ -412,7 +412,7 @@ describe('issuing bills', () => {
       '/admin/v1/bulk-listings',
       {
         sku: 'ALP-3', title: 'Alphonso for offices', description: 'Hand-picked Ratnagiri Alphonso in 3 kg boxes, for offices and events.',
-        origin: 'Ratnagiri, Maharashtra', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
+        origin: 'Ratnagiri, Maharashtra', stages: ['SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
         confirmCode: 'manager123',
       },
       { token: manager },
@@ -423,7 +423,7 @@ describe('issuing bills', () => {
     assert.equal((await api.raw('POST', `/admin/v1/bulk-listings/${c.body.id}/photos`, { raw: jpeg, token: manager, headers: { 'Content-Type': 'image/jpeg' } })).status, 201)
     assert.equal((await api.post(`/admin/v1/bulk-listings/${c.body.id}/publish`, {}, { token: manager })).status, 200)
     const cust = await customerToken(api)
-    assert.equal((await api.post('/v1/cart/bulk', { listingId: c.body.id, stage: 'RIPE', qty: 10 }, { token: cust.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/bulk', { listingId: c.body.id, stage: 'SEMI_RIPE', qty: 10 }, { token: cust.accessToken })).status, 204)
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     const o = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: ADDRESS }, { token: cust.accessToken, headers: { 'Idempotency-Key': newId('k') } })
     assert.equal(o.status, 201, JSON.stringify(o.body))
@@ -508,7 +508,7 @@ describe('issuing bills', () => {
     const cust = await customerToken(api)
     const booked = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
       { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(booked.status, 201, JSON.stringify(booked.body))
@@ -522,7 +522,7 @@ describe('issuing bills', () => {
     })
     assert.equal((await api.raw('POST', '/webhooks/razorpay', { raw, headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': signature } })).status, 200)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 0, 'a booking is not an order: no bill yet')
-    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // ripe (age 6) on Monday
+    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // semi-ripe (age 6) on Monday
     // The maintenance run converts it and then bills the new order, in the same run.
     const out = await runMaintenance({ forceAll: true })
     assert.equal(out.preorders?.converted, 1, JSON.stringify(out))

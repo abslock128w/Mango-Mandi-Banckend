@@ -34,7 +34,7 @@ async function makeRider(name) {
 
 async function makeOrder({ token, pincode = '560034', slotId = 'slt_am', qty = 1 } = {}) {
   const cust = token ?? (await customerToken(api)).accessToken
-  const o = await checkout(api, cust, [{ sku: 'ALP-3', stage: 'RIPE', qty }], { pincode, slotId, deliveryDate: DATE })
+  const o = await checkout(api, cust, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }], { pincode, slotId, deliveryDate: DATE })
   assert.equal(o.status, 201, JSON.stringify(o.body))
   const pay = await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   assert.equal(pay.status, 200, JSON.stringify(pay.body))

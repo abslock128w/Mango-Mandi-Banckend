@@ -83,7 +83,7 @@ const ADDRESS = '12, 4th Cross, Koramangala, Bengaluru'
 /** A paid order for one box, to the given address. */
 async function paidOrder(cust, { address = ADDRESS } = {}) {
   const token = cust.accessToken
-  assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })).status, 204)
+  assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })).status, 204)
   const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })
   assert.equal(q.status, 200, JSON.stringify(q.body))
   const o = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address }, { token, headers: { 'Idempotency-Key': newId('idem') } })
@@ -346,10 +346,10 @@ describe('browser notifications for order updates', () => {
     const a = await customerToken(api)
     assert.equal((await api.put('/v1/me/push/subscription', browser().json, { token: a.accessToken })).status, 201)
     const calls = stubSender()
-    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     setNow(new Date(Date.parse(T0) + 12.5 * 60_000).toISOString()) // A's hold runs out
     const b = await customerToken(api)
-    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }]) // takes the boxes
+    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }]) // takes the boxes
     assert.equal(cb.status, 201)
     await api.post('/v1/dev/pay', { orderId: cb.body.orderId, outcome: 'captured' })
     await api.post('/v1/dev/pay', { orderId: ca.body.orderId, outcome: 'captured' }) // late, no stock anywhere

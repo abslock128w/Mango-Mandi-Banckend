@@ -66,7 +66,7 @@ async function chatOrder(ch) {
   await ch.say('hi')
   await ch.tap('ORDER')
   await ch.say('560034')
-  await ch.tap('item:ALP-3|RIPE')
+  await ch.tap('item:ALP-3|SEMI_RIPE')
   await ch.tap('qty:2')
   await ch.tap('CHECKOUT')
   await ch.say('12, 4th Cross, Koramangala, Bengaluru')
@@ -107,6 +107,10 @@ function templateSender(behaviour = () => `wamid.tpl.${++seq}`) {
   return { sender, calls }
 }
 const notes = async (orderId) => (await query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId])).rows
+// Chat orders are semi-ripe boxes (nothing is sold ripe), so a ripeness guide is queued a minute after the
+// confirmation. The checks below are about the confirmation itself.
+const confirmation = async (orderId) => (await notes(orderId)).find((n) => n.kind === 'ORDER_CONFIRMED')
+const confirmCalls = (t) => t.calls.filter((c) => c.template === templateFor('ORDER_CONFIRMED'))
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
 const metaBusy = () => Object.assign(new Error('WhatsApp 503: busy'), { status: 503, permanent: false, outcome: 'retry' })
 
@@ -140,7 +144,7 @@ describe('WhatsApp rules', () => {
   test('each kind fills exactly the variables its registry entry names; order-link buttons match', () => {
     const n = {
       customer_name: 'Asha', number: 'ORD-1', delivery_date: '2026-10-16', starts_at: '07:00', ends_at: '11:00', delivery_code: '1234', gift_recipient_name: 'Ravi',
-      items: [{ sku: 'ALP-3', stage: 'RAW' }], alert_sku: 'ALP-3', alert_stage: 'RIPE', alert_date: '2026-10-16', last_product: 'ALP-3', total: 100, payment_amount: 100,
+      items: [{ sku: 'ALP-3', stage: 'RAW' }], alert_sku: 'ALP-3', alert_stage: 'SEMI_RIPE', alert_date: '2026-10-16', last_product: 'ALP-3', total: 100, payment_amount: 100,
       pre_qty: 1, pre_sku: 'ALP-3', week_start: '2026-10-19', payment_link_url: 'https://rzp.io/i/x', reward_kind: 'PERCENT', reward_amount: 10, reward_code: 'C', reward_ends_on: '2026-11-30',
       reward_min: 100, summary_params: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], help_number: 'HLP-1', help_ticket_id: 'hlp_1', sub_qty: 1, sub_sku: 'ALP-3', cycle_date: '2026-10-17', sub_id: 'sub_1',
       claim_reason: 'x', order_id: 'ord_1',
@@ -268,7 +272,7 @@ describe('WhatsApp end to end', () => {
     assert.equal((await postRazorpay(paidHook(order))).status, 200)
     assert.equal((await orderOf(ch.phone)).status, 'CONFIRMED')
     const n = await notes(order.id)
-    assert.deepEqual(n.map((x) => [x.kind, x.status]), [['ORDER_CONFIRMED', 'PENDING']])
+    assert.deepEqual(n.map((x) => [x.kind, x.status]).sort(), [['ORDER_CONFIRMED', 'PENDING'], ['RIPENESS_GUIDE', 'PENDING']])
     // Sent through the template sender with the order's variables; recorded in the conversation.
     const t = templateSender()
     assert.equal(await sendDueNotifications({ sender: t.sender }), 1)
@@ -278,7 +282,7 @@ describe('WhatsApp end to end', () => {
     const out = (await msgs(ch.phone, 'OUT')).filter((m) => m.type === 'template')
     assert.equal(out.length, 1)
     assert.equal(out[0].template, templateFor('ORDER_CONFIRMED'))
-    assert.equal(out[0].provider_id, t.calls.length ? (await notes(order.id))[0].provider_id : null)
+    assert.equal(out[0].provider_id, t.calls.length ? (await confirmation(order.id)).provider_id : null)
   })
 
   test('E2: the same payment event twice (and a redelivered webhook) gives one confirmation', async () => {
@@ -289,11 +293,11 @@ describe('WhatsApp end to end', () => {
     assert.equal((await postRazorpay(hook)).status, 200)
     const again = paidHook(order, 'pay_wa_1') // same payment, re-signed body
     assert.equal((await postRazorpay(again)).status, 200)
-    assert.deepEqual((await notes(order.id)).map((n) => n.kind), ['ORDER_CONFIRMED'])
+    assert.deepEqual((await notes(order.id)).map((n) => n.kind).sort(), ['ORDER_CONFIRMED', 'RIPENESS_GUIDE'])
     const t = templateSender()
     await sendDueNotifications({ sender: t.sender })
     await sendDueNotifications({ sender: t.sender })
-    assert.equal(t.calls.length, 1)
+    assert.equal(confirmCalls(t).length, 1)
   })
 
   test('E4: a webhook without a valid signature is refused and nothing is stored or processed', async () => {
@@ -466,10 +470,10 @@ describe('WhatsApp end to end', () => {
       return 'wamid.tpl.ok'
     })
     await sendDueNotifications({ sender: t.sender })
-    assert.equal((await notes(order.id))[0].status, 'PENDING')
+    assert.equal((await confirmation(order.id)).status, 'PENDING')
     later(2 * MIN)
     await sendDueNotifications({ sender: t.sender })
-    assert.deepEqual([(await notes(order.id))[0].status, t.calls.length], ['SENT', 2])
+    assert.deepEqual([(await confirmation(order.id)).status, confirmCalls(t).length], ['SENT', 2])
   })
 
   test('E11: no answer from Meta in time is never resent automatically; staff can send it again', async () => {
@@ -495,8 +499,8 @@ describe('WhatsApp end to end', () => {
     await sendDueNotifications({ sender: t.sender })
     later(4 * 60 * MIN)
     await sendDueNotifications({ sender: t.sender })
-    assert.equal(t.calls.length, 1)
-    const [n] = await notes(order.id)
+    assert.equal(confirmCalls(t).length, 1)
+    const n = await confirmation(order.id)
     assert.deepEqual([n.status, n.delivery_status], ['FAILED', 'unknown'])
 
     // A person decides: the failures list shows it; Send again queues it once.
@@ -512,7 +516,7 @@ describe('WhatsApp end to end', () => {
     await drainBackground()
     assert.equal((await msgs(ch.phone, 'OUT'))[0].status, 'SENT')
     assert.equal((await api.post(`/admin/v1/notifications/${n.id}/retry`, {}, { token: admin })).status, 204)
-    const back = (await notes(order.id))[0]
+    const back = await confirmation(order.id)
     assert.deepEqual([back.status, back.delivery_status], ['PENDING', null])
   })
 
@@ -596,11 +600,11 @@ describe('WhatsApp end to end', () => {
     const { order, link } = await chatOrder(ch)
     // Someone else takes the rest of the stock.
     const other = await customerToken(api)
-    assert.equal((await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 8 }])).status, 201)
+    assert.equal((await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 8 }])).status, 201)
     // Past the hold and its grace period: a third buyer gets the chat order's 2 boxes.
     later((Number((await query('SELECT EXTRACT(EPOCH FROM hold_expires_at - placed_at)::int AS s FROM orders WHERE id = $1', [order.id])).rows[0].s) + 180) * 1000)
     const third = await customerToken(api)
-    assert.equal((await checkout(api, third.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])).status, 201)
+    assert.equal((await checkout(api, third.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])).status, 201)
     assert.equal((await query('SELECT status FROM orders WHERE id = $1', [order.id])).rows[0].status, 'CANCELLED')
     // Tapping Pay again books afresh, finds no stock, and sends no link.
     const replies = await ch.tap('PAY')
@@ -625,7 +629,7 @@ describe('WhatsApp end to end', () => {
     assert.ok((await msgs(ch.phone, 'OUT')).every((m) => m.status === 'QUEUED'))
     // The shop checks out and Razorpay confirms payments.
     const shopper = await customerToken(api)
-    const shop = await checkout(api, shopper.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const shop = await checkout(api, shopper.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(shop.status, 201)
     assert.equal((await postRazorpay(paidHook(order, 'pay_e15'))).status, 200)
     assert.equal((await orderOf(ch.phone)).status, 'CONFIRMED')
@@ -634,7 +638,7 @@ describe('WhatsApp end to end', () => {
       throw metaBusy()
     })
     await sendDueNotifications({ sender: t.sender })
-    assert.equal((await notes(order.id))[0].status, 'PENDING')
+    assert.equal((await confirmation(order.id)).status, 'PENDING')
     // The webhook still answers Meta fast (inbound handled, replies queued).
     const r = await postMeta(inbound('919800000009', { id: 'wamid.e15', type: 'text', text: { body: 'hi' } }))
     assert.equal(r.status, 200)
@@ -680,7 +684,7 @@ describe('WhatsApp statuses, account events and set-up', () => {
     const t = templateSender()
     await sendDueNotifications({ sender: t.sender })
     assert.equal(t.calls.length, 0)
-    assert.match((await notes(order.id))[0].last_error, /PAUSED at Meta/)
+    assert.match((await confirmation(order.id)).last_error, /PAUSED at Meta/)
     await postMeta(accountChange('phone_number_quality_update', { display_phone_number: '15550001111', event: 'DOWNGRADE', current_limit: 'TIER_1K' }))
     await postMeta(accountChange('some_new_field', { anything: true }))
     const ev = (await query('SELECT field, event, detail FROM wa_account_events ORDER BY created_at, id')).rows
@@ -690,8 +694,8 @@ describe('WhatsApp statuses, account events and set-up', () => {
     await query(`UPDATE wa_templates SET status = 'APPROVED', body_params = 9`)
     await query(`UPDATE notifications SET status = 'PENDING', next_attempt_at = $1 WHERE order_id = $2`, [now(), order.id])
     await sendDueNotifications({ sender: t.sender })
-    assert.equal(t.calls.length, 0)
-    assert.match((await notes(order.id))[0].last_error, /takes 9 variables/)
+    assert.equal(confirmCalls(t).length, 0)
+    assert.match((await confirmation(order.id)).last_error, /takes 9 variables/)
   })
 
   test('a manager switches an automated message off; it is skipped and audited', async () => {
@@ -706,7 +710,7 @@ describe('WhatsApp statuses, account events and set-up', () => {
     const t = templateSender()
     await sendDueNotifications({ sender: t.sender })
     assert.equal(t.calls.length, 0)
-    assert.match((await notes(order.id))[0].last_error, /turned off/)
+    assert.match((await confirmation(order.id)).last_error, /turned off/)
     assert.equal((await query(`SELECT COUNT(*)::int AS n FROM staff_audit WHERE action = 'SWITCH WhatsApp automation'`)).rows[0].n, 1)
   })
 

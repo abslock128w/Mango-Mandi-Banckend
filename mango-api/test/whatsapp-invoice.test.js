@@ -41,7 +41,7 @@ const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' 
 /** A paid order for a new customer. */
 async function paidOrder() {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201)
   assert.equal((await pay(c.body.orderId)).status, 200)
   return { cust, orderId: c.body.orderId, number: c.body.number }

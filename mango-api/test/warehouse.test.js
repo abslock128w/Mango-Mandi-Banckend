@@ -79,7 +79,7 @@ async function stockedLot({ count = 4, sku = 'ALP-3', harvestedAgo = 5, putAway 
 
 async function paidOrder(qty, sku = 'ALP-3') {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku, stage: 'RIPE', qty }])
+  const c = await checkout(api, cust.accessToken, [{ sku, stage: 'SEMI_RIPE', qty }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   ok(await pay(c.body.orderId))
   return { id: c.body.orderId, token: cust.accessToken }
@@ -270,7 +270,7 @@ describe('orders', () => {
   test('an unpaid order cannot be picked (D12)', async () => {
     await stockedLot({ count: 2 })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const r = await api.post(`${W}/operations`, { type: 'pick', context: { orderId: c.body.orderId } }, { token: manager })
     assert.equal(r.status, 409)
     assert.equal(r.body.error.code, 'INVALID_TRANSITION')

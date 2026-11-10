@@ -189,7 +189,7 @@ async function mondayWithCapacity() {
 }
 
 async function paid(cust) {
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
   return c.body
@@ -229,7 +229,7 @@ describe('customer to customer', () => {
     // order not yet packed, a booking, a saved address, a stock alert, and loose photos not yet sent.
     const done = await deliveredWithPhoto(a)
     const open = await paid(a)
-    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }, { ...A, headers: { 'Idempotency-Key': newId('idem') } })
+    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }, { ...A, headers: { 'Idempotency-Key': newId('idem') } })
     assert.equal(pre.status, 201, JSON.stringify(pre.body))
     const claimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
     const looseClaimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
@@ -246,7 +246,7 @@ describe('customer to customer', () => {
     const alert = (await api.post('/v1/stock-alerts', { sku: 'ALP-3', stage: 'RAW', pincode: '560034' }, A)).body.id
     // A paid gift order to two recipients (MULTI_GIFT).
     env.MULTI_GIFT = true
-    const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'RIPE', qty: 1 })
+    const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 })
     const gq = await api.post('/v1/gifts/quote', { recipients: [recipient(1), recipient(2)] }, A)
     assert.equal(gq.status, 200, JSON.stringify(gq.body))
     const gift = (await api.post('/v1/gifts/confirm', { quoteId: gq.body.quoteId }, { ...A, headers: { 'Idempotency-Key': newId('k') } })).body
@@ -255,7 +255,7 @@ describe('customer to customer', () => {
     // A help request about the delivered order, and a subscription whose first box is set up (two days ahead).
     const help = await api.post('/v1/me/help/requests', { topic: 'DELIVERY', orderId: done.orderId, message: 'when is the next one?' }, A)
     assert.equal(help.status, 201, JSON.stringify(help.body))
-    const subBody = { sku: 'ALP-3', stage: 'RIPE', qty: 1, frequency: 'WEEKLY', weekday: weekdayOf(addDays(todayIST(), 2)), addressId: address, endDate: addDays(todayIST(), 30) }
+    const subBody = { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, frequency: 'WEEKLY', weekday: weekdayOf(addDays(todayIST(), 2)), addressId: address, endDate: addDays(todayIST(), 30) }
     const sub = await api.post('/v1/me/subscriptions', subBody, A)
     assert.equal(sub.status, 201, JSON.stringify(sub.body))
     const cycle = sub.body.cycles[0].id
@@ -390,7 +390,7 @@ describe('webhook replays', () => {
   test('Razorpay: the same event twice, the same event id with another body, and a new id for the same payment change nothing more', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201)
     const entity = { id: 'pay_replay', order_id: c.body.razorpayOrderId, amount: c.body.total, currency: 'INR', method: 'upi' }
     const event = { event: 'payment.captured', payload: { payment: { entity } } }
@@ -553,7 +553,7 @@ describe('per-customer limits on checkout and cancel', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
+    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
     const quote = (c) => api.post('/v1/checkout/quote', { pincode: '560034' }, { token: c.accessToken })
     enforceLimitsInTests(true)
     for (let i = 0; i < env.CUSTOMER_ACTION_LIMIT; i++) assert.equal((await quote(a)).status, 200, `quote ${i + 1}`)

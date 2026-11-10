@@ -77,7 +77,7 @@ async function bookingWeek() {
 async function paidBooking(token, week) {
   const b = await api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
     { token, headers: { 'Idempotency-Key': newId('idem') } },
   )
   assert.equal(b.status, 201, JSON.stringify(b.body))

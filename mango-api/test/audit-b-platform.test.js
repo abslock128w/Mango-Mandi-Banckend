@@ -57,7 +57,7 @@ describe('PLT-10: after a restore no order number is handed out twice', () => {
     const cust = await customerToken(api)
     const numbers = []
     for (let i = 0; i < 3; i++) {
-      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       assert.equal(o.status, 201, JSON.stringify(o.body))
       assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
       numbers.push((await query('SELECT number FROM orders WHERE id = $1', [o.body.orderId])).rows[0].number)

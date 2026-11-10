@@ -36,7 +36,7 @@ const STORED = (await cleanImage(JPEG)).bytes
 
 /** A paid order, packed and ready for the rider. */
 async function packedOrder(cust) {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   const id = o.body.orderId
@@ -166,7 +166,7 @@ describe('proof of delivery', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const { id, date } = await packedOrder(cust)
-    const unpacked = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const unpacked = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await api.post('/v1/dev/pay', { orderId: unpacked.body.orderId, outcome: 'captured' })
 
     const run = await api.post('/admin/v1/manifest/dispatch', { date }, { token: admin })

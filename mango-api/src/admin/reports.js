@@ -6,6 +6,7 @@ import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
+import { sellWindow } from '../delivery.js'
 import { photoReviews } from '../delivery-proof.js'
 import { query } from '../db.js'
 import { env } from '../env.js'
@@ -58,7 +59,8 @@ router.get(
     res.json({
       orders: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
       openClaims: claims.rows[0].n,
-      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), available: b.available })),
+      // lastDeliveryDay / lastOrderDay: delivery is next day at the earliest, so a batch stops being orderable a day before its last delivery day.
+      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), ...sellWindow(b.plucked_on, cfg), available: b.available })),
       lowStock: shopProducts()
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),

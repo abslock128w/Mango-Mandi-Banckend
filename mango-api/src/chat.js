@@ -20,7 +20,7 @@ import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment
 import { applyCapture, cancelPaymentLink, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
 import { consentKeyword, setConsent } from './wa/consent.js'
 import { CHAT_RETRY_MS, ensureConversation, handOffToStaff, queueMessage, recordInbound, recordMessageStatus, sendMessages } from './wa/conversations.js'
@@ -75,7 +75,7 @@ async function attempt(c, fn) {
 async function catalogue(c, s) {
   const pool = await availability(c, s.data.date)
   const rows = shopProducts()
-    .flatMap((p) => STAGES.map((stage) => ({ p, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 })))
+    .flatMap((p) => SALE_STAGES.map((stage) => ({ p, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 })))
     .filter((r) => r.qty > 0)
     .slice(0, 10)
   if (!rows.length) {
@@ -412,11 +412,11 @@ async function bookStep(c, s, cust, id, said) {
       if (!sellable(sku)) return bookWeeks(c, s)
       s.data.pre = { weekStart, sku }
       s.state = 'PRE_STAGE'
-      return [buttons(`How ripe should ${findProduct(sku).name} be when it reaches you?`, STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
+      return [buttons(`How ripe should ${findProduct(sku).name} be when it reaches you?`, SALE_STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
     }
     case 'PRE_STAGE': {
       const stage = id?.startsWith('prestage:') ? id.slice(9) : null
-      if (!STAGES.includes(stage)) return [buttons('Tap how ripe you want it.', STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
+      if (!SALE_STAGES.includes(stage)) return [buttons('Tap how ripe you want it.', SALE_STAGES.map((st) => [`prestage:${st}`, STAGE_WORDS[st]]))]
       pre.stage = stage
       s.state = 'PRE_QTY'
       return [buttons(`How many boxes? Tap or send a number up to ${MAX_QTY}.`, [1, 2, 3].map((n) => [`qty:${n}`, String(n)]))]
@@ -616,7 +616,7 @@ async function step(c, s, cust, input) {
       if (!id?.startsWith('item:')) return { replies: [text('Tap *See mangoes* and pick a box.'), ...(await catalogue(c, s))] }
       const [sku, stage] = id.slice(5).split('|')
       const p = sellable(sku)
-      if (!p || !STAGES.includes(stage)) return { replies: await catalogue(c, s) }
+      if (!p || !SALE_STAGES.includes(stage)) return { replies: await catalogue(c, s) }
       d.pending = { sku, stage }
       s.state = 'QTY'
       const left = (await availability(c, d.date)).get(`${sku}|${stage}`) ?? 0

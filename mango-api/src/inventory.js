@@ -10,7 +10,7 @@ import { addDays, diffDays, now, todayIST } from './clock.js'
 import { env } from './env.js'
 import { newId } from './ids.js'
 import { findProduct } from './products.js'
-import { stageFor } from './stage.js'
+import { keepsPromise, saleStage, stageFor } from './stage.js'
 
 export const SELLABLE_STATUSES = ['IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING']
 const PHYSICAL_STATUSES = ['ARRIVED', 'RIPENING', 'SELLING']
@@ -163,7 +163,8 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
   const col = state === 'held' ? 'held' : 'committed'
   const cfg = getConfig()
   let left = qty
-  for (const line of await candidateLines(c, deliveryDate, { sku, stage, excludeBatchIds })) {
+  // Stock promised as RIPE before RIPE stopped being sold is filled with boxes that are SEMI_RIPE on the day (stage.js keepsPromise).
+  for (const line of await candidateLines(c, deliveryDate, { sku, stage: saleStage(stage), excludeBatchIds })) {
     if (left === 0) break
     let take = Math.min(left, line.sellable)
     for (let attempt = 0; take > 0 && attempt < 5; attempt++) {
@@ -180,7 +181,7 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
         // (INV-6). Condemn and QC lock the lines first, so they can't slip
         // in after this check.
         const fresh = sellableAs(await lineInfo(c, line.id), deliveryDate, cfg)
-        if (!fresh || fresh.stage !== stage) {
+        if (!fresh || !keepsPromise(stage, fresh.stage)) {
           await c.query(`UPDATE batch_lines SET ${col} = ${col} - $2 WHERE id = $1`, [line.id, take])
           break
         }

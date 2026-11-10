@@ -44,7 +44,7 @@ function farWeek(extraWeeks = 2) {
 const book = (token, week, extra = {}) =>
   api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
     { token, headers: { 'Idempotency-Key': newId('idem') } },
   )
 const hook = (event) => {

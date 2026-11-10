@@ -33,7 +33,7 @@ const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' 
 async function paidOrder() {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   await pay(c.body.orderId)
   return c.body.orderId
 }
@@ -61,8 +61,9 @@ describe('one worker per job', () => {
     const [x, y] = await Promise.all([sendDueNotifications({ sender }), sendDueNotifications({ sender })])
     assert.equal(x + y, 1)
     assert.deepEqual(sent, ['mandi_order_confirmed'])
-    const { rows } = await query('SELECT status FROM notifications WHERE order_id = $1', [id])
-    assert.deepEqual(rows.map((r) => r.status), ['SENT'])
+    // A semi-ripe box also gets the ripeness guide, due a minute after the confirmation: not sent yet.
+    const { rows } = await query('SELECT kind, status FROM notifications WHERE order_id = $1 ORDER BY kind', [id])
+    assert.deepEqual(rows.map((r) => [r.kind, r.status]), [['ORDER_CONFIRMED', 'SENT'], ['RIPENESS_GUIDE', 'PENDING']])
   })
 })
 
@@ -110,7 +111,7 @@ describe('needs attention', () => {
     assert.equal(a.loop.lastRunAt, null)
 
     const id = await paidOrder()
-    await query(`UPDATE notifications SET status = 'FAILED', attempts = 6, last_error = 'WhatsApp 400: template not approved' WHERE order_id = $1`, [id])
+    await query(`UPDATE notifications SET status = 'FAILED', attempts = 6, last_error = 'WhatsApp 400: template not approved' WHERE order_id = $1 AND kind = 'ORDER_CONFIRMED'`, [id])
     const body = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_x', order_id: 'order_nope', amount: 100 } } } }
     const { raw, signature } = signWebhook(body)
     const hook = await api.raw('POST', '/webhooks/razorpay', {

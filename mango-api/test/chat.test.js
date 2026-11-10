@@ -43,8 +43,8 @@ async function orderTwoBoxes(ch) {
   await ch.tap('ORDER')
   const [list] = await ch.say('560034')
   assert.equal(list.type, 'list')
-  assert.ok(ids(list).includes('item:ALP-3|RIPE'), JSON.stringify(list))
-  const [qty] = await ch.tap('item:ALP-3|RIPE')
+  assert.ok(ids(list).includes('item:ALP-3|SEMI_RIPE'), JSON.stringify(list))
+  const [qty] = await ch.tap('item:ALP-3|SEMI_RIPE')
   assert.deepEqual(ids(qty), ['qty:1', 'qty:2', 'qty:3'])
   const [cart] = await ch.tap('qty:2')
   assert.match(cart.text, /2 × Alphonso/)
@@ -94,8 +94,9 @@ describe('ordering in the WhatsApp chat', () => {
     const paid = await orderOf('+919812345678')
     assert.equal(paid.status, 'CONFIRMED')
     assert.equal(paid.payment_method, 'upi')
-    const n = await query(`SELECT kind FROM notifications WHERE order_id = $1`, [o.id])
-    assert.deepEqual(n.rows.map((r) => r.kind), ['ORDER_CONFIRMED'])
+    const n = await query(`SELECT kind FROM notifications WHERE order_id = $1 ORDER BY created_at, kind`, [o.id])
+    // Semi-ripe boxes: the ripeness guide follows the confirmation (a minute later).
+    assert.deepEqual(n.rows.map((r) => r.kind), ['ORDER_CONFIRMED', 'RIPENESS_GUIDE'])
 
     // The staff panel shows where the order came from.
     const admin = await adminToken(api)
@@ -193,8 +194,9 @@ describe('booking ahead in the WhatsApp chat', () => {
     assert.equal(list.type, 'list')
     assert.ok(ids(list).includes(`week:${week}|ALP-3`), JSON.stringify(list))
     const [ripe] = await ch.tap(`week:${week}|ALP-3`)
-    assert.deepEqual(ids(ripe), ['prestage:RAW', 'prestage:SEMI_RIPE', 'prestage:RIPE'])
-    await ch.tap('prestage:RIPE')
+    // Nothing is sold ripe: raw or semi-ripe only.
+    assert.deepEqual(ids(ripe), ['prestage:RAW', 'prestage:SEMI_RIPE'])
+    await ch.tap('prestage:SEMI_RIPE')
     await ch.tap('qty:2')
     await ch.say('560034')
     return ch.say('12, 4th Cross, Koramangala, Bengaluru')
@@ -204,7 +206,7 @@ describe('booking ahead in the WhatsApp chat', () => {
     const week = await openFor(10)
     const ch = chatter()
     const [sum] = await bookTwo(ch, week)
-    assert.match(sum.text, /2 × Alphonso 3kg Box \(Ripe\)/)
+    assert.match(sum.text, /2 × Alphonso 3kg Box \(Semi-ripe\)/)
     assert.deepEqual(ids(sum), ['PREPAY', 'BOOK', 'MENU'])
     const link = (await ch.tap('PREPAY')).at(-1)
     assert.equal(link.type, 'link')

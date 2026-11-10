@@ -80,7 +80,7 @@ async function browserFor(customerId) {
 }
 
 async function paidOrder(cust) {
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })).status, 200)
   return c.body
@@ -320,7 +320,7 @@ async function savedAddress(customerId, pincode = '560034') {
 const SAT = 6
 async function subscribe(cust, body = {}) {
   const addressId = body.addressId ?? (await savedAddress(cust.customer.id))
-  return api.post('/v1/me/subscriptions', { sku: 'ALP-3', stage: 'RIPE', qty: 2, frequency: 'WEEKLY', weekday: SAT, addressId, endDate: '2026-11-30', ...body }, as(cust))
+  return api.post('/v1/me/subscriptions', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, frequency: 'WEEKLY', weekday: SAT, addressId, endDate: '2026-11-30', ...body }, as(cust))
 }
 
 const cycles = (subId) => query('SELECT * FROM subscription_cycles WHERE subscription_id = $1 ORDER BY scheduled_for', [subId]).then((r) => r.rows)
@@ -385,8 +385,10 @@ describe('subscriptions: starting one', () => {
 
   test('three running at most; a customer without a mobile number is asked for one', async () => {
     const cust = await customerToken(api)
-    for (const stage of ['RAW', 'SEMI_RIPE', 'RIPE']) assert.equal((await subscribe(cust, { stage })).status, 201)
-    assert.equal((await subscribe(cust, { stage: 'RIPE', qty: 1, sku: 'BAD-3' })).body.error.code, 'TOO_MANY_SUBSCRIPTIONS')
+    // Ripe is no longer sold, so it can't be subscribed to either.
+    assert.equal((await subscribe(cust, { stage: 'RIPE' })).status, 400)
+    for (const box of [{ stage: 'RAW' }, { stage: 'SEMI_RIPE' }, { stage: 'RAW', sku: 'ALP-5' }]) assert.equal((await subscribe(cust, box)).status, 201)
+    assert.equal((await subscribe(cust, { stage: 'SEMI_RIPE', qty: 1, sku: 'BAD-3' })).body.error.code, 'TOO_MANY_SUBSCRIPTIONS')
     const g = await customerToken(api)
     await query('UPDATE customers SET phone = NULL WHERE id = $1', [g.customer.id])
     assert.equal((await subscribe(g)).body.error.code, 'PHONE_REQUIRED')
@@ -525,7 +527,7 @@ describe('subscriptions: paying for a box', () => {
     const cust = await customerToken(api)
     const sub = (await subscribe(cust)).body
     const [y] = await cycles(sub.id)
-    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(unpaid.status, 201)
     const pay = await api.post(`/v1/me/subscriptions/${sub.id}/cycles/${y.id}/pay`, {}, { ...as(cust), ...idem() })
     assert.equal(pay.status, 409)
@@ -533,7 +535,7 @@ describe('subscriptions: paying for a box', () => {
     assert.equal((await cycles(sub.id))[0].status, 'DUE')
     await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, {}, as(cust))
     assert.equal((await api.post(`/v1/me/subscriptions/${sub.id}/cycles/${y.id}/pay`, {}, { ...as(cust), ...idem() })).status, 201)
-    const second = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const second = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(second.body.error.code, 'UNPAID_ORDER_EXISTS')
   })
 
@@ -552,7 +554,7 @@ describe('subscriptions: paying for a box', () => {
     assert.match(after.note, /Moved to 2026-10-18/)
     // Nothing left before the next box: refused, nothing made.
     const b = await customerToken(api)
-    const s2 = (await subscribe(b, { stage: 'RIPE', qty: 1 })).body
+    const s2 = (await subscribe(b, { stage: 'SEMI_RIPE', qty: 1 })).body
     await query(`INSERT INTO delivery_calendar (date, is_open, max_boxes) VALUES ('2026-10-18', TRUE, 0), ('2026-10-19', FALSE, NULL), ('2026-10-20', FALSE, NULL)`)
     const [y2] = await cycles(s2.id)
     const r = await api.post(`/v1/me/subscriptions/${s2.id}/cycles/${y2.id}/pay`, {}, { ...as(b), ...idem() })

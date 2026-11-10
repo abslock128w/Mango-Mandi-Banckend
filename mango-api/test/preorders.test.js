@@ -34,7 +34,7 @@ const setCapacity = (week, capacity, token = admin) => api.put(`/admin/v1/preord
 const book = (token, week, extra = {}) =>
   api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
     { token, headers: { 'Idempotency-Key': newId('idem') } },
   )
 const pre = async (id) => (await query('SELECT * FROM preorders WHERE id = $1', [id])).rows[0]
@@ -136,7 +136,7 @@ describe('preorders', () => {
     await payLink(await pre(booked.body.id))
     assert.equal((await runPreorderJobs()).converted, 0) // no stock yet
 
-    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // ripe (age 6) on Monday
+    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // semi-ripe (age 6) on Monday
     const jobs = await runPreorderJobs()
     assert.equal(jobs.converted, 1)
     const p = await pre(booked.body.id)
@@ -148,7 +148,8 @@ describe('preorders', () => {
     assert.equal(o.payment_id, p.payment_id)
     assert.equal(o.total, p.total)
     const n = await query('SELECT kind FROM notifications WHERE order_id = $1', [o.id])
-    assert.deepEqual(n.rows.map((r) => r.kind), ['ORDER_CONFIRMED'])
+    // Semi-ripe boxes: the ripeness guide follows the confirmation (nothing is sold ripe now).
+    assert.deepEqual(n.rows.map((r) => r.kind).sort(), ['ORDER_CONFIRMED', 'RIPENESS_GUIDE'])
 
     // Cancelling the preorder now cancels its order, with the full refund.
     const cancel = await api.post(`/v1/preorders/${p.id}/cancel`, {}, { token: a.accessToken })

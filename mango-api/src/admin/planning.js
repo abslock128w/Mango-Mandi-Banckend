@@ -12,7 +12,7 @@ import { newId } from '../ids.js'
 import { availability } from '../inventory.js'
 import { triggerRebalanceAll } from '../maintenance.js'
 import { shopProducts } from '../products.js'
-import { STAGES } from '../stage.js'
+import { SALE_STAGES } from '../stage.js'
 import { stepUp, withoutConfirm } from './step-up.js'
 
 export const router = express.Router()
@@ -201,7 +201,7 @@ router.get(
         grid.push({
           date,
           slots: (await slotsForDate(c, date)).map(({ id, label, booked, maxBoxes }) => ({ id, label, booked, maxBoxes })),
-          stock: shopProducts().flatMap((p) => STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
+          stock: shopProducts().flatMap((p) => SALE_STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
         })
       }
       return grid

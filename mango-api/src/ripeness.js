@@ -1,7 +1,8 @@
 // When a box is ready to eat, and how to keep it. Ripeness is sold by age on
 // the delivery date (stage.js); from there raw boxes take about 5 days to
-// ripen at home, semi-ripe about 2, and ripe ones are ready on arrival. These
-// are the same days the "eat by" date has always assumed.
+// ripen at home and semi-ripe about 2. These are the same days the "eat by"
+// date has always assumed. Nothing is sold ripe any more; RIPE stays here for
+// orders placed before that (ready on arrival).
 import { addDays } from './clock.js'
 
 export const STAGE_WORDS = { RAW: 'raw', SEMI_RIPE: 'semi-ripe', RIPE: 'ripe' }

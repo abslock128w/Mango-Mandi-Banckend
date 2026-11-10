@@ -67,7 +67,7 @@ describe('INT-03: a step failing every minute is reported every hour, not once',
 async function paidOrder() {
   await makeBatch({ age: 5, rating: 'RIPE', lines: { 'ALP-3': 10 } })
   const cust = await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
   return o.body.orderId

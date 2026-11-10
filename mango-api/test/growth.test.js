@@ -58,7 +58,7 @@ const stock = () => makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 60, 'B
 
 /** Cart, quote and confirm one order (unpaid). Returns the confirm answer's body. */
 async function place(token, { address = FRIEND_ADDRESS, sku = 'ALP-3', qty = 1, promoCode, funnelId, gift } = {}) {
-  assert.equal((await api.post('/v1/cart/items', { sku, stage: 'RIPE', qty }, { token })).status, 204)
+  assert.equal((await api.post('/v1/cart/items', { sku, stage: 'SEMI_RIPE', qty }, { token })).status, 204)
   const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode }, { token })
   if (q.status !== 200) return q
   const c = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address, ...(funnelId ? { funnelId } : {}), ...(gift ? { gift } : {}) }, {
@@ -258,7 +258,7 @@ describe('refer a friend', () => {
     assert.equal((await place(stranger.accessToken, { promoCode: friendReward.promo_code })).body.error.code, 'PROMO_INVALID')
     assert.equal((await place(friend.accessToken, { promoCode: referrerReward.promo_code })).body.error.code, 'PROMO_INVALID')
     // Its owner: 10% off a regular box on their next order.
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 0 }, { token: friend.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 0 }, { token: friend.accessToken })
     const used = await place(friend.accessToken, { promoCode: friendReward.promo_code })
     assert.equal(used.quote.discount, 18_990)
     assert.equal(used.quote.total, 189_900 - 18_990)
@@ -276,7 +276,7 @@ describe('refer a friend', () => {
     const jpeg = await sharp({ create: { width: 64, height: 48, channels: 3, background: '#f4a300' } }).jpeg().toBuffer()
     const draft = {
       sku: 'BAD-3', title: 'Badami for offices', description: 'Badami in 3 kg boxes, for offices and events, packed together.',
-      origin: 'Karnataka', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 119_900 }],
+      origin: 'Karnataka', stages: ['SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 119_900 }],
     }
     const l = await api.post('/admin/v1/bulk-listings', { ...draft, confirmCode: 'manager123' }, { token: admin })
     assert.equal(l.status, 201, JSON.stringify(l.body))
@@ -284,7 +284,7 @@ describe('refer a friend', () => {
     assert.equal((await api.post(`/admin/v1/bulk-listings/${l.body.id}/publish`, {}, { token: admin })).status, 200)
 
     const { friend, friendId } = await referredPair()
-    assert.equal((await api.post('/v1/cart/bulk', { listingId: l.body.id, stage: 'RIPE', qty: 10 }, { token: friend.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/bulk', { listingId: l.body.id, stage: 'SEMI_RIPE', qty: 10 }, { token: friend.accessToken })).status, 204)
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: friend.accessToken })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     const c = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: FRIEND_ADDRESS }, { token: friend.accessToken, headers: { 'Idempotency-Key': newId('idem') } })
@@ -298,7 +298,7 @@ describe('refer a friend', () => {
 
     // A thank-you code (given by hand here) on a bulk-only cart is refused like any promo code.
     await query(`INSERT INTO promo_codes (code, kind, value, min_subtotal, max_uses, per_customer, created_at, owner_customer_id) VALUES ('TYBULKTEST', 'FLAT', 10000, 0, 1, 1, $1, $2)`, [now(), friendId])
-    assert.equal((await api.post('/v1/cart/bulk', { listingId: l.body.id, stage: 'RIPE', qty: 10 }, { token: friend.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/bulk', { listingId: l.body.id, stage: 'SEMI_RIPE', qty: 10 }, { token: friend.accessToken })).status, 204)
     const bq = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'TYBULKTEST' }, { token: friend.accessToken })
     assert.equal(bq.body.error.code, 'PROMO_NOT_FOR_BULK')
   })
@@ -455,7 +455,7 @@ describe('refer a friend', () => {
     await settleReferrals()
     const capped = (await query('SELECT kind, value, max_discount FROM promo_codes p JOIN referral_rewards rr ON rr.promo_code = p.code WHERE rr.customer_id = $1', [a.friendId])).rows[0]
     assert.deepEqual(capped, { kind: 'PERCENT', value: 15, max_discount: 15_000 })
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 0 }, { token: a.friend.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 0 }, { token: a.friend.accessToken })
     const code = (await rewards()).find((g) => g.role === 'FRIEND').promo_code
     assert.equal((await place(a.friend.accessToken, { promoCode: code })).quote.discount, 15_000, '15% of Rs 1,899 is Rs 284, capped at Rs 150')
 
@@ -581,7 +581,7 @@ describe('funnel analytics', () => {
     await pay(o.body.orderId)
     assert.equal((await rows()).filter((r) => r.step === 'paid').length, 1)
     // A bad id from the shop is refused at checkout.
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     const bad = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: FRIEND_ADDRESS, funnelId: 'cus_123' }, { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } })
     assert.equal(bad.status, 400)

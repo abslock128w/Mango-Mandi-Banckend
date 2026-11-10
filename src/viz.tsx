@@ -5,7 +5,7 @@
 import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
-import { RIPENESS_LABEL } from './format'
+import { RIPENESS_LABEL, sellWindowText, type SellWindow } from './format'
 import type { Ripeness, StageWindow } from './types'
 
 // ---------- Sparkline ----------
@@ -163,8 +163,8 @@ export function FreshnessStrip({ ageDays, maxAge }: { ageDays: number; maxAge: n
 const STAGE_CLASS: Record<Ripeness, string> = { RAW: 'raw', SEMI_RIPE: 'semi', RIPE: 'ripe' }
 
 /**
- * A batch's life on one track: its ripeness windows by age (the selling rules), the sell-by limit,
- * and a marker for today. The windows come from the rules; without them the track shows age against
+ * A batch's life on one track: its ripeness windows by age on the delivery date (the selling rules), the
+ * last delivery age, and a marker for today. The windows come from the rules; without them the track shows age against
  * the sell limit only. The server still decides each box's stage (age on the delivery day, shifted by QC).
  */
 export function RipenessTimeline({
@@ -173,12 +173,15 @@ export function RipenessTimeline({
   retireAge,
   windows,
   latest,
+  sellWindow,
 }: {
   ageDays: number
   maxSellableAge: number
   retireAge?: number | null
   windows?: StageWindow[] | null
   latest?: Ripeness | null
+  /** The batch's last delivery and order days from the API; without it the caption counts delivery days only. */
+  sellWindow?: SellWindow
 }) {
   const titleId = useId()
   const lastWindow = Math.max(0, ...(windows ?? []).map((w) => w.maxAge))
@@ -186,7 +189,11 @@ export function RipenessTimeline({
   const pos = (day: number) => `${(day / end) * 100}%`
   const width = (from: number, to: number) => `${((to - from) / end) * 100}%`
   const left = maxSellableAge - ageDays
-  const status = ageDays > maxSellableAge ? 'Past the sell-by limit' : left === 0 ? 'Last day it can be sold' : `${left} ${left === 1 ? 'day' : 'days'} left to sell`
+  // maxSellableAge is checked on the delivery date, and delivery is next day at the earliest: the last
+  // order day is the day before the last delivery day (the API's sell window says which days those are).
+  const status =
+    (sellWindow && sellWindowText(sellWindow)) ??
+    (ageDays > maxSellableAge ? 'Too old to deliver' : left === 0 ? 'Last delivery day today' : `${left} more ${left === 1 ? 'day' : 'days'} it can be delivered`)
   const current = windows?.find((w) => ageDays >= w.minAge && ageDays <= w.maxAge)?.stage ?? null
   const ticks = Array.from({ length: end + 1 }, (_, d) => d)
   const tickEvery = end > 14 ? 2 : 1
@@ -214,7 +221,7 @@ export function RipenessTimeline({
           </span>
         )}
         <span className="ripeline-past" style={{ left: pos(maxSellableAge + 1), width: width(maxSellableAge + 1, end) }}>
-          <span className="ripeline-seg-label">Past sell-by</span>
+          <span className="ripeline-seg-label">Too old</span>
         </span>
         <span className="ripeline-limit" style={{ left: pos(maxSellableAge + 1) }} />
         <span className="ripeline-now" style={{ left: `calc(${pos(ageDays)} + ${(0.5 / end) * 100}%)` }}>
@@ -231,7 +238,7 @@ export function RipenessTimeline({
         )}
       </div>
       <p className="sr-only">
-        Picked {ageDays} {ageDays === 1 ? 'day' : 'days'} ago. Sold up to day {maxSellableAge}.
+        Picked {ageDays} {ageDays === 1 ? 'day' : 'days'} ago. Delivered up to day {maxSellableAge}, ordered up to the day before.
         {windows?.map((w) => ` ${RIPENESS_LABEL[w.stage]}: days ${w.minAge} to ${w.maxAge}.`)}
       </p>
     </figure>

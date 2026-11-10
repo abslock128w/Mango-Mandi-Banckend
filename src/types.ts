@@ -136,13 +136,13 @@ export interface ProductInput {
 export interface Summary {
   orders: Partial<Record<OrderStatus, number>>
   openClaims: number
-  batchesNearLimit: { id: string; variety: string; ageDays: number; available: number }[]
+  batchesNearLimit: { id: string; variety: string; ageDays: number; available: number; lastDeliveryDay?: string; lastOrderDay?: string }[]
   lowStock: { sku: string; productName: string; available: number }[]
   /** Open orders the stock engine could not keep whole. Ops must act on these. */
   atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null; backorder?: boolean }[]
   /** Paid orders past their delivery date, or out for delivery too long (INV-G). */
   overdueOrders?: OverdueOrder[]
-  /** Batches this many days old or older are past the sell limit (the live rule). */
+  /** The oldest a box may be on its delivery date (the live rule); older batches can't be delivered. */
   maxSellableAge?: number
 }
 
@@ -161,6 +161,9 @@ export interface BatchListItem {
   variety: string
   pluckedOn: string
   ageDays: number
+  /** The last day it can be delivered, and the last day it can be ordered (the day before). */
+  lastDeliveryDay?: string
+  lastOrderDay?: string
   farm: string | null
   status: BatchStatus
   latestRating: Ripeness | null
@@ -201,6 +204,9 @@ export interface BatchDetail {
   variety: string
   pluckedOn: string
   ageDays: number
+  /** The last day it can be delivered, and the last day it can be ordered (the day before). */
+  lastDeliveryDay?: string
+  lastOrderDay?: string
   farm: string | null
   status: BatchStatus
   createdAt?: string

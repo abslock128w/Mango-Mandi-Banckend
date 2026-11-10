@@ -9,7 +9,8 @@ import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { BulkMoveResult, CalendarDay, CoverageDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
-const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
+// The stages sold (the API's SALE_STAGES). Nothing is sold ripe; a QC reading may still say ripe.
+const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE']
 
 export default function Planning() {
   usePageTitle('Planning')
@@ -722,8 +723,12 @@ function SlotDialog({ slot, onClose, onDone }: { slot: DeliverySlot | null; onCl
 
 const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'cutoffHourIST', label: 'Order cutoff (hour, IST)', hint: 'Orders before this hour deliver the next day; later ones the day after.' },
-  { key: 'maxSellableAge', label: 'Oldest age sold (days)', hint: 'Checked on the delivery date. Day of pluck is age 0.' },
-  { key: 'retireAge', label: 'Retire batches at age (days)', hint: 'Must be more than the oldest age sold.' },
+  {
+    key: 'maxSellableAge',
+    label: 'Oldest age delivered (days)',
+    hint: 'Checked on the delivery date; day of pluck is age 0. Delivery is next day at the earliest, so a batch can be ordered until the day before it reaches this age.',
+  },
+  { key: 'retireAge', label: 'Retire batches at age (days)', hint: 'Must be more than the oldest age delivered.' },
   { key: 'maxDaysAhead', label: 'Days customers can book ahead', hint: 'Counted from the earliest delivery date.' },
   { key: 'holdMinutes', label: 'Checkout hold (minutes)', hint: 'Unpaid orders are cancelled after this.' },
   { key: 'maxUnpaidOrders', label: 'Unpaid orders per customer', hint: 'A customer must pay or cancel before placing another.' },
@@ -816,7 +821,8 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
   )
   const [seasonEndsOn, setSeasonEndsOn] = useState(rules.seasonEndsOn ?? '')
   const [windows, setWindows] = useState(() =>
-    rules.stageProfiles.default.map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
+    // An older rules version may still have a Ripe window; it can't be saved any more, so it isn't offered.
+    rules.stageProfiles.default.filter((w) => STAGES.includes(w.stage)).map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
   )
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -951,7 +957,7 @@ function ForecastBody({ f }: { f: StockForecast }) {
         A suggestion for {date(f.dates[0])} to {date(f.dates.at(-1))}; it changes no stock. Expected sales are the average sold on the same weekday
         over the last {r.historyWeeks} weeks, leaving out days with no stock at that ripeness and closed days (at least {r.minHistoryDays} days are
         needed). Paid orders and Book ahead bookings are added, current batches are used oldest first at the ripeness they will have on each day
-        (sold up to {r.maxSellableAge} days after picking), and expected waste comes from damage and replaced claims in the last {r.wasteWindowDays} days.
+        (delivered up to {r.maxSellableAge} days after picking), and expected waste comes from damage and replaced claims in the last {r.wasteWindowDays} days.
       </p>
       {f.varieties.length === 0 ? (
         <EmptyState>No products on sale.</EmptyState>

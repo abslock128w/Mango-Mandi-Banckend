@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig } from '../config.js'
+import { sellWindow } from '../delivery.js'
 import { env } from '../env.js'
 import { query, tx } from '../db.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
@@ -56,7 +57,7 @@ router.get(
     const today = todayIST()
     res.json(
       rows.map((b) => ({
-        id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(today, b.plucked_on), farm: b.farm,
+        id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(today, b.plucked_on), ...sellWindow(b.plucked_on), farm: b.farm,
         status: b.status, latestRating: b.ripeness_rating ?? null, latestCondition: b.condition ?? null,
         onHand: b.on_hand, held: b.held, committed: b.committed, available: b.available,
       })),
@@ -79,7 +80,7 @@ async function batchDetail(c, batchId) {
     c.query('SELECT * FROM batch_qc WHERE batch_id = $1 ORDER BY logged_at DESC', [batchId]),
   ])
   return {
-    id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(todayIST(), b.plucked_on), farm: b.farm,
+    id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(todayIST(), b.plucked_on), ...sellWindow(b.plucked_on), farm: b.farm,
     status: b.status, etaDate: b.eta_date, arrivedAt: b.arrived_at, createdAt: b.created_at,
     // The QR printed on each box opens this page in the shop.
     lines: lines.rows.map((l) => ({

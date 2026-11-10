@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CircleCheck, Sunrise } from 'lucide-react'
 import { api } from '../api'
-import { ORDER_STATUS_LABEL, count, date, istDate, istTime, rupeesCompact } from '../format'
+import { ORDER_STATUS_LABEL, count, date, istDate, istTime, rupeesCompact, sellWindowText } from '../format'
 import type { Analytics, AnalyticsWeek, OrderStatus } from '../types'
 import NeedsAttention, { attentionQuery } from './NeedsAttention'
 import { useDeliveryToasts } from '../LiveProof'
@@ -75,7 +75,7 @@ export default function Today() {
   // in, so nothing on screen moves.
   if (q.isPending) return <TodayLoading />
   const s = q.data
-  // Batches this old are past the sell limit: the API no longer sells them.
+  // Batches this old on a delivery date can't be delivered; with next-day delivery, one this old today can no longer be ordered.
   const maxAge = s.maxSellableAge ?? DEFAULT_MAX_SELLABLE_AGE
   // Only the first answer is waited for: a query that failed is pending again while it is
   // asked again, and hiding Needs attention then would remount it and ask again, forever.
@@ -243,21 +243,22 @@ export default function Today() {
         <div className="grid-2 grid-even">
           <section className="card">
             <div className="section-head topbar">
-              <h2>Batches nearing sell limit</h2>
+              <h2>Batches near their last order day</h2>
               <span className="spacer" />
               <Link to="/batches" className="block-link">
                 Batches<span aria-hidden="true"> →</span>
               </Link>
             </div>
             {s.batchesNearLimit.length === 0 ? (
-              <EmptyState>No batches are 5 or more days old.</EmptyState>
+              <EmptyState>No batches are near their last order day.</EmptyState>
             ) : (
-              <div {...scrollRegion('Batches nearing sell limit')}>
+              <div {...scrollRegion('Batches near their last order day')}>
                 <table>
                   <thead>
                     <tr>
                       <th>Variety</th>
                       <th className="num">Age</th>
+                      <th>Delivery and order days</th>
                       <th className="num">Available</th>
                     </tr>
                   </thead>
@@ -275,10 +276,11 @@ export default function Today() {
                             <span>
                               {b.ageDays >= maxAge && <span aria-hidden="true">⚠ </span>}
                               {b.ageDays} days
-                              {b.ageDays >= maxAge && <span className="sr-only"> (past sell limit)</span>}
+                              {b.ageDays >= maxAge && <span className="sr-only"> (can no longer be ordered)</span>}
                             </span>
                           </span>
                         </td>
+                        <td>{sellWindowText(b) ?? '—'}</td>
                         <td className="num">{b.available}</td>
                       </LinkRow>
                     ))}
@@ -631,7 +633,7 @@ function LiveRow({ live, day, nowMs, stock }: { live: LiveBoard; day: DayPlan | 
             <Stat
               label="Stock health"
               value={stock.nearLimit + stock.low === 0 ? 'Healthy' : `${stock.nearLimit + stock.low} to watch`}
-              hint={`${stock.nearLimit} ${stock.nearLimit === 1 ? 'batch' : 'batches'} near the sell limit · ${stock.low} low ${stock.low === 1 ? 'SKU' : 'SKUs'}`}
+              hint={`${stock.nearLimit} ${stock.nearLimit === 1 ? 'batch' : 'batches'} near their last order day · ${stock.low} low ${stock.low === 1 ? 'SKU' : 'SKUs'}`}
               to="/batches"
               tone={stock.nearLimit + stock.low ? 'warn' : undefined}
             />

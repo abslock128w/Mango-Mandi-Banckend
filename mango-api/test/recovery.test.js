@@ -75,7 +75,7 @@ function stubRazorpay(handler) {
 
 async function paidOrder(paymentId) {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })).body.result, 'confirmed')
   await query('UPDATE orders SET payment_id = $2 WHERE id = $1', [c.body.orderId, paymentId])

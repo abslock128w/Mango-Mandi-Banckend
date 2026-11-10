@@ -24,7 +24,7 @@ test('30 buyers racing for 10 boxes across two batches: exactly 10 win, nothing 
   // Quotes first (they don't hold stock), then every confirm at once.
   const quotes = []
   for (const token of buyers) {
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
     quotes.push((await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })).body.quoteId)
   }
   const results = await Promise.all(
@@ -44,7 +44,7 @@ test('a retried confirm with the same key never creates a second order', async (
   const api = client(srv.base)
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'BAD-3': 5 } })
   const { accessToken: token, customer } = await customerToken(api)
-  await api.post('/v1/cart/items', { sku: 'BAD-3', stage: 'RIPE', qty: 1 }, { token })
+  await api.post('/v1/cart/items', { sku: 'BAD-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
   const quoteId = (await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })).body.quoteId
   const send = () => api.post('/v1/checkout/confirm', { quoteId, address: '12, 4th Cross, Koramangala' }, { token, headers: { 'Idempotency-Key': 'same' } })
   const tries = await Promise.all([1, 2, 3, 4, 5].map(send))

@@ -18,6 +18,7 @@ import { HttpError } from '../errors.js'
 import { newId } from '../ids.js'
 import { ledger, lineInfo, lockLines, pack, release, sellableAs } from '../inventory.js'
 import { logger } from '../logger.js'
+import { keepsPromise } from '../stage.js'
 import { addEvent, assertTransition, lockOrder, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { hit } from '../ratelimit.js'
 import { formatBoxCode, parseScan } from './codes.js'
@@ -435,14 +436,21 @@ const HANDLERS = {
     const info = await lineInfo(c, box.line_id)
     const st = sellableAs(info, o.delivery_date, getConfig(), { existing: true })
     if (!st || box.best_before < o.delivery_date) reject('EXPIRED', `${formatBoxCode(box.code)} is too old for delivery on ${o.delivery_date}. Pick a younger box.`)
-    const item = items.find((i) => i.stage === st.stage)
-    if (!item) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
+    // The same ripeness first; a line bought as RIPE (no longer sold) takes a box that is SEMI_RIPE on the day.
+    const matching = items.filter((i) => keepsPromise(i.stage, st.stage)).sort((a, b) => (b.stage === st.stage) - (a.stage === st.stage))
+    if (!matching.length) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
     // The order's reserved units for this product and ripeness, oldest batch first (FEFO).
-    const rows = (await c.query(
-      `SELECT s.*, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
-        WHERE s.order_id = $1 AND s.sku = $2 AND s.stage = $3 AND s.state = 'committed' ORDER BY b.plucked_on, s.id`,
-      [o.id, box.sku, st.stage],
-    )).rows
+    let item = matching[0]
+    let rows = []
+    for (const i of matching) {
+      rows = (await c.query(
+        `SELECT s.*, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
+          WHERE s.order_id = $1 AND s.sku = $2 AND s.stage = $3 AND s.state = 'committed' ORDER BY b.plucked_on, s.id`,
+        [o.id, box.sku, i.stage],
+      )).rows
+      item = i
+      if (rows.length) break
+    }
     if (!rows.length) reject('LINE_ALREADY_FULFILLED', `Order ${o.number} already has all its ${box.sku_name} (${st.stage.toLowerCase()}).`)
     let row = rows.find((r) => r.line_id === box.line_id)
     let warning = null
@@ -464,7 +472,7 @@ const HANDLERS = {
       const id = newId('ost')
       await c.query(
         `INSERT INTO order_stock (id, order_id, batch_id, line_id, sku, stage, quantity, state) VALUES ($1, $2, $3, $4, $5, $6, 1, 'committed')`,
-        [id, o.id, box.batch_id, box.line_id, box.sku, st.stage],
+        [id, o.id, box.batch_id, box.line_id, box.sku, item.stage],
       )
       await ledger(c, { batchId: box.batch_id, eventType: 'COMMIT', sku: box.sku, delta: 1, actorType: who.actor.type, actorId: who.actor.id, reason: `${o.number}: picked out of order (${reason})` })
       await release(c, expected, who.actor, `${o.number}: another batch picked instead (${reason})`, 1)

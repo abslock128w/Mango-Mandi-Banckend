@@ -24,7 +24,7 @@ beforeEach(async () => {
 
 async function paidOrder(qty = 1, opts = {}) {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }], opts)
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }], opts)
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
   return { id: c.body.orderId, date: c.body.deliveryDate, cust }
@@ -252,7 +252,7 @@ describe('a waitlist spot gets a link that lasts as long as the spot (PAY-01)', 
     while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
     await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: manager })
     const book = (token, extra = {}) =>
-      api.post('/v1/preorders', { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+      api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
         { token, headers: { 'Idempotency-Key': newId('idem') } })
 
     const links = []

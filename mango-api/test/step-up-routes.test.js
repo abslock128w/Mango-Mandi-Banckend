@@ -47,7 +47,7 @@ const staffId = async (email) => (await one('SELECT id FROM admin_users WHERE em
 async function paidOrder() {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })).body.result, 'confirmed')
   return c.body.orderId
@@ -60,7 +60,7 @@ async function paidBooking() {
   const cust = await customerToken(api)
   const b = await api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
     { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
   )
   assert.equal(b.status, 201, JSON.stringify(b.body))
@@ -80,7 +80,7 @@ async function batchWithPurchase() {
 
 const BULK = {
   sku: 'ALP-3', title: 'Alphonso for offices', description: 'Hand-picked Ratnagiri Alphonso in 3 kg boxes, for offices and events.',
-  origin: 'Ratnagiri, Maharashtra', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
+  origin: 'Ratnagiri, Maharashtra', stages: ['SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
 }
 
 /**
@@ -225,7 +225,7 @@ describe('requests on those routes that move no money do not ask', () => {
   test('an unpaid cancel, a renamed product, a bulk deal\'s title and an unpaid booking', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await api.post(`/admin/v1/orders/${c.body.orderId}/cancel`, { reason: 'customer rang' }, { token: manager })).status, 204)
     const renamed = await api.patch('/admin/v1/products/ALP-3', { name: 'Alphonso Premium 3kg', price: 189_900 }, { token: manager })
     assert.equal(renamed.status, 200, 'the same price is not a price change')

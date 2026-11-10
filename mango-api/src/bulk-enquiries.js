@@ -17,7 +17,7 @@ import { notify as notifyEvent } from './events.js'
 import { newId } from './ids.js'
 import { findProduct, productName } from './products.js'
 import { enqueueLinkPush } from './push.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES, STAGES } from './stage.js'
 
 export const BULK_STATUSES = ['NEW', 'QUOTED', 'ACCEPTED', 'DECLINED', 'CLOSED']
 /** The smallest enquiry, in kg: below it the shop's ordinary checkout takes the order. */
@@ -58,7 +58,7 @@ export const enquiryBody = z
       .array(
         z.object({
           sku: z.string().trim().min(1).max(64),
-          stage: z.enum(STAGES),
+          stage: z.enum(SALE_STAGES),
           boxes: z.coerce.number().int().min(1).max(5000),
           // Sent by the shop for the record; worked out again here from the box size.
           kg: z.coerce.number().min(0).max(100_000).optional(),

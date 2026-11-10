@@ -48,7 +48,7 @@ beforeEach(async () => {
 async function packedOrder({ assign = true } = {}) {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
   const cust = await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   const id = o.body.orderId
@@ -95,7 +95,7 @@ describe('pickup', () => {
     assert.equal(second.status, 200)
     assert.equal(second.body.already, true)
     assert.equal(second.body.messages.length, 2)
-    const n = await query("SELECT kind, COUNT(*)::int AS n FROM notifications WHERE order_id = $1 AND kind <> 'ORDER_CONFIRMED' GROUP BY kind ORDER BY kind", [id])
+    const n = await query("SELECT kind, COUNT(*)::int AS n FROM notifications WHERE order_id = $1 AND kind NOT IN ('ORDER_CONFIRMED', 'RIPENESS_GUIDE') GROUP BY kind ORDER BY kind", [id])
     assert.deepEqual(n.rows.map((r) => [r.kind, r.n]), [['DELIVERY_CODE', 1], ['OUT_FOR_DELIVERY', 1]])
     const events = await query("SELECT COUNT(*)::int AS n FROM order_events WHERE order_id = $1 AND status = 'OUT_FOR_DELIVERY' AND from_status <> status", [id])
     assert.equal(events.rows[0].n, 1)
@@ -280,13 +280,14 @@ describe('delivery code and verdict rules (units)', () => {
     const r = await pickup(id)
     assert.equal(r.status, 200)
     // The log sender ran inside pickup: the stored ids and the guard.
-    const rows = (await query("SELECT kind, status, provider_id, last_error FROM notifications WHERE order_id = $1 AND kind <> 'ORDER_CONFIRMED' ORDER BY kind", [id])).rows
+    const rows = (await query("SELECT kind, status, provider_id, last_error FROM notifications WHERE order_id = $1 AND kind NOT IN ('ORDER_CONFIRMED', 'RIPENESS_GUIDE') ORDER BY kind", [id])).rows
     assert.deepEqual(rows.map((x) => [x.kind, x.status]), [['DELIVERY_CODE', 'SENT'], ['OUT_FOR_DELIVERY', 'SKIPPED']])
     assert.match(rows[1].last_error, /older version without the Track order button/)
     assert.equal(rows[0].provider_id, 'log')
     await sendDueNotifications({ sender: async (m) => (sent.push(m), 'wamid.y') })
-    // Nothing is sent twice by the outbox afterwards (only the earlier order confirmation was still due).
-    assert.deepEqual(sent.map((m) => m.template), ['mandi_order_confirmed'])
+    // Nothing is sent twice by the outbox afterwards (only the earlier order confirmation and the
+    // semi-ripe box's ripeness guide were still due).
+    assert.deepEqual(sent.map((m) => m.template).sort(), ['mandi_order_confirmed', 'mandi_ripeness_guide'])
   })
 })
 
@@ -460,7 +461,7 @@ describe('demo payments (DEMO_PAYMENTS)', () => {
   test('the customer pays their own order with the test button; others and switched-off deploys get 404', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(o.status, 201, JSON.stringify(o.body))
     const other = await customerToken(api)
     assert.equal((await api.post(`/v1/orders/${o.body.orderId}/demo-pay`, { outcome: 'captured' }, { token: other.accessToken })).status, 404)

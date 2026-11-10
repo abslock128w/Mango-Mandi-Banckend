@@ -37,7 +37,7 @@ const send = (body, opts = {}) => api.post('/v1/bulk-enquiries', body, { ...idem
 
 describe('bulk enquiries from the shop', () => {
   test('anonymous, from a bulk list: numbered, kg from the box sizes, phone normalised, "we got it" queued', async () => {
-    const r = await send({ ...FORM, lines: [{ sku: 'ALP-3', stage: 'RIPE', boxes: 40, kg: 120 }] })
+    const r = await send({ ...FORM, lines: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', boxes: 40, kg: 120 }] })
     assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.match(r.body.number, /^BLK-\d{4}$/)
     assert.equal(r.body.status, 'NEW')
@@ -45,7 +45,7 @@ describe('bulk enquiries from the shop', () => {
     assert.equal(row.phone, '+919876543210')
     assert.equal(row.customer_id, null)
     assert.equal(row.quantity_kg, 120)
-    assert.deepEqual(row.lines, [{ sku: 'ALP-3', stage: 'RIPE', boxes: 40, kg: 120 }])
+    assert.deepEqual(row.lines, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', boxes: 40, kg: 120 }])
     const n = (await query('SELECT * FROM notifications WHERE bulk_enquiry_id = $1', [r.body.id])).rows
     assert.deepEqual(n.map((x) => x.kind), ['BULK_ENQUIRY_RECEIVED'])
     assert.deepEqual(paramsFor(n[0]), ['Asha Rao', r.body.number, '120 kg (40 boxes)'])
@@ -54,7 +54,7 @@ describe('bulk enquiries from the shop', () => {
   test('a typed quantity must be over 100 kg; unknown boxes and bad phones are refused', async () => {
     assert.equal((await send({ ...FORM, quantityKg: 100 })).body.error.code, 'BULK_TOO_SMALL')
     assert.equal((await send({ ...FORM, quantityKg: 150, ripeness: 'A mix' })).status, 201)
-    assert.equal((await send({ ...FORM, lines: [{ sku: 'NOPE', stage: 'RIPE', boxes: 50 }] })).status, 400)
+    assert.equal((await send({ ...FORM, lines: [{ sku: 'NOPE', stage: 'SEMI_RIPE', boxes: 50 }] })).status, 400)
     assert.equal((await send({ ...FORM, phone: '12345', quantityKg: 150 })).status, 400)
   })
 
@@ -101,7 +101,7 @@ describe('bulk enquiries from the shop', () => {
 describe('quotes', () => {
   test('staff quote with extras: totals worked out on the server, BULK_QUOTE queued with the link, seen, accept', async () => {
     const cust = await customerToken(api, '9833333333')
-    const e = (await send({ ...FORM, phone: '9833333333', lines: [{ sku: 'ALP-3', stage: 'RIPE', boxes: 40 }] }, { ...idem(), token: cust.accessToken })).body
+    const e = (await send({ ...FORM, phone: '9833333333', lines: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', boxes: 40 }] }, { ...idem(), token: cust.accessToken })).body
 
     const list = await api.get('/admin/v1/bulk-enquiries?status=NEW', { token: manager })
     assert.equal(list.status, 200)
@@ -114,7 +114,7 @@ describe('quotes', () => {
     assert.equal((await api.get('/admin/v1/bulk-enquiries?q=33333', { token: manager })).body.items.length, 1)
 
     const q = await api.post(`/admin/v1/bulk-enquiries/${e.id}/quote`, {
-      lines: [{ label: 'Alphonso 3kg Box · Ripe', sku: 'ALP-3', stage: 'RIPE', qty: 40, unitPrice: 120_000 }],
+      lines: [{ label: 'Alphonso 3kg Box · Ripe', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 40, unitPrice: 120_000 }],
       extras: [{ label: 'Special packaging', amount: 50_000 }],
       note: 'Delivered in two trips', validUntil: '2099-01-01',
       // A total from the panel is not accepted: the server works it out.

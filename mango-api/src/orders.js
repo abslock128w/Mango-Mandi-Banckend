@@ -21,6 +21,7 @@ import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { addLogContext } from './log-context.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { keepsPromise, saleStage } from './stage.js'
 import { enqueue, enqueueForEvent } from './notify.js'
 import { recordPaid } from './funnel.js'
 import { enqueueOrderPush, noRetryPush } from './push.js'
@@ -284,7 +285,8 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) {
     const info = await lineInfo(c, row.line_id)
     const ok = sellableAs(info, o.delivery_date, cfg, { existing: true })
-    if (ok && ok.stage === row.stage) continue
+    // Boxes promised as RIPE stay valid where the batch is SEMI_RIPE on the day (RIPE is no longer sold).
+    if (ok && keepsPromise(row.stage, ok.stage)) continue
     const got = swappable
       ? await allocate(c, {
           orderId: o.id, orderNumber: o.number, deliveryDate: o.delivery_date, sku: row.sku, stage: row.stage,
@@ -504,7 +506,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // Checkpoint 3: payment confirmation. Commit the holds that are still valid.
   for (const row of await stockRows(c, o.id, ['held'])) {
     const ok = sellableAs(await lineInfo(c, row.line_id), o.delivery_date, getConfig(), { existing: true })
-    if (ok && ok.stage === row.stage) await commitHeld(c, row, actor, o.number)
+    if (ok && keepsPromise(row.stage, ok.stage)) await commitHeld(c, row, actor, o.number)
     else await release(c, row, actor, `Revalidate ${o.number}`)
   }
   const earliest = await earliestDeliveryDate(c)
@@ -1123,7 +1125,8 @@ export async function rebalanceBatchOrders(c, batchIds, actor = SYSTEM) {
 export async function createReplacement(c, claim, original, actor) {
   const items = await orderItems(c, original.id)
   const wanted = claim.affected_items?.length ? items.filter((i) => claim.affected_items.includes(i.sku)) : items
-  const lines = (wanted.length ? wanted : items).map((i) => ({ sku: i.sku, stage: i.stage ?? 'RIPE', qty: i.quantity, unitPrice: 0 }))
+  // A new sale: an item bought as RIPE (no longer sold) is replaced with semi-ripe boxes.
+  const lines = (wanted.length ? wanted : items).map((i) => ({ sku: i.sku, stage: saleStage(i.stage ?? 'SEMI_RIPE'), qty: i.quantity, unitPrice: 0 }))
   const dates = await orderableDates(c)
   const tryDates = dates.length ? dates : [await earliestDeliveryDate(c)]
   // OPS-04: a full or closed day moves the replacement to the next day with room, as a retry does.

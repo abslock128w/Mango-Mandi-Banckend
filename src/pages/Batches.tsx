@@ -47,7 +47,7 @@ export default function Batches() {
     <>
       <div className="topbar">
         <h1>Batches</h1>
-        <p className="page-sub">Stock by picking batch. The strip shows each batch's age against the {maxAge}-day sell limit.</p>
+        <p className="page-sub">Stock by picking batch. The strip shows each batch's age against the {maxAge}-day limit on its delivery date; it can be ordered until the day before.</p>
         <span className="spacer" />
         <button type="button" className="btn btn-primary" onClick={() => setReceiving(true)}>
           Receive batch
@@ -97,6 +97,14 @@ export default function Batches() {
                   {b.ageDays}d
                 </span>
               ),
+            },
+            {
+              key: 'orderBy',
+              header: 'Last order day',
+              // The API's sell window: the day before the last delivery day (delivery is next day at the earliest).
+              sort: (a, b) => (a.lastOrderDay ?? '').localeCompare(b.lastOrderDay ?? ''),
+              cell: (b) =>
+                !b.lastOrderDay || ['EXHAUSTED', 'CONDEMNED'].includes(b.status) ? '—' : b.lastOrderDay < istDate() ? <span className="text-danger">Passed</span> : b.lastOrderDay === istDate() ? <span className="text-warn">Today</span> : date(b.lastOrderDay),
             },
             { key: 'status', header: 'Status', card: 'status', sort: (a, b) => BATCH_STATUS_LABEL[a.status].localeCompare(BATCH_STATUS_LABEL[b.status]), cell: (b) => <BatchBadge status={b.status} /> },
             {

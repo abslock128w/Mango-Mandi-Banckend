@@ -11,7 +11,7 @@ import { rebalanceAllOpen } from '../src/maintenance.js'
 // T0 is 10:00 IST on 2026-10-15: the earliest day is 10-16, a backorder's 10-17 (today + 2).
 const TOO_SOON = '2026-10-16'
 const EARLIEST = '2026-10-17'
-const BOX = { sku: 'ALP-3', stage: 'RIPE', qty: 2 }
+const BOX = { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }
 
 let srv
 let api

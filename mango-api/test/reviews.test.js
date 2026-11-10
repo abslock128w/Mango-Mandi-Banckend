@@ -59,7 +59,7 @@ const later = (ms) => setNow(new Date(now().getTime() + ms).toISOString())
 const key = () => `k-${newId('t')}`
 
 /** A paid order for a new customer, marked delivered now. Returns ids and the token. */
-async function deliveredOrder({ items = [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], name = 'Asha Rao', deliver = true } = {}) {
+async function deliveredOrder({ items = [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], name = 'Asha Rao', deliver = true } = {}) {
   await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 30, 'ALP-5': 30 } })
   const cust = await customerToken(api)
   if (name) await query('UPDATE customers SET name = $2 WHERE id = $1', [cust.customer?.id ?? (await idOf(cust)), name])
@@ -136,7 +136,7 @@ describe('who can review what, and when', () => {
   test('a gift order is reviewed by the buyer; ratings outside 1 to 5 and long comments are refused', async () => {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     const c = await api.post(
       '/v1/checkout/confirm',
@@ -157,7 +157,7 @@ describe('who can review what, and when', () => {
   })
 
   test('my reviews and the items I can still review', async () => {
-    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'RIPE', qty: 1 }] })
+    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }] })
     let mine = await api.get('/v1/me/reviews', { token: o.token })
     assert.equal(mine.status, 200)
     assert.equal(mine.body.reviewable.length, 2)
@@ -212,7 +212,7 @@ describe('sending safely', () => {
 
 describe('moderation', () => {
   test('text with links, phone numbers, emails or swearing is flagged and stays pending', async () => {
-    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'RIPE', qty: 1 }] })
+    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }] })
     const a = await send(o.token, { orderItemId: o.items[0].id, rating: 5, comment: 'Cheaper at www.example.com, call 98450 12345 or mail me@x.com' })
     assert.equal(a.body.review.status, 'PENDING')
     const row = (await query('SELECT flagged, flag_reasons FROM reviews WHERE id = $1', [a.body.review.id])).rows[0]
@@ -380,7 +380,7 @@ describe('the public list', () => {
     assert.equal(item.displayName, 'Ravi K.')
     assert.equal(item.verifiedPurchase, true)
     assert.equal(item.variety, 'Alphonso')
-    assert.equal(item.ripenessOrdered, 'RIPE')
+    assert.equal(item.ripenessOrdered, 'SEMI_RIPE')
     const json = JSON.stringify(page1.body)
     for (const leak of ['orderId', 'order_id', 'orderNumber', 'customerId', 'customer_id', 'phone', 'email', 'address', '+91', 'Koramangala', 'Kumar']) {
       assert.ok(!json.includes(leak), `public list leaks ${leak}`)
@@ -619,7 +619,7 @@ describe('privacy', () => {
 
 describe('low ratings', () => {
   test('1 or 2 stars point to a claim while the window is open, then to support; never a claim by itself', async () => {
-    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'RIPE', qty: 1 }] })
+    const o = await deliveredOrder({ items: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }] })
     const a = await send(o.token, { orderItemId: o.items[0].id, rating: 2, comment: 'Two were bruised' })
     assert.equal(a.body.followUp.type, 'CLAIM')
     assert.equal(a.body.followUp.orderId, o.orderId)

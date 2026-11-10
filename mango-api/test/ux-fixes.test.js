@@ -37,7 +37,7 @@ const move = (id, status) =>
 async function deliveredWithClaim() {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201)
   await query(`UPDATE orders SET customer_name = 'Ravi Kumar' WHERE id = $1`, [c.body.orderId])
   assert.equal((await pay(c.body.orderId)).status, 200)
@@ -107,7 +107,7 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
   test('the quote says how many minutes the boxes are held', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     assert.equal(q.status, 200)
     assert.equal(q.body.holdMinutes, 10)
@@ -163,13 +163,13 @@ describe('UX-7: order links in WhatsApp updates', () => {
   test('order updates carry the order button only once WHATSAPP_ORDER_LINKS is on', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(a.body.orderId)
     let confirmed = (await sent()).find((m) => m.template === 'mandi_order_confirmed')
     assert.equal(confirmed.urlParam, null, 'the approved templates have no button yet')
 
     env.WHATSAPP_ORDER_LINKS = true
-    const b = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const b = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(b.body.orderId)
     confirmed = (await sent()).find((m) => m.template === 'mandi_order_confirmed')
     assert.equal(confirmed.urlParam, b.body.orderId)
@@ -193,7 +193,7 @@ describe('ADM-1: order search by name and address', () => {
   test('a name or part of the address finds the order, as the number and phone do', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await query(`UPDATE orders SET customer_name = 'Ravi Kumar' WHERE id = $1`, [c.body.orderId])
     const find = async (q) => (await api.get(`/admin/v1/orders?q=${encodeURIComponent(q)}`, { token: admin })).body.items.map((o) => o.id)
     assert.deepEqual(await find('ravi'), [c.body.orderId])

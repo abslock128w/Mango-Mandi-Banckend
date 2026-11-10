@@ -20,7 +20,7 @@ describe('deleting an account', () => {
   test('not while an order is open; after that, personal details are gone but the order amounts stay', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api, '9876501234')
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(o.status, 201, JSON.stringify(o.body))
     const created = (await query('SELECT privacy_accepted_at FROM customers WHERE id = $1', [cust.customer.id])).rows[0]
     assert.ok(created.privacy_accepted_at)
@@ -31,7 +31,7 @@ describe('deleting an account', () => {
 
     // An unpaid order lapses; cancel it to finish it.
     assert.equal((await api.post(`/v1/orders/${o.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 2 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }, { token: cust.accessToken })
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
 
     const c = (await query('SELECT phone, name, email, deleted_at FROM customers WHERE id = $1', [cust.customer.id])).rows[0]

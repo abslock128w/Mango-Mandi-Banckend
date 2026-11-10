@@ -2,25 +2,31 @@
 // cached in memory; every order stores the version it was placed under.
 import { z } from 'zod'
 import { query, tx } from './db.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES, STAGES } from './stage.js'
 
-const window = z.object({
-  stage: z.enum(STAGES),
-  minAge: z.number().int().min(0),
-  maxAge: z.number().int().min(0),
-})
+/**
+ * One variety's ripeness windows by age. A manager may only save windows for the
+ * stages that are sold (SALE_STAGES: no RIPE window); older saved versions with a
+ * RIPE window still load (`STAGES`), so a rollback or the version history keeps working.
+ */
+const profileOf = (stages) =>
+  z
+    .array(
+      z.object({
+        stage: z.enum(stages, { message: `A window's ripeness must be ${stages.join(' or ')}` }),
+        minAge: z.number().int().min(0),
+        maxAge: z.number().int().min(0),
+      }),
+    )
+    .min(1)
+    .refine((p) => p.every((w) => w.minAge <= w.maxAge), 'minAge must be <= maxAge')
+    .refine((p) => p.every((w, i) => i === 0 || w.minAge > p[i - 1].maxAge), 'windows must be in age order without overlap')
+    .refine(
+      (p) => p.every((w, i) => i === 0 || STAGES.indexOf(w.stage) > STAGES.indexOf(p[i - 1].stage)),
+      `stages must run ${stages.join(' → ')}`,
+    )
 
-const profile = z
-  .array(window)
-  .min(1)
-  .refine((p) => p.every((w) => w.minAge <= w.maxAge), 'minAge must be <= maxAge')
-  .refine((p) => p.every((w, i) => i === 0 || w.minAge > p[i - 1].maxAge), 'windows must be in age order without overlap')
-  .refine(
-    (p) => p.every((w, i) => i === 0 || STAGES.indexOf(w.stage) > STAGES.indexOf(p[i - 1].stage)),
-    'stages must run RAW → SEMI_RIPE → RIPE',
-  )
-
-const rulesFields = z.object({
+const rulesFieldsFor = (stages) => z.object({
   maxSellableAge: z.number().int().min(1).max(30),
   retireAge: z.number().int().min(1).max(31),
   cutoffHourIST: z.number().int().min(0).max(23),
@@ -46,21 +52,27 @@ const rulesFields = z.object({
   // Live tracking (LIVE_TRACKING): the rough minutes a rider spends per stop, for the shop's
   // "N stops away, about M minutes". Older rule versions get the default.
   minutesPerStop: z.number().int().min(1).max(120).default(10),
-  stageProfiles: z.record(z.string(), profile).refine((p) => 'default' in p, 'a "default" profile is required'),
+  stageProfiles: z.record(z.string(), profileOf(stages)).refine((p) => 'default' in p, 'a "default" profile is required'),
 })
 const retireAfterSellable = [(r) => r.retireAge > r.maxSellableAge, { message: 'retireAge must be greater than maxSellableAge' }]
 
-/** What a manager may save: unknown keys are a typo and are refused. */
-export const rulesSchema = rulesFields.strict().refine(...retireAfterSellable)
+/** What a manager may save: unknown keys are a typo and are refused, and so is a RIPE window. */
+export const rulesSchema = rulesFieldsFor(SALE_STAGES).strict().refine(...retireAfterSellable)
 
 /**
  * What the API reads back. Unknown keys are dropped, not refused, so a rollback
  * to this release still starts after a newer release saved rules with keys this
- * one doesn't know (PLT-01). Missing keys take their defaults, as before.
+ * one doesn't know (PLT-01). Missing keys take their defaults, as before. Older
+ * versions with a RIPE window still load.
  */
-export const storedRulesSchema = rulesFields.strip().refine(...retireAfterSellable)
+export const storedRulesSchema = rulesFieldsFor(STAGES).strip().refine(...retireAfterSellable)
 
-/** Playbook defaults: raw at 3, semi-ripe 4–5, ripe 6–7, retired at 8. */
+/**
+ * Playbook defaults, by age on the delivery date (the day of pluck is age 0): a
+ * batch reaches the warehouse at 1 (transitDays), sells raw 1–3 and semi-ripe 4–7,
+ * and is spoilt, never sold, from 8 (retireAge). Nothing is sold as ripe.
+ * Migration 063 moves an existing database's live rules to these.
+ */
 export const DEFAULT_RULES = {
   maxSellableAge: 7,
   retireAge: 8,
@@ -70,7 +82,7 @@ export const DEFAULT_RULES = {
   quoteMinutes: 5,
   forecastConfidence: 0.85,
   maxQcShift: 1,
-  transitDays: 2,
+  transitDays: 1,
   nearLimitAge: 5,
   lowStockThreshold: 5,
   claimWindowHours: 24,
@@ -82,9 +94,8 @@ export const DEFAULT_RULES = {
   minutesPerStop: 10,
   stageProfiles: {
     default: [
-      { stage: 'RAW', minAge: 3, maxAge: 3 },
-      { stage: 'SEMI_RIPE', minAge: 4, maxAge: 5 },
-      { stage: 'RIPE', minAge: 6, maxAge: 7 },
+      { stage: 'RAW', minAge: 1, maxAge: 3 },
+      { stage: 'SEMI_RIPE', minAge: 4, maxAge: 7 },
     ],
   },
 }

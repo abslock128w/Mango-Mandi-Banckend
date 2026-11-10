@@ -24,7 +24,7 @@ import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js
 import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES, STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, cleanImage, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, photoWidth, sendPhoto, sendPublicPhoto, storePhoto } from './photos.js'
 import { customerReviews } from './review-routes.js'
@@ -374,7 +374,7 @@ router.get(
     const pool = byDate.get(date)
     const later = [...byDate].filter(([d]) => d !== date)
     const items = shopProducts().flatMap((p) =>
-      STAGES.map((stage) => {
+      SALE_STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
         const qty = pool.get(key) ?? 0
         return {
@@ -476,7 +476,7 @@ router.get(
       const p = sellable(w.sku)
       return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
     })
-    res.json({ weeks, stages: STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
+    res.json({ weeks, stages: SALE_STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
   }),
 )
 
@@ -554,7 +554,7 @@ router.get('/stock-alerts', asyncHandler(async (req, res) => res.json(await list
 router.post(
   '/stock-alerts',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ sku: z.string().min(1).max(20), stage: z.enum(STAGES), pincode: PIN }), req.body)
+    const b = parse(z.object({ sku: z.string().min(1).max(20), stage: z.enum(SALE_STAGES), pincode: PIN }), req.body)
     if (!(await serviceable({ query }, b.pincode))) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
     res.status(201).json(await tx((c) => createAlert(c, req.customer.id, b)))
   }),
@@ -826,6 +826,8 @@ router.post(
   '/cart/items',
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(0).max(20) }), req.body)
+    // A RIPE line from before RIPE stopped being sold can still be taken out of the cart (qty 0), not added.
+    if (b.qty > 0 && !SALE_STAGES.includes(b.stage)) throw badRequest('stage: Choose raw or semi-ripe', 'INVALID_STAGE')
     if (b.qty > 0 && !sellable(b.sku)) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
     if (b.qty === 0) {
       await query('DELETE FROM carts WHERE customer_id = $1 AND sku = $2 AND stage = $3', [req.customer.id, b.sku, b.stage])
@@ -870,6 +872,8 @@ router.post(
       if (!rows.length && !bulk.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
       const retail = rows.map((l) => {
         if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
+        // A line added as RIPE before RIPE stopped being sold.
+        if (!SALE_STAGES.includes(l.stage)) throw conflict(`${findProduct(l.sku).name} is no longer sold ripe. Remove it from your cart and choose raw or semi-ripe.`, 'STAGE_UNAVAILABLE')
         // Backorders: short on this day, the line is still sold (sourced for a day far enough out) unless backorders are off.
         const short = (pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty
         if (short && !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
@@ -1398,7 +1402,7 @@ router.post(
     if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
     const b = parse(
       z.object({
-        sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(1).max(20),
+        sku: z.string().min(1), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
         weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), pincode: PIN,
         address: z.string().trim().min(10, 'Enter the full delivery address').max(500), name: z.string().trim().max(80).optional(),
         slotId: z.string().max(64).optional().nullable(), waitlist: z.boolean().optional(),
