@@ -38,6 +38,8 @@ export interface Me {
     partnerNetwork?: boolean
     /** Bulk enquiries (BULK_ENQUIRIES, mango-api README). On unless the API says false. */
     bulkEnquiries?: boolean
+    /** Farm Experience (docs/farm-experience.md): Bulk Orders → Farm Experience Bookings and its pages. */
+    farmExperience?: boolean
   }
 }
 

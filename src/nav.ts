@@ -4,7 +4,9 @@
 
 import {
   BarChart3,
+  BedDouble,
   Boxes,
+  CalendarDays,
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
@@ -29,15 +31,18 @@ import {
   ScanLine,
   ShieldAlert,
   ShoppingBag,
+  SlidersHorizontal,
   Sprout,
   Star,
   Tag,
   Tags,
+  Tractor,
   Truck,
   Users,
   Warehouse,
   Wheat,
   FileBarChart,
+  FileSpreadsheet,
   FolderKanban,
   Inbox,
   Layers,
@@ -123,6 +128,27 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
   },
 ]
 
+/**
+ * Farm Experience (docs/farm-experience.md): while its switch is on, Bulk Orders holds the regular
+ * Bulk Deals and the farm visit pages; while it is off, the menu is as it was (Bulk Deals under Admin).
+ */
+const BULK_ORDERS: Entry[] = [
+  ['/bulk-deals', 'Bulk Deals', 'bulkDeals', HandCoins, 'wholesale listings'],
+  ['/farm/bookings', 'Farm Experience Bookings', 'farmExperience', Tractor, 'farm visit bookings'],
+  ['/farm/check-in', 'Farm check-in', 'farmExperience', QrCode, 'farm visit arrive code'],
+  ['/farm/calendar', 'Farm calendar', 'farmExperience', CalendarDays, 'farm open days visits'],
+  ['/farm/harvest', 'Harvest stock', 'farmExperience', Wheat, 'farm varieties price kg'],
+  ['/farm/rooms', 'Farmhouse rooms', 'farmExperience', BedDouble, 'farm stay'],
+  ['/farm/settings', 'Farm settings', 'farmExperience', SlidersHorizontal, 'farm details policies'],
+  ['/farm/reports', 'Farm reports', 'farmReports', FileSpreadsheet, 'farm revenue no-shows refunds'],
+]
+function withBulkOrders(me: Me | null | undefined) {
+  if (!me?.features?.farmExperience) return GROUPS
+  const groups = GROUPS.map((g) => (g.id === 'admin' ? { ...g, links: g.links.filter(([to]) => to !== '/bulk-deals') } : g))
+  groups.splice(groups.length - 1, 0, { id: 'bulk', label: 'Bulk Orders', links: BULK_ORDERS })
+  return groups
+}
+
 const WH_ICONS: Record<string, LucideIcon> = {
   '/warehouse': Warehouse,
   '/warehouse/receive': PackagePlus,
@@ -149,12 +175,14 @@ function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'partnerNetwork') return me?.features?.partnerNetwork !== false
   // On unless the API says it is off (BULK_ENQUIRIES).
   if (screen === 'bulkEnquiries') return me?.features?.bulkEnquiries !== false
+  // Off unless the API says it is on (FARM_EXPERIENCE).
+  if (screen === 'farmExperience' || screen === 'farmReports') return !!me?.features?.farmExperience
   return true
 }
 
 /** The groups this person sees, in order; empty groups are left out. */
 export function navGroups(me: Me | null | undefined): NavGroup[] {
-  const shown: NavGroup[] = GROUPS.map((g) => ({
+  const shown: NavGroup[] = withBulkOrders(me).map((g) => ({
     id: g.id,
     label: g.label,
     links: g.links
