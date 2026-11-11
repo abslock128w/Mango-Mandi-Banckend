@@ -11,10 +11,12 @@ shows no farm card or pages, the panel shows no farm screens, and every farm rou
 404 (`FEATURE_OFF`). Turning it on still shows nothing bookable until a manager fills in the
 farm settings and presses **Open bookings**.
 
-**Shop pages:** the API, database and panel are in this repo. The customer pages (the Farm
-Experience page, the six-step booking and the booking page with its bill and Pay button) were
-written for the retired `customer-app/` and are still to be built in `shop/`; until then keep
-`FARM_EXPERIENCE` off outside testing, because customers have nowhere to book or pay.
+**Shop pages:** `shop/farm.js` holds the customer pages: the farm card on `/bulk`, `/farm-experience`
+(the page about the visit), `/farm-experience/book` (six steps: variety, kilograms, date, group, details,
+review), `/farm-bookings` (my farm visits, also a tab on the account pages) and `/farm-bookings/:id` (status,
+check-in code, itinerary, the bill and Pay, cancel, change of date, and the answer to a proposed arrangement).
+They show only while `GET /v1/policy` says `features.farmExperience`; with the switch off there is no card or
+tab and the pages say farm visits are not open.
 
 ## Rules (and where they are enforced)
 
@@ -149,4 +151,4 @@ In the panel, set up the following:
 ## Tests
 
 - **API:** `mango-api/test/farm-experience.test.js` covers the rules, the bill, the open-bookings cap, concurrency, paying the bill (webhooks, once however often), recorded payments, refunds of double or old-bill payments, the state machine and permissions. Farm routes are also in the step-up, isolation, auth-matrix and WhatsApp suites.
-- **Shop and panel together:** not in this repo yet. The journey test was written for the retired `customer-app/` (`tests/farm.spec.ts` in torpidcritter/Mango-Mandi-Banckend PR #27: a customer books 300 kg in six steps without paying; a manager assigns a room, approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer pays it; the manager completes the visit). It comes back with the farm pages in `shop/`.
+- **Shop and panel together:** `node scripts/farm-shop-journey.mjs` walks the shop in a real browser against a running API (phone and desktop, light and dark): a customer books 300 kg in six steps without paying, accepts a proposed arrangement and moves the date; the farm side approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer's test payment fails once and then pays it; the visit is completed; a second visit is declined and cancelled; and with the switch off there is no card and the pages are closed. It needs the two APIs and the shop its header describes, so it is run by hand, not in CI.
