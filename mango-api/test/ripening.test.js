@@ -228,3 +228,32 @@ describe('boxes sold as RIPE before the change', () => {
     assert.match((await risk(id)).at_risk_reason, /is not RIPE on 2026-10-16/)
   })
 })
+
+describe('ready to eat follows the age of the box', () => {
+  test('a box is ripe at age 8: by batch where it is known, by the oldest box of its stage where it is not', async () => {
+    const { readyOnFor, eatByFor } = await import('../src/ripeness.js')
+    const cfg = { ...DEFAULT_RULES }
+    const D = '2026-10-16'
+    // Batch known: pluck + 8, never sooner than the day after delivery.
+    assert.equal(readyOnFor('RAW', D, '2026-10-14', cfg), '2026-10-22') // age 2 on the day: 6 days at home
+    assert.equal(readyOnFor('RAW', D, '2026-10-13', cfg), '2026-10-21') // age 3: 5 days
+    assert.equal(readyOnFor('SEMI_RIPE', D, '2026-10-12', cfg), '2026-10-20') // age 4: 4 days
+    assert.equal(readyOnFor('SEMI_RIPE', D, '2026-10-09', cfg), '2026-10-17') // age 7: the next day
+    assert.equal(readyOnFor('SEMI_RIPE', D, '2026-10-01', cfg), '2026-10-17') // older still (an override): the next day
+    // Batch not known (catalogue, quote): the oldest box sold as that stage, so the earliest date.
+    assert.equal(readyOnFor('RAW', D, null, cfg), '2026-10-21')
+    assert.equal(readyOnFor('SEMI_RIPE', D, null, cfg), '2026-10-17')
+    // An order sold as ripe before ripe stopped being sold: ready on arrival.
+    assert.equal(readyOnFor('RIPE', D, '2026-10-10', cfg), D)
+    assert.equal(eatByFor('SEMI_RIPE', D, '2026-10-12', cfg), '2026-10-23')
+  })
+
+  test('an order shows the date for the batch it was filled from', async () => {
+    await makeBatch({ age: 3, rating: 'RAW', lines: { 'ALP-3': 5 } }) // plucked 10-12: age 4 on 10-16, ripe 10-20
+    const cust = await customerToken(api)
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: DAYS[0] })
+    assert.equal(c.status, 201, JSON.stringify(c.body))
+    const o = (await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })).body
+    assert.deepEqual([o.items[0].readyOn, o.items[0].eatBy], ['2026-10-20', '2026-10-23'])
+  })
+})

@@ -44,8 +44,8 @@ describe('ripeness guide', () => {
     assert.equal(guide.template, 'mandi_ripeness_guide')
     const d = c.body.deliveryDate
     assert.match(guide.params[2], /Alphonso 3kg Box \(raw\): ready around/)
-    // Age 6 QC'd ripe (a fast ripener) is 7 + 1 on the day: still sold semi-ripe, ready 2 days on, best 3 days after.
-    assert.match(guide.params[2], /Badami 3kg Box \(semi-ripe\): ready around Sun, 18 Oct, best by Wed, 21 Oct/)
+    // Age 6 today is 7 on the delivery day (sold semi-ripe); ripe at age 8, the day after it lands, best 3 days after.
+    assert.match(guide.params[2], /Badami 3kg Box \(semi-ripe\): ready around Sat, 17 Oct, best by Tue, 20 Oct/)
     assert.match(guide.params[3], /don't refrigerate/)
     assert.ok(!/\n/.test(guide.params.join(' ')), 'WhatsApp template values cannot hold new lines')
     // The shop shows the same date.

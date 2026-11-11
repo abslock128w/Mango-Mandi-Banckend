@@ -31,7 +31,7 @@ import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
-import { readyOnFor } from './ripeness.js'
+import { OLDEST_PLUCK_SQL, readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
 import { billFor, billView } from './bills.js'
 import { customerBills, linkedBills } from './bill-routes.js'
@@ -1203,7 +1203,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
     const [items, events, slot, proof, rating, cancel, delivered, bill, tracking] = await Promise.all([
-      query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
+      query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
       customerDelivery({ query }, o),
@@ -1254,7 +1254,7 @@ router.get(
       giftOrderId: o.gift_order_id ?? null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
-        eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
+        eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date, i.plucked_on) : null,
         // A bulk deal line keeps the name and tier it was sold under.
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
         backordered: Boolean(i.backordered),
