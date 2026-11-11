@@ -110,6 +110,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/legacy",
+      "destination": "/index.html"
+    },
+    {
       "source": "/farm-experience",
       "destination": "/index.html"
     },

@@ -1,5 +1,5 @@
 /* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /bulk.
-   (The Partner Network pages are in partner.js and the Farm Experience pages in farm.js; both add to PAGES.)
+   (The Partner Network pages are in partner.js, the Farm Experience pages in farm.js and /legacy in legacy.js; all add to PAGES.)
    There is no pre-order page any more: before the season the home page is the pre-order shop (shelf.js), and the
    old /preorder and /#preorder land on / (shop/vercel.json redirects /preorder; route() does the same here).
    They replace the home page (main#home) with #page-view, keep the header, footer and dock, and

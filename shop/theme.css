@@ -213,3 +213,13 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .fx-pill.is-warn{background:#ffc93c;color:#15130c}
 [data-theme="dark"] .fx-choice[aria-checked="true"]{background:#2a2617}
 [data-theme="dark"] .fx-hero .pn-kicker{color:#ffd766}
+/* Our legacy (legacy.js) in the dark: the hero card keeps its deep green with a yellow glow; the rest follows the tokens. */
+[data-theme="dark"] .lg-hero{background:radial-gradient(60% 110% at 100% 100%,#ffc93c2e,#ffc93c00 70%),#10261b}
+[data-theme="dark"] .lg-hero h1 em,[data-theme="dark"] .lg-kicker{color:#ffd766}
+[data-theme="dark"] .lg-hero-rings .is-mark{stroke:#ffd766}
+[data-theme="dark"] .lg-hero .lg-hero-lead{color:#f3f5e8}
+[data-theme="dark"] .lg-note{background:var(--chip)}
+[data-theme="dark"] .lg-wood{fill:color-mix(in oklab,var(--accent) 9%,var(--paper))}
+[data-theme="dark"] .lg-bark{fill:color-mix(in oklab,var(--muted) 30%,var(--paper))}
+[data-theme="dark"] .lg-mango-shine{opacity:.35}
+[data-theme="dark"] a.hero-kicker:hover{background:#ffc93c33}

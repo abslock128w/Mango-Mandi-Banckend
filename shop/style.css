@@ -940,7 +940,7 @@ body[data-page="not-found"] .empty-state .bag-explore{display:inline-flex}
 @media(max-width:380px){.bulk-banner-cta{font-size:0;gap:0;padding:8px}.bulk-banner-cta svg{width:18px;height:18px}}
 @media(prefers-reduced-motion:no-preference){.bq-item.is-target{animation:bq-flash 1.6s var(--ease)}}
 @keyframes bq-flash{0%{box-shadow:0 0 0 6px var(--accent)}100%{box-shadow:0 0 0 1px var(--accent)}}
-/* Hero, slide one: a century of growing. Green at the roots, mango-gold at the tip. */
+/* Hero, slide one: fifty years of growing. Green at the roots, mango-gold at the tip. */
 .hero{background:linear-gradient(118deg,#cfdfc3 0%,#dfe6cd 38%,#efe4b0 72%,#f6d777 100%)}
 .hero-kicker{display:inline-flex;align-items:center;gap:8px;margin:0 0 14px;padding:8px 14px;border-radius:999px;background:#17463114;color:var(--green);font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .hero-kicker svg{width:14px;height:14px}
@@ -1398,3 +1398,208 @@ a.fx-row{color:inherit;text-decoration:none}
 .fx-table td::before{content:attr(data-label);color:var(--muted)}
 }
 @media(max-width:380px){.fx-grid,.fx-grid.two{grid-template-columns:minmax(0,1fr)}}
+
+/* ===== Our legacy (/legacy, legacy.js): the one editorial page. Classes .lg-; dark rules in theme.css.
+   Shop tokens only; the week of mangoes runs from the light accent-soft green (#567044) to the dark theme's mango-deep (#ffb81f). */
+body[data-page="legacy"] .page-body{max-width:none}
+.lg{--lg-raw:#567044;--lg-ripe:#ffb81f;--lg-gap:clamp(72px,9vw,120px)}
+.lg-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.lg-head-title{font:400 clamp(30px,4vw,44px)/1.1 'Young Serif',Georgia,serif;letter-spacing:-.02em;color:var(--ink);margin:0}
+.lg h2{font-size:clamp(32px,4vw,50px);line-height:1.06;letter-spacing:-.025em;color:var(--ink)}
+.lg-sec{margin-top:var(--lg-gap)}
+.lg-sec-head{max-width:640px;margin-bottom:clamp(28px,3.5vw,44px)}
+.lg-sec-head p{margin-top:14px;font-size:17px;line-height:1.6;color:var(--body)}
+/* Home hero kicker: a link to this page. */
+a.hero-kicker{position:relative}
+a.hero-kicker::after{content:'';position:absolute;inset:-7px -4px}
+a.hero-kicker:hover{background:#17463124}
+
+/* 1. Hero: a dark-green card, a huge outlined 50 and rings from the corner. */
+.lg-hero{position:relative;overflow:hidden;isolation:isolate;display:flex;align-items:center;min-height:clamp(440px,42vw,560px);padding:clamp(40px,5.5vw,76px);border-radius:var(--r-card);background:var(--green);color:#fff8e7}
+.lg-hero-rings{position:absolute;right:0;bottom:0;width:min(640px,90%);height:auto;z-index:-1;fill:none;stroke:#fff8e7;stroke-width:1;opacity:.13}
+.lg-hero-rings .is-mark{stroke:#d7dbaa;stroke-width:2;opacity:1}
+.lg-hero-50{position:absolute;z-index:-1;right:clamp(8px,4vw,64px);top:50%;transform:translateY(-52%);font:400 clamp(220px,30vw,440px)/.8 'Young Serif',Georgia,serif;letter-spacing:-.06em;color:transparent;-webkit-text-stroke:1.5px #fff8e740;user-select:none;pointer-events:none}
+.lg-hero-copy{position:relative;max-width:720px}
+.lg-kicker{margin:0 0 18px;font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#d7dbaa}
+.lg-hero h1{margin:0;font-size:clamp(46px,6.2vw,84px);line-height:1;letter-spacing:-.035em;color:#fff8e7}
+.lg-hero h1 em{color:#d7dbaa}
+.lg-hero h1 br{display:inline}
+.lg-hero .lg-hero-lead{max-width:540px;margin:24px 0 0;font-size:17px;line-height:1.65;color:#f3f5e8}
+.lg-hero-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;margin-top:32px}
+.lg-hero-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:#fff8e7;font-size:15px;font-weight:600;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:5px}
+.lg-hero-link svg{width:16px;height:16px}
+.lg-hero-link:hover{text-decoration-thickness:2px}
+
+/* 2. The rings: a trunk with fifty rings; the decade cards beside it (desktop) or under it (phone). */
+.lg-rings-body{display:grid;gap:36px}
+.lg-disc-wrap{width:min(220px,64vw);margin:0 auto}
+.lg-disc{display:block;width:100%;height:auto;overflow:visible}
+.lg-bark{fill:color-mix(in oklab,var(--muted) 62%,var(--paper))}
+.lg-wood{fill:color-mix(in oklab,var(--yellow) 22%,var(--paper))}
+.lg-rays{fill:none;stroke:var(--muted);stroke-width:1;opacity:.16}
+.lg-ring{fill:none;stroke:color-mix(in oklab,var(--muted) 55%,transparent);stroke-width:1}
+.lg-ring.is-decade{stroke:var(--accent);stroke-width:2.2;opacity:.5;transition:opacity .4s,stroke-width .4s}
+.lg-ring.is-now{stroke:var(--accent);stroke-width:2.2;stroke-dasharray:.84 .16}
+.lg-ring-tip{fill:var(--accent);transform-box:fill-box;transform-origin:center;animation:lg-tip 2.4s ease-in-out infinite}
+@keyframes lg-tip{50%{transform:scale(1.5);opacity:.6}}
+.lg-crack{fill:var(--cream)}
+.lg-pith{fill:var(--muted)}
+.lg-ring-label{opacity:0;transition:opacity .35s}
+.lg-ring-label circle{fill:var(--accent);stroke:var(--paper);stroke-width:2}
+.lg-ring-label rect{fill:var(--accent)}
+.lg-ring-label text{fill:var(--on-accent);font:700 13px 'Figtree',sans-serif;text-anchor:middle}
+.lg-disc-wrap[data-lg-on="0"] [data-lg-ring="0"],.lg-disc-wrap[data-lg-on="1"] [data-lg-ring="1"],.lg-disc-wrap[data-lg-on="2"] [data-lg-ring="2"],.lg-disc-wrap[data-lg-on="3"] [data-lg-ring="3"],.lg-disc-wrap[data-lg-on="4"] [data-lg-ring="4"],.lg-disc-wrap[data-lg-on="all"] .lg-ring.is-decade{opacity:1;stroke-width:4}
+.lg-disc-wrap[data-lg-on="0"] [data-lg-label="0"],.lg-disc-wrap[data-lg-on="1"] [data-lg-label="1"],.lg-disc-wrap[data-lg-on="2"] [data-lg-label="2"],.lg-disc-wrap[data-lg-on="3"] [data-lg-label="3"],.lg-disc-wrap[data-lg-on="4"] [data-lg-label="4"]{opacity:1}
+.lg-decades{position:relative;list-style:none;margin:0;padding:0 0 0 40px}
+.lg-decades::before{content:'';position:absolute;left:12px;top:30px;bottom:-34px;width:2px;border-radius:2px;background:var(--line)}
+.lg-decade{position:relative;margin-bottom:16px;padding:24px 26px 26px;border-radius:var(--r-card);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm);transition:box-shadow .35s}
+.lg-decade.is-on{box-shadow:inset 0 0 0 1.5px var(--accent),var(--shadow-sm)}
+.lg-dot{position:absolute;left:-38px;top:27px;width:24px;height:24px;border-radius:50%;background:var(--cream);border:2px solid var(--accent);box-shadow:0 0 0 4px var(--cream)}
+.lg-dot::after{content:'';position:absolute;inset:4px;border-radius:50%;border:1.5px solid var(--accent);transition:background .35s}
+.lg-decade.is-on .lg-dot::after{background:var(--accent)}
+.lg-year{font:400 clamp(36px,4vw,48px)/1 'Young Serif',Georgia,serif;letter-spacing:-.03em;color:var(--accent)}
+.lg-decade h3{margin:10px 0 8px;font-size:21px;line-height:1.25;color:var(--ink)}
+.lg-decade p:not(.lg-year){font-size:15px;line-height:1.65;color:var(--body)}
+.lg-now{position:relative;display:flex;align-items:center;gap:14px;margin:26px 0 0;font-size:15px;color:var(--ink)}
+.lg-now>span:last-child{padding:10px 18px;border-radius:999px;background:var(--sage)}
+.lg-now b{font-weight:700}
+.lg-now-ring{flex:none;position:relative;width:26px;height:26px;border-radius:50%;border:2px dashed var(--accent);background:var(--cream);box-shadow:0 0 0 4px var(--cream);animation:lg-spin 14s linear infinite}
+.lg-now-ring::after{content:'';position:absolute;inset:6px;border-radius:50%;background:var(--accent)}
+@keyframes lg-spin{to{transform:rotate(1turn)}}
+@media(min-width:700px){.lg-disc-wrap{width:280px}}
+@media(min-width:960px){
+.lg-rings-body{grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:clamp(48px,6vw,96px);align-items:start}
+.lg-disc-wrap{position:sticky;top:calc(var(--veil-h,110px) + 32px);width:100%;margin:0}
+.lg-decades-wrap{max-width:600px;padding-top:8px}
+}
+
+/* 3. Five things we never traded. */
+.lg-vows{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:16px}
+.lg-vows>li{grid-column:span 2;padding:26px 24px 28px;border-radius:var(--r-card);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.lg-vows>li:nth-child(n+4){grid-column:span 3}
+.lg-vow-icon{display:grid;place-items:center;width:52px;height:52px;margin-bottom:18px;border-radius:50%;background:var(--sage);color:var(--accent)}
+.lg-vow-icon svg{width:24px;height:24px;stroke-width:1.75}
+.lg-vows h3{margin-bottom:8px;font-size:20px;line-height:1.25;color:var(--ink)}
+.lg-vows p{font-size:15px;line-height:1.6;color:var(--body)}
+@media(min-width:1180px){.lg-vows{grid-template-columns:repeat(5,minmax(0,1fr))}.lg-vows>li,.lg-vows>li:nth-child(n+4){grid-column:auto}}
+
+/* 4. A mango's first week. Scrolls sideways inside its own box on a phone, with the shop's right-edge fade. */
+.lg-week{padding:32px 32px 28px;border-radius:var(--r-card);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.lg-days,.lg-brackets{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));column-gap:8px;min-width:720px}
+.lg-days{position:relative;list-style:none;margin:0;padding:0}
+.lg-days::before{content:'';position:absolute;left:5.5%;right:16.5%;top:28px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--lg-raw),var(--lg-ripe))}
+.lg-day{position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:2px}
+.lg-mango{position:relative;width:56px;height:56px;margin-bottom:10px;padding:3px;border-radius:50%;background:var(--surface)}
+.lg-mango-fruit{fill:color-mix(in oklab,var(--lg-ripe) var(--k),var(--lg-raw));stroke:color-mix(in oklab,var(--lg-raw) 55%,#000);stroke-width:1.5}
+.lg-mango-leaf{fill:var(--lg-raw);stroke:color-mix(in oklab,var(--lg-raw) 55%,#000);stroke-width:1.2}
+.lg-mango-stem{fill:none;stroke:var(--muted);stroke-width:1.6}
+.lg-mango-shine{fill:none;stroke:#fff;stroke-width:1.8;opacity:.55}
+.lg-day-n{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap}
+.lg-day-note{font-size:13px;line-height:1.35;color:var(--body)}
+.lg-day.is-never{border-left:1.5px dashed var(--control-line)}
+.lg-day.is-never .lg-mango{opacity:.45;filter:grayscale(.7)}
+.lg-day.is-never::after{content:'';position:absolute;top:28px;left:50%;width:50px;height:2px;margin-left:-25px;background:var(--ink);transform:rotate(-40deg);border-radius:2px}
+.lg-day.is-never .lg-day-note{font-weight:700;color:var(--ink);text-decoration:line-through;text-decoration-thickness:1.5px}
+.lg-brackets{margin-top:20px}
+.lg-bracket{position:relative;display:flex;flex-direction:column;gap:2px;padding:16px 8px 0;text-align:center;font-size:14px;line-height:1.45;color:var(--body)}
+.lg-bracket::before{content:'';position:absolute;left:8px;right:8px;top:0;height:10px;border:2px solid;border-top:0;border-radius:0 0 8px 8px}
+.lg-bracket.is-raw{grid-column:2/5}.lg-bracket.is-raw::before{border-color:var(--lg-raw)}
+.lg-bracket.is-semi{grid-column:5/9}.lg-bracket.is-semi::before{border-color:var(--lg-ripe)}
+.lg-bracket-days{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink)}
+.lg-week-note{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:22px;font-size:16px;color:var(--ink);text-align:center}
+.lg-week-note svg{width:20px;height:20px;color:var(--accent)}
+
+/* 5. Fifty summers in numbers. */
+.lg-stats{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+.lg-stats>li{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 16px;text-align:center}
+.lg-stats>li+li{border-left:1px solid var(--line)}
+.lg-stats strong{font:400 clamp(64px,8vw,112px)/.9 'Young Serif',Georgia,serif;letter-spacing:-.04em;color:var(--accent);font-variant-numeric:tabular-nums}
+.lg-stats span{max-width:160px;font-size:13px;font-weight:700;line-height:1.4;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+/* 6. The hands: four cards joined by a dotted path; a photo beside them on a wide screen. */
+.lg-hands-sec{display:grid;gap:0 clamp(40px,5vw,72px)}
+.lg-hands-track{position:relative}
+.lg-hands{position:relative;list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
+.lg-hands>li{position:relative;margin-top:34px;padding:42px 22px 24px;border-radius:var(--r-card);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.lg-hand-mark{position:absolute;left:22px;top:-22px;display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--cream);border:2px solid var(--accent);box-shadow:0 0 0 5px var(--cream);font:400 20px/1 'Young Serif',Georgia,serif;color:var(--accent)}
+.lg-hands h3{margin-bottom:8px;font-size:20px;line-height:1.25;color:var(--ink)}
+.lg-hands p{font-size:15px;line-height:1.6;color:var(--body)}
+.lg-hands-path{position:absolute;top:0;left:44px;width:calc(100% - (100% - 60px)/4);height:34px;overflow:visible}
+.lg-hands-path path{fill:none;stroke:var(--accent);stroke-width:2;stroke-linecap:round;stroke-dasharray:0 9;vector-effect:non-scaling-stroke;opacity:.7}
+.lg-hands-photo{display:none}
+@media(min-width:1100px){
+.lg-hands-sec{grid-template-columns:minmax(0,1fr) 300px;align-items:end}
+.lg-hands-sec>.lg-sec-head{grid-column:1}
+.lg-hands-track{grid-column:1}
+.lg-hands-photo{display:block;grid-column:2;grid-row:1/3;width:100%;height:auto;aspect-ratio:4/5;object-fit:cover;object-position:50% 40%;border-radius:var(--r-card);box-shadow:var(--shadow-sm)}
+}
+
+/* 7. A note from the family. */
+.lg-note{position:relative;max-width:880px;margin:0 auto;padding:clamp(40px,6vw,72px) clamp(24px,6vw,80px);border-radius:28px;background:var(--sage);text-align:center}
+.lg-note-mark{display:block;width:48px;height:48px;margin:0 auto 24px;fill:none;stroke:var(--accent);stroke-width:1.5;opacity:.8}
+.lg-note-mark .lg-note-pith{fill:var(--accent);stroke:none}
+.lg-note blockquote{margin:0}
+.lg-note blockquote p{font:italic 400 clamp(24px,3vw,36px)/1.35 'Young Serif',Georgia,serif;letter-spacing:-.015em;color:var(--ink);text-wrap:balance}
+.lg-note figcaption{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:28px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.lg-note figcaption::before,.lg-note figcaption::after{content:'';width:28px;height:1.5px;background:var(--control-line)}
+
+/* 8. The next fifty. */
+.lg-next{position:relative;overflow:hidden;isolation:isolate;padding:clamp(36px,5.5vw,72px);border-radius:var(--r-card);background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm)}
+.lg-next-rings{position:absolute;right:0;bottom:0;width:min(520px,80%);height:auto;z-index:-1;fill:none;stroke:var(--accent);stroke-width:1;opacity:.1}
+.lg-next-rings .is-mark{stroke-width:2.5;opacity:1}
+.lg-pledges{list-style:none;margin:28px 0 0;padding:0;display:grid;gap:14px}
+.lg-pledges li{display:flex;align-items:flex-start;gap:14px;font-size:18px;line-height:1.5;color:var(--ink)}
+.lg-pledges svg{flex:none;width:20px;height:20px;margin-top:1px;padding:6px;box-sizing:content-box;border-radius:50%;background:var(--sage);color:var(--accent);stroke-width:2.2}
+.lg-next-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:36px}
+
+@media(max-width:700px){
+.lg-head-title{font-size:30px}
+.lg-sec-head p{font-size:16px}
+.lg-hero{min-height:0;padding:36px 24px 32px;align-items:flex-start}
+.lg-hero-50{right:-18px;top:auto;bottom:-6px;transform:none;font-size:230px}
+.lg-hero-rings{width:420px;max-width:none}
+.lg-hero h1{font-size:46px}
+.lg-hero .lg-hero-lead{max-width:none;margin-top:18px;font-size:16px;line-height:1.6}
+.lg-hero-actions{flex-direction:column;align-items:stretch;gap:6px;margin-top:26px}
+.lg-hero-actions .button{width:100%}
+.lg-hero-link{justify-content:center}
+.lg-decades{padding-left:36px}
+.lg-decades::before{left:11px}
+.lg-dot{left:-36px;top:23px}
+.lg-decade{padding:20px 20px 22px}
+.lg-vows{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.lg-vows>li,.lg-vows>li:nth-child(n+4){grid-column:auto;padding:20px 16px 22px}
+.lg-vows>li:last-child{grid-column:1/-1}
+.lg-vow-icon{width:48px;height:48px;margin-bottom:14px}
+.lg-vows h3{font-size:18px}
+.lg-vows p{font-size:14px}
+.lg-week{overflow-x:auto;margin-inline:-16px;padding:24px 16px 20px;border-radius:0;box-shadow:none;background:none;scrollbar-width:none;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent);mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent)}
+.lg-week::-webkit-scrollbar{display:none}
+.lg-days,.lg-brackets{min-width:680px;padding-right:16px}
+.lg-week-note{justify-content:flex-start;align-items:flex-start;text-align:left;margin-top:12px;font-size:15px}
+.lg-week-note svg{margin-top:1px}
+.lg-stats{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:8px}
+.lg-stats>li{padding:20px 8px}
+.lg-stats>li+li{border-left:0}
+.lg-stats>li:nth-child(even){border-left:1px solid var(--line)}
+.lg-stats>li:nth-child(n+3){border-top:1px solid var(--line)}
+.lg-stats strong{font-size:72px}
+.lg-stats span{font-size:12px}
+.lg-hands{grid-template-columns:minmax(0,1fr);gap:14px;padding-left:36px}
+.lg-hands::before{content:'';position:absolute;left:11px;top:24px;bottom:24px;border-left:2px dotted var(--accent);opacity:.7}
+.lg-hands>li{margin-top:0;padding:20px 20px 22px}
+.lg-hand-mark{left:-37px;top:20px;width:26px;height:26px;font-size:14px;box-shadow:0 0 0 4px var(--cream)}
+.lg-hands-path{display:none}
+.lg-note{border-radius:var(--r-card)}
+.lg-pledges li{font-size:16px}
+.lg-next-actions{flex-direction:column}
+.lg-next-actions .button{width:100%}
+}
+@supports (animation-timeline:scroll()){@media(max-width:700px){.lg-week{animation:edge-fade linear both;animation-timeline:scroll(self inline)}}}
+@media(min-width:701px) and (max-width:1000px){.lg-hands{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:28px}.lg-hands-path{display:none}}
+@media(prefers-reduced-motion:reduce){.lg-ring-tip,.lg-now-ring{animation:none}}
+.lg-rv{opacity:0;transform:translateY(24px);transition:opacity .8s var(--ease) calc(var(--lg-i,0)*90ms),transform .9s var(--ease) calc(var(--lg-i,0)*90ms)}
+.lg-rv.is-in{opacity:1;transform:none}
+@media(max-width:380px){.lg-hero h1{font-size:40px}.lg-hero{padding-inline:20px}}
+@media(min-width:701px) and (max-width:1000px){.lg-week{overflow-x:auto;scrollbar-width:none;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent);mask-image:linear-gradient(to right,#000 calc(100% - var(--edge)),transparent)}.lg-week::-webkit-scrollbar{display:none}}
+@supports (animation-timeline:scroll()){@media(min-width:701px) and (max-width:1000px){.lg-week{animation:edge-fade linear both;animation-timeline:scroll(self inline)}}}
