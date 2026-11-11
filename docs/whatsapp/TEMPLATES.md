@@ -226,7 +226,7 @@ Suggested wording: Hi {{1}}, order {{2}} has been cancelled. If you paid for it,
 - Template: `mandi_refunded`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: Razorpay accepts a refund we started (customer cancel before packing, or a manager cancel we cannot deliver). The wording must say the refund has been started.
+- Sent when: Razorpay accepts a refund we started (an order the customer cancels before packing, or a manager cancel we cannot deliver; paid pre-orders are not refunded on a customer cancel). The wording must say the refund has been started.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -241,7 +241,7 @@ Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. You
 - Template: `mandi_preorder_booked`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A booking ahead is paid.
+- Sent when: A pre-order is paid. The wording must say pre-orders can't be cancelled or refunded once paid.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -250,14 +250,14 @@ Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. You
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. week (example: the week of Mon, 1 Mar)
 
-Suggested wording: Hi {{1}}, booking {{2}} is confirmed: {{3}} for {{4}}. We will confirm the delivery day nearer the time.
+Suggested wording: Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.
 
 ## PREORDER_SPOT_OPEN
 
 - Template: `mandi_preorder_spot_open`
 - Category: UTILITY
 - Who may receive it: Asked for by the person: sent unless the number sent STOP
-- Sent when: A waitlisted booking gets a spot and a payment link.
+- Sent when: A waitlisted booking gets a spot and a payment link. The wording must say pre-orders can't be cancelled or refunded once paid.
 - Button: none
 - If it can't be sent: Not sent: the booking page in the shop shows the payment link.
 - Variables:
@@ -266,14 +266,14 @@ Suggested wording: Hi {{1}}, booking {{2}} is confirmed: {{3}} for {{4}}. We wil
   3. week (example: the week of Mon, 1 Mar)
   4. payment link (example: https://rzp.io/i/abc)
 
-Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}}
+Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}} Pre-orders can't be cancelled or refunded once paid.
 
 ## PREORDER_MOVED
 
 - Template: `mandi_preorder_moved`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A week passed without stock, so the booking moved a week.
+- Sent when: A week passed without stock, so the booking moved a week. The wording must not offer a refund on cancel (pre-orders are non-refundable).
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -282,7 +282,7 @@ Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. new week (example: the week of Mon, 8 Mar)
 
-Suggested wording: Hi {{1}}, booking {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. You can cancel it in the app for a full refund.
+Suggested wording: Hi {{1}}, pre-order {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. If the new week doesn't work for you, message us.
 
 ## BACK_IN_STOCK
 

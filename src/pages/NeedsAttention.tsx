@@ -6,7 +6,7 @@ import { NOTIFICATION_LABEL, date, dateTime, humanize, rupees } from '../format'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Attention, LedgerDrift, LineCounters, NotificationKind, PhotoDelivery } from '../types'
-import { Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToast } from '../ui'
+import { Badge, Dialog, FormError, PhoneLink, QueryError, ReasonDialog, Spinner, useToast } from '../ui'
 
 const STEP_LABEL: Record<string, string> = {
   reconcile: 'Checking missed payments',
@@ -374,6 +374,12 @@ export default function NeedsAttention({ whenClear = null }: { whenClear?: React
     { key: 'preorders', title: 'Preorders for a manager', items: preorders.map((p) => (
       <li key={`pre-${p.id}`}>
         <strong>Preorder {p.number}</strong> ({p.qty} × {p.sku}{p.customerName ? `, ${p.customerName}` : ''})
+        {p.nonRefundable && (
+          <>
+            {' '}
+            <Badge tone="neutral">Non-refundable</Badge>
+          </>
+        )}
         <span className="muted">: {p.reason}</span>. A manager keeps it or <Link to="/preorders">cancels it with a refund</Link>.
         {manager ? (
           <>

@@ -100,7 +100,7 @@ CSV. The full list with roles is in `docs/authorization-matrix.md`.
 
 ## Data
 
-Migration `064_farm_experience.sql` adds these tables:
+Migration `065_farm_experience.sql` adds these tables:
 
 - `farm_settings`
 - `farm_varieties`
@@ -114,7 +114,7 @@ Migration `064_farm_experience.sql` adds these tables:
 - `farm_booking_events`
 - `farm_booking_notes`
 
-It also adds farm columns to `notifications`. Migration `065` validates the notification
+It also adds farm columns to `notifications`. Migration `066` validates the notification
 checks it changed. Nothing existing is dropped or rewritten.
 
 ## Configuration
@@ -134,7 +134,7 @@ In the panel, set up the following:
 
 ## Rollout
 
-1. Deploy with `FARM_EXPERIENCE` off. Migrations 064 and 065 run, and nothing changes for customers.
+1. Deploy with `FARM_EXPERIENCE` off. Migrations 065 and 066 run, and nothing changes for customers.
 2. On staging, turn `FARM_EXPERIENCE` on. Fill in the farm settings with the real farm's details (never sample text), add varieties, harvest kg, open days and rooms.
 3. Run one booking end to end in Razorpay test mode: book, approve the stay, check in, weigh, send the bill, pay it, pack, complete. Also record one payment taken at the farm, and cancel one booking.
 4. Get Meta approval for the two templates, then turn on `WHATSAPP_FARM_UPDATES` and set `FARM_ALERT_PHONES`.

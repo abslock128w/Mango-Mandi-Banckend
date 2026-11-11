@@ -11,7 +11,7 @@ import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
 import { enqueueLinkPush, enqueueOrderPush } from './push.js'
-import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
+import { eatByFor, OLDEST_PLUCK_SQL, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
 import { deliveryCodeFor } from './delivery-code.js'
 import { billLink } from './bill-link.js'
@@ -160,9 +160,9 @@ export function readyWords(items, date) {
   for (const i of items ?? []) if (i.stage) seen.set(`${i.sku}|${i.stage}`, i)
   return [...seen.values()]
     .map((i) => {
-      const ready = readyOnFor(i.stage, date)
+      const ready = readyOnFor(i.stage, date, i.pluckedOn)
       const when = ready === date ? `ready on arrival, ${dateWords(date)}` : `ready around ${dateWords(ready)}`
-      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date))}`
+      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date, i.pluckedOn))}`
     })
     .join('; ')
 }
@@ -378,7 +378,7 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.delivery_code_nonce, o.gift_recipient_name, rd.display_name AS rider_name, rd.email AS rider_email, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status,
-            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
+            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage, 'pluckedOn', ${OLDEST_PLUCK_SQL}) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
             COALESCE(o.customer_name, p.customer_name, ac.name, rc.name, cc.name) AS customer_name,

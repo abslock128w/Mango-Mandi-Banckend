@@ -50,8 +50,9 @@ describe('three orders worked by hand', () => {
   test('order 1: two semi-ripe Alphonso 3 kg, no promo', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } }) // age 6 on 10-16: semi-ripe
     const before = await onSale('2026-10-16')
-    // Ready 2 days after delivery (10-18), eat by 3 days after that (10-21).
-    assert.deepEqual(before['ALP-3|SEMI_RIPE'], { qty: 10, eatBy: '2026-10-21' })
+    // The catalogue doesn't know the batch, so it assumes the oldest semi-ripe box (age 7): ready the day after
+    // delivery (10-17), eat by 3 days after that (10-20).
+    assert.deepEqual(before['ALP-3|SEMI_RIPE'], { qty: 10, eatBy: '2026-10-20' })
     assert.equal(before['ALP-3|RAW'].qty, 0)
     assert.equal(before['ALP-3|RIPE'], undefined, 'nothing is offered ripe')
 
@@ -62,6 +63,7 @@ describe('three orders worked by hand', () => {
     await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
     const mine = (await api.get(`/v1/orders/${o.body.orderId}`, { token: cust.accessToken })).body
     assert.deepEqual([mine.subtotal, mine.discount, mine.total], [379_800, 0, 379_800])
+    // The order knows its batch: plucked 10-10, ripe at age 8 (10-18), eat by 3 days after that (10-21).
     assert.deepEqual(mine.items.map((i) => [i.sku, i.stage, i.quantity, i.unitPrice, i.linePrice, i.readyOn, i.eatBy]), [['ALP-3', 'SEMI_RIPE', 2, 189_900, 379_800, '2026-10-18', '2026-10-21']])
     assert.equal((await onSale('2026-10-16'))['ALP-3|SEMI_RIPE'].qty, 8)
 
@@ -78,8 +80,8 @@ describe('three orders worked by hand', () => {
     assert.equal(q.status, 200, JSON.stringify(q.body))
     // 3 x 1,999.00 = 5,997.00. 15% is 899.55, capped at 500.00. To pay: 5,497.00.
     assert.deepEqual([q.body.subtotal, q.body.discount, q.body.total], [599_700, 50_000, 549_700])
-    // Ready 2 days after delivery (10-18), eat by 3 days after that (10-21).
-    assert.deepEqual(q.body.lines.map((l) => [l.sku, l.stage, l.unitPrice, l.linePrice, l.eatBy]), [['BAD-5', 'SEMI_RIPE', 199_900, 599_700, '2026-10-21']])
+    // A quote assumes the oldest semi-ripe box: ready the day after delivery (10-17), eat by 3 days after that (10-20).
+    assert.deepEqual(q.body.lines.map((l) => [l.sku, l.stage, l.unitPrice, l.linePrice, l.eatBy]), [['BAD-5', 'SEMI_RIPE', 199_900, 599_700, '2026-10-20']])
     assert.equal(PAISE['BAD-5'] * 3, 599_700)
   })
 
@@ -89,9 +91,9 @@ describe('three orders worked by hand', () => {
     await makeBatch({ age: 3, rating: 'RAW', lines: { 'BAD-3': 5 } }) // age 6 on 10-18: semi-ripe
     assert.equal((await promo({ code: 'QAFLAT250', kind: 'FLAT', value: 25_000 })).status, 201)
     const day = await onSale('2026-10-18')
-    assert.deepEqual(day['ALP-5|SEMI_RIPE'], { qty: 4, eatBy: '2026-10-23' })
+    assert.deepEqual(day['ALP-5|SEMI_RIPE'], { qty: 4, eatBy: '2026-10-22' })
     assert.equal(day['ALP-5|RAW'].qty, 0, 'the old batch is past the limit on 10-18')
-    assert.deepEqual(day['BAD-3|SEMI_RIPE'], { qty: 5, eatBy: '2026-10-23' })
+    assert.deepEqual(day['BAD-3|SEMI_RIPE'], { qty: 5, eatBy: '2026-10-22' })
     // For 10-16 the old batch sells semi-ripe (age 6) and the fresh one raw (age 2).
     const first = await onSale('2026-10-16')
     assert.deepEqual([first['ALP-5|SEMI_RIPE'].qty, first['ALP-5|RAW'].qty], [4, 4])
@@ -141,7 +143,7 @@ describe('the clock', () => {
     assert.deepEqual(r.body.deliveryDates, ['2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'])
     // Age 6 on the 31st: semi-ripe, ready 11-02, eat by 11-05.
     const semi = r.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'SEMI_RIPE')
-    assert.deepEqual([semi.qty, semi.eatBy], [5, '2026-11-05'])
+    assert.deepEqual([semi.qty, semi.eatBy], [5, '2026-11-04'])
     const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-31' })
     assert.equal(o.status, 201, JSON.stringify(o.body))
     assert.equal(o.body.deliveryDate, '2026-10-31')

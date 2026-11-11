@@ -117,6 +117,8 @@ describe('INT-04: messages about an order or booking that moved on are skipped, 
     const week = await bookingWeek()
     const cust = await customerToken(api)
     const id = await paidBooking(cust.accessToken, week)
+    // A booking sold before pre-orders became non-refundable (migration 064): the customer's cancel still refunds it.
+    await query('UPDATE preorders SET non_refundable = false WHERE id = $1', [id])
     assert.equal((await api.post(`/v1/preorders/${id}/cancel`, {}, { token: cust.accessToken })).status, 204)
     const out = recorder()
     await sendDueNotifications({ sender: out.sender })
@@ -131,6 +133,8 @@ describe('INT-05: erasing an account stops its booking messages and blanks their
     const week = await bookingWeek()
     const cust = await customerToken(api)
     const id = await paidBooking(cust.accessToken, week)
+    // A booking sold before pre-orders became non-refundable (migration 064): the customer's cancel still refunds it.
+    await query('UPDATE preorders SET non_refundable = false WHERE id = $1', [id])
     assert.equal((await api.post(`/v1/preorders/${id}/cancel`, {}, { token: cust.accessToken })).status, 204)
     assert.equal((await api.del('/v1/me', { token: cust.accessToken })).status, 204)
     const left = await rows(`SELECT kind, status, phone FROM notifications WHERE preorder_id = $1 ORDER BY kind`, [id])

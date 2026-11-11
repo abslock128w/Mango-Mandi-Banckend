@@ -76,7 +76,7 @@
     // Per stage: when to use it and when to eat it (MangoKart), keyed by the API stage.
     ripeness: {
       RAW: { use: 'Firm and sour, for pickle and cooking', eatBy: 'Use within a week for pickle, chutney or panna' },
-      SEMI_RIPE: { use: 'Keep a few days, eat through the week', eatBy: 'Ripens at room temperature in 3 to 5 days' },
+      SEMI_RIPE: { use: 'Keep a few days, eat through the week', eatBy: 'Ripens at room temperature in 1 to 4 days' },
       RIPE: { use: 'Ready to eat, slice or make aamras', eatBy: 'Eat within 2 to 3 days of delivery' },
     },
 

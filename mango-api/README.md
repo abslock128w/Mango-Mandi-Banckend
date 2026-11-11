@@ -77,8 +77,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
 | `mandi_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
 | `mandi_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
-| `mandi_refunded` | Razorpay accepts a refund we started (a customer cancel before packing, or a manager cancel of a paid order we can't deliver; order or preorder). It goes out when the refund is created, before the bank has paid it, so the approved wording must say the refund **has been started** and takes a few working days, never that the money has arrived (audit PAY-09) | name, order number, amount ("Rs 1,899") |
-| `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
+| `mandi_refunded` | Razorpay accepts a refund we started (a customer cancel of an order before packing, or a manager cancel of a paid order or preorder we can't deliver; a paid pre-order is never refunded on a customer cancel). It goes out when the refund is created, before the bank has paid it, so the approved wording must say the refund **has been started** and takes a few working days, never that the money has arrived (audit PAY-09) | name, order number, amount ("Rs 1,899") |
+| `mandi_preorder_booked` | a preorder is paid (says it can't be cancelled or refunded) | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
 | `mandi_review_request` | about a day after delivery, once per order, if nothing on it is reviewed yet (marketing category). **Needs Meta approval; only sent once `WHATSAPP_REVIEW_REQUESTS=true`** | name, order number |
@@ -162,8 +162,10 @@ deduplicated by id, so Meta's retries are safe.
 **Book ahead** in the chat makes a preorder with the same engine as `POST /v1/preorders`
 (`channel = 'whatsapp'`): pick an open week and box, the ripeness, how many, the pincode
 and address, then pay by Razorpay link. A full week offers the waitlist instead (no
-payment until a spot opens). Bookings show in My orders and can be cancelled there for a
-full refund until packing.
+payment until a spot opens). The confirmation step says "Pre-order · can't be cancelled or
+refunded once paid" above the Pay button. Unpaid and waitlisted bookings show in My orders
+with a Cancel button; a paid pre-order (and the order it became) has none. Before pre-orders
+open (`preorderOpensOn`), Book ahead says when they open instead.
 
 ## After the order: ripeness guide, alerts, reminders
 
@@ -271,9 +273,21 @@ the fruit exists, at the price of the day, and pay in full by Razorpay payment l
   date. The order carries the preorder's payment, and the usual WhatsApp updates follow.
   When a week passes with no stock, the preorder moves to the next week and the customer is
   told (`moved_count`); nothing is cancelled.
-- **Cancel.** The customer can cancel any time before packing with a full refund, the
-  same rule as orders: before conversion through `POST /v1/preorders/:id/cancel`, after it
-  that call cancels the order.
+- **Season.** Two rules on the Planning page, `seasonStartsOn` and `preorderOpensOn`
+  (both optional, `src/season-phase.js`): before the season starts the shop's home page is
+  the pre-order shop (phase `PREORDER`), before pre-orders open nothing can be booked
+  (`BEFORE`: `POST /v1/preorders` and Book ahead refuse with `PREORDERS_NOT_OPEN`), and from
+  the start date the shop sells as usual (`OPEN`; booking ahead stays open on WhatsApp, as
+  before). `GET /v1/catalogue` and `GET /v1/preorders/weeks` carry
+  `season: { phase, startsOn, preorderOpensOn }`. Unset start date: always `OPEN`.
+- **Non-refundable.** Pre-orders can't be cancelled or refunded once paid
+  (`preorders.non_refundable`, set on every booking since migration 064). The customer can
+  still drop an unpaid or waitlisted booking (`POST /v1/preorders/:id/cancel`); a paid one,
+  or the order it became, answers `409 PREORDER_NON_REFUNDABLE`, and the order's
+  `canCancel` is false. Bookings made before migration 064 keep the old promise: cancel
+  before packing for a full refund. Unchanged: a manager's cancel (a week we can't fill)
+  refunds in full; a payment after the hold ran out or after a cancel is refunded
+  automatically; quality claims on the delivered order work as for any order.
 
 ## Season ops (phase 3)
 

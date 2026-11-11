@@ -13,6 +13,7 @@ import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.
 import { stepUp } from './step-up.js'
 import { newId } from '../ids.js'
 import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { OLDEST_PLUCK_SQL } from '../ripeness.js'
 import { enqueue } from '../notify.js'
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
@@ -107,7 +108,7 @@ export async function orderDetail(c, orderId) {
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
   const [items, stock, events, notes, deliveryAttempts, rating, bill, photos] = await Promise.all([
-    c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
+    c.query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
         WHERE s.order_id = $1 AND s.state <> 'released' ORDER BY s.sku, b.plucked_on`,
@@ -154,7 +155,7 @@ export async function orderDetail(c, orderId) {
     })),
     items: items.rows.map((i) => ({
       id: i.id, productName: productName(i.sku), sku: i.sku, quantity: i.quantity, stage: i.stage, unitPrice: i.unit_price,
-      linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
+      linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null,
       // A bulk deal line: the listing and the price tier it was sold at (kept on the item, so later edits never change it).
       bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier, listingVersion: i.pricing.listingVersion } : null,
       backordered: Boolean(i.backordered),

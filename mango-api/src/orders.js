@@ -41,7 +41,7 @@ const ADMIN_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED
  * PROCESSING order can already have packed boxes (INV-1).
  */
 const RESTOCKABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED']
-const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
+export const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 /** A paid order a manager may cancel with a full refund: anything not yet delivered, including failed and returned deliveries. */
 export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 
@@ -612,6 +612,16 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
   return paid
 }
 
+/** What a customer is told when a paid non-refundable pre-order, or its order, can't be cancelled (preorders.js uses it too). */
+export const NON_REFUNDABLE_PREORDER_MESSAGE = "Pre-orders can't be cancelled or refunded once paid. If something is wrong, message us."
+
+/** Whether an order came from a pre-order sold as non-refundable (migration 064). */
+export async function fromNonRefundablePreorder(c, preorderId) {
+  if (!preorderId) return false
+  const { rows } = await c.query('SELECT non_refundable FROM preorders WHERE id = $1', [preorderId])
+  return Boolean(rows[0]?.non_refundable)
+}
+
 /**
  * Customer cancel, allowed until the order is packed. A paid order is
  * refunded in full: the only case where MandiMangoes refunds. The refund is requested
@@ -632,6 +642,11 @@ export async function customerCancel(c, orderId, customerId, actor, { wholeGift 
         : o.status === 'DELIVERED' ? 'This order has been delivered and can no longer be cancelled.'
           : 'This order is already packed and can no longer be cancelled.'
     throw conflict(why, 'NOT_CANCELLABLE')
+  }
+  // The order a non-refundable pre-order became can't be cancelled by the customer either (preorders.js).
+  // A manager's cancel (cancelOrder) still refunds it in full, and claims on it work as for any order.
+  if (o.preorder_id && (await fromNonRefundablePreorder(c, o.preorder_id))) {
+    throw new HttpError(409, 'PREORDER_NON_REFUNDABLE', NON_REFUNDABLE_PREORDER_MESSAGE)
   }
   const paid = o.payment_status === 'SUCCEEDED'
   await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer', null, 'BUYER')

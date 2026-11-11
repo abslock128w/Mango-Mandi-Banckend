@@ -24,13 +24,11 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .search input::placeholder,[data-theme="dark"] .search kbd{color:#8f876f}
 /* Hero and sections. */
 [data-theme="dark"] .hero{background:radial-gradient(110% 95% at 0% 100%,#4a3a0c 0%,#2a2410 36%,#191712 72%)}
-[data-theme="dark"] h1+p,[data-theme="dark"] .hero-note,[data-theme="dark"] .hero-leaf,[data-theme="dark"] .promise-bar,[data-theme="dark"] .price-note,[data-theme="dark"] .season-copy p,[data-theme="dark"] footer p,[data-theme="dark"] footer>span{color:var(--muted)}
+[data-theme="dark"] h1+p,[data-theme="dark"] .hero-note,[data-theme="dark"] .hero-leaf,[data-theme="dark"] .promise-bar,[data-theme="dark"] .price-note,[data-theme="dark"] footer p,[data-theme="dark"] footer>span{color:var(--muted)}
 [data-theme="dark"] .hero-bottom{background:linear-gradient(90deg,#3a2f0e,#241f12 55%,#1d1a14);color:#d9c88f}
 [data-theme="dark"] .hero-dots i{background:#6b5d32}
 [data-theme="dark"] em{color:#e9c46a}
-[data-theme="dark"] h1 em,[data-theme="dark"] .section-heading h2 em,[data-theme="dark"] .season-copy h2 em,[data-theme="dark"] .story-title h2 em,[data-theme="dark"] .faq h2 em,[data-theme="dark"] .page-head h1 em{background:linear-gradient(100deg,#ffb81f,#ffd766 55%,#ffc93c);-webkit-background-clip:text;background-clip:text;color:transparent}
-[data-theme="dark"] .season{background:linear-gradient(135deg,#231d0c,#352a0e 70%,#45360c)}
-[data-theme="dark"] .season-copy small{color:#d9c88f}
+[data-theme="dark"] h1 em,[data-theme="dark"] .section-heading h2 em,[data-theme="dark"] .story-title h2 em,[data-theme="dark"] .faq h2 em,[data-theme="dark"] .page-head h1 em{background:linear-gradient(100deg,#ffb81f,#ffd766 55%,#ffc93c);-webkit-background-clip:text;background-clip:text;color:transparent}
 [data-theme="dark"] .story-values article>span{color:#9d947a}
 [data-theme="dark"] .bulk{background:radial-gradient(55% 110% at 100% 50%,#ffc93c2e,#ffc93c00 70%),#10261b}
 [data-theme="dark"] .text-button:hover{color:#ffd766}
@@ -192,7 +190,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 
 /* ===== Polish pass (Nov 2026): dark parity for style.css's polish block. */
 [data-theme="dark"]{--shadow-sm:0 4px 14px #0007;--body:#cfc9b8;--veil:rgba(14,13,10,.93);--veil-line:#ffffff12;--info:var(--accent);--control-line:#7a725e}
-[data-theme="dark"] .hero-copy .hero-lead,[data-theme="dark"] .season-copy p,[data-theme="dark"] footer p,[data-theme="dark"] footer>span,[data-theme="dark"] .story-title p,[data-theme="dark"] .story-values p,[data-theme="dark"] .grow-head p,[data-theme="dark"] .grow-steps p,[data-theme="dark"] .faq details p,[data-theme="dark"] .section-heading p{color:var(--body)}
+[data-theme="dark"] .hero-copy .hero-lead,[data-theme="dark"] footer p,[data-theme="dark"] footer>span,[data-theme="dark"] .story-title p,[data-theme="dark"] .story-values p,[data-theme="dark"] .grow-head p,[data-theme="dark"] .grow-steps p,[data-theme="dark"] .faq details p,[data-theme="dark"] .section-heading p{color:var(--body)}
 [data-theme="dark"] .shop-top::before,[data-theme="dark"] .collection-toolbar::before{background:var(--veil)}
 [data-theme="dark"] .header.glass{background:linear-gradient(165deg,#2c2920f7,#1d1b15f0 46%,#2a2720f5)}
 [data-theme="dark"] .where-chip{background:linear-gradient(170deg,#2f2c23fa,#211f19f5)}
@@ -208,3 +206,6 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 /* ===== Polish round 3 (dark) */
 [data-theme="dark"] .button.is-danger{background:transparent;color:var(--warn-line);box-shadow:inset 0 0 0 1.5px var(--warn-line)}
 [data-theme="dark"] .button.is-danger:hover{background:var(--warn-bg)}
+
+/* Before the season (style.css): the Pre-order badge stays accent on accent in the dark too. */
+[data-theme="dark"] .product-tag.pre-badge{background:var(--accent);color:var(--on-accent)}

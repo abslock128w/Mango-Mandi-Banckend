@@ -2,7 +2,9 @@
    Content (story, origin, photos, search words) from catalog.js; boxes and prices from
    GET /v1/products (`skus`, app.js); stock per sku and stage from GET /v1/catalogue (`stock`,
    app.js) once a pincode is known. Loaded before app.js: top-level code here only declares,
-   so app.js globals (cart, favorites, filter, skus, stock, toast, …) are used at call time. */
+   so app.js globals (cart, favorites, filter, skus, stock, toast, …) are used at call time.
+   Before the season (app.js preSeason()) the shelf is the pre-order shop: each card has a "Pre-order" badge and button
+   (no stock, sold-out or delivery-day words: there is no fruit yet), and the product sheet books a harvest week. */
 
 // The ripeness stages, in the words of the glass design. `id` matches the filter rail. Ripe is kept only so old
 // bags and orders still read; the shop sells Raw and Semi-ripe (SOLD).
@@ -79,7 +81,9 @@ async function loadProducts() {
 
 // ---- What a card shows
 
-const soldOut = (v, stage) => stock !== null && v.skus.every((s) => qtyOf(s.sku, stage) === 0)
+const soldOut = (v, stage) => !preSeason() && stock !== null && v.skus.every((s) => qtyOf(s.sku, stage) === 0)
+/** Before the season: the pre-order weeks (app.js pre.weeks) for a box. */
+const preWeeksOf = (sku) => pre.weeks.filter((w) => w.sku === sku)
 /** When every box is out on the chosen day: the first day one of them is back, or null. */
 const nextFor = (v, stage) => v.skus.map((s) => nextOf(s.sku, stage)).filter(Boolean).sort()[0] || null
 
@@ -89,7 +93,7 @@ function stageFor(v) {
   if (cardStage[v.name]) return cardStage[v.name]
   const hit = hits.get(v.name)
   if (hit && hit.stage) return hit.stage
-  if (stock) {
+  if (stock && !preSeason()) {
     const inStock = ['SEMI_RIPE', 'RAW'].find((st) => v.skus.some((s) => qtyOf(s.sku, st) > 0))
     if (inStock) return inStock
     // Nothing on the chosen day: show the ripeness that is back soonest, so the card can offer that day.
@@ -100,6 +104,8 @@ function stageFor(v) {
 }
 
 function boxFor(v, stage, chosen = cardBox[v.name]) {
+  // Before the season: the chosen box, else the first with a harvest week open.
+  if (preSeason()) return (chosen && v.skus.some((s) => s.sku === chosen) ? chosen : (v.skus.find((s) => preWeeksOf(s.sku).length) || v.skus[0]).sku)
   if (chosen && v.skus.some((s) => s.sku === chosen) && (qtyOf(chosen, stage) !== 0 || (!v.skus.some((s) => qtyOf(s.sku, stage) > 0) && maxOn(chosen, stage) > 0))) return chosen
   const first = v.skus.find((s) => qtyOf(s.sku, stage) > 0) || (chosen && v.skus.find((s) => s.sku === chosen && maxOn(s.sku, stage) > 0)) || v.skus.find((s) => maxOn(s.sku, stage) > 0) || v.skus.find((s) => s.sku === chosen) || v.skus[0]
   return first.sku
@@ -110,7 +116,7 @@ function boxFor(v, stage, chosen = cardBox[v.name]) {
 function boxCards(v, stage, selected, scope) {
   const i = Math.max(0, v.skus.findIndex((s) => s.sku === selected))
   return `<div class="box-cards" role="group" aria-label="${esc(v.name)} box size" style="--n:${v.skus.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${v.skus.map((s) => {
-    const out = qtyOf(s.sku, stage) === 0 && maxOn(s.sku, stage) === 0 && !bo(), on = s.sku === selected
+    const out = !preSeason() && qtyOf(s.sku, stage) === 0 && maxOn(s.sku, stage) === 0 && !bo(), on = s.sku === selected
     return `<button class="box-card" data-box="${esc(v.name)}" data-sku="${esc(s.sku)}" data-scope="${scope}" aria-pressed="${on}" ${out ? 'disabled' : ''}><strong>${esc(String(s.boxSize).replace('kg', ' kg'))}</strong><small>${out ? 'Sold out' : currency(s.price)}</small></button>`
   }).join('')}</div>`
 }
@@ -165,6 +171,7 @@ function priceHTML(s) {
 function cardAction(v, sku, stage, out) {
   const s = skuOf(sku), st = stageOf(stage)
   if (!s) return ''
+  if (preSeason()) return preCardAction(v, s, st)
   const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
   const line = cart.find((x) => x.sku === sku && x.stage === stage)
   const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
@@ -177,6 +184,18 @@ function cardAction(v, sku, stage, out) {
   }
   if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
   return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}"${line.qty >= 20 ? ' aria-disabled="true" title="20 boxes is the most per order"' : ''}>+</button></div>${line.qty >= 20 ? `<small class="quick-add-why is-next">${icon('info')}<span>20 max · bulk enquiry for more</span></small>` : ''}`
+}
+
+/** Before the season: "Pre-order" (opens the product sheet's booking panel), or disabled with an icon and the reason. */
+function preCardAction(v, s, st) {
+  const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
+  const key = `data-sku="${esc(s.sku)}" data-stage="${esc(st.apiStage)}"`
+  if (preSeason() === 'BEFORE') {
+    const when = esc(fmtDate(season.preorderOpensOn))
+    return `<button class="quick-add is-out is-pre" disabled aria-label="${what}: pre-orders open ${when}">${icon('info')}<span>Pre-orders open ${when}</span></button>`
+  }
+  if (!preWeeksOf(s.sku).length) return `<button class="quick-add is-out is-pre" disabled aria-label="${what}: no harvest weeks open yet">${icon('info')}<span>No weeks open yet</span></button>`
+  return `<button class="quick-add is-pre" data-pre-open="${esc(v.name)}" ${key} aria-label="Pre-order a ${what}">${icon('sun')}<span>Pre-order</span></button>`
 }
 
 /** Redraw the cards' Add/stepper controls from the bag (all, or one), keeping focus on the control that was used. */
@@ -201,7 +220,9 @@ function cardHTML(v) {
   const later = out && !next && bo() && maxOn(sku, stage) === 0
   const tag = out ? (next ? `Delivers ${fmtDate(next)}` : later ? `Delivered in ${boSpan()}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
-  return `<article class="product-card${out && !next && !later ? ' sold-out' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+  // Before the season every card is a pre-order: the badge on the photo says so.
+  const badge = preSeason() ? `<span class="product-tag pre-badge">${icon('sun')}Pre-order</span>` : tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''
+  return `<article class="product-card${out && !next && !later ? ' sold-out' : ''}${preSeason() ? ' is-pre' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${badge}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -386,10 +407,12 @@ function renderDetail(focus) {
     sweet && ['Sweetness', sweet],
     c.bestFor && ['Best for', esc(c.bestFor)],
   ].filter(Boolean)
-  $('#product-dialog').innerHTML = `<div class="product-detail"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
+  const preMode = preSeason()
+  $('#product-dialog').innerHTML = `<div class="product-detail${preMode ? ' is-pre' : ''}"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}${preMode ? `<section id="pre-box" class="detail-pre" aria-label="Pre-order ${esc(v.name)}"></section><p class="detail-care">${st.care}</p></div></div>` : `<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
     const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage) && !bo()
     return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
-  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? `${icon('close')} Sold out for now` : sourced ? `${icon('bag')} Add · in ${esc(boSpan())}` : later ? `${icon('bag')} Add · delivers ${esc(fmtDate(later))}` : `${icon('bag')} Add to bag`}</button><p class="detail-care">${st.care}</p></div></div>`
+  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? `${icon('close')} Sold out for now` : sourced ? `${icon('bag')} Add · in ${esc(boSpan())}` : later ? `${icon('bag')} Add · delivers ${esc(fmtDate(later))}` : `${icon('bag')} Add to bag`}</button><p class="detail-care">${st.care}</p></div></div>`}`
+  if (preMode) preDetail(v.name, detail.sku, detail.stage)
   if (focus) $(focus, $('#product-dialog'))?.focus()
 }
 
