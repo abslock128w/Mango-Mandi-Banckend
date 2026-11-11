@@ -1220,7 +1220,7 @@ body.locked::after,body:has(dialog[open])::after,body:has(.liquid-navigation.is-
 .quick-add.is-pre{gap:8px}
 .quick-add.is-pre svg{flex:none;width:18px;height:18px;stroke-width:2.2}
 .quick-add.is-pre.is-out svg{width:16px;height:16px}
-html.pre-season.bag-empty .bag-button{display:none}
+html.pre-season.no-bag-lines .bag-button{display:none}
 .detail-pre{margin-top:6px}
 .detail-pre .flow-head{font-size:22px;margin:4px 0 12px}
 .pre-warn{display:flex;gap:10px;align-items:flex-start;margin:16px 0 12px;padding:14px 16px;border-radius:14px;background:var(--sage);border:2px solid var(--accent);color:var(--ink)}
