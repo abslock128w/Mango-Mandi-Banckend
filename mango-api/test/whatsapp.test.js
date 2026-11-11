@@ -152,8 +152,8 @@ describe('WhatsApp rules', () => {
     const saved = env.WHATSAPP_ORDER_LINKS
     try {
       for (const a of AUTOMATIONS) {
-        // Partner messages carry words fixed when queued (partner/alerts.js), one per variable.
-        assert.equal(paramsFor({ ...n, kind: a.kind, partner_params: a.example, bulk_params: a.example }).length, a.params.length, a.kind)
+        // Partner, bulk and farm messages carry words fixed when queued (partner/alerts.js, farm/notify.js), one per variable.
+        assert.equal(paramsFor({ ...n, kind: a.kind, partner_params: a.example, bulk_params: a.example, farm_params: a.example }).length, a.params.length, a.kind)
         env.WHATSAPP_ORDER_LINKS = false
         // Always sent: the claim templates' link, the rider-app out-for-delivery Track order button, and the delivery code's copy-code button.
         assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), ['order-link', 'track-order', 'copy-code'].includes(a.button), `${a.kind} without the flag`)
@@ -177,7 +177,8 @@ describe('WhatsApp rules', () => {
     const kinds = ['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED', 'CANCELLED', 'REFUNDED', 'PREORDER_BOOKED', 'PREORDER_SPOT_OPEN',
       'PREORDER_MOVED', 'DATE_MOVED', 'GIFT_OUT_FOR_DELIVERY', 'RIPENESS_GUIDE', 'BACK_IN_STOCK', 'REORDER_REMINDER', 'REVIEW_REQUEST', 'CLAIM_RECEIVED', 'CLAIM_REJECTED',
       'REFERRAL_REWARD', 'MANAGER_DAILY_SUMMARY', 'HELP_REPLY', 'SUBSCRIPTION_DUE', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE', 'PARTNER_ENQUIRY_RECEIVED', 'PARTNER_TEAM_ALERT',
-      'BULK_ENQUIRY_RECEIVED', 'BULK_QUOTE']
+      'BULK_ENQUIRY_RECEIVED', 'BULK_QUOTE',
+      'FARM_BOOKING_UPDATE', 'FARM_TEAM_ALERT']
     assert.deepEqual([...AUTOMATION_KINDS].sort(), [...kinds].sort())
     assert.equal(new Set(AUTOMATION_KINDS).size, AUTOMATIONS.length)
     for (const a of AUTOMATIONS) {

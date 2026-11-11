@@ -42,6 +42,7 @@ export const PANEL_SWITCHES = [
   { key: 'MULTI_GIFT', label: 'Gifts to many addresses', description: 'One order can send gift boxes to several addresses.' },
   { key: 'SHOP_LANGUAGES', label: 'Shop languages', description: 'Customers can read the shop in another language.' },
   { key: 'BULK_ENQUIRIES', label: 'Bulk enquiries', description: 'The shop’s bulk enquiry form sends to the panel’s Bulk enquiries section; customers see quotes on their Account page.' },
+  { key: 'FARM_EXPERIENCE', label: 'Farm Experience', description: 'Farm visits with 250 kg or more of mangoes in Bulk Deals, and the panel’s farm pages. Customers can book only once Farm Settings opens bookings.' },
   { key: 'PARTNER_NETWORK', label: 'Partner With Us', description: 'The shop’s Partner With Us page and enquiry form, and the panel’s Partner Network section.' },
 ]
 

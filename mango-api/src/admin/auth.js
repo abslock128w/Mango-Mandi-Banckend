@@ -245,6 +245,8 @@ me.get(
         partnerNetwork: isOn('PARTNER_NETWORK'),
         // Bulk enquiries (mango-api/README.md, Bulk enquiries): always named, so the panel hides the section when it is off.
         bulkEnquiries: isOn('BULK_ENQUIRIES'),
+        // Farm Experience (docs/farm-experience.md): always named, so the panel hides its pages when it is off.
+        farmExperience: isOn('FARM_EXPERIENCE'),
       },
       twoStep: {
         enabled: Boolean(rows[0].totp_enabled_at),

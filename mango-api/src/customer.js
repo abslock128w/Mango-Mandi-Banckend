@@ -50,6 +50,7 @@ import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
 import { partnerPublic } from './partner/routes.js'
 import { bulkEnquiryMe, bulkEnquiryPublic } from './bulk-enquiry-routes.js'
+import { devFarm, farmCustomer, farmPublic } from './farm/routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
@@ -419,6 +420,8 @@ router.get('/policy', (_req, res) => {
       partnerNetwork: isOn('PARTNER_NETWORK'),
       // The bulk enquiry form sends to the panel, and quotes show on the Account page (mango-api/README.md, Bulk enquiries).
       bulkEnquiries: isOn('BULK_ENQUIRIES'),
+      // Farm Experience in Bulk Deals (FARM_EXPERIENCE, docs/farm-experience.md).
+      farmExperience: isOn('FARM_EXPERIENCE'),
       // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
       languages: isOn('SHOP_LANGUAGES'),
     },
@@ -490,8 +493,10 @@ router.use(growthPublic)
 router.use('/partner-network', partnerPublic)
 // Bulk enquiries: the shop's form, no sign-in needed (mango-api/README.md, Bulk enquiries).
 router.use(bulkEnquiryPublic)
+// Farm Experience: the page, dates and prices are public (docs/farm-experience.md).
+router.use(farmPublic)
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts', '/farm-bookings'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
@@ -506,6 +511,8 @@ router.use(appFeel)
 router.use(growthMe)
 // Bulk and corporate gifting (MULTI_GIFT): /gifts..., the caller's own gift orders only.
 router.use(customerGifts)
+// Farm Experience bookings: /farm-bookings..., the caller's own only (docs/farm-experience.md).
+router.use(farmCustomer)
 // Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
 router.use(care)
 // The caller's bulk enquiries and quotes: /me/bulk-enquiries (bulk-enquiry-routes.js).
@@ -1625,5 +1632,6 @@ devRouter.post(
 )
 
 devRouter.use(devGifts)
+devRouter.use(devFarm)
 
 devRouter.post('/reconcile', asyncHandler(async (_req, res) => res.json({ reconciled: await reconcilePendingPayments({ minAgeSeconds: 0 }) })))
