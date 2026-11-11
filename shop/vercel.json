@@ -110,6 +110,22 @@
       "destination": "/index.html"
     },
     {
+      "source": "/farm-experience",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/farm-experience/book",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/farm-bookings",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/farm-bookings/:id",
+      "destination": "/index.html"
+    },
+    {
       "source": "/((?!v1/|assets/)[^.]*)",
       "destination": "/index.html"
     }

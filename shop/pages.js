@@ -1,4 +1,5 @@
 /* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /bulk.
+   (The Partner Network pages are in partner.js and the Farm Experience pages in farm.js; both add to PAGES.)
    There is no pre-order page any more: before the season the home page is the pre-order shop (shelf.js), and the
    old /preorder and /#preorder land on / (shop/vercel.json redirects /preorder; route() does the same here).
    They replace the home page (main#home) with #page-view, keep the header, footer and dock, and
@@ -133,9 +134,9 @@ function loginIntro() {
 
 /** The page's heading: a back button, the title, and on the account pages their tabs. */
 function pageHead(title) {
-  const tabs = ['account', 'orders'].includes(document.body.dataset.page)
+  const tabs = ['account', 'orders', 'farm-bookings'].includes(document.body.dataset.page)
     ? `<nav class="page-tabs" aria-label="Your account">${ACCOUNT_TABS.map(([href, label]) => {
-      const on = location.pathname === href || (href === '/orders' && location.pathname.startsWith('/order'))
+      const on = location.pathname === href || (href === '/orders' && location.pathname.startsWith('/order')) || (href === '/farm-bookings' && location.pathname.startsWith('/farm-bookings/'))
       return `<a href="${href}" data-route ${on ? 'aria-current="page"' : ''}>${label}</a>`
     }).join('')}</nav>`
     : ''

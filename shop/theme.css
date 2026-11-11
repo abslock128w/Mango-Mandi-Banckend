@@ -209,3 +209,6 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 
 /* Before the season (style.css): the Pre-order badge stays accent on accent in the dark too. */
 [data-theme="dark"] .product-tag.pre-badge{background:var(--accent);color:var(--on-accent)}
+/* Farm Experience (farm.js) in the dark: the tokens carry it; only the fixed colours change. */
+[data-theme="dark"] .fx-pill.is-warn{background:#ffc93c;color:#15130c}
+[data-theme="dark"] .fx-choice[aria-checked="true"]{background:#2a2617}

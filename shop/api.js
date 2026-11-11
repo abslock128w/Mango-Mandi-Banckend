@@ -13,18 +13,18 @@ let token=null,profile=readProfile(),refreshing=null,epoch=0;
 function setProfile(p){profile=p?{id:p.id,phone:p.phone??null,name:p.name??null,email:p.email??null}:null;try{profile?localStorage.setItem(PROFILE_KEY,JSON.stringify(profile)):localStorage.removeItem(PROFILE_KEY)}catch{}window.dispatchEvent(new CustomEvent('mm:profile'))}
 function signedIn(r){token=r.accessToken;setProfile(r.customer);return profile}
 function signedOut(){epoch++;const was=profile;token=null;profile=null;try{localStorage.removeItem(PROFILE_KEY)}catch{}if(was)window.dispatchEvent(new CustomEvent('mm:profile'))}
-async function readAnswer(res){
+async function readAnswer(res,paise){
   if(res.status===204)return undefined;
   const text=await res.text();let json=null;
   try{json=text?JSON.parse(text):null}catch{if(res.ok)throw fail(res.status,'BAD_RESPONSE','Mango Mandi sent an answer we could not read. Please try again.')}
   if(!res.ok){if(json===null&&res.status>=500)throw fail(res.status,'UNAVAILABLE','Mango Mandi is busy right now. Please try again in a minute.');const e=json&&json.error;throw fail(res.status,(e&&e.code)||'ERROR',(e&&e.message)||`Request failed (${res.status})`,e||{})}
-  return toRupees(json);
+  return paise?json:toRupees(json);
 }
-async function raw(path,{method='GET',body,headers={}}={}){
+async function raw(path,{method='GET',body,headers={},paise}={}){
   let res;
   try{res=await fetch(`${base()}/v1${path}`,{method,credentials:'include',headers:{'X-Session':'cookie',...(body!==undefined?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{}),...headers},body:body===undefined?undefined:JSON.stringify(body)})}
   catch{throw fail(0,'NETWORK','You seem to be offline. Check your connection and try again.')}
-  return readAnswer(res);
+  return readAnswer(res,paise);
 }
 function refreshOnce(){
   if(!profile)return Promise.resolve(false);
@@ -40,6 +40,8 @@ const enc=encodeURIComponent;
 const qs=o=>{const p=new URLSearchParams();for(const[k,v]of Object.entries(o))if(v!==null&&v!==undefined&&v!=='')p.set(k,String(v));const s=p.toString();return s?`?${s}`:''};
 const idem=()=>({'Idempotency-Key':window.crypto&&crypto.randomUUID?crypto.randomUUID():`${Date.now()}-${Math.random()}`});
 const auth=(path,method='GET',body,headers)=>api(path,{method,body,headers,auth:true});
+// Farm Experience answers keep their money in paise (a price per kg can have paise): the pages show it with /100.
+const farm=(path,method='GET',body,headers)=>api(path,{method,body,headers,auth:true,paise:true});
 // A public route that also knows a signed-in customer (the bulk enquiry): the token goes along when there is one, and a stale one never blocks it.
 async function maybeAuth(path,opts){if(!token&&profile)await refreshOnce();return raw(path,opts)}
 // A signed-in file (the delivery photo), as a Blob for an object URL.
@@ -72,6 +74,19 @@ window.MM={
   myBulkEnquiries:()=>auth('/me/bulk-enquiries'),
   bulkSeen:id=>auth(`/me/bulk-enquiries/${enc(id)}/seen`,'POST',{}),
   bulkRespond:(id,decision,message)=>auth(`/me/bulk-enquiries/${enc(id)}/respond`,'POST',{decision,...(message?{message}:{})}),
+  // Farm Experience (docs/farm-experience.md): every route answers 404 while FARM_EXPERIENCE is off. Money in paise.
+  farmExperience:()=>raw('/farm-experience',{paise:true}),
+  farmDates:(varietyId,kg)=>raw('/farm-experience/dates'+qs({varietyId,kg}),{paise:true}),
+  farmQuote:(varietyId,kg)=>raw('/farm-experience/quote',{method:'POST',body:{varietyId,kg},paise:true}),
+  bookFarm:(body,key)=>farm('/farm-bookings','POST',body,{'Idempotency-Key':key}),
+  farmBookings:()=>farm('/farm-bookings'),
+  farmBooking:id=>farm(`/farm-bookings/${enc(id)}`),
+  farmQr:id=>authBlob(`/farm-bookings/${enc(id)}/qr.svg`),
+  payFarm:id=>farm(`/farm-bookings/${enc(id)}/pay`,'POST',{}),
+  verifyFarmPayment:(id,reply)=>farm(`/farm-bookings/${enc(id)}/verify-payment`,'POST',{razorpay_payment_id:reply.razorpay_payment_id,razorpay_order_id:reply.razorpay_order_id,razorpay_signature:reply.razorpay_signature}),
+  cancelFarmBooking:(id,reason)=>farm(`/farm-bookings/${enc(id)}/cancel`,'POST',reason?{reason}:{}),
+  moveFarmBooking:(id,date,note)=>farm(`/farm-bookings/${enc(id)}/reschedule`,'POST',{date,...(note?{note}:{})}),
+  answerFarmArrangement:(id,accept)=>farm(`/farm-bookings/${enc(id)}/hospitality`,'POST',{accept}),
   // signed in
   me:()=>auth('/me'),
   cart:()=>auth('/cart'),
