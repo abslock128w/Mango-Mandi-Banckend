@@ -1264,6 +1264,10 @@ html.pre-season #page-body :is(.bag-where,.bag-delivery,.bag-moved){display:none
 .fx-hero-note{display:flex;gap:8px;align-items:flex-start;max-width:520px;margin:0 0 4px;padding:12px 14px;border-radius:var(--r-control);background:#fff8e71f;color:#fff8e7;font-size:14px;line-height:1.5}
 .pn-hero .fx-hero-note{color:#fff8e7;margin-bottom:4px}
 .fx-hero-note svg,.fx-note svg,.fx-why svg{flex:none;width:20px;height:20px;margin-top:1px}
+/* The hero's words on the dark green card: the light on-accent text, in light and dark. */
+#page-body .fx-hero>p:not(.fx-hero-note){color:#f3f5e8}
+#page-body .fx-hero>small{color:#e6ebd8;font-size:12px}
+.fx-hero .pn-kicker{color:#e9edc4}
 .fx-hero-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;margin-top:6px;color:#fff8e7;font-size:14px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
 #page-body :is(.fx-apply,.fx-booking) h3,#page-body .page-card>h3{margin-bottom:12px}
 .fx-text{font-size:14px;line-height:1.65;color:var(--body);white-space:pre-line;margin:0 0 12px}
@@ -1334,8 +1338,10 @@ html.pre-season #page-body :is(.bag-where,.bag-delivery,.bag-moved){display:none
 .fx-choice-text{display:grid;gap:2px}
 .fx-choice-text strong{font-size:16px}
 .fx-choice-text small{font-size:13px;line-height:1.45;color:var(--muted)}
-.fx-days{flex-wrap:wrap;overflow:visible}
-.fx-day{cursor:pointer}
+.fx-days{flex-wrap:wrap;align-items:stretch;overflow:visible}
+/* Every day the same size, whether open, picked or crossed: the "kg left" line's space is kept on all of them. */
+.fx-days .fx-day,.fx-days .fx-day.is-unfit{flex:0 0 84px;min-width:0;max-width:84px;min-height:122px;padding:11px 6px;justify-content:flex-start;cursor:pointer}
+.fx-days .fx-day.is-unfit{cursor:not-allowed}
 .fx-quote{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:16px 0 4px;padding:14px 16px;border-radius:var(--r-control);background:var(--sage);box-shadow:inset 0 0 0 1px var(--line);font-size:14px;color:var(--body)}
 .fx-quote strong{font-size:20px;color:var(--ink);white-space:nowrap}
 .fx-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:14px 0;padding-top:14px;border-top:1px solid var(--line);font-size:15px;color:var(--body)}
@@ -1380,5 +1386,15 @@ a.fx-row{color:inherit;text-decoration:none}
 .fx-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .fx-actions .button.primary{max-width:none}
 .fx-quote{flex-direction:column;gap:4px}
+}
+/* The meals table on a phone: one block per day, each meal on its own line with its name, so nothing is cut off. */
+@media(max-width:700px){
+.fx-table{overflow:visible}
+.fx-table table,.fx-table tbody,.fx-table tr,.fx-table caption{display:block}
+.fx-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fx-table tr{padding:10px 0;border-top:1px solid var(--line)}
+.fx-table tbody th{display:block;padding:0 0 4px;border:0;text-align:left;font-weight:700;color:var(--ink);white-space:normal}
+.fx-table td{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border:0;white-space:normal}
+.fx-table td::before{content:attr(data-label);color:var(--muted)}
 }
 @media(max-width:380px){.fx-grid,.fx-grid.two{grid-template-columns:minmax(0,1fr)}}

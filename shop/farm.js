@@ -783,7 +783,7 @@ function fbRender() {
         <h3>Your stay</h3>
         ${h.plan ? `<p class="fx-text">${esc(h.plan)}</p>` : ''}
         ${h.rooms.length ? `<ul class="fx-list">${h.rooms.map((r) => `<li>${icon('check')}<span>${esc(r.name)} · ${r.guests} ${r.guests === 1 ? 'guest' : 'guests'}, ${fxStay(r.fromDate, r.toDate)}</span></li>`).join('')}</ul>` : ''}
-        ${h.mealPlan.length ? `<div class="fx-table"><table><caption>Meals planned for your group (number of people)</caption><thead><tr><th scope="col">Day</th>${FX_MEALS.map(([, label]) => `<th scope="col">${label}</th>`).join('')}</tr></thead><tbody>${h.mealPlan.map((m) => `<tr><th scope="row">${fmtDate(m.date)}</th>${FX_MEALS.map(([k]) => `<td>${m[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}
+        ${h.mealPlan.length ? `<div class="fx-table"><table><caption>Meals planned for your group (number of people)</caption><thead><tr><th scope="col">Day</th>${FX_MEALS.map(([, label]) => `<th scope="col">${label}</th>`).join('')}</tr></thead><tbody>${h.mealPlan.map((m) => `<tr><th scope="row">${fmtDate(m.date)}</th>${FX_MEALS.map(([k, label]) => `<td data-label="${label}">${m[k]}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''}
       </section>`
     : ''
   const there = f.name || f.location || f.contactPhone || f.arrivalInstructions
