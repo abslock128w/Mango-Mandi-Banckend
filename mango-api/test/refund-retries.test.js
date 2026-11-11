@@ -234,7 +234,8 @@ describe('refund retries back off, then stop for a manager', () => {
     )
     assert.equal(b.status, 201, JSON.stringify(b.body))
     assert.equal((await api.post('/v1/dev/pay-preorder', { preorderId: b.body.id, outcome: 'captured' })).body.result, 'booked')
-    await query(`UPDATE preorders SET payment_id = 'pay_PRE6' WHERE id = $1`, [b.body.id])
+    // A booking sold before pre-orders became non-refundable (migration 064): the customer's cancel still refunds it.
+    await query(`UPDATE preorders SET payment_id = 'pay_PRE6', non_refundable = false WHERE id = $1`, [b.body.id])
     const gw = failingRefunds()
     try {
       assert.equal((await api.post(`/v1/preorders/${b.body.id}/cancel`, {}, { token: cust.accessToken })).status, 204)

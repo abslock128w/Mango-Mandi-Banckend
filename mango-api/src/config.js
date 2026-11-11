@@ -49,15 +49,27 @@ const rulesFieldsFor = (stages) => z.object({
   outForDeliveryAlertHours: z.number().int().min(1).max(48).default(8),
   maxPreorderMoves: z.number().int().min(1).max(20).default(3),
   seasonEndsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
+  // Before the season (src/season-phase.js): from preorderOpensOn the shop's home page takes
+  // pre-orders, and from seasonStartsOn it sells as usual. Unset (older versions too): in season.
+  seasonStartsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
+  preorderOpensOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
   // Live tracking (LIVE_TRACKING): the rough minutes a rider spends per stop, for the shop's
   // "N stops away, about M minutes". Older rule versions get the default.
   minutesPerStop: z.number().int().min(1).max(120).default(10),
   stageProfiles: z.record(z.string(), profileOf(stages)).refine((p) => 'default' in p, 'a "default" profile is required'),
 })
 const retireAfterSellable = [(r) => r.retireAge > r.maxSellableAge, { message: 'retireAge must be greater than maxSellableAge' }]
+const opensBeforeStart = [
+  (r) => !r.preorderOpensOn || !r.seasonStartsOn || r.preorderOpensOn < r.seasonStartsOn,
+  { message: 'Pre-orders must open before the season starts', path: ['preorderOpensOn'] },
+]
+const startsBeforeEnd = [
+  (r) => !r.seasonStartsOn || !r.seasonEndsOn || r.seasonStartsOn < r.seasonEndsOn,
+  { message: 'The season must start before it ends', path: ['seasonStartsOn'] },
+]
 
 /** What a manager may save: unknown keys are a typo and are refused, and so is a RIPE window. */
-export const rulesSchema = rulesFieldsFor(SALE_STAGES).strict().refine(...retireAfterSellable)
+export const rulesSchema = rulesFieldsFor(SALE_STAGES).strict().refine(...retireAfterSellable).refine(...opensBeforeStart).refine(...startsBeforeEnd)
 
 /**
  * What the API reads back. Unknown keys are dropped, not refused, so a rollback
@@ -91,6 +103,8 @@ export const DEFAULT_RULES = {
   outForDeliveryAlertHours: 8,
   maxPreorderMoves: 3,
   seasonEndsOn: null,
+  seasonStartsOn: null,
+  preorderOpensOn: null,
   minutesPerStop: 10,
   stageProfiles: {
     default: [

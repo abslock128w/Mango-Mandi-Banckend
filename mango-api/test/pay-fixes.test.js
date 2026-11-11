@@ -174,7 +174,8 @@ describe('PAY-B2: a refund sent again carries a new receipt', () => {
     const cust = await customerToken(api)
     const p = await bookedPreorder(cust)
     assert.equal((await api.post('/v1/dev/pay-preorder', { preorderId: p.id, outcome: 'captured' })).body.result, 'booked')
-    await query(`UPDATE preorders SET payment_id = 'pay_P1' WHERE id = $1`, [p.id])
+    // A booking sold before pre-orders became non-refundable (migration 064): the customer's cancel still refunds it.
+    await query(`UPDATE preorders SET payment_id = 'pay_P1', non_refundable = false WHERE id = $1`, [p.id])
     const desk = refundDesk()
     const gw = stubRazorpay((m, path, b) => desk.handle(m, path, b))
     try {

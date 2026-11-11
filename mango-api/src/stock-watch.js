@@ -98,7 +98,7 @@ export async function overdueOrders(c, at = now(), limit = 100) {
 export async function preordersNeedingDecision(c, limit = 100) {
   const cfg = getConfig()
   const { rows } = await c.query(
-    `SELECT id, number, customer_name, sku, qty, week_start, moved_count FROM preorders
+    `SELECT id, number, customer_name, sku, qty, week_start, moved_count, non_refundable FROM preorders
       WHERE status = 'BOOKED' AND (moved_count > $1 OR ($2::date IS NOT NULL AND week_start > $2::date))
         -- A manager chose to keep it (Keep booking): back only once it moves again.
         AND NOT (kept_moved_count IS NOT DISTINCT FROM moved_count AND kept_week_start IS NOT DISTINCT FROM week_start)
@@ -107,6 +107,8 @@ export async function preordersNeedingDecision(c, limit = 100) {
   )
   return rows.map((p) => ({
     id: p.id, number: p.number, customerName: p.customer_name, sku: p.sku, qty: p.qty, weekStart: p.week_start, movedCount: p.moved_count,
+    // The customer can't cancel it (migration 064); a manager's cancel still refunds in full.
+    nonRefundable: Boolean(p.non_refundable),
     reason:
       cfg.seasonEndsOn && p.week_start > cfg.seasonEndsOn
         ? `booked for the week of ${p.week_start}, after the season ends on ${cfg.seasonEndsOn}`

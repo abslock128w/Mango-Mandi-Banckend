@@ -3,11 +3,13 @@
 // (wa_sessions) and answers with text, reply buttons and lists. Orders go
 // through the same engine as app checkout: holds, slots, payment and the
 // customer-cancel refund. Booking ahead (a preorder for a later week) uses
-// the same preorder engine as the app. WhatsApp verifies the phone number,
+// the same preorder engine as the app, with its rules: nothing is booked before
+// pre-orders open, and a paid pre-order (or the order it became) can't be
+// cancelled or refunded by the customer. WhatsApp verifies the phone number,
 // so the chat needs no OTP.
 import { background } from './background.js'
 import { getConfig } from './config.js'
-import { now } from './clock.js'
+import { now, todayIST } from './clock.js'
 import { tx, query } from './db.js'
 import { orderableDates, slotsForDate } from './delivery.js'
 import { env } from './env.js'
@@ -18,8 +20,9 @@ import { logger } from './logger.js'
 import { dateWords, recordDeliveryStatus, rupees, timeWords, weekWords } from './notify.js'
 import { checkUnpaidLimit, createOrder, customerCancel, eatByFor, processPayment, SYSTEM } from './orders.js'
 import { applyCapture, cancelPaymentLink, createPaymentLink, recordWebhookFailure, refundOrder } from './payments.js'
-import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, refundPreorder } from './preorders.js'
+import { bookPreorder, cancelPreorder, ensurePaymentLink, NON_REFUNDABLE_MESSAGE, openWeeks, refundPreorder } from './preorders.js'
 import { findProduct, sellable, shopProducts } from './products.js'
+import { seasonPhase } from './season-phase.js'
 import { SALE_STAGES } from './stage.js'
 import { chatMessenger } from './whatsapp.js'
 import { consentKeyword, setConsent } from './wa/consent.js'
@@ -45,6 +48,8 @@ const MENU = buttons('Welcome to MandiMangoes 🥭 What would you like to do? Se
   ['BOOK', 'Book ahead'],
   ['ORDERS', 'My orders'],
 ])
+/** Said wherever a pre-order is offered or confirmed in the chat. */
+const NO_REFUND = "Pre-order · can't be cancelled or refunded once paid."
 const PRE_WORDS = { PAYMENT_PENDING: 'Waiting for payment', BOOKED: 'Booked', WAITLISTED: 'On the waitlist', CONVERTED: 'Booked', CANCELLED: 'Cancelled' }
 const slotWords = (s) => `${s.label} (${timeWords(s.startsAt)} to ${timeWords(s.endsAt)})`
 const boxesOf = (cart) => cart.reduce((n, l) => n + l.qty, 0)
@@ -165,7 +170,8 @@ async function summary(c, s) {
 
 async function myOrders(c, s) {
   const { rows } = await c.query(
-    `SELECT o.*, sl.label AS slot_label FROM orders o LEFT JOIN delivery_slots sl ON sl.id = o.slot_id
+    `SELECT o.*, sl.label AS slot_label, COALESCE(pre.non_refundable, false) AS pre_non_refundable
+       FROM orders o LEFT JOIN delivery_slots sl ON sl.id = o.slot_id LEFT JOIN preorders pre ON pre.id = o.preorder_id
       WHERE o.customer_id = $1 AND NOT (o.status = 'CANCELLED' AND o.payment_status IN ('INITIATED', 'CANCELLED', 'FAILED'))
       ORDER BY o.placed_at DESC LIMIT 5`,
     [s.customerId],
@@ -183,11 +189,17 @@ async function myOrders(c, s) {
   })
   const booked = pres.map((p) =>
     `*${p.number}*: ${PRE_WORDS[p.status]}\n${p.qty} × ${findProduct(p.sku)?.name ?? p.sku} (${STAGE_WORDS[p.stage]}) for ${weekWords(p.week_start)} · ${rupees(p.total)}`)
+  // A paid non-refundable pre-order, and the order it became, get no cancel button.
+  const locked = (p) => p.non_refundable && p.payment_status === 'SUCCEEDED'
   const cancellable = [
-    ...rows.filter((o) => CANCELLABLE.includes(o.status)).map((o) => [`cancel:${o.id}`, `Cancel ${o.number}`]),
-    ...pres.map((p) => [`precancel:${p.id}`, `Cancel ${p.number}`]),
+    ...rows.filter((o) => CANCELLABLE.includes(o.status) && !o.pre_non_refundable).map((o) => [`cancel:${o.id}`, `Cancel ${o.number}`]),
+    ...pres.filter((p) => !locked(p)).map((p) => [`precancel:${p.id}`, `Cancel ${p.number}`]),
   ].slice(0, 2)
-  const note = cancellable.length ? '\n\nYou can cancel until your box is packed. Paid orders and bookings are refunded in full.' : ''
+  const anyLocked = pres.some(locked) || rows.some((o) => o.pre_non_refundable && CANCELLABLE.includes(o.status))
+  const note = [
+    cancellable.length ? 'You can cancel an order until your box is packed, and a paid order is refunded in full.' : '',
+    anyLocked ? "Pre-orders can't be cancelled or refunded once paid. If something is wrong, send *agent*." : '',
+  ].filter(Boolean).map((t) => `\n\n${t}`).join('')
   const parts = [lines.length ? `Your recent orders:\n\n${lines.join('\n\n')}` : '', booked.length ? `Booked ahead:\n\n${booked.join('\n\n')}` : '']
   return [buttons(`${parts.filter(Boolean).join('\n\n')}${note}`, [...cancellable, ['MENU', 'Menu']])]
 }
@@ -293,6 +305,12 @@ async function cancelChosen(c, s, orderId) {
 
 /** Weeks open for booking, one row per week and box, with what is left. */
 async function bookWeeks(c, s) {
+  const cfg = getConfig()
+  if (seasonPhase(todayIST(), cfg) === 'BEFORE') {
+    s.state = 'IDLE'
+    s.data = { pincode: s.data.pincode }
+    return [buttons(`The season starts on ${dateWords(cfg.seasonStartsOn)}. Pre-orders open on ${dateWords(cfg.preorderOpensOn)}: book your box then.`, [['MENU', 'Menu']])]
+  }
   const weeks = (await openWeeks(c)).filter((w) => sellable(w.sku)).slice(0, 10)
   s.data = { pincode: s.data.pincode, pre: {} }
   if (!weeks.length) {
@@ -302,7 +320,7 @@ async function bookWeeks(c, s) {
   s.state = 'PRE_WEEK'
   return [{
     type: 'list',
-    text: 'Book a box for a later week at today\'s price. You pay now, we pick the delivery day in that week when the fruit is ready, and you can cancel for a full refund until it is packed.',
+    text: "Pre-order a box for a later week at today's price. You pay now and we pick the delivery day in that week when the fruit is ready. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.",
     button: 'See weeks',
     section: 'Open weeks',
     rows: weeks.map((w) => {
@@ -343,11 +361,11 @@ async function bookSummary(c, s) {
   s.state = 'PRE_CONFIRM'
   const body = `Please check your booking:\n${pre.qty} × ${p.name} (${STAGE_WORDS[pre.stage]}) ${rupees(total)}\nDelivery: a day in ${weekWords(pre.weekStart)}\nTo: ${pre.address}`
   if (pre.waitlist) {
-    return [buttons(`${body}\n\nThat week is full for ${pre.qty} boxes. Join the waitlist and we'll message you with a payment link if a spot opens. Nothing is charged until then.`, [
+    return [buttons(`${body}\n\nThat week is full for ${pre.qty} boxes. Join the waitlist and we'll message you with a payment link if a spot opens. Nothing is charged until then.\n\n${NO_REFUND}`, [
       ['PREPAY', 'Join the waitlist'], ['MENU', 'Cancel'],
     ])]
   }
-  return [buttons(body, [['PREPAY', `Pay ${rupees(total)}`], ['BOOK', 'Start over'], ['MENU', 'Cancel']])]
+  return [buttons(`${body}\n\n${NO_REFUND}`, [['PREPAY', `Pay ${rupees(total)}`], ['BOOK', 'Start over'], ['MENU', 'Cancel']])]
 }
 
 /** Books the preorder; the payment link goes out after commit. */
@@ -373,6 +391,7 @@ async function placePreorder(c, s, cust) {
   if (!r.ok) {
     if (r.error.code === 'PREORDER_FULL') return { replies: [text('Sorry, that week just filled up.'), ...(await bookSummary(c, s))] }
     if (r.error.code === 'INVALID_WEEK') return { replies: [text('Sorry, that week is no longer open for booking.'), ...(await bookWeeks(c, s))] }
+    if (r.error.code === 'PREORDERS_NOT_OPEN') return { replies: [text(`Sorry, ${r.error.message.charAt(0).toLowerCase()}${r.error.message.slice(1)}`), MENU] }
     if (r.error.code === 'UNPAID_PREORDER_EXISTS') {
       return { replies: [text(`You already have an unpaid booking, ${r.error.extra.number}. Pay for it with the link we sent, or send *my orders* to cancel it. Then you can book again.`), MENU] }
     }
@@ -391,6 +410,7 @@ async function placePreorder(c, s, cust) {
 async function cancelBooking(c, s, id) {
   const { rows } = await c.query('SELECT number, total FROM preorders WHERE id = $1 AND customer_id = $2', [id, s.customerId])
   if (!rows.length) return { replies: [MENU] }
+  // A paid non-refundable booking is refused here with PREORDER_NON_REFUNDABLE; its message is what the customer reads.
   const r = await attempt(c, () => cancelPreorder(c, id, s.customerId, { type: 'customer', id: s.customerId, label: 'whatsapp' }))
   if (!r.ok) return { replies: [text(r.error.code === 'NOT_CANCELLABLE' ? `${rows[0].number} is already packed, so it can't be cancelled now.` : r.error.message), MENU] }
   if (s.data.preorderId === id) delete s.data.preorderId
@@ -554,7 +574,7 @@ async function step(c, s, cust, input) {
   }
   if (id === 'HELP' || lower === 'help') {
     return { replies: [buttons(
-      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can also book a box for a later week at today's price with *Book ahead*. You can cancel until your order is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
+      `We deliver fresh mangoes. Order before ${timeWords(`${getConfig().cutoffHourIST}:00`)} for next-day delivery. Pick the ripeness you want on the delivery day. You can also pre-order a box for a later week at today's price with *Book ahead*; pre-orders can't be cancelled or refunded once paid. You can cancel an order until it is packed, and paid orders are refunded in full. If a box arrives damaged, raise a claim in the MandiMangoes app within ${getConfig().claimWindowHours} hours and we'll replace it.`,
       [['ORDER', 'Order mangoes'], ['ORDERS', 'My orders'], ['HUMAN', 'Talk to us']],
     )] }
   }
@@ -567,9 +587,12 @@ async function step(c, s, cust, input) {
   }
   if (id?.startsWith('cancelyes:')) return cancelChosen(c, s, id.slice(10))
   if (id?.startsWith('precancel:')) {
-    const { rows } = await c.query('SELECT number, payment_status FROM preorders WHERE id = $1 AND customer_id = $2', [id.slice(10), s.customerId])
+    const { rows } = await c.query('SELECT number, payment_status, non_refundable FROM preorders WHERE id = $1 AND customer_id = $2', [id.slice(10), s.customerId])
     if (!rows.length) return { replies: [MENU] }
-    const refund = rows[0].payment_status === 'SUCCEEDED' ? ' You get a full refund.' : ''
+    const paid = rows[0].payment_status === 'SUCCEEDED'
+    if (paid && rows[0].non_refundable) return { replies: [text(NON_REFUNDABLE_MESSAGE), MENU] }
+    // An older booking, sold before pre-orders became non-refundable, keeps its refund.
+    const refund = paid ? ' You get a full refund.' : ''
     return { replies: [buttons(`Cancel booking ${rows[0].number}?${refund}`, [[`precancelyes:${id.slice(10)}`, 'Yes, cancel it'], ['ORDERS', 'Keep it']])] }
   }
   if (id?.startsWith('precancelyes:')) return cancelBooking(c, s, id.slice(13))

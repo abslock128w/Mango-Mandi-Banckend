@@ -30,6 +30,31 @@ was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
 Box size is two cards (3 kg / 5 kg, each with its price) instead of a dropdown, so picking a box
 is one tap, on the shelf and in the product sheet.
 
+## Before the season: the home page is the pre-order shop
+
+There is no pre-order page any more (`/preorder` and `/#preorder` land on `/`). The API's
+`season` (`GET /v1/preorders/weeks`, loaded with the page, and `GET /v1/catalogue`; rules
+`seasonStartsOn` and `preorderOpensOn` on the panel's Planning page) decides what the home page is:
+
+- **PREORDER** (before the season starts, once pre-orders open): a notice band above the product
+  grid ("You're pre-ordering. The season starts …" / "Pre-orders can't be cancelled or refunded"),
+  the announcement bar says "Pre-orders are open · season starts …" and scrolls to the shop, and
+  every card has a "Pre-order" badge and button (no stock, sold-out or delivery-day words: there
+  is no fruit yet). A box with no harvest week open is disabled with the reason. The product sheet
+  books instead of adding to the bag: ripeness, box, harvest week, quantity, a boxed warning that
+  the pre-order can't be cancelled or refunded once paid, a required tick, then
+  "Pre-order · pay ₹…" (`app.js` `preDetail` / `renderPreorder`; sign-in and address reuse the
+  checkout steps). The bag isn't used: its button hides while empty, and a bag from before shows a
+  notice and can't be checked out.
+- **BEFORE** (before pre-orders open): the band and the cards say when pre-orders open.
+- **OPEN**: the usual shop; nothing in the shop starts a pre-order.
+
+Paid pre-orders show a "Pre-order" chip, "Non-refundable · delivered in the week of …" and no
+Cancel button (a line says to message us instead); unpaid and waitlisted ones can still be
+cancelled. An order made from one says "Pre-order · non-refundable" and offers no cancel (the
+API's `canCancel`). `/preorders/<id>` (the Razorpay return) and "My pre-orders" on the account
+page stay.
+
 ## Pages (`pages.js`)
 
 Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`), the
@@ -37,7 +62,8 @@ profile (`/account`) and sign-in (`/login?next=…`) are full pages, not sheets.
 pages send the customer to `/login`, which returns them to the page they wanted (only a path on this site). They replace the home page in place (History
 API, so back and forward work and the links can be reloaded or shared); `vercel.json` and
 `scripts/serve-shop.mjs` serve `index.html` for them. app.js's checkout and order flows draw
-wherever `view` points: the page, or the form sheet for pre-orders and bulk enquiries.
+wherever `view` points: the page, the product sheet's booking panel (`#pre-box`, before the
+season), or the form sheet for a booked pre-order and bulk enquiries.
 
 Checkout has a step bar (Area · Sign in · Delivery · Payment · Done), delivery dates and slots as
 cards, the customer's saved addresses (`GET /v1/me/addresses`) as cards, and "Use my current
@@ -178,6 +204,8 @@ variables, or `git checkout shop/config.js`, to put the default back before comm
 - **Rewrites** to `/index.html`: `/preorders/:id`, `/order/:id`, `/orders/:id`,
   `/help/requests/:id`, `/account/:path*`, `/invite/:code`. Vercel serves a file that exists
   before it applies rewrites, so `assets/` and the other files are not shadowed.
+- **Redirect** `/preorder` (the retired pre-order page) to `/` (temporary, 307). The shop's own
+  router does the same for a cached page or the local server.
 - The output folder is this folder, so `build-config.mjs` and `vercel.json` are served too
   (nothing secret is in them); `README.md` is kept out by `.vercelignore`.
 

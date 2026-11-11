@@ -608,6 +608,10 @@ export interface Rules {
   minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
   seasonEndsOn?: string | null
+  /** The season's first day (YYYY-MM-DD). Before it the shop's home page takes pre-orders; unset: in season. */
+  seasonStartsOn?: string | null
+  /** The first day the shop takes pre-orders (YYYY-MM-DD), before seasonStartsOn; unset: any day before the season. */
+  preorderOpensOn?: string | null
   stageProfiles: Record<string, StageWindow[]>
 }
 
@@ -656,6 +660,8 @@ export interface Preorder {
   paymentStatus: string | null
   movedCount: number
   createdAt: string
+  /** Sold as non-refundable (pre-orders since migration 064): the customer can't cancel it once paid. A manager's cancel still refunds in full. */
+  nonRefundable?: boolean
   refund: { requestedAt: string; refundedAt: string | null; id: string | null } | null
   order: { id: string; number: string; status: OrderStatus; deliveryDate: string } | null
 }
@@ -861,7 +867,7 @@ export interface Attention {
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */
   retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null; /** day: no open day or no room for the retry (PLT-08, PLT-09); stock: the packed boxes can't go. */ kind?: 'stock' | 'day' }[]
   /** Paid preorders moved forward too often or booked past the season end. */
-  preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
+  preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; nonRefundable?: boolean; reason: string }[]
   /** Cancelled or returned orders whose boxes are still to be put back or written off. */
   returnedStock?: { id: string; number: string; status: OrderStatus; boxes: number }[]
 }

@@ -772,6 +772,14 @@ function RulesCard() {
               </div>
             ))}
             <div className="contents">
+              <dt>Pre-orders open on</dt>
+              <dd>{q.data.rules.preorderOpensOn ? date(q.data.rules.preorderOpensOn) : 'Not set'}</dd>
+            </div>
+            <div className="contents">
+              <dt>Season starts on</dt>
+              <dd>{q.data.rules.seasonStartsOn ? date(q.data.rules.seasonStartsOn) : 'Not set'}</dd>
+            </div>
+            <div className="contents">
               <dt>Season ends</dt>
               <dd>{q.data.rules.seasonEndsOn ? date(q.data.rules.seasonEndsOn) : 'Not set'}</dd>
             </div>
@@ -820,6 +828,8 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
     Object.fromEntries(RULE_FIELDS.map((f) => [f.key, String(rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '')])) as Record<string, string>,
   )
   const [seasonEndsOn, setSeasonEndsOn] = useState(rules.seasonEndsOn ?? '')
+  const [seasonStartsOn, setSeasonStartsOn] = useState(rules.seasonStartsOn ?? '')
+  const [preorderOpensOn, setPreorderOpensOn] = useState(rules.preorderOpensOn ?? '')
   const [windows, setWindows] = useState(() =>
     // An older rules version may still have a Ripe window; it can't be saved any more, so it isn't offered.
     rules.stageProfiles.default.filter((w) => STAGES.includes(w.stage)).map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
@@ -843,10 +853,15 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
     setFormError(null)
     const all = [...Object.values(values), ...windows.flatMap((w) => [w.minAge, w.maxAge])]
     if (all.some((v) => !/^\d+$/.test(v))) return setFormError('Every value must be a whole number.')
+    // Same checks as the API (src/config.js): dates are YYYY-MM-DD, so they compare as text.
+    if (preorderOpensOn && seasonStartsOn && preorderOpensOn >= seasonStartsOn) return setFormError('Pre-orders must open before the season starts.')
+    if (seasonStartsOn && seasonEndsOn && seasonStartsOn >= seasonEndsOn) return setFormError('The season must start before it ends.')
     const next: Rules = {
       ...rules,
       ...Object.fromEntries(Object.entries(values).map(([k, v]) => [k, Number(v)])),
       seasonEndsOn: seasonEndsOn || null,
+      seasonStartsOn: seasonStartsOn || null,
+      preorderOpensOn: preorderOpensOn || null,
       stageProfiles: {
         ...rules.stageProfiles,
         default: windows.map((w) => ({ stage: w.stage, minAge: Number(w.minAge), maxAge: Number(w.maxAge) })),
@@ -884,6 +899,16 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
               <p className="hint">{f.hint}</p>
             </div>
           ))}
+          <div className="field">
+            <label htmlFor="rule-preorderOpensOn">Pre-orders open on (optional)</label>
+            <input id="rule-preorderOpensOn" type="date" value={preorderOpensOn} onChange={(e) => setPreorderOpensOn(e.target.value)} />
+            <p className="hint">From this day until the season starts, the shop takes pre-orders. Leave empty to take them any time before the season.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="rule-seasonStartsOn">Season starts on (optional)</label>
+            <input id="rule-seasonStartsOn" type="date" value={seasonStartsOn} onChange={(e) => setSeasonStartsOn(e.target.value)} />
+            <p className="hint">Before this day the shop only takes pre-orders. Leave empty when the season is on.</p>
+          </div>
           <div className="field">
             <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
             <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />

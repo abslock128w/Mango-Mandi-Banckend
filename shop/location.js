@@ -11,9 +11,12 @@ let whereBusy = false
 /** A saved address's short name: its own name, or its first two parts ("Flat 4B, Sunrise Apartments"). */
 const shortAddress = (a) => a.name || addressText(a.address).split(',').slice(0, 2).join(',').trim()
 
+const beforeSeason = () => typeof preSeason === 'function' && Boolean(preSeason())
+
 function whereLabel() {
   if (!where.pincode) return 'Choose your location'
-  const day = where.deliveryDate ? ` · ${fmtDate(where.deliveryDate)}` : ''
+  // Before the season there is no delivery day to show: a pre-order is delivered in its harvest week.
+  const day = where.deliveryDate && !beforeSeason() ? ` · ${fmtDate(where.deliveryDate)}` : ''
   return (where.area ? `${where.area} · ${where.pincode}` : `Pincode ${where.pincode}`) + day
 }
 
@@ -41,8 +44,8 @@ async function whereSheet({ first = false } = {}) {
   const saved = MM.profile() ? await MM.addresses().catch(() => []) : []
   const d = $('#where-dialog')
   d.innerHTML = `${formHeader('Where should we deliver?')}
-    <p class="where-intro">We’ll show what’s in stock and the delivery days for your area. You’ll add the flat and building at checkout.</p>
-    ${where.pincode && (where.deliveryDates || []).length ? `<div class="field">Delivery day for ${esc(where.pincode)}</div><div class="date-cards where-days" role="group" aria-label="Delivery day">${where.deliveryDates.map((x) => { const dt = new Date(x + 'T00:00:00'); return `<button type="button" class="date-card" data-pick-date="${esc(x)}" aria-pressed="${x === where.deliveryDate}" aria-label="${esc(fmtDate(x))}"><small>${esc(dt.toLocaleDateString('en-IN', { weekday: 'short' }))}</small><strong>${dt.getDate()}</strong><small>${esc(dt.toLocaleDateString('en-IN', { month: 'short' }))}</small></button>` }).join('')}</div><p class="where-days-note">Stock changes by the day as the mangoes ripen. Pick a later day to see what’s coming.</p>` : ''}
+    <p class="where-intro">${beforeSeason() ? 'We’ll check that we deliver to your area. You’ll add the flat and building when you pre-order.' : 'We’ll show what’s in stock and the delivery days for your area. You’ll add the flat and building at checkout.'}</p>
+    ${where.pincode && (where.deliveryDates || []).length && !beforeSeason() ? `<div class="field">Delivery day for ${esc(where.pincode)}</div><div class="date-cards where-days" role="group" aria-label="Delivery day">${where.deliveryDates.map((x) => { const dt = new Date(x + 'T00:00:00'); return `<button type="button" class="date-card" data-pick-date="${esc(x)}" aria-pressed="${x === where.deliveryDate}" aria-label="${esc(fmtDate(x))}"><small>${esc(dt.toLocaleDateString('en-IN', { weekday: 'short' }))}</small><strong>${dt.getDate()}</strong><small>${esc(dt.toLocaleDateString('en-IN', { month: 'short' }))}</small></button>` }).join('')}</div><p class="where-days-note">Stock changes by the day as the mangoes ripen. Pick a later day to see what’s coming.</p>` : ''}
     <button class="button primary full" data-where-locate>${icon('pin')} Use my current location</button>
     <p class="where-error prototype-tag" role="alert" hidden></p>
     ${saved.length ? `<div class="field">Your saved addresses</div><div class="address-cards">${saved.map((a) => `<button type="button" class="address-card" data-where-saved="${esc(a.id)}" aria-pressed="${a.id === where.savedId}"><strong>${esc(shortAddress(a))}</strong><small>${esc(addressText(a.address))} <span class="no-wrap">· ${esc(a.pincode)}</span></small></button>`).join('')}</div>` : ''}

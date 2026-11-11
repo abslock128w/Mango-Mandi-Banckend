@@ -15,11 +15,12 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment } from './preorders.js'
+import { seasonView } from './season-phase.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
@@ -365,7 +366,9 @@ router.get(
   '/catalogue',
   asyncHandler(async (req, res) => {
     const pincode = parse(PIN, req.query.pincode)
-    if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [] })
+    // season: before the season starts the shop's home page takes pre-orders (season-phase.js).
+    const season = seasonView()
+    if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [], season })
     const wanted = req.query.delivery_date || req.query.deliveryDate || null
     const { date, dates } = await deliveryDateFor({ query }, pincode, wanted)
     // One read of the stock for the chosen day and the later bookable days, so
@@ -387,7 +390,7 @@ router.get(
         }
       }),
     )
-    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items })
+    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items, season })
   }),
 )
 
@@ -467,7 +470,10 @@ router.get(
 
 // ---------------------------------------------------------------- cart
 
-/** Weeks open for preorders, with capacity left per SKU. */
+/**
+ * Weeks open for preorders, with capacity left per SKU, and the season (phase, start, when
+ * pre-orders open), which the shop reads before it knows a pincode.
+ */
 router.get(
   '/preorders/weeks',
   asyncHandler(async (req, res) => {
@@ -476,7 +482,10 @@ router.get(
       const p = sellable(w.sku)
       return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
     })
-    res.json({ weeks, stages: SALE_STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
+    res.json({
+      weeks, stages: SALE_STAGES, season: seasonView(),
+      cancelPolicy: "Pre-orders can't be cancelled or refunded once paid. If we can't deliver your box, we refund you in full.",
+    })
   }),
 )
 
@@ -1202,7 +1211,7 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking] = await Promise.all([
+    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking, fromPre] = await Promise.all([
       query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
@@ -1217,7 +1226,9 @@ router.get(
       isOn('BILLS_ENABLED') ? billFor({ query }, o.id) : null,
       // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
       isOn('LIVE_TRACKING') ? trackingFor({ query }, o) : null,
+      o.preorder_id ? query('SELECT id, number, non_refundable FROM preorders WHERE id = $1', [o.preorder_id]) : { rows: [] },
     ])
+    const pre = fromPre.rows[0]
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
     // FE-3: the claim deadline from the live rule, the same sum POST /claims checks.
@@ -1252,6 +1263,9 @@ router.get(
       business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
       // MULTI_GIFT: one delivery of a gift order; its payment, bill and cancel of the whole order are on the gift order.
       giftOrderId: o.gift_order_id ?? null,
+      // The pre-order this order was made from; a non-refundable one can't be cancelled by the customer (orders.js customerCancel).
+      preorder: pre ? { id: pre.id, number: pre.number, nonRefundable: pre.non_refundable } : null,
+      canCancel: CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date, i.plucked_on) : null,

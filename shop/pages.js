@@ -1,9 +1,11 @@
-/* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /preorder, /bulk.
+/* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /bulk.
+   There is no pre-order page any more: before the season the home page is the pre-order shop (shelf.js), and the
+   old /preorder and /#preorder land on / (shop/vercel.json redirects /preorder; route() does the same here).
    They replace the home page (main#home) with #page-view, keep the header, footer and dock, and
    use the History API, so back and forward work and the addresses can be shared or reloaded
    (shop/vercel.json and scripts/serve-shop.mjs serve index.html for them). Checkout and orders
    reuse app.js's flows, which draw wherever `view` points; the profile page is here.
-   The home page's old sections (#preorder, #bulk, #partner) are pages now: those anchors open them (anchorPage).
+   The home page's old sections (#bulk, #partner) are pages now: those anchors open them (anchorPage).
    Every route change fires `mm:route` on window (dock.js and the desktop nav mark the current tab from it).
    Loaded before app.js, so top-level code only declares and listens. */
 
@@ -14,11 +16,12 @@ const PAGES = [
   [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => trackView(decodeURIComponent(m[1])))],
   [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
   [/^\/login\/?$/, () => loginView()],
-  [/^\/preorder\/?$/, () => preorderPage()],
   [/^\/bulk\/?$/, () => bulkPage()],
 ]
-// The home page's old sections, now pages: /#bulk (an old link, a bookmark) opens /bulk.
-const ANCHOR_PAGES = { preorder: '/preorder', bulk: '/bulk', partner: '/partner' }
+// The home page's old sections, now pages: /#bulk (an old link, a bookmark) opens /bulk. /#preorder lands on the shop.
+const ANCHOR_PAGES = { preorder: '/', bulk: '/bulk', partner: '/partner' }
+/** The retired pre-order page: an old link or bookmark lands on the home page (the shop takes pre-orders before the season). */
+const OLD_PREORDER = /^\/preorder\/?$/
 const anchorPage = () => (location.pathname === '/' || location.pathname === '/index.html') && ANCHOR_PAGES[location.hash.slice(1)] || null
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
 let homeScroll = 0, nameEditing = false
@@ -33,6 +36,7 @@ function go(path, { replace = false } = {}) {
 }
 
 function route() {
+  if (OLD_PREORDER.test(location.pathname)) history.replaceState(history.state, '', '/' + location.search)
   const moved = anchorPage()
   if (moved) history.replaceState(history.state, '', moved)
   const path = location.pathname
@@ -55,7 +59,7 @@ function route() {
   hidePage()
   routed()
 }
-const missingPath = (p) => p !== '/' && p !== '/index.html' && !/^\/(invite|help|account|preorders)\//.test(p) && !PAGES.some(([re]) => re.test(p))
+const missingPath = (p) => p !== '/' && p !== '/index.html' && !OLD_PREORDER.test(p) && !/^\/(invite|help|account|preorders)\//.test(p) && !PAGES.some(([re]) => re.test(p))
 
 function notFoundView() {
   document.title = 'Page not found · Mango Mandi'
@@ -138,13 +142,11 @@ function pageHead(title) {
   return `<div class="page-head"><button class="icon-button" data-page-back aria-label="Back">${icon('back')}</button><h1>${title}</h1></div>${tabs}`
 }
 
-// ---- The pre-order and bulk pages: the season's copy, then the shop's product cards (doorCard). On /preorder a card's
-// "Pre-order" opens the booking panel (app.js renderPreorder) in #pre-box under the cards; on /bulk the cards fill a
-// bulk list (localStorage `mm-bulk`, not the bag) that the sticky bar (#pay-bar) sends as an enquiry (app.js bulkForm)
-// once it reaches 100 kg.
+// ---- The bulk page: the shop's product cards (doorCard) fill a bulk list (localStorage `mm-bulk`, not the bag) that the
+// sticky bar (#pay-bar) sends as an enquiry (app.js bulkForm) once it reaches 100 kg.
 
 const BULK_MIN_KG = 100
-const doorPick = { pre: {}, bulk: {} } // variety → { sku, stage } picked on its card
+const doorPick = { bulk: {} } // variety → { sku, stage } picked on its card
 let bulkList = null
 
 /** The shop's catalogue, once GET /v1/products has answered (shelf.js loadProducts), or after 15 s without it. */
@@ -164,7 +166,7 @@ function shelfReady() {
 const kgText = (s) => String(s.boxSize).replace('kg', ' kg')
 
 /** A card in the shop's look (photo, variety, description, bold price, box picker, ripeness pills) with the page's own
-    action. `o`: { kind: 'pre' | 'bulk', sku, stage, boxes, stages, extra, action, muted, chosen }. */
+    action. `o`: { kind: 'bulk', sku, stage, boxes, stages, extra, action, chosen }. */
 function doorCard(v, o) {
   const st = stageOf(o.stage), s = o.boxes.find((b) => b.sku === o.sku) || o.boxes[0]
   const name = esc(v.name), src = v.c.photos && v.c.photos[o.stage]
@@ -174,7 +176,7 @@ function doorCard(v, o) {
     ? `<div class="box-cards" role="group" aria-label="${name} box size" style="--n:${o.boxes.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${o.boxes.map((b) => `<button class="box-card" data-door-box="${esc(b.sku)}" ${key} aria-pressed="${b.sku === s.sku}"><strong>${esc(kgText(b))}</strong><small>${currency(b.price)}</small></button>`).join('')}</div>`
     : `<p class="door-one-box">${icon('box')}${esc(kgText(s))} box</p>`
   const stages = `<div class="door-stages" role="group" aria-label="${name} ripeness">${SOLD.filter((x) => o.stages.includes(x.apiStage)).map((x) => `<button data-door-stage="${x.apiStage}" ${key} aria-pressed="${x.apiStage === o.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>`
-  return `<article class="product-card door-card${o.muted ? ' is-muted' : ''}${o.chosen ? ' is-chosen' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image"><div class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</div>${o.muted ? '<span class="product-tag door-tag">Coming this season</span>' : ''}</div><div class="product-info"><div class="product-topline"><h3>${name}</h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxes}</div>${stages}${o.extra || ''}<div class="card-action door-action">${o.action}</div></div></article>`
+  return `<article class="product-card door-card${o.chosen ? ' is-chosen' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image"><div class="fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${name}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}</div></div><div class="product-info"><div class="product-topline"><h3>${name}</h3></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${currency(s.price)}<small>/ box</small></div>${boxes}</div>${stages}${o.extra || ''}<div class="card-action door-action">${o.action}</div></div></article>`
 }
 
 /** Re-find the control that was used after a redraw (by its data attributes) and focus it. */
@@ -185,76 +187,16 @@ function refocus(root, attrs) {
 }
 const usedAttrs = (b, names) => b ? Object.fromEntries(names.filter((n) => b.hasAttribute(n)).map((n) => [n, b.getAttribute(n)])) : null
 
-// ---- /preorder
+// ---- Pre-orders in the product sheet (before the season, shelf.js renderDetail → app.js preDetail)
 
-/** The varieties with pre-order weeks, each with its boxes (price from the weeks) and their weeks in order. */
-function preVarieties() {
-  const map = new Map()
-  for (const w of pre.weeks) {
-    if (!map.has(w.variety)) map.set(w.variety, new Map())
-    const boxes = map.get(w.variety)
-    if (!boxes.has(w.sku)) boxes.set(w.sku, { sku: w.sku, name: w.name, variety: w.variety, boxSize: w.boxSize, price: w.price, weeks: [] })
-    boxes.get(w.sku).weeks.push(w)
-  }
-  return [...map].map(([name, boxes]) => {
-    const list = [...boxes.values()].sort((a, b) => kgOf(a) - kgOf(b))
-    list.forEach((b) => b.weeks.sort((x, y) => x.weekStart.localeCompare(y.weekStart)))
-    const c = shelf.find((v) => v.name === name)?.c || contentFor(name, list.map((b) => ({ ...(skuOf(b.sku) || {}), ...b })))
-    return { name, c, skus: list }
-  }).sort((a, b) => (b.c.popularity || 0) - (a.c.popularity || 0) || a.name.localeCompare(b.name))
+/** "Pre-order" on a card: the product sheet for that variety, with its box and ripeness, booking a harvest week. */
+function openPreBooking(name, sku, stage) {
+  if (sku) cardBox[name] = sku
+  if (stage && filter === 'all') cardStage[name] = stage
+  productDetail(name)
 }
 
-function prePick(v) {
-  const p = doorPick.pre[v.name] ||= {}
-  if (!v.skus.some((b) => b.sku === p.sku)) p.sku = (v.skus.find((b) => (b.weeks || []).some((w) => w.remaining > 0)) || v.skus[0]).sku
-  if (!pre.stages.includes(p.stage)) {
-    const st = stageFor(v)
-    p.stage = pre.stages.includes(st) ? st : pre.stage
-  }
-  return p
-}
-
-function renderPreGrid(focus) {
-  const grid = $('#pre-grid')
-  if (!grid) return
-  const alert = pre.error && !pre.weeks.length ? `<p class="prototype-tag" role="alert">${esc(pre.error)}</p>` : ''
-  if (!pre.weeks.length) {
-    grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Coming this season</h2><p>Pre-orders open soon. Until then, this season’s boxes are in the shop.</p>${alert}<a class="button primary door-empty-go" href="/" data-route>Shop the mangoes ${icon('arrow')}</a></div><div class="product-grid door-grid">${shelf.map((v) => {
-      const p = doorPick.pre[v.name] ||= { sku: v.skus[0].sku, stage: stageFor(v) }
-      return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, muted: true, action: `<button class="quick-add" disabled aria-label="Pre-order ${esc(v.name)}: opens soon">Pre-order</button>` })
-    }).join('')}</div>`
-    refocus(grid, focus)
-    return
-  }
-  const list = preVarieties()
-  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Choose your box</h2><p>${list.length} ${list.length === 1 ? 'variety' : 'varieties'} open for pre-order. Pick a ripeness and box, then tap Pre-order.</p></div><div class="product-grid door-grid">${list.map((v) => {
-    const p = prePick(v), box = v.skus.find((b) => b.sku === p.sku)
-    const open = box.weeks.some((w) => w.remaining > 0)
-    const weeks = `<p class="door-weeks"><span>Harvest weeks:</span> ${box.weeks.map((w) => w.remaining > 0 ? `<b>${fmtWeek(w.weekStart)}</b>` : `<span class="is-out"><s>${fmtWeek(w.weekStart)}</s> Sold out</span>`).join(', ')}</p>`
-    const action = open
-      ? `<button class="quick-add" data-pre-open="${esc(v.name)}" aria-label="Pre-order a ${esc(kgText(box))} box of ${esc(stageOf(p.stage).stage.toLowerCase())} ${esc(v.name)}">Pre-order</button>`
-      : `<button class="quick-add is-out" disabled aria-label="${esc(v.name)} ${esc(kgText(box))} box: every week is sold out">${icon('close')}Sold out · this harvest is spoken for</button>`
-    return doorCard(v, { kind: 'pre', sku: p.sku, stage: p.stage, boxes: v.skus, stages: pre.stages, extra: weeks, action, chosen: pre.open && v.skus.some((b) => b.sku === pre.sku) })
-  }).join('')}</div>`
-  refocus(grid, focus)
-}
-
-/** "Pre-order" on a card: the booking panel for that box, stage and its first open week, under the cards. */
-function openPreBooking(name) {
-  const v = preVarieties().find((x) => x.name === name)
-  if (!v) return
-  const p = prePick(v), box = v.skus.find((b) => b.sku === p.sku) || v.skus[0]
-  Object.assign(pre, { sku: box.sku, stage: p.stage, weekStart: (box.weeks.find((w) => w.remaining > 0) || box.weeks[0]).weekStart, qty: 1, error: '', offer: false, unpaid: null, force: false, open: true })
-  preBox = view = '#pre-box'
-  renderPreorder()
-  const panel = $('#pre-box')
-  if (!panel || panel.hidden) return
-  requestAnimationFrame(() => panel.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' }))
-  const h = $('.flow-head', panel)
-  if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
-}
-
-/** A choice inside the booking panel (box, ripeness, week, quantity). */
+/** A choice inside the booking panel (box, ripeness, week, quantity). The sheet's photo follows the ripeness. */
 function prePanel(b) {
   const d = b.dataset
   if (d.preBox) { pre.sku = d.preBox; pre.weekStart = null }
@@ -264,26 +206,18 @@ function prePanel(b) {
   pre.error = ''
   pre.offer = false
   preFix()
-  const w = pre.weeks.find((x) => x.sku === pre.sku)
-  if (w) doorPick.pre[w.variety] = { sku: pre.sku, stage: pre.stage }
+  if (detail && pre.variety === detail.name) {
+    detail.sku = pre.sku
+    if (d.preStage) {
+      detail.stage = pre.stage
+      const v = shelf.find((x) => x.name === detail.name), img = $('#detail-photo')
+      const src = v && v.c.photos && v.c.photos[pre.stage]
+      if (img && src) img.src = src
+    }
+  }
   renderPreorder()
   refocus(preHost(), usedAttrs(b, ['data-pre-box', 'data-pre-stage', 'data-pre-week', 'data-pre-step']))
   if (d.preStep && document.activeElement === document.body) $('[data-pre-step]:not(:disabled)', preHost())?.focus()
-}
-
-function preorderPage() {
-  host().innerHTML = pageHead('Pre-order') + `
-    <section class="door-hero season">
-      <div class="season-art"><img src="assets/hero.webp" alt="Sun-kissed mangoes among orchard leaves"><span class="season-stamp">Some things <br>are worth <br><em>the wait.</em></span></div>
-      <div class="season-copy"><h2>First in line. <br><em>First taste of summer.</em></h2><p>Reserve your mango moment before the season begins. Choose your ripeness, box and harvest week, and we’ll keep your box ready.</p><small>Paid in full by Razorpay · cancel any time before packing for a full refund.</small><button class="button secondary door-mine" data-preorders hidden>My pre-orders ${icon('arrow')}</button></div>
-    </section>
-    <section class="door-cards" id="pre-grid" aria-label="Boxes open for pre-order"></section>
-    <section class="page-card door-flow pre-flow" id="pre-box" aria-label="Book a pre-order" hidden></section>`
-  preorderForm('#pre-box')
-  MM.restore().then(() => {
-    const b = $('#page-body .door-mine')
-    if (b) b.hidden = !MM.profile()
-  })
 }
 
 // ---- /bulk
@@ -404,9 +338,8 @@ document.addEventListener('click', (e) => {
     const kind = d.door, name = d.variety
     doorPick[kind][name] = { ...doorPick[kind][name], [d.doorStage ? 'stage' : 'sku']: d.doorStage || d.doorBox }
     const focus = usedAttrs(b, ['data-door-stage', 'data-door-box', 'data-variety'])
-    if (kind === 'pre') renderPreGrid(focus)
-    else renderBulkGrid(focus)
-  } else if (d.preOpen) openPreBooking(d.preOpen)
+    renderBulkGrid(focus)
+  } else if (d.preOpen) openPreBooking(d.preOpen, d.sku, d.stage)
   else if (d.preBox || d.preStage || d.preWeek || d.preStep) prePanel(b)
   else if (d.bulkQty) bulkStep(b)
   else if (b.id === 'bulk-send') openBulkEnquiry()
@@ -560,11 +493,13 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
   const [title, sub] = trackHeadline(o)
   const left = o.holdExpiresAt ? Date.parse(o.holdExpiresAt) - Date.now() : 0
   const canPay = o.status === 'PAYMENT_PENDING' && o.razorpayOrderId && left > 60000
-  const canCancel = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'].includes(o.status)
+  const fromPre = o.preorder && o.preorder.nonRefundable
+  const canCancel = o.canCancel ?? (['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING'].includes(o.status) && !fromPre)
   const pin = addressPin(o.deliveryAddress)
   const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim()
   host().innerHTML = head(`Order ${esc(orderNo(o.number))}`) + marker(seq) + `
     <section class="page-card track-hero status-${esc(o.status.toLowerCase())}">
+      ${fromPre ? `<span class="pre-chip">${icon('sun')}Pre-order · non-refundable</span>` : ''}
       <h2>${title}</h2><p>${sub}</p>
       ${tracker(o)}
       ${o.deliveryCode ? `<div class="delivery-code"><span>Delivery code</span><strong>${[...String(o.deliveryCode)].map((d) => `<i>${esc(d)}</i>`).join('')}</strong><small>Share it with ${o.rider && o.rider.firstName ? esc(o.rider.firstName) : 'your rider'} when your mangoes arrive.</small></div>` : ''}
@@ -592,6 +527,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       ${o.bill ? `<button class="button primary" data-invoice="${esc(o.id)}" data-number="${esc(o.number)}">Download invoice ${icon('arrow')}</button>` : ''}
       ${o.status === 'DELIVERED' ? `<button class="button secondary" data-review="${esc(o.id)}">${o.rating ? 'Edit your review' : 'Rate this order'}</button>` : ''}
       ${canCancel ? `<button class="button secondary is-danger" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">${icon('close')} Cancel order</button>` : ''}
+      ${fromPre && !ENDED.includes(o.status) ? `<p class="pre-nocancel">${icon('info')}<span>This was a pre-order, so it can’t be cancelled or refunded. Something wrong? ${helpLink('Message us', `Hi Mango Mandi, about my order ${orderNo(o.number)}`)}</span></p>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`
   if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})
