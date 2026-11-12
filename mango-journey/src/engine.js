@@ -248,6 +248,7 @@ export class Engine {
       // A match point behind or on the camera plane projects to Inf/NaN: keep the iris centre on screen.
       cu.uCenter.value.set(Number.isFinite(center.x) ? Math.min(1.2, Math.max(-0.2, center.x)) : 0.5, Number.isFinite(center.y) ? Math.min(1.2, Math.max(-0.2, center.y)) : 0.5)
     } else { cu.uHasB.value = 0; cu.tB.value = this.rtA.texture; cu.dB.value = this.rtA.depthTexture } // never sample a target that was not drawn this frame
+    if (this.lite) { cu.uDofA.value.z = 0; cu.uDofB.value.z = 0; cu.uRayA.value.z = 0; cu.uRayB.value.z = 0 } // a struggling device: no depth of field, no shafts
     r.setRenderTarget(this.rtC); this.comp.render(r)
     this.bloom.strength = look.bloom; this.bloom.threshold = look.threshold; this.bloom.radius = look.bloomRadius
     this.bloom.render(r, null, this.rtC, 0.016, false)

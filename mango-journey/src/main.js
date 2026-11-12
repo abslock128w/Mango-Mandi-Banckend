@@ -17,6 +17,12 @@ const $ = (s, r = document) => r.querySelector(s)
 const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 const html = document.documentElement
 const params = new URLSearchParams(location.search)
+// Embedded: the shop shows the film inside its Legacy page, in a frame, under its own header and dock.
+const embed = params.has('embed')
+if (embed) document.documentElement.classList.add('is-embed')
+const tell = (msg) => { if (embed && parent !== window) parent.postMessage({ type: 'one-mango', ...msg }, location.origin) }
+// links to the shop's pages ("/", "/legacy/story") open in the shop's window, not inside the frame
+if (embed) document.addEventListener('click', (e) => { const a = e.target instanceof Element ? e.target.closest('a[href^="/"]') : null; if (a) a.target = '_top' }, true)
 const N = CHAPTERS.length
 const T0 = 0.86 // where a chapter's iris into the next one begins
 const STAGE_OF = ['seed', 'seed', 'tree', 'blossom', 'fruit', 'fruit', 'crate', 'road', 'grade', 'pack', 'door', 'counter', 'finale']
@@ -71,7 +77,7 @@ function buildFilm() {
           </ul>
           <div class="ctas">
             <a class="btn is-gold" href="/" data-magnet data-cursor="open">Order this season <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-            <a class="btn is-line" href="/legacy" data-magnet data-cursor="open">Read our legacy</a>
+            <a class="btn is-line" href="/legacy/story" data-magnet data-cursor="open">Read our legacy</a>
           </div>
         </div>
       </section>`
@@ -131,6 +137,8 @@ async function boot() {
   const film = buildFilm()
   if (!hasGL) return still(null)
 
+  // In a frame, the page can start before the frame has been given its size: wait for a real viewport.
+  while (!(innerWidth > 0 && innerHeight > 0)) await new Promise((r) => setTimeout(r, 50))
   const tier = detectTier()
   MM.tier = tier.name
   const engine = new Engine($('#gl'), tier)
@@ -198,6 +206,10 @@ function run(engine, S, film) {
     gsap.ticker.add((t) => lenis.raf(t * 1000))
   }
   gsap.ticker.lagSmoothing(0)
+  // Phones and tablets: draw at 60 a second at most. Many now refresh at 90 or 120, and the film gains nothing from
+  // drawing twice as often; it only costs battery and heat.
+  const touch = matchMedia('(pointer: coarse)').matches
+  if (touch) gsap.ticker.fps(60)
   ScrollTrigger.config({ ignoreMobileResize: true })
 
   // Scroll length: each chapter's weight in screen heights.
@@ -319,6 +331,7 @@ function run(engine, S, film) {
   const onResize = () => {
     clearTimeout(rT)
     rT = setTimeout(() => {
+      rT = 0
       needSize = true
       if (Math.abs(innerHeight - vh) > 140 || innerWidth !== lastW) { vh = innerHeight; sizeScroller(); ScrollTrigger.refresh() }
       lastW = innerWidth
@@ -329,6 +342,7 @@ function run(engine, S, film) {
 
   // ---- Loop
   let p = 0, pv = 0, prevP = 0, time = 0, running = true, fpsAcc = 0, fpsN = 0, slow = 0, needSize = false
+  let toldP = -1
   const freeze = params.has('freeze')
   document.addEventListener('visibilitychange', () => { running = !document.hidden })
   const center = new THREE.Vector2(), cA = new THREE.Vector2(), cB = new THREE.Vector2()
@@ -338,7 +352,9 @@ function run(engine, S, film) {
   const frame = (tSec, dtMs) => {
     if (!running) return
     // A resize clears the canvas, so it happens before this frame renders, never after.
-    if (needSize) { needSize = false; engine.setSize(innerWidth, innerHeight) }
+    // a size change that came without a resize event we heard (a frame growing while the film was still loading)
+    if ((innerWidth !== engine.w || innerHeight !== engine.h) && innerWidth > 0 && innerHeight > 0 && !rT) onResize()
+    if (needSize && innerWidth > 0 && innerHeight > 0) { needSize = false; engine.setSize(innerWidth, innerHeight) }
     const dt = Math.min(0.05, (dtMs || 16) / 1000)
     time = freeze ? 3 : time + dt
     p = damp(p, target, lenis ? 14 : 7, dt)
@@ -397,6 +413,7 @@ function run(engine, S, film) {
     if (yearOdo && (i === 2 || (i === 1 && t > 0.8) || (i === 3 && t < 0.2))) roll(yearOdo, 1976 + 50 * (i === 2 ? smooth(0.05, 0.85, t) : i === 3 ? 1 : 0))
     if (i === N - 1) numOdos.forEach((b) => { const n = Number(b.dataset.num); roll(b.querySelector('.odo'), n * smooth(0.6, 0.85, t)) })
     sound.update(i, t, pv, time)
+    if (embed && Math.abs(p - toldP) > 0.004) { toldP = p; tell({ p }) } // the shop hides its header while the film moves
     S.forEach((s) => s.ui && s.uiUpdate?.(s === A || s === B, i, t, engine))
 
     // Cursor
@@ -411,7 +428,16 @@ function run(engine, S, film) {
     fpsAcc += dt; fpsN++
     if (fpsAcc > 1) {
       MM.fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0
-      if (MM.fps < 38 && engine.dprScale > 0.62 && !freeze) { if (++slow >= 2) { engine.dprScale *= 0.86; needSize = true; slow = 0 } } else slow = 0
+      // Too slow for two seconds running: first draw fewer pixels, step by step; if that is not enough, drop the two
+      // costliest effects (depth of field and light shafts). Phones are held to a higher bar, so they stay smooth.
+      const want = touch ? 48 : 38, floor = touch ? 0.55 : 0.62
+      if (MM.fps < want && !freeze && time > 4) {
+        if (++slow >= 2) {
+          slow = 0
+          if (engine.dprScale > floor) { engine.dprScale = Math.max(floor, engine.dprScale * 0.86); needSize = true }
+          else if (!engine.lite && MM.fps < want - 8) { engine.lite = true; MM.lite = true }
+        }
+      } else slow = 0
     }
   }
   gsap.ticker.add(frame)
@@ -433,7 +459,7 @@ function run(engine, S, film) {
     pre.classList.add('is-gate'); pre.removeAttribute('aria-hidden') // the button must be reachable by screen readers
     html.style.overflow = 'hidden'; lenis?.stop()
     setTimeout(() => go.focus({ preventScroll: true }), 900) // once it is visible, so Enter or Space begins too
-    go.addEventListener('click', () => { sound.start(); html.style.overflow = ''; lenis?.start(); window.scrollTo(0, 0); pre.classList.remove('is-gate'); leave() }, { once: true })
+    go.addEventListener('click', () => { tell({ begun: true }); sound.start(); html.style.overflow = ''; lenis?.start(); window.scrollTo(0, 0); pre.classList.remove('is-gate'); leave() }, { once: true })
   }
   const startP = params.get('p')
   if (startP) { requestAnimationFrame(() => { MM.goto(Number(startP)); startFade = 0; intro.progress(1) }) }

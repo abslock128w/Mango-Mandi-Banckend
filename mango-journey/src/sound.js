@@ -150,7 +150,7 @@ export class Sound {
   constructor() {
     this.i = 0; this.t = 0
     this.live = false
-    this.wake = () => this.start()
+    this.wake = () => { this.start(); if (this.live && this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {}) }
     GESTURES.forEach((ev) => addEventListener(ev, this.wake, { capture: true, passive: true }))
     document.addEventListener('visibilitychange', () => this.visibility())
     this.start() // plays at once where the browser already allows this page to make sound
@@ -167,19 +167,33 @@ export class Sound {
       this.timer = setInterval(() => this.tick(), 120)
     }
     if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {})
+    this.loud()
     this.tick()
   }
   tick() {
     if (this.ctx.state !== 'running' || document.hidden) return
-    if (!this.live) { this.live = true; GESTURES.forEach((ev) => removeEventListener(ev, this.wake, { capture: true })); this.fade(1, 3) }
+    if (!this.live) { this.live = true; this.fade(1, 3) } // the gesture listeners stay: a phone can interrupt the sound (a call, another app) and the next touch brings it back
     this.a.setMood(moodAt(this.i, this.t))
     this.a.pump(this.ctx.currentTime + 0.5)
+  }
+  /** iPhones play web audio through the ringer channel, so the silent switch mutes it. Ask for the media channel
+   *  instead (Safari 16.4 and later); on older ones, a silent looping audio element does the same. */
+  loud() {
+    if (this.asked) return
+    this.asked = true
+    try {
+      if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return }
+      if (!/iPhone|iPad|iPod/.test(navigator.userAgent) && !(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return
+      const a = this.hush = new Audio(import.meta.env.BASE_URL + 'silence.wav')
+      a.loop = true; a.setAttribute('playsinline', ''); a.volume = 0.001
+      a.play().catch(() => { this.asked = false })
+    } catch { /* sound simply follows the ringer switch */ }
   }
   visibility() {
     if (!this.live) return
     clearTimeout(this.sleep)
-    if (document.hidden) { this.fade(0, 0.15); this.sleep = setTimeout(() => document.hidden && this.ctx.suspend(), 250) }
-    else this.ctx.resume().then(() => this.fade(1, 1))
+    if (document.hidden) { this.fade(0, 0.15); this.hush?.pause(); this.sleep = setTimeout(() => document.hidden && this.ctx.suspend(), 250) }
+    else { this.hush?.play().catch(() => {}); this.ctx.resume().then(() => this.fade(1, 1)).catch(() => {}) }
   }
   chapter() {}
   /** Every frame, from main.js: the chapter and its progress. */

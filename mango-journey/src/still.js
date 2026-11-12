@@ -24,7 +24,7 @@ export function buildStill(list, shots) {
     const line = c.line.replace(/\*([^*]+)\*/g, '<em>$1</em>')
     const extra = c.id === 'pick' ? `<p><strong>${c.after.replace(/\*/g, '')}</strong></p>` : ''
     const rider = ['grade', 'pack', 'door'].includes(c.id) ? '<p>The same Mango Mandi rider checks it, packs it and brings it to your door.</p>' : ''
-    const cta = c.id === 'finale' ? `<p>50 summers · 16 varieties · 1 day from tree to warehouse · 0 shortcuts.</p><div class="still-cta"><a class="btn is-gold" href="/">Order this season</a><a class="btn is-line" href="/legacy">Read our legacy</a></div>` : ''
+    const cta = c.id === 'finale' ? `<p>50 summers · 16 varieties · 1 day from tree to warehouse · 0 shortcuts.</p><div class="still-cta"><a class="btn is-gold" href="/">Order this season</a><a class="btn is-line" href="/legacy/story">Read our legacy</a></div>` : ''
     return `<li><div class="still-art">${pic}</div><div><small>${c.kicker}</small><h2>${line}</h2>${c.cap ? `<p>${c.cap}</p>` : ''}${extra}${rider}${cta}</div></li>`
   }).join('')
 }

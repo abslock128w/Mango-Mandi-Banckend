@@ -208,6 +208,12 @@ html.is-fine,html.is-fine a,html.is-fine button{cursor:none}
   .ch-after{top:calc(var(--safe-t) + 92px);bottom:auto;left:var(--pad);max-width:none;right:var(--pad)}
   .ch[data-id=begin] .ch-line{font-size:clamp(70px,24vw,150px)}
 }
+/* phones: no pull-to-refresh or bounce while scrubbing the film, no grey flash on tap, no text inflation when turned */
+html{overscroll-behavior:none;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+a,button{-webkit-tap-highlight-color:transparent}
+/* embedded in the shop's Legacy page: the shop's own header carries the logo, and its phone dock floats over the bottom */
+html.is-embed .bar,html.is-embed .pre-mark{display:none}
+@media (max-width:900px){html.is-embed{--safe-b:calc(env(safe-area-inset-bottom,0px) + 92px)}}
 /* short phone screens (Safari on an iPhone with its toolbars showing): smaller, tighter type, so it stays clear of the subject */
 @media (max-width:760px) and (max-height:720px){
   :root{--huge:clamp(34px,min(10.2vw,6.1vh),60px)}
