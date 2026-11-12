@@ -1,7 +1,8 @@
 /* Our legacy (/legacy): "Fifty summers", a full-bleed, scroll-driven piece in its own visual world.
    Scenes: 0 preloader · 1 opening (pollen canvas, the colossal 50) · 2 the promise · 3 read the rings · 4 marquee ·
    5 five things we never traded · 6 seven days · 7 fifty summers in numbers · 8 four pairs of hands ·
-   9 a note from the family · 10 the next fifty summers. Plus film grain, a progress HUD and (fine pointers) a cursor.
+   9 a note from the family · 10 the film (One Mango, a link to /one-mango/) · 11 the next fifty summers. Plus film
+   grain, a progress HUD and (fine pointers) a cursor.
 
    Two modes on the same markup:
    - static (the default): a clean long-form page, everything visible. Used with prefers-reduced-motion, without GSAP
@@ -708,7 +709,7 @@ function lxMarkup(varieties) {
 <radialGradient id="lx-cast"><stop offset="0" stop-color="#1e1206" stop-opacity=".8"/><stop offset=".55" stop-color="#1e1206" stop-opacity=".35"/><stop offset="1" stop-color="#1e1206" stop-opacity="0"/></radialGradient>
 ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="userSpaceOnUse"><image href="${grain}" width="160" height="160"/></pattern>` : '<pattern id="lx-grainpat" width="4" height="4" patternUnits="userSpaceOnUse"></pattern>'}
 </defs></svg>
-<div class="lx-hud" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" class="lx-hud-track"/><circle cx="32" cy="32" r="29" class="lx-hud-fill" pathLength="1"/></svg><span class="lx-hud-year">01 / 10</span></div>
+<div class="lx-hud" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" class="lx-hud-track"/><circle cx="32" cy="32" r="29" class="lx-hud-fill" pathLength="1"/></svg><span class="lx-hud-year">01 / 11</span></div>
 <div class="lx-cursor" aria-hidden="true"><span class="lx-cursor-dot"></span><span class="lx-cursor-ring"><b class="lx-cursor-word"></b></span></div>
 <div class="lx-pre" aria-hidden="true"><div class="lx-pre-half is-top"></div><div class="lx-pre-half is-bottom"></div><div class="lx-pre-core"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" pathLength="1"/><circle cx="60" cy="60" r="38" pathLength="1"/><circle cx="60" cy="60" r="24" pathLength="1"/></svg>${lxOdometer(1976, 'lx-pre-odo')}<small>Mango Mandi · fifty summers</small></div></div>
 
@@ -791,7 +792,17 @@ ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="user
   </figure>
 </section>
 
-<section class="lx-scene lx-finale" data-lx-scene="10" aria-labelledby="lx-finale-title">
+<section class="lx-scene lx-film" data-lx-scene="10" aria-labelledby="lx-film-title">
+  <a class="lx-film-poster" href="/one-mango/" tabindex="-1" aria-hidden="true" data-lx-cursor="open"><img src="one-mango/poster.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span class="lx-film-play"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5.5v13l11-6.5z"/></svg></span></a>
+  <div class="lx-film-copy">
+    <p class="lx-caps">A film you scroll</p>
+    <h2 id="lx-film-title">One <em>Mango.</em></h2>
+    <p class="lx-film-line">Follow a single mango from a seed in the dark to a bowl on your counter: the tree, the pick, the crate, the road, the door. Scroll at your own pace, with quiet music.</p>
+    <a class="lx-btn is-solid" href="/one-mango/" data-lx-cursor="open" data-lx-magnet><span>Watch the film</span></a>
+  </div>
+</section>
+
+<section class="lx-scene lx-finale" data-lx-scene="11" aria-labelledby="lx-finale-title">
   <div class="lx-sky" aria-hidden="true"><i class="lx-sky-warm"></i><div class="lx-sunrise"><i class="lx-sunrays"></i><i class="lx-bloom"></i><i class="lx-sun"></i></div>${lxOrchard()}</div>
   <div class="lx-finale-in">
     <h2 id="lx-finale-title">The next fifty <em>summers.</em></h2>
@@ -959,7 +970,7 @@ function lxMotion(root) {
   const hudLabel = () => {
     const year = sceneNow === 3
     hudText.classList.toggle('is-year', year)
-    hudText.textContent = year ? String(ringYear) : `${String(sceneNow).padStart(2, '0')} / 10`
+    hudText.textContent = year ? String(ringYear) : `${String(sceneNow).padStart(2, '0')} / 11`
   }
   lxPollen($('.lx-pollen', root), $('.lx-pollen.is-near', root), track)
 
@@ -1278,7 +1289,9 @@ function lxMotion(root) {
     arrive('.lx-finale h2', '.lx-finale', { y: 120 }, 'top 95%', 'top 20%')
     gsap.fromTo('.lx-sky-warm', { opacity: 0 }, { opacity: 0.45, ease: 'none', scrollTrigger: { trigger: '.lx-finale', start: 'top 40%', end: 'top top', scrub } })
     // The note steps back as the night comes in (dark ink on a darkening sky would vanish anyway).
-    gsap.to('.lx-note > *', { opacity: 0, y: -40, ease: 'power2.in', scrollTrigger: { trigger: '.lx-finale', start: 'top 95%', end: 'top 45%', scrub } })
+    gsap.to('.lx-note > *', { opacity: 0, y: -40, ease: 'power2.in', scrollTrigger: { trigger: '.lx-film', start: 'top 95%', end: 'top 45%', scrub } })
+    arrive('.lx-film-poster', '.lx-film', { y: 110, scale: 0.94 }, 'top 85%', 'top 25%')
+    arrive('.lx-film-copy > *', '.lx-film', {}, 'top 70%', 'top 15%')
     gsap.fromTo('.lx-pledges li:first-child', ...lxFT({ y: 70, opacity: 0, ease: E.quint, scrollTrigger: { trigger: '.lx-finale', start: 'top 45%', end: 'top 5%', scrub } }))
     gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: '.lx-finale', start: 'top top', end: '+=220%', pin: true, scrub } })
       .fromTo('.lx-sunrise', { y: () => innerHeight * 0.18 }, { y: 0, duration: 2, ease: 'power2.out' }, 0)
@@ -1292,7 +1305,7 @@ function lxMotion(root) {
 
     // ---- The backdrop: one fixed layer whose colour follows the scroll continuously between scenes (no seams), with the
     // note's paper and a soft glow faded in by the same measure. HUD and cursor ink follow the scene in mid-screen.
-    const COLORS = { 1: '#0b1f15', 2: '#0b1f15', 3: '#174631', 4: '#ffb81f', 5: '#f6efdc', 6: '#f6efdc', 7: '#0b1f15', 8: '#174631', 9: '#f6efdc', 10: '#0b1f15' }
+    const COLORS = { 1: '#0b1f15', 2: '#0b1f15', 3: '#174631', 4: '#ffb81f', 5: '#f6efdc', 6: '#f6efdc', 7: '#0b1f15', 8: '#174631', 9: '#f6efdc', 10: '#0b1f15', 11: '#0b1f15' }
     const GLOW = { 3: 1, 7: 0.8, 8: 0.5 }
     const PAPER = { 9: 1 }
     const INK = { 4: true, 5: true, 6: true, 9: true }
