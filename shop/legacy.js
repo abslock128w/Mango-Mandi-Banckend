@@ -1,7 +1,8 @@
-/* Our legacy (/legacy): "Fifty summers", a full-bleed, scroll-driven piece in its own visual world.
+/* Our legacy. /legacy is the film, One Mango, playing inside the app (legacyFilmView, below). /legacy/story is
+   "Fifty summers", a full-bleed, scroll-driven piece in its own visual world, described here.
    Scenes: 0 preloader · 1 opening (pollen canvas, the colossal 50) · 2 the promise · 3 read the rings · 4 marquee ·
    5 five things we never traded · 6 seven days · 7 fifty summers in numbers · 8 four pairs of hands ·
-   9 a note from the family · 10 the film (One Mango, a link to /one-mango/) · 11 the next fifty summers. Plus film
+   9 a note from the family · 10 the film (One Mango, a link back to /legacy) · 11 the next fifty summers. Plus film
    grain, a progress HUD and (fine pointers) a cursor.
 
    Two modes on the same markup:
@@ -18,9 +19,11 @@
    live number is the count of varieties (the shop's own shelf when loaded, 16 until then).
    Styles: shop/legacy.css (.lx-). Loaded after pages.js (it adds to PAGES) and before app.js. */
 
-PAGES.push([/^\/legacy\/?$/, () => legacyView()])
+// The Legacy tab opens on the film (One Mango), playing inside the app; the written story is one step further in.
+PAGES.push([/^\/legacy\/?$/, () => legacyFilmView()], [/^\/legacy\/story\/?$/, () => legacyView()])
 
 const LX_TITLE = 'Our legacy · Mango Mandi'
+const LF_TITLE = 'One Mango · Our legacy · Mango Mandi'
 const LX_HOME_TITLE = document.title
 const LX_VARIETIES = 16
 const LX_DECADES = [
@@ -61,6 +64,29 @@ const LX_DAYS = [
 const LX_RIPE_BY_DAY = [0, 0.1, 0.2, 0.32, 0.5, 0.66, 0.82, 0.96]
 
 let lxKill = []
+
+// The film, in the app: One Mango (built from mango-journey/ into shop/one-mango/) fills the page in a frame, under the
+// shop's own header and above its phone dock. The film tells us how far it has scrolled, so the header can step aside
+// while it moves, as it does on the story page. Leaving the page removes the frame, which stops the film and its music.
+function legacyFilmView() {
+  lxStop()
+  document.title = LF_TITLE
+  host().innerHTML = '<section class="lf" aria-label="One Mango: a film you scroll"><iframe class="lf-frame" src="/one-mango/?embed=1" title="One Mango: a film you scroll, from a seed in the dark to a bowl on your counter" allow="autoplay"></iframe></section>'
+  const html = document.documentElement
+  html.classList.add('lf-on')
+  // No slide-in for this page: while #page-view is being transformed, a fixed element inside it is laid out against
+  // #page-view (which has no height of its own here), and the film would start in a frame of zero height.
+  $('#page-view').getAnimations?.().forEach((a) => a.cancel())
+  let last = 0
+  const onMessage = (e) => {
+    if (e.origin !== location.origin || !e.data || e.data.type !== 'one-mango' || typeof e.data.p !== 'number') return
+    const p = e.data.p
+    html.classList.toggle('lx-head-away', p > 0.03 && p >= last - 0.002)
+    last = p
+  }
+  window.addEventListener('message', onMessage)
+  lxKill.push(() => { window.removeEventListener('message', onMessage); html.classList.remove('lf-on') })
+}
 
 function legacyView() {
   lxStop()
@@ -793,12 +819,12 @@ ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="user
 </section>
 
 <section class="lx-scene lx-film" data-lx-scene="10" aria-labelledby="lx-film-title">
-  <a class="lx-film-poster" href="/one-mango/" tabindex="-1" aria-hidden="true" data-lx-cursor="open"><img src="one-mango/poster.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span class="lx-film-play"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5.5v13l11-6.5z"/></svg></span></a>
+  <a class="lx-film-poster" href="/legacy" data-route tabindex="-1" aria-hidden="true" data-lx-cursor="open"><img src="one-mango/poster.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span class="lx-film-play"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5.5v13l11-6.5z"/></svg></span></a>
   <div class="lx-film-copy">
     <p class="lx-caps">A film you scroll</p>
     <h2 id="lx-film-title">One <em>Mango.</em></h2>
     <p class="lx-film-line">Follow a single mango from a seed in the dark to a bowl on your counter: the tree, the pick, the crate, the road, the door. Scroll at your own pace, with quiet music.</p>
-    <a class="lx-btn is-solid" href="/one-mango/" data-lx-cursor="open" data-lx-magnet><span>Watch the film</span></a>
+    <a class="lx-btn is-solid" href="/legacy" data-route data-lx-cursor="open" data-lx-magnet><span>Watch the film</span></a>
   </div>
 </section>
 
@@ -1412,6 +1438,6 @@ window.addEventListener('mm:route', () => {
   if (document.body.dataset.page === 'legacy') return
   const was = lxKill.length || document.documentElement.classList.contains('lx-on')
   lxStop()
-  if (document.title === LX_TITLE) document.title = LX_HOME_TITLE
+  if (document.title === LX_TITLE || document.title === LF_TITLE) document.title = LX_HOME_TITLE
   if (was && window.ScrollTrigger) requestAnimationFrame(() => ScrollTrigger.refresh())
 })
