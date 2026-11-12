@@ -55,12 +55,12 @@ function drawKraft(g, W, H, print, seed) {
   if (print) print(g, W, H)
 }
 
-/** "Mandi Mangoes" wordmark: two stacked lines, the O of MANGOES a little mango. */
+/** "VMR Mangoes" wordmark: two stacked lines, the O of MANGOES a little mango. */
 export function drawWordmark(g, cx, cy, size, color = '#174631') {
   g.save()
   g.fillStyle = color; g.textAlign = 'center'; g.textBaseline = 'alphabetic'
   g.font = `800 ${size}px ${SANS}`
-  g.fillText('MANDI', cx, cy - size * 0.08)
+  g.fillText('VMR', cx, cy - size * 0.08)
   const t2 = 'MANGOES', w2 = g.measureText(t2).width
   g.fillText(t2, cx, cy + size * 0.86)
   // A small gold mango over the O.

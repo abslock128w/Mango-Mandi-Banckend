@@ -63,7 +63,7 @@ function route() {
 const missingPath = (p) => p !== '/' && p !== '/index.html' && !OLD_PREORDER.test(p) && !/^\/(invite|help|account|preorders)\//.test(p) && !PAGES.some(([re]) => re.test(p))
 
 function notFoundView() {
-  document.title = 'Page not found · Mango Mandi'
+  document.title = 'Page not found · VMR Mangoes'
   host().innerHTML = pageHead('That page isn’t here') + `<section class="page-card empty-cart bag-empty empty-state not-found"><p>The link may be old, or the address may have a typo. The mangoes are all still here.</p><a class="button primary bag-explore" href="/" data-route>Back to the mangoes ${icon('arrow')}</a></section>`
 }
 const routed = () => window.dispatchEvent(new CustomEvent('mm:route', { detail: { path: location.pathname } }))
@@ -143,10 +143,39 @@ function pageHead(title) {
   return `<div class="page-head"><button class="icon-button" data-page-back aria-label="Back">${icon('back')}</button><h1>${title}</h1></div>${tabs}`
 }
 
-// ---- The bulk page: the shop's product cards (doorCard) fill a bulk list (localStorage `mm-bulk`, not the bag) that the
-// sticky bar (#pay-bar) sends as an enquiry (app.js bulkForm) once it reaches 100 kg.
+/** Orders can be cancelled for four hours after they are placed (the API's rule: canCancel and cancelUntil on the order).
+    Says until when, or that cancelling has closed and how to reach us instead. */
+function cancelNote(o, canCancel) {
+  if (!o.cancelUntil) return ''
+  const until = new Date(o.cancelUntil)
+  if (Number.isNaN(until.getTime())) return ''
+  const when = until.toLocaleString('en-IN', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  if (canCancel) return `<p class="cancel-note">${icon('info')}<span>You can cancel this order until ${esc(when)}: four hours after it was placed.</span></p>`
+  if (until.getTime() >= Date.now()) return ''
+  return `<p class="cancel-note is-closed">${icon('info')}<span>Cancelling closed four hours after this order was placed. Something wrong? ${helpLink('Message us', `Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}.</span></p>`
+}
+
+// ---- The bulk page: the shop's product cards (doorCard) fill a bulk list (localStorage `mm-bulk`, not the bag). The sticky
+// bar (#pay-bar) offers two things (app.js bulkForm): "Send enquiry", always open, and "Place bulk order", open from 100 kg.
+// A bulk order is placed directly: nothing is paid online, an agent phones and WhatsApps to confirm it.
 
 const BULK_MIN_KG = 100
+// Bulk boxes are 5 kg or 10 kg only. The catalogue has no 10 kg box, so the 10 kg bulk box is the variety's 5 kg fruit packed
+// double: id "<5 kg sku>@10" in the list, sent to the API as that sku with packKg 10, shown at twice the 5 kg price.
+const BULK_PACKS_KG = [5, 10]
+const BULK_DELIVERY_PCT = 10 // delivery on a bulk order, as a share of the mangoes' value (the API works out the real figure)
+const BULK_DAYS = '5–7 days'
+const tenOf = (five) => ({ ...five, sku: `${five.sku}@10`, boxSize: '10kg', price: five.price * 2, base: five.sku, packKg: 10 })
+/** A bulk list id → the box it stands for (a real 5 kg sku, or its 10 kg bulk box). */
+function bulkSku(id) {
+  const [base, pack] = String(id).split('@'), s = skuOf(base)
+  return !s ? null : pack === '10' ? tenOf(s) : s
+}
+/** The bulk boxes of a variety: its 5 kg box and the 10 kg bulk box; none when it has no 5 kg box. */
+function bulkBoxes(v) {
+  const five = v.skus.find((s) => kgOf(s) === 5)
+  return five ? [five, tenOf(five)] : []
+}
 const doorPick = { bulk: {} } // variety → { sku, stage } picked on its card
 let bulkList = null
 
@@ -227,30 +256,31 @@ const bulkLines = () => bulkList ??= read('mm-bulk', []).filter((x) => x && type
 
 function bulkTotals() {
   return bulkLines().reduce((t, x) => {
-    const s = skuOf(x.sku)
+    const s = bulkSku(x.sku)
     t.boxes += x.qty
     t.kg += (s ? kgOf(s) : 0) * x.qty
+    t.value += (s ? s.price : 0) * x.qty
     return t
-  }, { boxes: 0, kg: 0 })
+  }, { boxes: 0, kg: 0, value: 0 })
 }
 
 /** The list as the enquiry shows and sends it: one line per box and ripeness. */
 function bulkSummary() {
   return bulkLines().map((x) => {
-    const s = skuOf(x.sku), kg = (s ? kgOf(s) : 0) * x.qty
-    return { sku: x.sku, stage: x.stage, boxes: x.qty, kg, label: `${s ? s.variety : x.sku} · ${s ? kgText(s) + ' box' : 'box'} · ${stageOf(x.stage).stage}` }
+    const s = bulkSku(x.sku), kg = (s ? kgOf(s) : 0) * x.qty
+    return { sku: s?.base || x.sku, ...(s?.packKg ? { packKg: s.packKg } : {}), stage: x.stage, boxes: x.qty, kg, label: `${s ? s.variety : x.sku} · ${s ? kgText(s) + ' box' : 'box'} · ${stageOf(x.stage).stage}` }
   })
 }
 
 function bulkPick(v) {
-  const p = doorPick.bulk[v.name] ||= {}
-  if (!v.skus.some((s) => s.sku === p.sku)) p.sku = v.skus[0].sku
+  const p = doorPick.bulk[v.name] ||= {}, boxes = bulkBoxes(v)
+  if (!boxes.some((s) => s.sku === p.sku)) p.sku = boxes[0]?.sku
   if (!SOLD.some((x) => x.apiStage === p.stage)) p.stage = stageFor(v)
   return p
 }
 
 function bulkAction(v, p) {
-  const s = skuOf(p.sku), st = stageOf(p.stage)
+  const s = bulkSku(p.sku), st = stageOf(p.stage)
   const what = esc(`${kgText(s)} boxes of ${st.stage.toLowerCase()} ${v.name}`)
   const key = `data-sku="${esc(p.sku)}" data-stage="${esc(p.stage)}"`
   const line = bulkLines().find((x) => x.sku === p.sku && x.stage === p.stage)
@@ -267,22 +297,31 @@ function renderBulkGrid(focus) {
       : `<div class="product-grid door-grid" aria-busy="true">${skeletonCards(6)}</div>`
     return
   }
-  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>Pick boxes by ripeness and size. Once your list reaches ${BULK_MIN_KG} kg, send it to us and we’ll come back with a quote. Prices shown are our shop prices per box.</p></div><div class="product-grid door-grid">${shelf.map((v) => {
-    const p = bulkPick(v)
-    return doorCard(v, { kind: 'bulk', sku: p.sku, stage: p.stage, boxes: v.skus, stages: SOLD_API, action: bulkAction(v, p), chosen: bulkLines().some((x) => v.skus.some((s) => s.sku === x.sku)) })
+  // A list saved before the 5 kg / 10 kg rule may hold other boxes: they leave it.
+  if (skus.length && bulkLines().some((x) => !BULK_PACKS_KG.includes(kgOf(bulkSku(x.sku) || {})))) {
+    bulkList = bulkLines().filter((x) => BULK_PACKS_KG.includes(kgOf(bulkSku(x.sku) || {})))
+    save('mm-bulk', bulkList)
+  }
+  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>Pick the ripeness and a <strong>5 kg or 10 kg box</strong>. From ${BULK_MIN_KG} kg you can place the order directly; below that, send us an enquiry. Prices shown are our shop prices per box: your <strong>wholesale price is lower</strong>, and our agent confirms it on the call.</p></div><div class="product-grid door-grid">${shelf.filter((v) => bulkBoxes(v).length).map((v) => {
+    const p = bulkPick(v), boxes = bulkBoxes(v)
+    return doorCard(v, { kind: 'bulk', sku: p.sku, stage: p.stage, boxes, stages: SOLD_API, action: bulkAction(v, p), chosen: bulkLines().some((x) => boxes.some((s) => s.sku === x.sku)) })
   }).join('')}</div>`
   refocus(grid, focus)
 }
 
-/** The sticky bar on /bulk: the list's weight and boxes, and "Send enquiry" once it reaches 100 kg. */
+/** The sticky bar on /bulk: the list's weight and boxes, "Send enquiry" (always open) and "Place bulk order" (from 100 kg). */
 function bulkBar() {
   if (document.body.dataset.page !== 'bulk') return
   const t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
-  // Just sent (the "Enquiry sent" card is on screen and the list is empty): say so, no disabled button or hint.
-  if (!t.boxes && [...document.querySelectorAll('#bulk-box .bulk-sent')].some((el) => el.getClientRects().length)) {
-    return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Enquiry sent · we’ll quote on WhatsApp</span></p></div>`)
+  // Just sent (the "sent" card is on screen and the list is empty): say so, no disabled button or hint.
+  const sent = !t.boxes && [...document.querySelectorAll('#bulk-box .bulk-sent')].find((el) => el.getClientRects().length)
+  if (sent) {
+    return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>${sent.dataset.kind === 'ORDER' ? 'Order placed · our agent will call and WhatsApp you' : 'Enquiry sent · we’ll quote on WhatsApp'}</span></p></div>`)
   }
-  setBar(`${ok ? '' : `<p class="pay-bar-hint is-next" role="status">${icon('info')}<span>Add at least ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ' to send an enquiry'}</span></p>`}<div class="pay-bar-row"><div class="pay-bar-total"><small>Your bulk list</small><strong><span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span></strong></div><button class="button primary pay-bar-go" id="bulk-send" ${ok ? '' : 'disabled'}>Send enquiry ${icon('arrow')}</button></div>`)
+  const hint = ok
+    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg: you can place this order now. Wholesale price, delivery in ${BULK_DAYS}.</span></p>`
+    : `<p class="pay-bar-hint is-next" role="status">${icon('info')}<span>Bulk orders start at ${BULK_MIN_KG} kg${t.kg ? ` · ${BULK_MIN_KG - t.kg} kg to go` : ''}. You can send an enquiry at any time.</span></p>`
+  setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>Your bulk list</small><strong><span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span></strong></div><div class="bulk-bar-go"><button class="button secondary pay-bar-go bulk-enquire" id="bulk-send">${icon('chat')}<span>Send enquiry</span></button><button class="button primary pay-bar-go" id="bulk-order" ${ok ? '' : `disabled aria-describedby="bulk-order-why"`}>${ok ? '' : icon('lock')}<span>Place bulk order</span>${ok ? icon('arrow') : ''}</button></div></div>${ok ? '' : `<span id="bulk-order-why" class="sr-only">Add at least ${BULK_MIN_KG} kg to place a bulk order.</span>`}`)
 }
 
 function bulkStep(b) {
@@ -297,16 +336,17 @@ function bulkStep(b) {
   renderBulkGrid(focus)
   if (!$('#bulk-grid').contains(document.activeElement)) refocus($('#bulk-grid'), { 'data-bulk-qty': '1', 'data-sku': sku, 'data-stage': stage })
   bulkBar()
-  // An open enquiry form follows the list.
-  const box = $('#bulk-box')
-  if (box && !box.hidden && $('#bulk-form', box)) bulkForm('#bulk-box')
+  // An open form follows the list (an order form falls back to an enquiry when the list drops under 100 kg).
+  const box = $('#bulk-box'), form = box && !box.hidden && $('#bulk-form', box)
+  if (form) bulkForm('#bulk-box', form.dataset.kind === 'ORDER' && bulkTotals().kg >= BULK_MIN_KG ? 'ORDER' : 'ENQUIRY')
 }
 
-function openBulkEnquiry() {
+/** Opens the form under the list: an enquiry (any size, even an empty list), or a direct order (100 kg or more). */
+function openBulkEnquiry(kind = 'ENQUIRY') {
   const box = $('#bulk-box')
-  if (!box || bulkTotals().kg < BULK_MIN_KG) return
+  if (!box || (kind === 'ORDER' && bulkTotals().kg < BULK_MIN_KG)) return
   box.hidden = false
-  bulkForm('#bulk-box')
+  bulkForm('#bulk-box', kind)
   box.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
   const h = $('.flow-head', box)
   if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
@@ -315,8 +355,20 @@ function openBulkEnquiry() {
 function bulkPage() {
   host().innerHTML = pageHead('Bulk orders') + `
     <section class="door-hero bulk">
-      <div><h2>Big on mangoes? <br><em>So are we.</em></h2><p>For shops, kitchens, gifting and everything in between. Planning an order above ${BULK_MIN_KG} kg? Let’s make it happen.</p></div>
+      <div><h2>Big on mangoes? <br><em>So are we.</em></h2><p>For shops, restaurant kitchens, functions, birthday parties and gifting. Order ${BULK_MIN_KG} kg or more at wholesale prices, placed right here: no waiting for a quote.</p></div>
       <div class="bulk-type" aria-hidden="true">${BULK_MIN_KG}<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>
+    </section>
+    <section class="bulk-rules" aria-labelledby="bulk-rules-h">
+      <h2 id="bulk-rules-h" class="flow-head">How bulk orders work</h2>
+      <ul>
+        <li>${icon('scale')}<div><strong>${BULK_MIN_KG} kg minimum</strong><span>Your list must reach ${BULK_MIN_KG} kg before you can place the order.</span></div></li>
+        <li>${icon('box')}<div><strong>5 kg or 10 kg boxes only</strong><span>Every bulk order is packed in 5 kg or 10 kg boxes. No other sizes.</span></div></li>
+        <li>${icon('tag')}<div><strong>Wholesale pricing</strong><span>Bulk orders get our wholesale price, lower than the shop price shown on each box.</span></div></li>
+        <li>${icon('calendar')}<div><strong>Delivered in ${BULK_DAYS}</strong><span>Bulk orders take ${BULK_DAYS} from the day you place them.</span></div></li>
+        <li>${icon('truck')}<div><strong>Delivery fee: ${BULK_DELIVERY_PCT}% of the order value</strong><span>Added to the mangoes’ price. No other delivery charges.</span></div></li>
+        <li>${icon('phone')}<div><strong>Our agent calls you</strong><span>No waiting for a quote: place the order and our agent confirms it by phone and WhatsApp.</span></div></li>
+      </ul>
+      <p class="bulk-rules-note">${icon('chat')}<span>Not at ${BULK_MIN_KG} kg yet, or have a question first? <strong>Send enquiry</strong> is open at any time, at the bottom of this page.</span></p>
     </section>
     <section class="door-cards" id="bulk-grid" aria-label="Mangoes for your bulk list"></section>
     <section class="page-card door-flow" id="bulk-box" aria-label="Bulk enquiry" hidden></section>`
@@ -343,7 +395,8 @@ document.addEventListener('click', (e) => {
   } else if (d.preOpen) openPreBooking(d.preOpen, d.sku, d.stage)
   else if (d.preBox || d.preStage || d.preWeek || d.preStep) prePanel(b)
   else if (d.bulkQty) bulkStep(b)
-  else if (b.id === 'bulk-send') openBulkEnquiry()
+  else if (b.id === 'bulk-send') openBulkEnquiry('ENQUIRY')
+  else if (b.id === 'bulk-order') openBulkEnquiry('ORDER')
   else if (b.hasAttribute('data-bulk-retry')) {
     loadProducts()
     $('#bulk-grid').dataset.waited = ''
@@ -524,11 +577,12 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       ${paymentBlock(o)}
     </section>
     <section class="page-card page-actions track-actions">
-      ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi Mango Mandi, about my order ${orderNo(o.number)}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
+      ${/^\d+$/.test(wa) ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}" target="_blank" rel="noopener">Help on WhatsApp</a>` : ''}
       ${o.bill ? `<button class="button primary" data-invoice="${esc(o.id)}" data-number="${esc(o.number)}">Download invoice ${icon('arrow')}</button>` : ''}
       ${o.status === 'DELIVERED' ? `<button class="button secondary" data-review="${esc(o.id)}">${o.rating ? 'Edit your review' : 'Rate this order'}</button>` : ''}
       ${canCancel ? `<button class="button secondary is-danger" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">${icon('close')} Cancel order</button>` : ''}
-      ${fromPre && !ENDED.includes(o.status) ? `<p class="pre-nocancel">${icon('info')}<span>This was a pre-order, so it can’t be cancelled or refunded. Something wrong? ${helpLink('Message us', `Hi Mango Mandi, about my order ${orderNo(o.number)}`)}</span></p>` : ''}
+      ${cancelNote(o, canCancel)}
+      ${fromPre && !ENDED.includes(o.status) ? `<p class="pre-nocancel">${icon('info')}<span>This was a pre-order, so it can’t be cancelled or refunded. Something wrong? ${helpLink('Message us', `Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}</span></p>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`
   if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})
@@ -547,20 +601,24 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
 // each quote, and the signs that a quote is waiting (a dot on the account button, a banner, a toast).
 
 const BULK_STATUS = { NEW: 'Sent · waiting for our quote', QUOTED: 'Quote ready', ACCEPTED: 'Accepted · we’ll call to arrange delivery', DECLINED: 'Declined', CLOSED: 'Closed' }
+// A bulk order placed directly reads differently while it waits and once it is priced.
+const BULK_ORDER_STATUS = { NEW: 'Placed · our agent will call you', QUOTED: 'Price confirmed · please accept' }
 let bulkMine = []
 const paise = (n) => currency((Number(n) || 0) / 100)
 
 function bulkError(e) {
   if (e.code === 'NETWORK') return 'You seem to be offline. Your details are still here: send it again when you’re back online.'
   if (e.status === 404) return 'Bulk enquiries are paused right now. Message us on WhatsApp instead.'
-  return e.message || 'We couldn’t send your enquiry. Please try again.'
+  if (e.code === 'BULK_TOO_SMALL') return `Bulk orders start at ${BULK_MIN_KG} kg. Add more boxes, or send an enquiry instead.`
+  return e.message || 'We couldn’t send it. Please try again.'
 }
 
-/** The bulk form's submit (app.js): sends it to Mango Mandi, then shows the enquiry number. */
+/** The bulk form's submit (app.js): sends it to VMR Mangoes, then shows the enquiry number. */
 async function sendBulkEnquiry(form) {
   if (form.dataset.busy) return
-  const data = Object.fromEntries(new FormData(form)), listed = !!form.querySelector('.bulk-lines')
-  const lines = listed ? bulkSummary().map(({ sku, stage, boxes, kg }) => ({ sku, stage, boxes, kg })) : []
+  const data = Object.fromEntries(new FormData(form)), listed = !!form.querySelector('.bulk-lines'), order = form.dataset.kind === 'ORDER'
+  const lines = listed ? bulkSummary().map(({ sku, stage, boxes, kg, packKg }) => ({ sku, stage, boxes, kg, ...(packKg ? { packKg } : {}) })) : []
+  const said = listed ? bulkSummary() : []
   const kg = listed ? bulkTotals().kg : Number(data.quantity)
   const fail = (message) => {
     const el = $('.bulk-error', form)
@@ -574,13 +632,14 @@ async function sendBulkEnquiry(form) {
     ['email', (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? '' : 'That email doesn’t look right.'],
     ['city', (v) => v ? '' : 'Tell us the delivery city.'],
   ])) return
-  if (listed ? !lines.length || kg <= BULK_MIN_KG : !(kg > BULK_MIN_KG)) return fail(`Bulk enquiries are for more than ${BULK_MIN_KG} kg.`)
+  if (order ? !lines.length || kg < BULK_MIN_KG : listed ? !lines.length : !(kg >= 1)) return fail(order ? `Bulk orders start at ${BULK_MIN_KG} kg. Add more boxes, or send an enquiry instead.` : 'Tell us how many kg you need.')
   const phone = normPhone(data.phone)
   save('mm-bulk-draft', { name: data.name || '', business: data.business || '', email: data.email || '', phone: data.phone || '', city: data.city || '' })
   const body = {
     name: String(data.name || '').trim(), business: String(data.business || '').trim() || null, email: String(data.email || '').trim() || null, phone,
     city: String(data.city || '').trim(), notes: String(data.notes || '').trim() || null,
     ...(listed ? { lines } : { quantityKg: Math.round(kg), ripeness: data.ripeness || null }),
+    ...(order ? { kind: 'ORDER' } : {}),
   }
   // One key per filled-in form: a retry after a dropped connection is the same enquiry.
   form.dataset.key ||= MM.idem()['Idempotency-Key']
@@ -593,19 +652,19 @@ async function sendBulkEnquiry(form) {
     r = await MM.bulkEnquiry(body, form.dataset.key)
   } catch (e) {
     delete form.dataset.busy
-    if (button) { button.disabled = false; button.firstChild.textContent = 'Send enquiry ' }
+    if (button) { button.disabled = false; button.firstChild.textContent = order ? 'Place bulk order ' : 'Send enquiry ' }
     return fail(bulkError(e))
   }
   if (listed) { save('mm-bulk', []); bulkList = null; renderBulkGrid(); bulkBar() }
   const box = form.closest('#bulk-box') ? '#bulk-box' : '#form-dialog'
   const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim(), waOk = /^\d+$/.test(wa)
-  const text = [`Mango Mandi — Bulk enquiry ${r.number}`, `Name: ${body.name}`, ...(body.business ? [`Business: ${body.business}`] : []), `Phone: +91 ${phone}`, ...(body.email ? [`Email: ${body.email}`] : []), `City: ${body.city}`,
-    ...(listed ? lines.map((l) => `${skuOf(l.sku) ? boxLabel(skuOf(l.sku)) : l.sku} · ${stageOf(l.stage).stage} · ${l.boxes} ${l.boxes === 1 ? 'box' : 'boxes'} · ${l.kg} kg`) : [`Quantity: ${body.quantityKg} kg${body.ripeness ? ` (${body.ripeness})` : ''}`]),
+  const text = [`VMR Mangoes — Bulk ${order ? 'order' : 'enquiry'} ${r.number}`, `Name: ${body.name}`, ...(body.business ? [`Business: ${body.business}`] : []), `Phone: +91 ${phone}`, ...(body.email ? [`Email: ${body.email}`] : []), `City: ${body.city}`,
+    ...(listed ? said.map((l) => `${l.label} · ${l.boxes} ${l.boxes === 1 ? 'box' : 'boxes'} · ${l.kg} kg`) : [`Quantity: ${body.quantityKg} kg${body.ripeness ? ` (${body.ripeness})` : ''}`]),
     ...(body.notes ? [`Note: ${body.notes}`] : [])].join('\n')
   const signed = !!MM.profile()
   // One heading: the card's own ("Enquiry BLK-… sent."); the sheet keeps only its close button.
-  $(box).innerHTML = (box === '#form-dialog' ? `<div class="sheet-head is-bare"><button class="icon-button" data-close aria-label="Close form">${icon('close')}</button></div>` : '') + `<div class="success bulk-sent">${icon('check')}<h2>Enquiry <span class="no-wrap">${esc(r.number)}</span> sent.</h2>
-    <p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>
+  $(box).innerHTML = (box === '#form-dialog' ? `<div class="sheet-head is-bare"><button class="icon-button" data-close aria-label="Close form">${icon('close')}</button></div>` : '') + `<div class="success bulk-sent" data-kind="${order ? 'ORDER' : 'ENQUIRY'}">${icon('check')}<h2>${order ? 'Order' : 'Enquiry'} <span class="no-wrap">${esc(r.number)}</span> ${order ? 'placed' : 'sent'}.</h2>
+    ${order ? `<p>Our agent will <strong>call and WhatsApp you on +91 ${esc(phone)}</strong> to confirm your wholesale price, the delivery day (${BULK_DAYS}) and payment. Nothing is charged until then. Delivery is ${BULK_DELIVERY_PCT}% of the order value.</p>` : `<p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>`}
     ${signed ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(r.id)}" data-route>View in account ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
     ${waOk ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : ''}
     <button class="text-button" data-close style="margin:15px auto 0">Back to the mangoes ${icon('arrow')}</button></div>`
@@ -620,8 +679,8 @@ function bulkSection(items) {
   if (!items) return ''
   if (!items.length && !(policy?.features?.bulkEnquiries ?? true)) return ''
   return `<section class="page-card bulk-mine" aria-labelledby="bulk-mine-h">
-      <h3 id="bulk-mine-h">Bulk enquiries</h3>
-      ${items.length ? `<ul class="bq-list">${items.map(bulkItem).join('')}</ul>` : `<p class="page-note">Ordering more than ${BULK_MIN_KG} kg? <a href="/bulk" data-route>Send a bulk enquiry</a> and we’ll send you a price.</p>`}
+      <h3 id="bulk-mine-h">Bulk orders and enquiries</h3>
+      ${items.length ? `<ul class="bq-list">${items.map(bulkItem).join('')}</ul>` : `<p class="page-note">Ordering ${BULK_MIN_KG} kg or more? <a href="/bulk" data-route>Place a bulk order</a> at wholesale prices, or send an enquiry for any amount.</p>`}
     </section>`
 }
 
@@ -629,10 +688,11 @@ function bulkItem(x) {
   const q = x.quote, what = `${x.quantityKg} kg${x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''}`
   const open = x.status === 'QUOTED' && q
   return `<li class="bq-item${x.unread ? ' is-new' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}">
-    <div class="bq-head"><div><strong>${esc(x.number)}</strong><small>${fmtDate(String(x.createdAt).slice(0, 10))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.unread ? 'New quote' : BULK_STATUS[x.status] || esc(x.status)}</span></div>
+    <div class="bq-head"><div><strong>${esc(x.number)}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : 'Enquiry'} · ${fmtDate(String(x.createdAt).slice(0, 10))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>
     ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(x.number)}">
       <ul class="bq-lines">${q.lines.map((l) => `<li><span>${esc(l.label)} <small>× ${l.qty} @ ${currency(l.unitPrice)}</small></span><strong>${currency(l.linePrice)}</strong></li>`).join('')}
-      ${q.extras.map((e) => `<li class="bq-extra"><span>${esc(e.label)}</span><strong>${paise(e.amount)}</strong></li>`).join('')}</ul>
+      ${q.extras.map((e) => `<li class="bq-extra"><span>${esc(e.label)}</span><strong>${paise(e.amount)}</strong></li>`).join('')}
+      ${q.deliveryFee ? `<li class="bq-extra"><span>Delivery <small>${Number(q.deliveryPct) || BULK_DELIVERY_PCT}% of the order value</small></span><strong>${paise(q.deliveryFee)}</strong></li>` : ''}</ul>
       ${q.note ? `<p class="bq-note">${esc(q.note)}</p>` : ''}
       <p class="bq-total"><span>Total${q.validUntil ? ` <small>valid until ${fmtDate(q.validUntil)}</small>` : ''}</span><strong>${currency(q.total)}</strong></p>
       ${open ? `<div class="bq-actions"><button class="button primary" data-bulk-accept="${esc(x.id)}">Accept quote ${icon('check')}</button><button class="button secondary" data-bulk-decline="${esc(x.id)}">Decline</button></div>

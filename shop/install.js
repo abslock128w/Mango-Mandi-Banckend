@@ -25,7 +25,7 @@
     d = document.createElement('dialog')
     d.id = 'install-dialog'
     d.className = 'sheet form-sheet install-sheet'
-    d.setAttribute('aria-label', 'Add Mango Mandi to your home screen')
+    d.setAttribute('aria-label', 'Add VMR Mangoes to your home screen')
     document.body.appendChild(d)
     return d
   }
@@ -39,7 +39,7 @@
     : `<ol class="install-steps"><li><span class="install-key">${dotsIcon}</span><span>Open your browser’s <strong>menu</strong></span></li><li><span class="install-key">${plusIcon}</span><span>Choose <strong>Add to Home screen</strong> or <strong>Install app</strong></span></li></ol>`
   // One button. Chrome installs on the tap (beforeinstallprompt); Safari has no such call, so the tap shows the two Share steps.
   function html(showSteps) {
-    return `<div class="install-top"><img src="assets/app-icon.png" alt="" width="64" height="64" class="install-icon"><div><p class="install-kicker">Mango Mandi</p><h2>Add the app to your home screen.</h2></div><button class="icon-button" data-close aria-label="Not now">${icon('close')}</button></div>
+    return `<div class="install-top"><img src="assets/app-icon.png" alt="" width="64" height="64" class="install-icon"><div><p class="install-kicker">VMR Mangoes</p><h2>Add the app to your home screen.</h2></div><button class="icon-button" data-close aria-label="Not now">${icon('close')}</button></div>
 <p class="install-copy">No app store needed. It opens like an app and remembers your bag and delivery area.</p>
 ${showSteps ? steps() : `<button class="button primary full" type="button" data-install-go autofocus>${plusIcon} Add to Home Screen</button>`}<button class="text-button install-later" type="button" data-close>Not now</button>`
   }
@@ -75,7 +75,7 @@ ${showSteps ? steps() : `<button class="button primary full" type="button" data-
   }
 
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (shown) { const d = document.getElementById('install-dialog'); if (d?.open) { d.innerHTML = html(); quietFocus(d) } } })
-  window.addEventListener('appinstalled', () => { done(); deferred = null; const d = document.getElementById('install-dialog'); if (d?.open) { d.close(); document.body.classList.remove('locked') } ; if (typeof toast === 'function') toast('Mango Mandi is on your home screen.') })
+  window.addEventListener('appinstalled', () => { done(); deferred = null; const d = document.getElementById('install-dialog'); if (d?.open) { d.close(); document.body.classList.remove('locked') } ; if (typeof toast === 'function') toast('VMR Mangoes is on your home screen.') })
 
   document.addEventListener('click', async (e) => {
     const go = e.target.closest('[data-install-go]')

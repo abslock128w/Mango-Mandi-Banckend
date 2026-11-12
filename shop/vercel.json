@@ -135,6 +135,14 @@
       "destination": "/index.html"
     },
     {
+      "source": "/contact",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/help",
+      "destination": "/index.html"
+    },
+    {
       "source": "/legacy",
       "destination": "/index.html"
     },

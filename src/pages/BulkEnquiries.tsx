@@ -22,6 +22,9 @@ const STATUSES: BulkEnquiryStatus[] = ['NEW', 'QUOTED', 'ACCEPTED', 'DECLINED', 
 const TONE: Record<BulkEnquiryStatus, 'warn' | 'info' | 'good' | 'bad' | 'neutral'> = { NEW: 'warn', QUOTED: 'info', ACCEPTED: 'good', DECLINED: 'bad', CLOSED: 'neutral' }
 const EVENT_LABEL: Record<string, string> = { RECEIVED: 'Enquiry received', QUOTED: 'Quote sent', SEEN: 'Customer opened the quote', ACCEPTED: 'Customer accepted', DECLINED: 'Customer declined', NOTE: 'Note', CLOSED: 'Closed' }
 
+/** Delivery on a bulk quote, as a share of the mangoes' value (the API's BULK_DELIVERY_PCT works out the real figure). */
+const BULK_DELIVERY_PCT = 10
+
 function StatusBadge({ status }: { status: BulkEnquiryStatus }) {
   return <Badge tone={TONE[status]}>{BULK_STATUS_LABEL[status]}</Badge>
 }
@@ -144,6 +147,12 @@ function Row({ r }: { r: BulkEnquiryRow }) {
           r.name
         )}
         <span className="muted"> · {r.city}</span>
+        {r.kind === 'ORDER' && (
+          <>
+            {' '}
+            <Badge tone="info">Direct order</Badge>
+          </>
+        )}
       </td>
       <td data-label="Quantity" className="num">
         {r.quantityKg} kg{r.boxes ? <span className="muted"> · {boxesWords(r.boxes)}</span> : null}
@@ -204,6 +213,7 @@ function Enquiry({ e }: { e: BulkEnquiryDetail }) {
       <div className="topbar">
         <h1>{e.number}</h1>
         <StatusBadge status={e.status} />
+        {e.kind === 'ORDER' && <Badge tone="info">Direct order</Badge>}
         <span className="spacer" />
         {e.status !== 'CLOSED' && (
           <button type="button" className="btn" disabled={close.isPending} onClick={() => setClosing(true)}>
@@ -245,7 +255,7 @@ function Enquiry({ e }: { e: BulkEnquiryDetail }) {
                   </thead>
                   <tbody>
                     {e.lines.map((l) => (
-                      <tr key={`${l.sku}|${l.stage}`}>
+                      <tr key={`${l.sku}|${l.stage}|${l.packKg ?? ''}`}>
                         <td>{l.name}</td>
                         <td>{ripenessLabel(l.stage)}</td>
                         <td className="num">{l.boxes}</td>
@@ -451,7 +461,8 @@ function QuoteBuilder({ e, onSaved }: { e: BulkEnquiryDetail; onSaved: (next: Bu
   const totals = useMemo(() => {
     const subtotal = lines.reduce((t, l) => t + (Number(l.qty) || 0) * toPaise(l.price), 0)
     const extrasTotal = extras.reduce((t, x) => t + toPaise(x.amount), 0)
-    return { subtotal, extrasTotal, total: subtotal + extrasTotal }
+    const deliveryFee = Math.round((subtotal * BULK_DELIVERY_PCT) / 100)
+    return { subtotal, extrasTotal, deliveryFee, total: subtotal + extrasTotal + deliveryFee }
   }, [lines, extras])
 
   const problem = (() => {
@@ -523,7 +534,7 @@ function QuoteBuilder({ e, onSaved }: { e: BulkEnquiryDetail; onSaved: (next: Bu
       </button>
 
       <h3 className="bq-sub">Extras</h3>
-      {extras.length === 0 && <p className="small muted">Special packaging, transport, branding: anything on top of the mangoes.</p>}
+      {extras.length === 0 && <p className="small muted">Special packaging, branding: anything on top of the mangoes. Delivery is added by itself, at 10% of the mangoes.</p>}
       <div className="bq-rows">
         {extras.map((x, i) => (
           <div className="bq-row bq-extra" key={x.key}>
@@ -561,6 +572,8 @@ function QuoteBuilder({ e, onSaved }: { e: BulkEnquiryDetail; onSaved: (next: Bu
         <dd className="num">{rupees(totals.subtotal)}</dd>
         <dt>Extras</dt>
         <dd className="num">{rupees(totals.extrasTotal)}</dd>
+        <dt>Delivery ({BULK_DELIVERY_PCT}% of the mangoes)</dt>
+        <dd className="num">{rupees(totals.deliveryFee)}</dd>
         <dt className="bq-grand">Total</dt>
         <dd className="num bq-grand">{rupees(totals.total)}</dd>
       </dl>

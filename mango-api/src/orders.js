@@ -42,6 +42,12 @@ const ADMIN_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED
  */
 const RESTOCKABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED']
 export const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
+/** A customer may cancel a paid order for this many hours after placing it; after that, cancelling is closed (the owner's rule). */
+export const CUSTOMER_CANCEL_HOURS = 4
+/** When the customer's own cancel closes for an order (null for an unpaid one, which can always be dropped). */
+export const cancelClosesAt = (o) => (o.status === 'PAYMENT_PENDING' ? null : new Date(new Date(o.placed_at).getTime() + CUSTOMER_CANCEL_HOURS * 3_600_000))
+/** Whether the customer's own cancel is still open: always for an unpaid order, for four hours after it was placed for a paid one. */
+export const withinCancelWindow = (o, at = now()) => { const until = cancelClosesAt(o); return !until || at.getTime() <= until.getTime() }
 /** A paid order a manager may cancel with a full refund: anything not yet delivered, including failed and returned deliveries. */
 export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 
@@ -642,6 +648,9 @@ export async function customerCancel(c, orderId, customerId, actor, { wholeGift 
         : o.status === 'DELIVERED' ? 'This order has been delivered and can no longer be cancelled.'
           : 'This order is already packed and can no longer be cancelled.'
     throw conflict(why, 'NOT_CANCELLABLE')
+  }
+  if (!withinCancelWindow(o)) {
+    throw conflict(`Orders can be cancelled within ${CUSTOMER_CANCEL_HOURS} hours of placing them. This one was placed earlier, so it can no longer be cancelled. Please contact us if something is wrong with it.`, 'CANCEL_WINDOW_CLOSED')
   }
   // The order a non-refundable pre-order became can't be cancelled by the customer either (preorders.js).
   // A manager's cancel (cancelOrder) still refunds it in full, and claims on it work as for any order.

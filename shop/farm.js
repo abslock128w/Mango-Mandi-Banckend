@@ -94,7 +94,7 @@ const fxGroup = (adults, children, overnight) => `${adults} ${adults === 1 ? 'ad
 
 /** The switch is off (or the route answered 404): the visit is not open. */
 function fxClosed(seq) {
-  document.title = 'Farm Experience · Mango Mandi'
+  document.title = 'Farm Experience · VMR Mangoes'
   host().innerHTML = pageHead('Farm Experience') + marker(seq) + `
     <section class="page-card pn-closed">
       <span class="pn-closed-art" aria-hidden="true">${icon('leaf')}</span>
@@ -112,7 +112,7 @@ function fxLoadFailed(title, seq, e, retry) {
 /** A signed-in farm page: the switch first (off: the closed page, no sign-in asked), then sign-in, then the page. */
 function fxSigned(title, then) {
   const seq = ++sheetSeq
-  document.title = `${title} · Mango Mandi`
+  document.title = `${title} · VMR Mangoes`
   host().innerHTML = pageHead(title) + marker(seq) + '<p>Loading…</p>'
   farmFeature().then((on) => {
     if (!alive(seq)) return
@@ -154,7 +154,7 @@ function fxPolicies(f) {
 // ---- /farm-experience: what the visit is, what is included, the varieties, how booking works, the policies and FAQs.
 
 async function farmView(seq = ++sheetSeq) {
-  document.title = 'Farm Experience · Mango Mandi'
+  document.title = 'Farm Experience · VMR Mangoes'
   host().innerHTML = pageHead('Farm Experience') + marker(seq) + '<p>Loading the farm visit…</p>'
   const f = await fxLoad('Farm Experience', seq, () => farmView())
   if (!f) return
@@ -173,7 +173,7 @@ async function farmView(seq = ++sheetSeq) {
     </li>`
   host().innerHTML = pageHead('Farm Experience') + marker(seq) + `
     <section class="pn-hero fx-hero">
-      <span class="pn-kicker">${where || 'Mango Mandi farm visits'}</span>
+      <span class="pn-kicker">${where || 'VMR Mangoes farm visits'}</span>
       <h2>Pick your own mangoes, <em>stay at the farm.</em></h2>
       <p>Visit our mango farm, pick your mangoes with our team and stay at the farmhouse. Every booking is for ${fxKg(f.minKg)} or more of one variety.</p>
       ${book}
@@ -276,7 +276,7 @@ const fxDayOk = (date) => {
 }
 
 async function farmBookView(seq = ++sheetSeq) {
-  document.title = 'Book a farm visit · Mango Mandi'
+  document.title = 'Book a farm visit · VMR Mangoes'
   host().innerHTML = pageHead('Book a farm visit') + marker(seq) + '<p>Getting the booking ready…</p>'
   const f = await fxLoad('Book a farm visit', seq, () => farmBookView())
   if (!f) return
@@ -509,7 +509,7 @@ function fxRender() {
         <p class="pn-saved">${icon('check')} ${last ? 'You pay after picking. Nothing is charged now.' : 'Your answers are saved on this device as you go.'}</p>
       </form>
     </div>`
-  document.title = `${title} · Book a farm visit · Mango Mandi`
+  document.title = `${title} · Book a farm visit · VMR Mangoes`
 }
 
 function fxShowError(p) {
@@ -593,7 +593,7 @@ async function fxBook() {
 // ---- /farm-bookings: the customer's visits.
 
 async function farmBookingsView(seq = ++sheetSeq) {
-  document.title = 'My farm visits · Mango Mandi'
+  document.title = 'My farm visits · VMR Mangoes'
   host().innerHTML = pageHead('My farm visits') + marker(seq) + '<p>Loading your farm visits…</p>'
   let list
   try {
@@ -618,7 +618,7 @@ const FX_METHODS = { upi: 'UPI', card: 'Card', netbanking: 'Net banking', wallet
 const fbSign = (b) => JSON.stringify([b.status, b.payment, b.hospitality.status, b.request, b.visitDate, b.canPay, b.canCancel, b.canMove, b.money, b.checkinCode])
 
 async function farmBookingView(id, seq = ++sheetSeq) {
-  document.title = 'Farm visit · Mango Mandi'
+  document.title = 'Farm visit · VMR Mangoes'
   host().innerHTML = pageHead('Farm visit') + marker(seq) + '<p>Loading your farm visit…</p>'
   let b
   try {
@@ -744,7 +744,7 @@ function fbChanges(b) {
 function fbRender() {
   const b = fb.b, f = b.farm, g = b.guests, h = b.hospitality
   const title = `Farm visit ${esc(b.number)}`
-  document.title = `Farm visit ${b.number} · Mango Mandi`
+  document.title = `Farm visit ${b.number} · VMR Mangoes`
   const thanks = fb.thanks === 'booked'
     ? `<section class="page-card fx-thanks" tabindex="-1" role="status">${icon('check')}<div><strong>Thank you, your farm visit is booked.</strong><p>Our team will plan your rooms and meals and let you know. You pay after picking.</p></div></section>`
     : fb.thanks === 'paid'
@@ -869,7 +869,7 @@ async function fbPay() {
   const settle = async () => { if (fb !== mine) return; mine.busy = ''; await fbRefresh(); fbWatch() }
   if (!r.razorpayKeyId) return settle()
   new window.Razorpay({
-    key: r.razorpayKeyId, order_id: r.razorpayOrderId, amount: r.amount, currency: 'INR', name: 'Mango Mandi', description: 'Farm visit ' + r.number,
+    key: r.razorpayKeyId, order_id: r.razorpayOrderId, amount: r.amount, currency: 'INR', name: 'VMR Mangoes', description: 'Farm visit ' + r.number,
     prefill: { contact: (MM.profile() || {}).phone || '' },
     handler: async (reply) => { try { await MM.verifyFarmPayment(mine.id, reply) } catch {} await settle() },
     modal: { ondismiss: () => { settle() } },

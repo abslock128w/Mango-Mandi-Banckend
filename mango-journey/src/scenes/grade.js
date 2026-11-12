@@ -1,7 +1,7 @@
 // Chapter 8 "Every one is turned, pressed and looked at." The warehouse on day 1, early morning. Low sun through a row of
 // high windows throws long gold shafts through dusty air; warm pendant lamps hang over a long wooden table and pool on
 // the floor; racks of crates of green and gold fruit recede into haze; a hanging scale, jute sacks, a chalk board and a
-// slow ceiling fan. Our rider (the same Mango Mandi person who will pack and deliver it), lit like a portrait (warm key,
+// slow ceiling fan. Our rider (the same VMR Mangoes person who will pack and deliver it), lit like a portrait (warm key,
 // cool window rim, a catch-light in the eyes), lifts our mango, turns it in both hands, tilts his head, presses it gently
 // with a thumb and nods; a scan line of light reads it; it goes into the RAW · DAYS 1–3 tray while the trays fill; a
 // bruised one is set aside, NEVER SOLD. The viewer can drag our mango to turn it while he holds it (mouse or touch).

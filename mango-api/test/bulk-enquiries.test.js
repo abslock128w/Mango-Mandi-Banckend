@@ -51,11 +51,40 @@ describe('bulk enquiries from the shop', () => {
     assert.deepEqual(paramsFor(n[0]), ['Asha Rao', r.body.number, '120 kg (40 boxes)'])
   })
 
-  test('a typed quantity must be over 100 kg; unknown boxes and bad phones are refused', async () => {
-    assert.equal((await send({ ...FORM, quantityKg: 100 })).body.error.code, 'BULK_TOO_SMALL')
+  test('an enquiry may be for any amount; unknown boxes and bad phones are refused', async () => {
+    // The enquiry is always open (the owner's rule); only a bulk order has the 100 kg floor.
+    const small = await send({ ...FORM, quantityKg: 40 })
+    assert.equal(small.status, 201, JSON.stringify(small.body))
+    assert.equal(small.body.kind, 'ENQUIRY')
     assert.equal((await send({ ...FORM, quantityKg: 150, ripeness: 'A mix' })).status, 201)
     assert.equal((await send({ ...FORM, lines: [{ sku: 'NOPE', stage: 'SEMI_RIPE', boxes: 50 }] })).status, 400)
     assert.equal((await send({ ...FORM, phone: '12345', quantityKg: 150 })).status, 400)
+  })
+
+  test('a bulk order is placed directly: 100 kg or more, in 5 kg or 10 kg boxes only', async () => {
+    const order = (lines) => send({ ...FORM, kind: 'ORDER', lines })
+    // 19 boxes of 5 kg is 95 kg: an enquiry, not yet an order.
+    const short = await order([{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 19 }])
+    assert.deepEqual([short.status, short.body.error.code], [400, 'BULK_TOO_SMALL'])
+    // 3 kg boxes are the shop's, not a bulk pack.
+    const three = await order([{ sku: 'ALP-3', stage: 'SEMI_RIPE', boxes: 40 }])
+    assert.deepEqual([three.status, three.body.error.code], [400, 'BULK_BOX_SIZE'])
+    assert.equal((await order([{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 4, packKg: 7 }])).status, 400)
+    // A typed quantity can be enquired about, not ordered.
+    assert.equal((await send({ ...FORM, kind: 'ORDER', quantityKg: 300 })).status, 400)
+
+    // Exactly 100 kg: ten 5 kg boxes and five 10 kg boxes of the same fruit.
+    const r = await order([{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 10 }, { sku: 'ALP-5', stage: 'RAW', boxes: 5, packKg: 10 }])
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    assert.equal(r.body.kind, 'ORDER')
+    const row = (await query('SELECT * FROM bulk_enquiries WHERE id = $1', [r.body.id])).rows[0]
+    assert.deepEqual([row.kind, row.quantity_kg, row.status], ['ORDER', 100, 'NEW'])
+    assert.deepEqual(row.lines, [{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 10, kg: 50 }, { sku: 'ALP-5', stage: 'RAW', boxes: 5, kg: 50, packKg: 10 }])
+    const detail = (await api.get(`/admin/v1/bulk-enquiries/${r.body.id}`, { token: manager })).body
+    assert.equal(detail.kind, 'ORDER')
+    assert.match(detail.lines[1].label, /10 kg box · Raw/)
+    const list = (await api.get('/admin/v1/bulk-enquiries', { token: manager })).body.items
+    assert.equal(list.find((x) => x.id === r.body.id).kind, 'ORDER')
   })
 
   test('the same Idempotency-Key is one enquiry', async () => {
@@ -121,22 +150,24 @@ describe('quotes', () => {
     }, { token: manager })
     assert.equal(q.status, 201, JSON.stringify(q.body))
     assert.equal(q.body.status, 'QUOTED')
-    assert.deepEqual([q.body.quote.subtotal, q.body.quote.extrasTotal, q.body.quote.total], [4_800_000, 50_000, 4_850_000])
+    // Delivery is 10% of the mangoes' value (not of the extras), worked out here and shown as its own line.
+    assert.deepEqual([q.body.quote.subtotal, q.body.quote.extrasTotal, q.body.quote.deliveryPct, q.body.quote.deliveryFee, q.body.quote.total], [4_800_000, 50_000, 10, 480_000, 5_330_000])
     assert.match(q.body.quoteText, /Special packaging: ₹500/)
+    assert.match(q.body.quoteText, /Delivery \(10% of the order value\): ₹4,800/)
     const msg = q.body.messages.find((m) => m.kind === 'BULK_QUOTE')
     // Sent at once to the log provider (no WhatsApp keys in tests).
     assert.equal(msg.status, 'SENT')
     const row = (await query(`SELECT * FROM notifications WHERE bulk_enquiry_id = $1 AND kind = 'BULK_QUOTE'`, [e.id])).rows[0]
     const p = paramsFor(row)
     assert.equal(p.length, 5)
-    assert.equal(p[2], 'Rs 48,500')
+    assert.equal(p[2], 'Rs 53,300')
     assert.match(p[3], /40 × Alphonso.*special packaging/)
     assert.match(p[4], new RegExp(`/account\\?enquiry=${e.id}$`))
     assert.equal((await query(`SELECT count(*)::int AS n FROM staff_audit WHERE action = 'QUOTE bulk enquiry'`)).rows[0].n, 1)
 
     const mine = await api.get('/v1/me/bulk-enquiries', { token: cust.accessToken })
     assert.equal(mine.body.items[0].unread, true)
-    assert.equal(mine.body.items[0].quote.total, 4_850_000)
+    assert.equal(mine.body.items[0].quote.total, 5_330_000)
     const seen = await api.post(`/v1/me/bulk-enquiries/${e.id}/seen`, {}, { token: cust.accessToken })
     assert.equal(seen.body.unread, false)
 
@@ -157,7 +188,7 @@ describe('quotes', () => {
     // As if the first had not gone yet.
     await query(`UPDATE notifications SET status = 'PENDING' WHERE bulk_enquiry_id = $1 AND kind = 'BULK_QUOTE'`, [e.id])
     const second = await quote(14_000)
-    assert.equal(second.body.quote.total, 2_100_000)
+    assert.equal(second.body.quote.total, 2_310_000)
     const rows = (await query(`SELECT status, last_error, event_id FROM notifications WHERE bulk_enquiry_id = $1 AND kind = 'BULK_QUOTE' ORDER BY created_at`, [e.id])).rows
     assert.equal(rows.length, 2)
     assert.equal(rows[0].status, 'SKIPPED')

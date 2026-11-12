@@ -368,11 +368,19 @@ the panel's Bulk enquiries section (managers and operators). Staff price an enqu
 requested box with a unit price, extra costs such as special packaging, a note and a valid-until
 date), and the quote goes to the customer on WhatsApp (`mandi_bulk_quote`) and to the shop's Account
 page, where a badge, a banner and a toast point to it and the customer accepts or declines it.
-Totals are worked out by the API; money is in paise. Migrations 060 and 061.
+Totals are worked out by the API; money is in paise. Migrations 060, 061 and 067.
+
+Two kinds share the table (`kind`, migration 067). An **enquiry** asks for a price and may be for
+any amount. A **bulk order** (`kind: 'ORDER'`) is placed directly: it needs a list of 100 kg or more
+(`BULK_TOO_SMALL` below that), packed in 5 kg or 10 kg boxes only (`BULK_BOX_SIZE`; a line's `packKg`
+of 5 or 10 makes a bulk box of the SKU's fruit, since the catalogue has no 10 kg box). Nothing is paid
+online: an agent phones and WhatsApps the customer to confirm the wholesale price, the day (5 to 7 days)
+and payment, then sends the quote as for an enquiry. Every quote carries delivery at
+`BULK_DELIVERY_PCT` (10%) of the mangoes' value as its own `deliveryFee`, added to the total.
 
 | Route | Who | What |
 |---|---|---|
-| `POST /v1/bulk-enquiries` | anyone (a signed-in customer's token links it to the account) | `{name, business?, email?, phone, city, notes?, lines?: [{sku, stage, boxes}], quantityKg?, ripeness?}`; over 100 kg (from the lines when sent, else `quantityKg`); `Idempotency-Key` honoured; `BULK_ENQUIRY_DAILY_LIMIT` per phone a day. Answers `{id, number, status}` |
+| `POST /v1/bulk-enquiries` | anyone (a signed-in customer's token links it to the account) | `{name, business?, email?, phone, city, notes?, lines?: [{sku, stage, boxes, packKg?}], quantityKg?, ripeness?, kind?: 'ENQUIRY' \| 'ORDER'}`; kg from the lines when sent, else `quantityKg`; an order needs 100 kg or more in 5 kg or 10 kg boxes; `Idempotency-Key` honoured; `BULK_ENQUIRY_DAILY_LIMIT` per phone a day. Answers `{id, number, status, kind}` |
 | `GET /v1/me/bulk-enquiries`, `GET /v1/me/bulk-enquiries/:id` | signed-in customer | their enquiries: sent signed in, or from the number they signed in with; `unread` while a quote is unopened |
 | `POST /v1/me/bulk-enquiries/:id/seen` | signed-in customer | they opened the quote (clears the shop's badge) |
 | `POST /v1/me/bulk-enquiries/:id/respond` | signed-in customer | `{decision: 'ACCEPT' \| 'DECLINE', message?}` on a QUOTED enquiry |

@@ -1,4 +1,4 @@
-// Chapter 7 "It reaches us the next day." One long tracking shot. A small Mango Mandi goods truck carrying crates of
+// Chapter 7 "It reaches us the next day." One long tracking shot. A small VMR Mangoes goods truck carrying crates of
 // mangoes leaves the orchard at dusk, drives through a moonlit night and arrives at the warehouse at sunrise. The land
 // is smooth rolling farmland: patchwork fields with crop rows, orchards of round-crowned mango trees, a village with
 // lit windows, power lines, milestones, a culvert over a stream and a pond that catches the sky, all under one shared
@@ -587,7 +587,7 @@ export default class Road extends Stage {
       sc.add(tufts)
     }
 
-    // ---- A village on the far hillside, scattered farmhouses, and the Mango Mandi warehouse at the end of the road.
+    // ---- A village on the far hillside, scattered farmhouses, and the VMR Mangoes warehouse at the end of the road.
     this.buildVillage(R, nearest, groundAt, okAt)
     this.buildWarehouse(at, sideAt, tng, NS, groundAt)
 

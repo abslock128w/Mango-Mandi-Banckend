@@ -1,4 +1,4 @@
-/* Mango Mandi catalogue content: the words and photos for each variety the shop can sell.
+/* VMR Mangoes catalogue content: the words and photos for each variety the shop can sell.
    Brought over from the MangoKart shop (~/mangokart/mocks/seed/catalog.ts, lib/ripeness.ts).
    Prices, boxes and stock are NOT here: they come from mango-api (/v1/products, /v1/catalogue).
    A variety joins its API products on `name` === product.variety. A variety the API does not
@@ -99,6 +99,12 @@
       { terms: ['gift', 'assorted', 'sampler', 'mix', 'combo'], variety: 'Mixed Box', stage: null, reason: 'Four varieties in one box' },
       { terms: ['panna', 'green', 'raw'], variety: 'Totapuri', stage: 'RAW', reason: 'Tangy raw mango' },
       { terms: ['benishan'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Benishan is Banganapalli' },
+      // other spellings customers use (the search suggestions offer these names: suggest.js)
+      { terms: ['banginapalli', 'banganpalli', 'bangalapalli'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Also spelt Banganapalli' },
+      { terms: ['himayath', 'himayat', 'himam pasand'], variety: 'Imam Pasand', stage: 'SEMI_RIPE', reason: 'Himayath is Imam Pasand' },
+      { terms: ['rathgiri', 'ratnagiri', 'rathnagiri'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Ratnagiri Alphonso' },
+      { terms: ['dasari', 'dussehri', 'dasehri'], variety: 'Dasheri', stage: 'SEMI_RIPE', reason: 'Dasari is Dasheri' },
+      { terms: ['malgoa', 'malgoba'], variety: 'Malgova', stage: 'SEMI_RIPE', reason: 'Also spelt Malgova' },
     ],
 
     trending: ['Alphonso', 'Raw mango for pickle', 'Kesar', 'Mixed Box', 'Dasheri', 'Mango for aamras'],

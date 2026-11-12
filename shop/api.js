@@ -1,4 +1,4 @@
-/* Mango Mandi API client (mango-api /v1). Exposed as window.MM.
+/* VMR Mangoes API client (mango-api /v1). Exposed as window.MM.
    Session: refresh token in an httpOnly cookie (X-Session: cookie), access token in memory only,
    the signed-in profile in localStorage `mm-profile`. Money: paise converted to rupees on the way in. */
 (()=>{
@@ -16,8 +16,8 @@ function signedOut(){epoch++;const was=profile;token=null;profile=null;try{local
 async function readAnswer(res,paise){
   if(res.status===204)return undefined;
   const text=await res.text();let json=null;
-  try{json=text?JSON.parse(text):null}catch{if(res.ok)throw fail(res.status,'BAD_RESPONSE','Mango Mandi sent an answer we could not read. Please try again.')}
-  if(!res.ok){if(json===null&&res.status>=500)throw fail(res.status,'UNAVAILABLE','Mango Mandi is busy right now. Please try again in a minute.');const e=json&&json.error;throw fail(res.status,(e&&e.code)||'ERROR',(e&&e.message)||`Request failed (${res.status})`,e||{})}
+  try{json=text?JSON.parse(text):null}catch{if(res.ok)throw fail(res.status,'BAD_RESPONSE','VMR Mangoes sent an answer we could not read. Please try again.')}
+  if(!res.ok){if(json===null&&res.status>=500)throw fail(res.status,'UNAVAILABLE','VMR Mangoes is busy right now. Please try again in a minute.');const e=json&&json.error;throw fail(res.status,(e&&e.code)||'ERROR',(e&&e.message)||`Request failed (${res.status})`,e||{})}
   return paise?json:toRupees(json);
 }
 async function raw(path,{method='GET',body,headers={},paise}={}){
@@ -55,6 +55,8 @@ window.MM={
   rememberProfile:p=>setProfile({...profile,...p}),
   restore:()=>profile&&!token?refreshOnce():Promise.resolve(!!token),
   async signOut(){try{await raw('/auth/logout',{method:'POST',body:{}})}catch{}signedOut()},
+  // Deletes the account (DELETE /v1/me: personal details removed, order amounts kept) and signs out here.
+  async deleteAccount(){await auth('/me','DELETE');signedOut()},
   // public
   authConfig:()=>raw('/auth/config'),
   policy:()=>raw('/policy'),

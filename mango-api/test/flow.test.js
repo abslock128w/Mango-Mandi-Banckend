@@ -412,6 +412,32 @@ describe('orders', () => {
     assert.equal((await api.get(`/v1/orders/${packed.body.orderId}`, { token: stranger.accessToken })).status, 404)
   })
 
+  test('a paid order can be cancelled for four hours after it was placed, then cancelling is closed', async () => {
+    const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    await pay(paid.body.orderId)
+    const view = async () => (await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body
+    const fresh = await view()
+    assert.equal(fresh.canCancel, true)
+    assert.equal(Date.parse(fresh.cancelUntil) - Date.parse(fresh.placedAt), 4 * 3_600_000)
+
+    // Five minutes past the four hours: the shop is told it is closed, and the API refuses.
+    at(new Date(Date.parse(fresh.cancelUntil) + 5 * 60_000))
+    assert.equal((await view()).canCancel, false)
+    const r = await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
+    assert.equal(r.status, 409)
+    assert.equal(r.body.error.code, 'CANCEL_WINDOW_CLOSED')
+    assert.equal((await view()).status, 'CONFIRMED')
+    assert.equal((await line(b, 'ALP-3')).committed, 1)
+
+    // An order never paid for is not bound by the four hours.
+    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    const u = (await api.get(`/v1/orders/${unpaid.body.orderId}`, { token: cust.accessToken })).body
+    assert.deepEqual([u.canCancel, u.cancelUntil], [true, null])
+    assert.equal((await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
+  })
+
   test('batches retire at age 8 and the books balance', async () => {
     const old = await makeBatch({ age: 8, rating: 'RIPE', lines: { 'ALP-3': 4 } })
     const out = await runMaintenance({ forceAll: true })

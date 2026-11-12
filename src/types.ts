@@ -1679,6 +1679,8 @@ export type BulkEnquiryStatus = 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CL
 export interface BulkEnquiryRow {
   id: string
   number: string
+  /** ORDER: placed directly from the shop (100 kg or more, 5 kg or 10 kg boxes); an agent phones to confirm. */
+  kind: 'ENQUIRY' | 'ORDER'
   status: BulkEnquiryStatus
   createdAt: string
   updatedAt: string
@@ -1718,6 +1720,9 @@ export interface BulkQuote {
   validUntil: string | null
   subtotal: number
   extrasTotal: number
+  /** Delivery as a share of the mangoes' value; absent on quotes sent before the rule. */
+  deliveryPct?: number
+  deliveryFee?: number
   total: number
 }
 
@@ -1732,7 +1737,7 @@ export interface BulkEnquiryDetail extends BulkEnquiryRow {
   email: string | null
   notes: string | null
   ripeness: string | null
-  lines: { sku: string; stage: Ripeness; boxes: number; kg: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null }[]
+  lines: { sku: string; stage: Ripeness; boxes: number; kg: number; packKg?: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null }[]
   quote: BulkQuote | null
   quotedByEmail: string | null
   customerMessage: string | null

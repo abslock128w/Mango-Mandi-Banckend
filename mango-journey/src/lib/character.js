@@ -1,4 +1,4 @@
-// The people: our Mango Mandi rider (who checks, packs and delivers our mango, and whose gloved hand picked it), and,
+// The people: our VMR Mangoes rider (who checks, packs and delivers our mango, and whose gloved hand picked it), and,
 // with the same rig in home clothes, the customer at the door. Stylised, soft "vinyl figure" craft at real proportions,
 // in the units of the mango (a mango ≈ 2 units ≈ 12 cm, so he stands ≈ 29 units tall).
 //
@@ -95,7 +95,7 @@ function catchLight() {
 }
 
 let markImg = null
-/** The wordmark (brand-dark.webp: cream letters, a mango for the O) as a canvas texture; redrawn once the image loads. */
+/** The wordmark (brand-vmr-dark.png: cream letters, a mango for the O) as a canvas texture; redrawn once the image loads. */
 export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h
   const g = c.getContext('2d')
@@ -106,15 +106,14 @@ export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {})
     g.clearRect(0, 0, w, h)
     if (bg) { g.fillStyle = bg; g.fillRect(0, 0, w, h) }
     if (markImg && markImg.complete && markImg.naturalWidth) {
-      // The mark's letters sit in the middle of the image; crop to them.
-      const sw = markImg.naturalWidth, sh = markImg.naturalHeight
-      const cx = sw * 0.04, cy = sh * 0.24, cw = sw * 0.92, ch = sh * 0.52
+            const sw = markImg.naturalWidth, sh = markImg.naturalHeight
+      const cx = 0, cy = 0, cw = sw, ch = sh // the whole logo: the mango bunch and the name
       const k = Math.min(w * 0.9 / cw, h * (sub ? 0.66 : 0.86) / ch)
       g.drawImage(markImg, cx, cy, cw, ch, (w - cw * k) / 2, (h - ch * k) / 2 - (sub ? h * 0.08 : 0), cw * k, ch * k)
     } else {
       g.fillStyle = '#f6efdc'; g.textAlign = 'center'; g.textBaseline = 'middle'
       g.font = `700 ${h * 0.3}px Figtree, system-ui, sans-serif`
-      g.fillText('MANDI', w / 2, h * 0.32); g.fillText('MANGOES', w / 2, h * 0.64)
+      g.fillText('VMR', w / 2, h * 0.32); g.fillText('MANGOES', w / 2, h * 0.64)
     }
     if (sub) {
       g.fillStyle = '#ffb81f'; g.textAlign = 'center'; g.textBaseline = 'middle'
@@ -123,7 +122,7 @@ export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {})
     }
     tex.needsUpdate = true
   }
-  if (!markImg) { markImg = new Image(); markImg.src = import.meta.env.BASE_URL + 'brand-dark.webp' }
+  if (!markImg) { markImg = new Image(); markImg.src = import.meta.env.BASE_URL + 'brand-vmr-dark.png' }
   draw()
   if (!markImg.complete) markImg.addEventListener('load', draw, { once: true })
   if (document.fonts) document.fonts.ready.then(draw)

@@ -431,7 +431,7 @@ export class Hand extends THREE.Group {
       addRim(sl, rimU)
       this.sleeve = new THREE.Mesh(this._sleeveGeo(), sl)
       this.add(this.sleeve)
-      // The Mango Mandi uniform: a mango-gold band at the sleeve's end.
+      // The VMR Mangoes uniform: a mango-gold band at the sleeve's end.
       const tg = new SkinGeo()
       // a closed band (outer face, its rounded edges, an inner face) so it reads solid from any side
       const TR = [[-0.93, 0.0], [-0.945, 0.018], [-1.085, 0.018], [-1.1, 0.0], [-1.1, -0.035], [-0.93, -0.035], [-0.93, 0.0]]

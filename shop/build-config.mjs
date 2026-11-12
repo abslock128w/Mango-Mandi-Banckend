@@ -13,6 +13,8 @@
 //                     shop's own and phones keep it. Not needed when both are under one
 //                     domain (shop.mandimangoes.in and api.mandimangoes.in).
 //   SUPPORT_WHATSAPP  the help WhatsApp number, digits only (e.g. 919800000000). Optional.
+//   SUPPORT_PHONE     a phone number to show on the Contact page. Optional.
+//   SUPPORT_EMAIL     an email address to show on the Contact page. Optional.
 //
 // config.js is committed with the local default so the folder runs as is; this build
 // overwrites it. Run `npm run shop:build` with no variables to put the default back.
@@ -75,14 +77,24 @@ export function forwardedApi(vercelJson) {
   return m ? m[1] : null
 }
 
-export const configSource = (apiUrl, supportWhatsapp) =>
-  `window.MM_CONFIG = { apiUrl: ${JSON.stringify(apiUrl)}, supportWhatsapp: ${JSON.stringify(supportWhatsapp)} };\n`
+/** Optional contact details for the Contact page (SUPPORT_PHONE, SUPPORT_EMAIL): written only when set. */
+export const contactFrom = (envv) => {
+  const phone = String(envv.SUPPORT_PHONE ?? '').trim(), email = String(envv.SUPPORT_EMAIL ?? '').trim()
+  if (phone && !/^\+?[\d\s-]{8,20}$/.test(phone)) return { error: `SUPPORT_PHONE must be a phone number (digits, spaces, an optional +): ${JSON.stringify(phone)}` }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: `SUPPORT_EMAIL must be an email address: ${JSON.stringify(email)}` }
+  return { value: { ...(phone ? { supportPhone: phone } : {}), ...(email ? { supportEmail: email } : {}) } }
+}
+
+export const configSource = (apiUrl, supportWhatsapp, contact = {}) =>
+  `window.MM_CONFIG = { apiUrl: ${JSON.stringify(apiUrl)}, supportWhatsapp: ${JSON.stringify(supportWhatsapp)}${Object.entries(contact).map(([k, v]) => `, ${k}: ${JSON.stringify(v)}`).join('')} };\n`
 
 async function main() {
   const api = apiUrlFrom(process.env.API_URL, { production })
   if (api.error) fail(api.error)
   const wa = whatsappFrom(process.env.SUPPORT_WHATSAPP)
   if (wa.error) fail(wa.error)
+  const contact = contactFrom(process.env)
+  if (contact.error) fail(contact.error)
   if (production && !wa.value) console.warn('shop build: SUPPORT_WHATSAPP is not set; the shop shows no WhatsApp help link.')
 
   // Through the shop's own address: config.js gets an empty apiUrl (api.js then calls this
@@ -94,7 +106,7 @@ async function main() {
   }
 
   const file = path.join(shopDir, 'config.js')
-  writeFileSync(file, configSource(viaShop ? '' : api.value, wa.value))
+  writeFileSync(file, configSource(viaShop ? '' : api.value, wa.value, contact.value))
   console.log(`shop build: wrote config.js (apiUrl ${viaShop ? `this site, forwarded to ${api.value}` : api.value}${wa.value ? `, WhatsApp ${wa.value}` : ''})`)
 
   // The same scan as the panel and the old shop: secrets, dev-only routes, demo accounts, source maps

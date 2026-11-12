@@ -20,8 +20,14 @@ import { enqueueLinkPush } from './push.js'
 import { SALE_STAGES, STAGES } from './stage.js'
 
 export const BULK_STATUSES = ['NEW', 'QUOTED', 'ACCEPTED', 'DECLINED', 'CLOSED']
-/** The smallest enquiry, in kg: below it the shop's ordinary checkout takes the order. */
+/** An enquiry asks for a price; an order is placed directly and an agent phones to confirm it. */
+export const BULK_KINDS = ['ENQUIRY', 'ORDER']
+/** The smallest bulk order, in kg. An enquiry may be for any amount (the owner's rule: the enquiry is always open). */
 export const BULK_MIN_KG = 100
+/** A bulk order is packed in boxes of these sizes only. */
+export const BULK_PACKS_KG = [5, 10]
+/** Delivery on a bulk order, as a share of the mangoes' value. */
+export const BULK_DELIVERY_PCT = 10
 
 const STAGE_WORDS = { RAW: 'Raw', SEMI_RIPE: 'Semi-ripe', RIPE: 'Ripe' }
 
@@ -62,6 +68,8 @@ export const enquiryBody = z
           boxes: z.coerce.number().int().min(1).max(5000),
           // Sent by the shop for the record; worked out again here from the box size.
           kg: z.coerce.number().min(0).max(100_000).optional(),
+          // A bulk box of this many kg of the SKU's fruit (5 or 10), when it is not the SKU's own box size.
+          packKg: z.coerce.number().refine((n) => BULK_PACKS_KG.includes(n), 'Bulk boxes are 5 kg or 10 kg').optional(),
         }),
       )
       .max(50, 'Up to 50 lines in one enquiry')
@@ -69,6 +77,7 @@ export const enquiryBody = z
       .default([]),
     quantityKg: z.coerce.number().int().min(1).max(100_000).optional(),
     ripeness: optionalText(40, 'the ripeness'),
+    kind: z.enum(BULK_KINDS).optional().default('ENQUIRY'),
   })
   .strict()
 
@@ -81,12 +90,14 @@ function cleanLines(lines) {
   for (const l of lines) {
     const p = findProduct(l.sku)
     if (!p) throw new HttpError(400, 'VALIDATION_ERROR', `We don't sell ${l.sku}. Refresh the page and build the list again.`)
-    out.push({ sku: l.sku, stage: l.stage, boxes: l.boxes, kg: Math.round(boxKg(l.sku) * l.boxes * 100) / 100 })
+    const each = l.packKg ?? boxKg(l.sku)
+    out.push({ sku: l.sku, stage: l.stage, boxes: l.boxes, kg: Math.round(each * l.boxes * 100) / 100, ...(l.packKg ? { packKg: l.packKg } : {}) })
   }
   return out
 }
 
-const lineLabel = (l) => `${productName(l.sku)} · ${STAGE_WORDS[l.stage] ?? l.stage}`
+/** "Alphonso 5kg Box · Ripe", or "Alphonso · 10 kg box · Ripe" for a bulk box that is not the SKU's own size. */
+const lineLabel = (l) => `${l.packKg ? `${findProduct(l.sku)?.variety ?? productName(l.sku)} · ${l.packKg} kg box` : productName(l.sku)} · ${STAGE_WORDS[l.stage] ?? l.stage}`
 const boxes = (lines) => (lines ?? []).reduce((n, l) => n + (Number(l.boxes) || 0), 0)
 /** "120 kg (40 boxes)", "150 kg" */
 export const quantityWords = (e) => {
@@ -128,13 +139,21 @@ async function addMessage(c, { enquiryId, kind, eventId, phone, params }) {
  */
 export async function createEnquiry(c, b, { customerId = null, idempotencyKey = null } = {}) {
   if (idempotencyKey) {
-    const { rows } = await c.query('SELECT id, number, status FROM bulk_enquiries WHERE idempotency_key = $1', [idempotencyKey])
-    if (rows.length) return { status: 200, body: { id: rows[0].id, number: rows[0].number, status: rows[0].status } }
+    const { rows } = await c.query('SELECT id, number, status, kind FROM bulk_enquiries WHERE idempotency_key = $1', [idempotencyKey])
+    if (rows.length) return { status: 200, body: { id: rows[0].id, number: rows[0].number, status: rows[0].status, kind: rows[0].kind ?? 'ENQUIRY' } }
   }
   const lines = cleanLines(b.lines ?? [])
   const kg = lines.length ? Math.round(lines.reduce((t, l) => t + l.kg, 0)) : b.quantityKg
-  if (!kg || kg <= BULK_MIN_KG) {
-    throw new HttpError(400, 'BULK_TOO_SMALL', `Bulk enquiries are for more than ${BULK_MIN_KG} kg. Smaller orders go through the shop's checkout.`)
+  if (!kg) throw new HttpError(400, 'VALIDATION_ERROR', 'Tell us how many kg you need.')
+  const order = b.kind === 'ORDER'
+  if (order) {
+    if (!lines.length) throw new HttpError(400, 'VALIDATION_ERROR', 'Add boxes to your bulk list to place a bulk order.')
+    if (kg < BULK_MIN_KG) {
+      throw new HttpError(400, 'BULK_TOO_SMALL', `Bulk orders start at ${BULK_MIN_KG} kg. Send an enquiry for less, or use the shop's checkout.`)
+    }
+    if (lines.some((l) => !BULK_PACKS_KG.includes(l.packKg ?? boxKg(l.sku)))) {
+      throw new HttpError(400, 'BULK_BOX_SIZE', `Bulk orders are packed in ${BULK_PACKS_KG.join(' kg or ')} kg boxes only.`)
+    }
   }
   const at = now()
   const { rows: recent } = await c.query(`SELECT count(*)::int AS n FROM bulk_enquiries WHERE phone = $1 AND created_at > $2`, [b.phone, new Date(at.getTime() - 86_400_000)])
@@ -145,14 +164,14 @@ export async function createEnquiry(c, b, { customerId = null, idempotencyKey = 
   const { rows: seq } = await c.query(`SELECT 'BLK-' || lpad(nextval('bulk_enquiry_seq')::text, 4, '0') AS n`)
   const number = seq[0].n
   await c.query(
-    `INSERT INTO bulk_enquiries (id, number, customer_id, name, business, email, phone, city, notes, lines, quantity_kg, ripeness, idempotency_key, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
-    [id, number, customerId, b.name, b.business, b.email, b.phone, b.city, b.notes, JSON.stringify(lines), kg, b.ripeness, idempotencyKey, at],
+    `INSERT INTO bulk_enquiries (id, number, customer_id, name, business, email, phone, city, notes, lines, quantity_kg, ripeness, idempotency_key, created_at, updated_at, kind)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
+    [id, number, customerId, b.name, b.business, b.email, b.phone, b.city, b.notes, JSON.stringify(lines), kg, b.ripeness, idempotencyKey, at, order ? 'ORDER' : 'ENQUIRY'],
   )
-  await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kg, boxes: boxes(lines) })
+  await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kg, boxes: boxes(lines), ...(order ? { kind: 'ORDER' } : {}) })
   await addMessage(c, { enquiryId: id, kind: 'BULK_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', number, quantityWords({ quantity_kg: kg, lines })] })
   await notifyEvent(c, 'bulk.enquiry', { id, number, status: 'NEW', change: 'created' })
-  return { status: 201, body: { id, number, status: 'NEW' } }
+  return { status: 201, body: { id, number, status: 'NEW', kind: order ? 'ORDER' : 'ENQUIRY' } }
 }
 
 // ---------------------------------------------------------------- quotes
@@ -193,13 +212,18 @@ export const quoteBody = z
   })
   .strict()
 
-/** The quote as stored and shown: every total worked out here. */
+/**
+ * The quote as stored and shown: every total worked out here. Delivery is BULK_DELIVERY_PCT of the
+ * mangoes' value (the lines, before extras), kept on the quote with its rate so an older quote, made
+ * before the rule or under another rate, still reads as it was sent.
+ */
 export function priceQuote(q) {
   const lines = q.lines.map((l) => ({ label: l.label, ...(l.sku ? { sku: l.sku } : {}), ...(l.stage ? { stage: l.stage } : {}), qty: l.qty, unitPrice: l.unitPrice, linePrice: l.qty * l.unitPrice }))
   const extras = (q.extras ?? []).map((x) => ({ label: x.label, amount: x.amount }))
   const subtotal = lines.reduce((t, l) => t + l.linePrice, 0)
   const extrasTotal = extras.reduce((t, x) => t + x.amount, 0)
-  return { lines, extras, note: q.note ?? null, validUntil: q.validUntil ?? null, subtotal, extrasTotal, total: subtotal + extrasTotal }
+  const deliveryFee = Math.round((subtotal * BULK_DELIVERY_PCT) / 100)
+  return { lines, extras, note: q.note ?? null, validUntil: q.validUntil ?? null, subtotal, extrasTotal, deliveryPct: BULK_DELIVERY_PCT, deliveryFee, total: subtotal + extrasTotal + deliveryFee }
 }
 
 /** "40 × Alphonso 3kg Box, special packaging" for the WhatsApp message. */
@@ -212,6 +236,7 @@ export function quoteText(e, q) {
     `Hi ${e.name}, here is your MandiMangoes quote for bulk enquiry ${e.number}:`,
     ...q.lines.map((l) => `• ${l.label}: ${l.qty} × ${r(l.unitPrice)} = ${r(l.linePrice)}`),
     ...q.extras.map((x) => `• ${x.label}: ${r(x.amount)}`),
+    ...(q.deliveryFee ? [`• Delivery (${q.deliveryPct}% of the order value): ${r(q.deliveryFee)}`] : []),
     `Total: ${r(q.total)}`,
     ...(q.validUntil ? [`Valid until ${q.validUntil}`] : []),
     ...(q.note ? [q.note] : []),
@@ -324,7 +349,7 @@ export async function respond(c, customerId, id, decision, message) {
 /** What the shop shows (paise; the shop's client turns them into rupees). */
 export function customerView(e) {
   return {
-    id: e.id, number: e.number, status: e.status, createdAt: e.created_at,
+    id: e.id, number: e.number, kind: e.kind ?? 'ENQUIRY', status: e.status, createdAt: e.created_at,
     lines: (e.lines ?? []).map((l) => ({ ...l, label: lineLabel(l) })), quantityKg: e.quantity_kg, boxes: boxes(e.lines), ripeness: e.ripeness, city: e.city,
     quote: e.quote ?? null, quotedAt: e.quoted_at ?? null, quoteSeenAt: e.quote_seen_at ?? null,
     unread: Boolean(e.quote && !e.quote_seen_at && e.status === 'QUOTED'),
@@ -336,7 +361,7 @@ export function customerView(e) {
 
 export function staffRow(e) {
   return {
-    id: e.id, number: e.number, status: e.status, createdAt: e.created_at, updatedAt: e.updated_at,
+    id: e.id, number: e.number, kind: e.kind ?? 'ENQUIRY', status: e.status, createdAt: e.created_at, updatedAt: e.updated_at,
     name: e.name, business: e.business, phone: e.phone, city: e.city, customerId: e.customer_id,
     quantityKg: e.quantity_kg, boxes: boxes(e.lines), total: e.quote?.total ?? null, quotedAt: e.quoted_at ?? null,
     quoteSeenAt: e.quote_seen_at ?? null, respondedAt: e.responded_at ?? null,
@@ -382,7 +407,12 @@ export async function staffDetail(db, id) {
     // Each requested line with its catalogue price (paise), the quote builder's starting point.
     lines: (e.lines ?? []).map((l) => {
       const p = findProduct(l.sku)
-      return { ...l, label: lineLabel(l), name: p?.name ?? l.sku, variety: p?.variety ?? null, boxSize: p?.boxSize ?? null, listPrice: p?.price ?? null }
+      // A bulk box of another size (packKg) is priced from the SKU's own box, by weight.
+      const scale = l.packKg && boxKg(l.sku) ? l.packKg / boxKg(l.sku) : 1
+      return {
+        ...l, label: lineLabel(l), name: l.packKg ? `${p?.variety ?? l.sku} ${l.packKg}kg bulk box` : (p?.name ?? l.sku), variety: p?.variety ?? null,
+        boxSize: l.packKg ? `${l.packKg}kg` : (p?.boxSize ?? null), listPrice: p?.price != null ? Math.round(p.price * scale) : null,
+      }
     }),
     quote: e.quote ?? null, quotedByEmail: e.quoted_by_email ?? null, customerMessage: e.customer_message ?? null, closedAt: e.closed_at ?? null,
     quoteText: e.quote ? quoteText(e, e.quote) : null,

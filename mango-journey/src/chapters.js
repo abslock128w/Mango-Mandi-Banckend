@@ -2,7 +2,7 @@
 // Copy follows the brief's facts only. `key` words are set in italic gold. `ink` says whether the type is cream (light)
 // or night green (dark) over that chapter's picture. `pos` is the type's place: landscape / portrait.
 export const CHAPTERS = [
-  { id: 'begin', name: 'One mango', weight: 1.1, ink: 'light', pos: 'center', line: 'One *Mango*', kicker: 'Mango Mandi · since 1976', cap: 'A film you scroll: one fruit, from a seed in the dark to a bowl on your counter.' },
+  { id: 'begin', name: 'One mango', weight: 1.1, ink: 'light', pos: 'center', line: 'One *Mango*', kicker: 'VMR Mangoes · since 1976', cap: 'A film you scroll: one fruit, from a seed in the dark to a bowl on your counter.' },
   { id: 'seed', name: 'Seed', weight: 1.7, ink: 'light', pos: 'bl', line: 'It starts smaller than your *thumb.*', kicker: '01 · Seed', cap: 'In the warm dark the seed splits. A root goes down, a shoot goes up, looking for light.' },
   { id: 'tree', name: 'The tree grows', weight: 2.6, ink: 'light', pos: 'tl', line: 'Then it takes its time. *Fifty summers* of it.', kicker: '02 · The tree', cap: 'Sun, monsoon, cool nights, more sun. Our orchards have been growing since 1976.' },
   { id: 'blossom', name: 'Blossom', weight: 1.6, ink: 'light', pos: 'br', line: 'Every spring it *flowers.*', kicker: '03 · Blossom', cap: 'Thousands of tiny flowers on every branch. The bees do their work. A few set fruit.' },
@@ -14,7 +14,7 @@ export const CHAPTERS = [
   { id: 'pack', name: 'Packing', weight: 1.9, ink: 'light', pos: 'tr', line: 'Packed so it *never bruises.*', kicker: '09 · Packing', cap: 'Straw, a snug box, and a label with the day it was plucked.' },
   { id: 'door', name: 'To your door', weight: 2.6, ink: 'light', pos: 'tl', line: 'At your door the *day after* you order.', kicker: '10 · Delivery', cap: 'One of our riders brings it from the warehouse to your door.' },
   { id: 'counter', name: 'Your counter', weight: 2.4, ink: 'dark', pos: 'tl', line: 'Then it finishes ripening *with you.*', kicker: '11 · Your counter', cap: 'Semi-ripe fruit ripens on your counter in 1 to 4 days. No carbide, no gas, no pesticides. Just time.' },
-  { id: 'finale', name: 'Your table', weight: 1.8, ink: 'light', pos: 'center', line: 'From one flower to your *table.*', kicker: 'Mango Mandi · fifty summers', cap: '' },
+  { id: 'finale', name: 'Your table', weight: 1.8, ink: 'light', pos: 'center', line: 'From one flower to your *table.*', kicker: 'VMR Mangoes · fifty summers', cap: '' },
 ]
 
 // The fruit's age (DAY clock), from chapter 5 on, as a function of (chapter, t). null hides the clock.

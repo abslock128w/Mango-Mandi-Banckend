@@ -37,6 +37,8 @@ const pnIsShown = (q, a) => !q.showIf || q.showIf.in.includes(a[q.showIf.key])
 const pnShown = (step, a) => step.sections.flatMap((s) => s.questions.filter((q) => pnIsShown(q, a)))
 function pnOptions(q, a) {
   const all = q.options || []
+  // the application offers the same three ways to partner as the page does
+  if (q.key === 'categories') { const keep = all.filter((o) => PN_KEEP.includes(o.value)); return (keep.length ? keep : all).slice(0, PN_MAX) }
   if (q.optionsFrom || q.key === 'primaryCategory') {
     const chosen = pnChosen(a)
     return all.filter((o) => chosen.includes(o.value))
@@ -220,8 +222,8 @@ function pnProblemText(q, p) {
 // ---- The categories: a few words of our own for each, and an icon from the sprite.
 
 const PN_FLAVOUR = {
-  FARMERS_SUPPLIERS: ['leaf', 'You grow it. We find it a good home.'],
-  SALES_DISTRIBUTION: ['box', 'Take our boxes to your city.'],
+  FARMERS_SUPPLIERS: ['leaf', 'You grow mangoes. We find them a good home.'],
+  SALES_DISTRIBUTION: ['box', 'Take our mango boxes to your city.'],
   RETAIL_RESELLER: ['bag', 'Mango season, on your shelves.'],
   CORPORATE: ['user', 'Mangoes for the whole team, or the whole hotel.'],
   LOGISTICS: ['pin', 'Keep good fruit moving, gently.'],
@@ -234,9 +236,21 @@ const pnFlavour = (code) => PN_FLAVOUR[code] || ['leaf', '']
 
 // ---- The questionnaire, fetched once per visit (again after a 409 QUESTIONNAIRE_CHANGED).
 
+// The shop offers at most three ways to partner, the three about mangoes themselves: growing them, taking them to a
+// city, and selling them in a shop. (The API can describe more; the rest are not offered here.)
+const PN_KEEP = ['FARMERS_SUPPLIERS', 'SALES_DISTRIBUTION', 'RETAIL_RESELLER']
+const PN_MAX = 3
+function pnLimit(net) {
+  if (!net || !Array.isArray(net.categories)) return net
+  const keep = PN_KEEP.map((code) => net.categories.find((c) => c.code === code)).filter(Boolean)
+  return { ...net, categories: (keep.length ? keep : net.categories).slice(0, PN_MAX) }
+}
+/** Text from the API still carries the shop's old name in places. */
+const pnBrand = (s) => String(s || '').replace(/MandiMangoes|Mandi Mangoes|Mango Mandi/g, 'VMR Mangoes')
+
 let pnNet = null
 function partnerNetwork(fresh = false) {
-  if (fresh || !pnNet) pnNet = MM.partnerNetwork().catch((e) => {
+  if (fresh || !pnNet) pnNet = MM.partnerNetwork().then(pnLimit).catch((e) => {
     pnNet = null
     if (e.status === 404) partnerOff()
     throw e
@@ -275,7 +289,7 @@ function pnLoadFailed(seq, e, retry) {
 // ---- /partner: the pitch, the ways to partner, how it works, and the status check.
 
 async function partnerView(seq = ++sheetSeq) {
-  document.title = 'Grow with us · Mango Mandi'
+  document.title = 'Grow with us · VMR Mangoes'
   host().innerHTML = pageHead('Grow with us') + marker(seq) + '<p>Loading…</p>'
   let net
   try {
@@ -288,17 +302,26 @@ async function partnerView(seq = ++sheetSeq) {
   partnerOn()
   host().innerHTML = pageHead('Grow with us') + marker(seq) + `
     <section class="pn-hero">
-      <span class="pn-kicker">The Mango Mandi partner network</span>
-      <h2>From one orchard <em>to a whole network.</em></h2>
-      <p>We started with a few trees and a lot of patience. Now we’re looking for people who care about good fruit as much as we do, to grow it, pack it, move it, sell it and tell the world about it.</p>
-      <a class="button cream" href="/partner/apply" data-route>Start my application ${icon('arrow')}</a>
+      <span class="pn-kicker">The VMR Mangoes partner network</span>
+      <h2>Grow mangoes with us. <em>Sell mangoes with us.</em></h2>
+      <p>We have grown mangoes since 1976: on sun, soil and rain, ripened the slow way. We’re looking for mango farmers who grow the same way, and for people who can take good mangoes further: distributors in new cities, and shops that want naturally ripened fruit on their shelves.</p>
+      <div class="pn-hero-actions"><a class="button cream" href="/partner/apply" data-route>Start my application ${icon('arrow')}</a><button class="button pn-check" type="button" data-pn-check>${icon('search')} Check my application status</button></div>
       <small>No registration needed · individuals welcome · about 10 minutes</small>
+    </section>
+    <section class="page-card pn-status is-key" id="pn-status">
+      <h3>${icon('search')} Check your application status</h3>
+      <p class="page-note">Already applied? Enter the reference we gave you when you sent your application.</p>
+      <form id="pn-status-form" class="pn-status-form" novalidate>
+        <label class="field">Your reference<input name="ref" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="MMP-7K2QXD9T" maxlength="20" aria-describedby="pn-status-result"></label>
+        <button class="button primary" type="submit">Check status</button>
+      </form>
+      <div id="pn-status-result" class="pn-status-result" aria-live="polite"></div>
     </section>
     <section class="page-card">
       <h3>Ways to grow with us</h3>
       <div class="pn-ways">${net.categories.map((c) => {
         const [ic, line] = pnFlavour(c.code)
-        return `<a class="pn-way" href="/partner/apply?category=${encodeURIComponent(c.code)}" data-route><span class="pn-icon">${icon(ic)}</span><span class="pn-way-text"><strong>${esc(c.name)}</strong>${line ? `<em>${esc(line)}</em>` : ''}<small>${esc(c.description || '')}</small></span><span class="pn-way-go" aria-hidden="true">${icon('arrow')}</span></a>`
+        return `<a class="pn-way" href="/partner/apply?category=${encodeURIComponent(c.code)}" data-route><span class="pn-icon">${icon(ic)}</span><span class="pn-way-text"><strong>${esc(c.name)}</strong>${line ? `<em>${esc(line)}</em>` : ''}<small>${esc(pnBrand(c.description))}</small></span><span class="pn-way-go" aria-hidden="true">${icon('arrow')}</span></a>`
       }).join('')}</div>
     </section>
     <section class="page-card">
@@ -310,16 +333,18 @@ async function partnerView(seq = ++sheetSeq) {
       </ol>
       <a class="button primary" href="/partner/apply" data-route>Start my application ${icon('arrow')}</a>
     </section>
-    <section class="page-card pn-status">
-      <h3>Already applied?</h3>
-      <p class="page-note">Check your application with the reference we gave you when you sent it.</p>
-      <form id="pn-status-form" class="pn-status-form" novalidate>
-        <label class="field">Your reference<input name="ref" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="MMP-7K2QXD9T" maxlength="20" aria-describedby="pn-status-result"></label>
-        <button class="button secondary" type="submit">Check</button>
-      </form>
-      <div id="pn-status-result" class="pn-status-result" aria-live="polite"></div>
-    </section>`
+    `
 }
+
+// "Check my application status" in the hero: bring the status box into view and put the cursor in it.
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('[data-pn-check]') : null
+  if (!b) return
+  const box = $('#pn-status')
+  if (!box) return
+  box.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+  setTimeout(() => $('#pn-status-form input')?.focus({ preventScroll: true }), 350)
+})
 
 /** "mmp 7k2q xd9t" or "7K2QXD9T" → "MMP-7K2QXD9T"; null when it can't be a reference. */
 function pnReference(raw) {
@@ -380,7 +405,7 @@ let pn = null
 const PN_AUTOCOMPLETE = { fullName: 'name', mobile: 'tel', email: 'email', city: 'address-level2', state: 'address-level1', pincode: 'postal-code', country: 'country-name', businessName: 'organization', website: 'url' }
 
 async function partnerApplyView(seq = ++sheetSeq) {
-  document.title = 'Your application · Mango Mandi'
+  document.title = 'Your application · VMR Mangoes'
   host().innerHTML = pageHead('Your application') + marker(seq) + '<p>Getting the form ready…</p>'
   let net
   try {
@@ -540,7 +565,7 @@ function pnRender() {
         <p class="pn-saved">${icon('check')} Your answers are saved on this device as you go.</p>
       </form>
     </div>`
-  document.title = `${step.title} · Your application · Mango Mandi`
+  document.title = `${step.title} · Your application · VMR Mangoes`
   if (captcha) pnMountCaptcha(pn.seq)
 }
 
@@ -716,7 +741,7 @@ function pnReceived(r, files, duplicate) {
   pn.received = { reference: r.reference, token: r.uploadToken || null, duplicate }
   pn.uploads = duplicate || !r.uploadToken ? [] : files.map((f) => ({ ...f, status: 'waiting', progress: 0, reason: '' }))
   const skipped = (duplicate || !r.uploadToken) && files.length
-  document.title = 'Application received · Mango Mandi'
+  document.title = 'Application received · VMR Mangoes'
   host().innerHTML = pageHead(duplicate ? 'Already with us' : 'Application received') + marker(pn.seq) + `
     <section class="page-card pn-done">
       <div class="pn-sprout" aria-hidden="true"><span class="pn-sprout-ring"></span><svg viewBox="0 0 64 64"><path class="pn-stem" pathLength="1" d="M32 54V30"/><path class="pn-leaf-l" pathLength="1" d="M32 38c-9 0-15-6-15-15 9 0 15 6 15 15Z"/><path class="pn-leaf-r" pathLength="1" d="M32 32c0-10 7-16 17-16 0 10-7 16-17 16Z"/><path class="pn-soil" pathLength="1" d="M18 54h28"/></svg></div>

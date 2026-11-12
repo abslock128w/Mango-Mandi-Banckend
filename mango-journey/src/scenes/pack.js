@@ -1,7 +1,7 @@
 // Chapter 9 "Packed so it never bruises." A packing bench in the warehouse, early morning: a warm pendant lamp over the
 // work, a window behind throwing soft shafts and a bright patch of panes across the bench, flat boxes stacked ready, a roll
 // of twine, tissue, a date stamp on its ink pad, shelves of packed boxes going soft in the background, straw wisps and dust
-// drifting in the light. A Mango Mandi box assembles from an exploded view (gold guide lines, kraft faces gliding in and
+// drifting in the light. A VMR Mangoes box assembles from an exploded view (gold guide lines, kraft faces gliding in and
 // folding up along their creases), a straw nest rises inside, mangoes are laid in and glow gold against the straw, and a
 // gloved hand (a real arm, out of frame to the shoulder) nests ours among them. The flaps close, a label prints itself,
 // and a hand brings the date stamp from its pad and stamps the day it was plucked (a spark of gold), while a ribbon of
@@ -342,7 +342,7 @@ export default class Pack extends Stage {
       g.strokeStyle = 'rgba(90,60,30,.45)'; g.lineWidth = 4; g.strokeRect(8, 8, w - 16, h - 16)
       g.fillStyle = '#174631'; g.font = `700 30px ${SANS}`; g.textAlign = 'center'; g.fillText('THIS WAY UP', w / 2, h * 0.3)
       g.beginPath(); g.moveTo(w / 2 - 40, h * 0.62); g.lineTo(w / 2, h * 0.44); g.lineTo(w / 2 + 40, h * 0.62); g.lineWidth = 8; g.stroke()
-      g.font = `400 34px ${SERIF}`; g.fillText('Mango Mandi', w / 2, h * 0.82)
+      g.font = `400 34px ${SERIF}`; g.fillText('VMR Mangoes', w / 2, h * 0.82)
     }, 6) })
     const mats = (outIdx, out) => { const a = [inner, inner, inner, inner, inner, inner]; a[outIdx] = out; return a }
     this.box = new THREE.Group(); sc.add(this.box)
@@ -498,7 +498,7 @@ export default class Pack extends Stage {
     g.fillStyle = '#f6efdc'; g.fillRect(0, 0, w, h)
     g.strokeStyle = '#174631'; g.lineWidth = 6; g.strokeRect(14, 14, w - 28, h - 28)
     g.fillStyle = '#174631'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'
-    g.font = `400 54px ${SERIF}`; g.fillText('Mango Mandi', 48, 104)
+    g.font = `400 54px ${SERIF}`; g.fillText('VMR Mangoes', 48, 104)
     g.fillStyle = '#a4520f'; g.font = `700 24px ${SANS}`; g.fillText('GRADED BY HAND · SEMI-RIPE', 50, 148)
     g.strokeStyle = 'rgba(23,70,49,.35)'; g.lineWidth = 2; g.beginPath(); g.moveTo(48, 182); g.lineTo(w - 48, 182); g.stroke()
     // The plucked day is left for the stamp (a faint dashed ring marks its place).

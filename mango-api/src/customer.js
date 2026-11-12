@@ -15,7 +15,7 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, withinCancelWindow, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
@@ -1272,7 +1272,9 @@ router.get(
       giftOrderId: o.gift_order_id ?? null,
       // The pre-order this order was made from; a non-refundable one can't be cancelled by the customer (orders.js customerCancel).
       preorder: pre ? { id: pre.id, number: pre.number, nonRefundable: pre.non_refundable } : null,
-      canCancel: CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable,
+      canCancel: CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable && withinCancelWindow(o),
+      // A paid order can be cancelled for four hours after it was placed (orders.js CUSTOMER_CANCEL_HOURS); this is when that closes.
+      cancelUntil: CUSTOMER_CANCELLABLE.includes(o.status) ? (cancelClosesAt(o)?.toISOString() ?? null) : null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date, i.plucked_on) : null,

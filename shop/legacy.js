@@ -22,8 +22,8 @@
 // The Legacy tab opens on the film (One Mango), playing inside the app; the written story is one step further in.
 PAGES.push([/^\/legacy\/?$/, () => legacyFilmView()], [/^\/legacy\/story\/?$/, () => legacyView()])
 
-const LX_TITLE = 'Our legacy · Mango Mandi'
-const LF_TITLE = 'One Mango · Our legacy · Mango Mandi'
+const LX_TITLE = 'Our legacy · VMR Mangoes'
+const LF_TITLE = 'One Mango · Our legacy · VMR Mangoes'
 const LX_HOME_TITLE = document.title
 const LX_VARIETIES = 16
 const LX_DECADES = [
@@ -740,13 +740,13 @@ ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="user
 </defs></svg>
 <div class="lx-hud" aria-hidden="true"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" class="lx-hud-track"/><circle cx="32" cy="32" r="29" class="lx-hud-fill" pathLength="1"/></svg><span class="lx-hud-year">01 / 11</span></div>
 <div class="lx-cursor" aria-hidden="true"><span class="lx-cursor-dot"></span><span class="lx-cursor-ring"><b class="lx-cursor-word"></b></span></div>
-<div class="lx-pre" aria-hidden="true"><div class="lx-pre-half is-top"></div><div class="lx-pre-half is-bottom"></div><div class="lx-pre-core"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" pathLength="1"/><circle cx="60" cy="60" r="38" pathLength="1"/><circle cx="60" cy="60" r="24" pathLength="1"/></svg>${lxOdometer(1976, 'lx-pre-odo')}<small>Mango Mandi · fifty summers</small></div></div>
+<div class="lx-pre" aria-hidden="true"><div class="lx-pre-half is-top"></div><div class="lx-pre-half is-bottom"></div><div class="lx-pre-core"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" pathLength="1"/><circle cx="60" cy="60" r="38" pathLength="1"/><circle cx="60" cy="60" r="24" pathLength="1"/></svg>${lxOdometer(1976, 'lx-pre-odo')}<small>VMR Mangoes · fifty summers</small></div></div>
 
 <section class="lx-scene lx-open" data-lx-scene="1" aria-labelledby="lx-title">
   <canvas class="lx-pollen" aria-hidden="true"></canvas>
   <canvas class="lx-pollen is-near" aria-hidden="true"></canvas>
   <div class="lx-vignette" aria-hidden="true"></div>
-  <p class="lx-caps lx-open-caps">Mango Mandi · Since 1976</p>
+  <p class="lx-caps lx-open-caps">VMR Mangoes · Since 1976</p>
   <h1 id="lx-title" class="lx-open-title"><span class="lx-sr">Fifty summers. One promise.</span>
     <span class="lx-fifty-wrap" aria-hidden="true"><span class="lx-fifty is-outline"><span>5</span><span>0</span></span><span class="lx-fifty is-photo"><span class="lx-d5">5</span><span class="lx-d0">0</span></span></span>
     <span class="lx-summers" aria-hidden="true">${lxLetters('summers')}</span>
@@ -817,7 +817,7 @@ ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="user
   <p class="lx-caps" aria-hidden="true">A note from the family</p>
   <figure class="lx-quote">
     <blockquote><p class="lx-quote-text"><span class="lx-hang">“</span>We were taught that a mango is a promise you make in spring and keep in summer. Fifty summers on, we are still keeping it.”</p></blockquote>
-    <figcaption><span class="lx-sr">The Mango Mandi family</span><svg class="lx-sign" viewBox="0 0 640 150" aria-hidden="true" focusable="false"><defs><mask id="lx-sign-mask" maskUnits="userSpaceOnUse" x="-60" y="-20" width="760" height="190"><path class="lx-sign-pen" d="M-10 72C120 64 200 80 280 66S440 80 520 64 630 74 660 70" pathLength="1"/></mask></defs><text x="320" y="88" text-anchor="middle" mask="url(#lx-sign-mask)">The Mango Mandi family</text><path class="lx-sign-flourish" d="M96 116c80 12 170 16 260 9 72-6 132-18 190-11 20 3 34 8 42 14" pathLength="1"/></svg></figcaption>
+    <figcaption><span class="lx-sr">The VMR Mangoes family</span><svg class="lx-sign" viewBox="0 0 640 150" aria-hidden="true" focusable="false"><defs><mask id="lx-sign-mask" maskUnits="userSpaceOnUse" x="-60" y="-20" width="760" height="190"><path class="lx-sign-pen" d="M-10 72C120 64 200 80 280 66S440 80 520 64 630 74 660 70" pathLength="1"/></mask></defs><text x="320" y="88" text-anchor="middle" mask="url(#lx-sign-mask)">The VMR Mangoes family</text><path class="lx-sign-flourish" d="M96 116c80 12 170 16 260 9 72-6 132-18 190-11 20 3 34 8 42 14" pathLength="1"/></svg></figcaption>
   </figure>
 </section>
 

@@ -2,7 +2,7 @@
 // 4 "And one flower becomes this": extreme close-up, shallow focus; the fruitlet swells into our mango, matte green to
 //   waxed green, dew beads, dappled light moving through the leaves.
 // 5 "Before it falls": the season turns gold, the mango ripens and sways heavier; time slows (bullet-time: motes and
-//   leaves nearly freeze, a radial blur); the picker's gloved hand in the Mango Mandi sleeve rises and takes it as the
+//   leaves nearly freeze, a radial blur); the picker's gloved hand in the VMR Mangoes sleeve rises and takes it as the
 //   stalk snaps; one leaf spins away. A ghost mango falls and bruises below: what does not happen.
 import * as THREE from 'three'
 import { Stage, aim, skyDome, motes } from './stage.js'
@@ -288,7 +288,7 @@ export default class Fruit extends Stage {
     this.dust = motes(Math.round(160 * T.particles + 40), new THREE.Box3(new THREE.Vector3(-8, -6, -6), new THREE.Vector3(8, 7, 5)), { size: 0.035, color: '#fff0c0', drift: 0.25, opacity: 0.9, seed: 7 })
     sc.add(this.dust)
 
-    // The picker's hand: Mango Mandi green sleeve, cream glove.
+    // The picker's hand: VMR Mangoes green sleeve, cream glove.
     this.handRim = rimUniforms('#ffc87a', 0.3)
     this.hand = new Hand({ sleeve: '#174631', rim: this.handRim })
     this.hand.scale.setScalar(1.0)
