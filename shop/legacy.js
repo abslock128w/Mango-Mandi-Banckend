@@ -68,6 +68,9 @@ let lxKill = []
 // The film, in the app: One Mango (built from mango-journey/ into shop/one-mango/) fills the page in a frame, under the
 // shop's own header and above its phone dock. The film tells us how far it has scrolled, so the header can step aside
 // while it moves, as it does on the story page. Leaving the page removes the frame, which stops the film and its music.
+// The frame only loads if this page was served with the header that allows frames of our own pages (frame-src 'self'
+// in vercel.json). Browsers keep a page's old headers when it revalidates as "not modified", so when those headers
+// change, index.html must change too: bump the mm-headers number in its <head>.
 function legacyFilmView() {
   lxStop()
   document.title = LF_TITLE
