@@ -1,8 +1,9 @@
-/* Our legacy. /legacy is the film, One Mango, playing inside the app (legacyFilmView, below). /legacy/story is
+/* Our legacy. /legacy opens on the 30-second journey film with the ways further in (legacyHomeView, below); /legacy/film
+   is the full film, One Mango, playing inside the app (legacyFilmView). /legacy/story is
    "Fifty summers", a full-bleed, scroll-driven piece in its own visual world, described here.
    Scenes: 0 preloader · 1 opening (pollen canvas, the colossal 50) · 2 the promise · 3 read the rings · 4 marquee ·
    5 five things we never traded · 6 seven days · 7 fifty summers in numbers · 8 four pairs of hands ·
-   9 a note from the family · 10 the film (One Mango, a link back to /legacy) · 11 the next fifty summers. Plus film
+   9 a note from the family · 10 the film (One Mango, a link to /legacy/film) · 11 the next fifty summers. Plus film
    grain, a progress HUD and (fine pointers) a cursor.
 
    Two modes on the same markup:
@@ -19,8 +20,9 @@
    live number is the count of varieties (the shop's own shelf when loaded, 16 until then).
    Styles: shop/legacy.css (.lx-). Loaded after pages.js (it adds to PAGES) and before app.js. */
 
-// The Legacy tab opens on the film (One Mango), playing inside the app; the written story is one step further in.
-PAGES.push([/^\/legacy\/?$/, () => legacyFilmView()], [/^\/legacy\/story\/?$/, () => legacyView()])
+// The Legacy tab opens on the 30-second film of a mango's journey (legacyHomeView), with the way in to the full film
+// (One Mango, /legacy/film, playing inside the app) and to the written story (/legacy/story).
+PAGES.push([/^\/legacy\/?$/, () => legacyHomeView()], [/^\/legacy\/film\/?$/, () => legacyFilmView()], [/^\/legacy\/story\/?$/, () => legacyView()])
 
 const LX_TITLE = 'Our legacy · VMR Mangoes'
 const LF_TITLE = 'One Mango · Our legacy · VMR Mangoes'
@@ -71,6 +73,32 @@ let lxKill = []
 // The frame only loads if this page was served with the header that allows frames of our own pages (frame-src 'self'
 // in vercel.json). Browsers keep a page's old headers when it revalidates as "not modified", so when those headers
 // change, index.html must change too: bump the mm-headers number in its <head>.
+// The Legacy tab's first screen: the 30-second journey (assets/journey.mp4, played by journey.js) at the top, then the
+// two ways further in. It sits in the Legacy tab's own dark, full-bleed world (legacy.css: fixed dark header and footer).
+function legacyHomeView() {
+  lxStop()
+  document.title = LX_TITLE
+  host().innerHTML = `
+    <section class="lh" aria-labelledby="lh-title">
+      <div class="lh-video">
+        <video data-journey poster="assets/journey-poster.jpg" muted loop playsinline preload="none" disableremoteplayback width="960" height="540" aria-label="A mango’s journey in thirty seconds: a seed, the tree, the blossom, the fruit picked by hand, rested in hay, driven to the city, graded, packed and brought to your door."><source src="assets/journey.mp4" type="video/mp4"></video>
+        <p class="hero-stage" aria-hidden="true"><span>A mango’s journey</span><b data-journey-stage>From the seed to your door</b></p>
+        <button class="hero-video-toggle" data-journey-toggle type="button" aria-label="Play the video" hidden><svg aria-hidden="true"><use href="#i-play"/></svg></button>
+      </div>
+      <div class="lh-copy">
+        <p class="lh-kicker">Since 1976 · fifty summers of growing</p>
+        <h1 id="lh-title">One mango, <em>from the seed to your door.</em></h1>
+        <p>Thirty seconds of what fifty summers taught us: a seed, years of growing, a blossom, fruit ripened on the tree, picked by hand, rested in hay, graded one by one, packed and brought to you.</p>
+        <div class="lh-actions">
+          <a class="lh-btn is-solid" href="/legacy/film" data-route>Watch the full film <svg aria-hidden="true"><use href="#i-arrow"/></svg></a>
+          <a class="lh-btn is-line" href="/legacy/story" data-route>Read our story: Fifty Summers</a>
+        </div>
+        <p class="lh-note"><svg aria-hidden="true"><use href="#i-info"/></svg><span>The full film is “One Mango”: you scroll through it at your own pace, with quiet music.</span></p>
+      </div>
+    </section>`
+  if (window.mmJourney) window.mmJourney(host())
+}
+
 function legacyFilmView() {
   lxStop()
   document.title = LF_TITLE
@@ -822,12 +850,12 @@ ${grain ? `<pattern id="lx-grainpat" width="160" height="160" patternUnits="user
 </section>
 
 <section class="lx-scene lx-film" data-lx-scene="10" aria-labelledby="lx-film-title">
-  <a class="lx-film-poster" href="/legacy" data-route tabindex="-1" aria-hidden="true" data-lx-cursor="open"><img src="one-mango/poster.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span class="lx-film-play"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5.5v13l11-6.5z"/></svg></span></a>
+  <a class="lx-film-poster" href="/legacy/film" data-route tabindex="-1" aria-hidden="true" data-lx-cursor="open"><img src="one-mango/poster.jpg" alt="" width="1600" height="900" loading="lazy" decoding="async"><span class="lx-film-play"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5.5v13l11-6.5z"/></svg></span></a>
   <div class="lx-film-copy">
     <p class="lx-caps">A film you scroll</p>
     <h2 id="lx-film-title">One <em>Mango.</em></h2>
     <p class="lx-film-line">Follow a single mango from a seed in the dark to a bowl on your counter: the tree, the pick, the crate, the road, the door. Scroll at your own pace, with quiet music.</p>
-    <a class="lx-btn is-solid" href="/legacy" data-route data-lx-cursor="open" data-lx-magnet><span>Watch the film</span></a>
+    <a class="lx-btn is-solid" href="/legacy/film" data-route data-lx-cursor="open" data-lx-magnet><span>Watch the film</span></a>
   </div>
 </section>
 

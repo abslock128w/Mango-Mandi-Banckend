@@ -338,15 +338,36 @@ function bulkStep(b) {
   bulkBar()
   // An open form follows the list (an order form falls back to an enquiry when the list drops under 100 kg).
   const box = $('#bulk-box'), form = box && !box.hidden && $('#bulk-form', box)
-  if (form) bulkForm('#bulk-box', form.dataset.kind === 'ORDER' && bulkTotals().kg >= BULK_MIN_KG ? 'ORDER' : 'ENQUIRY')
+  if (form) bulkRedraw(form.dataset.kind === 'ORDER' && bulkTotals().kg >= BULK_MIN_KG ? 'ORDER' : 'ENQUIRY')
+}
+
+/** Draws the form under the list again (the list changed, or the other kind was asked for) and keeps what was typed. */
+function bulkRedraw(kind) {
+  const box = $('#bulk-box'), was = box && $('#bulk-form', box)
+  const typed = was ? [...new FormData(was)].filter(([k, v]) => k !== 'quantity' && typeof v === 'string') : []
+  const qty = was && was.querySelector('input[name="quantity"][type="number"]')?.value
+  bulkForm('#bulk-box', kind)
+  const now = $('#bulk-form', box)
+  if (!now) return
+  for (const [k, v] of typed) { const f = now.elements.namedItem(k); if (f && f.type !== 'hidden') f.value = v }
+  const q = now.querySelector('input[name="quantity"][type="number"]')
+  if (q && qty) q.value = qty
 }
 
 /** Opens the form under the list: an enquiry (any size, even an empty list), or a direct order (100 kg or more). */
 function openBulkEnquiry(kind = 'ENQUIRY') {
   const box = $('#bulk-box')
   if (!box || (kind === 'ORDER' && bulkTotals().kg < BULK_MIN_KG)) return
+  const open = !box.hidden && $('#bulk-form', box)
+  // The bar's button for the form that is already open sends that form (it says the same as the form's own button);
+  // it used to draw the form afresh and lose everything typed.
+  if (open && open.dataset.kind === kind) {
+    if (open.requestSubmit) open.requestSubmit()
+    else open.querySelector('[type="submit"]')?.click()
+    return
+  }
   box.hidden = false
-  bulkForm('#bulk-box', kind)
+  bulkRedraw(kind)
   box.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
   const h = $('.flow-head', box)
   if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }

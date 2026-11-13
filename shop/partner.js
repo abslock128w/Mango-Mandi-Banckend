@@ -37,8 +37,6 @@ const pnIsShown = (q, a) => !q.showIf || q.showIf.in.includes(a[q.showIf.key])
 const pnShown = (step, a) => step.sections.flatMap((s) => s.questions.filter((q) => pnIsShown(q, a)))
 function pnOptions(q, a) {
   const all = q.options || []
-  // the application offers the same three ways to partner as the page does
-  if (q.key === 'categories') { const keep = all.filter((o) => PN_KEEP.includes(o.value)); return (keep.length ? keep : all).slice(0, PN_MAX) }
   if (q.optionsFrom || q.key === 'primaryCategory') {
     const chosen = pnChosen(a)
     return all.filter((o) => chosen.includes(o.value))
@@ -75,6 +73,8 @@ function pnCheck(q, raw, a, all = new Map()) {
     if (q.key === 'categories') return { code: 'chooseOne' }
     return { code: ['BOOLEAN', 'RADIO', 'SELECT', 'MULTI_SELECT'].includes(q.type) ? 'choose' : 'required' }
   }
+  // every way to partner is on offer; one applicant picks at most three of them (the owner's rule)
+  if (q.key === 'categories' && Array.isArray(value) && value.length > PN_MAX) return { code: 'tooMany' }
   switch (q.type) {
     case 'TEXT': case 'TEXTAREA': {
       const v = String(value).replace(/\r\n?/g, '\n').trim(), max = q.max ?? (q.type === 'TEXT' ? 200 : 3000)
@@ -202,6 +202,7 @@ function pnProblemText(q, p) {
     case 'required': return 'Please fill this in.'
     case 'choose': return q && q.type === 'MULTI_SELECT' ? 'Pick at least one.' : 'Please pick one.'
     case 'chooseOne': return 'Tick at least one way you’d like to work with us.'
+    case 'tooMany': return `Choose up to ${PN_MAX_WORD} ways to partner: untick the ones that matter less.`
     case 'tooShort': return `A little more, please: at least ${p.vars.min} characters.`
     case 'tooLong': return `That’s a bit long. Keep it under ${p.vars.max} characters.`
     case 'email': return 'That email address doesn’t look quite right.'
@@ -236,21 +237,26 @@ const pnFlavour = (code) => PN_FLAVOUR[code] || ['leaf', '']
 
 // ---- The questionnaire, fetched once per visit (again after a 409 QUESTIONNAIRE_CHANGED).
 
-// The shop offers at most three ways to partner, the three about mangoes themselves: growing them, taking them to a
-// city, and selling them in a shop. (The API can describe more; the rest are not offered here.)
-const PN_KEEP = ['FARMERS_SUPPLIERS', 'SALES_DISTRIBUTION', 'RETAIL_RESELLER']
-const PN_MAX = 3
+// Every way to partner the API describes is on offer; one applicant may tick at most three of them (the owner's rule).
+// The API's own hint for that question ("Choose all that apply.") is replaced to say so.
+const PN_MAX = 3, PN_MAX_WORD = 'three'
 function pnLimit(net) {
-  if (!net || !Array.isArray(net.categories)) return net
-  const keep = PN_KEEP.map((code) => net.categories.find((c) => c.code === code)).filter(Boolean)
-  return { ...net, categories: (keep.length ? keep : net.categories).slice(0, PN_MAX) }
+  if (!net || !Array.isArray(net.steps)) return net
+  for (const st of net.steps) for (const sec of st.sections || []) for (const q of sec.questions || []) {
+    if (q.key === 'categories') q.description = `Choose up to ${PN_MAX_WORD}.`
+  }
+  return net
 }
 /** Text from the API still carries the shop's old name in places. */
 const pnBrand = (s) => String(s || '').replace(/MandiMangoes|Mandi Mangoes|Mango Mandi/g, 'VMR Mangoes')
+/** The API's questions and descriptions still carry the old name: every string in its answer reads VMR Mangoes. */
+function pnRebrand(net) {
+  try { return JSON.parse(pnBrand(JSON.stringify(net))) } catch { return net }
+}
 
 let pnNet = null
 function partnerNetwork(fresh = false) {
-  if (fresh || !pnNet) pnNet = MM.partnerNetwork().then(pnLimit).catch((e) => {
+  if (fresh || !pnNet) pnNet = MM.partnerNetwork().then((net) => pnLimit(pnRebrand(net))).catch((e) => {
     pnNet = null
     if (e.status === 404) partnerOff()
     throw e
@@ -497,10 +503,12 @@ function pnQuestion(q) {
     case 'MULTI_SELECT': {
       const picked = Array.isArray(value) ? value : []
       if (q.key === 'categories') {
-        return `<fieldset class="field pn-q pn-choices${err ? ' has-err' : ''}" data-q="${esc(q.key)}"${aria}><legend>${pnLabel(q)}</legend>${hint}<div class="pn-cats">${(q.options || []).map((o, i) => {
-          const c = pn.net.categories.find((x) => x.code === o.value), [ic] = pnFlavour(o.value)
-          return `<label class="pn-cat"><input type="checkbox" id="${i ? `${id}-${i}` : id}" name="categories" value="${esc(o.value)}"${picked.includes(o.value) ? ' checked' : ''}><span class="pn-icon">${icon(ic)}</span><span class="pn-cat-text"><strong>${esc(o.label)}</strong>${c && c.description ? `<small>${esc(c.description)}</small>` : ''}</span><span class="pn-tick" aria-hidden="true">${icon('check')}</span></label>`
-        }).join('')}</div>${errP}</fieldset>`
+        const full = picked.length >= PN_MAX
+        const cap = `<p class="pn-cap${full ? ' is-full' : ''}" role="status">${icon(full ? 'info' : 'check')}<span>${full ? `That’s ${PN_MAX_WORD}, the most you can pick. Untick one to choose another.` : `${picked.length} of ${PN_MAX} chosen`}</span></p>`
+        return `<fieldset class="field pn-q pn-choices${err ? ' has-err' : ''}" data-q="${esc(q.key)}"${aria}><legend>${pnLabel(q)}</legend>${hint}${full ? cap : ''}<div class="pn-cats">${pnOptions(q, a).map((o, i) => {
+          const c = pn.net.categories.find((x) => x.code === o.value), [ic] = pnFlavour(o.value), off = full && !picked.includes(o.value)
+          return `<label class="pn-cat${off ? ' is-off' : ''}"${off ? ` title="Untick one of your ${PN_MAX_WORD} to choose this"` : ''}><input type="checkbox" id="${i ? `${id}-${i}` : id}" name="categories" value="${esc(o.value)}"${picked.includes(o.value) ? ' checked' : ''}${off ? ' disabled' : ''}><span class="pn-icon">${icon(ic)}</span><span class="pn-cat-text"><strong>${esc(o.label)}</strong>${c && c.description ? `<small>${esc(c.description)}</small>` : ''}</span><span class="pn-tick" aria-hidden="true">${icon(off ? 'lock' : 'check')}</span></label>`
+        }).join('')}</div>${full ? cap.replace(' role="status"', ' aria-hidden="true"') : cap}${errP}</fieldset>`
       }
       return `<fieldset class="field pn-q pn-choices${err ? ' has-err' : ''}" data-q="${esc(q.key)}"${aria}><legend>${pnLabel(q)}</legend>${hint}<div class="pn-pills">${(q.options || []).map((o, i) => `<label class="pn-pill is-multi"><input type="checkbox" id="${i ? `${id}-${i}` : id}" name="${esc(q.key)}" value="${esc(o.value)}"${picked.includes(o.value) ? ' checked' : ''}><span>${esc(o.label)}</span></label>`).join('')}</div>${errP}</fieldset>`
     }
@@ -851,7 +859,12 @@ function pnOnAnswer(e) {
   const t = e.target
   if (!pn || pn.done || !t.closest || !t.closest('#pn-form') || !t.name || t.type === 'file') return
   if (!pn.all.has(t.name)) return
-  const [key, value] = pnAnswerFrom(t)
+  let [key, value] = pnAnswerFrom(t)
+  if (key === 'categories' && Array.isArray(value) && value.length > PN_MAX) {
+    // a fourth tick (the boxes past three are switched off, so this is a keyboard or assistive-technology path)
+    t.checked = false
+    value = value.filter((v) => v !== t.value)
+  }
   pn.answers = pnSet(pn.answers, key, value)
   pnClearError(key)
   if (key === 'categories') pnClearError('primaryCategory')

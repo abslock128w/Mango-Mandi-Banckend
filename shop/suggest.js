@@ -1,6 +1,7 @@
 /* Search suggestions: mango names in a dropdown from the first letter typed (the list the shop wants customers to see).
    Choosing one fills the search box, which filters the shelf as typing does (catalog.js maps the other spellings,
-   such as Himayath or Dasari, to the variety's name on the shelf). Arrow keys, Enter and Escape work.
+   such as Himayath or Dasari, to the variety's name on the shelf), and takes the customer straight to that mango's
+   card (goToResult); Enter on typed text does the same. Arrow keys, Enter and Escape work.
    Two search boxes get it: the one under the header (the list drops below it) and the one in the phone dock (the list
    rises above the dock). Loaded after app.js and before dock.js. Styles: style.css (.search-names). */
 (() => {
@@ -24,6 +25,25 @@
     let i = -1
     for (const m of low.matchAll(/[^\s/]+/g)) if (low.startsWith(q, m.index)) { i = m.index; break }
     return i < 0 ? esc(name) : esc(name.slice(0, i)) + '<b>' + esc(name.slice(i, i + q.length)) + '</b>' + esc(name.slice(i + q.length))
+  }
+
+  // After a search is chosen (a suggestion, or Enter): take the customer straight to that mango. The shelf has just
+  // been filtered, so the first card is the one asked for; it is brought to the middle of the screen and lit for a
+  // moment. With nothing on the shelf for that name, the "no mangoes match" message is shown instead.
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches
+  function goToResult(fromDock) {
+    // on a phone the keyboard leaves first, so the card is not hidden behind it
+    if (fromDock && document.activeElement && document.activeElement.blur) document.activeElement.blur()
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const grid = document.getElementById('products'), none = document.getElementById('no-results')
+      const card = grid && grid.querySelector('.product-card')
+      const target = card || (none && !none.hidden ? none : document.getElementById('shop'))
+      if (!target) return
+      // a card taller than the room between the header and the dock is shown from its top (photo and name first)
+      const tall = card && card.getBoundingClientRect().height > innerHeight - 230
+      target.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: card && !tall ? 'center' : 'start' })
+      if (card) { card.classList.remove('is-found'); void card.offsetWidth; card.classList.add('is-found'); setTimeout(() => card.classList.remove('is-found'), 2200) }
+    }))
   }
 
   function attach(input, key, { above = false } = {}) {
@@ -62,16 +82,16 @@
       input.value = termFor(name)
       close()
       input.dispatchEvent(new Event('input', { bubbles: true })) // the shelf filters as if it had been typed
-      const shop = document.getElementById('shop')
-      if (!above && shop && shop.getBoundingClientRect().top > innerHeight * 0.6) shop.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      goToResult(above)
     }
     input.addEventListener('input', (e) => { if (e.isTrusted) open() })
     input.addEventListener('focus', open)
     input.addEventListener('keydown', (e) => {
-      if (list.hidden) { if (e.key === 'ArrowDown') open(); return }
+      if (list.hidden) { if (e.key === 'ArrowDown') open(); else if (e.key === 'Enter' && input.value.trim()) { e.preventDefault(); goToResult(above) } return }
       if (e.key === 'ArrowDown') { e.preventDefault(); at = (at + 1) % shown.length; paint() }
       else if (e.key === 'ArrowUp') { e.preventDefault(); at = (at - 1 + shown.length) % shown.length; paint() }
       else if (e.key === 'Enter' && at >= 0) { e.preventDefault(); choose(shown[at]) }
+      else if (e.key === 'Enter') { e.preventDefault(); close(); goToResult(above) }
       else if (e.key === 'Escape') { e.preventDefault(); close() }
     })
     // pointerdown, not click: the choice is made before the box loses focus

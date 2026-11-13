@@ -17,7 +17,7 @@ html.theme-switching *,html.theme-switching *::before,html.theme-switching *::af
 [data-theme="dark"] .desktop-nav a{color:#c9bfa3}
 [data-theme="dark"] .desktop-nav a:hover,[data-theme="dark"] .desktop-nav .active{color:#ffc93c}
 /* The logo: the supplied artwork has a cream background and dark green letters that vanish on black, so dark mode
-   shows assets/brand-vmr-dark.png, the same artwork with its background removed and the letters in cream. */
+   shows assets/brand-dark.webp, the same artwork with its background removed and the letters in cream. */
 .brand .brand-dark{display:none}[data-theme="dark"] .brand .brand-light{display:none}[data-theme="dark"] .brand .brand-dark{display:block;mix-blend-mode:normal}
 [data-theme="dark"] .search.liquid{border-color:#ffffff1f}
 [data-theme="dark"] .search input{color:var(--ink)}

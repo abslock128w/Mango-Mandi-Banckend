@@ -1,5 +1,8 @@
 # Uploads to Vercel (the three projects deploy from this repository): leave out local-only files.
 .local
+# Claude Code's own folders (session worktrees, each a full copy of the repo: hundreds of MB that no build uses)
+.claude
+.agents
 **/node_modules
 **/.next
 dist

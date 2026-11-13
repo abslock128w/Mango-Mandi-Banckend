@@ -15,6 +15,11 @@
 //   SUPPORT_WHATSAPP  the help WhatsApp number, digits only (e.g. 919800000000). Optional.
 //   SUPPORT_PHONE     a phone number to show on the Contact page. Optional.
 //   SUPPORT_EMAIL     an email address to show on the Contact page. Optional.
+//   GOOGLE_MAPS_KEY   a Google Maps browser key. Optional: with it the delivery map, the address
+//                     lookup and the place search use Google Maps; without it they stay on
+//                     OpenStreetMap. In Google Cloud the key needs Maps JavaScript API, Geocoding
+//                     API and Places API (New) enabled, and should be restricted to this shop's
+//                     addresses (HTTP referrers). It is a browser key: it is meant to be in the page.
 //
 // config.js is committed with the local default so the folder runs as is; this build
 // overwrites it. Run `npm run shop:build` with no variables to put the default back.
@@ -85,6 +90,13 @@ export const contactFrom = (envv) => {
   return { value: { ...(phone ? { supportPhone: phone } : {}), ...(email ? { supportEmail: email } : {}) } }
 }
 
+/** The Google Maps browser key (GOOGLE_MAPS_KEY), or a reason it is refused. Optional. */
+export const mapsKeyFrom = (raw) => {
+  const value = String(raw ?? '').trim()
+  if (value && !/^[A-Za-z0-9_-]{20,100}$/.test(value)) return { error: 'GOOGLE_MAPS_KEY does not look like a Google Maps key (letters, digits, - and _ only).' }
+  return { value }
+}
+
 export const configSource = (apiUrl, supportWhatsapp, contact = {}) =>
   `window.MM_CONFIG = { apiUrl: ${JSON.stringify(apiUrl)}, supportWhatsapp: ${JSON.stringify(supportWhatsapp)}${Object.entries(contact).map(([k, v]) => `, ${k}: ${JSON.stringify(v)}`).join('')} };\n`
 
@@ -95,6 +107,9 @@ async function main() {
   if (wa.error) fail(wa.error)
   const contact = contactFrom(process.env)
   if (contact.error) fail(contact.error)
+  const mapsKey = mapsKeyFrom(process.env.GOOGLE_MAPS_KEY)
+  if (mapsKey.error) fail(mapsKey.error)
+  if (mapsKey.value) contact.value.googleMapsKey = mapsKey.value
   if (production && !wa.value) console.warn('shop build: SUPPORT_WHATSAPP is not set; the shop shows no WhatsApp help link.')
 
   // Through the shop's own address: config.js gets an empty apiUrl (api.js then calls this
@@ -107,7 +122,7 @@ async function main() {
 
   const file = path.join(shopDir, 'config.js')
   writeFileSync(file, configSource(viaShop ? '' : api.value, wa.value, contact.value))
-  console.log(`shop build: wrote config.js (apiUrl ${viaShop ? `this site, forwarded to ${api.value}` : api.value}${wa.value ? `, WhatsApp ${wa.value}` : ''})`)
+  console.log(`shop build: wrote config.js (apiUrl ${viaShop ? `this site, forwarded to ${api.value}` : api.value}${wa.value ? `, WhatsApp ${wa.value}` : ''}, maps: ${mapsKey.value ? 'Google' : 'OpenStreetMap'})`)
 
   // The same scan as the panel and the old shop: secrets, dev-only routes, demo accounts, source maps
   // and, on a production build, a localhost address. It lives in the repo's scripts/ folder,

@@ -95,7 +95,7 @@ function catchLight() {
 }
 
 let markImg = null
-/** The wordmark (brand-vmr-dark.png: cream letters, a mango for the O) as a canvas texture; redrawn once the image loads. */
+/** The wordmark (brand-dark.webp: cream letters, a mango for the O) as a canvas texture; redrawn once the image loads. */
 export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {}) {
   const c = document.createElement('canvas'); c.width = w; c.height = h
   const g = c.getContext('2d')
@@ -107,7 +107,8 @@ export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {})
     if (bg) { g.fillStyle = bg; g.fillRect(0, 0, w, h) }
     if (markImg && markImg.complete && markImg.naturalWidth) {
             const sw = markImg.naturalWidth, sh = markImg.naturalHeight
-      const cx = 0, cy = 0, cw = sw, ch = sh // the whole logo: the mango bunch and the name
+      // The mark's letters sit in the middle of the image; crop to them.
+      const cx = sw * 0.04, cy = sh * 0.24, cw = sw * 0.92, ch = sh * 0.52
       const k = Math.min(w * 0.9 / cw, h * (sub ? 0.66 : 0.86) / ch)
       g.drawImage(markImg, cx, cy, cw, ch, (w - cw * k) / 2, (h - ch * k) / 2 - (sub ? h * 0.08 : 0), cw * k, ch * k)
     } else {
@@ -122,7 +123,7 @@ export function wordmarkTexture({ w = 1024, h = 512, bg = null, sub = '' } = {})
     }
     tex.needsUpdate = true
   }
-  if (!markImg) { markImg = new Image(); markImg.src = import.meta.env.BASE_URL + 'brand-vmr-dark.png' }
+  if (!markImg) { markImg = new Image(); markImg.src = import.meta.env.BASE_URL + 'brand-dark.webp' }
   draw()
   if (!markImg.complete) markImg.addEventListener('load', draw, { once: true })
   if (document.fonts) document.fonts.ready.then(draw)
