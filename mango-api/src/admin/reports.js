@@ -1,10 +1,12 @@
 // The dashboard summary, analytics, needs attention, and the staff audit trail.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
+import { sellWindow } from '../delivery.js'
 import { photoReviews } from '../delivery-proof.js'
 import { query } from '../db.js'
 import { env } from '../env.js'
@@ -47,8 +49,8 @@ router.get(
         [SELLABLE_STATUSES],
       ),
       query(
-        `SELECT id, number, delivery_date, at_risk_reason FROM orders
-          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, number`,
+        `SELECT id, number, delivery_date, at_risk_reason, backorder FROM orders
+          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, ${orderSeqSql('number')}`,
       ),
       // INV-G: paid orders past their date, or out for delivery too long.
       overdueOrders({ query }),
@@ -57,11 +59,13 @@ router.get(
     res.json({
       orders: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
       openClaims: claims.rows[0].n,
-      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), available: b.available })),
+      // lastDeliveryDay / lastOrderDay: delivery is next day at the earliest, so a batch stops being orderable a day before its last delivery day.
+      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), ...sellWindow(b.plucked_on, cfg), available: b.available })),
       lowStock: shopProducts()
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
-      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      // backorder: sold before stock arrived; the panel shows it as awaiting stock, not as an at-risk alarm.
+      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason, backorder: o.backorder })),
       overdueOrders: overdue,
       // FE-3: the panel marks stock past this age from the live rule, not a constant.
       maxSellableAge: cfg.maxSellableAge,
@@ -201,7 +205,7 @@ export async function attentionReport(at = now()) {
       `SELECT o.id, o.number, o.delivery_date, o.at_risk, COALESCE(o.at_risk_reason, n.last_error) AS at_risk_reason FROM orders o
          LEFT JOIN LATERAL (SELECT last_error FROM notifications WHERE order_id = o.id AND kind = 'DELIVERY_FAILED' ORDER BY created_at DESC LIMIT 1) n ON $2
         WHERE o.status = 'DELIVERY_FAILED' AND o.delivery_failures < $1 AND (o.at_risk OR ($2 AND n.last_error LIKE $3))
-        ORDER BY o.delivery_date, o.number LIMIT 50`,
+        ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT 50`,
       [MAX_DELIVERY_ATTEMPTS, env.DELIVERY_CHECKS, `${RETRY_NEEDS_DAY}:%`],
     ),
     // PAY-B12: chargebacks still open at Razorpay (answered in the Razorpay dashboard).

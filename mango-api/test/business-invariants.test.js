@@ -188,7 +188,7 @@ async function buyers(n) {
 }
 
 async function placed(cust, qty = 1, opts = {}) {
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }], opts)
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }], opts)
   assert.equal(c.status, 201, JSON.stringify(c.body))
   return c.body
 }
@@ -426,13 +426,13 @@ describe('1. many customers buy the final boxes at once: never oversold', () => 
   // Checkouts for one delivery day queue on a per-day lock (delivery.js chooseSlot), but stock is
   // not per day: buyers for 16 and 17 October race for the same boxes, so the buyers are split
   // across both days to reach the stock guard itself.
-  const DAYS = ['2026-10-16', '2026-10-17'] // the batch is RIPE on both
+  const DAYS = ['2026-10-16', '2026-10-17'] // the batch is SEMI_RIPE on both (ages 6 and 7)
   test('20 customers confirm at the same moment for the last 3 boxes, on two delivery days: exactly 3 orders', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
     const people = await buyers(20)
     const quotes = []
     for (const [i, p] of people.entries()) {
-      assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: p.accessToken })).status, 204)
+      assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: p.accessToken })).status, 204)
       const q = await api.post('/v1/checkout/quote', { pincode: '560034', deliveryDate: DAYS[i % 2] }, { token: p.accessToken })
       assert.equal(q.status, 200, JSON.stringify(q.body)) // a quote holds nothing, so everyone gets one
       quotes.push(q.body.quoteId)
@@ -454,7 +454,7 @@ describe('1. many customers buy the final boxes at once: never oversold', () => 
     const l = await line(b, 'ALP-3')
     assert.deepEqual([l.on_hand, l.held, l.committed], [3, 0, 3])
     // The 21st customer is told at once.
-    const late = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const late = await checkout(api, (await customerToken(api)).accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(late.status, 409)
     await assertDatabaseValid({ gateway: { captured: ['pay_last0', 'pay_last1', 'pay_last2'] } })
   })
@@ -464,7 +464,7 @@ describe('1. many customers buy the final boxes at once: never oversold', () => 
     const people = await buyers(10)
     const quotes = []
     for (const [i, p] of people.entries()) {
-      await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 2 }, { token: p.accessToken })
+      await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }, { token: p.accessToken })
       const q = await api.post('/v1/checkout/quote', { pincode: '560034', deliveryDate: DAYS[i % 2] }, { token: p.accessToken })
       assert.equal(q.status, 200, JSON.stringify(q.body))
       quotes.push(q.body.quoteId)
@@ -581,8 +581,8 @@ describe('3. payment succeeds after the hold expired and the stock was sold: nev
   })
 
   test('stock only on a later day: confirmed for that day and the customer is told', async () => {
-    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } }) // RIPE on 10-16
-    await makeBatch({ age: 3, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } }) // semi-ripe on 10-16, RIPE from 10-17
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } }) // semi-ripe on 10-16 (age 6)
+    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 5 } }) // raw on 10-16 (age 3), semi-ripe from 10-17 (age 4)
     const { ca } = await lostTheBox()
     assert.equal(ca.deliveryDate, '2026-10-16')
     assert.equal((await hook(captured(ca, 'pay_LATE2'))).body.result, 'confirmed_late')
@@ -722,7 +722,7 @@ describe('5. the database is unavailable: a controlled 503, never a false succes
   // the order's own transaction; payments.js handleWebhook writes its dedupe row in the same
   // transaction and the route answers non-2xx on any error, so Razorpay retries.
   async function readyToConfirm(cust) {
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     return (key) =>

@@ -110,6 +110,11 @@ const ISOLATION_CASES = [
   'GET /v1/me/help/requests/:id', 'POST /v1/me/help/requests/:id/messages', 'POST /v1/me/help/requests',
   'GET /v1/me/subscriptions/:id', 'POST /v1/me/subscriptions/:id/pause', 'POST /v1/me/subscriptions/:id/resume', 'POST /v1/me/subscriptions/:id/cancel',
   'POST /v1/me/subscriptions/:id/skip', 'POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', 'POST /v1/me/subscriptions',
+  // Bulk enquiries (mango-api README): the caller's own, by account or by their number (test/bulk-enquiries.test.js).
+  'GET /v1/me/bulk-enquiries/:id', 'POST /v1/me/bulk-enquiries/:id/seen', 'POST /v1/me/bulk-enquiries/:id/respond',
+  // Farm Experience (FARM_EXPERIENCE, docs/farm-experience.md): switched on for the cases below.
+  'GET /v1/farm-bookings/:id', 'GET /v1/farm-bookings/:id/qr.svg', 'POST /v1/farm-bookings/:id/pay', 'POST /v1/farm-bookings/:id/verify-payment',
+  'POST /v1/farm-bookings/:id/cancel', 'POST /v1/farm-bookings/:id/reschedule', 'POST /v1/farm-bookings/:id/hospitality',
 ]
 const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
@@ -130,20 +135,32 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us, the bulk enquiry form, the Farm Experience page', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
       // Bulk Deals: published deals only, their prices and the photos of published deals (test/bulk-deals.test.js).
       'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
+      // Farm Experience (docs/farm-experience.md): the page, open dates and a price quote; nothing personal (test/farm-experience.test.js).
+      'GET /v1/farm-experience', 'GET /v1/farm-experience/dates',
+      // The invoice link in the WhatsApp order confirmation: the signed link is the permission (src/bill-link.js, test/whatsapp-invoice.test.js).
+      'GET /v1/invoice/:link',
+      // Partner With Us (docs/partner-network.md): the form, and an enquiry with its documents. No sign-in by design;
+      // rate limited, Turnstile when configured, strict fields, an upload token per enquiry (test/partner-network.test.js).
+      'GET /v1/partner-network/', 'GET /v1/partner-network/categories', 'GET /v1/partner-network/enquiries/:reference', 'GET /v1/partner-network/questionnaires/:category',
       'GET /v1/policy', 'GET /v1/preorders/weeks', 'GET /v1/products', 'GET /v1/products/:sku/photo', 'GET /v1/products/:sku/reviews', 'GET /v1/review-photos/:id',
       'POST /admin/v1/auth/google', 'POST /admin/v1/auth/login', 'POST /admin/v1/auth/logout', 'POST /admin/v1/auth/refresh', 'POST /admin/v1/auth/two-step',
       // Rider app sign-in (admin/rider-auth.js): phone code, PIN on a bound phone, refresh, sign out (test/rider-app.test.js).
       'POST /admin/v1/rider/logout', 'POST /admin/v1/rider/otp/request', 'POST /admin/v1/rider/otp/verify', 'POST /admin/v1/rider/pin/set',
       'POST /admin/v1/rider/pin/unlock', 'POST /admin/v1/rider/session/refresh',
       'POST /v1/auth/google', 'POST /v1/auth/logout', 'POST /v1/auth/otp/request', 'POST /v1/auth/otp/verify', 'POST /v1/auth/token/refresh',
+      // Bulk enquiries (mango-api README): the shop's form. No sign-in by design; rate limited per connection and
+      // per phone, strict fields, an Idempotency-Key (test/bulk-enquiries.test.js). It answers the number only.
+      'POST /v1/bulk-enquiries',
       // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
       'POST /v1/events',
+      'POST /v1/farm-experience/quote',
+      'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
     ])
   })
 })
@@ -178,7 +195,7 @@ async function mondayWithCapacity() {
 }
 
 async function paid(cust) {
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
   return c.body
@@ -200,6 +217,31 @@ async function deliveredWithPhoto(cust, body = {}) {
   return { ...o, photoId: pic.body.id }
 }
 
+/** A ready farm (one variety, an open day 10 days out, a room, settings filled) and a booking for `cust` (paid for after picking, so nothing paid yet). */
+async function farmBookingFor(cust) {
+  const as = { token: manager }
+  const day = addDays(todayIST(), 10)
+  const v = await api.post('/admin/v1/farm/varieties', { name: 'Alphonso', pricePerKg: 12_000, confirmCode: 'manager123' }, as)
+  assert.equal(v.status, 201, JSON.stringify(v.body))
+  for (const d of [day, addDays(day, 1)]) {
+    assert.equal((await api.put(`/admin/v1/farm/days/${d}`, { open: true }, as)).status, 200)
+    assert.equal((await api.put(`/admin/v1/farm/harvest/${v.body.id}/${d}`, { estimatedKg: 1000, bookableKg: 1000 }, as)).status, 200)
+  }
+  assert.equal((await api.post('/admin/v1/farm/rooms', { name: 'Room 1', sleeps: 4 }, as)).status, 201)
+  const settings = {
+    farmName: 'Test orchard', location: 'Test place', contactPhone: '+919800000000', arrivalInstructions: 'At the gate.', checkInTime: '10:00', checkOutTime: '11:00',
+    sleepingArrangements: 'Rooms', bathroomFacilities: 'Attached', meals: { breakfast: true, lunch: true, dinner: true, refreshments: false }, transportPolicy: 'Not included.',
+    weatherPolicy: 'Moved in heavy rain.', seasonStart: todayIST(), seasonEnd: addDays(todayIST(), 60), faqs: [{ q: 'Minimum?', a: '250 kg.' }], bookingsOpen: true,
+  }
+  const cur = await api.get('/admin/v1/farm/settings', as)
+  const s = await api.put('/admin/v1/farm/settings', { settings, version: cur.body.version, confirmCode: 'manager123' }, as)
+  assert.equal(s.status, 200, JSON.stringify(s.body))
+  const body = { varietyId: v.body.id, kg: 250, visitDate: day, adults: 2, children: 0, overnightGuests: 0, contactName: 'Asha', acceptPolicies: true }
+  const b = await api.post('/v1/farm-bookings', body, { token: cust.accessToken, headers: { 'Idempotency-Key': newId('k') } })
+  assert.equal(b.status, 201, JSON.stringify(b.body))
+  return { id: b.body.bookingId, number: b.body.number, rzp: 'order_dev_farm_test' }
+}
+
 describe('customer to customer', () => {
   test("for each of A's objects, B gets what a made-up id gets, reading or writing, and nothing of A's changes", async (t) => {
     usePhotoStore(memoryStore)
@@ -218,7 +260,7 @@ describe('customer to customer', () => {
     // order not yet packed, a booking, a saved address, a stock alert, and loose photos not yet sent.
     const done = await deliveredWithPhoto(a)
     const open = await paid(a)
-    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }, { ...A, headers: { 'Idempotency-Key': newId('idem') } })
+    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }, { ...A, headers: { 'Idempotency-Key': newId('idem') } })
     assert.equal(pre.status, 201, JSON.stringify(pre.body))
     const claimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
     const looseClaimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
@@ -235,7 +277,7 @@ describe('customer to customer', () => {
     const alert = (await api.post('/v1/stock-alerts', { sku: 'ALP-3', stage: 'RAW', pincode: '560034' }, A)).body.id
     // A paid gift order to two recipients (MULTI_GIFT).
     env.MULTI_GIFT = true
-    const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'RIPE', qty: 1 })
+    const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 })
     const gq = await api.post('/v1/gifts/quote', { recipients: [recipient(1), recipient(2)] }, A)
     assert.equal(gq.status, 200, JSON.stringify(gq.body))
     const gift = (await api.post('/v1/gifts/confirm', { quoteId: gq.body.quoteId }, { ...A, headers: { 'Idempotency-Key': newId('k') } })).body
@@ -244,10 +286,19 @@ describe('customer to customer', () => {
     // A help request about the delivered order, and a subscription whose first box is set up (two days ahead).
     const help = await api.post('/v1/me/help/requests', { topic: 'DELIVERY', orderId: done.orderId, message: 'when is the next one?' }, A)
     assert.equal(help.status, 201, JSON.stringify(help.body))
-    const subBody = { sku: 'ALP-3', stage: 'RIPE', qty: 1, frequency: 'WEEKLY', weekday: weekdayOf(addDays(todayIST(), 2)), addressId: address, endDate: addDays(todayIST(), 30) }
+    const subBody = { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, frequency: 'WEEKLY', weekday: weekdayOf(addDays(todayIST(), 2)), addressId: address, endDate: addDays(todayIST(), 30) }
     const sub = await api.post('/v1/me/subscriptions', subBody, A)
     assert.equal(sub.status, 201, JSON.stringify(sub.body))
     const cycle = sub.body.cycles[0].id
+    // A bulk enquiry from A's number, priced by staff.
+    const bulk = (await api.post('/v1/bulk-enquiries', { name: 'A', phone: '9876500101', city: 'Bengaluru', quantityKg: 150 }, { headers: { 'Idempotency-Key': newId('k') } })).body
+    assert.equal((await api.post(`/admin/v1/bulk-enquiries/${bulk.id}/quote`, { lines: [{ label: 'Mangoes per kg', qty: 150, unitPrice: 15_000 }] }, { token: manager })).status, 201)
+    // A Farm Experience booking (FARM_EXPERIENCE): a ready farm, then A books.
+    const farmFlags = { FARM_EXPERIENCE: env.FARM_EXPERIENCE, STAFF_STEP_UP: env.STAFF_STEP_UP }
+    Object.assign(env, { FARM_EXPERIENCE: true, STAFF_STEP_UP: false })
+    t.after(() => Object.assign(env, farmFlags))
+    const farmBooking = await farmBookingFor(a)
+    const farmDay = addDays(todayIST(), 11)
     // The owner reaches each of them: what follows is about ownership, not the objects.
     assert.equal((await api.get(`/v1/orders/${done.orderId}/delivery-photo`, A)).status, 200)
     assert.equal((await api.get(`/v1/reviews/${rid}/photos/${reviewPhoto}`, A)).status, 200)
@@ -271,6 +322,8 @@ describe('customer to customer', () => {
       help: (await query('SELECT t.status, (SELECT COUNT(*)::int FROM help_messages m WHERE m.ticket_id = t.id) AS messages FROM help_tickets t ORDER BY t.id')).rows,
       subscriptions: (await query('SELECT id, status, paused_at, cancelled_at, customer_id FROM subscriptions ORDER BY id')).rows,
       cycles: (await query('SELECT id, status, order_id FROM subscription_cycles ORDER BY id')).rows,
+      bulk: (await query('SELECT id, status, quote_seen_at, customer_id FROM bulk_enquiries ORDER BY id')).rows,
+      farm: (await query('SELECT id, status, visit_date, hospitality_status, request_kind, version FROM farm_bookings ORDER BY id')).rows,
     })
     const before = await snapshot()
 
@@ -314,6 +367,17 @@ describe('customer to customer', () => {
       ['POST /v1/me/subscriptions/:id/skip', () => api.post(`/v1/me/subscriptions/${sub.body.id}/skip`, { scheduledFor: sub.body.cycles[0].scheduledFor }, B), () => api.post('/v1/me/subscriptions/sub_none/skip', { scheduledFor: sub.body.cycles[0].scheduledFor }, B)],
       ['POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', () => api.post(`/v1/me/subscriptions/${sub.body.id}/cycles/${cycle}/pay`, {}, { ...B, headers: { 'Idempotency-Key': newId('k') } }), () => api.post('/v1/me/subscriptions/sub_none/cycles/cyc_none/pay', {}, { ...B, headers: { 'Idempotency-Key': newId('k') } })],
       ['POST /v1/me/subscriptions', () => api.post('/v1/me/subscriptions', subBody, B), () => api.post('/v1/me/subscriptions', { ...subBody, addressId: 'adr_none' }, B)],
+      ['GET /v1/me/bulk-enquiries/:id', () => api.get(`/v1/me/bulk-enquiries/${bulk.id}`, B), () => api.get('/v1/me/bulk-enquiries/benq_none', B)],
+      ['POST /v1/me/bulk-enquiries/:id/seen', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/seen`, {}, B), () => api.post('/v1/me/bulk-enquiries/benq_none/seen', {}, B)],
+      ['POST /v1/me/bulk-enquiries/:id/respond', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/respond`, { decision: 'ACCEPT' }, B), () => api.post('/v1/me/bulk-enquiries/benq_none/respond', { decision: 'ACCEPT' }, B)],
+      ['GET /v1/farm-bookings/:id', () => api.get(`/v1/farm-bookings/${farmBooking.id}`, B), () => api.get('/v1/farm-bookings/fbk_none', B)],
+      ['GET /v1/farm-bookings/:id/qr.svg', () => api.get(`/v1/farm-bookings/${farmBooking.id}/qr.svg`, B), () => api.get('/v1/farm-bookings/fbk_none/qr.svg', B)],
+      ['POST /v1/farm-bookings/:id/verify-payment', () => api.post(`/v1/farm-bookings/${farmBooking.id}/verify-payment`, { razorpay_payment_id: 'pay_b', razorpay_order_id: farmBooking.rzp, razorpay_signature: sig(farmBooking.rzp, 'pay_b') }, B),
+        () => api.post('/v1/farm-bookings/fbk_none/verify-payment', { razorpay_payment_id: 'pay_b', razorpay_order_id: farmBooking.rzp, razorpay_signature: sig(farmBooking.rzp, 'pay_b') }, B)],
+      ['POST /v1/farm-bookings/:id/pay', () => api.post(`/v1/farm-bookings/${farmBooking.id}/pay`, {}, B), () => api.post('/v1/farm-bookings/fbk_none/pay', {}, B)],
+      ['POST /v1/farm-bookings/:id/cancel', () => api.post(`/v1/farm-bookings/${farmBooking.id}/cancel`, {}, B), () => api.post('/v1/farm-bookings/fbk_none/cancel', {}, B)],
+      ['POST /v1/farm-bookings/:id/reschedule', () => api.post(`/v1/farm-bookings/${farmBooking.id}/reschedule`, { date: farmDay }, B), () => api.post('/v1/farm-bookings/fbk_none/reschedule', { date: farmDay }, B)],
+      ['POST /v1/farm-bookings/:id/hospitality', () => api.post(`/v1/farm-bookings/${farmBooking.id}/hospitality`, { accept: true }, B), () => api.post('/v1/farm-bookings/fbk_none/hospitality', { accept: true }, B)],
     ]
     assert.deepEqual([...new Set(cases.map(([r]) => r))].sort(), [...ISOLATION_CASES].sort(), 'a case for every isolation route')
     for (const [route, theirs, none] of cases) {
@@ -327,8 +391,8 @@ describe('customer to customer', () => {
     env.MULTI_GIFT = false
 
     // B's lists and export carry nothing of A's: no id, no phone, no address, no stored photo path.
-    const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101', help.body.id, sub.body.id, cycle]
-    for (const path of ['/v1/orders', '/v1/preorders', '/v1/claims', '/v1/me/addresses', '/v1/stock-alerts', '/v1/me/reviews', '/v1/me/export', '/v1/me', '/v1/me/help/requests', '/v1/me/subscriptions']) {
+    const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101', help.body.id, sub.body.id, cycle, farmBooking.id, farmBooking.number]
+    for (const path of ['/v1/orders', '/v1/preorders', '/v1/claims', '/v1/me/addresses', '/v1/stock-alerts', '/v1/me/reviews', '/v1/me/export', '/v1/me', '/v1/me/help/requests', '/v1/me/subscriptions', '/v1/farm-bookings']) {
       const r = await api.get(path, B)
       assert.equal(r.status, 200, path)
       const text = JSON.stringify(r.body)
@@ -372,7 +436,7 @@ describe('webhook replays', () => {
   test('Razorpay: the same event twice, the same event id with another body, and a new id for the same payment change nothing more', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201)
     const entity = { id: 'pay_replay', order_id: c.body.razorpayOrderId, amount: c.body.total, currency: 'INR', method: 'upi' }
     const event = { event: 'payment.captured', payload: { payment: { entity } } }
@@ -535,7 +599,7 @@ describe('per-customer limits on checkout and cancel', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
+    for (const c of [a, b]) assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: c.accessToken })).status < 300, true)
     const quote = (c) => api.post('/v1/checkout/quote', { pincode: '560034' }, { token: c.accessToken })
     enforceLimitsInTests(true)
     for (let i = 0; i < env.CUSTOMER_ACTION_LIMIT; i++) assert.equal((await quote(a)).status, 200, `quote ${i + 1}`)

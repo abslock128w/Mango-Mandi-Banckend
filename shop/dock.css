@@ -1,9 +1,97 @@
-/* Apple Music reference: four-tab capsule + detached circular control. */
+/* The phone dock (up to 900px), built to be seen: a solid bar edge to edge with four page tabs (the current one a solid
+   accent pill), a solid round search button, and the bag bar (solid accent, white text) that slides up above the tabs
+   while the bag has something in it. Colours come from the tokens in style.css (--accent, --on-accent, --dock-*),
+   which theme.css redefines for the dark theme. */
 .liquid-navigation{display:none}
-@media(max-width:700px){
-.mobile-dock{display:none!important}.liquid-navigation{position:fixed;display:block;z-index:36;bottom:max(16px,env(safe-area-inset-bottom));left:50%;width:calc(100% - 32px);max-width:440px;transform:translateX(-50%);color:#183e2b;isolation:isolate}
-.dock-row{display:flex;align-items:center;gap:9px;height:64px}.liquid-rail,.dock-orb,.dock-search,.dock-mini{background:rgba(247,249,239,.42);-webkit-backdrop-filter:blur(22px) saturate(1.7);backdrop-filter:blur(22px) saturate(1.7);box-shadow:inset 0 1px 1px #ffffffed,inset 0 -1px 1px #31513738,0 4px 14px #163d251c}
-.liquid-rail{position:relative;display:flex;align-items:center;flex:1;min-width:0;height:64px;border-radius:34px;isolation:isolate;touch-action:pan-y;overflow:visible}.liquid-tab{flex:1;min-width:0;position:relative;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;height:60px;border-radius:32px;font-size:10px;font-weight:500;z-index:2;user-select:none;-webkit-user-select:none;transition:color .15s;transform-origin:center}.liquid-tab svg{height:23px;width:23px;stroke-width:1.8}.liquid-tab.is-current{color:#176942}.liquid-tab:active{transform:none}.liquid-lens{position:absolute;left:0;top:4px;height:56px;width:68px;z-index:1;border-radius:32px;pointer-events:none;background:linear-gradient(145deg,#ffffff35,#c6d8c31a 50%,#ffffff0a);backdrop-filter:blur(2px) saturate(1.45);-webkit-backdrop-filter:blur(2px) saturate(1.45);box-shadow:inset 0 1px 1px #ffffffe6,inset 1px 0 1px #ffffffc0,inset -1px -1px 1px #29463355,0 2px 5px #233e2614;transform-origin:50% 50%;will-change:transform}.liquid-lens:before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(115deg,#fff9,transparent 22%,transparent 75%,#ffffff70);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude;padding:1px;pointer-events:none}.liquid-lens:after{content:'';position:absolute;inset:3px;border-radius:inherit;box-shadow:inset 0 2px 5px #fff5,inset 0 -3px 5px #53765a12}.liquid-rail.is-dragging .liquid-lens{background-color:#ffffff1c;box-shadow:inset 0 1px 1px #fff,inset 1px 0 1px #fff9,inset -1px -1px 1px #15392370,0 7px 16px #183c2926}.dock-orb{display:grid;place-items:center;flex:none;width:64px;height:64px;border-radius:50%;padding:0}.dock-orb svg{width:27px;height:27px;stroke-width:1.8}.dock-search{height:56px;flex:1;min-width:0;border-radius:30px;display:none;align-items:center;gap:9px;padding:0 16px}.dock-search svg{width:19px;height:19px}.dock-search input{width:100%;min-width:0;border:0;outline:0;background:none;color:#173d2b;font-size:16px}.dock-search input::placeholder{color:#526c56}.liquid-navigation.search-mode .liquid-rail{display:none}.liquid-navigation.search-mode .dock-search{display:flex}.liquid-navigation.search-mode .dock-orb{width:52px;height:52px;order:-1}.dock-mini{border-radius:25px;min-height:47px;margin:0 0 8px;padding:7px 14px;display:flex;align-items:center;gap:10px;width:100%;font-size:12px;text-align:left}.dock-mini[hidden]{display:none}.dock-mini>svg{width:25px;height:25px}.dock-mini-copy{flex:1}.dock-mini-copy strong{display:block;font-size:12px;font-weight:600}.dock-mini-copy small{display:block;font-size:10px;color:#405c42}.dock-mini .mini-arrow{width:20px;height:20px}.liquid-navigation.keyboard-open{bottom:12px}.toast{bottom:155px}footer{padding-bottom:155px}.liquid-navigation .bag-count{background:#176942}.liquid-tab:focus-visible,.dock-orb:focus-visible{outline-offset:2px}
+@media(max-width:900px){
+.liquid-navigation{position:fixed;display:block;z-index:36;left:0;right:0;bottom:0;color:var(--dock-ink);transition:opacity .18s ease,transform .18s ease,visibility .18s}
+.dock-row{position:relative;z-index:2;display:flex;align-items:center;gap:8px;height:calc(68px + env(safe-area-inset-bottom));padding:0 max(10px,env(safe-area-inset-right)) env(safe-area-inset-bottom) max(10px,env(safe-area-inset-left));background:var(--dock-bg);border-top:1px solid var(--dock-line);box-shadow:0 -6px 22px #183c2117}
+.liquid-rail{display:flex;align-items:center;gap:4px;flex:1;min-width:0;height:56px}
+.liquid-tab{flex:1;min-width:0;height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:28px;color:var(--dock-ink);font-size:12px;font-weight:600;line-height:1.1;letter-spacing:.01em;user-select:none;-webkit-user-select:none;transition:background-color .2s ease,color .2s ease}
+.liquid-tab span{max-width:100%;padding:0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.liquid-tab svg{width:24px;height:24px;stroke-width:2}
+.liquid-tab.is-current{background:var(--accent);color:var(--on-accent)}
+.liquid-tab:not(.is-current):active{background:var(--dock-press)}
+.liquid-tab:focus-visible,.dock-orb:focus-visible,.dock-mini:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.dock-orb{flex:none;display:grid;place-items:center;width:52px;height:52px;padding:0;border-radius:50%;background:var(--accent);color:var(--on-accent);box-shadow:0 4px 12px #17463138}
+.dock-orb svg{width:24px;height:24px;stroke-width:2.2}
+/* the round button is the Help link: no underline, and a ring while the Help page is open */
+a.dock-orb{text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10.5px;font-weight:700;line-height:1;letter-spacing:.01em}
+a.dock-orb svg{width:21px;height:21px}
+.dock-orb.is-current{outline:2px solid var(--accent);outline-offset:3px}
+.dock-search{display:none;flex:1;min-width:0;height:52px;align-items:center;gap:10px;padding:0 16px;border-radius:26px;background:var(--dock-field);box-shadow:inset 0 0 0 2px var(--accent);color:var(--dock-ink)}
+.dock-search svg{width:20px;height:20px;stroke-width:2}
+.dock-search input{width:100%;min-width:0;border:0;outline:0;background:none;color:var(--dock-ink);font-size:16px}
+.dock-search input::placeholder{color:var(--muted)}
+.liquid-navigation.search-mode .liquid-rail{display:none}.liquid-navigation.search-mode .dock-search{display:flex}
+/* The bag bar. Hidden (slid down behind the tabs) while the bag is empty; dock.js adds .is-shown. */
+.dock-mini{position:absolute;z-index:1;left:max(10px,env(safe-area-inset-left));right:max(10px,env(safe-area-inset-right));bottom:calc(100% + 8px);display:flex;align-items:center;gap:12px;min-height:58px;padding:8px 16px 8px 12px;border-radius:18px;background:var(--accent);color:var(--on-accent);box-shadow:0 10px 26px #17463152;text-align:left;font-size:14px;translate:0 0;opacity:1;transition:translate .38s var(--ease),opacity .25s ease,visibility .38s}
+.dock-mini:not(.is-shown){translate:0 calc(100% + 90px);opacity:0;visibility:hidden;pointer-events:none}
+.dock-mini.is-pulse{animation:mini-pulse .5s ease-out}
+@keyframes mini-pulse{0%{scale:1;box-shadow:0 10px 26px #17463152,0 0 0 0 var(--pulse-ring)}35%{scale:1.035}100%{scale:1;box-shadow:0 10px 26px #17463152,0 0 0 12px #0000}}
+.mini-bag{position:relative;flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--on-accent-soft)}
+.mini-bag svg{width:24px;height:24px;stroke-width:2}
+.dock-mini .mini-count{position:absolute;top:-7px;right:-9px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;display:grid;place-items:center;background:var(--yellow);color:#15130c;font-size:12px;font-weight:700;box-shadow:0 0 0 2px var(--accent)}
+.dock-mini-copy{flex:1;min-width:0}
+.dock-mini-summary{display:block;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini-cta{flex:none;display:flex;align-items:center;gap:6px;font-size:15px;font-weight:700;white-space:nowrap}
+.mini-cta b{font-weight:700;font-variant-numeric:tabular-nums}
+.mini-cta svg{width:20px;height:20px;stroke-width:2.4}
+/* Room for the dock (and the bag bar) under the page. */
+footer{padding-bottom:calc(100px + env(safe-area-inset-bottom))}
+.bag-open footer{padding-bottom:calc(170px + env(safe-area-inset-bottom))}
+.toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+.bag-open .toast{bottom:calc(150px + env(safe-area-inset-bottom))}
 }
-@media(prefers-reduced-transparency:reduce){.liquid-rail,.dock-orb,.dock-search,.dock-mini{background:#f6f7ed;backdrop-filter:none;-webkit-backdrop-filter:none}.liquid-lens{background:#dce8d7;backdrop-filter:none!important}}
-@media(prefers-reduced-motion:reduce){.liquid-lens{will-change:auto}}
+.liquid-navigation.is-away{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(100%)}
+@media(prefers-reduced-motion:reduce){.liquid-navigation,.dock-mini,.liquid-tab{transition:none}.dock-mini.is-pulse{animation:none}}
+/* /cart and /checkout have their own sticky "To pay" bar (style.css .pay-bar), so the dock and its bag bar step aside there. */
+body[data-page="cart"] .liquid-navigation,body[data-page="checkout"] .liquid-navigation{display:none}
+/* /bulk keeps the dock's tabs but has its own sticky bar (the bulk list): the bag bar steps aside and the bar sits on the tabs. */
+body[data-page="bulk"] .dock-mini{display:none}
+@media(max-width:900px){
+body[data-page="bulk"] .pay-bar{bottom:calc(68px + env(safe-area-inset-bottom));padding-bottom:10px}
+html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:calc(220px + env(safe-area-inset-bottom))}
+html.pay-bar-on body[data-page="bulk"] .toast{bottom:calc(180px + env(safe-area-inset-bottom))}
+body[data-page="bulk"] .liquid-navigation.is-away~.pay-bar,body[data-page="bulk"]:has(.liquid-navigation.is-away) .pay-bar{display:none}
+}
+/* Liquid glass: the bar floats as a rounded capsule with a frosted, mostly-opaque surface (legibility first), the bag bar and pay bar rounded to match. */
+@media(max-width:900px){
+.liquid-navigation{left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom))}
+.dock-row{height:70px;padding:7px 8px;border-radius:35px;border:1px solid var(--glass-edge);background:var(--glass-bg);-webkit-backdrop-filter:blur(28px) saturate(1.8);backdrop-filter:blur(28px) saturate(1.8);box-shadow:inset 0 1px 0 var(--glass-hi),0 12px 32px #183c212e,0 2px 6px #183c2114}
+.liquid-tab{height:56px;border-radius:28px}
+.dock-orb{width:54px;height:54px}
+.dock-search{height:54px;border-radius:27px}
+.dock-mini{left:0;right:0;bottom:calc(100% + 10px);border-radius:24px}
+.liquid-navigation.is-away{transform:translateY(calc(100% + 16px))}
+footer{padding-bottom:calc(112px + env(safe-area-inset-bottom))}
+html.bag-open footer{padding-bottom:calc(184px + env(safe-area-inset-bottom))}
+.toast{bottom:calc(98px + env(safe-area-inset-bottom))}
+html.bag-open .toast{bottom:calc(166px + env(safe-area-inset-bottom))}
+.pay-bar{border-radius:26px 26px 0 0;border:1px solid var(--glass-edge);border-bottom:0;background:var(--glass-bg);-webkit-backdrop-filter:blur(28px) saturate(1.8);backdrop-filter:blur(28px) saturate(1.8);box-shadow:inset 0 1px 0 var(--glass-hi),0 -10px 30px #183c2124}
+body[data-page="bulk"] .pay-bar{bottom:calc(94px + env(safe-area-inset-bottom));border-radius:26px;border-bottom:1px solid var(--glass-edge);left:max(12px,env(safe-area-inset-left));right:max(12px,env(safe-area-inset-right))}
+}
+@media(prefers-reduced-transparency:reduce){.dock-row,.pay-bar{background:var(--dock-bg);-webkit-backdrop-filter:none;backdrop-filter:none}}
+/* A sheet (any <dialog>) is open: the dock and the bag bar step out of its way, and the sheet keeps room for the home indicator. */
+body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(calc(100% + 24px));transition:opacity .18s ease,transform .22s ease,visibility .22s}
+@media(prefers-reduced-motion:reduce){body.locked .liquid-navigation,body:has(dialog[open]) .liquid-navigation,body.locked .pay-bar,body:has(dialog[open]) .pay-bar{transition:none}}
+@media(max-width:700px){.sheet{padding-bottom:calc(22px + env(safe-area-inset-bottom))}}
+
+/* ===== Polish pass (Nov 2026): the bag bar is 56px tall, 10px above the dock, its shadow cast upward only; the toast
+   rides above it at most 32px narrower than the screen; the bars' glass is dense enough that nothing reads through. */
+.dock-mini{min-height:56px;height:56px;padding-top:6px;padding-bottom:6px;box-shadow:0 -6px 18px #1746311f}
+[data-theme="dark"] .dock-mini{box-shadow:0 -6px 18px #0008}
+.toast{max-width:calc(100% - 32px)}
+@media(max-width:900px){
+.dock-mini{bottom:calc(100% + 10px)}
+html.bag-open .toast{bottom:calc(160px + env(safe-area-inset-bottom))}
+.pay-bar{background:rgba(255,252,246,.95);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4)}
+[data-theme="dark"] .pay-bar{background:rgba(21,20,15,.95)}
+}
+
+/* ===== Polish round 2: on phones a page ends 32px above the footer; the room for the bars (dock, bag bar, pay bar:
+   --bar-clear from dock.js) is the footer's bottom padding, after its last line, never a gap before it. */
+@media(max-width:900px){
+.page-view,html.pay-bar-on .page-view,body[data-page="bulk"] .page-view,html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:32px}
+body.page-open .page-view{min-height:0}
+}

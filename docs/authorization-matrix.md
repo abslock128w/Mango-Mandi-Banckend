@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-231 routes; 23 ask for step-up.
+291 routes; 28 ask for step-up.
 
 ## Your account
 
@@ -136,6 +136,16 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `PUT /bulk-listings/:id/photos/order` | ✓ |  |  |  |  |  | Each change |
 | `POST /bulk-listings/:id/publish` | ✓ |  |  |  |  |  | Each change |
 | `POST /bulk-listings/:id/unpublish` | ✓ |  |  |  |  |  | Each change |
+
+## Bulk enquiries
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /bulk-enquiries` | ✓ | ✓ |  |  |  |  |  |
+| `GET /bulk-enquiries/:id` | ✓ | ✓ |  |  |  |  |  |
+| `POST /bulk-enquiries/:id/close` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/note` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/quote` | ✓ | ✓ |  |  |  |  | Each change |
 
 ## Preorders
 
@@ -310,6 +320,34 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /whatsapp/overview` | ✓ |  |  |  |  |  |  |
 | `POST /whatsapp/templates/sync` | ✓ |  |  |  |  |  | Each change |
 
+## Partner Network
+
+| Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
+|---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /partner-network/categories` | ✓ | ✓ |  |  |  |  |  |
+| `PATCH /partner-network/categories/:code` | ✓ |  |  |  |  |  | Each change |
+| `GET /partner-network/enquiries` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/enquiries/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `PATCH /partner-network/enquiries/:id` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/approve` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/close` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/contact-attempts` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/convert` | ✓ |  |  |  |  |  | Each change |
+| `GET /partner-network/enquiries/:id/documents/:documentId` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /partner-network/enquiries/:id/followups` | ✓ | ✓ |  |  |  |  | Each change |
+| `PATCH /partner-network/enquiries/:id/followups/:followupId` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/reject` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/reopen` | ✓ |  |  |  |  |  | Each change |
+| `POST /partner-network/enquiries/:id/request-info` | ✓ | ✓ |  |  |  |  | Each change |
+| `GET /partner-network/enquiries/export.csv` | ✓ |  |  |  |  |  |  |
+| `GET /partner-network/overview` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/product-proposals` | ✓ | ✓ |  |  |  |  |  |
+| `GET /partner-network/product-proposals/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `PATCH /partner-network/product-proposals/:id` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/product-proposals/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /partner-network/product-proposals/:id/request-sample` | ✓ | ✓ |  |  |  |  | Each change |
+
 ## Other
 
 | Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
@@ -317,5 +355,37 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /day` | ✓ | ✓ |  |  |  |  |  |
 | `GET /deliveries/live` | ✓ | ✓ |  |  |  |  |  |
 | `GET /events` | ✓ | ✓ |  |  |  |  |  |
+| `GET /farm/bookings` | ✓ | ✓ |  |  |  |  |  |
+| `GET /farm/bookings/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `PATCH /farm/bookings/:id` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/bill` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/cancel` | ✓ |  |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/harvest` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/hospitality` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/move` | ✓ |  |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/no-show` | ✓ |  |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/record-payment` | ✓ |  |  |  |  | Always: recording a farm bill paid at the farm (UPI, card, cash, bank) | Each change |
+| `POST /farm/bookings/:id/request/decline` | ✓ |  |  |  |  |  | Each change |
+| `PUT /farm/bookings/:id/rooms` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /farm/bookings/:id/status` | ✓ | ✓ |  |  |  |  | Each change |
+| `GET /farm/calendar` | ✓ | ✓ |  |  |  |  |  |
+| `POST /farm/check-in` | ✓ | ✓ |  |  |  |  | Each change |
+| `GET /farm/check-in/:code` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /farm/days` | ✓ |  |  |  |  |  | Each change |
+| `PUT /farm/days/:date` | ✓ |  |  |  |  |  | Each change |
+| `PUT /farm/harvest/:varietyId/:date` | ✓ |  |  |  |  |  | Each change |
+| `GET /farm/overview` | ✓ | ✓ |  |  |  |  |  |
+| `POST /farm/refunds/:id/settle` | ✓ |  |  |  |  | Always: recording a farm refund paid outside Razorpay | Each change |
+| `GET /farm/reports` | ✓ |  |  |  |  |  |  |
+| `GET /farm/reports/bookings.csv` | ✓ |  |  |  |  |  |  |
+| `GET /farm/rooms` | ✓ | ✓ |  |  |  |  |  |
+| `POST /farm/rooms` | ✓ |  |  |  |  |  | Each change |
+| `PATCH /farm/rooms/:id` | ✓ |  |  |  |  |  | Each change |
+| `GET /farm/settings` | ✓ | ✓ |  |  |  |  |  |
+| `PUT /farm/settings` | ✓ |  |  |  |  | Always: changing Farm Experience settings, policies or opening bookings | Each change |
+| `GET /farm/varieties` | ✓ | ✓ |  |  |  |  |  |
+| `POST /farm/varieties` | ✓ |  |  |  |  | Always: adding a farm variety with its price per kg | Each change |
+| `PATCH /farm/varieties/:id` | ✓ |  |  |  |  | Always: changing a farm variety's price or tiers | Each change |
 | `GET /live` | ✓ | ✓ |  |  |  |  |  |
 | `POST /rider/location` | ✓ | ✓ | ✓ |  | ✓ |  | Each change |

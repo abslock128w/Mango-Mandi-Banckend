@@ -11,6 +11,7 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | Kind | Template | Category | Variables | Button |
 |------|----------|----------|-----------|--------|
 | ORDER_CONFIRMED | `mandi_order_confirmed` | UTILITY | 4 | Open order |
+| ORDER_CONFIRMED (with the invoice) | `mandi_order_confirmed_invoice` | UTILITY | 4 | Track order, Download invoice |
 | REPLACEMENT_CONFIRMED | `mandi_replacement_confirmed` | UTILITY | 4 | Open order |
 | RIPENESS_GUIDE | `mandi_ripeness_guide` | UTILITY | 4 | — |
 | DATE_MOVED | `mandi_date_moved` | UTILITY | 4 | Open order |
@@ -33,6 +34,12 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | REFERRAL_REWARD | `mandi_referral_reward` | MARKETING | 5 | — |
 | HELP_REPLY | `mandi_help_reply` | UTILITY | 3 | — |
 | SUBSCRIPTION_DUE | `mandi_subscription_due` | UTILITY | 4 | — |
+| PARTNER_ENQUIRY_RECEIVED | `mandi_partner_enquiry_received` | UTILITY | 3 | — |
+| PARTNER_TEAM_ALERT | `mandi_partner_team_alert` | UTILITY | 4 | — |
+| BULK_ENQUIRY_RECEIVED | `mandi_bulk_enquiry_received` | UTILITY | 3 | — |
+| BULK_QUOTE | `mandi_bulk_quote` | UTILITY | 5 | — |
+| FARM_BOOKING_UPDATE | `mandi_farm_booking_update` | UTILITY | 4 | — |
+| FARM_TEAM_ALERT | `mandi_farm_team_alert` | UTILITY | 4 | — |
 | MANAGER_DAILY_SUMMARY | `mandimangoes_daily_summary` | UTILITY | 8 | — |
 | LOGIN_CODE | `mandi_login_code` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |
 
@@ -51,6 +58,17 @@ The wording is a suggestion for the submission. Keep the variables, their order 
   4. slot (example: 7 AM to 11 AM)
 
 Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}.
+
+### ORDER_CONFIRMED with the invoice
+
+- Template: `mandi_order_confirmed_invoice`, category UTILITY, the same 4 variables in the same order
+- Sent in place of `mandi_order_confirmed` when the order has a bill (`BILLS_ENABLED`) and `WHATSAPP_ORDER_INVOICE=true`. One message: the confirmation, a button to track the order and a button to the invoice. The PDF itself is not attached.
+- Buttons, in this order (the order matters: the API fills them by position):
+  1. URL button "Track order", `https://<shop>/orders/{{1}}` (the order id; example: ord_3f9c2a7b1d4e5f60a1b2)
+  2. URL button "Download invoice", `https://<api>/v1/invoice/{{1}}` (a signed link that opens the invoice PDF without a sign-in for 180 days; example: ord_3f9c2a7b1d4e5f60a1b2.t9x2k1.Zk3mQ0aB7cD9eF1gH2iJ4kL6mN8oP0qR)
+- Until Meta approves it, and for an order without a bill, `mandi_order_confirmed` is sent as before. After a template sync, a template that is missing, not approved or without its buttons is not used.
+
+Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}. Your invoice is ready.
 
 ## REPLACEMENT_CONFIRMED
 
@@ -208,7 +226,7 @@ Suggested wording: Hi {{1}}, order {{2}} has been cancelled. If you paid for it,
 - Template: `mandi_refunded`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: Razorpay accepts a refund we started (customer cancel before packing, or a manager cancel we cannot deliver). The wording must say the refund has been started.
+- Sent when: Razorpay accepts a refund we started (an order the customer cancels before packing, or a manager cancel we cannot deliver; paid pre-orders are not refunded on a customer cancel). The wording must say the refund has been started.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -223,7 +241,7 @@ Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. You
 - Template: `mandi_preorder_booked`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A booking ahead is paid.
+- Sent when: A pre-order is paid. The wording must say pre-orders can't be cancelled or refunded once paid.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -232,14 +250,14 @@ Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. You
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. week (example: the week of Mon, 1 Mar)
 
-Suggested wording: Hi {{1}}, booking {{2}} is confirmed: {{3}} for {{4}}. We will confirm the delivery day nearer the time.
+Suggested wording: Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.
 
 ## PREORDER_SPOT_OPEN
 
 - Template: `mandi_preorder_spot_open`
 - Category: UTILITY
 - Who may receive it: Asked for by the person: sent unless the number sent STOP
-- Sent when: A waitlisted booking gets a spot and a payment link.
+- Sent when: A waitlisted booking gets a spot and a payment link. The wording must say pre-orders can't be cancelled or refunded once paid.
 - Button: none
 - If it can't be sent: Not sent: the booking page in the shop shows the payment link.
 - Variables:
@@ -248,14 +266,14 @@ Suggested wording: Hi {{1}}, booking {{2}} is confirmed: {{3}} for {{4}}. We wil
   3. week (example: the week of Mon, 1 Mar)
   4. payment link (example: https://rzp.io/i/abc)
 
-Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}}
+Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}} Pre-orders can't be cancelled or refunded once paid.
 
 ## PREORDER_MOVED
 
 - Template: `mandi_preorder_moved`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A week passed without stock, so the booking moved a week.
+- Sent when: A week passed without stock, so the booking moved a week. The wording must not offer a refund on cancel (pre-orders are non-refundable).
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
@@ -264,7 +282,7 @@ Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. new week (example: the week of Mon, 8 Mar)
 
-Suggested wording: Hi {{1}}, booking {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. You can cancel it in the app for a full refund.
+Suggested wording: Hi {{1}}, pre-order {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. If the new week doesn't work for you, message us.
 
 ## BACK_IN_STOCK
 
@@ -392,6 +410,107 @@ Suggested wording: Hi {{1}}, we replied to your help request {{2}}. Read it here
   4. link (example: https://mandimangoes.in/account/subscriptions/sub_1)
 
 Suggested wording: Hi {{1}}, your next subscription box, {{2}}, is set for {{3}}. Pay here to confirm it: {{4}}
+
+## PARTNER_ENQUIRY_RECEIVED
+
+- Template: `mandi_partner_enquiry_received`
+- Category: UTILITY
+- Who may receive it: Asked for by the person: sent unless the number sent STOP
+- Sent when: Someone sends a Partner With Us enquiry and agrees to be contacted (PARTNER_NETWORK, docs/partner-network.md).
+- Only with `WHATSAPP_PARTNER_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the confirmation page shows the reference.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry reference (example: MMP-7K2QXD9T)
+  3. partnership type (example: Farmers & Suppliers)
+
+Suggested wording: (write it in WhatsApp Manager)
+
+## PARTNER_TEAM_ALERT
+
+- Template: `mandi_partner_team_alert`
+- Category: UTILITY
+- Who may receive it: Asked for by the person: sent unless the number sent STOP
+- Sent when: To the numbers in PARTNER_ALERT_PHONES: a new enquiry or product proposal, an enquiry assigned, converted or rejected, and a follow-up due or overdue.
+- Only with `WHATSAPP_PARTNER_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the Partner Network overview shows the same.
+- Variables:
+  1. what happened (example: New partner enquiry)
+  2. enquiry reference (example: MMP-7K2QXD9T)
+  3. detail (example: Farmers & Suppliers, Ratnagiri, Maharashtra)
+  4. panel link (example: https://ops.mandimangoes.in/partner-network/enquiries/pen_1)
+
+Suggested wording: (write it in WhatsApp Manager)
+
+## BULK_ENQUIRY_RECEIVED
+
+- Template: `mandi_bulk_enquiry_received`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Someone sends a bulk enquiry (over 100 kg) from the shop (BULK_ENQUIRIES, mango-api/README.md, Bulk enquiries).
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the shop shows the enquiry number on screen and on the Account page.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry number (example: BLK-0012)
+  3. quantity (example: 120 kg (40 boxes))
+
+Suggested wording: Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.
+
+## BULK_QUOTE
+
+- Template: `mandi_bulk_quote`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Staff send a quote for a bulk enquiry from the panel (again for each new quote).
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the quote is on the Account page in the shop (with a banner and a badge), and the panel offers an Open in WhatsApp link with the quote written out.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry number (example: BLK-0012)
+  3. total (example: Rs 52,500)
+  4. summary (example: 40 × Alphonso 3 kg box, special packaging)
+  5. link (example: https://mandimangoes.in/account?enquiry=benq_1)
+
+Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}
+
+## FARM_BOOKING_UPDATE
+
+- Template: `mandi_farm_booking_update`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: A Farm Experience booking is made, confirmed, moved, cancelled, ready for the visit, reminded two days before, billed after weighing, paid, or a double payment refunded (FARM_EXPERIENCE, docs/farm-experience.md).
+- Only with `WHATSAPP_FARM_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the booking page in the shop shows the same status.
+- Variables:
+  1. name (example: Asha)
+  2. booking number (example: MMF-7K2QXD9T)
+  3. what happened (example: Your farm visit on Sat, 10 Apr is confirmed. Your itinerary and check-in code are in your booking.)
+  4. booking link (example: https://mandimangoes.in/farm-bookings/fbk_1)
+
+Suggested wording: (write it in WhatsApp Manager)
+
+## FARM_TEAM_ALERT
+
+- Template: `mandi_farm_team_alert`
+- Category: UTILITY
+- Who may receive it: Asked for by the person: sent unless the number sent STOP
+- Sent when: To the numbers in FARM_ALERT_PHONES: a new booking, a customer request, or a declined stay proposal.
+- Only with `WHATSAPP_FARM_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the Farm Experience Bookings list shows the same.
+- Variables:
+  1. what happened (example: New farm booking)
+  2. booking number (example: MMF-7K2QXD9T)
+  3. detail (example: 300 kg Alphonso, Sat, 10 Apr, 6 guests)
+  4. panel link (example: https://ops.mandimangoes.in/farm/bookings/fbk_1)
+
+Suggested wording: (write it in WhatsApp Manager)
 
 ## MANAGER_DAILY_SUMMARY
 

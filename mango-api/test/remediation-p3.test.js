@@ -109,7 +109,7 @@ describe('OPS-07: Razorpay replies are checked before use', () => {
       await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
       const cust = await customerToken(api)
       await withRazorpay(() => reply, async () => {
-        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
         assert.equal(c.status, 502)
         assert.equal(c.body.error.code, 'PAYMENT_GATEWAY_ERROR')
       })
@@ -140,7 +140,7 @@ describe('PAY-05: an authorized payment found by reconcile is captured', () => {
         return {}
       },
       async (calls) => {
-        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
         assert.equal(c.status, 201)
         total = (await query('SELECT total FROM orders WHERE id = $1', [c.body.orderId])).rows[0].total
         setNow(new Date(Date.parse(T0) + 3 * 60_000).toISOString())
@@ -162,7 +162,7 @@ describe('PAY-05: an authorized payment found by reconcile is captured', () => {
         return {}
       },
       async (calls) => {
-        assert.equal((await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 201)
+        assert.equal((await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])).status, 201)
         setNow(new Date(Date.parse(T0) + 3 * 60_000).toISOString())
         await reconcilePendingPayments()
         assert.ok(!calls.some((x) => x.path.endsWith('/capture')))
@@ -178,7 +178,7 @@ describe('FE-2 / FE-3: the API sends what the shop and panel used to guess', () 
     const { tx } = await import('../src/db.js')
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
     const t = { token: cust.accessToken }
     const view = async () => (await api.get(`/v1/orders/${c.body.orderId}`, t)).body
@@ -266,7 +266,7 @@ describe('order status changes come from one map', () => {
 test('cancelling an order twice says it is already cancelled, not packed', async () => {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   const t = { token: cust.accessToken }
   assert.equal((await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, t)).status, 204)
   const again = await api.post(`/v1/orders/${c.body.orderId}/cancel`, {}, t)

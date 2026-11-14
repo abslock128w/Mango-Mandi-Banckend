@@ -4,6 +4,7 @@
 // fruit end in a replacement, never a refund. Money goes back in two cases
 // only: the customer cancels a paid order before packing, or a manager cancels
 // a paid order we can't deliver.
+import { orderNumberSql } from './order-number.js'
 import { notifyOrder } from './events.js'
 import { configVersion, getConfig } from './config.js'
 import { deliveryCodeHash, newDeliveryCode } from './delivery-code.js'
@@ -20,6 +21,7 @@ import { issueBillWithPayment, markBillCancelled } from './bills.js'
 import { addLogContext } from './log-context.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
+import { keepsPromise, saleStage } from './stage.js'
 import { enqueue, enqueueForEvent } from './notify.js'
 import { recordPaid } from './funnel.js'
 import { enqueueOrderPush, noRetryPush } from './push.js'
@@ -39,7 +41,13 @@ const ADMIN_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED
  * PROCESSING order can already have packed boxes (INV-1).
  */
 const RESTOCKABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING', 'PACKED']
-const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
+export const CUSTOMER_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
+/** A customer may cancel a paid order for this many hours after placing it; after that, cancelling is closed (the owner's rule). */
+export const CUSTOMER_CANCEL_HOURS = 4
+/** When the customer's own cancel closes for an order (null for an unpaid one, which can always be dropped). */
+export const cancelClosesAt = (o) => (o.status === 'PAYMENT_PENDING' ? null : new Date(new Date(o.placed_at).getTime() + CUSTOMER_CANCEL_HOURS * 3_600_000))
+/** Whether the customer's own cancel is still open: always for an unpaid order, for four hours after it was placed for a paid one. */
+export const withinCancelWindow = (o, at = now()) => { const until = cancelClosesAt(o); return !until || at.getTime() <= until.getTime() }
 /** A paid order a manager may cancel with a full refund: anything not yet delivered, including failed and returned deliveries. */
 export const MANAGER_REFUNDABLE = [...ADMIN_CANCELLABLE, 'DELIVERY_FAILED', 'RTO']
 
@@ -132,13 +140,17 @@ const orderItems = async (c, orderId) =>
  * With `allOrNothing` a shortfall throws 409 STOCK_INSUFFICIENT (and the
  * caller's transaction rolls back); otherwise the order is flagged at-risk.
  */
+export { orderNumberSql }
+
 export async function createOrder(c, o, actor) {
   const id = newId('ord')
-  const { rows } = await c.query(`SELECT 'ORD-' || nextval('order_seq') AS number`)
+  // 10 digits, shown as #7434060801 (order-number.js).
+  const { rows } = await c.query(`SELECT ${orderNumberSql("nextval('order_seq')")} AS number`)
   const number = rows[0].number
   const subtotal = o.lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
   const discount = o.discount ?? 0
-  const total = subtotal - discount
+  // A delivery charge (delivery-fee.js) is whatever the total is above the goods less the promo: no column of its own.
+  const total = subtotal - discount + (o.deliveryFee ?? 0)
   const boxes = o.lines.reduce((s, l) => s + l.qty, 0)
   await checkCapacity(c, o.deliveryDate, boxes)
   const slotId = await chooseSlot(c, o.deliveryDate, boxes, o.slotId ?? null, { strict: Boolean(o.strictSlot) })
@@ -280,7 +292,8 @@ export async function rebalanceOrder(c, orderId, actor = SYSTEM) {
   for (const row of await stockRows(c, o.id, ['held', 'committed'])) {
     const info = await lineInfo(c, row.line_id)
     const ok = sellableAs(info, o.delivery_date, cfg, { existing: true })
-    if (ok && ok.stage === row.stage) continue
+    // Boxes promised as RIPE stay valid where the batch is SEMI_RIPE on the day (RIPE is no longer sold).
+    if (ok && keepsPromise(row.stage, ok.stage)) continue
     const got = swappable
       ? await allocate(c, {
           orderId: o.id, orderNumber: o.number, deliveryDate: o.delivery_date, sku: row.sku, stage: row.stage,
@@ -439,7 +452,7 @@ export async function recordDuplicatePayment(c, { orderId = null, preorderId = n
  * cancels the order when it runs out. 'abandoned' is ours: the payment could
  * not even be started, so the order is cancelled at once.
  */
-export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
+export async function processPayment(c, { orderId, outcome, paymentId = null, amount = null, method = null, details = null }, actor = SYSTEM) {
   const o = await lockOrder(c, orderId)
   if (o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED') {
     if (outcome === 'captured' && paymentId && o.payment_id && paymentId !== o.payment_id) {
@@ -468,8 +481,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
     // Paid after the customer or staff cancelled: keep it cancelled and refund the payment.
     await c.query(
       `UPDATE orders SET payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id), payment_method = COALESCE($3, payment_method),
-              payment_amount = COALESCE($4, payment_amount), refund_requested_at = $5 WHERE id = $1`,
-      [o.id, paymentId, method, amount, now()],
+              payment_amount = COALESCE($4, payment_amount), refund_requested_at = $5, payment_details = COALESCE($6, payment_details) WHERE id = $1`,
+      [o.id, paymentId, method, amount, now(), details],
     )
     await addEvent(c, o.id, 'CANCELLED', 'CANCELLED', actor, `Payment arrived after the ${o.customer_cancelled_at ? 'customer' : 'shop'} cancelled; full refund requested`)
     return { order: o, result: 'refund_due' }
@@ -488,9 +501,10 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   await lockOrderLines(c, o.id, ['held'])
   await c.query(
     `UPDATE orders SET status = 'CONFIRMED', payment_status = 'SUCCEEDED', payment_id = COALESCE($2, payment_id),
-            payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL
+            payment_method = COALESCE($3, payment_method), payment_amount = COALESCE($4, payment_amount), hold_expires_at = NULL,
+            payment_details = COALESCE($5, payment_details)
       WHERE id = $1`,
-    [o.id, paymentId, method, amount],
+    [o.id, paymentId, method, amount, details],
   )
   const confirmEvent = await addEvent(c, o.id, o.status, 'CONFIRMED', actor, lateFrom ? 'Payment arrived after the hold expired' : 'Payment captured')
   o.status = 'CONFIRMED'
@@ -499,7 +513,7 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // Checkpoint 3: payment confirmation. Commit the holds that are still valid.
   for (const row of await stockRows(c, o.id, ['held'])) {
     const ok = sellableAs(await lineInfo(c, row.line_id), o.delivery_date, getConfig(), { existing: true })
-    if (ok && ok.stage === row.stage) await commitHeld(c, row, actor, o.number)
+    if (ok && keepsPromise(row.stage, ok.stage)) await commitHeld(c, row, actor, o.number)
     else await release(c, row, actor, `Revalidate ${o.number}`)
   }
   const earliest = await earliestDeliveryDate(c)
@@ -508,7 +522,9 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // capacity, so check the day still has room before re-allocating on it (INV-5).
   const full = !stale && (lateFrom || holdLapsed) && !(await hasRoom(c, o))
   const r = stale || full ? { atRisk: true } : await rebalanceOrder(c, o.id, actor)
-  if (r?.atRisk) {
+  // A backorder is short by design: it keeps the day the customer was promised and the rebalance fills it.
+  const awaitingStock = o.backorder && !stale && !full
+  if (r?.atRisk && !awaitingStock) {
     // The stock (or the date) is gone: deliver on the next date that has stock.
     const from = stale ? earliest : o.delivery_date
     const dates = (await orderableDates(c)).filter((d) => d >= from)
@@ -526,7 +542,8 @@ export async function processPayment(c, { orderId, outcome, paymentId = null, am
   // INV-B: no stock on any date. Don't tell the customer a date we can't keep:
   // the confirmation waits until stock is found (setRisk sends it then).
   const stuck = (await c.query('SELECT at_risk FROM orders WHERE id = $1', [o.id])).rows[0].at_risk
-  if (stuck) await holdConfirmation(c, o.id, confirmEvent)
+  // A backorder's confirmation names the day it was promised for, so it goes out as usual.
+  if (stuck && !o.backorder) await holdConfirmation(c, o.id, confirmEvent)
   // Moved off the date the customer picked: say so. They can still cancel for a
   // full refund until the order is packed, and the message tells them that.
   else if (o.delivery_date !== chosenDate) await enqueue(c, o.id, newId('mov'), 'DATE_MOVED')
@@ -602,6 +619,16 @@ export async function cancelOrder(c, orderId, actor, reason, { manager = false, 
   return paid
 }
 
+/** What a customer is told when a paid non-refundable pre-order, or its order, can't be cancelled (preorders.js uses it too). */
+export const NON_REFUNDABLE_PREORDER_MESSAGE = "Pre-orders can't be cancelled or refunded once paid. If something is wrong, message us."
+
+/** Whether an order came from a pre-order sold as non-refundable (migration 064). */
+export async function fromNonRefundablePreorder(c, preorderId) {
+  if (!preorderId) return false
+  const { rows } = await c.query('SELECT non_refundable FROM preorders WHERE id = $1', [preorderId])
+  return Boolean(rows[0]?.non_refundable)
+}
+
 /**
  * Customer cancel, allowed until the order is packed. A paid order is
  * refunded in full: the only case where MandiMangoes refunds. The refund is requested
@@ -622,6 +649,14 @@ export async function customerCancel(c, orderId, customerId, actor, { wholeGift 
         : o.status === 'DELIVERED' ? 'This order has been delivered and can no longer be cancelled.'
           : 'This order is already packed and can no longer be cancelled.'
     throw conflict(why, 'NOT_CANCELLABLE')
+  }
+  if (!withinCancelWindow(o)) {
+    throw conflict(`Orders can be cancelled within ${CUSTOMER_CANCEL_HOURS} hours of placing them. This one was placed earlier, so it can no longer be cancelled. Please contact us if something is wrong with it.`, 'CANCEL_WINDOW_CLOSED')
+  }
+  // The order a non-refundable pre-order became can't be cancelled by the customer either (preorders.js).
+  // A manager's cancel (cancelOrder) still refunds it in full, and claims on it work as for any order.
+  if (o.preorder_id && (await fromNonRefundablePreorder(c, o.preorder_id))) {
+    throw new HttpError(409, 'PREORDER_NON_REFUNDABLE', NON_REFUNDABLE_PREORDER_MESSAGE)
   }
   const paid = o.payment_status === 'SUCCEEDED'
   await cancelInTx(c, o, actor, paid ? 'Cancelled by customer; full refund requested' : 'Cancelled by customer', null, 'BUYER')
@@ -1115,7 +1150,8 @@ export async function rebalanceBatchOrders(c, batchIds, actor = SYSTEM) {
 export async function createReplacement(c, claim, original, actor) {
   const items = await orderItems(c, original.id)
   const wanted = claim.affected_items?.length ? items.filter((i) => claim.affected_items.includes(i.sku)) : items
-  const lines = (wanted.length ? wanted : items).map((i) => ({ sku: i.sku, stage: i.stage ?? 'RIPE', qty: i.quantity, unitPrice: 0 }))
+  // A new sale: an item bought as RIPE (no longer sold) is replaced with semi-ripe boxes.
+  const lines = (wanted.length ? wanted : items).map((i) => ({ sku: i.sku, stage: saleStage(i.stage ?? 'SEMI_RIPE'), qty: i.quantity, unitPrice: 0 }))
   const dates = await orderableDates(c)
   const tryDates = dates.length ? dates : [await earliestDeliveryDate(c)]
   // OPS-04: a full or closed day moves the replacement to the next day with room, as a retry does.

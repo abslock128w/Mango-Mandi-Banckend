@@ -45,7 +45,7 @@ describe('reopening checkout (FE-1)', () => {
     withGateway(() => json({ id: 'order_rzp_1' }))
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
 
     const o = await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })
@@ -70,7 +70,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
 
-    const failed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key: 'k-1' })
+    const failed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key: 'k-1' })
     assert.equal(failed.status, 502)
     assert.equal(failed.body.error.code, 'PAYMENT_GATEWAY_ERROR')
     assert.equal((await line(b, 'ALP-3')).held, 0)
@@ -88,7 +88,7 @@ describe('gateway failure at checkout (FE-2)', () => {
 
     // The shop starts over: new quote, new key.
     up = true
-    const retry = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key: 'k-2' })
+    const retry = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key: 'k-2' })
     assert.equal(retry.status, 201, JSON.stringify(retry.body))
     assert.equal(retry.body.status, 'PAYMENT_PENDING')
     assert.equal(retry.body.razorpayOrderId, 'order_rzp_ok')
@@ -106,7 +106,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     const book = () =>
       api.post(
         '/v1/preorders',
-        { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+        { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
         { token: cust.accessToken, headers: { 'Idempotency-Key': key } },
       )
     const failed = await book()
@@ -127,7 +127,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     })
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })).status, 204)
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     const confirm = () =>

@@ -31,11 +31,15 @@ export function errorFrom(status: number, statusText: string, text: string): Api
   return new ApiError(status, code ?? `HTTP_${status}`, message ?? (statusText || 'Request failed'), requestId, extra)
 }
 
+/** Order numbers are 10 digits (mango-api orders.js) and read as #7434060801, as the shop and the bills print them. */
+const showOrderNumber = (key: string, value: unknown) =>
+  (key === 'number' || key === 'orderNumber') && typeof value === 'string' && /^[1-9]\d{9}$/.test(value) ? `#${value}` : value
+
 /** A successful answer's body: empty is undefined; anything not JSON (a proxy's page) is an ApiError, not a SyntaxError. */
 export function parseAnswer<T>(status: number, text: string): T {
   if (!text) return undefined as T
   try {
-    return JSON.parse(text) as T
+    return JSON.parse(text, showOrderNumber) as T
   } catch {
     throw new ApiError(status, 'BAD_RESPONSE', 'The server sent an answer we could not read. Please try again.')
   }

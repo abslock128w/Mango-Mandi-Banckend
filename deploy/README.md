@@ -5,7 +5,7 @@ things:
 
 | Service | What it does |
 |---------|--------------|
-| `web` | Caddy: HTTPS for all three domains (certificates issued and renewed automatically), serves the customer shop and the staff panel, and forwards the API |
+| `web` | Caddy: HTTPS for all three domains (certificates issued and renewed automatically), serves the customer shop (the static files in `shop/`, with `config.js` written for `https://API_DOMAIN` when the image is built) and the staff panel, and forwards the API |
 | `api` | mango-api: migrates the database on start, runs the maintenance loop |
 | `db` | PostgreSQL 16, on a Docker volume |
 | `backup` | a `pg_dump` at start and every 24 hours, encrypted, copied off the server, and kept 14 days in `deploy/backups/` (see [Backups](#backups)) |
@@ -50,9 +50,13 @@ These take days to weeks and only the business can do them, so start them now:
    ```
    The repository is private, so this needs a GitHub deploy key or access token on the server.
 4. **Settings.** Fill in `deploy/.env`. Every line is explained there. Generate secrets
-   with `openssl rand -hex 32`. Never commit this file. `VITE_SUPPORT_WHATSAPP` (the shop's
-   help WhatsApp number, country code and number, digits only) is required: the shop build
+   with `openssl rand -hex 32`. Never commit this file. `SUPPORT_WHATSAPP` (the shop's
+   help WhatsApp number, country code and number, digits only) is required: the image build
    fails without it, because every shop page shows customers how to reach a person.
+   The shop needs no other setting: `deploy/web.Dockerfile` runs `shop/build-config.mjs`
+   with `API_URL=https://API_DOMAIN` and this number, which writes `shop/config.js` into the
+   image (your checkout's `shop/config.js` is left alone). The shop's headers, CSP and
+   page rewrites are in `deploy/Caddyfile` and match `shop/vercel.json`.
 5. **Deploy.**
    ```bash
    ./deploy/deploy.sh

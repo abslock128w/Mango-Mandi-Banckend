@@ -5,8 +5,18 @@
 // joins a waitlist that is promoted in booking order as capacity frees up.
 // Before a week opens to regular orders, the allocator turns each paid
 // preorder into a normal confirmed order on a date with stock, so preorders
-// get first claim on the fruit. A customer can cancel until packing with a
-// full refund, as for any order. Weeks start on Monday.
+// get first claim on the fruit. Weeks start on Monday.
+//
+// Pre-orders are non-refundable once paid (non_refundable, migration 064): the
+// customer can drop an unpaid or waitlisted booking, but not a paid one, nor
+// the order it became. Bookings made before that rule keep the promise they
+// were sold under (cancel until packing for a full refund). Unchanged: a
+// manager's cancel (a week we can't fill) refunds in full; a payment that lands
+// after the hold ran out is still booked, and one after a cancel is refunded
+// automatically; quality claims on the delivered order work as for any order.
+//
+// The shop takes bookings from the day pre-orders open (season-phase.js);
+// before that, booking is refused with PREORDERS_NOT_OPEN.
 import { addDays, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -14,15 +24,24 @@ import { earliestDeliveryDate, orderableDates } from './delivery.js'
 import { badRequest, conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
-import { enqueuePreorder } from './notify.js'
-import { cancelOrder, createOrder, customerCancel, LAZY_SWEEP_GATEWAY_GRACE_MS, recordDuplicatePayment, SYSTEM } from './orders.js'
+import { dateWords, enqueuePreorder } from './notify.js'
+import { cancelOrder, createOrder, customerCancel, LAZY_SWEEP_GATEWAY_GRACE_MS, NON_REFUNDABLE_PREORDER_MESSAGE, recordDuplicatePayment, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
 import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundAttemptFailed, refundReceipt } from './payments.js'
 import { findProduct, sellable } from './products.js'
+import { seasonPhase } from './season-phase.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
 export const SPOT_HOLD_HOURS = 12
 export const PREORDER_STATUSES = ['PAYMENT_PENDING', 'BOOKED', 'WAITLISTED', 'CONVERTED', 'CANCELLED']
+
+/** What a customer is told when a paid non-refundable booking (or its order) can't be cancelled. */
+export const NON_REFUNDABLE_MESSAGE = NON_REFUNDABLE_PREORDER_MESSAGE
+export const nonRefundable = () => new HttpError(409, 'PREORDER_NON_REFUNDABLE', NON_REFUNDABLE_MESSAGE)
+
+/** Whether the customer may still cancel a booking themselves (a converted one: if its order is still cancellable). */
+export const customerMayCancel = (p) =>
+  p.status === 'PAYMENT_PENDING' || p.status === 'WAITLISTED' || (!p.non_refundable && (p.status === 'BOOKED' || p.status === 'CONVERTED'))
 
 export const isMonday = (d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 1
 
@@ -64,13 +83,20 @@ async function lock(c, id) {
   return rows[0]
 }
 
-/** Weeks open for preorders: after the regular booking horizon, with capacity set. */
+/**
+ * Weeks open for preorders: after the regular booking horizon, with capacity set.
+ * Before the season starts there is no fruit, so a week that ends before the
+ * season's first day is not offered, whatever capacity it has.
+ */
 export async function openWeeks(c, sku = null) {
   const after = await regularHorizon(c)
+  const starts = getConfig().seasonStartsOn ?? null
+  const firstWeek = starts && todayIST() < starts ? addDays(starts, -6) : null
   const { rows } = await c.query(
     `SELECT sku, week_start, capacity, reserved FROM preorder_capacity
-      WHERE week_start > $1 AND capacity > 0 AND ($2::text IS NULL OR sku = $2) ORDER BY week_start, sku`,
-    [after, sku],
+      WHERE week_start > $1 AND capacity > 0 AND ($2::text IS NULL OR sku = $2)
+        AND ($3::date IS NULL OR week_start >= $3::date) ORDER BY week_start, sku`,
+    [after, sku, firstWeek],
   )
   return rows.map((r) => ({ sku: r.sku, weekStart: r.week_start, capacity: r.capacity, remaining: Math.max(r.capacity - r.reserved, 0) }))
 }
@@ -82,6 +108,8 @@ export function preorderView(p) {
     customerName: p.customer_name, phone: p.phone, channel: p.channel,
     paymentStatus: p.payment_status, paymentUrl: p.status === 'PAYMENT_PENDING' ? p.payment_link_url : null, holdExpiresAt: p.hold_expires_at,
     orderId: p.order_id, movedCount: p.moved_count, createdAt: p.created_at, bookedAt: p.booked_at,
+    // Paid non-refundable bookings can't be cancelled by the customer (migration 064).
+    nonRefundable: Boolean(p.non_refundable), canCancel: customerMayCancel(p),
     refund: p.refund_requested_at ? { requestedAt: p.refund_requested_at, refundedAt: p.refunded_at, id: p.refund_id, status: p.refund_status ?? null } : null,
   }
 }
@@ -152,6 +180,11 @@ export async function bookPreorder(c, b, actor) {
   const p = sellable(b.sku)
   if (!p) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
   if (!isMonday(b.weekStart)) throw badRequest('weekStart must be a Monday', 'INVALID_WEEK')
+  // Before pre-orders open nothing can be booked. In season, booking ahead stays open as before.
+  const cfg = getConfig()
+  if (seasonPhase(todayIST(), cfg) === 'BEFORE') {
+    throw conflict(`Pre-orders open on ${dateWords(cfg.preorderOpensOn)}.`, 'PREORDERS_NOT_OPEN')
+  }
   const weeks = await openWeeks(c, b.sku)
   if (!weeks.some((w) => w.weekStart === b.weekStart)) throw badRequest('Preorders are not open for that week', 'INVALID_WEEK')
   const { rows: pin } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [b.pincode])
@@ -169,8 +202,8 @@ export async function bookPreorder(c, b, actor) {
   const status = got ? 'PAYMENT_PENDING' : 'WAITLISTED'
   await c.query(
     `INSERT INTO preorders (id, number, customer_id, customer_name, phone, sku, stage, qty, unit_price, total, week_start, pincode,
-                            delivery_address, slot_id, channel, status, hold_expires_at, payment_status, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+                            delivery_address, slot_id, channel, status, hold_expires_at, payment_status, created_at, non_refundable)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, true)`,
     [
       id, number, b.customerId, b.name ?? null, b.phone, b.sku, b.stage, b.qty, p.price, p.price * b.qty, b.weekStart, b.pincode,
       b.address, b.slotId ?? null, b.channel ?? 'app', status,
@@ -216,7 +249,8 @@ export async function findPreorderId(c, _entity, link) {
 /**
  * Applies a payment. Paid in time: BOOKED. Paid after the hold expired: still
  * booked (late payments are honoured), taking capacity even if the week has
- * filled. Paid after the customer cancelled: refunded. Replays are no-ops.
+ * filled. Paid after the customer cancelled: refunded, non-refundable or not
+ * (the booking was gone before the money came). Replays are no-ops.
  */
 export async function processPreorderPayment(c, { preorderId, outcome, paymentId = null, amount = null, method = null }, actor = SYSTEM) {
   const p = await lock(c, preorderId)
@@ -248,14 +282,18 @@ export async function processPreorderPayment(c, { preorderId, outcome, paymentId
 }
 
 /**
- * Customer cancel. Before conversion the preorder is cancelled and, if paid,
- * refunded in full; after conversion it is the order's normal cancel (until
- * packing, with the refund). Returns { refund: 'preorder' | 'order' | null, id }.
+ * Customer cancel. An unpaid or waitlisted booking is simply dropped. A paid
+ * non-refundable one (BOOKED, or CONVERTED into an order) is refused with
+ * 409 PREORDER_NON_REFUNDABLE. An older booking (non_refundable false) keeps
+ * its promise: before conversion it is cancelled and refunded in full; after
+ * conversion it is the order's normal cancel (until packing, with the refund).
+ * Returns { refund: 'preorder' | 'order' | null, id }.
  */
 export async function cancelPreorder(c, id, customerId, actor) {
   const p = await lock(c, id)
   if (p.customer_id !== customerId) throw notFound('Preorder not found')
   if (p.status === 'CANCELLED') throw conflict('This preorder is already cancelled')
+  if (p.non_refundable && p.payment_status === 'SUCCEEDED') throw nonRefundable()
   if (p.status === 'CONVERTED') {
     const refund = await customerCancel(c, p.order_id, customerId, actor)
     return { refund: refund ? 'order' : null, id: p.order_id }
@@ -276,7 +314,9 @@ export async function cancelPreorder(c, id, customerId, actor) {
  * Manager cancel, for a booking we can't fill (crop failure, season end, a
  * week we close). The capacity is freed and a paid booking is refunded in
  * full; a booking already turned into an order is cancelled as a paid order
- * (also refunded). Returns { refund: 'preorder' | 'order' | null, id }.
+ * (also refunded). Non-refundable bookings are refunded here too: that rule
+ * only stops the customer cancelling, never us when we can't deliver.
+ * Returns { refund: 'preorder' | 'order' | null, id }.
  */
 export async function staffCancelPreorder(c, id, actor, reason) {
   const p = await lock(c, id)

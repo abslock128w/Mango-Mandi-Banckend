@@ -273,7 +273,7 @@ test('desktop: the sidebar shows every group, and collapses to icons that keep t
   await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible()
   const nav = page.getByRole('navigation', { name: 'Main' })
   await expect(page.getByRole('button', { name: 'Menu' })).toBeHidden()
-  for (const name of ['Today', 'Orders', 'Batches', 'Claims', 'Staff']) await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
+  for (const name of ['Today', 'Orders', 'Batches', 'Claims', 'Partner overview', 'Staff']) await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
   const batches = nav.getByRole('link', { name: 'Batches', exact: true })
   const wide = (await batches.boundingBox())!.width
 

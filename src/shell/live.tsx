@@ -123,6 +123,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         }
       } else if (e.type === 'attention.changed') {
         invalidate(['attention'])
+      } else if (e.type === 'bulk.enquiry') {
+        // Bulk enquiries (mango-api README): a new one, a quote, the customer's answer, a close.
+        invalidate(['bulk-enquiries'])
+        void queryClient.invalidateQueries({ queryKey: ['bulk-enquiry', e.data.id] })
+        if (e.data.change === 'created') toastRef.current.info(`New bulk enquiry ${e.data.number}`)
+        else if (e.data.change === 'responded') toastRef.current.info(`${e.data.number}: the customer ${e.data.status === 'ACCEPTED' ? 'accepted' : 'declined'} the quote`)
       }
     }
 

@@ -4,13 +4,17 @@
 
 import {
   BarChart3,
+  BedDouble,
   Boxes,
+  CalendarDays,
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  ClipboardPen,
   Cog,
   Contact,
   HandCoins,
+  Handshake,
   Headset,
   LayoutDashboard,
   LifeBuoy,
@@ -20,21 +24,27 @@ import {
   Package,
   PackageCheck,
   PackageOpen,
+  PackageSearch,
   PackagePlus,
   QrCode,
   Repeat,
   ScanLine,
   ShieldAlert,
   ShoppingBag,
+  SlidersHorizontal,
   Sprout,
   Star,
   Tag,
   Tags,
+  Tractor,
   Truck,
   Users,
   Warehouse,
   Wheat,
   FileBarChart,
+  FileSpreadsheet,
+  FolderKanban,
+  Inbox,
   Layers,
   type LucideIcon,
 } from 'lucide-react'
@@ -93,11 +103,23 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     ],
   },
   {
+    // Partner Network (docs/partner-network.md): managers and operators; on unless /auth/me says off.
+    id: 'partners',
+    label: 'Partner Network',
+    links: [
+      ['/partner-network', 'Partner overview', 'partnerNetwork', Handshake, 'partner with us business'],
+      ['/partner-network/enquiries', 'Enquiries', 'partnerNetwork', Inbox, 'partner applications leads'],
+      ['/partner-network/proposals', 'Product proposals', 'partnerNetwork', ClipboardPen, 'partner products samples'],
+      ['/partner-network/categories', 'Partner categories', 'partnerNetwork', FolderKanban, 'partnership types'],
+    ],
+  },
+  {
     id: 'admin',
     label: 'Admin',
     links: [
       ['/analytics', 'Analytics', 'analytics', BarChart3, 'reports sales wastage'],
       ['/products', 'Products', 'products', Tags, 'catalogue price sku'],
+      ['/bulk-enquiries', 'Bulk enquiries', 'bulkEnquiries', PackageSearch, 'customer bulk requests quotes wholesale'],
       ['/bulk-deals', 'Bulk Deals', 'bulkDeals', HandCoins, 'wholesale listings'],
       ['/promos', 'Promos', 'promos', Tag, 'coupons codes offers'],
       ['/staff', 'Staff', 'staff', Users, 'people roles activity audit'],
@@ -105,6 +127,27 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     ],
   },
 ]
+
+/**
+ * Farm Experience (docs/farm-experience.md): while its switch is on, Bulk Orders holds the regular
+ * Bulk Deals and the farm visit pages; while it is off, the menu is as it was (Bulk Deals under Admin).
+ */
+const BULK_ORDERS: Entry[] = [
+  ['/bulk-deals', 'Bulk Deals', 'bulkDeals', HandCoins, 'wholesale listings'],
+  ['/farm/bookings', 'Farm Experience Bookings', 'farmExperience', Tractor, 'farm visit bookings'],
+  ['/farm/check-in', 'Farm check-in', 'farmExperience', QrCode, 'farm visit arrive code'],
+  ['/farm/calendar', 'Farm calendar', 'farmExperience', CalendarDays, 'farm open days visits'],
+  ['/farm/harvest', 'Harvest stock', 'farmExperience', Wheat, 'farm varieties price kg'],
+  ['/farm/rooms', 'Farmhouse rooms', 'farmExperience', BedDouble, 'farm stay'],
+  ['/farm/settings', 'Farm settings', 'farmExperience', SlidersHorizontal, 'farm details policies'],
+  ['/farm/reports', 'Farm reports', 'farmReports', FileSpreadsheet, 'farm revenue no-shows refunds'],
+]
+function withBulkOrders(me: Me | null | undefined) {
+  if (!me?.features?.farmExperience) return GROUPS
+  const groups = GROUPS.map((g) => (g.id === 'admin' ? { ...g, links: g.links.filter(([to]) => to !== '/bulk-deals') } : g))
+  groups.splice(groups.length - 1, 0, { id: 'bulk', label: 'Bulk Orders', links: BULK_ORDERS })
+  return groups
+}
 
 const WH_ICONS: Record<string, LucideIcon> = {
   '/warehouse': Warehouse,
@@ -128,12 +171,18 @@ function switchedOn(me: Me | null | undefined, screen: Screen): boolean {
   if (screen === 'settings') return !!me?.features?.panelSwitches
   if (screen === 'helpDesk') return !!me?.features?.helpDesk
   if (screen === 'subscriptions') return !!me?.features?.subscriptions
+  // On unless the API says it is off (PARTNER_NETWORK).
+  if (screen === 'partnerNetwork') return me?.features?.partnerNetwork !== false
+  // On unless the API says it is off (BULK_ENQUIRIES).
+  if (screen === 'bulkEnquiries') return me?.features?.bulkEnquiries !== false
+  // Off unless the API says it is on (FARM_EXPERIENCE).
+  if (screen === 'farmExperience' || screen === 'farmReports') return !!me?.features?.farmExperience
   return true
 }
 
 /** The groups this person sees, in order; empty groups are left out. */
 export function navGroups(me: Me | null | undefined): NavGroup[] {
-  const shown: NavGroup[] = GROUPS.map((g) => ({
+  const shown: NavGroup[] = withBulkOrders(me).map((g) => ({
     id: g.id,
     label: g.label,
     links: g.links
@@ -158,6 +207,7 @@ export function primaryLinks(groups: NavGroup[], max = 4): NavItem[] {
 
 /** True when `path` is this link's page or one under it (a detail page). */
 export function isHere(to: string, path: string): boolean {
-  if (to === '/warehouse') return path === '/warehouse'
+  // An overview whose pages sit under its path is only current on its own page.
+  if (to === '/warehouse' || to === '/partner-network') return path === to
   return path === to || path.startsWith(`${to}/`)
 }

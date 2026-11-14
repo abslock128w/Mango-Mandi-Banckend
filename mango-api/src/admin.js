@@ -34,6 +34,9 @@ import { router as gifts } from './admin/gifts.js'
 import { router as care } from './admin/care.js'
 import { router as whatsapp } from './admin/whatsapp.js'
 import { router as opsV2 } from './admin/ops-v2.js'
+import { router as partner } from './admin/partner.js'
+import { router as bulkEnquiries } from './admin/bulk-enquiries.js'
+import { router as farm } from './admin/farm.js'
 
 export { LIST_LIMIT } from './admin/shared.js'
 export { orderDetail } from './admin/orders.js'
@@ -75,3 +78,6 @@ router.use(ops) // stock forecast, farms and purchases, feature switches (docs/o
 router.use(care) // Help desk (HELP_CENTRE) and Subscriptions (SUBSCRIPTIONS): managers and operators
 router.use(whatsapp) // WhatsApp inbox (managers and operators), set-up and health (managers), docs/whatsapp/
 router.use(opsV2) // Mango Ops v2: /day, /live, /riders/:id/trail, /analytics/ops, /events (managers and operators)
+router.use(bulkEnquiries) // Bulk enquiries: the shop's bulk form, quotes sent on WhatsApp (managers and operators), mango-api/README.md, Bulk enquiries
+router.use(partner) // Partner Network: enquiries, follow-ups, product proposals (managers and operators), docs/partner-network.md
+router.use(farm) // Farm Experience: bookings, calendar, harvest, rooms, settings, reports (managers and operators), docs/farm-experience.md

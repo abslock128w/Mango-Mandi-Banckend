@@ -13,6 +13,8 @@ process.env.EVENTS_STREAM_MS ??= '300'
 process.env.EVENTS_LISTEN_LINGER_MS ??= '0'
 // The warehouse routes are on in tests so the role matrix covers them; every product still starts with box tracking off.
 process.env.WAREHOUSE_V2 ??= 'true'
+// Backorders are on by default; the older suites check STOCK_INSUFFICIENT, so they run with them off (backorders.test.js turns them on).
+process.env.BACKORDERS ??= 'false'
 process.env.WAREHOUSE_STOCKTAKE ??= 'true'
 process.env.WAREHOUSE_REPACK ??= 'true'
 process.env.WAREHOUSE_CAMERA_SCAN ??= 'true'

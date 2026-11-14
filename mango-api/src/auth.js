@@ -227,6 +227,26 @@ export async function requireCustomer(req, res, next) {
   }
 }
 
+/**
+ * A public route that also knows a signed-in customer (POST /v1/bulk-enquiries): with a valid
+ * customer token req.customer is set as requireCustomer sets it; without one, or with a stale
+ * one, the request goes on anonymous rather than failing.
+ */
+export async function optionalCustomer(req, _res, next) {
+  try {
+    if (!(req.headers.authorization ?? '').startsWith('Bearer ')) return next()
+    const c = bearer(req, 'customer')
+    const sv = await customerLive(c.sub)
+    if (sv !== null && (c.sv ?? 0) === sv) {
+      req.customer = { id: c.sub, phone: c.phone }
+      req.actor = { type: 'customer', id: c.sub, label: 'customer' }
+    }
+  } catch {
+    // An expired or foreign token: anonymous.
+  }
+  next()
+}
+
 const allowedOrigins = () =>
   `${env.ADMIN_ORIGIN},${env.CUSTOMER_ORIGIN},${env.RIDER_ORIGIN}`.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean)
 

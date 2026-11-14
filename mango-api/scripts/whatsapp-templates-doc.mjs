@@ -18,6 +18,9 @@ const PREFIX = 'mandi_'
 const SUMMARY_TEMPLATE = 'mandimangoes_daily_summary'
 const nameOf = (a) => (a.kind === 'MANAGER_DAILY_SUMMARY' ? SUMMARY_TEMPLATE : `${PREFIX}${(a.template ?? a.kind).toLowerCase()}`)
 
+/** The confirmation's second template, with the invoice button (registry `invoice`). */
+const INVOICE_BODY = 'Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}. Your invoice is ready.'
+
 /** Suggested body text. {{n}} are the variables in the registry's order. Utility wording carries no offer. */
 const BODY = {
   ORDER_CONFIRMED: 'Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid. It will be delivered on {{3}}, {{4}}.',
@@ -32,9 +35,9 @@ const BODY = {
   DELIVERY_FAILED: "Hi {{1}}, we couldn't deliver order {{2}} today. We will bring it on {{3}}.",
   CANCELLED: 'Hi {{1}}, order {{2}} has been cancelled. If you paid for it, the refund has been started.',
   REFUNDED: 'Hi {{1}}, the refund for {{2}} of {{3}} has been started. Your bank usually shows it within 5 to 7 working days.',
-  PREORDER_BOOKED: 'Hi {{1}}, booking {{2}} is confirmed: {{3}} for {{4}}. We will confirm the delivery day nearer the time.',
-  PREORDER_SPOT_OPEN: 'Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}}',
-  PREORDER_MOVED: 'Hi {{1}}, booking {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. You can cancel it in the app for a full refund.',
+  PREORDER_BOOKED: "Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.",
+  PREORDER_SPOT_OPEN: "Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}} Pre-orders can't be cancelled or refunded once paid.",
+  PREORDER_MOVED: "Hi {{1}}, pre-order {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. If the new week doesn't work for you, message us.",
   BACK_IN_STOCK: 'Hi {{1}}, {{2}} is back. The first delivery day is {{3}}. Order here: {{4}}',
   REORDER_REMINDER: 'Hi {{1}}, enjoyed the {{2}}? Order again here: {{3}}. Reply STOP OFFERS to stop these reminders.',
   REVIEW_REQUEST: 'Hi {{1}}, how were the mangoes in order {{2}}? Rate them in the app; it helps other customers choose.',
@@ -43,6 +46,8 @@ const BODY = {
   REFERRAL_REWARD: 'Hi {{1}}, thank you for bringing a friend to MandiMangoes. Here is {{2}} off your next order of {{5}} or more: code {{3}}, valid until {{4}}.',
   HELP_REPLY: 'Hi {{1}}, we replied to your help request {{2}}. Read it here: {{3}}',
   SUBSCRIPTION_DUE: 'Hi {{1}}, your next subscription box, {{2}}, is set for {{3}}. Pay here to confirm it: {{4}}',
+  BULK_ENQUIRY_RECEIVED: 'Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.',
+  BULK_QUOTE: 'Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}',
   MANAGER_DAILY_SUMMARY: 'MandiMangoes, {{1}}: {{2}} orders, {{3}} taken. Delivered {{4}} boxes, failed {{5}}. New claims {{6}}, unhappy ratings {{7}}, needs attention {{8}}.',
 }
 
@@ -76,6 +81,7 @@ export function render() {
   ]
   for (const a of AUTOMATIONS) {
     out.push(`| ${a.kind} | \`${nameOf(a)}\` | ${a.category} | ${a.params.length} | ${a.button ? (BUTTON_SHORT[a.button] ?? 'Open order') : '—'} |`)
+    if (a.invoice) out.push(`| ${a.kind} (with the invoice) | \`${PREFIX}${a.invoice.template.toLowerCase()}\` | ${a.category} | ${a.params.length} | Track order, Download invoice |`)
   }
   out.push(`| LOGIN_CODE | \`${PREFIX}login_code\` | AUTHENTICATION | 1 | Copy code (Meta's one-time password button) |`, '')
   for (const a of AUTOMATIONS) {
@@ -91,6 +97,16 @@ export function render() {
     out.push('- Variables:')
     a.params.forEach((p, i) => out.push(`  ${i + 1}. ${p} (example: ${a.example[i] ?? '—'})`))
     out.push('', `Suggested wording: ${BODY[a.kind] ?? '(write it in WhatsApp Manager)'}`, '')
+    if (a.invoice) {
+      out.push(`### ${a.kind} with the invoice`, '')
+      out.push(`- Template: \`${PREFIX}${a.invoice.template.toLowerCase()}\`, category ${a.category}, the same ${a.params.length} variables in the same order`)
+      out.push(`- Sent in place of \`${nameOf(a)}\` when the order has a bill (\`BILLS_ENABLED\`) and \`${a.invoice.flag}=true\`. One message: the confirmation, a button to track the order and a button to the invoice. The PDF itself is not attached.`)
+      out.push('- Buttons, in this order (the order matters: the API fills them by position):')
+      out.push('  1. URL button "Track order", `https://<shop>/orders/{{1}}` (the order id; example: ord_3f9c2a7b1d4e5f60a1b2)')
+      out.push('  2. URL button "Download invoice", `https://<api>/v1/invoice/{{1}}` (a signed link that opens the invoice PDF without a sign-in for 180 days; example: ord_3f9c2a7b1d4e5f60a1b2.t9x2k1.Zk3mQ0aB7cD9eF1gH2iJ4kL6mN8oP0qR)')
+      out.push(`- Until Meta approves it, and for an order without a bill, \`${nameOf(a)}\` is sent as before. After a template sync, a template that is missing, not approved or without its buttons is not used.`)
+      out.push('', `Suggested wording: ${INVOICE_BODY}`, '')
+    }
   }
   out.push('## LOGIN_CODE', '')
   out.push(`- Template: \`${PREFIX}login_code\`, category AUTHENTICATION, Meta's fixed authentication wording with a copy-code button`)

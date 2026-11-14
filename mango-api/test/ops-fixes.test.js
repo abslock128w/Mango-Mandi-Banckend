@@ -82,7 +82,7 @@ describe('notification retention', () => {
   test('finished messages older than 180 days are pruned; pending and recent ones stay', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const old = new Date(now().getTime() - 200 * 86_400_000)
     const add = async (status, at) => {
@@ -142,7 +142,7 @@ describe('admin lists', () => {
     const cust = await customerToken(api)
     const orders = []
     for (let i = 0; i < 4; i++) {
-      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       assert.equal(c.status, 201, JSON.stringify(c.body))
       await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
       orders.push(c.body.orderId)

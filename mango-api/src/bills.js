@@ -189,6 +189,8 @@ export function composeBill(o, items, cfg = trust) {
       tax,
       total: o.total,
       paid: o.payment_amount ?? o.total,
+      // How it was paid, from the payment (payments.js paymentDetails); older bills have none.
+      payment: o.payment_id ? { ...(o.payment_details ?? {}), paymentId: o.payment_details?.paymentId ?? o.payment_id, method: o.payment_details?.method ?? o.payment_method ?? null } : null,
       notes,
     },
   }
@@ -221,7 +223,10 @@ export async function issueBill(c, orderId, at = now()) {
   )
   const seq = rows[0].last_no
   const number = billNumber(trust.numberPrefix, fy, seq)
-  const address = [o.delivery_address, o.pincode].filter(Boolean).join(', ') || null
+  // The shop sends the map location after the address ("… · Location: 12.93,77.61", app.js withPin) for the rider;
+  // the bill keeps the postal address only.
+  const street = String(o.delivery_address ?? '').replace(/\s*·?\s*(?:Pin|Location):\s*-?\d{1,2}\.\d+,\s*-?\d{1,3}\.\d+\s*$/, '').trim()
+  const address = [street, o.pincode].filter(Boolean).join(', ') || null
   const ins = await c.query(
     `INSERT INTO bills (id, order_id, fy, seq, number, kind, issued_at, bill_date, total, snapshot, buyer_name, buyer_address)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,

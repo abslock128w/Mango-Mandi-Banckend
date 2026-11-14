@@ -151,7 +151,7 @@ function Shell() {
   const link = (l: NavItem, extra = '') => (
     <NavLink
       to={l.to}
-      end={l.to === '/warehouse'}
+      end={l.to === '/warehouse' || l.to === '/partner-network'}
       className={({ isActive }) => `nav-link${isActive || isHere(l.to, location.pathname) ? ' active' : ''}${extra}`}
       title={collapsed ? l.label : undefined}
     >

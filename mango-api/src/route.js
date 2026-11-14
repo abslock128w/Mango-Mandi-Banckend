@@ -2,10 +2,11 @@
 // and live tracking (how many stops before yours), so the two always agree.
 // There is no GPS: "N stops away" is counted along this order, over the stops
 // the rider still has out for delivery. docs/app-feel.md.
+import { orderSeqSql } from './order-number.js'
 import { getConfig } from './config.js'
 
-/** Slots in order, then zone and pincode, then order number. Needs orders o, delivery_slots s and pincodes p. */
-export const ROUTE_ORDER = 's.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, o.number'
+/** Slots in order, then zone and pincode, then the order they were placed in (order-number.js). Needs orders o, delivery_slots s and pincodes p. */
+export const ROUTE_ORDER = `s.sort NULLS LAST, s.starts_at NULLS LAST, p.zone NULLS LAST, o.pincode, ${orderSeqSql('o.number')}`
 
 /**
  * Stops before this order on its rider's run: the rider's other orders still

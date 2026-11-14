@@ -1,5 +1,6 @@
 # Production: one server running Postgres, mango-api, nightly backups, and Caddy
-# (automatic HTTPS) in front of the customer shop (Next.js), the staff panel and the API.
+# (automatic HTTPS) serving the customer shop (static files from shop/) and the staff panel,
+# and in front of the API.
 #   cp deploy/.env.example deploy/.env   # fill it in
 #   ./deploy/deploy.sh                   # build, preflight, start
 name: mandimangoes
@@ -41,26 +42,18 @@ services:
       driver: json-file
       options: { max-size: 20m, max-file: '5' }
 
-  shop:
-    build:
-      context: ..
-      dockerfile: deploy/shop.Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: https://${API_DOMAIN:?set API_DOMAIN}
-        # UX-1: the shop build fails without the help number (deploy/.env).
-        NEXT_PUBLIC_SUPPORT_WHATSAPP: ${SUPPORT_WHATSAPP:?set SUPPORT_WHATSAPP in deploy/.env}
-    restart: unless-stopped
-    depends_on: [api]
-    logging: *logs
-
   web:
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
       args:
         VITE_API_URL: https://${API_DOMAIN:?set API_DOMAIN}
+        # The shop's config.js (shop/build-config.mjs) is written at image build time.
+        API_URL: https://${API_DOMAIN:?set API_DOMAIN}
+        # UX-1: the shop shows this help number (deploy/.env).
+        SUPPORT_WHATSAPP: ${SUPPORT_WHATSAPP:?set SUPPORT_WHATSAPP in deploy/.env}
     restart: unless-stopped
-    depends_on: [api, shop]
+    depends_on: [api]
     ports: ['80:80', '443:443', '443:443/udp']
     environment:
       SHOP_DOMAIN: ${SHOP_DOMAIN}

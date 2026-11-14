@@ -2,6 +2,7 @@
 // reconciliation, trace, recalls, product settings and CSV exports
 // (docs/warehouse/REPORTS.md). Everything here is computed from the boxes,
 // their events and the stock counters at request time.
+import { orderSeqSql } from '../order-number.js'
 import { addDays, now, todayIST } from '../clock.js'
 import { newId } from '../ids.js'
 import { auditLedger, LINE_LOCK_ORDER } from '../inventory.js'
@@ -62,13 +63,13 @@ export async function overview(c, warehouseId) {
 
 async function pickQueueRows(c, { date = null, limit = 200 } = {}) {
   const { rows } = await c.query(
-    `SELECT o.id, o.number, o.status, o.delivery_date, o.slot_id, o.at_risk,
+    `SELECT o.id, o.number, o.status, o.delivery_date, o.slot_id, o.at_risk, o.backorder,
             sum(s.quantity) FILTER (WHERE s.state = 'committed')::int AS to_pick,
             (SELECT count(*)::int FROM boxes b WHERE b.order_id = o.id AND b.lifecycle = 'picked') AS picked
        FROM orders o JOIN order_stock s ON s.order_id = o.id JOIN products p ON p.sku = s.sku
       WHERE o.status IN ('CONFIRMED', 'PROCESSING') AND (o.payment_status = 'SUCCEEDED' OR o.replacement_for IS NOT NULL)
         AND s.state = 'committed' AND p.box_tracking_enabled AND ($1::date IS NULL OR o.delivery_date = $1)
-      GROUP BY o.id ORDER BY o.delivery_date, o.number LIMIT $2`,
+      GROUP BY o.id ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT $2`,
     [date, limit],
   )
   return rows
@@ -77,6 +78,7 @@ async function pickQueueRows(c, { date = null, limit = 200 } = {}) {
 export async function pickQueue(c, { date = null } = {}) {
   return (await pickQueueRows(c, { date })).map((r) => ({
     orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, atRisk: r.at_risk, toPick: r.to_pick, picked: r.picked,
+    backorder: r.backorder,
   }))
 }
 
@@ -126,7 +128,7 @@ export async function exceptions(c, warehouseId) {
   const cap = 50
   const q = async (sql, params) => (await c.query(sql, params)).rows
   const [atRisk, heldOnOrders, unverified, staleOps, expiring, failedNotes, pendingWo, staging, investigations, counts, missing] = await Promise.all([
-    q(`SELECT o.id, o.number, o.status, o.delivery_date, o.at_risk_reason FROM orders o
+    q(`SELECT o.id, o.number, o.status, o.delivery_date, o.at_risk_reason, o.backorder FROM orders o
         WHERE o.at_risk AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
           AND EXISTS (SELECT 1 FROM order_items i JOIN products p ON p.sku = i.sku WHERE i.order_id = o.id AND p.box_tracking_enabled)
         ORDER BY o.delivery_date LIMIT $1`, [cap]),
@@ -160,7 +162,7 @@ export async function exceptions(c, warehouseId) {
   ])
   const fmt = (r) => ({ ...r, ...(r.code && /^[0-9A-Z]{9}$/.test(r.code) ? { code: formatBoxCode(r.code) } : {}) })
   return {
-    shortfallOrders: atRisk.map((r) => ({ orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, reason: r.at_risk_reason })),
+    shortfallOrders: atRisk.map((r) => ({ orderId: r.id, number: r.number, status: r.status, deliveryDate: r.delivery_date, reason: r.at_risk_reason, backorder: r.backorder })),
     heldBoxesOnOrders: heldOnOrders.map((r) => ({ boxId: r.id, code: formatBoxCode(r.code), orderId: r.order_id, number: r.number, holds: r.holds })),
     unreceivedLots: unverified.map((r) => ({ lotId: r.id, code: r.code, createdAt: r.created_at, waiting: r.waiting })),
     staleSessions: staleOps.map((r) => ({ operationId: r.id, type: r.type, owner: r.email, lastActivityAt: r.last_activity_at })),
@@ -294,7 +296,7 @@ export async function traceBox(c, box, who) {
 async function ordersFor(c, ids, who) {
   if (!ids.length) return []
   const withPeople = can(who.role, 'recall.view_customers')
-  const { rows } = await c.query(`SELECT id, number, status, delivery_date, customer_name, phone FROM orders WHERE id = ANY($1) ORDER BY number`, [ids])
+  const { rows } = await c.query(`SELECT id, number, status, delivery_date, customer_name, phone FROM orders WHERE id = ANY($1) ORDER BY ${orderSeqSql('number')}`, [ids])
   return rows.map((o) => ({ id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, ...(withPeople ? { customerName: o.customer_name, phone: o.phone } : {}) }))
 }
 

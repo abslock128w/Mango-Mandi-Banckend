@@ -280,7 +280,7 @@ describe('customer routes', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    const c = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const id = c.body.orderId
     await api.post('/v1/dev/pay', { orderId: id, outcome: 'captured' })
@@ -311,7 +311,7 @@ describe('customer routes', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    assert.equal((await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 201)
+    assert.equal((await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])).status, 201)
     const mine = await api.get('/v1/me/addresses', { token: a.accessToken })
     assert.equal(mine.body.length, 1)
     const addressId = mine.body[0].id
@@ -336,7 +336,7 @@ describe('customer routes', () => {
     const b = await customerToken(api)
     const p = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
       { token: a.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(p.status, 201, JSON.stringify(p.body))
@@ -420,7 +420,7 @@ describe('webhooks and the cron', () => {
   test('a Razorpay webhook without a valid signature is refused and changes nothing', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201)
     const event = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_forged', order_id: c.body.razorpayOrderId, amount: c.body.total, method: 'upi' } } } }
     const raw = JSON.stringify(event)

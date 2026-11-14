@@ -41,6 +41,9 @@ export const PANEL_SWITCHES = [
   { key: 'SUBSCRIPTIONS', label: 'Subscriptions', description: 'A box every week or fortnight in the season, each one paid for as a normal order (no auto-debit).' },
   { key: 'MULTI_GIFT', label: 'Gifts to many addresses', description: 'One order can send gift boxes to several addresses.' },
   { key: 'SHOP_LANGUAGES', label: 'Shop languages', description: 'Customers can read the shop in another language.' },
+  { key: 'BULK_ENQUIRIES', label: 'Bulk enquiries', description: 'The shop’s bulk enquiry form sends to the panel’s Bulk enquiries section; customers see quotes on their Account page.' },
+  { key: 'FARM_EXPERIENCE', label: 'Farm Experience', description: 'Farm visits with 250 kg or more of mangoes in Bulk Deals, and the panel’s farm pages. Customers can book only once Farm Settings opens bookings.' },
+  { key: 'PARTNER_NETWORK', label: 'Partner With Us', description: 'The shop’s Partner With Us page and enquiry form, and the panel’s Partner Network section.' },
 ]
 
 /**
@@ -52,7 +55,7 @@ export const NEVER_FROM_PANEL = [
   'DELIVERY_CHECKS', 'REFUND_SAFETY_CHECKS', 'PAYMENT_DAILY_RECON', 'ORDER_RULE_CHECKS', 'STOCK_INTAKE_CHECKS', 'ENABLE_DEV_ROUTES',
   'SHOW_ERROR_DETAILS', 'OTP_CODE_IN_RESPONSE', 'DEMO_OTP_ON_SCREEN', 'LOG_OTP_CODES', 'CUSTOMER_PROFILES_ENABLED', 'STAFF_EXPORTS_ENABLED', 'WAREHOUSE_V2',
   'WAREHOUSE_STOCKTAKE', 'WAREHOUSE_REPACK', 'WAREHOUSE_CAMERA_SCAN', 'WEB_PUSH', 'WHATSAPP_REVIEW_REQUESTS', 'WHATSAPP_CLAIM_UPDATES',
-  'WHATSAPP_ORDER_LINKS', 'BACKUP_HEARTBEAT_EXPECTED', 'SEED_DEMO_DATA', 'COOKIE_SECURE',
+  'WHATSAPP_ORDER_LINKS', 'WHATSAPP_ORDER_INVOICE', 'BACKUP_HEARTBEAT_EXPECTED', 'SEED_DEMO_DATA', 'COOKIE_SECURE',
 ]
 
 const bad = PANEL_SWITCHES.filter((s) => NEVER_FROM_PANEL.includes(s.key) || !/^[A-Z][A-Z0-9_]{1,63}$/.test(s.key))

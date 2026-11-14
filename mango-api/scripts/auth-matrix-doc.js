@@ -25,6 +25,7 @@ const AREAS = [
   ['Products', ['products']],
   ['Promo codes and referrals', ['promos', 'referrals']],
   ['Bulk deals', ['bulk-listings']],
+  ['Bulk enquiries', ['bulk-enquiries']],
   ['Preorders', ['preorders', 'preorder-capacity']],
   ['Planning', ['planning', 'pincodes', 'config', 'calendar', 'slots', 'coverage']],
   ['Customer care', ['claims', 'reviews', 'help', 'subscriptions', 'customers']],
@@ -32,6 +33,7 @@ const AREAS = [
   ['Recovery', ['webhook-failures', 'refunds', 'notifications']],
   ['Warehouse', ['warehouse']],
   ['WhatsApp', ['whatsapp']],
+  ['Partner Network', ['partner-network']],
 ]
 const areaOf = (route) => {
   const segment = route.split(' ')[1].split('/')[1]

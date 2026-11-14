@@ -19,10 +19,23 @@ export async function firstOpenDay(c, from) {
   throw conflict('No delivery day is open in the next 60 days', 'NO_DELIVERY_DAY')
 }
 
+/** Days from an order to its earliest delivery, before the cutoff (one more after it). There is no same-day delivery. */
+export const ORDER_LEAD_DAYS = 1
+
 /** D+1 before the IST cutoff, D+2 after it, then skip closed days. */
 export function earliestRawDate(at = now()) {
   const { date, hour } = istParts(at)
-  return addDays(date, hour < getConfig().cutoffHourIST ? 1 : 2)
+  return addDays(date, hour < getConfig().cutoffHourIST ? ORDER_LEAD_DAYS : ORDER_LEAD_DAYS + 1)
+}
+
+/**
+ * The last day a batch plucked on `pluckedOn` can be delivered (it is maxSellableAge on its delivery
+ * date) and the last day it can be ordered for that day, before the cutoff (ORDER_LEAD_DAYS earlier).
+ * A product with a shorter shelf life (inventory.js saleLimitDays) stops sooner. Closed days aren't counted.
+ */
+export function sellWindow(pluckedOn, cfg = getConfig()) {
+  const lastDeliveryDay = addDays(pluckedOn, cfg.maxSellableAge)
+  return { lastDeliveryDay, lastOrderDay: addDays(lastDeliveryDay, -ORDER_LEAD_DAYS) }
 }
 
 export const earliestDeliveryDate = (c, at = now()) => firstOpenDay(c, earliestRawDate(at))

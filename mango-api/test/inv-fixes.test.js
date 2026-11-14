@@ -39,7 +39,7 @@ const lineId = async (batchId) => (await query('SELECT id FROM batch_lines WHERE
 
 async function paidOrder(qty = 1, { deliveryDate } = {}) {
   const cust = await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }], { deliveryDate })
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }], { deliveryDate })
   assert.equal(o.status, 201, JSON.stringify(o.body))
   assert.equal((await pay(o.body.orderId)).status, 200)
   return { id: o.body.orderId, cust }
@@ -62,17 +62,17 @@ describe('INV-A: an expired unpaid hold no longer keeps a day or slot full', () 
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } }) // ripe on 10-16 and 10-17
     await api.put('/admin/v1/calendar/2026-10-16', { isOpen: true, maxBoxes: 2 }, { token: admin })
     const a = await customerToken(api)
-    const held = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
+    const held = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
     assert.equal(held.status, 201)
 
     const b = await customerToken(api)
-    const early = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
+    const early = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
     assert.equal(early.status, 409, 'a live hold still counts')
     assert.equal(early.body.error.code, 'DATE_FULL')
 
     later(11 * 60_000) // A's 10-minute hold has run out; no sweep has run
     const c = await customerToken(api)
-    const r = await checkout(api, c.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
+    const r = await checkout(api, c.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
     assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.equal((await pay(r.body.orderId)).status, 200)
 
@@ -92,7 +92,7 @@ describe('INV-A: an expired unpaid hold no longer keeps a day or slot full', () 
   test('slot usage leaves out holds that ran out', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
-    const held = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 3 }], { deliveryDate: '2026-10-16' })
+    const held = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 3 }], { deliveryDate: '2026-10-16' })
     const slot = newId('slot')
     await query(`INSERT INTO delivery_slots (id, label, starts_at, ends_at, max_boxes, active, sort, created_at) VALUES ($1, 'Morning', '07:00', '11:00', 3, TRUE, 1, now())`, [slot])
     await query('UPDATE orders SET slot_id = $2 WHERE id = $1', [held.body.orderId, slot])
@@ -111,7 +111,7 @@ describe('INV-I: quote checks the day, one transition table, ledger actor ids', 
     await api.put('/admin/v1/calendar/2026-10-16', { isOpen: true, maxBoxes: 1 }, { token: admin })
     await paidOrder(1, { deliveryDate: '2026-10-16' })
     const b = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: b.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: b.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034', deliveryDate: '2026-10-16' }, { token: b.accessToken })
     assert.equal(q.status, 409)
     assert.equal(q.body.error.code, 'DATE_FULL')
@@ -234,10 +234,10 @@ describe('INV-B: a late payment with no stock anywhere is not told the old date'
   test('the confirmation is held until stock is found, and the shop says so', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 2 } })
     const a = await customerToken(api)
-    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     later(12.5 * 60_000) // past the hold plus the 2-minute grace for gateway orders (PAY-B5)
     const b = await customerToken(api)
-    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }]) // lazily expires A, takes the boxes
+    const cb = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }]) // lazily expires A, takes the boxes
     assert.equal(cb.status, 201)
     await pay(cb.body.orderId)
     await pay(ca.body.orderId)

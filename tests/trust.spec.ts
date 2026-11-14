@@ -6,8 +6,8 @@ import type { CustomerProfile, Role } from '../src/types'
 
 // The panel's side of bills, customer profiles and CSV exports (docs/trust.md),
 // against the mock API: who sees what, the masked phone and its reveal, the
-// export range check, and the pages at phone width. The real-API journey is
-// customer-app/tests/trust.spec.ts.
+// export range check, and the pages at phone width. (The real-API journey lived
+// with the Next.js shop, retired on 4 Nov 2026.)
 
 const EMAIL: Record<Role, string> = { MANAGER: 'manager@mandimangoes.test', OPERATOR: 'ops@mandimangoes.test', PACKER: 'packer@mandimangoes.test', QC: 'qc@mandimangoes.test', RIDER: 'rider@mandimangoes.test' }
 

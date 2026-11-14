@@ -12,7 +12,7 @@ import { availabilityByDate } from './inventory.js'
 import { photoWidth, sendPublicPhoto } from './photos.js'
 import { findProduct } from './products.js'
 import { eatByFor } from './ripeness.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES, STAGES } from './stage.js'
 
 export const publicBulk = express.Router()
 export const cartBulk = express.Router()
@@ -146,7 +146,7 @@ cartBulk.post(
       return res.status(204).end()
     }
     const l = await saleListing({ query }, b.listingId)
-    if (!l.stages.includes(b.stage)) throw new HttpError(400, 'BULK_STAGE_INVALID', 'That ripeness is not offered on this deal', { listingId: l.id })
+    if (!l.stages.includes(b.stage) || !SALE_STAGES.includes(b.stage)) throw new HttpError(400, 'BULK_STAGE_INVALID', 'That ripeness is not offered on this deal', { listingId: l.id })
     const problem = qtyProblem(l, b.qty)
     if (problem) throw new HttpError(400, 'BULK_QTY_INVALID', problem, { listingId: l.id })
     await query(

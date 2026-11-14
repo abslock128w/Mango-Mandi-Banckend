@@ -36,11 +36,11 @@ const place = async (items, opts = {}) => {
 
 describe('bulk reschedule', () => {
   test('moves a whole day, tells each customer, and lists orders with no stock on the new date', async () => {
-    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4 } }) // ripe on 10-16 and 10-17
-    await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } }) // semi-ripe only on 10-16
-    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
-    const b = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
-    const semi = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4 } }) // semi-ripe on 10-16 and 10-17 (ages 6, 7)
+    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 1 } }) // raw only on 10-16 (age 3; semi-ripe at 4)
+    const a = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    const b = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
+    const raw = await place([{ sku: 'ALP-3', stage: 'RAW', qty: 1 }])
     const body = { fromDate: '2026-10-16', toDate: '2026-10-17', reason: 'Rain' }
 
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
@@ -57,7 +57,7 @@ describe('bulk reschedule', () => {
     const r = await bulk(body)
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.deepEqual(r.body.moved.map((m) => [m.id, m.deliveryDate]).sort(), [[a, '2026-10-17'], [b, '2026-10-17']].sort())
-    assert.deepEqual(r.body.notMoved.map((m) => m.id), [semi])
+    assert.deepEqual(r.body.notMoved.map((m) => m.id), [raw])
     assert.match(r.body.notMoved[0].reason, /No stock/)
 
     for (const id of [a, b]) {
@@ -66,7 +66,7 @@ describe('bulk reschedule', () => {
       assert.ok(o.events.some((e) => /Rain \(moved by manager@mandimangoes\.test\); moved from 2026-10-16 to 2026-10-17/.test(e.reason ?? '')))
       assert.ok(o.notifications.some((n) => n.kind === 'DATE_MOVED'))
     }
-    const kept = await order(semi)
+    const kept = await order(raw)
     assert.equal(kept.deliveryDate, '2026-10-16')
     assert.ok(!kept.notifications.some((n) => n.kind === 'DATE_MOVED'))
 
@@ -77,8 +77,8 @@ describe('bulk reschedule', () => {
 
   test('only the listed orders move, and a single reschedule also tells the customer', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4 } })
-    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
-    const b = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const a = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    const b = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const r = await bulk({ fromDate: '2026-10-16', toDate: '2026-10-17', reason: 'Van broke down', orderIds: [a] })
     assert.deepEqual(r.body.moved.map((m) => m.id), [a])
     assert.equal((await order(b)).deliveryDate, '2026-10-16')
@@ -98,14 +98,14 @@ describe('rider manifest', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const morning = (await api.post('/admin/v1/slots', { label: 'Morning', startsAt: '07:00', endsAt: '11:00', sort: 1 }, { token: admin })).body
     const evening = (await api.post('/admin/v1/slots', { label: 'Evening', startsAt: '16:00', endsAt: '20:00', sort: 2 }, { token: admin })).body
-    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { slotId: evening.id, pincode: '560034' })
-    const b = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
-    const c = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
+    const a = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { slotId: evening.id, pincode: '560034' })
+    const b = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
+    const c = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { slotId: morning.id, pincode: '560008' })
     await api.patch(`/admin/v1/orders/${c}/status`, { status: 'PROCESSING' }, { token: admin })
     await api.post(`/admin/v1/orders/${c}/allocate`, undefined, { token: admin })
     assert.equal((await api.patch(`/admin/v1/orders/${c}/status`, { status: 'PACKED' }, { token: admin })).status, 204)
     const unpaid = await customerToken(api)
-    await checkout(api, unpaid.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16', slotId: morning.id })
+    await checkout(api, unpaid.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-16', slotId: morning.id })
 
     const m = (await api.get('/admin/v1/manifest?date=2026-10-16', { token: admin })).body
     assert.equal(m.orders, 3) // the unpaid checkout is left off
@@ -115,7 +115,7 @@ describe('rider manifest', () => {
     assert.deepEqual([stop.pincode, stop.city, stop.zone], ['560008', 'Bengaluru', 'East'])
     assert.deepEqual(stop.orders.map((o) => [o.id, o.packed]).sort(), [[b, false], [c, true]].sort())
     assert.equal(m.runs[1].stops[0].orders[0].id, a)
-    assert.deepEqual(m.runs[1].stops[0].orders[0].items, [{ sku: 'ALP-3', productName: m.runs[1].stops[0].orders[0].items[0].productName, stage: 'RIPE', quantity: 2 }])
+    assert.deepEqual(m.runs[1].stops[0].orders[0].items, [{ sku: 'ALP-3', productName: m.runs[1].stops[0].orders[0].items[0].productName, stage: 'SEMI_RIPE', quantity: 2 }])
     assert.equal((await api.get('/admin/v1/manifest?date=2026-10-20', { token: admin })).body.runs.length, 0)
     assert.equal((await api.get('/admin/v1/manifest?date=tomorrow', { token: admin })).status, 400)
   })
@@ -125,8 +125,8 @@ describe('analytics', () => {
   test('weekly sales, deliveries, wastage and at-risk, plus a per-SKU table', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const spare = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
-    const a = await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
-    await place([{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const a = await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    await place([{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     await api.patch(`/admin/v1/orders/${a}/status`, { status: 'PROCESSING' }, { token: admin })
     await api.post(`/admin/v1/orders/${a}/allocate`, undefined, { token: admin })
     for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) {

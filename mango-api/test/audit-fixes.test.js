@@ -41,7 +41,7 @@ const capture = (entity) => ({ event: 'payment.captured', payload: { payment: { 
 
 async function unpaid(qty = 1) {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   return { ...c.body, token: cust.accessToken }
 }
@@ -208,8 +208,10 @@ describe('WhatsApp sends are recorded truthfully', () => {
     const o = await paid()
     const permanent = Object.assign(new Error('WhatsApp 404: Template not found'), { permanent: true })
     assert.equal(await sendDueNotifications({ sender: async () => { throw permanent } }), 0)
-    assert.equal((await query('SELECT status FROM notifications WHERE order_id = $1', [o.orderId])).rows[0].status, 'FAILED')
+    // The confirmation; the semi-ripe box's ripeness guide is not due for another minute.
+    assert.equal((await query(`SELECT status FROM notifications WHERE order_id = $1 AND kind = 'ORDER_CONFIRMED'`, [o.orderId])).rows[0].status, 'FAILED')
 
+    await query(`DELETE FROM notifications WHERE order_id = $1 AND kind = 'RIPENESS_GUIDE'`, [o.orderId])
     await query(`UPDATE notifications SET status = 'PENDING', kind = 'OUT_FOR_DELIVERY', next_attempt_at = $2 WHERE order_id = $1`, [o.orderId, T0])
     let calls = 0
     assert.equal(await sendDueNotifications({ sender: async () => { calls++; return 'wamid.1' } }), 0)
@@ -222,7 +224,7 @@ describe('WhatsApp sends are recorded truthfully', () => {
     assert.equal(await sendDueNotifications({ sender: async () => 'wamid.report' }), 1)
     assert.equal(await recordDeliveryStatus({ id: 'wamid.report', status: 'delivered' }), 1)
     assert.equal(await recordDeliveryStatus({ id: 'wamid.report', status: 'failed', errors: [{ code: 131026, title: 'Message undeliverable' }] }), 1)
-    const n = (await query('SELECT status, delivery_status, last_error FROM notifications WHERE order_id = $1', [o.orderId])).rows[0]
+    const n = (await query(`SELECT status, delivery_status, last_error FROM notifications WHERE order_id = $1 AND kind = 'ORDER_CONFIRMED'`, [o.orderId])).rows[0]
     assert.equal(n.status, 'FAILED')
     assert.match(n.last_error, /131026/)
   })
@@ -233,7 +235,7 @@ describe('limited promo codes', () => {
     const admin = await adminToken(api)
     assert.equal((await api.post('/admin/v1/promos', { code: 'ONCE', kind: 'PERCENT', value: 10, maxUses: 1, confirmCode: 'manager123' }, { token: admin })).status, 201)
     const a = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: a.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: a.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: a.accessToken })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     const c = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }, { token: a.accessToken, headers: { 'Idempotency-Key': 'promo-once-1' } })
@@ -243,7 +245,7 @@ describe('limited promo codes', () => {
     assert.equal((await order(c.body.orderId)).status, 'CANCELLED')
 
     const b = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: b.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: b.accessToken })
     const soon = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'ONCE' }, { token: b.accessToken })
     assert.equal(soon.body.error?.code, 'PROMO_USED_UP')
     later(45 * 60_000)

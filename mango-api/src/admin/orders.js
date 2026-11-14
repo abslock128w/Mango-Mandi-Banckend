@@ -1,4 +1,6 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
+import { orderSeqSql } from '../order-number.js'
+import { feeOf } from '../delivery-fee.js'
 import express from 'express'
 import { z } from 'zod'
 import { auditInTx, isPacker, redactForPacker } from '../access.js'
@@ -12,6 +14,7 @@ import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.
 import { stepUp } from './step-up.js'
 import { newId } from '../ids.js'
 import { allocateOrder, cancelOrder, eatByFor, moveOrderToDate, moveRetryToDate, placeOnFirstDateWithStock, rebalanceOrder, setOrderStatus } from '../orders.js'
+import { OLDEST_PLUCK_SQL } from '../ripeness.js'
 import { enqueue } from '../notify.js'
 import { refundOrder } from '../payments.js'
 import { logger } from '../logger.js'
@@ -63,7 +66,9 @@ router.get(
     if (f.unpacked) where.push("o.status IN ('CONFIRMED', 'PROCESSING')")
     if (f.olderThanMinutes) add('o.placed_at < ?', new Date(now().getTime() - f.olderThanMinutes * 60_000))
     if (f.q) {
-      params.push(`${likeEscape(f.q)}%`, `%${likeEscape(f.q)}%`)
+      // "#7434060801" as the shop shows it.
+      const q = f.q.replace(/^#(?=\d)/, '')
+      params.push(`${likeEscape(q)}%`, `%${likeEscape(q)}%`)
       // ADM-1: callers give a name or an area as often as a number.
       const [starts, has] = [`$${params.length - 1}`, `$${params.length}`]
       where.push(`(o.number ILIKE ${starts} OR o.phone ILIKE ${has} OR o.customer_name ILIKE ${has} OR o.delivery_address ILIKE ${has} OR o.gift_recipient_name ILIKE ${has})`)
@@ -72,7 +77,7 @@ router.get(
     const total = (await query(`SELECT COUNT(*)::int AS n FROM orders o ${w}`, params)).rows[0].n
     const { rows } = await query(
       `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count
-         FROM orders o ${w} ORDER BY o.placed_at DESC, o.number DESC LIMIT ${PAGE_SIZE} OFFSET ${(f.page - 1) * PAGE_SIZE}`,
+         FROM orders o ${w} ORDER BY o.placed_at DESC, ${orderSeqSql('o.number')} DESC LIMIT ${PAGE_SIZE} OFFSET ${(f.page - 1) * PAGE_SIZE}`,
       params,
     )
     res.json({
@@ -82,6 +87,8 @@ router.get(
       items: rows.map((o) => ({
         id: o.id, number: o.number, customerName: o.customer_name, phone: o.phone, itemCount: o.item_count, total: o.total,
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
+        // Backorders: some boxes were sold before stock arrived (awaiting stock while atRisk).
+        backorder: Boolean(o.backorder),
         // The slot and rider, for the workbench's Due and Rider columns.
         slotId: o.slot_id ?? null, riderId: o.rider_id ?? null,
         // A delivery of a gift order to many recipients (MULTI_GIFT).
@@ -102,7 +109,7 @@ export async function orderDetail(c, orderId) {
   if (!rows.length) throw notFound('Order not found')
   const o = rows[0]
   const [items, stock, events, notes, deliveryAttempts, rating, bill, photos] = await Promise.all([
-    c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [orderId]),
+    c.query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [orderId]),
     c.query(
       `SELECT s.*, b.variety, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
         WHERE s.order_id = $1 AND s.state <> 'released' ORDER BY s.sku, b.plucked_on`,
@@ -111,7 +118,7 @@ export async function orderDetail(c, orderId) {
     c.query('SELECT * FROM order_events WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     c.query('SELECT * FROM notifications WHERE order_id = $1 ORDER BY created_at, id', [orderId]),
     attemptsFor(c, orderId),
-    c.query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
+    c.query('SELECT stars, comment, packaging, condition, sweetness, updated_at FROM order_ratings WHERE order_id = $1', [orderId]),
     isOn('BILLS_ENABLED') ? billFor(c, orderId) : null,
     c.query(
       `SELECT id, step, attempt, lat, lng, accuracy, taken_at, created_at, taken_by, verdict, check_passed, needs_review, checked_at, removed_at
@@ -121,7 +128,7 @@ export async function orderDetail(c, orderId) {
   ])
   const r = rating.rows[0]
   return {
-    rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
+    rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
     id: o.id, number: o.number, status: o.status, customerName: o.customer_name, phone: o.phone, pincode: o.pincode,
     // The account behind the order, for the customer profile (CUSTOMER_PROFILES_ENABLED).
     customerId: o.customer_id,
@@ -131,8 +138,12 @@ export async function orderDetail(c, orderId) {
     // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
     attempt: o.delivery_failures + 1,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
+    // The delivery charge and the distance it was measured over (delivery-fee.js).
+    deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km),
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
+    // Backorders: sold before stock arrived; awaiting stock while atRisk (expected, not a problem).
+    backorder: Boolean(o.backorder),
     // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
     retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,
@@ -147,9 +158,10 @@ export async function orderDetail(c, orderId) {
     })),
     items: items.rows.map((i) => ({
       id: i.id, productName: productName(i.sku), sku: i.sku, quantity: i.quantity, stage: i.stage, unitPrice: i.unit_price,
-      linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null,
+      linePrice: i.line_price, eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null,
       // A bulk deal line: the listing and the price tier it was sold at (kept on the item, so later edits never change it).
       bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier, listingVersion: i.pricing.listingVersion } : null,
+      backordered: Boolean(i.backordered),
     })),
     stock: stock.rows.map((s) => ({ id: s.id, batchId: s.batch_id, sku: s.sku, stage: s.stage, variety: s.variety, pluckedOn: s.plucked_on, quantity: s.quantity, state: s.state })),
     // INV-F: boxes on a cancelled or returned order that staff still have to put back or write off.
@@ -373,7 +385,7 @@ router.get(
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message
          FROM orders o LEFT JOIN delivery_slots s ON s.id = o.slot_id
         WHERE o.delivery_date = $1 AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED')
-        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, o.number`,
+        ORDER BY s.sort NULLS LAST, s.starts_at NULLS LAST, ${orderSeqSql('o.number')}`,
       [date],
     )
     const ids = orders.map((o) => o.id)

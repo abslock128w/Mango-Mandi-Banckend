@@ -98,7 +98,7 @@ export async function makeBatch({ variety = 'Alphonso', age, status = 'SELLING',
   const id = newId('bat')
   const pluckedOn = addDays(todayIST(), -age)
   await query('INSERT INTO batches (id, variety, plucked_on, status, eta_date, arrived_at) VALUES ($1, $2, $3, $4, $5, $6)', [
-    id, variety, pluckedOn, status, addDays(pluckedOn, 2), status === 'IN_TRANSIT' ? null : new Date(),
+    id, variety, pluckedOn, status, addDays(pluckedOn, 1), status === 'IN_TRANSIT' ? null : new Date(),
   ])
   for (const [sku, qty] of Object.entries(lines)) {
     await query('INSERT INTO batch_lines (id, batch_id, sku, on_hand) VALUES ($1, $2, $3, $4)', [newId('bl'), id, sku, qty])

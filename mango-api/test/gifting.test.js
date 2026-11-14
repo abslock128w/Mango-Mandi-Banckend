@@ -48,7 +48,7 @@ const BOX = 189_900
 const BUYER_GSTIN = `29AABCT1332L1Z${gstinCheckChar('29AABCT1332L1Z')}`
 const person = (i, over = {}) => ({
   name: `Recipient ${i}`, phone: `90000000${String(i).padStart(2, '0')}`, address: `${i}, 4th Cross, Koramangala, Bengaluru`,
-  pincode: '560034', sku: 'ALP-3', stage: 'RIPE', qty: 1, note: i === 1 ? 'Happy Diwali!' : null, ...over,
+  pincode: '560034', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, note: i === 1 ? 'Happy Diwali!' : null, ...over,
 })
 const people = (n, over = {}) => Array.from({ length: n }, (_, i) => person(i + 1, over))
 const stock = (qty = 30) => makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': qty } })
@@ -213,7 +213,7 @@ describe('checkout', () => {
     assert.equal(q.status, 200)
     // Someone else takes a box between the review and Pay.
     const b = await customerToken(api)
-    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: b.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: b.accessToken })).status, 204)
     const bq = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: b.accessToken })
     const bc = await api.post('/v1/checkout/confirm', { quoteId: bq.body.quoteId, address: '9, 1st Main, Koramangala, Bengaluru' }, { token: b.accessToken, headers: { 'Idempotency-Key': 'b1' } })
     assert.equal(bc.status, 201)

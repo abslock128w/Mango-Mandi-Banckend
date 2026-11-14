@@ -4,7 +4,7 @@ import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import { z } from 'zod'
 import { ACCESS_TTL_S, forgetCustomer, issueRefresh, refreshLimiter, requireCustomer, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from './auth.js'
-import { isDate, now, todayIST } from './clock.js'
+import { addDays, isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { customerDelivery, customerPhoto } from './delivery-proof.js'
@@ -15,31 +15,33 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { checkUnpaidLimit, createOrder, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, withinCancelWindow, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment } from './preorders.js'
+import { seasonView } from './season-phase.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
 import { sendOtp } from './sms.js'
 import { googleOn, verifyGoogleCredential } from './google.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES, STAGES } from './stage.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { checkPhoto, cleanImage, dropPhoto, isOwnPhotoUrl, MAX_PHOTO_BYTES, photoWidth, sendPhoto, sendPublicPhoto, storePhoto } from './photos.js'
 import { customerReviews } from './review-routes.js'
 import { eraseCustomer } from './privacy.js'
 import { requireHuman } from './turnstile.js'
 import { cancelAlert, createAlert, listAlerts } from './engagement.js'
-import { readyOnFor } from './ripeness.js'
+import { OLDEST_PLUCK_SQL, readyOnFor } from './ripeness.js'
 import { bulkCartView, bulkQuoteLines, cartBulk, checkBulkLinesAtConfirm, publicBulk } from './bulk-routes.js'
 import { billFor, billView } from './bills.js'
-import { customerBills } from './bill-routes.js'
+import { customerBills, linkedBills } from './bill-routes.js'
 import { gstinProblem, normaliseGstin } from './gstin.js'
 import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
 import { languages } from './language-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
+import { backorderEta, backorderPolicy, canBackorder, leadDays, markBackorder, windowDays } from './backorders.js'
 import { setConsent } from './wa/consent.js'
 import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
@@ -47,6 +49,10 @@ import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
+import { partnerPublic } from './partner/routes.js'
+import { assertInRange, deliveryFor, feeOf, feePolicy } from './delivery-fee.js'
+import { bulkEnquiryMe, bulkEnquiryPublic } from './bulk-enquiry-routes.js'
+import { devFarm, farmCustomer, farmPublic } from './farm/routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
 export const router = express.Router()
@@ -321,6 +327,18 @@ export async function serviceable(c, pincode) {
   return rows.length > 0
 }
 
+/** A map pin from a query string or a body: both numbers and in range, or nothing. */
+const LOCATION = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
+const pinFrom = (q) => {
+  if (q.lat === undefined || q.lng === undefined) return null
+  const p = LOCATION.safeParse({ lat: Number(q.lat), lng: Number(q.lng) })
+  return p.success ? p.data : null
+}
+/** What the shop is told about a delivery charge (delivery-fee.js): paise, and how the distance is known. */
+const deliveryView = (d) => ({
+  fee: d.fee, distanceKm: d.distanceKm, basis: d.basis, freeAbove: d.freeAbove, feeAtOrAbove: d.feeAtOrAbove, feeBelow: d.feeBelow, tooFar: d.tooFar, maxKm: d.maxKm,
+})
+
 export const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
 
 router.get(
@@ -330,7 +348,13 @@ router.get(
     const ok = await serviceable({ query }, pincode)
     const dates = ok ? await orderableDates({ query }) : []
     const slots = ok ? (await activeSlots({ query })).map(slotView) : []
-    res.json({ serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots })
+    // The delivery charge for this pincode (and the shop's map pin, when it has one), so the bag can show it
+    // before checkout. Named only while the charge is on, so the answer is as before while it is off.
+    const delivery = ok ? await deliveryFor({ query }, { pincode, location: pinFrom(req.query) }) : { enabled: false }
+    res.json({
+      serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots,
+      ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
+    })
   }),
 )
 
@@ -362,7 +386,9 @@ router.get(
   '/catalogue',
   asyncHandler(async (req, res) => {
     const pincode = parse(PIN, req.query.pincode)
-    if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [] })
+    // season: before the season starts the shop's home page takes pre-orders (season-phase.js).
+    const season = seasonView()
+    if (!(await serviceable({ query }, pincode))) return res.json({ serviceable: false, items: [], season })
     const wanted = req.query.delivery_date || req.query.deliveryDate || null
     const { date, dates } = await deliveryDateFor({ query }, pincode, wanted)
     // One read of the stock for the chosen day and the later bookable days, so
@@ -371,17 +397,20 @@ router.get(
     const pool = byDate.get(date)
     const later = [...byDate].filter(([d]) => d !== date)
     const items = shopProducts().flatMap((p) =>
-      STAGES.map((stage) => {
+      SALE_STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
         const qty = pool.get(key) ?? 0
         return {
           sku: p.sku, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price, description: p.description ?? '', photoUrl: p.photoUrl, stage,
           fruitsPerBox: p.fruitsPerBox, fruitWeightG: p.fruitWeightG,
           qty, eatBy: eatByFor(stage, date), nextAvailableDate: qty > 0 ? null : (later.find(([, lp]) => lp.get(key) > 0)?.[0] ?? null),
+          // Boxes free on the chosen day and each later bookable day (0 included), so the shop can
+          // move an order to the first day everything in the bag is ready.
+          availability: [...byDate].map(([d, lp]) => ({ date: d, qty: lp.get(key) ?? 0 })),
         }
       }),
     )
-    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items })
+    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items, season })
   }),
 )
 
@@ -396,6 +425,8 @@ router.get('/policy', (_req, res) => {
     holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
     // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
     bills: isOn('BILLS_ENABLED'),
+    // The delivery charge on regular orders: { enabled: false } or the table the shop's pages quote (delivery-fee.js).
+    deliveryFee: feePolicy(),
     // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
     features: {
       // Effective values: a manager may have changed these on the panel (PANEL_FEATURE_SWITCHES, docs/ops.md).
@@ -409,10 +440,18 @@ router.get('/policy', (_req, res) => {
       funnel: isOn('FUNNEL_ANALYTICS'),
       // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
       multiGift: isOn('MULTI_GIFT'),
+      // Partner With Us links (PARTNER_NETWORK, docs/partner-network.md).
+      partnerNetwork: isOn('PARTNER_NETWORK'),
+      // The bulk enquiry form sends to the panel, and quotes show on the Account page (mango-api/README.md, Bulk enquiries).
+      bulkEnquiries: isOn('BULK_ENQUIRIES'),
+      // Farm Experience in Bulk Deals (FARM_EXPERIENCE, docs/farm-experience.md).
+      farmExperience: isOn('FARM_EXPERIENCE'),
       // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
       languages: isOn('SHOP_LANGUAGES'),
     },
     ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
+    // Backorders: a box with no stock can still be ordered, delivered in leadDays–windowDays days (mango-api/README.md).
+    backorders: backorderPolicy(),
     // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
     // Named only while one is on, so an API with both off answers as before.
     ...(isOn('HELP_CENTRE') || isOn('SUBSCRIPTIONS')
@@ -455,7 +494,10 @@ router.get(
 
 // ---------------------------------------------------------------- cart
 
-/** Weeks open for preorders, with capacity left per SKU. */
+/**
+ * Weeks open for preorders, with capacity left per SKU, and the season (phase, start, when
+ * pre-orders open), which the shop reads before it knows a pincode.
+ */
 router.get(
   '/preorders/weeks',
   asyncHandler(async (req, res) => {
@@ -464,7 +506,10 @@ router.get(
       const p = sellable(w.sku)
       return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
     })
-    res.json({ weeks, stages: STAGES, cancelPolicy: 'Cancel any time before packing for a full refund.' })
+    res.json({
+      weeks, stages: SALE_STAGES, season: seasonView(),
+      cancelPolicy: "Pre-orders can't be cancelled or refunded once paid. If we can't deliver your box, we refund you in full.",
+    })
   }),
 )
 
@@ -474,22 +519,34 @@ router.get(
 router.use(publicBulk)
 // POST /events: the shop's anonymous funnel steps (FUNNEL_ANALYTICS), before the sign-in gate.
 router.use(growthPublic)
+// Partner With Us: the business enquiry form, no sign-in (docs/partner-network.md).
+router.use('/partner-network', partnerPublic)
+// Bulk enquiries: the shop's form, no sign-in needed (mango-api/README.md, Bulk enquiries).
+router.use(bulkEnquiryPublic)
+// Farm Experience: the page, dates and prices are public (docs/farm-experience.md).
+router.use(farmPublic)
 
-router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts'], requireCustomer)
+router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts', '/farm-bookings'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
 router.use(cartBulk)
 // Reviews: /me/reviews and /reviews need the sign-in above; product reviews and approved photos are public.
 router.use(customerReviews)
 // The bill PDF of the customer's own paid order (BILLS_ENABLED).
 router.use(customerBills)
+// No sign-in: the signed invoice link sent on WhatsApp (bill-link.js).
+router.use(linkedBills)
 // Browser notifications and favourites: /me/push and /me/favourites (app-feel-routes.js).
 router.use(appFeel)
 // /me/referral...: refer a friend (REFERRALS, docs/growth.md).
 router.use(growthMe)
 // Bulk and corporate gifting (MULTI_GIFT): /gifts..., the caller's own gift orders only.
 router.use(customerGifts)
+// Farm Experience bookings: /farm-bookings..., the caller's own only (docs/farm-experience.md).
+router.use(farmCustomer)
 // Help requests and subscriptions: /me/help and /me/subscriptions (care-routes.js, docs/care.md).
 router.use(care)
+// The caller's bulk enquiries and quotes: /me/bulk-enquiries (bulk-enquiry-routes.js).
+router.use(bulkEnquiryMe)
 // The shop language the customer chose: /me/language (language-routes.js, docs/languages.md).
 router.use(languages)
 
@@ -501,19 +558,25 @@ router.get('/me', asyncHandler(async (req, res) => {
   res.json(meView(rows[0]))
 }))
 
-/** Settings the customer controls: for now, the WhatsApp reminder a week after delivery. */
+/** Settings the customer controls: their name, and the WhatsApp reminder a week after delivery. */
 router.patch('/me', asyncHandler(async (req, res) => {
-  const b = parse(z.object({ remindersOptIn: z.boolean() }).strict(), req.body ?? {})
-  // The change is also WhatsApp promotional consent, with the request id as evidence (docs/whatsapp/CONSENT.md).
+  const b = parse(
+    z.object({
+      remindersOptIn: z.boolean().optional(),
+      name: z.string().trim().min(1, 'Enter your name').max(80, 'Keep the name under 80 characters').optional(),
+    }).strict().refine((v) => v.remindersOptIn !== undefined || v.name !== undefined, 'Nothing to change'),
+    req.body ?? {},
+  )
+  // A reminder change is also WhatsApp promotional consent, with the request id as evidence (docs/whatsapp/CONSENT.md).
   const row = await tx(async (c) => {
     const { rows } = await c.query(
-      `UPDATE customers SET reminders_opt_in = $2 WHERE id = $1 AND deleted_at IS NULL
+      `UPDATE customers SET reminders_opt_in = COALESCE($2, reminders_opt_in), name = COALESCE($3, name) WHERE id = $1 AND deleted_at IS NULL
         RETURNING id, phone, name, email, reminders_opt_in, (SELECT reminders_opt_in FROM customers WHERE id = $1) AS was`,
-      [req.customer.id, b.remindersOptIn],
+      [req.customer.id, b.remindersOptIn ?? null, b.name ?? null],
     )
     if (!rows.length) throw notFound('Customer not found')
     const cu = rows[0]
-    if (cu.was !== b.remindersOptIn && /^\+[1-9][0-9]{6,14}$/.test(cu.phone ?? '')) {
+    if (b.remindersOptIn !== undefined && cu.was !== b.remindersOptIn && /^\+[1-9][0-9]{6,14}$/.test(cu.phone ?? '')) {
       await setConsent(c, { phone: cu.phone, customerId: cu.id, scope: 'marketing', action: b.remindersOptIn ? 'OPT_IN' : 'OPT_OUT', source: 'shop_account', evidence: req.id ? `request ${req.id}` : null })
     }
     return cu
@@ -528,7 +591,7 @@ router.get('/stock-alerts', asyncHandler(async (req, res) => res.json(await list
 router.post(
   '/stock-alerts',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ sku: z.string().min(1).max(20), stage: z.enum(STAGES), pincode: PIN }), req.body)
+    const b = parse(z.object({ sku: z.string().min(1).max(20), stage: z.enum(SALE_STAGES), pincode: PIN }), req.body)
     if (!(await serviceable({ query }, b.pincode))) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
     res.status(201).json(await tx((c) => createAlert(c, req.customer.id, b)))
   }),
@@ -800,6 +863,8 @@ router.post(
   '/cart/items',
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(0).max(20) }), req.body)
+    // A RIPE line from before RIPE stopped being sold can still be taken out of the cart (qty 0), not added.
+    if (b.qty > 0 && !SALE_STAGES.includes(b.stage)) throw badRequest('stage: Choose raw or semi-ripe', 'INVALID_STAGE')
     if (b.qty > 0 && !sellable(b.sku)) throw badRequest(`Unknown SKU ${b.sku}`, 'INVALID_SKU')
     if (b.qty === 0) {
       await query('DELETE FROM carts WHERE customer_id = $1 AND sku = $2 AND stage = $3', [req.customer.id, b.sku, b.stage])
@@ -833,20 +898,29 @@ router.post(
       z.object({
         pincode: PIN, deliveryDate: z.string().optional().nullable(), slotId: z.string().max(64).optional().nullable(),
         promoCode: z.string().max(40).optional().nullable(),
+        // Where the customer dropped the pin on the shop's map, for the delivery charge (delivery-fee.js).
+        location: LOCATION.optional().nullable(),
       }),
       req.body,
     )
     const quote = await tx(async (c) => {
-      const { date } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
+      const { date, dates } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
       const pool = await availability(c, date)
       const bulk = await bulkQuoteLines(c, req.customer.id, pool, date)
       if (!rows.length && !bulk.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
       const retail = rows.map((l) => {
         if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
-        if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty) throw new StockError(l.sku)
+        // A line added as RIPE before RIPE stopped being sold.
+        if (!SALE_STAGES.includes(l.stage)) throw conflict(`${findProduct(l.sku).name} is no longer sold ripe. Remove it from your cart and choose raw or semi-ripe.`, 'STAGE_UNAVAILABLE')
+        // Backorders: short on this day, the line is still sold (sourced for a day far enough out) unless backorders are off.
+        const short = (pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty
+        if (short && !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
         const price = findProduct(l.sku).price
-        return { sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date) }
+        return {
+          sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date),
+          ...(short ? { backorder: true } : {}),
+        }
       })
       // One order line per box and ripeness: the same box can't be both a regular and a bulk line.
       for (const b of bulk) {
@@ -871,9 +945,15 @@ router.post(
       if (b.promoCode?.trim() && !retail.length) throw badRequest('Promo codes apply to regular boxes, not bulk deals', 'PROMO_NOT_FOR_BULK')
       const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, retailSubtotal) : null
       const discount = promo?.discount ?? 0
+      // The delivery charge goes by what the boxes cost after the promo, and how far the address is.
+      const delivery = await deliveryFor(c, { pincode: b.pincode, location: b.location ?? null, goods: subtotal - discount })
+      assertInRange(delivery)
       const data = {
         pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
-        promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount, total: subtotal - discount,
+        promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount,
+        deliveryFee: delivery.fee, ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
+        total: subtotal - discount + delivery.fee,
+        ...(retail.some((l) => l.backorder) ? { backorder: true, backorderEta: backorderEta() } : {}),
       }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
@@ -992,7 +1072,7 @@ router.post(
       const q = rows[0]
       // A gift order's quote (MULTI_GIFT) is confirmed at /gifts/confirm, never here.
       if (!q || q.expires_at <= now() || q.data.kind === 'multi-gift') throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
-      const { date } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      const { date, dates } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
       const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
       // PAY-B10: a product taken off sale after the quote is not sold on it.
@@ -1002,6 +1082,14 @@ router.post(
         }
       }
       await checkUnpaidLimit(c, req.customer.id, quoted.reduce((t, l) => t + l.qty, 0))
+      // Backorders: a regular line short of stock on the day is placed anyway (for a day far enough out) and
+      // fulfilled when stock arrives; bulk lines and everything with backorders off stay all-or-nothing.
+      const pool = await availability(c, date)
+      const backorder = quoted.some((l) => {
+        if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) >= l.qty) return false
+        if (l.listingId || !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
+        return true
+      })
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
       const retailSubtotal = quoted.filter((l) => !l.listingId).reduce((t, l) => t + l.unitPrice * l.qty, 0)
@@ -1011,14 +1099,18 @@ router.post(
         c,
         {
           customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address,
-          deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: true,
+          deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: !backorder,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: quoted.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice, listingId: l.listingId ?? null, pricing: l.pricing ?? null })),
           discount: promo?.discount ?? 0, promoCode: promo?.code ?? null,
+          // The charge the customer was quoted (fixed with the quote, not worked out again here).
+          deliveryFee: q.data.deliveryFee ?? 0,
           gift: b.gift ? { recipientName: b.gift.recipientName, recipientPhone: b.gift.recipientPhone, message: b.gift.message || null } : null,
         },
         req.actor,
       )
+      if (backorder) await markBackorder(c, created.id)
+      if (q.data.delivery) await c.query('UPDATE orders SET delivery_km = $2 WHERE id = $1', [created.id, q.data.delivery.distanceKm])
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
       if (b.funnelId) await rememberCheckout(c, created.id, b.funnelId)
       if (b.business) {
@@ -1116,20 +1208,39 @@ async function ownOrder(c, req) {
   return rows[0]
 }
 
+/** INV-B, and backorders: paid (or, for a backorder, placed) but some boxes have no stock yet. */
+const findingStock = (o) => Boolean(o.at_risk) && (['CONFIRMED', 'PROCESSING'].includes(o.status) || (o.backorder && o.status === 'PAYMENT_PENDING'))
+
+/** A backorder's fields on the customer's order views: the ETA only while its boxes are still being sourced. */
+const backorderView = (o) => {
+  if (!o.backorder) return {}
+  const sourcing = findingStock(o)
+  return { backorder: true, ...(sourcing ? { backorderEta: { from: o.delivery_date, to: addDays(o.delivery_date, windowDays() - leadDays()) } } : {}) }
+}
+
 router.get(
   '/orders',
   asyncHandler(async (req, res) => {
     const { rows } = await query(
-      `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count
+      `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count,
+              EXISTS (SELECT 1 FROM order_ratings r WHERE r.order_id = o.id) AS rated,
+              EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id) AS has_bill,
+              (SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'DELIVERED') AS delivered_at
          FROM orders o WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT 100`,
       [req.customer.id],
     )
+    const bills = isOn('BILLS_ENABLED')
     res.json(rows.map((o) => ({
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, total: o.total, itemCount: o.item_count, placedAt: o.placed_at,
+      // The shop's orders list offers the invoice (BILLS_ENABLED), and its review pop-up asks about a delivered order not yet rated.
+      hasBill: bills && o.has_bill,
+      rated: o.rated,
+      deliveredAt: o.status === 'DELIVERED' ? o.delivered_at : null,
       // Lets the shop point to an unpaid order that is still held (FE-5).
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
       // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
       ...(o.gift_order_id ? { giftOrderId: o.gift_order_id, giftRecipient: o.gift_recipient_name } : {}),
+      ...backorderView(o),
     })))
   }),
 )
@@ -1138,12 +1249,12 @@ router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
-    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking] = await Promise.all([
-      query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY sku, stage', [o.id]),
+    const [items, events, slot, proof, rating, cancel, delivered, bill, tracking, fromPre] = await Promise.all([
+      query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
       o.slot_id ? query('SELECT * FROM delivery_slots WHERE id = $1', [o.slot_id]) : { rows: [] },
       customerDelivery({ query }, o),
-      query('SELECT stars, comment, updated_at FROM order_ratings WHERE order_id = $1', [o.id]),
+      query('SELECT stars, comment, packaging, condition, sweetness, updated_at FROM order_ratings WHERE order_id = $1', [o.id]),
       o.status === 'CANCELLED'
         ? query(`SELECT reason, created_at FROM order_events WHERE order_id = $1 AND status = 'CANCELLED' ORDER BY created_at DESC, id DESC LIMIT 1`, [o.id])
         : { rows: [] },
@@ -1153,17 +1264,21 @@ router.get(
       isOn('BILLS_ENABLED') ? billFor({ query }, o.id) : null,
       // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
       isOn('LIVE_TRACKING') ? trackingFor({ query }, o) : null,
+      o.preorder_id ? query('SELECT id, number, non_refundable FROM preorders WHERE id = $1', [o.preorder_id]) : { rows: [] },
     ])
+    const pre = fromPre.rows[0]
     const r = rating.rows[0]
     const cancelled = cancel.rows[0]
     // FE-3: the claim deadline from the live rule, the same sum POST /claims checks.
     const claimWindowHours = getConfig().claimWindowHours
     const deliveredAt = delivered.rows[0]?.at ?? null
     res.json({
-      rating: r ? { stars: r.stars, comment: r.comment, at: r.updated_at } : null,
+      rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
-      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
+      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code,
+      // The delivery charge: what the total is above the goods less the promo (delivery-fee.js), and how far it was measured.
+      deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km), total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
       // The public key id, so checkout can be reopened from any device while unpaid.
@@ -1180,20 +1295,30 @@ router.get(
       // INV-E: a retry the boxes can't make (too old, no younger stock) waits for staff, who call.
       retryScheduled: o.status === 'DELIVERY_FAILED' ? o.delivery_failures < MAX_DELIVERY_ATTEMPTS && !o.at_risk : null,
       // INV-B: paid, but no stock for its date yet: the date may change and we'll message when it's settled.
-      findingStock: Boolean(o.at_risk) && ['CONFIRMED', 'PROCESSING'].includes(o.status),
+      findingStock: findingStock(o),
+      // Backorders: some boxes are being sourced; until they are, the date the shop promised them for.
+      ...backorderView(o),
       // The bill, once the order is paid (BILLS_ENABLED): download it from /orders/:id/bill.
       bill: billView(bill),
       business: o.buyer_gstin ? { name: o.buyer_business_name, gstin: o.buyer_gstin } : null,
       // MULTI_GIFT: one delivery of a gift order; its payment, bill and cancel of the whole order are on the gift order.
       giftOrderId: o.gift_order_id ?? null,
+      // The pre-order this order was made from; a non-refundable one can't be cancelled by the customer (orders.js customerCancel).
+      preorder: pre ? { id: pre.id, number: pre.number, nonRefundable: pre.non_refundable } : null,
+      canCancel: CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable && withinCancelWindow(o),
+      // A paid order can be cancelled for four hours after it was placed (orders.js CUSTOMER_CANCEL_HOURS); this is when that closes.
+      cancelUntil: CUSTOMER_CANCELLABLE.includes(o.status) ? (cancelClosesAt(o)?.toISOString() ?? null) : null,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
-        eatBy: i.stage ? eatByFor(i.stage, o.delivery_date) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date) : null,
+        eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date, i.plucked_on) : null,
         // A bulk deal line keeps the name and tier it was sold under.
         bulk: i.pricing?.kind === 'bulk' ? { listingId: i.listing_id, title: i.pricing.title, tier: i.pricing.tier } : null,
+        backordered: Boolean(i.backordered),
       })),
       timeline: events.rows.map((e) => ({ status: e.status, at: e.created_at })),
       tracking,
+      // How it was paid (the bill prints the same): method, Razorpay payment id, UPI reference, masked UPI ID or card.
+      payment: o.payment_status === 'SUCCEEDED' || o.payment_status === 'REFUNDED' ? { ...(o.payment_details ?? {}), paymentId: o.payment_details?.paymentId ?? o.payment_id ?? null, method: o.payment_details?.method ?? o.payment_method ?? null } : null,
       ...proof,
     })
   }),
@@ -1288,17 +1413,37 @@ router.post(
   }),
 )
 
-/** Stars (1 to 5) and an optional note on a delivered order. Can be changed later. */
+/**
+ * How a delivered order went: stars (1 to 5) and an optional note, and from the shop's review
+ * pop-up the packaging, the condition on arrival and the sweetness (each 1 to 5). Stars may be
+ * left out when any of the three is given: they are then the three's average, rounded.
+ * Can be changed later.
+ */
+const SCORE = z.number().int().min(1).max(5)
 router.put(
   '/orders/:id/rating',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ stars: z.number().int().min(1).max(5), comment: z.string().trim().max(500).optional().nullable() }), req.body)
+    const b = parse(
+      z
+        .object({
+          stars: SCORE.optional(),
+          packaging: SCORE.optional().nullable(),
+          condition: SCORE.optional().nullable(),
+          sweetness: SCORE.optional().nullable(),
+          comment: z.string().trim().max(500).optional().nullable(),
+        })
+        .refine((v) => v.stars != null || v.packaging != null || v.condition != null || v.sweetness != null, { message: 'Give a rating from 1 to 5', path: ['stars'] }),
+      req.body,
+    )
     const o = await ownOrder({ query }, req)
     if (o.status !== 'DELIVERED') throw badRequest('You can rate an order once it is delivered', 'NOT_DELIVERED')
+    const given = [b.packaging, b.condition, b.sweetness].filter((n) => n != null)
+    const stars = b.stars ?? Math.round(given.reduce((a, n) => a + n, 0) / given.length)
     await query(
-      `INSERT INTO order_ratings (order_id, customer_id, stars, comment, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)
-       ON CONFLICT (order_id) DO UPDATE SET stars = EXCLUDED.stars, comment = EXCLUDED.comment, updated_at = EXCLUDED.updated_at`,
-      [o.id, req.customer.id, b.stars, b.comment || null, now()],
+      `INSERT INTO order_ratings (order_id, customer_id, stars, comment, packaging, condition, sweetness, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+       ON CONFLICT (order_id) DO UPDATE SET stars = EXCLUDED.stars, comment = EXCLUDED.comment, packaging = EXCLUDED.packaging,
+         condition = EXCLUDED.condition, sweetness = EXCLUDED.sweetness, updated_at = EXCLUDED.updated_at`,
+      [o.id, req.customer.id, stars, b.comment || null, b.packaging ?? null, b.condition ?? null, b.sweetness ?? null, now()],
     )
     res.status(204).end()
   }),
@@ -1313,7 +1458,7 @@ router.post(
     if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
     const b = parse(
       z.object({
-        sku: z.string().min(1), stage: z.enum(STAGES), qty: z.number().int().min(1).max(20),
+        sku: z.string().min(1), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
         weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), pincode: PIN,
         address: z.string().trim().min(10, 'Enter the full delivery address').max(500), name: z.string().trim().max(80).optional(),
         slotId: z.string().max(64).optional().nullable(), waitlist: z.boolean().optional(),
@@ -1493,7 +1638,7 @@ router.post(
     if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
     const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
     const o = await ownOrder({ query }, req)
-    const r = await tx((c) => processPayment(c, { orderId: o.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo' }))
+    const r = await tx((c) => processPayment(c, { orderId: o.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo', details: { gateway: 'Test mode', method: 'demo', paidAt: now().toISOString() } }))
     await sendDueRefunds(refundsFor({ ...r, orderId: o.id }))
     res.json({ result: r.result })
   }),
@@ -1536,5 +1681,6 @@ devRouter.post(
 )
 
 devRouter.use(devGifts)
+devRouter.use(devFarm)
 
 devRouter.post('/reconcile', asyncHandler(async (_req, res) => res.json({ reconciled: await reconcilePendingPayments({ minAgeSeconds: 0 }) })))

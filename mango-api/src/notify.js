@@ -11,9 +11,11 @@ import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
 import { enqueueLinkPush, enqueueOrderPush } from './push.js'
-import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
+import { eatByFor, OLDEST_PLUCK_SQL, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
 import { deliveryCodeFor } from './delivery-code.js'
+import { billLink } from './bill-link.js'
+import { isOn } from './feature-switches.js'
 import { sendOutcome, templateName, whatsappSender } from './whatsapp.js'
 import { refusal } from './wa/consent.js'
 import { jitter, recordTemplateSent } from './wa/conversations.js'
@@ -158,9 +160,9 @@ export function readyWords(items, date) {
   for (const i of items ?? []) if (i.stage) seen.set(`${i.sku}|${i.stage}`, i)
   return [...seen.values()]
     .map((i) => {
-      const ready = readyOnFor(i.stage, date)
+      const ready = readyOnFor(i.stage, date, i.pluckedOn)
       const when = ready === date ? `ready on arrival, ${dateWords(date)}` : `ready around ${dateWords(ready)}`
-      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date))}`
+      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date, i.pluckedOn))}`
     })
     .join('; ')
 }
@@ -222,6 +224,18 @@ export function paramsFor(n) {
       // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
       // {{2}} is "10%" for a percent code, "Rs 100" for a flat one.
       return [name, n.reward_kind === 'PERCENT' ? `${n.reward_amount ?? 0}%` : rupees(n.reward_amount ?? 0), n.reward_code ?? '', n.reward_ends_on ? dateWords(n.reward_ends_on) : 'soon', rupees(n.reward_min ?? 0)]
+    case 'FARM_BOOKING_UPDATE':
+    case 'FARM_TEAM_ALERT':
+      // Fixed when queued (farm/notify.js), so a late retry still says what happened then.
+      return (n.farm_params ?? []).map(String)
+    case 'PARTNER_ENQUIRY_RECEIVED':
+    case 'PARTNER_TEAM_ALERT':
+      // Fixed when queued (partner/alerts.js), so a late retry still says what happened then.
+      return (n.partner_params ?? []).map(String)
+    case 'BULK_ENQUIRY_RECEIVED':
+    case 'BULK_QUOTE':
+      // Fixed when queued (bulk-enquiries.js): a quote's total and link are as they were sent.
+      return (n.bulk_params ?? []).map(String)
     case 'MANAGER_DAILY_SUMMARY':
       // Made when the summary was taken (manager-summary.js), so a late retry still says what the day was.
       return (n.summary_params ?? []).map(String)
@@ -259,6 +273,37 @@ export function orderLinkFor(n) {
   if (ORDER_LINK_NEW.has(n.kind)) return n.order_id
   if (ORDER_LINK_ALWAYS.has(n.kind) || (env.WHATSAPP_ORDER_LINKS && ORDER_LINK_WITH_FLAG.has(n.kind))) return n.order_id
   return null
+}
+
+/**
+ * The order confirmation that carries the invoice: <prefix>order_confirmed_invoice, the same
+ * four body variables as the plain confirmation and two URL buttons, "Track order"
+ * (https://<shop>/orders/{{1}}, the order id) and "Download invoice"
+ * (https://<api>/v1/invoice/{{1}}, the signed link of bill-link.js; a link to the PDF, not the file).
+ * Used in place of the plain confirmation when the order has a bill (BILLS_ENABLED), once Meta has
+ * approved the template (WHATSAPP_ORDER_INVOICE=true). An order without a bill (bills off, a free
+ * replacement, a bill not issued yet) and a template Meta has not approved get the plain confirmation.
+ */
+export const INVOICE_TEMPLATE = 'ORDER_CONFIRMED_INVOICE'
+export function sendsInvoice(n) {
+  if (n.kind !== 'ORDER_CONFIRMED' || !n.order_id || !n.has_bill) return false
+  if (!env.WHATSAPP_ORDER_INVOICE || !isOn('BILLS_ENABLED')) return false
+  // After a template sync: only when Meta has this template, approved and with its buttons.
+  if (n.templates?.size) {
+    const t = n.templates.get(templateName(INVOICE_TEMPLATE))
+    if (!t || t.status !== 'APPROVED' || t.url_button === false) return false
+  }
+  return true
+}
+
+/** The Meta template one queued message goes out with. */
+export const templateOf = (n) => (sendsInvoice(n) ? templateName(INVOICE_TEMPLATE) : templateFor(n.kind))
+
+/** The URL button variables of a message, in the template's button order (none: an empty list). */
+export function buttonsFor(n) {
+  if (sendsInvoice(n)) return [n.order_id, billLink(n.order_id)]
+  const link = orderLinkFor(n)
+  return link ? [link] : []
 }
 
 async function mark(id, fields) {
@@ -333,7 +378,7 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.delivery_code_nonce, o.gift_recipient_name, rd.display_name AS rider_name, rd.email AS rider_email, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status,
-            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
+            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage, 'pluckedOn', ${OLDEST_PLUCK_SQL}) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
             COALESCE(o.customer_name, p.customer_name, ac.name, rc.name, cc.name) AS customer_name,
@@ -345,7 +390,8 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
             sb.status AS subscription_status,
             COALESCE(o.customer_id, p.customer_id) AS target_customer_id,
             (SELECT cu.reminders_opt_in FROM customers cu WHERE cu.id = o.customer_id) AS reminders_opt_in,
-            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled
+            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled,
+            EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id AND b.cancelled_at IS NULL) AS has_bill
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN wa_consent wc ON wc.phone = n.phone LEFT JOIN wa_automations wau ON wau.kind = n.kind
        LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN admin_users rd ON rd.id = o.rider_id
@@ -445,19 +491,21 @@ async function sendOne(n, sender, at) {
     return false
   }
   const params = paramsFor(n)
-  const known = n.templates?.get(templateFor(n.kind))
+  const template = templateOf(n)
+  const buttons = buttonsFor(n)
+  const known = n.templates?.get(template)
   if (known && known.status !== 'APPROVED') {
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} is ${known.status} at Meta, not approved` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} is ${known.status} at Meta, not approved` })
     return false
   }
   if (known && ORDER_LINK_NEW.has(n.kind) && known.url_button === false) {
     // Still Meta's older version (with the code, no Track order button): its wording would be wrong.
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
     return false
   }
   if (known && known.body_params != null && known.body_params !== params.length) {
     // Meta would refuse it (wrong number of variables): stop before calling, with the reason.
-    await mark(n.id, { status: 'FAILED', last_error: `template ${templateFor(n.kind)} takes ${known.body_params} variables, this message has ${params.length}` })
+    await mark(n.id, { status: 'FAILED', last_error: `template ${template} takes ${known.body_params} variables, this message has ${params.length}` })
     metrics.notificationsFailed.inc({ kind: n.kind })
     return false
   }
@@ -468,15 +516,15 @@ async function sendOne(n, sender, at) {
       return false
     }
     // The delivery code is a secret: never in the log (the shop page shows it).
-    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: orderLinkFor(n) }
-    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${templateFor(n.kind)}`)
+    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: buttons[0] ?? null, ...(buttons.length > 1 ? { invoiceLink: buttons[1] } : {}) }
+    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${template}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
-    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: null, notificationId: n.id })
+    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template, summary: updateSummary(n), providerId: null, notificationId: n.id })
     return true
   }
   let providerId
   try {
-    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params, urlParam: orderLinkFor(n) })
+    providerId = await sender({ phone: n.phone, template, params, urlParam: buttons[0] ?? null, ...(buttons.length > 1 ? { urlParams: buttons } : {}) })
   } catch (err) {
     const attempts = n.attempts + 1
     const outcome = sendOutcome(err)
@@ -504,7 +552,7 @@ async function sendOne(n, sender, at) {
   const fields = { status: 'SENT', sent_at: at, provider_id: providerId ?? null, attempts: n.attempts + 1, last_error: null }
   await mark(n.id, fields).catch(() => mark(n.id, fields)).catch((err) => logger.error({ err, id: n.id }, 'message sent but not recorded'))
   metrics.notificationsSent.inc({ kind: n.kind })
-  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
+  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateOf(n), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
   return true
 }
 

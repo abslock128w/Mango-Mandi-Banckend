@@ -34,6 +34,12 @@ export interface Me {
     /** Customer care (docs/care.md): the Help desk and Subscriptions pages. */
     helpDesk?: boolean
     subscriptions?: boolean
+    /** Partner Network (PARTNER_NETWORK, docs/partner-network.md). On unless the API says false. */
+    partnerNetwork?: boolean
+    /** Bulk enquiries (BULK_ENQUIRIES, mango-api README). On unless the API says false. */
+    bulkEnquiries?: boolean
+    /** Farm Experience (docs/farm-experience.md): Bulk Orders → Farm Experience Bookings and its pages. */
+    farmExperience?: boolean
   }
 }
 
@@ -132,13 +138,13 @@ export interface ProductInput {
 export interface Summary {
   orders: Partial<Record<OrderStatus, number>>
   openClaims: number
-  batchesNearLimit: { id: string; variety: string; ageDays: number; available: number }[]
+  batchesNearLimit: { id: string; variety: string; ageDays: number; available: number; lastDeliveryDay?: string; lastOrderDay?: string }[]
   lowStock: { sku: string; productName: string; available: number }[]
   /** Open orders the stock engine could not keep whole. Ops must act on these. */
-  atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null }[]
+  atRiskOrders?: { id: string; number: string; deliveryDate: string; reason: string | null; backorder?: boolean }[]
   /** Paid orders past their delivery date, or out for delivery too long (INV-G). */
   overdueOrders?: OverdueOrder[]
-  /** Batches this many days old or older are past the sell limit (the live rule). */
+  /** The oldest a box may be on its delivery date (the live rule); older batches can't be delivered. */
   maxSellableAge?: number
 }
 
@@ -157,6 +163,9 @@ export interface BatchListItem {
   variety: string
   pluckedOn: string
   ageDays: number
+  /** The last day it can be delivered, and the last day it can be ordered (the day before). */
+  lastDeliveryDay?: string
+  lastOrderDay?: string
   farm: string | null
   status: BatchStatus
   latestRating: Ripeness | null
@@ -197,6 +206,9 @@ export interface BatchDetail {
   variety: string
   pluckedOn: string
   ageDays: number
+  /** The last day it can be delivered, and the last day it can be ordered (the day before). */
+  lastDeliveryDay?: string
+  lastOrderDay?: string
   farm: string | null
   status: BatchStatus
   createdAt?: string
@@ -229,6 +241,8 @@ export interface OrderListItem {
   deliveryDate: string
   placedAt: string
   atRisk?: boolean
+  /** Backorders: sold before stock arrived; awaiting stock while atRisk (absent from older servers). */
+  backorder?: boolean
   /** Where the customer placed it: the app or the WhatsApp chat. */
   channel?: 'app' | 'whatsapp'
   /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
@@ -287,6 +301,8 @@ export interface OrderItem {
   unitPrice?: number
   /** Sold under a bulk deal: the deal, its version and the tier, as at confirmation. */
   bulk?: { listingId: string; title: string; listingVersion: number | null; tier: { minQty: number; maxQty: number | null; unitPrice: number } } | null
+  /** Backorders: this line was short of stock when the order was placed. */
+  backordered?: boolean
 }
 
 export type StockState = 'held' | 'committed' | 'packed' | 'released'
@@ -324,6 +340,9 @@ export interface OrderDetail {
   total: number
   subtotal?: number
   discount?: number
+  /** The delivery charge in paise (0 when delivery was free) and the distance it was measured over. */
+  deliveryFee?: number
+  deliveryKm?: number | null
   promoCode?: string | null
   gift?: Gift | null
   items: OrderItem[]
@@ -338,6 +357,8 @@ export interface OrderDetail {
   } | null
   atRisk?: boolean
   atRiskReason?: string | null
+  /** Backorders: sold before stock arrived. While atRisk it is awaiting stock (expected, not a problem). */
+  backorder?: boolean
   /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
   retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
@@ -354,7 +375,7 @@ export interface OrderDetail {
   /** A manager allowed leaving it without the code. */
   leaveAtDoor?: { by: string; at: string; reason: string } | null
   /** The customer's rating after delivery. */
-  rating?: { stars: number; comment: string | null; at: string } | null
+  rating?: { stars: number; comment: string | null; packaging?: number | null; condition?: number | null; sweetness?: number | null; at: string } | null
   /** Boxes on a cancelled or returned order still to put back on the shelf or write off. */
   returnedBoxes?: number
   /** The customer's account, for their profile (null on old guest orders). */
@@ -568,6 +589,28 @@ export interface StageWindow {
   maxAge: number
 }
 
+/** One ring of the delivery charge: addresses up to `uptoKm` from the nearest warehouse. Rupees. */
+export interface DeliveryFeeBand {
+  uptoKm: number
+  /** Charged when the order is worth `freeAbove` or more (0 is free delivery). */
+  fee: number
+  /** Charged on a smaller order. */
+  feeSmall: number
+}
+
+/** The delivery charge on regular orders (mango-api src/delivery-fee.js). */
+export interface DeliveryFeeRules {
+  enabled: boolean
+  freeAbove: number
+  bands: DeliveryFeeBand[]
+  /** Past the last band: refuse the order, or charge the last band. */
+  beyond: 'refuse' | 'charge'
+  /** The distance assumed when the address's position isn't known. */
+  unknownKm: number
+  /** Where distances are measured from. Empty: the warehouses' own positions. */
+  origins: { name: string; lat: number; lng: number }[]
+}
+
 /** Versioned business rules (mango-api app_config). */
 export interface Rules {
   maxSellableAge: number
@@ -592,6 +635,12 @@ export interface Rules {
   minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
   seasonEndsOn?: string | null
+  /** The season's first day (YYYY-MM-DD). Before it the shop's home page takes pre-orders; unset: in season. */
+  seasonStartsOn?: string | null
+  /** The first day the shop takes pre-orders (YYYY-MM-DD), before seasonStartsOn; unset: any day before the season. */
+  preorderOpensOn?: string | null
+  /** The delivery charge on regular orders; older rule versions don't have it (off). */
+  deliveryFee?: DeliveryFeeRules
   stageProfiles: Record<string, StageWindow[]>
 }
 
@@ -640,6 +689,8 @@ export interface Preorder {
   paymentStatus: string | null
   movedCount: number
   createdAt: string
+  /** Sold as non-refundable (pre-orders since migration 064): the customer can't cancel it once paid. A manager's cancel still refunds in full. */
+  nonRefundable?: boolean
   refund: { requestedAt: string; refundedAt: string | null; id: string | null } | null
   order: { id: string; number: string; status: OrderStatus; deliveryDate: string } | null
 }
@@ -845,7 +896,7 @@ export interface Attention {
   /** Missed deliveries whose retry can't go out as packed (too old, no younger stock): a manager decides. */
   retryDecisions?: { id: string; number: string; deliveryDate: string; reason: string | null; /** day: no open day or no room for the retry (PLT-08, PLT-09); stock: the packed boxes can't go. */ kind?: 'stock' | 'day' }[]
   /** Paid preorders moved forward too often or booked past the season end. */
-  preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; reason: string }[]
+  preorderDecisions?: { id: string; number: string; customerName: string | null; sku: string; qty: number; weekStart: string; movedCount: number; nonRefundable?: boolean; reason: string }[]
   /** Cancelled or returned orders whose boxes are still to be put back or written off. */
   returnedStock?: { id: string; number: string; status: OrderStatus; boxes: number }[]
 }
@@ -1646,4 +1697,81 @@ export interface LiveDeliveries {
   events: { orderId: string; number: string; status: OrderStatus; at: string }[]
   stops: LiveStop[]
   riders: { id: string; firstName: string; lat: number; lng: number; accuracy: number | null; at: string }[]
+}
+
+// ---------------------------------------------------------------- bulk enquiries (mango-api README, Bulk enquiries)
+
+export type BulkEnquiryStatus = 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CLOSED'
+
+export interface BulkEnquiryRow {
+  id: string
+  number: string
+  /** ORDER: placed directly from the shop (100 kg or more, 5 kg or 10 kg boxes); an agent phones to confirm. */
+  kind: 'ENQUIRY' | 'ORDER'
+  status: BulkEnquiryStatus
+  createdAt: string
+  updatedAt: string
+  name: string
+  business: string | null
+  phone: string
+  city: string
+  customerId: string | null
+  quantityKg: number
+  boxes: number
+  /** The latest quote's total, paise. */
+  total: number | null
+  quotedAt: string | null
+  quoteSeenAt: string | null
+  respondedAt: string | null
+}
+
+export interface BulkEnquiryList {
+  items: BulkEnquiryRow[]
+  counts: Record<BulkEnquiryStatus | 'ALL', number>
+}
+
+export interface BulkQuoteLine {
+  label: string
+  sku?: string
+  stage?: Ripeness
+  qty: number
+  /** Paise. */
+  unitPrice: number
+  linePrice?: number
+}
+
+export interface BulkQuote {
+  lines: (BulkQuoteLine & { linePrice: number })[]
+  extras: { label: string; amount: number }[]
+  note: string | null
+  validUntil: string | null
+  subtotal: number
+  extrasTotal: number
+  /** Delivery as a share of the mangoes' value; absent on quotes sent before the rule. */
+  deliveryPct?: number
+  deliveryFee?: number
+  total: number
+}
+
+export interface BulkQuoteInput {
+  lines: BulkQuoteLine[]
+  extras: { label: string; amount: number }[]
+  note?: string | null
+  validUntil?: string | null
+}
+
+export interface BulkEnquiryDetail extends BulkEnquiryRow {
+  email: string | null
+  notes: string | null
+  ripeness: string | null
+  lines: { sku: string; stage: Ripeness; boxes: number; kg: number; packKg?: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null }[]
+  quote: BulkQuote | null
+  quotedByEmail: string | null
+  customerMessage: string | null
+  closedAt: string | null
+  /** The quote written out, for the Open in WhatsApp link. */
+  quoteText: string | null
+  events: { id: string; type: string; actor: string; detail: Record<string, unknown> | null; at: string }[]
+  messages: { id: string; kind: 'BULK_ENQUIRY_RECEIVED' | 'BULK_QUOTE'; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; round: number | null; deliveryStatus: string | null; error: string | null; sentAt: string | null; createdAt: string }[]
+  whatsappOn: boolean
 }

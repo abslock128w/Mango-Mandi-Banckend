@@ -251,6 +251,24 @@
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
  },
+ "GET /admin/v1/bulk-enquiries": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/bulk-enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /admin/v1/bulk-listings": {
   "anonymous": "signin",
   "customer": "signin",
@@ -395,6 +413,96 @@
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
  },
+ "GET /admin/v1/farm/bookings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/bookings/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/calendar": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/check-in/:code": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/overview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/reports": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/reports/bookings.csv": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/rooms": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/settings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/farm/varieties": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /admin/v1/farms": {
   "anonymous": "signin",
   "customer": "signin",
@@ -511,6 +619,78 @@
   "QC": "forbidden",
   "OPERATOR": "refused",
   "MANAGER": "refused"
+ },
+ "GET /admin/v1/partner-network/categories": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/partner-network/enquiries": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/partner-network/enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/partner-network/enquiries/:id/documents/:documentId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /admin/v1/partner-network/enquiries/export.csv": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/partner-network/overview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /admin/v1/partner-network/product-proposals": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "GET /admin/v1/partner-network/product-proposals/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
  },
  "GET /admin/v1/pincodes": {
   "anonymous": "signin",
@@ -1124,6 +1304,51 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "GET /v1/farm-bookings": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/farm-bookings/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/farm-bookings/:id/qr.svg": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/farm-experience": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/farm-experience/dates": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /v1/gifts": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -1160,6 +1385,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/invoice/:link": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /v1/me": {
   "anonymous": "signin",
   "customer": "ok",
@@ -1172,6 +1406,24 @@
  "GET /v1/me/addresses": {
   "anonymous": "signin",
   "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/bulk-enquiries": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/me/bulk-enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "notfound",
   "RIDER": "signin",
   "PACKER": "signin",
   "QC": "signin",
@@ -1322,6 +1574,42 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/partner-network/": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/partner-network/categories": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
+ "GET /v1/partner-network/enquiries/:reference": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "GET /v1/partner-network/questionnaires/:category": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /v1/policy": {
   "anonymous": "ok",
   "customer": "ok",
@@ -1457,6 +1745,33 @@
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
  },
+ "PATCH /admin/v1/farm/bookings/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/farm/rooms/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/farm/varieties/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
  "PATCH /admin/v1/farms/:id": {
   "anonymous": "signin",
   "customer": "signin",
@@ -1467,6 +1782,42 @@
   "MANAGER": "notfound"
  },
  "PATCH /admin/v1/orders/:id/status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/partner-network/categories/:code": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/partner-network/enquiries/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "PATCH /admin/v1/partner-network/enquiries/:id/followups/:followupId": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "PATCH /admin/v1/partner-network/product-proposals/:id": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "forbidden",
@@ -1655,6 +2006,33 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "POST /admin/v1/bulk-enquiries/:id/close": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/note": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/quote": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /admin/v1/bulk-listings": {
   "anonymous": "signin",
   "customer": "signin",
@@ -1744,6 +2122,141 @@
   "QC": "forbidden",
   "OPERATOR": "refused",
   "MANAGER": "refused"
+ },
+ "POST /admin/v1/farm/bookings/:id/bill": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/harvest": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/hospitality": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/move": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/no-show": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/notes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/record-payment": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/request/decline": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/bookings/:id/status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/check-in": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/days": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/refunds/:id/settle": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/rooms": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/farm/varieties": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
  },
  "POST /admin/v1/farms": {
   "anonymous": "signin",
@@ -1978,6 +2491,105 @@
   "QC": "forbidden",
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/approve": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/close": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/contact-attempts": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/convert": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/followups": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/notes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/reject": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/reopen": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/enquiries/:id/request-info": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/product-proposals/:id/notes": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/partner-network/product-proposals/:id/request-sample": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
  },
  "POST /admin/v1/pincodes": {
   "anonymous": "signin",
@@ -2672,6 +3284,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/bulk-enquiries": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /v1/cart/bulk": {
   "anonymous": "signin",
   "customer": "refused",
@@ -2744,6 +3365,15 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "POST /v1/dev/pay-farm": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /v1/dev/pay-gift": {
   "anonymous": "refused",
   "customer": "refused",
@@ -2779,6 +3409,69 @@
   "QC": "ok",
   "OPERATOR": "ok",
   "MANAGER": "ok"
+ },
+ "POST /v1/farm-bookings": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-bookings/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-bookings/:id/hospitality": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-bookings/:id/pay": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-bookings/:id/reschedule": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-bookings/:id/verify-payment": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/farm-experience/quote": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
  },
  "POST /v1/gifts/:id/cancel": {
   "anonymous": "signin",
@@ -2817,6 +3510,24 @@
   "MANAGER": "signin"
  },
  "POST /v1/gifts/quote": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-enquiries/:id/respond": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-enquiries/:id/seen": {
   "anonymous": "signin",
   "customer": "notfound",
   "RIDER": "signin",
@@ -2978,6 +3689,24 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/partner-network/enquiries": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /v1/partner-network/enquiries/:reference/documents": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "POST /v1/preorders": {
   "anonymous": "signin",
   "customer": "signin",
@@ -3085,6 +3814,42 @@
   "QC": "forbidden",
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
+ },
+ "PUT /admin/v1/farm/bookings/:id/rooms": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/farm/days/:date": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/farm/harvest/:varietyId/:date": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
+ "PUT /admin/v1/farm/settings": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
  },
  "PUT /admin/v1/me/daily-summary": {
   "anonymous": "signin",

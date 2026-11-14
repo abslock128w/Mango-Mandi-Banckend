@@ -17,8 +17,8 @@ beforeEach(resetDb)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const TWO_SKUS = [
-  { sku: 'ALP-3', stage: 'RIPE', qty: 1, unitPrice: 100 },
-  { sku: 'BAD-3', stage: 'RIPE', qty: 1, unitPrice: 100 },
+  { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, unitPrice: 100 },
+  { sku: 'BAD-3', stage: 'SEMI_RIPE', qty: 1, unitPrice: 100 },
 ]
 
 const newOrder = (c, date) =>

@@ -2,6 +2,7 @@
 // PLT-10 restore numbering, PLT-12 docs, PLT-13 lock_timeout, PLT-14 shutdown
 // (and SEC-01's HOST), PLT-16 CI. Each test failed on the code before its fix.
 import { checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { orderNumberSql } from '../src/orders.js'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -56,22 +57,25 @@ describe('PLT-10: after a restore no order number is handed out twice', () => {
     const cust = await customerToken(api)
     const numbers = []
     for (let i = 0; i < 3; i++) {
-      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       assert.equal(o.status, 201, JSON.stringify(o.body))
       assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
       numbers.push((await query('SELECT number FROM orders WHERE id = $1', [o.body.orderId])).rows[0].number)
     }
+    // Order numbers are 10 digits (orders.js); seqOf turns one back into its sequence value.
+    const seqOf = (n) => Number(((BigInt(n) - 1000000000n) * 1129780201n) % 9000000000n)
+    assert.ok(numbers.every((n) => /^[1-9]\d{9}$/.test(n)), numbers.join())
     const before = await tx((c) => highWater(c))
-    assert.equal(before.order_seq, Number(numbers.at(-1).slice(4)))
+    assert.equal(before.order_seq, seqOf(numbers.at(-1)))
     // The restore: the counter goes back to the restore point (after the first order).
-    await query(`SELECT setval('order_seq', $1::bigint, true)`, [Number(numbers[0].slice(4))])
+    await query(`SELECT setval('order_seq', $1::bigint, true)`, [seqOf(numbers[0])])
     const next = await tx((c) => bumpSequences(c, before))
     assert.equal(next.order_seq, before.order_seq + 1)
-    const fresh = (await query(`SELECT 'ORD-' || nextval('order_seq') AS n`)).rows[0].n
+    const fresh = (await query(`SELECT ${orderNumberSql("nextval('order_seq')")} AS n`)).rows[0].n
     assert.ok(!numbers.includes(fresh), `${fresh} was handed out before the restore`)
     // Never backwards, and a margin when the old database is gone.
     const again = await tx((c) => bumpSequences(c, { order_seq: 1 }, { margin: 1000 }))
-    assert.equal(again.order_seq, Number(fresh.slice(4)) + 1001)
+    assert.equal(again.order_seq, seqOf(fresh) + 1001)
     assert.match(await text('deploy/VERCEL.md'), /ops\/bump-sequences\.js --old-url <backup branch URL>/)
   })
 

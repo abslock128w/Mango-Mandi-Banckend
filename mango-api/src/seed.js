@@ -3,6 +3,7 @@
 import { fileURLToPath } from 'node:url'
 import bcrypt from 'bcryptjs'
 import { addDays, now, todayIST } from './clock.js'
+import { DEFAULT_RULES } from './config.js'
 import { query, tx } from './db.js'
 import { deployEnv, env, isProd } from './env.js'
 import { newId } from './ids.js'
@@ -40,10 +41,10 @@ const DEMO_VARIETIES = [
 ]
 /** [code, age today, status, QC rating or null, farm, 3 kg boxes, 5 kg boxes]; ages spread the stages. */
 const DEMO_BATCHES = [
-  // Every variety but Chausa gets a young batch (raw now, ripe within the delivery window) and most
-  // an older one (semi-ripe or ripe now), so each shows stock on every day a shopper can pick.
-  // Four varieties also have a batch that is ripe tomorrow (like the Badami one above), so the shop's
-  // "Ripe for tomorrow" shelf and a fresh e2e run have more than one box to add.
+  // Every variety but Chausa gets a young batch (raw now, semi-ripe later in the delivery window) and
+  // most an older one (semi-ripe now), so each shows stock on every day a shopper can pick. Four
+  // varieties also have a batch QC'd ripe (a fast ripener: still sold as semi-ripe, nothing is sold
+  // ripe), like the Badami one above.
   ['KES', 5, 'SELLING', 'RIPE', 'Gir', 18, 8], ['KES', 4, 'SELLING', 'SEMI_RIPE', 'Gir', 30, 12], ['KES', 1, 'ARRIVED', 'RAW', 'Junagadh', 24, 10],
   ['BAN', 5, 'SELLING', 'RIPE', 'Kurnool', 20, 8], ['BAN', 3, 'SELLING', 'SEMI_RIPE', 'Kurnool', 36, 14], ['BAN', 1, 'ARRIVED', 'RAW', 'Kurnool', 30, 12],
   ['DAS', 5, 'SELLING', 'RIPE', 'Malihabad', 12, 6], ['DAS', 3, 'SELLING', 'SEMI_RIPE', 'Malihabad', 20, 8], ['DAS', 0, 'ARRIVED', 'RAW', 'Malihabad', 16, 6],
@@ -224,7 +225,7 @@ async function seedDemoBatches() {
       const arrived = status !== 'IN_TRANSIT'
       await c.query(
         'INSERT INTO batches (id, variety, plucked_on, farm, status, eta_date, arrived_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [id, variety, pluckedOn, farm, status, addDays(pluckedOn, 2), arrived ? now() : null],
+        [id, variety, pluckedOn, farm, status, addDays(pluckedOn, DEFAULT_RULES.transitDays), arrived ? now() : null],
       )
       for (const [sku, qty] of Object.entries(lines)) {
         await c.query('INSERT INTO batch_lines (id, batch_id, sku, on_hand) VALUES ($1, $2, $3, $4)', [newId('bl'), id, sku, qty])
@@ -264,7 +265,7 @@ async function seedDemoVarieties() {
       const pluckedOn = addDays(today, -age)
       await c.query(
         'INSERT INTO batches (id, variety, plucked_on, farm, status, eta_date, arrived_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [id, variety, pluckedOn, farm, status, addDays(pluckedOn, 2), now()],
+        [id, variety, pluckedOn, farm, status, addDays(pluckedOn, DEFAULT_RULES.transitDays), now()],
       )
       for (const [sku, qty] of [[`${code}-3`, boxes3], [`${code}-5`, boxes5]]) {
         if (!qty) continue

@@ -79,6 +79,13 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // The order confirmation with two URL buttons, "Track order" and "Download invoice"
+  // (<prefix>order_confirmed_invoice), sent in place of the plain confirmation when the order has
+  // a bill (BILLS_ENABLED). Turn on only once Meta has approved that template (docs/whatsapp/TEMPLATES.md).
+  WHATSAPP_ORDER_INVOICE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // The Warehouse area (boxes, labels, scanning: docs/warehouse/). Off: its routes answer 404 and the panel hides it.
   WAREHOUSE_V2: z
     .enum(['true', 'false'])
@@ -176,6 +183,61 @@ const schema = z.object({
   // WhatsApp for both: mandi_help_reply and mandi_subscription_due. Turn on once Meta approves them;
   // until then customers see replies and reminders in the shop (and as browser notifications with WEB_PUSH).
   WHATSAPP_CARE_UPDATES: flag(),
+  // Partner Network (docs/partner-network.md): the shop's Partner With Us form and the panel's
+  // Partner Network section. On unless set to false; managers can also turn it off on the panel.
+  PARTNER_NETWORK: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // WhatsApp for it: the applicant's "we received your enquiry" (mandi_partner_enquiry_received) and
+  // the business team's alerts (mandi_partner_team_alert). Turn on once Meta approves both.
+  WHATSAPP_PARTNER_UPDATES: flag(),
+  // Who gets the team alerts: comma-separated Indian mobile numbers. Unset: no team alerts (the panel shows the same).
+  PARTNER_ALERT_PHONES: z
+    .string()
+    .default('')
+    .transform((s) => s.split(',').map((p) => p.trim()).filter(Boolean))
+    .refine((list) => list.every((p) => /^(\+91)?[6-9]\d{9}$/.test(p.replace(/[\s-]/g, ''))), 'PARTNER_ALERT_PHONES must be Indian mobile numbers, comma-separated')
+    .transform((list) => list.map((p) => `+91${p.replace(/[\s-]/g, '').replace(/^\+91/, '')}`)),
+  // Bulk enquiries (mango-api/README.md, Bulk enquiries): the shop's bulk enquiry form (over 100 kg) lands in the panel's
+  // Bulk enquiries section, where staff price it and send the quote; the customer accepts it on the Account page.
+  // On unless set to false; managers can also turn it off on the panel.
+  BULK_ENQUIRIES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Backorders (mango-api/README.md, Checkout → Backorders): a box with no stock on the chosen day can still be
+  // ordered for a day at least BACKORDER_LEAD_DAYS out; staff fulfil it when stock arrives. The shop says
+  // "delivered in <lead>–<window> days". On unless set to false.
+  BACKORDERS: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  BACKORDER_LEAD_DAYS: z.coerce.number().int().min(1).max(14).default(2),
+  BACKORDER_WINDOW_DAYS: z.coerce.number().int().min(1).max(21).default(3),
+  // Bulk enquiries one phone number may send in 24 hours.
+  BULK_ENQUIRY_DAILY_LIMIT: z.coerce.number().int().min(1).max(50).default(5),
+  // WhatsApp for it: "we got your enquiry" (mandi_bulk_enquiry_received) and "your quote is ready"
+  // (mandi_bulk_quote). On unless set to false; until Meta approves the templates the sender skips them
+  // with the reason (after a template sync), and the shop and panel show the same.
+  WHATSAPP_BULK_UPDATES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // Farm Experience (docs/farm-experience.md): 250 kg or more bought online with a visit to the farm.
+  // Off unless set to true; managers can also turn it on or off on the panel once it is allowed here.
+  // Customers can book only once a manager also opens bookings on the Farm Settings page.
+  FARM_EXPERIENCE: flag(),
+  // WhatsApp for it: the customer's updates (mandi_farm_booking_update) and the team's alerts
+  // (mandi_farm_team_alert). Turn on once Meta approves both; until then the booking page shows the same.
+  WHATSAPP_FARM_UPDATES: flag(),
+  // Who gets the team alerts: comma-separated Indian mobile numbers. Unset: no team alerts (the panel shows the same).
+  FARM_ALERT_PHONES: z
+    .string()
+    .default('')
+    .transform((s) => s.split(',').map((p) => p.trim()).filter(Boolean))
+    .refine((list) => list.every((p) => /^(\+91)?[6-9]\d{9}$/.test(p.replace(/[\s-]/g, ''))), 'FARM_ALERT_PHONES must be Indian mobile numbers, comma-separated')
+    .transform((list) => list.map((p) => `+91${p.replace(/[\s-]/g, '').replace(/^\+91/, '')}`)),
   // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English, chosen by each customer
   // (saved to their account once signed in). Off: the shop is English only (docs/languages.md).
   SHOP_LANGUAGES: flag(),

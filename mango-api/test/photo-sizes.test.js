@@ -111,7 +111,7 @@ describe('review photos at thumbnail widths', () => {
   async function approvedPhoto() {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 30 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
     await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])

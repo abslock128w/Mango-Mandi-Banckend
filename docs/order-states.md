@@ -7,7 +7,9 @@ goes wrong. The code is the source: `ORDER_TRANSITIONS` in
 
 **The refund rule.** MandiMangoes refunds in two cases only:
 
-1. a customer cancels their own paid order (or booking) before it is packed;
+1. a customer cancels their own paid order before it is packed (not a paid
+   pre-order, or the order it became: pre-orders are non-refundable once paid;
+   bookings made before that rule keep their refund);
 2. a manager cancels a paid order or booking that we cannot deliver.
 
 Any other problem (bruised fruit, a late box, a wrong item) is settled with a
@@ -145,13 +147,15 @@ The other refund columns: `refund_requested_at` (when it became due),
 | `PAYMENT_PENDING` | Capacity in the week is held while the customer pays. |
 | `WAITLISTED` | The week was full; waiting for a spot. |
 | `BOOKED` | Paid; the week's capacity is taken. |
-| `CONVERTED` | Its order exists. From here on the order's states apply (a cancel goes through the order). |
+| `CONVERTED` | Its order exists. From here on the order's states apply (a manager's cancel goes through the order; the customer can't cancel it). |
 | `CANCELLED` | Cancelled. A paid one is refunded in full. |
 
 Moves: `PAYMENT_PENDING` to `BOOKED` (paid) or `CANCELLED` (the hold ran out, or a
 cancel); `WAITLISTED` to `PAYMENT_PENDING` (a spot opened; the customer gets a
 payment link) or `CANCELLED`; `BOOKED` to `CONVERTED` (its week came) or
-`CANCELLED` (the customer, or a manager, with a full refund); `CANCELLED` to
+`CANCELLED` (a manager, with a full refund; the customer can't cancel a paid
+pre-order, nor the order it became, unless it was booked before pre-orders became
+non-refundable, `non_refundable` false); `CANCELLED` to
 `BOOKED` for a payment that lands after the hold ran out. These moves are spread
 over `mango-api/src/preorders.js` rather than kept in one map, so the database
 does not guard them the way it guards orders.

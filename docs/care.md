@@ -1,5 +1,7 @@
 # Customer care: help centre and season subscriptions
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Two features, each behind its own switch, each **off by default**:
 
 - **Help centre** (`HELP_CENTRE`): a signed-in customer asks a question about an

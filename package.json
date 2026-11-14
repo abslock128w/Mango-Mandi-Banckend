@@ -10,16 +10,16 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tests && npm --prefix customer-app run typecheck",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test:e2e": "playwright test",
     "test:unit": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"tests/unit/*.unit.ts\"",
-    "lint": "eslint . && npm --prefix customer-app run lint && npm --prefix rider-app run lint",
-    "scan:bundle": "node scripts/scan-bundle.mjs dist customer-app/.next/static",
+    "lint": "eslint . && npm --prefix rider-app run lint",
+    "scan:bundle": "node scripts/scan-bundle.mjs dist shop",
     "shop:dev": "node scripts/serve-shop.mjs --port 5174",
     "shop:build": "node shop/build-config.mjs",
     "shop:preview": "node scripts/serve-shop.mjs --port 5174",
     "shop:install": "echo \"the shop (shop/) has no packages\"",
-    "shop:test": "node --check shop/app.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js"
+    "shop:test": "node --check shop/theme.js && node --check shop/catalog.js && node --check shop/shelf.js && node --check shop/map-picker.js && node --check shop/location.js && node --check shop/pages.js && node --check shop/partner.js && node --check shop/farm.js && node --check shop/legacy.js && node --check shop/app.js && node --check shop/review.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js && node --check shop/liquid.js"
   },
   "dependencies": {
     "@sentry/browser": "11.7.0",

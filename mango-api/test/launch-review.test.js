@@ -41,7 +41,7 @@ beforeEach(async () => {
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
 const order = async (id) => (await query('SELECT * FROM orders WHERE id = $1', [id])).rows[0]
 async function paidOrder(cust, extra) {
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], extra)
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], extra)
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await pay(c.body.orderId)
   return c.body
@@ -72,7 +72,7 @@ describe('manager refunds for orders we cannot deliver', () => {
   test('an operator can still cancel an unpaid order without a refund', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const r = await cancel(c.body.orderId, { reason: 'Customer asked by phone' }, ops)
     assert.equal(r.status < 300, true, JSON.stringify(r.body))
     // Paying after the shop cancelled is refunded, not revived.
@@ -101,7 +101,7 @@ describe('preorders we cannot fill', () => {
     const cust = await customerToken(api)
     const b = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
       { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(b.status, 201, JSON.stringify(b.body))
@@ -123,7 +123,7 @@ describe('after a restore', () => {
   test('payments taken since the restore point are applied, and lost-order payments refunded', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const o = await order(c.body.orderId)
     // Paid at Razorpay, but the webhook landed in the database we threw away.
     devGateway.set(o.razorpay_order_id, { id: 'pay_kept', status: 'captured', amount: o.total, method: 'upi' })
@@ -229,7 +229,7 @@ describe('idempotency keys', () => {
   test('a retry with the same body replays; another customer or another body does not', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     const body = { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }
     const send = (b, token = cust.accessToken) => api.post('/v1/checkout/confirm', b, { token, headers: { 'Idempotency-Key': 'same-key' } })

@@ -256,6 +256,12 @@ function PreorderList() {
                   <td className="num">{rupees(p.total)}</td>
                   <td>
                     <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
+                    {p.nonRefundable && (
+                      <>
+                        {' '}
+                        <Badge tone="neutral">Non-refundable</Badge>
+                      </>
+                    )}
                     {p.order && (
                       <div className="small">
                         <Link to={`/orders/${p.order.id}`}>{p.order.number}</Link> on {date(p.order.deliveryDate)}
@@ -317,7 +323,7 @@ function CancelPreorderDialog({ preorder, onClose }: { preorder: Preorder; onClo
       >
         <p>
           {paid
-            ? `The customer paid ${rupees(preorder.total)}. It goes back to them in full. Use this when we can't fill the booking (crop failure, the season ending).`
+            ? `The customer paid ${rupees(preorder.total)}. It goes back to them in full${preorder.nonRefundable ? ' (non-refundable only stops the customer cancelling; a cancel by us always refunds)' : ''}. Use this when we can't fill the booking (crop failure, the season ending).`
             : 'The booking has not been paid, so there is nothing to refund.'}{' '}
           The boxes go back into the week's capacity.
         </p>

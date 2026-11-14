@@ -37,6 +37,10 @@ import type {
   Promo,
   NewPromo,
   HelpInbox,
+  BulkEnquiryDetail,
+  BulkEnquiryList,
+  BulkEnquiryStatus,
+  BulkQuoteInput,
   WaConversationDetail,
   WaFailures,
   WaInbox,
@@ -557,6 +561,13 @@ export const api = {
   replyHelpRequest: (requestId: string, message: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reply`, { message }),
   resolveHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/resolve`),
   reopenHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reopen`),
+  // Bulk enquiries (mango-api README, Bulk enquiries): managers and operators. Money in paise.
+  bulkEnquiries: (f: { status?: BulkEnquiryStatus | null; q?: string | null } = {}) =>
+    request<BulkEnquiryList>('GET', `/bulk-enquiries${qs({ status: f.status ?? undefined, q: f.q || undefined })}`),
+  bulkEnquiry: (enquiryId: string) => request<BulkEnquiryDetail>('GET', `/bulk-enquiries/${id(enquiryId)}`),
+  quoteBulkEnquiry: (enquiryId: string, quote: BulkQuoteInput) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/quote`, quote),
+  closeBulkEnquiry: (enquiryId: string, reason?: string) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/close`, reason ? { reason } : {}),
+  noteBulkEnquiry: (enquiryId: string, text: string) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/note`, { text }),
   // WhatsApp (docs/whatsapp/OPERATIONS.md): the inbox for managers and operators; set-up and health for managers.
   waInbox: (view: WaInboxView = 'waiting', page = 1) => request<WaInbox>('GET', `/whatsapp/conversations${qs({ view, page: page > 1 ? page : undefined })}`),
   waConversation: (conversationId: string) => request<WaConversationDetail>('GET', `/whatsapp/conversations/${id(conversationId)}`),

@@ -34,7 +34,7 @@ beforeEach(async () => {
 
 /** A paid order (an unpaid one for PAYMENT_PENDING) put straight into `state`. */
 async function orderIn(state) {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   if (state !== 'PAYMENT_PENDING') assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
   if (state !== 'PAYMENT_PENDING' && state !== 'CONFIRMED') await forceOrderState('UPDATE orders SET status = $1 WHERE id = $2', [state, o.body.orderId])

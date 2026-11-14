@@ -89,7 +89,7 @@ export function seed() {
     summary: {
       orders: { CONFIRMED: 3, PROCESSING: 1, PACKED: 2, SHIPPED: 0, OUT_FOR_DELIVERY: 1, DELIVERY_FAILED: 0, PAYMENT_PENDING: 5 },
       openClaims: 2,
-      batchesNearLimit: [{ id: 'b1', variety: 'Alphonso', ageDays: 7, available: 12 }],
+      batchesNearLimit: [{ id: 'b1', variety: 'Alphonso', ageDays: 7, lastDeliveryDay: '2026-10-15', lastOrderDay: '2026-10-14', available: 12 }],
       lowStock: [{ sku: 'ALP-5', productName: 'Alphonso 5kg Box', available: 3 }],
       maxSellableAge: 7,
     },
@@ -104,6 +104,8 @@ export function seed() {
       variety: 'Alphonso',
       pluckedOn: '2026-10-08',
       ageDays: 7,
+      lastDeliveryDay: '2026-10-15',
+      lastOrderDay: '2026-10-14',
       farm: 'Ratnagiri',
       status: 'SELLING',
       lines: [
@@ -115,8 +117,8 @@ export function seed() {
       ],
     },
     batches: [
-      { id: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', ageDays: 7, farm: 'Ratnagiri', status: 'SELLING', latestRating: 'RIPE', latestCondition: 'GOOD', onHand: 30, held: 2, committed: 9, available: 17 },
-      { id: 'b2', variety: 'Kesar', pluckedOn: '2026-10-14', ageDays: 1, farm: null, status: 'ARRIVED', latestRating: null, latestCondition: null, onHand: 40, held: 0, committed: 0, available: 0 },
+      { id: 'b1', variety: 'Alphonso', pluckedOn: '2026-10-08', ageDays: 7, lastDeliveryDay: '2026-10-15', lastOrderDay: '2026-10-14', farm: 'Ratnagiri', status: 'SELLING', latestRating: 'RIPE', latestCondition: 'GOOD', onHand: 30, held: 2, committed: 9, available: 17 },
+      { id: 'b2', variety: 'Kesar', pluckedOn: '2026-10-14', ageDays: 1, lastDeliveryDay: '2026-10-21', lastOrderDay: '2026-10-20', farm: null, status: 'ARRIVED', latestRating: null, latestCondition: null, onHand: 40, held: 0, committed: 0, available: 0 },
     ],
     ledger: [
       { eventType: 'INTAKE', sku: 'ALP-3', delta: 20, actorType: 'admin', actorId: 'ops@mandimangoes.test', reason: null, createdAt: '2026-10-08T05:00:00Z' },
@@ -265,7 +267,6 @@ export function seed() {
         stock: [
           { sku: 'ALP-3', stage: 'RAW', qty: 0 },
           { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 12 },
-          { sku: 'ALP-3', stage: 'RIPE', qty: 4 },
         ],
       },
     ],
@@ -278,8 +279,8 @@ export function seed() {
       { sku: 'KES-3', productName: 'Kesar 3kg Box', weekStart: '2027-03-01', capacity: 50, reserved: 12, waitlisted: 0 },
     ],
     preorders: [
-      { id: 'p1', number: 'PRE-1001', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 2, unitPrice: 129900, total: 259800, weekStart: '2027-03-01', pincode: '560034', customerName: 'Asha Rao', phone: '+919876543210', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 1, createdAt: '2027-01-05T06:00:00Z', refund: null, order: null },
-      { id: 'p2', number: 'PRE-1002', status: 'CONVERTED', sku: 'KES-3', productName: 'Kesar 3kg Box', stage: 'SEMI_RIPE', qty: 1, unitPrice: 99900, total: 99900, weekStart: '2027-03-01', pincode: '560034', customerName: 'Vikram S', phone: '+919123456780', channel: 'whatsapp', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-06T06:00:00Z', refund: null, order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2027-03-02' } },
+      { id: 'p1', number: 'PRE-1001', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 2, unitPrice: 129900, total: 259800, weekStart: '2027-03-01', pincode: '560034', customerName: 'Asha Rao', phone: '+919876543210', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 1, createdAt: '2027-01-05T06:00:00Z', nonRefundable: true, refund: null, order: null },
+      { id: 'p2', number: 'PRE-1002', status: 'CONVERTED', sku: 'KES-3', productName: 'Kesar 3kg Box', stage: 'SEMI_RIPE', qty: 1, unitPrice: 99900, total: 99900, weekStart: '2027-03-01', pincode: '560034', customerName: 'Vikram S', phone: '+919123456780', channel: 'whatsapp', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-06T06:00:00Z', nonRefundable: false, refund: null, order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2027-03-02' } },
     ],
     calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
     config: {
@@ -293,7 +294,7 @@ export function seed() {
         quoteMinutes: 5,
         forecastConfidence: 0.85,
         maxQcShift: 1,
-        transitDays: 2,
+        transitDays: 1,
         nearLimitAge: 5,
         lowStockThreshold: 5,
         claimWindowHours: 24,
@@ -302,11 +303,12 @@ export function seed() {
         outForDeliveryAlertHours: 8,
         maxPreorderMoves: 3,
         seasonEndsOn: null as string | null,
+        seasonStartsOn: null as string | null,
+        preorderOpensOn: null as string | null,
         stageProfiles: {
           default: [
-            { stage: 'RAW', minAge: 3, maxAge: 3 },
-            { stage: 'SEMI_RIPE', minAge: 4, maxAge: 5 },
-            { stage: 'RIPE', minAge: 6, maxAge: 7 },
+            { stage: 'RAW', minAge: 1, maxAge: 3 },
+            { stage: 'SEMI_RIPE', minAge: 4, maxAge: 7 },
           ],
         },
       },

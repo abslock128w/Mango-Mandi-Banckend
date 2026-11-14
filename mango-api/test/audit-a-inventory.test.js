@@ -40,7 +40,7 @@ const MIN = 60_000
 const later = (ms) => setNow(new Date(now().getTime() + ms).toISOString())
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
 const noDrift = async () => assert.deepEqual(await tx((c) => auditLedger(c)), [])
-const shown = async (date, sku = 'ALP-3', stage = 'RIPE') =>
+const shown = async (date, sku = 'ALP-3', stage = 'SEMI_RIPE') =>
   (await api.get(`/v1/catalogue?pincode=560034&delivery_date=${date}`)).body.items.find((i) => i.sku === sku && i.stage === stage)?.qty ?? 0
 const slotBoxes = async (date, slotId) =>
   (
@@ -57,11 +57,11 @@ describe('INV-01: a reschedule never overfills a delivery slot', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const morning = (await api.post('/admin/v1/slots', { label: 'Morning', startsAt: '07:00', endsAt: '11:00', maxBoxes: 1, sort: 1 }, { token: manager })).body
     const a = await customerToken(api)
-    const oa = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16', slotId: morning.id })
+    const oa = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-16', slotId: morning.id })
     assert.equal(oa.status, 201, JSON.stringify(oa.body))
     await pay(oa.body.orderId)
     const b = await customerToken(api)
-    const ob = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-17', slotId: morning.id })
+    const ob = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-17', slotId: morning.id })
     assert.equal(ob.status, 201, JSON.stringify(ob.body))
     await pay(ob.body.orderId)
     return { morning, a, orderA: oa.body.orderId }
@@ -145,20 +145,20 @@ describe('INV-04: expired holds during the gateway grace', () => {
   test('stock the catalogue shows as free can be bought, during and after the grace', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 1 } })
     const a = await customerToken(api)
-    const oa = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const oa = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(oa.status, 201)
     assert.ok(oa.body.razorpayOrderId)
     // Hold ran out a minute ago: the webhook may still be on its way, so the box is not offered.
     later(11 * MIN)
     assert.equal(await shown('2026-10-16'), 0)
     const b = await customerToken(api)
-    const early = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
+    const early = await checkout(api, b.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
     assert.equal(early.status, 409)
     // After the 2-minute grace the catalogue offers it and the checkout gets it.
     later(2 * MIN)
     assert.equal(await shown('2026-10-16'), 1)
     const c = await customerToken(api)
-    const ok = await checkout(api, c.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
+    const ok = await checkout(api, c.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { deliveryDate: '2026-10-16' })
     assert.equal(ok.status, 201, JSON.stringify(ok.body))
     await noDrift()
   })
@@ -173,7 +173,7 @@ describe('INV-06: preorder capacity audit', () => {
   const book = (token, week, extra = {}) =>
     api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
       { token, headers: { 'Idempotency-Key': newId('idem') } },
     )
 
@@ -233,7 +233,7 @@ describe('INV-07: cancelling a free replacement', () => {
   async function replacement() {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(c.body.orderId)
     const original = (await query('SELECT * FROM orders WHERE id = $1', [c.body.orderId])).rows[0]
     return tx((cl) => createReplacement(cl, { affected_items: null }, original, SYSTEM))
@@ -263,7 +263,7 @@ describe('INV-07: cancelling a free replacement', () => {
 
 describe('INV-08: stock still in transit after its arrival date', () => {
   test('with STOCK_INTAKE_CHECKS it stops selling to new orders, keeps what it promised, and is listed', async () => {
-    // Plucked 5 days ago, due 3 days ago, still in transit. No QC yet (it hasn't arrived).
+    // Plucked 5 days ago, due 4 days ago (1 day in transit), still in transit. No QC yet (it hasn't arrived).
     const batchId = await makeBatch({ age: 5, status: 'IN_TRANSIT', rating: null, lines: { 'ALP-3': 10 } })
     const before = (await api.get('/v1/catalogue?pincode=560034&delivery_date=2026-10-16')).body.items.filter((i) => i.sku === 'ALP-3')
     const stage = before.find((i) => i.qty > 0)?.stage
@@ -303,7 +303,7 @@ describe('INV-10: a chat order re-checks its pincode', () => {
     await say('hi')
     await say({ id: 'ORDER' })
     await say('560034')
-    await say({ id: 'item:ALP-3|RIPE' })
+    await say({ id: 'item:ALP-3|SEMI_RIPE' })
     await say({ id: 'qty:1' })
     await say({ id: 'CHECKOUT' })
     await say('12, 4th Cross, Koramangala, Bengaluru')

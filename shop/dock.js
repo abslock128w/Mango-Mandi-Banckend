@@ -1,23 +1,57 @@
+/* The phone dock (up to 900px): solid tabs that are page links (Shop /, Bulk /bulk, Grow /partner, Legacy /legacy; before the season the shop is where pre-orders are made),
+   a round Help button (the support page, /help), and the bag bar above them while the bag has something in it. The current tab follows the
+   route (pages.js fires `mm:route`), as do the desktop nav's links. The bag bar reads app.js's bagTotals() and
+   listens for its `mm:cart` event. Loaded last, after app.js. */
 (()=>{
-const dock=document.querySelector('.liquid-navigation'),rail=dock.querySelector('.liquid-rail'),lens=dock.querySelector('.liquid-lens'),tabs=[...rail.querySelectorAll('.liquid-tab')],orb=dock.querySelector('.dock-orb'),field=dock.querySelector('input'),mini=dock.querySelector('.dock-mini');
-const motion=!matchMedia('(prefers-reduced-motion:reduce)').matches;let selected=0,drag=null,suppress=false,searchOpen=false,holdUntil=0;const state={x:0,sx:1,sy:1};
-function paint(){lens.style.transform=`translate3d(${state.x}px,0,0) scale(${state.sx},${state.sy})`;}
-function target(i){const t=tabs[i];return t.offsetLeft+3}
-function move(i,instant=false){selected=i;tabs.forEach((t,n)=>{t.classList.toggle('is-current',i===n);if(i===n)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});const w=tabs[i].offsetWidth-6;lens.style.width=w+'px';if(!motion||instant||!window.gsap){state.x=target(i);state.sx=state.sy=1;paint();return}gsap.killTweensOf(state);const distance=target(i)-state.x;gsap.to(state,{x:target(i),duration:.42,ease:'power3.out',onUpdate:paint});gsap.to(state,{sx:1+Math.min(Math.abs(distance)/550,.24),sy:.94,duration:.12,ease:'power2.out',onUpdate:paint,onComplete:()=>gsap.to(state,{sx:1,sy:1,duration:.38,ease:'elastic.out(1,.6)',onUpdate:paint})});gsap.to(tabs,{scale:1,duration:.2,overwrite:true});gsap.fromTo(tabs[i],{scale:1.12},{scale:1,duration:.42,ease:'power3.out',overwrite:true})}
-function indexAt(x){const r=rail.getBoundingClientRect();return Math.max(0,Math.min(3,Math.floor((x-r.left)/r.width*4)))}
-rail.addEventListener('pointerdown',e=>{if(e.button!==0)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,start:selected,moved:false};rail.setPointerCapture(e.pointerId);rail.classList.add('is-dragging');if(motion&&window.gsap){gsap.killTweensOf(state);gsap.to(state,{sx:1.16,sy:1.12,duration:.16,onUpdate:paint})}});
-rail.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dy)>14&&Math.abs(dy)>Math.abs(dx)&&!drag.moved){finish(true);return}if(Math.abs(dx)>5)drag.moved=true;if(!drag.moved)return;const rect=rail.getBoundingClientRect(),w=tabs[0].offsetWidth-6;const x=Math.max(-4,Math.min(rect.width-w+4,e.clientX-rect.left-w/2));if(window.gsap&&motion)gsap.to(state,{x,sx:1.18,sy:1.1,duration:.1,ease:'power2.out',overwrite:true,onUpdate:paint});else{state.x=x;paint()}const near=indexAt(e.clientX);tabs.forEach((t,i)=>{t.classList.toggle('is-current',i===near);if(motion)t.style.transform=`scale(${i===near?1.12:1})`})});
-function finish(cancel=false,e){if(!drag)return;const d=drag;drag=null;rail.classList.remove('is-dragging');if(rail.hasPointerCapture(d.id))rail.releasePointerCapture(d.id);const i=cancel?d.start:indexAt(e?.clientX??d.x);move(i);tabs.forEach(t=>t.style.transform='');if(!cancel){suppress=true;holdUntil=Date.now()+900;tabs[i].click();setTimeout(()=>suppress=false,0)}}
-rail.addEventListener('pointerup',e=>finish(false,e));rail.addEventListener('pointercancel',()=>finish(true));
-tabs.forEach((t,i)=>t.addEventListener('click',e=>{if(!suppress)move(i,e.detail===0);holdUntil=Date.now()+900}));
-function toggleSearch(){searchOpen=!searchOpen;const before=dock.getBoundingClientRect();dock.classList.toggle('search-mode',searchOpen);orb.setAttribute('aria-expanded',searchOpen);orb.setAttribute('aria-label',searchOpen?'Close dock search':'Open dock search');orb.innerHTML=`<svg><use href="#i-${searchOpen?'close':'search'}"/></svg>`;if(searchOpen){if(window.gsap&&motion)gsap.fromTo(dock.querySelector('.dock-search'),{scaleX:.82,opacity:.2},{scaleX:1,opacity:1,duration:.32,ease:'power3.out',transformOrigin:'right center'});field.focus()}else{field.blur();move(selected,true);if(window.gsap&&motion)gsap.fromTo(rail,{scaleX:.86,opacity:.4},{scaleX:1,opacity:1,duration:.3,ease:'power3.out',transformOrigin:'left center'})}}
-orb.addEventListener('click',toggleSearch);field.addEventListener('input',()=>{document.querySelector('#search').value=field.value;document.querySelector('#search').dispatchEvent(new Event('input',{bubbles:true}));if(location.hash!=='#shop'){location.hash='shop'}});field.addEventListener('keydown',e=>{if(e.key==='Escape')toggleSearch()});
-function syncBag(){let items=[];try{items=JSON.parse(localStorage.getItem('mm-cart')||'[]')}catch{}const count=items.reduce((s,x)=>s+x.qty,0),kg=items.reduce((s,x)=>s+x.qty*x.weight,0);mini.hidden=count===0;dock.querySelector('.dock-mini-summary').textContent=`${count} ${count===1?'box':'boxes'} · ${kg} kg · View bag`}
-new MutationObserver(syncBag).observe(document.querySelector('.header .bag-count'),{childList:true,characterData:true,subtree:true});syncBag();
-const observer=new IntersectionObserver(entries=>{if(drag||searchOpen||Date.now()<holdUntil)return;const hit=entries.find(e=>e.isIntersecting);if(hit){const i=tabs.findIndex(t=>t.hash==='#'+hit.target.id);if(i>=0)move(i)}},{rootMargin:'-20% 0px -60% 0px'});tabs.forEach(t=>{const s=document.querySelector(t.hash);if(s)observer.observe(s)});
-let lastLensWidth=0;
-function buildOptics(){const w=Math.round(tabs[0].offsetWidth-6),h=56;if(w<20||w===lastLensWidth)return;lastLensWidth=w;const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d'),map=ctx.createImageData(w,h),r=28;for(let y=0;y<h;y++)for(let x=0;x<w;x++){const px=x-w/2,py=y-h/2;const qx=Math.max(Math.abs(px)-(w/2-r),0),qy=Math.max(Math.abs(py)-(h/2-r),0),dist=Math.hypot(qx,qy),edge=r-dist;const bend=edge>=0&&edge<12?Math.pow(1-edge/12,2):0;const nx=dist?qx/dist*Math.sign(px):0,ny=dist?qy/dist*Math.sign(py):0;const k=(y*w+x)*4;map.data[k]=128+nx*bend*110;map.data[k+1]=128+ny*bend*110;map.data[k+2]=128;map.data[k+3]=255}ctx.putImageData(map,0,0);let svg=document.getElementById('dock-optics');if(!svg){svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.id='dock-optics';svg.setAttribute('aria-hidden','true');svg.style.cssText='position:absolute;width:0;height:0;pointer-events:none';document.body.append(svg)}svg.innerHTML=`<defs><filter id="dock-refraction" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB"><feImage href="${canvas.toDataURL()}" x="0" y="0" width="${w}" height="${h}" result="lensMap"/><feDisplacementMap in="SourceGraphic" in2="lensMap" scale="18" xChannelSelector="R" yChannelSelector="G"/><feGaussianBlur stdDeviation="0.25"/></filter></defs>`;if(!matchMedia('(prefers-reduced-transparency:reduce)').matches&&CSS.supports('backdrop-filter','url(#dock-refraction)'))lens.style.backdropFilter='url(#dock-refraction) saturate(1.45)'}
-new ResizeObserver(()=>{if(!searchOpen){move(selected,true);buildOptics()}}).observe(rail);document.fonts.ready.then(()=>move(selected,true));
-if(window.visualViewport){visualViewport.addEventListener('resize',()=>{const inset=Math.max(0,innerHeight-visualViewport.height-visualViewport.offsetTop);dock.style.bottom=inset>100?`${inset+10}px`:''})}
-move(Math.max(0,tabs.findIndex(t=>t.hash===location.hash)),true);
+const dock=document.querySelector('.liquid-navigation'),rail=dock.querySelector('.liquid-rail'),tabs=[...rail.querySelectorAll('.liquid-tab')],orb=dock.querySelector('.dock-orb'),mini=dock.querySelector('.dock-mini'),navLinks=[...document.querySelectorAll('.desktop-nav a[data-nav]')];
+
+// ---- The current tab: by the address, not by scrolling.
+function section(path){if(/^\/help(\/|$)/.test(path))return '/help';if(/^\/bulk\/?$/.test(path))return '/bulk';if(/^\/partner(\/|$)/.test(path))return '/partner';if(/^\/legacy(\/|$)/.test(path))return '/legacy';if(path==='/'||path==='/index.html')return '/';return null}
+function mark(){const at=section(location.pathname);if(orb){const on=at==='/help';orb.classList.toggle('is-current',on);if(on)orb.setAttribute('aria-current','page');else orb.removeAttribute('aria-current')}tabs.forEach(t=>{const on=t.getAttribute('href')===at;t.classList.toggle('is-current',on);if(on)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});navLinks.forEach(a=>{const on=a.dataset.nav===at;a.classList.toggle('active',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
+window.addEventListener('mm:route',mark);window.addEventListener('popstate',mark);
+// Shop while already on the home page: back to the top of the shop.
+tabs[0].addEventListener('click',()=>{if(section(location.pathname)==='/')requestAnimationFrame(()=>window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'}))});
+
+// ---- The bag bar: "2 boxes · 5 kg" and "View bag ₹3,498", sliding up with the first box and pulsing with each one added.
+mini.hidden=false;let shownCount=null;
+function syncBag(t){t=t||(typeof bagTotals==='function'?bagTotals():{count:0,kg:0,price:0,priced:false});const count=t.count||0,on=count>0;
+mini.classList.toggle('is-shown',on);mini.inert=!on;mini.setAttribute('aria-hidden',String(!on));dock.classList.toggle('has-bag',on);document.documentElement.classList.toggle('bag-open',on);
+dock.querySelector('.dock-mini-summary').textContent=`${count} ${count===1?'box':'boxes'} · ${t.kg} kg`;
+dock.querySelector('.mini-total').textContent=t.priced&&t.price>0?currency(t.price):'';
+mini.setAttribute('aria-label',`View bag: ${count} ${count===1?'box':'boxes'}, ${t.kg} kg${t.priced&&t.price>0?', '+currency(t.price):''}`);
+if(shownCount!==null&&count>shownCount&&shownCount>0){mini.classList.remove('is-pulse');void mini.offsetWidth;mini.classList.add('is-pulse')}shownCount=count}
+mini.addEventListener('animationend',()=>mini.classList.remove('is-pulse'));
+window.addEventListener('mm:cart',e=>{syncBag(e.detail);requestAnimationFrame(()=>measure())});
+
+// ---- The keyboard: while a field is being typed in, the dock steps out of the way.
+const touch=matchMedia('(pointer:coarse)'),TYPING='input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset],[type=file],[type=color]),textarea,[contenteditable=""],[contenteditable=true]';
+function keyboard(){const a=document.activeElement,vv=window.visualViewport,inset=vv?Math.max(0,innerHeight-vv.height-vv.offsetTop):0,up=inset>100,own=!!a&&dock.contains(a),typing=!!a&&!own&&a.matches(TYPING);dock.style.bottom=own&&up?`${inset}px`:'';dock.classList.toggle('is-away',typing&&(up||touch.matches))}
+if(window.visualViewport)visualViewport.addEventListener('resize',keyboard);document.addEventListener('focusin',keyboard);document.addEventListener('focusout',()=>setTimeout(keyboard,60));
+
+// ---- Layout measures for CSS (style.css polish block). --bar-clear: how much of the screen the sticky pay bar (and
+// the dock under it) covers, so the footer pads exactly that + 24px. --above-h/--footer-h: so a short page fills the
+// screen and the footer meets the bottom edge. --veil-h + html.is-scrolled: the bottom edge of the sticky header stack,
+// for the one frosted veil behind it once the announcement has scrolled away.
+const root=document.documentElement,payBar=document.querySelector('#pay-bar'),pageView=document.querySelector('#page-view'),foot=document.querySelector('footer'),head=document.querySelector('.header'),ann=document.querySelector('.announcement'),home=document.querySelector('#home'),shopTop=document.querySelector('.shop-top'),toolbar=document.querySelector('.collection-toolbar');
+const setPx=(k,v)=>{const s=Math.round(v)+'px';if(root.style.getPropertyValue(k)!==s)root.style.setProperty(k,s)};
+let barTop=0,veilQueued=false;
+function veil(){veilQueued=false;const on=!ann||ann.getBoundingClientRect().bottom<=0;root.classList.toggle('is-scrolled',on);if(!on)return;
+let edge=head?head.getBoundingClientRect().bottom:0;
+if(home&&!home.hidden){const st=shopTop&&shopTop.getBoundingClientRect();if(st&&st.height&&st.top<=edge+12)edge=Math.max(edge,st.bottom);
+const tb=toolbar&&toolbar.getBoundingClientRect();if(tb&&tb.height&&tb.top<=barTop+.5)edge=Math.max(edge,tb.bottom)}
+setPx('--veil-h',edge)}
+function measure(){if(toolbar)barTop=parseFloat(getComputedStyle(toolbar).top)||0;
+if(payBar&&!payBar.hidden&&getComputedStyle(payBar).visibility!=='hidden'&&payBar.getBoundingClientRect().height){const r=payBar.getBoundingClientRect();setPx('--bar-h',r.height);setPx('--bar-clear',innerHeight-r.top)}
+// No pay bar: the dock (and the bag bar riding 10px above it) is what covers the bottom; from layout, not the slide-in animation.
+else if(getComputedStyle(dock).display!=='none'){const lift=mini.classList.contains('is-shown')&&getComputedStyle(mini).display!=='none'?mini.offsetHeight+10:0;setPx('--bar-clear',Math.max(0,innerHeight-dock.offsetTop+lift))}
+else setPx('--bar-clear',0)
+if(pageView&&!pageView.hidden)setPx('--above-h',pageView.getBoundingClientRect().top+scrollY);
+if(foot)setPx('--footer-h',foot.offsetHeight);veil()}
+addEventListener('scroll',()=>{if(!veilQueued){veilQueued=true;requestAnimationFrame(veil)}},{passive:true});
+addEventListener('resize',measure);window.addEventListener('mm:route',()=>requestAnimationFrame(measure));
+if('ResizeObserver' in window){const ro=new ResizeObserver(()=>measure());[payBar,foot,head].forEach(el=>el&&ro.observe(el))}
+if(payBar)new MutationObserver(()=>requestAnimationFrame(measure)).observe(payBar,{attributes:true,attributeFilter:['hidden']});
+measure();
+
+mark();syncBag();
 })();

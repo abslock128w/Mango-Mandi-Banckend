@@ -64,7 +64,7 @@ async function placeRider(riderId, pos, ageMs = 0, accuracy = null) {
 /** A paid order (CONFIRMED: assignable) for a customer at `pincode`, on the earliest delivery date unless given. */
 async function makeOrder({ pincode = '560034', slotId, deliveryDate } = {}) {
   const cust = await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { pincode, slotId, deliveryDate })
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { pincode, slotId, deliveryDate })
   assert.equal(o.status, 201, JSON.stringify(o.body))
   const pay = await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   assert.equal(pay.status, 200, JSON.stringify(pay.body))

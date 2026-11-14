@@ -8,12 +8,13 @@
 // gift orders, subscriptions, help requests, and the bill number counter
 // (bill_counters, one row per financial year).
 
+import { INVERSE } from './order-number.js'
 import { financialYear } from './bills.js'
 import { todayIST } from './clock.js'
 
 /** The numbering sequences and the table and prefix each one numbers. */
 export const SEQUENCES = [
-  { seq: 'order_seq', table: 'orders', prefix: 'ORD-' },
+  { seq: 'order_seq', table: 'orders', prefix: 'ORD-', scrambled: true },
   { seq: 'preorder_seq', table: 'preorders', prefix: 'PRE-' },
   { seq: 'gift_order_seq', table: 'gift_orders', prefix: 'GFT-' },
   { seq: 'subscription_seq', table: 'subscriptions', prefix: 'SUB-' },
@@ -37,11 +38,15 @@ async function billHighWater(c) {
  */
 export async function highWater(c) {
   const out = {}
-  for (const { seq, table, prefix } of SEQUENCES) {
+  for (const { seq, table, prefix, scrambled } of SEQUENCES) {
+    // Orders numbered since the 10-digit format (orders.js) are turned back into their sequence value.
+    const tenDigit = scrambled
+      ? `, COALESCE((SELECT MAX(((number::numeric - 1000000000) * ${INVERSE}) % 9000000000) FROM ${table} WHERE number ~ '^[1-9][0-9]{9}$'), 0)`
+      : ''
     const { rows } = await c.query(
       `SELECT GREATEST(
          (SELECT CASE WHEN is_called THEN last_value ELSE last_value - 1 END FROM ${seq}),
-         COALESCE((SELECT MAX(substring(number FROM ${prefix.length + 1})::bigint) FROM ${table} WHERE number ~ $1), 0)
+         COALESCE((SELECT MAX(substring(number FROM ${prefix.length + 1})::bigint) FROM ${table} WHERE number ~ $1), 0)${tenDigit}
        )::bigint AS n`,
       [`^${prefix}[0-9]+$`],
     )

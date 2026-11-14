@@ -30,7 +30,7 @@ import { createGatewayOrder, reconcileGiftNow, refundsFor, sendDueRefunds, verif
 import { findProduct, sellable, shopProducts } from './products.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { hit } from './ratelimit.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 import { csvCell } from './warehouse/reports.js'
 import { isOn } from './feature-switches.js'
 // Function declarations and lazily read constants only: customer.js imports this file.
@@ -55,7 +55,7 @@ export function recipientsTemplate(products = shopProducts()) {
   const p = products[0]
   const rows = [
     TEMPLATE_COLUMNS,
-    ['Asha Rao', '9876543210', 'Flat 4B, Lake View Apartments, 2nd Main, Indiranagar, Bengaluru', '560038', p?.sku ?? 'ALP-3', 'RIPE', 1, 'Happy Diwali from all of us!'],
+    ['Asha Rao', '9876543210', 'Flat 4B, Lake View Apartments, 2nd Main, Indiranagar, Bengaluru', '560038', p?.sku ?? 'ALP-3', 'SEMI_RIPE', 1, 'Happy Diwali from all of us!'],
   ]
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
 }
@@ -75,7 +75,7 @@ const recipientSchema = () =>
       address: z.string().trim().min(10, 'Enter the full delivery address').max(500, 'The address can be up to 500 characters'),
       pincode: z.string().trim().regex(/^\d{6}$/, 'The pincode must be 6 digits'),
       sku: z.string().trim().min(1, 'Choose a box').max(40),
-      stage: z.enum(STAGES, { message: 'Ripeness must be RAW, SEMI_RIPE or RIPE' }),
+      stage: z.enum(SALE_STAGES, { message: 'Ripeness must be RAW or SEMI_RIPE' }),
       qty: z.number({ message: 'Enter how many boxes' }).int('Enter a whole number of boxes').min(1, 'At least 1 box'),
       note: z.string().trim().max(200, 'The note can be up to 200 characters').optional().nullable(),
     })

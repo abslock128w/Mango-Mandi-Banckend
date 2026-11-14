@@ -25,7 +25,7 @@ beforeEach(async () => {
 })
 
 const KESAR = { sku: 'kes-3', name: 'Kesar 3kg Box', variety: 'Kesar', boxSize: '3kg', price: 159_900, description: 'Kesar from Junagadh: saffron-sweet.' }
-const shopItem = async (sku, stage = 'RIPE') => (await api.get('/v1/catalogue?pincode=560034')).body.items.find((i) => i.sku === sku && i.stage === stage)
+const shopItem = async (sku, stage = 'SEMI_RIPE') => (await api.get('/v1/catalogue?pincode=560034')).body.items.find((i) => i.sku === sku && i.stage === stage)
 const newBatch = (variety, sku) =>
   api.post('/admin/v1/batches', { variety, pluckedOn: todayIST(), farm: 'Junagadh', lines: [{ sku, onHand: 10 }] }, { token: admin })
 
@@ -77,23 +77,23 @@ describe('products', () => {
   test('removing a sold product hides it everywhere new, keeps its name on old orders, and it can come back', async () => {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     // Someone else has it in their cart when it is removed.
     const other = await customerToken(api)
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: other.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: other.accessToken })
 
     assert.deepEqual((await api.del('/admin/v1/products/ALP-3', { token: admin, body: { confirmCode: 'manager123' } })).body, { sku: 'ALP-3', outcome: 'hidden' })
     assert.equal(await shopItem('ALP-3'), undefined)
     assert.equal((await api.get('/admin/v1/products', { token: admin })).body.find((p) => p.sku === 'ALP-3').active, false)
-    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })).body.error.code, 'INVALID_SKU')
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })).body.error.code, 'INVALID_SKU')
     const cart = (await api.get('/v1/cart', { token: other.accessToken })).body
     assert.deepEqual([cart.lines[0].available, cart.lines[0].insufficient], [0, true])
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: other.accessToken })
     assert.equal(q.body.error.code, 'PRODUCT_UNAVAILABLE')
     assert.match(q.body.error.message, /Alphonso 3kg Box is no longer sold/)
     // They can still take it out of the cart.
-    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 0 }, { token: other.accessToken })).status < 300, true)
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 0 }, { token: other.accessToken })).status < 300, true)
     assert.equal((await newBatch('Alphonso', 'ALP-3')).body.error.code, 'PRODUCT_INACTIVE')
 
     const old = (await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })).body

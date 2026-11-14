@@ -94,7 +94,7 @@ describe('sign in with Google', () => {
     const again = await api.post('/v1/auth/google', { credential: await credential() })
     assert.equal(again.body.customer.id, r.body.customer.id)
 
-    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: '2026-11-02', pincode: '560034', address: '12, 4th Cross, Koramangala' }, { token, headers: { 'Idempotency-Key': 'k1' } })
+    const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: '2026-11-02', pincode: '560034', address: '12, 4th Cross, Koramangala' }, { token, headers: { 'Idempotency-Key': 'k1' } })
     assert.equal(pre.body.error.code, 'PHONE_REQUIRED')
 
     const code = await codeFor('/v1/me/phone/request', '9876500001', token)
@@ -108,7 +108,7 @@ describe('sign in with Google', () => {
 
   test('a Google sign-in joins the account that already has the phone', async () => {
     const old = await customerToken(api, '9876500002')
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: old.accessToken })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: old.accessToken })
     const oldId = (await api.get('/v1/me', { token: old.accessToken })).body.id
 
     const g = await api.post('/v1/auth/google', { credential: await credential({ sub: 'google-456' }) })

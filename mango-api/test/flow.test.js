@@ -81,7 +81,7 @@ describe('staff auth', () => {
       // The Warehouse area is on in tests (setup-env.js); /auth/me says so with the role's warehouse permissions.
       warehouse: { enabled: true, permissions: ROLE_PERMISSIONS.OPERATOR },
       // Bills, customer profiles and exports are on outside production (trust-config.js); app feel switches are off unless set.
-      features: { bills: true, customerProfiles: true, exports: true, riderRoute: false, multiGift: false, referrals: false, funnelAnalytics: false, managerDailySummary: false },
+      features: { bills: true, customerProfiles: true, exports: true, riderRoute: false, multiGift: false, referrals: false, funnelAnalytics: false, managerDailySummary: false, partnerNetwork: true, bulkEnquiries: true, farmExperience: false },
     })
     const b = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     assert.equal((await api.patch(`/admin/v1/batches/${b}/status`, { status: 'CONDEMNED' }, { token: ops })).status, 403)
@@ -140,8 +140,8 @@ describe('batches', () => {
 
 describe('storefront', () => {
   test('pincode gate, cutoff and catalogue stages', async () => {
-    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } }) // ripe on 10-16
-    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 6 } }) // raw on 10-16
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } }) // 6 on 10-16: semi-ripe
+    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 6 } }) // 3 on 10-16: raw
 
     assert.deepEqual((await api.get('/v1/delivery/check?pincode=110001')).body.serviceable, false)
     const check = (await api.get('/v1/delivery/check?pincode=560034')).body
@@ -150,14 +150,14 @@ describe('storefront', () => {
 
     const cat = (await api.get('/v1/catalogue?pincode=560034')).body
     const qty = (sku, stage) => cat.items.find((i) => i.sku === sku && i.stage === stage).qty
-    assert.equal(qty('ALP-3', 'RIPE'), 10)
+    assert.equal(qty('ALP-3', 'SEMI_RIPE'), 10)
     assert.equal(qty('ALP-3', 'RAW'), 6)
-    assert.equal(qty('ALP-3', 'SEMI_RIPE'), 0)
+    assert.equal(cat.items.some((i) => i.stage === 'RIPE'), false, 'nothing is sold ripe')
 
-    // Two days later the young batch is semi-ripe and the old one is past the cap.
+    // Two days later the young batch is semi-ripe (4) and the old one is past the cap (8).
     const later = (await api.get('/v1/catalogue?pincode=560034&delivery_date=2026-10-18')).body
     const q2 = (stage) => later.items.find((i) => i.sku === 'ALP-3' && i.stage === stage).qty
-    assert.deepEqual([q2('RAW'), q2('SEMI_RIPE'), q2('RIPE')], [0, 6, 0])
+    assert.deepEqual([q2('RAW'), q2('SEMI_RIPE')], [0, 6])
 
     // After 18:00 IST the earliest date is D+2; closed days are skipped.
     at('2026-10-15T13:00:00Z') // 18:30 IST
@@ -178,7 +178,7 @@ describe('orders', () => {
   test('checkout → payment → pack → deliver → claim → replacement, never a refund', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     assert.equal(c.status, 201)
     assert.equal(c.body.status, 'PAYMENT_PENDING')
     assert.match(c.body.razorpayOrderId, /^order_dev_/)
@@ -203,8 +203,8 @@ describe('orders', () => {
     let o = await order(c.body.orderId)
     assert.equal(o.status, 'CONFIRMED')
     assert.deepEqual(o.payment, { status: 'SUCCEEDED', method: 'upi', amount: 2 * 189_900, id: 'pay_1', refund: null })
-    assert.equal(o.items[0].stage, 'RIPE')
-    assert.equal(o.items[0].eatBy, '2026-10-19')
+    assert.equal(o.items[0].stage, 'SEMI_RIPE')
+    assert.equal(o.items[0].eatBy, '2026-10-21')
     assert.deepEqual(o.stock.map((s) => [s.batchId, s.state, s.quantity]), [[b, 'committed', 2]])
     assert.equal((await line(b, 'ALP-3')).committed, 2)
 
@@ -244,7 +244,7 @@ describe('orders', () => {
   test('idempotent confirm, and a sold-out checkout leaves nothing behind', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
     const cust = await customerToken(api)
-    const first = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key: 'k-1' })
+    const first = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key: 'k-1' })
     assert.equal(first.status, 201)
     // A different body with the same key is refused, not replayed as the first order.
     const reused = await api.post('/v1/checkout/confirm', { quoteId: 'gone', address: 'anything at all here' }, { token: cust.accessToken, headers: { 'Idempotency-Key': 'k-1' } })
@@ -252,7 +252,7 @@ describe('orders', () => {
     assert.equal(reused.body.error.code, 'IDEMPOTENCY_KEY_REUSED')
 
     const other = await customerToken(api)
-    const short = await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const short = await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     assert.equal(short.status, 409)
     assert.equal(short.body.error.code, 'STOCK_INSUFFICIENT')
     assert.equal((await line(b, 'ALP-3')).held, 2)
@@ -262,7 +262,7 @@ describe('orders', () => {
   test('an expired hold is swept; a late payment still confirms on the same date', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     at(new Date(Date.parse(T0) + 11 * 60_000))
     await runMaintenance()
     let o = await order(c.body.orderId)
@@ -280,15 +280,15 @@ describe('orders', () => {
   })
 
   test('a late payment after the stock is gone moves to the next date with stock', async () => {
-    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 2 } }) // ripe on 10-16 only stock
-    const later = await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } }) // semi on 10-16, ripe on 10-17
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 2 } }) // the only semi-ripe stock on 10-16
+    const later = await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 5 } }) // raw on 10-16 (3), semi-ripe on 10-17 (4)
     const a = await customerToken(api)
-    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const ca = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     at(new Date(Date.parse(T0) + 11 * 60_000))
     await runMaintenance()
 
     const b2 = await customerToken(api)
-    const cb = await checkout(api, b2.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
+    const cb = await checkout(api, b2.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { deliveryDate: '2026-10-16' })
     await pay(cb.body.orderId)
 
     await pay(ca.body.orderId)
@@ -304,13 +304,13 @@ describe('orders', () => {
 
   test('condemning a batch swaps orders to another batch or flags them at-risk, never cancels', async () => {
     const bad = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4, 'ALP-5': 2 } })
-    // Younger but QC'd ripe a day early, so it is also RIPE on 10-16; FEFO uses `bad` first.
+    // Younger and QC'd ripe (a fast ripener), so it is also SEMI_RIPE on 10-16; FEFO uses `bad` first.
     const spare = await makeBatch({ age: 4, rating: 'RIPE', lines: { 'ALP-3': 2 } })
     const c1 = await customerToken(api)
-    const o1 = await checkout(api, c1.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const o1 = await checkout(api, c1.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     await pay(o1.body.orderId)
     const c2 = await customerToken(api)
-    const o2 = await checkout(api, c2.accessToken, [{ sku: 'ALP-5', stage: 'RIPE', qty: 1 }])
+    const o2 = await checkout(api, c2.accessToken, [{ sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(o2.body.orderId)
     assert.deepEqual((await order(o1.body.orderId)).stock.map((s) => s.batchId), [bad])
 
@@ -324,7 +324,7 @@ describe('orders', () => {
     assert.deepEqual(r.body.atRiskOrders, [two.number])
     assert.equal(two.status, 'CONFIRMED')
     assert.equal(two.atRisk, true)
-    assert.match(two.atRiskReason, /ALP-5 RIPE has no stock/)
+    assert.match(two.atRiskReason, /ALP-5 SEMI_RIPE has no stock/)
     assert.equal((await line(bad, 'ALP-3')).on_hand, 0)
     const summary = (await api.get('/admin/v1/summary', { token: admin })).body
     assert.deepEqual(summary.atRiskOrders.map((x) => x.number), [two.number])
@@ -343,7 +343,7 @@ describe('orders', () => {
   test('a failed delivery is retried on the next delivery day', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(c.body.orderId)
     const id = c.body.orderId
     await move(id, 'PROCESSING')
@@ -370,11 +370,11 @@ describe('orders', () => {
   test('customers can cancel until packing, and a paid order is refunded in full', async () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
     assert.equal((await line(b, 'ALP-3')).held, 0)
 
-    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(paid.body.orderId)
     assert.equal((await line(b, 'ALP-3')).committed, 1)
     assert.equal((await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
@@ -393,13 +393,13 @@ describe('orders', () => {
     assert.equal((await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body.status, 'CANCELLED')
 
     // Paid after the customer cancelled: stays cancelled and is refunded.
-    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await api.post(`/v1/orders/${late.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
     assert.equal((await pay(late.body.orderId)).body.result, 'refund_due')
     const lateOrder = (await api.get(`/v1/orders/${late.body.orderId}`, { token: cust.accessToken })).body
     assert.deepEqual([lateOrder.status, lateOrder.paymentStatus], ['CANCELLED', 'REFUNDED'])
 
-    const packed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const packed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(packed.body.orderId)
     await move(packed.body.orderId, 'PROCESSING')
     await api.post(`/admin/v1/orders/${packed.body.orderId}/allocate`, undefined, { token: admin })
@@ -410,6 +410,32 @@ describe('orders', () => {
 
     const stranger = await customerToken(api)
     assert.equal((await api.get(`/v1/orders/${packed.body.orderId}`, { token: stranger.accessToken })).status, 404)
+  })
+
+  test('a paid order can be cancelled for four hours after it was placed, then cancelling is closed', async () => {
+    const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    await pay(paid.body.orderId)
+    const view = async () => (await api.get(`/v1/orders/${paid.body.orderId}`, { token: cust.accessToken })).body
+    const fresh = await view()
+    assert.equal(fresh.canCancel, true)
+    assert.equal(Date.parse(fresh.cancelUntil) - Date.parse(fresh.placedAt), 4 * 3_600_000)
+
+    // Five minutes past the four hours: the shop is told it is closed, and the API refuses.
+    at(new Date(Date.parse(fresh.cancelUntil) + 5 * 60_000))
+    assert.equal((await view()).canCancel, false)
+    const r = await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
+    assert.equal(r.status, 409)
+    assert.equal(r.body.error.code, 'CANCEL_WINDOW_CLOSED')
+    assert.equal((await view()).status, 'CONFIRMED')
+    assert.equal((await line(b, 'ALP-3')).committed, 1)
+
+    // An order never paid for is not bound by the four hours.
+    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    const u = (await api.get(`/v1/orders/${unpaid.body.orderId}`, { token: cust.accessToken })).body
+    assert.deepEqual([u.canCancel, u.cancelUntil], [true, null])
+    assert.equal((await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
   })
 
   test('batches retire at age 8 and the books balance', async () => {
@@ -447,9 +473,9 @@ describe('customer auth', () => {
 describe('ops tools', () => {
   test('orders list filters, summary, coverage, rules and reschedule', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 3 } })
-    await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } }) // ripe from 10-17
+    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 5 } }) // raw on 10-16 (3), semi-ripe from 10-17 (4)
     const cust = await customerToken(api, '9000000001')
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     await pay(c.body.orderId)
 
     const list = (await api.get('/admin/v1/orders?status=CONFIRMED&q=90000', { token: admin })).body
@@ -464,9 +490,10 @@ describe('ops tools', () => {
     assert.deepEqual(s.batchesNearLimit.map((b) => b.ageDays), [5])
 
     const grid = (await api.get('/admin/v1/coverage', { token: admin })).body
-    const ripe = (d) => grid.find((g) => g.date === d).stock.find((x) => x.sku === 'ALP-3' && x.stage === 'RIPE').qty
-    assert.equal(ripe('2026-10-16'), 1)
-    assert.equal(ripe('2026-10-17'), 6)
+    const semi = (d) => grid.find((g) => g.date === d).stock.find((x) => x.sku === 'ALP-3' && x.stage === 'SEMI_RIPE').qty
+    assert.equal(semi('2026-10-16'), 1)
+    assert.equal(semi('2026-10-17'), 6)
+    assert.equal(grid[0].stock.some((x) => x.stage === 'RIPE'), false)
 
     const resched = await api.post(`/admin/v1/orders/${c.body.orderId}/reschedule`, { deliveryDate: '2026-10-17' }, { token: admin })
     assert.equal(resched.status, 204)

@@ -44,6 +44,14 @@ export function OrderBadge({ status }: { status: OrderStatus }) {
   return <Badge tone={orderTone(status)}>{ORDER_STATUS_LABEL[status] ?? status}</Badge>
 }
 
+/**
+ * Backorders: some boxes were sold before stock arrived. Amber ("warn") while it still waits for
+ * stock (`awaiting`: the API's atRisk), plain once every box is allocated. Expected, not a problem.
+ */
+export function BackorderBadge({ awaiting }: { awaiting?: boolean }) {
+  return <Badge tone={awaiting ? 'warn' : 'neutral'}>{awaiting ? 'Backorder · awaiting stock' : 'Backorder'}</Badge>
+}
+
 export function BatchBadge({ status }: { status: BatchStatus }) {
   return <Badge tone={batchTone(status)}>{BATCH_STATUS_LABEL[status] ?? status}</Badge>
 }

@@ -102,6 +102,11 @@ export function buildQueue({ attention: a, summary: s, day, live, nowMs }: Queue
     add({ id: `overdue-${o.id}`, severity: 'now', title: `Overdue · ${o.number}`, why: o.reason, since: o.outSince, owner: 'OPERATOR', action: order(o.id, 'Find it'), open: playbook('overdue') })
   }
   for (const o of s?.atRiskOrders ?? []) {
+    // Backorders: sold before stock arrived. Expected, not an alarm: a quiet item until stock is allocated.
+    if (o.backorder) {
+      add({ id: `backorder-${o.id}`, severity: 'watch', title: `Backorder awaiting stock · ${o.number}`, why: `Promised for ${o.deliveryDate}; boxes are allocated automatically when stock arrives.`, since: null, owner: 'OPERATOR', action: order(o.id, 'Open') })
+      continue
+    }
     add({ id: `risk-${o.id}`, severity: 'now', title: `Order at risk · ${o.number}`, why: o.reason ?? 'Its stock went bad or ran out: it needs a new date or new stock.', since: null, owner: 'OPERATOR', action: order(o.id, 'Rebalance') })
   }
 

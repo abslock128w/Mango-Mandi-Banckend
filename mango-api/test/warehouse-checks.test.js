@@ -79,7 +79,7 @@ async function stockedLot(count) {
 
 async function paidOrder(qty) {
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   ok(await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' }))
   return c.body.orderId

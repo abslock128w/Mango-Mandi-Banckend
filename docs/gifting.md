@@ -1,5 +1,7 @@
 # Bulk and corporate gifting (roadmap C9)
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 A buyer, often a business at festival time, sends MandiMangoes boxes to many
 people in one order. They pay once and get one bill. Each recipient gets their
 own delivery.

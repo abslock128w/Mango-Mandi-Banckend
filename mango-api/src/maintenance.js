@@ -46,6 +46,8 @@ import { settleReferrals } from './referrals.js'
 import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
+import { queueFollowupAlerts } from './partner/alerts.js'
+import { runFarmJobs } from './farm/jobs.js'
 import { runSubscriptionJobs } from './subscriptions.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
 import { counterProblems, stepProblems } from './alert-checks.js'
@@ -403,6 +405,10 @@ async function steps(forceAll) {
   if (isOn('MANAGER_DAILY_SUMMARY')) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
   // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
   if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
+  // Partner Network follow-ups due within the hour or overdue: one team alert each (WHATSAPP_PARTNER_UPDATES, docs/partner-network.md).
+  if (isOn('PARTNER_NETWORK') && env.WHATSAPP_PARTNER_UPDATES && env.PARTNER_ALERT_PHONES.length) out.partnerFollowups = await step('partner-followups', () => queueFollowupAlerts())
+  // Farm Experience (docs/farm-experience.md): visit reminders are queued before the send step.
+  if (isOn('FARM_EXPERIENCE')) out.farm = await step('farm', () => runFarmJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Chat and staff replies decided but not sent (an instance died, or a retry is due): docs/whatsapp/RELIABILITY.md.
   out.chatSent = await step('whatsapp-messages', () => sendDueMessages(chatMessenger), { sliceMs: SLICE.notifications })
@@ -444,8 +450,14 @@ async function steps(forceAll) {
     out.rebalanced = await step('rebalance-at-risk', () => rebalanceAllOpen({ atRiskOnly: true }))
   }
   await step('health', () => checkHealth(out), { minMs: 0 })
-  const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
+  // Backorders waiting for stock are expected, not a problem: counted apart from the at-risk alarm.
+  const risk = await query(
+    `SELECT COUNT(*) FILTER (WHERE NOT backorder)::int AS n, COUNT(*) FILTER (WHERE backorder)::int AS backorders
+       FROM orders WHERE at_risk AND status = ANY($1)`,
+    [OPEN_STATUSES],
+  )
   out.atRisk = risk.rows[0].n
+  out.backordersAwaitingStock = risk.rows[0].backorders
   metrics.ordersAtRisk.set(out.atRisk)
   metrics.maintenanceLastRun.set(Date.now() / 1000)
   // The run counts as a tick even if some work was put off: /ready and the
