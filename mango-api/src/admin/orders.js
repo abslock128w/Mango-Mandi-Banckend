@@ -1,5 +1,6 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
 import { orderSeqSql } from '../order-number.js'
+import { feeOf } from '../delivery-fee.js'
 import express from 'express'
 import { z } from 'zod'
 import { auditInTx, isPacker, redactForPacker } from '../access.js'
@@ -137,6 +138,8 @@ export async function orderDetail(c, orderId) {
     // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
     attempt: o.delivery_failures + 1,
     deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
+    // The delivery charge and the distance it was measured over (delivery-fee.js).
+    deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km),
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     // Backorders: sold before stock arrived; awaiting stock while atRisk (expected, not a problem).

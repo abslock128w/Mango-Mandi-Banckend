@@ -208,10 +208,11 @@ export class Engine {
     cam.aspect = aspect
     const portrait = aspect < 1
     // Keep compositions: on a tall screen widen the vertical field so the subject keeps its width.
-    const base = stage.fov
+    // main.js steadies the field of view and the picture's offset (stage._fov, _frame), and opens the view a little while the scroll is fast
+    const base = (stage._fov ?? stage.fov) + (this.fovKick || 0)
     const widen = portrait ? Math.pow(Math.min(2.4, (16 / 9) / aspect / 1.15), 0.62) : 1
     cam.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(base) / 2) * widen))
-    const f = portrait ? stage.framePortrait : stage.frame
+    const f = portrait ? (stage._framePortrait || stage.framePortrait) : (stage._frame || stage.frame)
     cam.setViewOffset(W, H, -f[0] * W, f[1] * H, W, H)
     cam.updateProjectionMatrix()
   }

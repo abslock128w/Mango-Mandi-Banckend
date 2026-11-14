@@ -621,6 +621,7 @@ export default class Seed extends Stage {
       const u = this.keyU(t)
       this.pCurve.getPoint(u, pos)
       this.gCurve.getPoint(u, gaze)
+      pos.x += Math.sin(time * 0.2) * 0.04 * (1 - smooth(0, 0.22, t)) // ch0's slow sway carries over and settles, instead of stopping dead
     }
     if (!zero && this.camera.aspect < 1) {
       // Portrait: step back and turn a little toward the seedling so both leaves and the sun stay in the frame.
@@ -631,10 +632,13 @@ export default class Seed extends Stage {
     aim(this.camera, pos, gaze)
     // Frame: in ch0 the seed sits above the title; in ch1 up and right of the type (bottom-left).
     const fk = zero ? 0 : smooth(0.0, 0.25, t)
-    this.frame[0] = lerp(0, 0.2, fk) * (1 - smooth(0.66, 0.86, t) * 0.7)
-    this.frame[1] = lerp(0.2, 0.06, fk) * (1 - smooth(0.7, 0.86, t))
+    // (the easing back to centre belongs to the end of ch1, the dawn; applied to ch0 as well it slid the seed down the
+    // screen and then snapped it back up a fifth of the screen at the handover)
+    const out = zero ? 0 : 1
+    this.frame[0] = lerp(0, 0.2, fk) * (1 - out * smooth(0.66, 0.86, t) * 0.7)
+    this.frame[1] = lerp(0.2, 0.06, fk) * (1 - out * smooth(0.7, 0.86, t))
     this.framePortrait[0] = 0
-    this.framePortrait[1] = lerp(0.2, 0.12, fk) * (1 - smooth(0.7, 0.86, t) * 0.5)
+    this.framePortrait[1] = lerp(0.2, 0.12, fk) * (1 - out * smooth(0.7, 0.86, t) * 0.5)
     // Focus: the seed, then the growing tip.
     const fp = zero || t < 0.25 ? SEED : tip
     this.post.focus = this.camera.position.distanceTo(fp)

@@ -361,6 +361,12 @@ function OrderView({ order }: { order: Order }) {
                       <td className="num">−{rupees(order.discount)}</td>
                     </tr>
                   )}
+                  {!!order.deliveryFee && (
+                    <tr>
+                      <td colSpan={3}>Delivery{order.deliveryKm != null ? ` (about ${order.deliveryKm} km from the warehouse)` : ''}</td>
+                      <td className="num">{rupees(order.deliveryFee)}</td>
+                    </tr>
+                  )}
                   <tr>
                     <th colSpan={3}>Total</th>
                     <th className="num">{rupees(order.total)}</th>

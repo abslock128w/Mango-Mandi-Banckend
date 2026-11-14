@@ -102,5 +102,4 @@
   }
 
   attach(document.getElementById('search'), 'top')
-  attach(document.querySelector('.dock-search input'), 'dock', { above: true })
 })()

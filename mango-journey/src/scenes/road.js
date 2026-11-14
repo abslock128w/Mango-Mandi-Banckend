@@ -318,6 +318,27 @@ export default class Road extends Stage {
       const x = pos.getX(i), z = pos.getZ(i), nd = nearest(x, z)
       pos.setY(i, groundAt(x, z, nd)); aRoad[i] = nd[0]
     }
+    // The land is a coarse grid and the road a fine ribbon: where the road dips between two grid points the straight
+    // edge between them stood proud of the asphalt (a brown wedge across the lane). Walk the road and press the land
+    // down wherever it rises to within a finger of the ribbon above it.
+    {
+      const nx = segX, nz = Math.round(segX * 0.7), dx = 860 / nx, dz = 600 / nz, x0 = 10 - 430, z0 = -40 - 300, row = nx + 1
+      const press = (x, z, limit) => {
+        const gx = (x - x0) / dx, gz = (z - z0) / dz, ix = Math.floor(gx), iz = Math.floor(gz)
+        if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return 0
+        const fx = gx - ix, fz = gz - iz, A = ix + row * iz, B = ix + row * (iz + 1), C = ix + 1 + row * (iz + 1), D = ix + 1 + row * iz
+        const tri = fx + fz <= 1 ? [A, B, D] : [B, C, D]
+        const h = fx + fz <= 1 ? pos.getY(A) + (pos.getY(D) - pos.getY(A)) * fx + (pos.getY(B) - pos.getY(A)) * fz : pos.getY(C) + (pos.getY(B) - pos.getY(C)) * (1 - fx) + (pos.getY(D) - pos.getY(C)) * (1 - fz)
+        if (h <= limit) return 0
+        for (const v of tri) pos.setY(v, pos.getY(v) - (h - limit))
+        return 1
+      }
+      for (let pass = 0; pass < 4; pass++) {
+        let n = 0
+        for (let i = 0; i <= NS; i++) { const sd = sideAt(i), q = pts[i]; for (let lat = -4.4; lat <= 4.41; lat += 1.1) n += press(q.x + sd.x * lat, q.z + sd.z * lat, q.y - 0.075) }
+        if (!n) break
+      }
+    }
     geo.setAttribute('aRoad', new THREE.BufferAttribute(aRoad, 1))
     geo.computeVertexNormals()
     const landMat = enhance(new THREE.MeshStandardMaterial({ roughness: 0.93, metalness: 0 }), 'land', this.atmU, {
@@ -457,7 +478,7 @@ export default class Road extends Stage {
       props.add(wireMat, new THREE.TubeGeometry(new THREE.CatmullRomCurve3(cp), 18, 0.018, 4))
     }
     // The culvert: two low parapet walls with black and white bands, where the stream passes under.
-    const parTex = canvasTex(256, 32, (g) => { g.fillStyle = '#ece6da'; g.fillRect(0, 0, 256, 32); g.fillStyle = '#222'; for (let x = 0; x < 256; x += 64) g.fillRect(x, 0, 32, 32) })
+    const parTex = canvasTex(256, 32, (g) => { g.fillStyle = '#a39d8f'; g.fillRect(0, 0, 256, 32); g.fillStyle = '#2c2c2a'; for (let x = 0; x < 256; x += 64) g.fillRect(x, 0, 32, 32) })
     const parMat = atm(new THREE.MeshStandardMaterial({ map: parTex, roughness: 0.85 }))
     {
       const yaw = Math.atan2(-cT.z, cT.x)
@@ -1207,16 +1228,19 @@ export default class Road extends Stage {
   }
 
   camKey(t) {
-    const K = this.camKeys
-    let k = 0; while (k < K.length - 2 && t > K[k + 1][0]) k++
-    const s = clamp((t - K[k][0]) / (K[k + 1][0] - K[k][0]))
-    const p0 = K[Math.max(0, k - 1)], p1 = K[k], p2 = K[k + 1], p3 = K[Math.min(K.length - 1, k + 2)]
+    // A cubic through the keys whose slope at each key is taken from its two neighbours AND the time between them, so
+    // the camera's speed is the same on both sides of every key. (The old blend assumed the keys were evenly spaced in
+    // time; they are not, so the speed stepped at each one, by the ratio of the two gaps.)
+    const K = this.camKeys, n = K.length
+    let k = 0; while (k < n - 2 && t > K[k + 1][0]) k++
+    const t1 = K[k][0], t2 = K[k + 1][0], h = t2 - t1, s = clamp((t - t1) / h)
+    const s2 = s * s, s3 = s2 * s, h00 = 2 * s3 - 3 * s2 + 1, h10 = s3 - 2 * s2 + s, h01 = -2 * s3 + 3 * s2, h11 = s3 - s2
     const out = []
-    // Catmull-Rom with eased parameter so each key is passed smoothly.
-    const e = s * s * (3 - 2 * s) * 0.5 + s * 0.5
     for (let c = 1; c < 7; c++) {
-      const a = p0[c], b = p1[c], cc = p2[c], d = p3[c]
-      out.push(0.5 * ((2 * b) + (-a + cc) * e + (2 * a - 5 * b + 4 * cc - d) * e * e + (-a + 3 * b - 3 * cc + d) * e * e * e))
+      const p1 = K[k][c], p2 = K[k + 1][c]
+      const m1 = k > 0 ? (p2 - K[k - 1][c]) / (t2 - K[k - 1][0]) : (p2 - p1) / h
+      const m2 = k + 2 < n ? (K[k + 2][c] - p1) / (K[k + 2][0] - t1) : (p2 - p1) / h
+      out.push(h00 * p1 + h10 * h * m1 + h01 * p2 + h11 * h * m2)
     }
     return out
   }
@@ -1365,11 +1389,17 @@ export default class Road extends Stage {
     if (this.camera.aspect < 1) { ft *= 0.3; ts *= 0.2; d *= lerp(1.3, 1, hw0); h *= lerp(1.15, 1, hw0) }
     const ar = THREE.MathUtils.degToRad(ang)
     tr.updateMatrixWorld(true)
-    const head = this.head.copy(this.heads[0]); this.body.localToWorld(head)
+    // Where the driver's head is with the truck's body at rest. The body rocks and bounces on its springs with every
+    // metre of road; aiming a close camera at a point on it made the whole picture twitch with the suspension. Aimed at
+    // the still point, the camera holds steady and the driver moves a little inside the frame, as he would.
+    const head = this.head.copy(this.heads[0])
+    { const by = b.position.y, bx = b.rotation.x, bz = b.rotation.z; b.position.y = 0; b.rotation.x = 0; b.rotation.z = 0; b.updateMatrixWorld(true); b.localToWorld(head); b.position.y = by; b.rotation.x = bx; b.rotation.z = bz; b.updateMatrixWorld(true) }
     const cam = this.camPos.copy(P).addScaledVector(F, -Math.cos(ar) * d).addScaledVector(Sd, Math.sin(ar) * d)
     cam.y = P.y + h
+    // Clear of the ground, eased: the camera rises to stay above a bank before it reaches it and settles after, instead
+    // of following the ground's exact outline the moment it touches it.
     const gnd = this.groundAt(cam.x, cam.z) + 0.7
-    if (cam.y < gnd) cam.y = gnd
+    cam.y = 0.5 * (cam.y + gnd + Math.sqrt((cam.y - gnd) * (cam.y - gnd) + 0.36))
     const hw = smoother(0.74, 0.87, t)
     const tgt = this.camTgt.copy(P).addScaledVector(F, ft).addScaledVector(Sd, ts).add(V(0, th, 0)).lerp(head, hw)
     aim(this.camera, cam, tgt, 0)

@@ -6,7 +6,7 @@ import { RIPENESS_LABEL, date, istDate } from '../format'
 import { can, opsAllowed } from '../permissions'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
-import type { BulkMoveResult, CalendarDay, CoverageDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
+import type { BulkMoveResult, CalendarDay, CoverageDay, DeliveryFeeRules, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
 // The stages sold (the API's SALE_STAGES). Nothing is sold ripe; a QC reading may still say ripe.
@@ -25,6 +25,7 @@ export default function Planning() {
       <Calendar />
       <Slots />
       <RulesCard />
+      <DeliveryFeeCard />
     </>
   )
 }
@@ -942,6 +943,254 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
             ))}
           </fieldset>
           <p className="hint">Saving re-checks every open order against the new rules. Orders that no longer fit are flagged at risk.</p>
+          <FormError error={formError ?? save.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------- delivery charge (part of the selling rules)
+
+/** What the API starts with (src/config.js): off, free within 2 km on orders of ₹1,000 or more. */
+const DELIVERY_FEE_DEFAULTS: DeliveryFeeRules = {
+  enabled: false,
+  freeAbove: 1000,
+  bands: [
+    { uptoKm: 2, fee: 0, feeSmall: 30 },
+    { uptoKm: 5, fee: 30, feeSmall: 50 },
+    { uptoKm: 8, fee: 50, feeSmall: 70 },
+    { uptoKm: 12, fee: 80, feeSmall: 100 },
+  ],
+  beyond: 'refuse',
+  unknownKm: 5,
+  origins: [],
+}
+
+const feeWord = (rupeeAmount: number) => (rupeeAmount === 0 ? 'Free' : `₹${rupeeAmount}`)
+
+/**
+ * The delivery charge on regular orders: by how far the address is from the nearest warehouse and
+ * what the order is worth. Saved with the selling rules, as a new version.
+ */
+function DeliveryFeeCard() {
+  const { me } = useSession()
+  const q = useQuery({ queryKey: ['rules'], queryFn: api.rules })
+  const [editing, setEditing] = useState(false)
+  const allowed = can(me?.role, 'editRules')
+  const fee = q.data?.rules.deliveryFee ?? DELIVERY_FEE_DEFAULTS
+
+  return (
+    <section className="card">
+      <div className="topbar section-head">
+        <h2>Delivery charge</h2>
+        {q.data && <Badge tone={fee.enabled ? 'good' : 'neutral'}>{fee.enabled ? 'On' : 'Off: delivery is free'}</Badge>}
+        <span className="spacer" />
+        <GatedButton allowed={allowed} className="btn" onClick={() => setEditing(true)}>
+          Edit delivery charge
+        </GatedButton>
+      </div>
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <p className="muted small">
+            Measured in a straight line from the nearest warehouse to the pin the customer drops on the map (or the centre of their pincode). One charge
+            per order, fixed when the customer sees the total.
+          </p>
+          <div {...scrollRegion('Delivery charge by distance')}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Distance</th>
+                  <th>Order of ₹{fee.freeAbove} or more</th>
+                  <th>Smaller order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fee.bands.map((b, i) => (
+                  <tr key={b.uptoKm}>
+                    <td>{i === 0 ? `Up to ${b.uptoKm} km` : `${fee.bands[i - 1].uptoKm} to ${b.uptoKm} km`}</td>
+                    <td>{feeWord(b.fee)}</td>
+                    <td>{feeWord(b.feeSmall)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>Beyond {fee.bands[fee.bands.length - 1].uptoKm} km</td>
+                  <td colSpan={2}>{fee.beyond === 'refuse' ? 'Not delivered' : 'The last charge above'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small mt-3">
+            {fee.origins.length
+              ? `Measured from: ${fee.origins.map((o) => o.name).join(', ')}.`
+              : 'Measured from the warehouses’ saved positions. If none is saved, every order pays the charge for an assumed distance.'}{' '}
+            Unknown position: {fee.unknownKm} km assumed.
+          </p>
+          {!allowed && <ManagerOnlyNote what="Changing the delivery charge" />}
+        </>
+      )}
+      {editing && q.data && <DeliveryFeeDialog rules={q.data.rules} fee={fee} onClose={() => setEditing(false)} />}
+    </section>
+  )
+}
+
+function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: DeliveryFeeRules; onClose: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const [enabled, setEnabled] = useState(fee.enabled)
+  const [freeAbove, setFreeAbove] = useState(String(fee.freeAbove))
+  const [bands, setBands] = useState(() => fee.bands.map((b) => ({ uptoKm: String(b.uptoKm), fee: String(b.fee), feeSmall: String(b.feeSmall) })))
+  const [beyond, setBeyond] = useState(fee.beyond)
+  const [unknownKm, setUnknownKm] = useState(String(fee.unknownKm))
+  const [origins, setOrigins] = useState(() => fee.origins.map((o) => ({ name: o.name, lat: String(o.lat), lng: String(o.lng) })))
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // The charge is added to every customer's total: saving asks the manager to confirm it is them.
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
+  const save = useMutation({
+    mutationFn: (next: Rules) => stepUp.run((code) => api.saveRules(next, code)),
+    onSuccess: (saved) => {
+      toast.success(`Delivery charge saved (rules version ${saved.version}).`)
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      onClose()
+    },
+  })
+
+  const setBand = (i: number, key: 'uptoKm' | 'fee' | 'feeSmall', v: string) => setBands(bands.map((b, j) => (j === i ? { ...b, [key]: v.trim() } : b)))
+  const setOrigin = (i: number, key: 'name' | 'lat' | 'lng', v: string) => setOrigins(origins.map((o, j) => (j === i ? { ...o, [key]: key === 'name' ? v : v.trim() } : o)))
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    const whole = /^\d+$/, decimal = /^-?\d+(\.\d+)?$/
+    if (!whole.test(freeAbove)) return setFormError('The order value must be a whole number of rupees.')
+    if (bands.some((b) => !decimal.test(b.uptoKm) || Number(b.uptoKm) <= 0)) return setFormError('Every distance must be a number of km above 0.')
+    if (bands.some((b) => !whole.test(b.fee) || !whole.test(b.feeSmall))) return setFormError('Every charge must be a whole number of rupees (0 for free).')
+    if (bands.some((b, i) => i > 0 && Number(b.uptoKm) <= Number(bands[i - 1].uptoKm))) return setFormError('Each distance must be more than the one before it.')
+    if (!decimal.test(unknownKm) || Number(unknownKm) < 0) return setFormError('The assumed distance must be a number of km.')
+    if (origins.some((o) => !o.name.trim())) return setFormError('Give every warehouse a name.')
+    if (origins.some((o) => !decimal.test(o.lat) || !decimal.test(o.lng) || Math.abs(Number(o.lat)) > 90 || Math.abs(Number(o.lng)) > 180)) {
+      return setFormError('A warehouse position is two numbers, such as 12.9279 and 77.6271 (latitude, then longitude).')
+    }
+    save.mutate({
+      ...rules,
+      deliveryFee: {
+        enabled,
+        freeAbove: Number(freeAbove),
+        bands: bands.map((b) => ({ uptoKm: Number(b.uptoKm), fee: Number(b.fee), feeSmall: Number(b.feeSmall) })),
+        beyond,
+        unknownKm: Number(unknownKm),
+        origins: origins.map((o) => ({ name: o.name.trim(), lat: Number(o.lat), lng: Number(o.lng) })),
+      },
+    })
+  }
+
+  return (
+    <>
+      <Dialog
+        title="Edit delivery charge"
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="fee-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Save as new version'}
+            </button>
+          </>
+        }
+      >
+        <form id="fee-form" onSubmit={onSubmit} noValidate>
+          <div className="field">
+            <label>
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Charge for delivery
+            </label>
+            <p className="hint">Off: every order is delivered free, and the shop says so. On: the table below applies to new orders from now.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="fee-free-above">Order value for the lower charge (₹)</label>
+            <input id="fee-free-above" inputMode="numeric" value={freeAbove} onChange={(e) => setFreeAbove(e.target.value.trim())} />
+            <p className="hint">Counted on the boxes after any promo. An order worth this or more pays the first charge in each row; a smaller one the second.</p>
+          </div>
+          <fieldset>
+            <legend>Charge by distance from the nearest warehouse</legend>
+            {bands.map((b, i) => (
+              <div className="btn-row align-end" key={i}>
+                <div className="field">
+                  <label htmlFor={`fee-km-${i}`}>Up to (km)</label>
+                  <input id={`fee-km-${i}`} inputMode="decimal" size={4} value={b.uptoKm} onChange={(e) => setBand(i, 'uptoKm', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-big-${i}`}>₹{freeAbove || '…'} or more (₹)</label>
+                  <input id={`fee-big-${i}`} inputMode="numeric" size={4} value={b.fee} onChange={(e) => setBand(i, 'fee', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-small-${i}`}>Smaller order (₹)</label>
+                  <input id={`fee-small-${i}`} inputMode="numeric" size={4} value={b.feeSmall} onChange={(e) => setBand(i, 'feeSmall', e.target.value)} />
+                </div>
+                {bands.length > 1 && (
+                  <button type="button" className="btn" onClick={() => setBands(bands.filter((_, j) => j !== i))} aria-label={`Remove the row up to ${b.uptoKm} km`}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+            {bands.length < 8 && (
+              <button type="button" className="btn" onClick={() => setBands([...bands, { uptoKm: '', fee: '', feeSmall: '' }])}>
+                Add a distance
+              </button>
+            )}
+            <p className="hint">Enter 0 for free delivery.</p>
+          </fieldset>
+          <div className="field">
+            <label htmlFor="fee-beyond">Further than the last distance</label>
+            <select id="fee-beyond" value={beyond} onChange={(e) => setBeyond(e.target.value as DeliveryFeeRules['beyond'])}>
+              <option value="refuse">Don’t deliver (the customer is told how far they are)</option>
+              <option value="charge">Deliver, at the last row’s charge</option>
+            </select>
+          </div>
+          <fieldset>
+            <legend>Warehouses to measure from</legend>
+            {origins.map((o, i) => (
+              <div className="btn-row align-end" key={i}>
+                <div className="field">
+                  <label htmlFor={`fee-wh-name-${i}`}>Name</label>
+                  <input id={`fee-wh-name-${i}`} maxLength={60} value={o.name} onChange={(e) => setOrigin(i, 'name', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-wh-lat-${i}`}>Latitude</label>
+                  <input id={`fee-wh-lat-${i}`} inputMode="decimal" size={9} value={o.lat} onChange={(e) => setOrigin(i, 'lat', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-wh-lng-${i}`}>Longitude</label>
+                  <input id={`fee-wh-lng-${i}`} inputMode="decimal" size={9} value={o.lng} onChange={(e) => setOrigin(i, 'lng', e.target.value)} />
+                </div>
+                <button type="button" className="btn" onClick={() => setOrigins(origins.filter((_, j) => j !== i))} aria-label={`Remove ${o.name || 'this warehouse'}`}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            {origins.length < 20 && (
+              <button type="button" className="btn" onClick={() => setOrigins([...origins, { name: '', lat: '', lng: '' }])}>
+                Add a warehouse
+              </button>
+            )}
+            <p className="hint">
+              In Google Maps, press and hold on the warehouse: the two numbers shown are its latitude and longitude. With none listed here, the warehouses’
+              saved positions are used.
+            </p>
+          </fieldset>
+          <div className="field">
+            <label htmlFor="fee-unknown">Distance assumed when the position isn’t known (km)</label>
+            <input id="fee-unknown" inputMode="decimal" value={unknownKm} onChange={(e) => setUnknownKm(e.target.value.trim())} />
+            <p className="hint">Used when there is no pin, the pincode has no saved centre, or no warehouse position is set. Such an order is never refused.</p>
+          </div>
           <FormError error={formError ?? save.error} />
         </form>
       </Dialog>

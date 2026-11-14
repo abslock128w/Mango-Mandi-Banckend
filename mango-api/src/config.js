@@ -26,6 +26,40 @@ const profileOf = (stages) =>
       `stages must run ${stages.join(' → ')}`,
     )
 
+/**
+ * Delivery charge on a regular order (src/delivery-fee.js), in rupees. Off until a manager turns it on.
+ * `bands` run outwards from the nearest warehouse: an address up to `uptoKm` away pays `fee` when the
+ * order is `freeAbove` or more, and `feeSmall` when it is less. Past the last band the order is refused
+ * (`beyond: 'refuse'`) or pays the last band's charge (`'charge'`). `origins` are the warehouses the
+ * distance is measured from; empty, the warehouses' own coordinates are used. `unknownKm` is the
+ * distance assumed when neither the address nor its pincode has a known position.
+ */
+const deliveryFeeSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    freeAbove: z.number().int().min(0).max(100_000).default(1000),
+    bands: z
+      .array(z.object({ uptoKm: z.number().positive().max(200), fee: z.number().int().min(0).max(5000), feeSmall: z.number().int().min(0).max(5000) }).strict())
+      .min(1)
+      .max(8)
+      .refine((b) => b.every((x, i) => i === 0 || x.uptoKm > b[i - 1].uptoKm), 'Each distance must be more than the one before it')
+      .default([
+        { uptoKm: 2, fee: 0, feeSmall: 30 },
+        { uptoKm: 5, fee: 30, feeSmall: 50 },
+        { uptoKm: 8, fee: 50, feeSmall: 70 },
+        { uptoKm: 12, fee: 80, feeSmall: 100 },
+      ]),
+    beyond: z.enum(['refuse', 'charge']).default('refuse'),
+    unknownKm: z.number().min(0).max(200).default(5),
+    origins: z
+      .array(z.object({ name: z.string().trim().min(1).max(60), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).strict())
+      .max(20)
+      .default([]),
+  })
+  .strict()
+
+export const DEFAULT_DELIVERY_FEE = deliveryFeeSchema.parse({})
+
 const rulesFieldsFor = (stages) => z.object({
   maxSellableAge: z.number().int().min(1).max(30),
   retireAge: z.number().int().min(1).max(31),
@@ -56,6 +90,8 @@ const rulesFieldsFor = (stages) => z.object({
   // Live tracking (LIVE_TRACKING): the rough minutes a rider spends per stop, for the shop's
   // "N stops away, about M minutes". Older rule versions get the default.
   minutesPerStop: z.number().int().min(1).max(120).default(10),
+  // The delivery charge on regular orders (above). Older rule versions get it switched off.
+  deliveryFee: deliveryFeeSchema.default(DEFAULT_DELIVERY_FEE),
   stageProfiles: z.record(z.string(), profileOf(stages)).refine((p) => 'default' in p, 'a "default" profile is required'),
 })
 const retireAfterSellable = [(r) => r.retireAge > r.maxSellableAge, { message: 'retireAge must be greater than maxSellableAge' }]
@@ -106,6 +142,7 @@ export const DEFAULT_RULES = {
   seasonStartsOn: null,
   preorderOpensOn: null,
   minutesPerStop: 10,
+  deliveryFee: DEFAULT_DELIVERY_FEE,
   stageProfiles: {
     default: [
       { stage: 'RAW', minAge: 1, maxAge: 3 },

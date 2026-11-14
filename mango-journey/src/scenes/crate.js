@@ -353,7 +353,7 @@ export default class Crate extends Stage {
     sc.add(this.hand)
     // Two hands that lift the crate by its rope handles.
     this.lift = [new Hand({ sleeve: '#174631' }), new Hand({ sleeve: '#174631', left: true })]
-    this.liftQ = [handQuat(new THREE.Vector3(0, 0.35, 0.94), new THREE.Vector3(-1, 0, 0)), handQuat(new THREE.Vector3(0, 0.35, 0.94), new THREE.Vector3(1, 0, 0))]
+    this.liftQ = [handQuat(new THREE.Vector3(0, -0.42, 0.9), new THREE.Vector3(-1, 0, 0)), handQuat(new THREE.Vector3(0, -0.42, 0.9), new THREE.Vector3(1, 0, 0))]
     this.lift.forEach((h) => sc.add(h))
 
     // Air: dust and chaff turning in the sun round the crate, soft discs of light down the lane.
@@ -375,7 +375,10 @@ export default class Crate extends Stage {
     const lower = easeInOut(clamp((t + 0.14) / 0.44))
     const roll = clamp((t - 0.3) / 0.16)
     const away = easeInOut(clamp((t - 0.36) / 0.22))
-    const lift = easeInOut(clamp((t - 0.66) / 0.3))
+    // The crate stays where it was packed while the camera pulls back. It used to be lifted by two gloved hands, but a
+    // hand here is a sleeve with nobody behind it: in the wide shot the arms either ran into the ground or ended in the
+    // air. (The lifting hands are kept below, switched off.)
+    const lift = 0
     const crane = smoother(0.3, 0.66, t)
     const wide = smoother(0.62, 0.98, t)
 
@@ -406,9 +409,9 @@ export default class Crate extends Stage {
     const reach = easeInOut(clamp((t - 0.56) / 0.12))
     this.lift.forEach((h, j) => {
       const sx = j === 0 ? 1 : -1
-      h.visible = t > 0.55
+      h.visible = false
       const grip = this.crate.localToWorld(new THREE.Vector3(sx * (W / 2 + 0.42), 1.25, 0))
-      h.position.copy(grip).add(new THREE.Vector3(sx * 3.5 * (1 - reach), -2.5 * (1 - reach), 0))
+      h.position.copy(grip).add(new THREE.Vector3(sx * 2.2 * (1 - reach), 3.2 * (1 - reach), -3.0 * (1 - reach)))
       h.quaternion.copy(this.liftQ[j])
       h.pose(lerp(0.2, 0.85, smooth(0.6, 0.68, t)), 0.1, 0.6)
     })

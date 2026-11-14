@@ -53,7 +53,7 @@ class Arm extends THREE.Group {
   constructor(color = '#22634a', { rings = 56, segs = 26 } = {}) {
     super()
     const tx = sleeveTextures()
-    const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.86, map: tx.map, bumpMap: tx.bump, bumpScale: 2.6, sheen: 0.85, sheenRoughness: 0.5, sheenColor: new THREE.Color('#a8dcb8') })
+    const mat = new THREE.MeshPhysicalMaterial({ color, side: THREE.DoubleSide, roughness: 0.86, map: tx.map, bumpMap: tx.bump, bumpScale: 2.6, sheen: 0.85, sheenRoughness: 0.5, sheenColor: new THREE.Color('#a8dcb8') })
     this.rim = rimUniforms('#ffe6c0', 0.45)
     addRim(mat, this.rim)
     this.R = rings; this.S = segs

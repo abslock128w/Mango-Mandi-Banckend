@@ -1365,7 +1365,11 @@ export default class Tree extends Stage {
     // so most of every day is gold) over to the west
     const elevV = elev * lerp(0.6, 0.37, smooth(0.64, 0.7, t))
     this.sun.set(Math.cos(ang) * 0.9, elevV + 0.02, lerp(0.38, -0.04, smooth(0.62, 0.7, t))).normalize()
-    const day = smooth(-0.12, 0.18, elev)
+    // day and night cross-fade over a fifth of each turn of the sun. Tied to the sun's height alone, the sky flipped from
+    // night to day inside a few pixels of scroll in the middle of the chapter, where the years run fastest.
+    const fw = f > 0.75 ? f - 1 : f
+    const day = fw < 0.25 ? smooth(-0.17, 0.03, fw) : 1 - smooth(0.45, 0.65, f)
+    const dayS = day * smooth(-0.1, 0.3, elev) // the sun itself: only once it is up
     const dusk = Math.exp(-Math.pow(elevV / 0.24, 2)) // near the horizon: warm
     const summer = 1 - smooth(0.33, 0.38, t) // the hot dry season before the first monsoon
     const mist = smooth(0.6, 0.64, t) * (1 - smooth(0.69, 0.73, t)) // the cool-season morning
@@ -1376,7 +1380,11 @@ export default class Tree extends Stage {
     const monsoon = smooth(0.35, 0.4, t) * (1 - smooth(0.53, 0.575, t))
     const wet = Math.max(monsoon, smooth(0.4, 0.45, t) * (1 - smooth(0.6, 0.78, t)))
     const washed = smooth(0.6, 0.67, t) * (1 - smooth(0.8, 0.92, t))
-    const flash = Math.exp(-Math.pow((t - 0.418) / 0.0045, 2)) + 0.45 * Math.exp(-Math.pow((t - 0.4245) / 0.0022, 2))
+    // lightning belongs to the clock, not to the scroll: tied to the scroll it froze into a held bolt wherever the reader
+    // stopped, and strobed as they nudged past. It now strikes every few seconds while the storm night is on screen.
+    const stormW = smooth(0.385, 0.405, t) * (1 - smooth(0.455, 0.49, t))
+    const lx = (time * 0.29) % 1, lx2 = (time * 0.173 + 0.4) % 1
+    const flash = stormW * (Math.exp(-Math.pow((lx - 0.06) / 0.016, 2)) + 0.45 * Math.exp(-Math.pow((lx - 0.11) / 0.009, 2)) + 0.6 * Math.exp(-Math.pow((lx2 - 0.5) / 0.012, 2)))
     const lush = smooth(0.38, 0.54, t)
     const su = this.sky.userData.u
     const night = 1 - day
@@ -1433,12 +1441,12 @@ export default class Tree extends Stage {
     // lights
     this.sunCol.setRGB(1, lerp(lerp(0.9, 0.84, summer), 0.6, duskW), lerp(lerp(0.76, 0.62, summer), 0.34, duskW)).lerp(this.c.setRGB(0.86, 0.92, 0.84), monsoon)
     this.sunL.color.copy(this.sunCol)
-    this.sunL.intensity = day * lerp(3.5, 2.2, dusk) * (1 - monsoon * 0.72) * (1 + washed * 0.08) * (1 - mist * 0.35)
+    this.sunL.intensity = dayS * lerp(3.5, 2.2, dusk) * (1 - monsoon * 0.72) * (1 + washed * 0.08) * (1 - mist * 0.35)
     this.sunL.position.copy(this.sun).multiplyScalar(40).add(this.tmpV.set(0, 3, 0))
     this.sunL.target.position.set(0, 3, 0)
     this.moon.color.setRGB(0.58, 0.68, 1.0)
     this.moon.intensity = night * (0.35 + 1.15 * (1 - monsoon))
-    this.boltL.intensity = flash * 1.1
+    this.boltL.intensity = flash * 0.5 // (was 1.1: the far orchard's plain material lit up mint-bright against the dark field)
     // hemisphere: blue sky over warm ground by day, moonlit blue at night, grey-green under the monsoon
     this.hemi.color.setRGB(lerp(0.36, 0.85, day), lerp(0.46, 0.9, day), lerp(0.85, 1, day))
     this.hemi.color.lerp(this.c.setRGB(0.66, 0.76, 0.68), monsoon * day)
@@ -1447,6 +1455,14 @@ export default class Tree extends Stage {
     this.hemi.groundColor.lerp(this.c.setRGB(0.18, 0.24, 0.14), monsoon * day * 0.8)
     this.hemi.intensity = lerp(0.7, 1.15, day) * (1 + monsoon * 0.15) + flash * 0.05
     this.scene.environment = monsoon > 0.5 ? (day > 0.4 ? this.envStorm : this.envStormNight) : night > 0.6 ? this.envNight : dusk > 0.5 && day > 0.2 ? this.envDawn : this.envDay
+    // The five sky boxes swap on thresholds and differ in brightness by up to ten times, so each swap was a step in the
+    // light on the whole field. Scale whichever is in use to one continuous level (its own level at full day, night,
+    // dawn or storm, so those looks are unchanged) and the swap is only a change of tint.
+    {
+      const e = this.scene.environment, own = e === this.envDay ? 0.37 : e === this.envDawn ? 0.18 : e === this.envNight ? 0.036 : e === this.envStormNight ? 0.02 : 0.15
+      const want = lerp(lerp(0.036, lerp(0.37, 0.18, smooth(0.3, 0.7, dusk)), day), lerp(0.02, 0.15, day), monsoon)
+      this.scene.environmentIntensity = clamp(want / own, 0.3, 4)
+    }
     this.scene.fog.color.copy(this.fogCol).lerp(this.c.setRGB(0.55, 0.55, 0.75), clamp(flash) * 0.3).lerp(this.c.setRGB(0.5, 0.56, 0.52), monsoon * day * 0.5)
     this.scene.fog.color.lerp(this.c.setRGB(0.82, 0.83, 0.86), mist * 0.75)
     this.scene.fog.near = lerp(lerp(lerp(lerp(34, 14, monsoon), 50, washed), 22, gold), 4, mist); this.scene.fog.far = lerp(lerp(lerp(lerp(250, 170, monsoon), 300, washed), 210, gold), 95, mist)

@@ -149,7 +149,8 @@ export async function createOrder(c, o, actor) {
   const number = rows[0].number
   const subtotal = o.lines.reduce((s, l) => s + l.unitPrice * l.qty, 0)
   const discount = o.discount ?? 0
-  const total = subtotal - discount
+  // A delivery charge (delivery-fee.js) is whatever the total is above the goods less the promo: no column of its own.
+  const total = subtotal - discount + (o.deliveryFee ?? 0)
   const boxes = o.lines.reduce((s, l) => s + l.qty, 0)
   await checkCapacity(c, o.deliveryDate, boxes)
   const slotId = await chooseSlot(c, o.deliveryDate, boxes, o.slotId ?? null, { strict: Boolean(o.strictSlot) })

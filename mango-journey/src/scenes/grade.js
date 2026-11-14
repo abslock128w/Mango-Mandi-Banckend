@@ -714,7 +714,9 @@ export default class Grade extends Stage {
     const reachIn = smoother(0.08, pick, t), release = smoother(0.75, 0.81, t)
     let R = blend(rest(-1), underGrip(), reachIn)
     if (t > pick) R = blend(underGrip(), sideGrip(-1), smooth(0.24, 0.32, t))
-    if (t > 0.6) R = blend(sideGrip(-1), topGrip(), smooth(0.6, 0.66, t))
+    // he keeps the side grip while the fruit is still out in front of him and only turns his hand over it as it comes
+    // down to the tray: turned over at the start, the arm had to reach across his chest at full stretch, palm down
+    if (t > 0.6) R = blend(sideGrip(-1), topGrip(), smooth(0.665, 0.73, t))
     if (t > 0.74) { const lifted = topGrip(); lifted.p.y += 1.6 * release; R = blend(lifted, bench(-1), smooth(0.78, 0.86, t)) }
     P.reach('R', R.p, R.q, pole(-1))
     const join = smoother(0.24, 0.32, t) * (1 - smoother(0.58, 0.64, t))
@@ -754,6 +756,9 @@ export default class Grade extends Stage {
     cam.lerp(new THREE.Vector3(-21, 29, 28), c); look.lerp(inTray.clone().lerp(new THREE.Vector3(-3, 28, -9), 0.45 * (1 - smooth(0.9, 1, t))), c)
     cam.x += Math.sin(time * 0.3) * 0.3; cam.y += Math.sin(time * 0.23) * 0.2
     aim(this.camera, cam, look)
+    // The inspection is a tighter portrait, lifted a little in the frame, so the belt stays below the picture: its fruit
+    // kept sliding through the bottom of the shot over a belt too dark to see, and read as mangoes falling in from the side.
+    { const tight = smooth(0.16, 0.3, t) * (1 - smooth(0.56, 0.68, t)); this.fov = lerp(30, 22.5, tight); this.frame = [0.22, -0.1 * tight] }
     // Portrait light that follows his face: warm key from the camera side, a cool window rim from behind-left and a
     // warm kicker from behind-right.
     const headW = P.j.head.localToWorld(this.tmp.set(0, 1.9, 1.2))

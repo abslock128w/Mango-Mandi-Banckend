@@ -50,6 +50,7 @@ import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
 import { partnerPublic } from './partner/routes.js'
+import { assertInRange, deliveryFor, feeOf, feePolicy } from './delivery-fee.js'
 import { bulkEnquiryMe, bulkEnquiryPublic } from './bulk-enquiry-routes.js'
 import { devFarm, farmCustomer, farmPublic } from './farm/routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
@@ -326,6 +327,18 @@ export async function serviceable(c, pincode) {
   return rows.length > 0
 }
 
+/** A map pin from a query string or a body: both numbers and in range, or nothing. */
+const LOCATION = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) })
+const pinFrom = (q) => {
+  if (q.lat === undefined || q.lng === undefined) return null
+  const p = LOCATION.safeParse({ lat: Number(q.lat), lng: Number(q.lng) })
+  return p.success ? p.data : null
+}
+/** What the shop is told about a delivery charge (delivery-fee.js): paise, and how the distance is known. */
+const deliveryView = (d) => ({
+  fee: d.fee, distanceKm: d.distanceKm, basis: d.basis, freeAbove: d.freeAbove, feeAtOrAbove: d.feeAtOrAbove, feeBelow: d.feeBelow, tooFar: d.tooFar, maxKm: d.maxKm,
+})
+
 export const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
 
 router.get(
@@ -335,7 +348,13 @@ router.get(
     const ok = await serviceable({ query }, pincode)
     const dates = ok ? await orderableDates({ query }) : []
     const slots = ok ? (await activeSlots({ query })).map(slotView) : []
-    res.json({ serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots })
+    // The delivery charge for this pincode (and the shop's map pin, when it has one), so the bag can show it
+    // before checkout. Named only while the charge is on, so the answer is as before while it is off.
+    const delivery = ok ? await deliveryFor({ query }, { pincode, location: pinFrom(req.query) }) : { enabled: false }
+    res.json({
+      serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots,
+      ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
+    })
   }),
 )
 
@@ -406,6 +425,8 @@ router.get('/policy', (_req, res) => {
     holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
     // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
     bills: isOn('BILLS_ENABLED'),
+    // The delivery charge on regular orders: { enabled: false } or the table the shop's pages quote (delivery-fee.js).
+    deliveryFee: feePolicy(),
     // App feel (docs/app-feel.md): which of the shop's switchable parts are on, so each can be turned off on its own.
     features: {
       // Effective values: a manager may have changed these on the panel (PANEL_FEATURE_SWITCHES, docs/ops.md).
@@ -877,6 +898,8 @@ router.post(
       z.object({
         pincode: PIN, deliveryDate: z.string().optional().nullable(), slotId: z.string().max(64).optional().nullable(),
         promoCode: z.string().max(40).optional().nullable(),
+        // Where the customer dropped the pin on the shop's map, for the delivery charge (delivery-fee.js).
+        location: LOCATION.optional().nullable(),
       }),
       req.body,
     )
@@ -922,9 +945,14 @@ router.post(
       if (b.promoCode?.trim() && !retail.length) throw badRequest('Promo codes apply to regular boxes, not bulk deals', 'PROMO_NOT_FOR_BULK')
       const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, retailSubtotal) : null
       const discount = promo?.discount ?? 0
+      // The delivery charge goes by what the boxes cost after the promo, and how far the address is.
+      const delivery = await deliveryFor(c, { pincode: b.pincode, location: b.location ?? null, goods: subtotal - discount })
+      assertInRange(delivery)
       const data = {
         pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
-        promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount, total: subtotal - discount,
+        promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount,
+        deliveryFee: delivery.fee, ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
+        total: subtotal - discount + delivery.fee,
         ...(retail.some((l) => l.backorder) ? { backorder: true, backorderEta: backorderEta() } : {}),
       }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
@@ -1075,11 +1103,14 @@ router.post(
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: quoted.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice, listingId: l.listingId ?? null, pricing: l.pricing ?? null })),
           discount: promo?.discount ?? 0, promoCode: promo?.code ?? null,
+          // The charge the customer was quoted (fixed with the quote, not worked out again here).
+          deliveryFee: q.data.deliveryFee ?? 0,
           gift: b.gift ? { recipientName: b.gift.recipientName, recipientPhone: b.gift.recipientPhone, message: b.gift.message || null } : null,
         },
         req.actor,
       )
       if (backorder) await markBackorder(c, created.id)
+      if (q.data.delivery) await c.query('UPDATE orders SET delivery_km = $2 WHERE id = $1', [created.id, q.data.delivery.distanceKm])
       if (promo) await recordRedemption(c, { orderId: created.id, code: promo.code, customerId: req.customer.id, discount: promo.discount })
       if (b.funnelId) await rememberCheckout(c, created.id, b.funnelId)
       if (b.business) {
@@ -1245,7 +1276,9 @@ router.get(
       rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
-      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, total: o.total, paymentStatus: o.payment_status,
+      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code,
+      // The delivery charge: what the total is above the goods less the promo (delivery-fee.js), and how far it was measured.
+      deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km), total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
       // The public key id, so checkout can be reopened from any device while unpaid.

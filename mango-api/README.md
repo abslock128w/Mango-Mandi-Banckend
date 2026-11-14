@@ -349,6 +349,28 @@ if it has room, else take the first with room, and never fail because of a slot.
 Slots are switched off rather than deleted, so old orders keep theirs. The pack list
 is sorted by slot.
 
+## Delivery charge
+
+Regular orders can carry a delivery charge (`src/delivery-fee.js`). It is **off** until a manager turns it on in the
+panel (Planning → Delivery charge); off, every answer is as before and delivery is free. The settings are part of the
+versioned rules (`deliveryFee` in `app_config`), so every change is a new rules version with an audit row.
+
+- **How far.** A straight line from the nearest warehouse (the rules' `origins`, else the warehouses' saved
+  positions) to the pin the customer drops on the shop's map. A pin more than 8 km from the centre of the pincode
+  being ordered to is not believed, and the pincode's centre is used instead; so is it when there is no pin. With no
+  position at all, the rules' `unknownKm` is assumed and the order is never refused.
+- **How much.** The first band the distance fits in: an order worth `freeAbove` or more (boxes less the promo) pays
+  the band's `fee`, a smaller one its `feeSmall` (rupees in the rules, paise everywhere else). Past the last band the
+  order is refused with `TOO_FAR` (422) or pays the last band's charge (`beyond`).
+- **Where it shows.** `GET /v1/delivery/check?pincode=&lat=&lng=` adds `delivery` (for the bag); `GET /v1/policy`
+  adds `deliveryFee` (the table); `POST /v1/checkout/quote` takes `location: { lat, lng }` and answers `deliveryFee`
+  and `delivery`, with the charge in `total`. The charge is fixed with the quote. Orders answer `deliveryFee` and
+  `deliveryKm`.
+- **How it is stored.** No column for the charge: an order's `total` is its goods less the promo plus the charge,
+  which is how the bill already reads a delivery charge (`bills.js`). `orders.delivery_km` (migration 068) keeps the
+  distance it was measured over.
+- **Not charged:** gift orders, pre-orders, subscriptions and staff-placed orders. Bulk orders keep their own 10%.
+
 ## Partner Network
 
 The shop's Partner With Us form (`/v1/partner-network`, no sign-in) and the panel's Partner

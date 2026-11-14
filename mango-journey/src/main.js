@@ -53,6 +53,9 @@ function odometer(digits) {
   return `<span class="odo" aria-hidden="true">${Array.from({ length: digits }, () => `<span class="odo-c">${col}</span>`).join('')}</span>`
 }
 function roll(odo, v) {
+  // each number rests square on its line and turns over quickly in between: rolled in step with the scroll, the last
+  // digit sat half-way between two figures wherever the reader stopped
+  { const w = Math.floor(v), f = clamp((v - w - 0.3) / 0.4); v = w + f * f * (3 - 2 * f) }
   const cells = odo.querySelectorAll('.odo-c'), n = cells.length
   cells.forEach((cell, i) => {
     const p = Math.pow(10, n - 1 - i), base = Math.floor(v / p) % 10, rest = v % p
@@ -147,11 +150,16 @@ async function boot() {
   $('#gl').addEventListener('webglcontextlost', (e) => { e.preventDefault(); MM.errors.push('context lost') })
   $('#gl').addEventListener('webglcontextrestored', () => location.reload())
   engine.setSize(innerWidth, innerHeight)
-  const pre = $('#pre'), preNum = $('[data-pre-num]')
-  let shown = 0
+  const pre = $('#pre'), preNum = $('[data-pre-num]'), preWord = $('[data-pre-word]')
+  let shown = 0, word = ''
+  // what the opening card says it is doing while it loads
+  const wordAt = (n) => (n < 34 ? 'Planting the seed' : n < 68 ? 'Waking the orchard' : n < 99 ? 'Tuning the quiet music' : 'Ready when you are')
   const setLoad = (v) => {
     const target = Math.round(v * 100)
-    gsap.to({ v: shown }, { v: target, duration: 0.5, ease: 'power2.out', onUpdate() { shown = this.targets()[0].v; preNum.textContent = Math.round(shown); pre.style.setProperty('--p', (shown / 100).toFixed(3)) } })
+    gsap.to({ v: shown }, { v: target, duration: 0.5, ease: 'power2.out', onUpdate() {
+      shown = this.targets()[0].v; preNum.textContent = Math.round(shown); pre.style.setProperty('--p', (shown / 100).toFixed(3))
+      const w = wordAt(shown); if (preWord && w !== word) { word = w; preWord.textContent = w }
+    } })
   }
   const stages = await loadStages(engine, (f) => setLoad(f * 0.7))
   const S = STAGE_OF.map((k) => stages[k])
@@ -200,7 +208,7 @@ function still(shots) {
 function run(engine, S, film) {
   const fine = matchMedia('(hover: hover) and (pointer: fine)').matches
   if (fine) html.classList.add('is-fine')
-  const lenis = fine && !params.has('nolenis') ? new Lenis({ lerp: 0.075, wheelMultiplier: 0.85, smoothWheel: true }) : null
+  const lenis = fine && !params.has('nolenis') ? new Lenis({ lerp: 0.1, wheelMultiplier: 0.85, smoothWheel: true }) : null
   if (lenis) {
     lenis.on('scroll', ScrollTrigger.update)
     gsap.ticker.add((t) => lenis.raf(t * 1000))
@@ -234,7 +242,7 @@ function run(engine, S, film) {
     if (lenis) lenis.scrollTo(y, { duration: Math.min(4, 1.2 + Math.abs(i - p) * 0.35), easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) })
     else window.scrollTo({ top: y, behavior: 'smooth' })
   }
-  MM.goto = (pp) => { const y = pToY(pp); if (lenis) lenis.scrollTo(y, { immediate: true }); else window.scrollTo(0, y); target = pp; p = pp }
+  MM.goto = (pp) => { const y = pToY(pp); if (lenis) lenis.scrollTo(y, { immediate: true }); else window.scrollTo(0, y); target = pp; p = pp; pvel = 0; cutNext = true }
   buildRail(goto)
   $('[data-skip]').addEventListener('click', (e) => { e.preventDefault(); goto(N - 1) })
   $('[data-skip]').addEventListener('focus', (e) => e.target.classList.add('is-shown'))
@@ -341,7 +349,26 @@ function run(engine, S, film) {
   addEventListener('resize', onResize)
 
   // ---- Loop
-  let p = 0, pv = 0, prevP = 0, time = 0, running = true, fpsAcc = 0, fpsN = 0, slow = 0, needSize = false
+  let p = 0, pvel = 0, pv = 0, time = 0, running = true, fpsAcc = 0, fpsN = 0, slow = 0, needSize = false
+  // ---- Field of view and the picture's offset follow each scene's values with a short, smooth lag (about an eighth of
+  // a second), so a step in either becomes a glide. They snap on a true cut: a jump to another place (MM.goto) or a
+  // scene that was not on screen last frame. (The camera's own position and aim are left exactly as each scene sets
+  // them: a general lag on those was tried and measured, and it added unevenness in fast moves instead of removing it.)
+  const steadyOn = !params.has('nosteady')
+  let tick = 0, cutNext = true
+  const steady = (st, dt) => {
+    const m = st._steady || (st._steady = { fov: st.fov, f: [0, 0], fp: [0, 0], seen: -9 })
+    const cut = cutNext || m.seen !== tick - 1 || !steadyOn
+    m.seen = tick
+    if (cut) { m.fov = st.fov; m.f[0] = st.frame[0]; m.f[1] = st.frame[1]; m.fp[0] = st.framePortrait[0]; m.fp[1] = st.framePortrait[1] }
+    else {
+      const kf = 1 - Math.exp(-8 * dt)
+      m.fov += (st.fov - m.fov) * kf
+      m.f[0] += (st.frame[0] - m.f[0]) * kf; m.f[1] += (st.frame[1] - m.f[1]) * kf
+      m.fp[0] += (st.framePortrait[0] - m.fp[0]) * kf; m.fp[1] += (st.framePortrait[1] - m.fp[1]) * kf
+    }
+    st._fov = m.fov; st._frame = m.f; st._framePortrait = m.fp // engine.frameCamera reads these when they are there
+  }
   let toldP = -1
   const freeze = params.has('freeze')
   document.addEventListener('visibilitychange', () => { running = !document.hidden })
@@ -357,11 +384,18 @@ function run(engine, S, film) {
     if (needSize && innerWidth > 0 && innerHeight > 0) { needSize = false; engine.setSize(innerWidth, innerHeight) }
     const dt = Math.min(0.05, (dtMs || 16) / 1000)
     time = freeze ? 3 : time + dt
-    p = damp(p, target, lenis ? 14 : 7, dt)
-    if (Math.abs(p - target) < 0.00005) p = target
+    // The film's position follows the scroll like a weight on a spring that never overshoots (critically damped): it
+    // gathers speed and sheds it smoothly, so a wheel notch or a flick never starts or stops the camera with a jolt.
+    // (A plain ease towards the target starts at full speed the instant the target moves.) Solved exactly for this
+    // frame's length, so it is the same at 30, 60 or 120 frames a second.
+    {
+      const w = lenis ? 13 : 12, c1 = p - target, c2 = pvel + w * c1, e = Math.exp(-w * dt)
+      p = target + (c1 + c2 * dt) * e
+      pvel = (c2 - w * (c1 + c2 * dt)) * e
+      if (Math.abs(p - target) < 0.00005 && Math.abs(pvel) < 0.0005) { p = target; pvel = 0 }
+    }
     MM.p = p
-    const vel = (p - prevP) / Math.max(dt, 1e-3); prevP = p
-    pv = damp(pv, vel, 6, dt)
+    pv = damp(pv, pvel, 6, dt)
     ptr.sx = damp(ptr.sx, ptr.x, 3, dt); ptr.sy = damp(ptr.sy, ptr.y, 3, dt)
 
     const i = Math.floor(clamp(p, 0, N - 0.0001)), t = p - i
@@ -369,12 +403,20 @@ function run(engine, S, film) {
     A.update(i, t, time, dt)
     let B = null, mix = 0
     if (t > T0 && i < N - 1 && S[i + 1] !== A) { B = S[i + 1]; mix = smooth(T0, 1, t); B.update(i + 1, t - 1, time, dt) }
+    // The camera is held, not bolted down: it breathes a little all the time (two slow, unrelated waves on each axis, a
+    // fraction of a degree), and at speed the view opens by up to two degrees and closes again as the scroll settles.
+    engine.fovKick = Math.min(2, Math.abs(pv) * 1.3)
+    const bx = (Math.sin(time * 0.23) + Math.sin(time * 0.37 + 1.7)) * 0.0013, by = (Math.sin(time * 0.19 + 0.6) + Math.sin(time * 0.31 + 2.9)) * 0.001, bz = Math.sin(time * 0.17 + 4.1) * 0.0007
+    tick++
     for (const s of B ? [A, B] : [A]) {
+      steady(s, dt)
       engine.frameCamera(s)
+      if (s.parallax && !freeze) { s.camera.rotateY(bx * s.parallax); s.camera.rotateX(by * s.parallax); s.camera.rotateZ(bz * s.parallax) }
       if (fine && s.parallax) { s.camera.rotateY(-ptr.sx * 0.018 * s.parallax); s.camera.rotateX(ptr.sy * 0.012 * s.parallax) }
       s.sunToView()
       s.afterCamera?.()
     }
+    cutNext = false
     if (B) {
       engine.project(A.focus, A.camera, cA); engine.project(B.focus, B.camera, cB)
       center.copy(cA).lerp(cB, smooth(0.2, 0.9, mix))

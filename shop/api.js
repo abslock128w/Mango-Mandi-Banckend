@@ -62,7 +62,8 @@ window.MM={
   policy:()=>raw('/policy'),
   products:()=>raw('/products'),
   catalogue:(pincode,deliveryDate)=>raw('/catalogue'+qs({pincode,delivery_date:deliveryDate})),
-  deliveryCheck:pincode=>raw('/delivery/check'+qs({pincode})),
+  // `at`: the map pin, when the shop has one, so the delivery charge is for that spot (paise; mango-api delivery-fee.js).
+  deliveryCheck:(pincode,at)=>raw('/delivery/check'+qs({pincode,...(at&&at.lat!=null&&at.lng!=null?{lat:at.lat,lng:at.lng}:{})})),
   slots:(pincode,deliveryDate)=>raw('/delivery/slots'+qs({pincode,delivery_date:deliveryDate})),
   otpRequest:(phone,channel,captchaToken)=>raw('/auth/otp/request',{method:'POST',body:{phone,...(channel?{channel}:{}),...(captchaToken?{captchaToken}:{})}}),
   async otpVerify(phone,code){return signedIn(await raw('/auth/otp/verify',{method:'POST',body:{phone,code}}))},

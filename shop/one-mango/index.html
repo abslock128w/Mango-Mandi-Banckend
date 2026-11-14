@@ -17,28 +17,49 @@
   <link rel="preload" href="/one-mango/fonts/young-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="/one-mango/fonts/figtree-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M30 14c14-2 24 8 24 22 0 12-8 22-20 22-10 0-16-6-18-14-2-6-6-8-6-14 0-9 8-15 20-16z' fill='%23ffb81f'/%3E%3Cpath d='M30 14c2-6 8-9 14-8-2 6-7 9-14 8z' fill='%23174631'/%3E%3C/svg%3E">
-  <script type="module" crossorigin src="/one-mango/assets/index-BKY1y5zL.js"></script>
-  <link rel="stylesheet" crossorigin href="/one-mango/assets/index-CZbKin7n.css">
+  <script type="module" crossorigin src="/one-mango/assets/index-OPjulD_k.js"></script>
+  <link rel="stylesheet" crossorigin href="/one-mango/assets/index-CP6mtd4N.css">
 </head>
 <body>
   <a class="skip" href="#end" data-skip>Skip to the end</a>
   <canvas id="gl" aria-hidden="true"></canvas>
 
   <!-- 0 Preloader: a seed in the dark, a hairline root draws the loading progress downward. -->
+  <!-- The opening card: the title, a seed inside a ring that fills as the film loads (its 13 marks are the 13 chapters),
+       then one button. Styles: src/style.css "Preloader"; main.js drives --p (0 to 1), the number and the classes
+       is-gate (ready, the button shows), is-crack (begun, the seed opens) and is-done (faded away). -->
   <div class="pre" id="pre" aria-hidden="true">
-    <div class="pre-seed">
-      <svg viewBox="0 0 200 300" class="pre-svg">
-        <defs>
-          <radialGradient id="pg" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#e8cf9a"/><stop offset=".6" stop-color="#b48a4e"/><stop offset="1" stop-color="#6a4a24"/></radialGradient>
-        </defs>
-        <g class="pre-half is-l"><path d="M100 30C62 34 44 72 46 112c2 34 22 58 54 62z" fill="url(#pg)"/><path d="M100 40C70 46 56 76 58 110M100 60C78 66 68 90 70 116" fill="none" stroke="#6a4a24" stroke-opacity=".45"/></g>
-        <g class="pre-half is-r"><path d="M100 30c38 4 56 42 54 82-2 34-22 58-54 62z" fill="url(#pg)"/><path d="M100 40c30 6 44 36 42 70M100 60c22 6 32 30 30 56" fill="none" stroke="#6a4a24" stroke-opacity=".45"/></g>
-        <path class="pre-root" d="M100 172C98 200 106 222 99 248S96 284 100 300" fill="none" stroke="#ffb81f" stroke-width="1.6" pathLength="1"/>
-      </svg>
-    </div>
+    <div class="pre-sky" aria-hidden="true"><i></i><i></i></div>
+    <div class="pre-motes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <img class="pre-mark" src="/one-mango/brand-dark.webp" alt="" width="586" height="448">
-    <div class="pre-num"><span data-pre-num>0</span><small>%</small></div>
-    <button class="pre-go" type="button" data-begin aria-label="Begin the film (plays quiet music)">Begin</button>
+    <div class="pre-col">
+      <p class="pre-kick">A film you scroll</p>
+      <p class="pre-title" role="heading" aria-level="1"><span class="pre-w">One</span> <em class="pre-w">Mango</em></p>
+      <p class="pre-sub">From a seed in the dark to a bowl on your counter.</p>
+      <div class="pre-stage">
+        <svg class="pre-ring" viewBox="0 0 240 240" aria-hidden="true">
+          <circle class="pre-ripple" cx="120" cy="120" r="104"/><circle class="pre-ripple is-2" cx="120" cy="120" r="104"/>
+          <g class="pre-dots"><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(0.00 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(27.69 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(55.38 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(83.08 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(110.77 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(138.46 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(166.15 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(193.85 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(221.54 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(249.23 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(276.92 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(304.62 120 120)"/><circle class="pre-dot" cx="120" cy="4" r="1.7" transform="rotate(332.31 120 120)"/></g>
+          <circle class="pre-track" cx="120" cy="120" r="104"/>
+          <circle class="pre-arc" cx="120" cy="120" r="104" pathLength="1" transform="rotate(-90 120 120)"/>
+        </svg>
+        <div class="pre-seed">
+          <svg viewBox="0 0 200 300" class="pre-svg" aria-hidden="true">
+            <defs>
+              <radialGradient id="pg" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#f0d9a6"/><stop offset=".55" stop-color="#bb9152"/><stop offset="1" stop-color="#6a4a24"/></radialGradient>
+            </defs>
+            <g class="pre-half is-l"><path d="M100 30C62 34 44 72 46 112c2 34 22 58 54 62z" fill="url(#pg)"/><path d="M100 40C70 46 56 76 58 110M100 60C78 66 68 90 70 116" fill="none" stroke="#6a4a24" stroke-opacity=".45"/></g>
+            <g class="pre-half is-r"><path d="M100 30c38 4 56 42 54 82-2 34-22 58-54 62z" fill="url(#pg)"/><path d="M100 40c30 6 44 36 42 70M100 60c22 6 32 30 30 56" fill="none" stroke="#6a4a24" stroke-opacity=".45"/></g>
+            <path class="pre-root" d="M100 172C98 200 106 222 99 248S96 284 100 300" fill="none" stroke="#ffb81f" stroke-width="1.6" stroke-linecap="round" pathLength="1"/>
+          </svg>
+        </div>
+      </div>
+      <div class="pre-foot">
+        <div class="pre-num"><small data-pre-word>Planting the seed</small><b><span data-pre-num>0</span><i>%</i></b></div>
+        <button class="pre-go" type="button" data-begin aria-label="Begin the film (plays quiet music)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L19 12z"/></svg><span>Begin</span></button>
+        <p class="pre-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.500h3.500L12 6v12l-4.500-3.500H4zM15.500 9a4 4 0 0 1 0 6M18 6.500a7.500 7.500 0 0 1 0 11"/></svg><span>Plays quiet music · scroll at your own pace</span></p>
+      </div>
+    </div>
   </div>
 
   <header class="bar">

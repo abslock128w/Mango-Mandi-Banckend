@@ -340,6 +340,9 @@ export interface OrderDetail {
   total: number
   subtotal?: number
   discount?: number
+  /** The delivery charge in paise (0 when delivery was free) and the distance it was measured over. */
+  deliveryFee?: number
+  deliveryKm?: number | null
   promoCode?: string | null
   gift?: Gift | null
   items: OrderItem[]
@@ -586,6 +589,28 @@ export interface StageWindow {
   maxAge: number
 }
 
+/** One ring of the delivery charge: addresses up to `uptoKm` from the nearest warehouse. Rupees. */
+export interface DeliveryFeeBand {
+  uptoKm: number
+  /** Charged when the order is worth `freeAbove` or more (0 is free delivery). */
+  fee: number
+  /** Charged on a smaller order. */
+  feeSmall: number
+}
+
+/** The delivery charge on regular orders (mango-api src/delivery-fee.js). */
+export interface DeliveryFeeRules {
+  enabled: boolean
+  freeAbove: number
+  bands: DeliveryFeeBand[]
+  /** Past the last band: refuse the order, or charge the last band. */
+  beyond: 'refuse' | 'charge'
+  /** The distance assumed when the address's position isn't known. */
+  unknownKm: number
+  /** Where distances are measured from. Empty: the warehouses' own positions. */
+  origins: { name: string; lat: number; lng: number }[]
+}
+
 /** Versioned business rules (mango-api app_config). */
 export interface Rules {
   maxSellableAge: number
@@ -614,6 +639,8 @@ export interface Rules {
   seasonStartsOn?: string | null
   /** The first day the shop takes pre-orders (YYYY-MM-DD), before seasonStartsOn; unset: any day before the season. */
   preorderOpensOn?: string | null
+  /** The delivery charge on regular orders; older rule versions don't have it (off). */
+  deliveryFee?: DeliveryFeeRules
   stageProfiles: Record<string, StageWindow[]>
 }
 

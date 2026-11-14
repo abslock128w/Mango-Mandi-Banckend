@@ -21,7 +21,7 @@ const CUT = 0.1 // the cut plane, just off the seed
 
 /** Flesh: deep gold, juicy (clearcoat), a little glow for the light inside it. */
 function fleshMaterial(map = null) {
-  return new THREE.MeshPhysicalMaterial({ color: map ? '#ffffff' : '#ffa21a', map, roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.32, sheen: 0.3, sheenColor: new THREE.Color('#ffe0a0'), emissive: new THREE.Color('#ff7a00'), emissiveIntensity: 0.06 })
+  return new THREE.MeshPhysicalMaterial({ color: map ? '#ffffff' : '#ffa21a', map, roughness: 0.5, clearcoat: 0.28, clearcoatRoughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#ffe0a0'), emissive: new THREE.Color('#ff7a00'), emissiveIntensity: 0.06 })
 }
 
 function fleshTexture(withSeed) {
@@ -420,7 +420,7 @@ export default class Counter extends Stage {
 
     // The knife.
     this.knife = new THREE.Group()
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(6.5, 1.3, 0.05), new THREE.MeshPhysicalMaterial({ color: '#c8ccd0', metalness: 1, roughness: 0.45, clearcoat: 0.2, clearcoatRoughness: 0.45 }))
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(6.5, 1.3, 0.05), new THREE.MeshPhysicalMaterial({ color: '#5c6065', metalness: 1, roughness: 0.62, clearcoat: 0, envMapIntensity: 0.6 }))
     blade.position.x = 3.25
     const handle = new THREE.Mesh(new RoundedBoxGeometry(3.4, 0.9, 0.55, 3, 0.2), new THREE.MeshStandardMaterial({ color: '#3a2414', roughness: 0.5 }))
     handle.position.x = -1.7
@@ -508,15 +508,18 @@ export default class Counter extends Stage {
     const toBoard = easeInOut(inv(0.62, 0.68, t))         // onto the board
     const knife = inv(0.68, 0.75, t)                      // the knife passes
     const cut = t >= 0.715
-    const flip = easeInOut(inv(0.74, 0.8, t))             // the top cheek turns over
+    const flip = smooth(0.74, 0.808, t)                   // the top cheek turns over (an even turn: the cubic ease threw it across in a blink)
     const score = smooth(0.8, 0.85, t)
     const evert = easeInOut(inv(0.85, 0.94, t))           // pushed inside out
     const ripe = lerp(0.62, 1.0, smooth(0.0, 1.0, days))
 
     // Sunlight: four sweeps across the room, a dip between days.
     const dayF = days * DAYS, dayU = dayF - Math.floor(Math.min(dayF, DAYS - 0.0001))
-    const sweep = t < 0.2 ? 0.25 : t > 0.62 ? 0.62 : dayU
-    const dip = t > 0.2 && t < 0.62 ? Math.sin(Math.PI * sweep) : 1
+    // The day the box arrives runs on into its evening, and the morning of the cut rises like the others: held at fixed
+    // full light before and after the four days, the room snapped from noon to dawn at the first and from dusk to noon at
+    // the last.
+    const sweep = t < 0.2 ? lerp(0.25, 1, smooth(0.1, 0.2, t)) : t > 0.62 ? lerp(0, 0.62, smooth(0.62, 0.68, t)) : dayU
+    const dip = t < 0.2 ? lerp(1, Math.sin(Math.PI * sweep), smooth(0.1, 0.14, t)) : t > 0.62 ? lerp(Math.sin(Math.PI * sweep), 1, smooth(0.66, 0.7, t)) : Math.sin(Math.PI * sweep)
     // The sun is the event of the shot. Each day a crisp patch of window light (with the shadows of the leaves outside
     // moving inside it) slides across the counter from right to left, over the bowl and the mango and on; the fruit is
     // in shade, then lit, then in shade again, and a little more golden each day. For the cut it rests on the board.
@@ -529,13 +532,16 @@ export default class Counter extends Stage {
     const P = new THREE.Vector3(-0.6, 0, -0.2).lerp(Pboard, kb)
     this.sunL.position.copy(P).addScaledVector(this.sun, 60)
     this.sunL.target.position.copy(P)
+    // the close board shots: gather the shadow map onto the board (spread over the whole kitchen its texels showed as
+    // stair-steps along every shadow edge) and soften the edge a little
+    { const cs = this.sunL.shadow.camera, hw = lerp(22, 10, kb), hh = lerp(18, 10, kb); if (cs.right !== hw) { cs.left = -hw; cs.right = hw; cs.top = hh; cs.bottom = -hh; cs.updateProjectionMatrix() } this.sunL.shadow.radius = lerp(0.6, 2.2, kb) }
     // Is the mango in the patch? (its ray to the sun passes through the open part of the window)
     {
       const m = new THREE.Vector3(BOWL.x + 0.1, 0.9, BOWL.z + 0.05), tt2 = (m.z + 7.5) / Math.max(0.05, -this.sun.z)
       const xw = m.x + this.sun.x * tt2, yw = m.y + this.sun.y * tt2
       this.mangoLit = smooth(-3, -1.8, xw) * (1 - smooth(7.8, 9, xw)) * smooth(1, 1.8, yw) * (1 - smooth(5.6, 6.3, yw)) * dip
     }
-    this.sunL.intensity = 8 * (0.1 + 0.9 * Math.pow(dip, 0.6)) * (1 - 0.45 * smooth(0.6, 0.68, t)) // softer for the close board shots: wet flesh and steel catch it
+    this.sunL.intensity = 8 * (0.04 + 0.96 * Math.pow(dip, 0.6)) * (1 - 0.6 * smooth(0.6, 0.68, t)) // softer for the close board shots: wet flesh and steel catch it
     this.sunL.color.setRGB(1, lerp(0.6, 0.84, dip), lerp(0.32, 0.58, dip))
     this.sunCol.copy(this.sunL.color)
     this.outsideM.color.setRGB(lerp(0.6, 1.35, dip), lerp(0.5, 1.3, dip), lerp(0.45, 1.15, dip))
@@ -548,8 +554,9 @@ export default class Counter extends Stage {
     this.look.exposure = lerp(0.85, 0.95, dip)
 
     // The box: lid off, then it slides back out of the way.
-    this.lid.position.set(lerp(0, -1.5, open), 2.66 + open * 3.5, lerp(0, -1.2, open)); this.lid.rotation.set(-open * 0.7, 0, open * 0.4)
-    this.lid.visible = open < 0.98
+    // The box is already open on the counter. Its lid used to float up off it as a loose board and blink out; with the
+    // wall right behind the box there is no room to hinge it back either (it swung into the wall), and no hand to lift it.
+    this.lid.visible = false
     // Once our mango is out, the box is set aside (it leaves the frame while the camera turns to the bowl).
     const aside = smoother(0.19, 0.32, t)
     this.box.position.set(lerp(-17, -26, aside), 0, lerp(-6.6, -9, aside))
@@ -607,15 +614,17 @@ export default class Counter extends Stage {
 
     // The knife waits on the board, then sweeps through along the cut plane, then is laid down again.
     this.knife.visible = true
-    const kx = lerp(9, -4, easeInOut(knife))
+    const kx = lerp(9, -4, smooth(0, 1, knife)) // an even draw through the fruit, not a snap across the frame
     const rest = BOARD.clone().add(new THREE.Vector3(-1.2, 0.04, 2.0))
     const cutPos = onBoard.clone().add(new THREE.Vector3(kx, CUT + 0.05, -0.3))
-    const pick = smoother(0.64, 0.68, t), put = smoother(0.75, 0.79, t)
+    const pick = smoother(0.64, 0.68, t), put = smoother(0.75, 0.82, t)
     const startPos = onBoard.clone().add(new THREE.Vector3(9, CUT + 0.05, -0.3)), endPos = onBoard.clone().add(new THREE.Vector3(-4, CUT + 0.05, -0.3))
     const restQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.5, 0)), cutQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0.15, 0))
     if (t < 0.68) { this.knife.position.lerpVectors(rest, startPos, pick); this.knife.position.y += Math.sin(pick * Math.PI) * 1.2; this.knife.quaternion.slerpQuaternions(restQ, cutQ, pick) }
     else if (t < 0.75) { this.knife.position.copy(cutPos); this.knife.quaternion.copy(cutQ) }
-    else { this.knife.position.lerpVectors(endPos, rest.clone().add(new THREE.Vector3(0.6, 0, 0.8)), put); this.knife.position.y += Math.sin(put * Math.PI) * 1.2; this.knife.quaternion.slerpQuaternions(cutQ, restQ, put) }
+    // after the cut the knife carries on out of the picture the way it was going. Laid back down on the board it had to
+    // cross the cheek that is turning over: lifted over it, it swung up to the lens as a dark bar; kept low, it went through it.
+    else { this.knife.position.copy(endPos); this.knife.position.x -= 11 * put; this.knife.quaternion.copy(cutQ); this.knife.visible = put < 0.999 }
 
     // Juice droplets after the cut and when it opens.
     const juice = cut ? smooth(0.715, 0.73, t) * (1 - smooth(0.97, 1, t)) : 0
@@ -637,7 +646,7 @@ export default class Counter extends Stage {
     const B = { c: new THREE.Vector3(2.2, 3.9, 10.6), t: new THREE.Vector3(0.4, 1.9, -1.6) }
     const C = { c: new THREE.Vector3(6.2, 5.4, 7.6), t: onBoard.clone().add(new THREE.Vector3(0, -0.1, 0.6)) }
     const D = { c: new THREE.Vector3(5.6, 4.8, 8.6), t: onBoard.clone().add(new THREE.Vector3(0, -0.2, 2.2)) }
-    const k1 = smoother(0.03, 0.24, t), k2 = smoother(0.6, 0.7, t), k3 = smoother(0.78, 0.92, t)
+    const k1 = smoother(0.03, 0.24, t), k2 = smoother(0.57, 0.715, t), k3 = smoother(0.78, 0.92, t)
     cam.copy(A.c).lerp(B.c, k1).lerp(C.c, k2).lerp(D.c, k3)
     tgt.copy(A.t).lerp(B.t, k1).lerp(C.t, k2).lerp(D.t, k3)
     cam.x += Math.sin(time * 0.15) * 0.15

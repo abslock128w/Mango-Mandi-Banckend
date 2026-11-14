@@ -308,8 +308,12 @@ function rerenderCard(name, focus) {
   window.Liquid?.scan(fresh)
 }
 
+/** The occasion chips for the ripeness on show. Pickle and chutney are made from raw fruit only, so that chip is not
+    offered under Semi-ripe. */
+const occasionsShown = () => CATALOG.occasions.filter((o) => !(filter === 'semi' && o.id === 'pickle'))
+
 function renderOccasions() {
-  $('#occasions').innerHTML = CATALOG.occasions.map((o) =>
+  $('#occasions').innerHTML = occasionsShown().map((o) =>
     `<button class="occasion${o.id === occasion ? ' selected' : ''}" data-occasion="${o.id}" aria-pressed="${o.id === occasion}">${esc(o.label)}</button>`).join('')
 }
 
@@ -326,6 +330,8 @@ function positionPill(animate = true) {
 
 function setFilter(value) {
   filter = value
+  if (!occasionsShown().some((o) => o.id === occasion)) occasion = 'all' // a chip that is not offered here cannot stay chosen
+  renderOccasions()
   $$('[data-filter]').forEach((b) => {
     const active = b.dataset.filter === value
     b.classList.toggle('selected', active)
@@ -466,11 +472,6 @@ document.addEventListener('click', (e) => {
   } else if (b.dataset.trending) {
     $('#search').value = b.dataset.trending
     renderProducts()
-  } else if (b.dataset.guide) {
-    closeDialogs()
-    $('#search').value = ''
-    setFilter(b.dataset.guide)
-    location.hash = 'shop'
   } else if (b.id === 'clear-search') {
     $('#search').value = ''
     occasion = 'all'

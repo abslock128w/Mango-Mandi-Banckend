@@ -9,11 +9,11 @@ export const CHAPTERS = [
   { id: 'fruit', name: 'Fruit', weight: 1.7, ink: 'light', pos: 'tl', line: 'And one flower becomes *this.*', kicker: '04 · Fruit', cap: 'Weeks on the branch: green, waxy, swelling in the shade of the leaves.' },
   { id: 'pick', name: 'Before it falls', weight: 2.6, ink: 'light', pos: 'tr', line: 'A ripe mango lets go. *We get there first.*', kicker: '05 · The pick', cap: 'A fallen mango bruises. Ours are picked by hand, before they fall.', after: 'Picked by hand. *Never off the ground.*' },
   { id: 'crate', name: 'The crate', weight: 1.5, ink: 'light', pos: 'tl', line: 'Into *straw,* not onto a heap.', kicker: '06 · The crate', cap: 'Laid in by hand, one by one, in the last gold light of the orchard.' },
-  { id: 'road', name: 'The road', weight: 2.0, ink: 'light', pos: 'bl', line: 'It reaches us the *next day.*', kicker: '07 · The road', cap: 'Plucked on day 0. At our warehouse on day 1.' },
+  { id: 'road', name: 'The road', weight: 2.6, ink: 'light', pos: 'bl', line: 'It reaches us the *next day.*', kicker: '07 · The road', cap: 'Plucked on day 0. At our warehouse on day 1.' },
   { id: 'grade', name: 'Grading', weight: 2.2, ink: 'light', pos: 'tl', line: 'Every one is turned, *pressed* and looked at.', kicker: '08 · Grading', cap: 'Graded by hand. Sold raw on days 1 to 3, semi-ripe on days 4 to 7. Never after day 7.', hint: 'Drag the mango to turn it' },
   { id: 'pack', name: 'Packing', weight: 1.9, ink: 'light', pos: 'tr', line: 'Packed so it *never bruises.*', kicker: '09 · Packing', cap: 'Straw, a snug box, and a label with the day it was plucked.' },
-  { id: 'door', name: 'To your door', weight: 2.6, ink: 'light', pos: 'tl', line: 'At your door the *day after* you order.', kicker: '10 · Delivery', cap: 'One of our riders brings it from the warehouse to your door.' },
-  { id: 'counter', name: 'Your counter', weight: 2.4, ink: 'dark', pos: 'tl', line: 'Then it finishes ripening *with you.*', kicker: '11 · Your counter', cap: 'Semi-ripe fruit ripens on your counter in 1 to 4 days. No carbide, no gas, no pesticides. Just time.' },
+  { id: 'door', name: 'To your door', weight: 3.6, ink: 'light', pos: 'tl', line: 'At your door the *day after* you order.', kicker: '10 · Delivery', cap: 'One of our riders brings it from the warehouse to your door.' },
+  { id: 'counter', name: 'Your counter', weight: 3.0, ink: 'dark', pos: 'tl', line: 'Then it finishes ripening *with you.*', kicker: '11 · Your counter', cap: 'Semi-ripe fruit ripens on your counter in 1 to 4 days. No carbide, no gas, no pesticides. Just time.' },
   { id: 'finale', name: 'Your table', weight: 1.8, ink: 'light', pos: 'center', line: 'From one flower to your *table.*', kicker: 'VMR Mangoes · fifty summers', cap: '' },
 ]
 

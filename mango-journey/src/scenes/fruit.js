@@ -560,15 +560,19 @@ export default class Fruit extends Stage {
     const cam = new THREE.Vector3()
     if (four) {
       const dist = lerp(2.4, 8.5, grow), a = lerp(-0.55, 0.12, t)
-      cam.set(Math.sin(a) * dist, lerp(0.3, 1.0, t), Math.cos(a) * dist).add(target)
+      // the rise eases out as the chapter ends, so it arrives at rest where chapter 5 picks it up
+      cam.set(Math.sin(a) * dist, lerp(0.3, 1.0, 1 - (1 - t) * (1 - t)), Math.cos(a) * dist).add(target)
       this.post.range = lerp(0.5, 2.0, grow); this.post.dof = lerp(16, 11, grow)
     } else {
       const pull = smooth(0.6, 0.7, t) * (1 - smooth(0.82, 0.9, t))
-      const a = lerp(0.12, 0.38, smooth(0, 0.55, t)) - carry * 0.25
+      // the turn carries on from chapter 4 at the speed it had there and eases to a stop (it used to stop dead at the
+      // handover and start again from rest), and the height settles from where chapter 4 left it (it used to drop a step)
+      const xa = Math.min(1, Math.max(0, t / 0.55))
+      const a = 0.12 + 0.26 * (1 - Math.pow(1 - xa, 1.417)) - carry * 0.25
       const dist = lerp(8.5, 7.2, smooth(0.25, 0.55, t)) + pull * 6 - carry * 2.2
       target.y -= pull * 2.6 - carry * 0.3
       target.x -= pull * 1.0
-      cam.set(Math.sin(a) * dist, 0.8 - pull * 1.2 + carry * 0.6, Math.cos(a) * dist).add(target)
+      cam.set(Math.sin(a) * dist, lerp(1.0, 0.8, smooth(0, 0.3, t)) - pull * 1.2 + carry * 0.6, Math.cos(a) * dist).add(target)
       this.post.range = lerp(1.8, 7, pull); this.post.dof = lerp(11, 5, pull)
     }
     aim(this.camera, cam, target, Math.sin(ck * 0.2) * 0.01)

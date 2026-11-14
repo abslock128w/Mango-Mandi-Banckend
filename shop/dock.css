@@ -15,6 +15,10 @@
 .liquid-tab:focus-visible,.dock-orb:focus-visible,.dock-mini:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
 .dock-orb{flex:none;display:grid;place-items:center;width:52px;height:52px;padding:0;border-radius:50%;background:var(--accent);color:var(--on-accent);box-shadow:0 4px 12px #17463138}
 .dock-orb svg{width:24px;height:24px;stroke-width:2.2}
+/* the round button is the Help link: no underline, and a ring while the Help page is open */
+a.dock-orb{text-decoration:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-size:10.5px;font-weight:700;line-height:1;letter-spacing:.01em}
+a.dock-orb svg{width:21px;height:21px}
+.dock-orb.is-current{outline:2px solid var(--accent);outline-offset:3px}
 .dock-search{display:none;flex:1;min-width:0;height:52px;align-items:center;gap:10px;padding:0 16px;border-radius:26px;background:var(--dock-field);box-shadow:inset 0 0 0 2px var(--accent);color:var(--dock-ink)}
 .dock-search svg{width:20px;height:20px;stroke-width:2}
 .dock-search input{width:100%;min-width:0;border:0;outline:0;background:none;color:var(--dock-ink);font-size:16px}

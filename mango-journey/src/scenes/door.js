@@ -2048,14 +2048,18 @@ export default class Door extends Stage {
 
     // ---- Camera ----
     const cam = new THREE.Vector3(), look = new THREE.Vector3()
-    const side = new THREE.Vector3(Math.cos(R.yaw), 0, -Math.sin(R.yaw))
-    const fwd = new THREE.Vector3(Math.sin(R.yaw), 0, Math.cos(R.yaw))
+    // the camera's own heading: the route's direction averaged over a stretch either side of the scooter, so the rig
+    // sweeps round a street corner ahead of him and settles after, where the scooter's own heading snaps through it
+    let camYaw = R.yaw
+    { let sx = 0, sz = 0; for (let j = -4; j <= 4; j++) { const w = 1 - Math.abs(j) / 5, tg = this.route.getTangentAt(clamp(go + j * 0.0225, 0.001, 0.999)); sx += tg.x * w; sz += tg.z * w } camYaw = Math.atan2(sx, sz) }
+    const side = new THREE.Vector3(Math.cos(camYaw), 0, -Math.sin(camYaw))
+    const fwd = new THREE.Vector3(Math.sin(camYaw), 0, Math.cos(camYaw))
     // A: loading at the warehouse.
     const cA = loc(-26, 30, -52), lA = loc(10, 21, -6)
     // B1: tracking alongside.
     const cB = R.p.clone().add(side.clone().multiplyScalar(-68)).add(fwd.clone().multiplyScalar(10)).add(new THREE.Vector3(0, 20, 0)), lB = R.p.clone().add(new THREE.Vector3(0, 16, 0)).add(fwd.clone().multiplyScalar(9))
     // the ride-off: swing round behind his shoulder to look down the street into the afterglow
-    { const kc = smoother(0.255, 0.305, t); this.fov = lerp(34, 46, kc * (1 - smoother(0.33, 0.4, t))); cB.lerp(R.p.clone().addScaledVector(fwd, -58).addScaledVector(side, -22).add(new THREE.Vector3(0, 27, 0)), kc); lB.lerp(R.p.clone().addScaledVector(fwd, 150).addScaledVector(side, this.camera.aspect < 1 ? 10 : -14).add(new THREE.Vector3(0, 40, 0)), kc) }
+    { const kc = smoother(0.24, 0.325, t); this.fov = lerp(34, 46, kc * (1 - smoother(0.33, 0.4, t))); cB.lerp(R.p.clone().addScaledVector(fwd, -58).addScaledVector(side, -22).add(new THREE.Vector3(0, 27, 0)), kc); lB.lerp(R.p.clone().addScaledVector(fwd, 150).addScaledVector(side, this.camera.aspect < 1 ? 10 : -14).add(new THREE.Vector3(0, 40, 0)), kc) }
     // B2: above the rooftops.
     const cC = R.p.clone().add(new THREE.Vector3(-60, 500, -110)).add(fwd.clone().multiplyScalar(-70)), lC = R.p.clone().add(fwd.clone().multiplyScalar(55))
     // C/D: the door, three-quarter view from the street.
@@ -2066,7 +2070,9 @@ export default class Door extends Stage {
     const cE = HOUSE.clone().add(por ? new THREE.Vector3(48, 30, -34) : new THREE.Vector3(36, 26, -21)), lE = HOUSE.clone().add(new THREE.Vector3(por ? -5 : -12, por ? 21 : 23, -5))
     const cF = HOUSE.clone().add(new THREE.Vector3(-4, 29, -17)), lF = HOUSE.clone().add(new THREE.Vector3(0.5, 23, 6))
     const k1 = smoother(0.17, 0.25, t), k2 = smoother(0.33, 0.42, t), k3 = smoother(0.52, 0.62, t), k4 = smoother(0.745, 0.86, t), k5 = smoother(0.9, 1.0, t)
-    cam.copy(cA).lerp(cB, k1).lerp(cC, k2).lerp(cD, k3).lerp(cE, k4).lerp(cF, k5)
+    // the crane lifts first and travels after: it climbs inside the lane kept clear for the tracking shot and only
+    // crosses the street once it is above the trees (it used to pass through a canopy on the way up)
+    { cam.copy(cA).lerp(cB, k1); const y = lerp(cam.y, cC.y, k2); cam.lerp(cC, smoother(0.35, 0.42, t)); cam.y = y; cam.lerp(cD, k3).lerp(cE, k4).lerp(cF, k5) }
     look.copy(lA).lerp(lB, k1).lerp(lC, k2).lerp(lD, k3).lerp(lE, k4).lerp(lF, k5)
     aim(this.camera, cam, look, -lean * 0.15 * (1 - k2))
     // the opening: his face is turned away from the lit bay, so give it a gentle key from the camera's side
@@ -2078,7 +2084,7 @@ export default class Door extends Stage {
     this.focus.copy(B.position)
     // landscape: keep the rider to the right of and below the headline (top-left) while loading and riding off
     this.frame = [lerp(lerp(lerp(0.2, 0.42, k1), 0.1, k2), 0.16, k3), lerp(lerp(lerp(-0.04, -0.17, k1), -0.05, k2), 0, k3)]
-    this.framePortrait = k1 < 0.5 ? [0.1, -0.08] : [0, -0.1]
+    this.framePortrait = [lerp(0.1, 0, k1), lerp(-0.08, -0.1, k1)] // eased with the move (it used to step a tenth of the screen sideways half-way through)
 
     // Shadows follow the action.
     const center = k3 > 0.5 ? HOUSE : R.p
@@ -2097,7 +2103,7 @@ export default class Door extends Stage {
       this.look.rays = lerp(0.45, 0.28, smooth(0.25, 0.3, t)) * (1 - k2) * smooth(-0.02, 0.06, el); this.look.rayThreshold = lerp(1.25, 1.7, smooth(0.25, 0.3, t)); this.look.rayTint.setRGB(1, 0.72, 0.45)
     }
     // the ride-off looks straight at the low sun and oncoming lamps: hold the bloom and shafts down so the street stays readable
-    { const ck = smoother(0.255, 0.305, t) * (1 - smoother(0.33, 0.4, t)); this.look.bloom *= 1 - 0.55 * ck; this.look.threshold += 0.6 * ck; this.look.rays *= 1 - 0.7 * ck; this.look.exposure *= 1 - 0.08 * ck }
+    { const ck = smoother(0.24, 0.325, t) * (1 - smoother(0.33, 0.4, t)); this.look.bloom *= 1 - 0.55 * ck; this.look.threshold += 0.6 * ck; this.look.rays *= 1 - 0.7 * ck; this.look.exposure *= 1 - 0.08 * ck }
     this.fillL.position.copy(cam).add(new THREE.Vector3(0, 40, 0)); this.fillL.target.position.copy(subject)
     this.fillL.intensity = lerp(0.7, 0.9, dusk); this.fillL.color.setRGB(lerp(0.85, 0.72, dusk), lerp(0.85, 0.8, dusk), 1)
     this.dust.userData.u.uTime.value = time

@@ -97,6 +97,8 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
       holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24,
       // bills: whether checkout takes business details for the bill (on outside production: trust-config.js).
       bills: true,
+      // The delivery charge on regular orders: off as shipped (delivery-fee.js).
+      deliveryFee: { enabled: false },
       // App feel, growth and gift-to-many switches: all off unless set.
       features: { installApp: false, push: false, tracking: false, favourites: false, sortFilter: false, referrals: false, funnel: false, multiGift: false, partnerNetwork: true, bulkEnquiries: true, farmExperience: false, languages: false },
       // Backorders: on by default; the test environment turns them off (setup-env.js), with the default numbers.

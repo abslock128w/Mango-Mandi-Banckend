@@ -593,6 +593,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
         return `<div class="cart-row">${thumb(l.sku, l.stage, l.name)}<div><h3>${esc(boxName(l.name, l.sku))}</h3><small>${st.stage} · ${l.quantity} × ${currency(l.unitPrice)}${l.eatBy ? ` · best by ${fmtDate(l.eatBy)}` : ''}</small>${l.backordered && o.findingStock ? `<small class="co-sourcing">${icon('leaf')}Being sourced · delivery ${fmtDate(o.deliveryDate)}</small>` : ''}<div class="cart-row-bottom"><span></span><strong>${currency(l.linePrice)}</strong></div></div></div>`
       }).join('')}
       ${o.discount ? `<div class="subtotal"><span>Discount</span><strong>−${currency(o.discount)}</strong></div>` : ''}
+      ${o.deliveryFee ? `<div class="subtotal"><span>Delivery${o.deliveryKm != null ? ` <small>about ${o.deliveryKm} km</small>` : ''}</span><strong>${currency(o.deliveryFee / 100)}</strong></div>` : ''}
       <div class="subtotal"><span>Total</span><strong>${currency(o.total)}</strong></div>
       <p class="cart-disclaimer">Placed ${when(o.placedAt)} · Prices include GST.</p>
       ${paymentBlock(o)}
