@@ -1132,7 +1132,7 @@ async function cancelGroupUnpaid(c, g, actor) {
  * one booking: pre-orders open, the week open, the pincode served, one unpaid booking (a group counts
  * once), the boxes one buyer may hold. Returns the group row.
  */
-export async function bookPreorderGroup(c, { customerId, name, phone, recipients }, actor) {
+export function bookPreorderGroup(c, { customerId, name, phone, recipients }, actor) {
   return bookGroup(c, { kind: 'GIFT', customerId, name, phone, entries: recipients }, actor)
 }
 
@@ -1151,7 +1151,7 @@ const lineName = (i, sku) => `Line ${i + 1} (${findProduct(sku)?.name ?? sku})`
  * naming the line (extra.row). The same rules as one booking: pre-orders open, the pincode served, one unpaid
  * pre-order at a time (the bag counts once), the boxes one buyer may hold. Returns the group row.
  */
-export async function bookPreorderBag(c, { customerId, name, phone, pincode, address, slotId = null, lines }, actor) {
+export function bookPreorderBag(c, { customerId, name, phone, pincode, address, slotId = null, lines }, actor) {
   const entries = lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, weekStart: l.weekStart ?? null, pincode, address, slotId }))
   return bookGroup(c, { kind: 'BAG', customerId, name, phone, entries }, actor)
 }
