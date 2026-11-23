@@ -394,15 +394,20 @@ export function preorderView(p) {
     refund: p.refund_requested_at ? { requestedAt: p.refund_requested_at, refundedAt: p.refunded_at, id: p.refund_id, status: p.refund_status ?? null } : null,
     // Booked as a gift for someone else (migration 070); its order carries the same recipient.
     gift: giftOf(p),
-    // One of several gift pre-orders paid together (migration 071): the group's number, size and the one total paid.
+    // One of several pre-orders paid together (migration 071): the group's number, size and the one total paid.
+    // kind (migration 089): GIFT, a gift for several people (`people` of them); BAG, the customer's own pre-order bag
+    // (`lines` boxes lines, each booking one line with its own week).
     group: p.group_id
-      ? { id: p.group_id, number: p.group_number ?? null, people: p.group_people ?? null, total: p.group_total ?? null, position: p.group_position ?? null }
+      ? {
+          id: p.group_id, number: p.group_number ?? null, kind: p.group_kind ?? 'GIFT', people: p.group_people ?? null, lines: p.group_people ?? null,
+          total: p.group_total ?? null, position: p.group_position ?? null,
+        }
       : null,
   }
 }
 
 /** The columns preorderView reads for a booking's group: join `preorder_groups g` on p.group_id. */
-export const GROUP_COLUMNS = 'g.number AS group_number, g.recipient_count AS group_people, g.total AS group_total'
+export const GROUP_COLUMNS = 'g.number AS group_number, g.recipient_count AS group_people, g.total AS group_total, g.kind AS group_kind'
 
 /** A booking's gift recipient, in the shape createOrder's `gift` takes and the answers show; null when not a gift. */
 function giftOf(p) {
@@ -463,9 +468,29 @@ async function expireWeekHolds(c, week, at = now(), limit = 20) {
 }
 
 async function cancelExpiredHold(c, p) {
+  // The sweeps hand over rows read before the loop: a booking of a group may already have gone with its first one below.
+  const { rowCount } = await c.query(
+    `UPDATE preorders SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL WHERE id = $1 AND status = 'PAYMENT_PENDING'`,
+    [p.id],
+  )
+  if (!rowCount) return
   await release(c, p)
-  await c.query(`UPDATE preorders SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL WHERE id = $1`, [p.id])
   await event(c, p.id, 'CANCELLED', SYSTEM, 'Not paid in time')
+  if (!p.group_id) return
+  // One payment pays a whole group (a pre-order bag, a gift for several people): when its hold runs out every booking
+  // in it goes, together, whichever week's sweep found the first one. The other bookings share the hold; one locked
+  // by someone else just now is left to the next sweep (SKIP LOCKED: never a lock wait inside a booking). A payment
+  // that lands later still books them all (processGroupPayment).
+  const { rows } = await c.query(
+    `SELECT * FROM preorders WHERE group_id = $1 AND id <> $2 AND status = 'PAYMENT_PENDING' AND hold_expires_at <= $3
+      ORDER BY group_position FOR UPDATE SKIP LOCKED`,
+    [p.group_id, p.id, p.hold_expires_at ?? now()],
+  )
+  for (const s of rows) {
+    await release(c, s)
+    await c.query(`UPDATE preorders SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL WHERE id = $1`, [s.id])
+    await event(c, s.id, 'CANCELLED', SYSTEM, 'Not paid in time')
+  }
 }
 
 /**
@@ -519,8 +544,9 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
   }
   const week = got ?? weeks.at(-1)
   const id = newId('pre')
-  // P743406080 for yourself; G for a gift, and for every booking in a gift for several people (order-number.js).
-  const number = await nextOrderNumber(c, group || b.gift ? 'G' : 'P')
+  // P743406080 for yourself (a pre-order bag's lines too); G for a gift, and for every booking in a gift for several
+  // people (order-number.js).
+  const number = await nextOrderNumber(c, (group && group.kind !== 'BAG') || b.gift ? 'G' : 'P')
   const status = got ? 'PAYMENT_PENDING' : 'WAITLISTED'
   await c.query(
     `INSERT INTO preorders (id, number, customer_id, customer_name, phone, sku, stage, qty, unit_price, total, week_start, pincode,
@@ -536,7 +562,10 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
     ],
   )
   const moved = got && got !== weeks[0] ? `Earlier weeks full: booked for ${weekWords(got)}` : null
-  const why = got ? [group ? `Gift for several people: ${formatOrderNumber(group.number)}, person ${group.position}` : null, moved].filter(Boolean).join('. ') || null : 'Every week full: joined the waitlist'
+  const part = !group ? null
+    : group.kind === 'BAG' ? `Pre-order bag ${formatOrderNumber(group.number)}, line ${group.position} of ${group.size}`
+      : `Gift for several people: ${formatOrderNumber(group.number)}, person ${group.position}`
+  const why = got ? [part, moved].filter(Boolean).join('. ') || null : 'Every week full: joined the waitlist'
   await event(c, id, status, actor, why)
   return (await c.query('SELECT * FROM preorders WHERE id = $1', [id])).rows[0]
 }
@@ -1012,7 +1041,21 @@ export async function allocateOnStock(why) {
   }
 }
 
-// ---------------------------------------------------------------- a gift for several people (migration 071)
+// ---------------------------------------------------------------- several pre-orders, one payment (migrations 071, 089)
+//
+// A group is several pre-order bookings booked in one transaction and paid by ONE payment link. Two kinds
+// (preorder_groups.kind, migration 089):
+//   GIFT  a gift for several people (071, below): one gift booking per person, each with its own address.
+//   BAG   the customer's own pre-order bag (089, the browser audit of 23 Nov 2026: "Alphonso and Kesar can't be
+//         bought in one checkout"): one booking per box line, all to one address. Each line keeps its own delivery
+//         week: lines are booked in order, each taking the earliest week with room for its kg in its variety
+//         (assignWeek), so an Alphonso line can come in week N and a Kesar line in N+2. The shop shows those weeks
+//         first (POST /v1/preorders/quote, quotePreorderBag) and sends them back at Pay (POST /v1/preorders/confirm,
+//         bookPreorderBag); a week that changed since refuses the whole bag (409, naming the line), so nothing is
+//         booked half-way. Why on this table and not gifts.js: a gift order makes delivery ORDERS against a day's
+//         stock, a pre-order books a WEEK's kg; and everything below (one hold, one link, one payment, per-booking
+//         paid amounts, per-booking refunds) is what a bag needs, unchanged.
+// Everything below holds for both kinds; "the buyer" is the customer.
 //
 // Before the season the shop's "Send as a gift" books one gift pre-order per person, all in one
 // transaction, paid by ONE payment link for the whole group (docs/gifting.md, "Before the season").
@@ -1020,14 +1063,16 @@ export async function allocateOnStock(why) {
 // allocator, staff cancel and refunds work on it unchanged. The group holds the one payment:
 // - every booking carries the group's link, so the webhook, the reconcile loop and the dev pay route
 //   find a booking and processPreorderPayment pays the whole group (processGroupPayment), once;
-// - a hold that runs out cancels each booking (and frees its week) as for any booking; a payment that
-//   lands later still books them all; one after the buyer cancelled is refunded, booking by booking;
+// - a hold that runs out cancels every booking of the group together (cancelExpiredHold) and frees each
+//   one's week; a payment that lands later still books them all; one after the buyer cancelled is refunded,
+//   booking by booking;
 // - the unpaid-booking rule counts an unpaid group as one booking;
-// - the buyer can cancel it only before paying, and then as a whole; once paid it is non-refundable.
+// - the buyer can cancel it only before paying, and then as a whole; once paid each booking is an ordinary
+//   pre-order: non-refundable, unless we delay it, when that one booking can be cancelled for its own amount.
 
 const lockGroup = async (c, id) => {
   const { rows } = await c.query('SELECT * FROM preorder_groups WHERE id = $1 FOR UPDATE', [id])
-  if (!rows.length) throw notFound('Gift pre-order not found')
+  if (!rows.length) throw notFound('Pre-order not found')
   return rows[0]
 }
 
@@ -1043,7 +1088,8 @@ export function groupStatus(g, members) {
 export function groupView(g, members) {
   const status = groupStatus(g, members)
   return {
-    id: g.id, number: g.number, status, paymentStatus: g.payment_status, total: g.total, recipientCount: g.recipient_count, boxes: g.boxes,
+    id: g.id, number: g.number, kind: g.kind ?? 'GIFT', status, paymentStatus: g.payment_status, total: g.total, recipientCount: g.recipient_count,
+    lineCount: g.recipient_count, boxes: g.boxes,
     holdExpiresAt: g.hold_expires_at, createdAt: g.created_at, paidAt: g.paid_at, nonRefundable: true,
     paymentUrl: status === 'PAYMENT_PENDING' ? g.payment_link_url : null,
     // The booking to pay through (the shop's pre-order sheet, the dev pay route): the first one.
@@ -1051,7 +1097,7 @@ export function groupView(g, members) {
     canCancel: status === 'PAYMENT_PENDING' && g.payment_status !== 'SUCCEEDED',
     // Migration 086 (marked on the bookings): the last payment attempt failed; the link can be paid again while held.
     paymentFailed: status === 'PAYMENT_PENDING' && g.payment_status !== 'SUCCEEDED' && members.some((p) => p.status === 'PAYMENT_PENDING' && p.payment_failed_at),
-    preorders: members.map((p) => preorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total })),
+    preorders: members.map((p) => preorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind })),
   }
 }
 
@@ -1067,7 +1113,7 @@ async function cancelGroupUnpaid(c, g, actor) {
               payment_status = CASE WHEN payment_status = 'INITIATED' THEN 'CANCELLED' ELSE payment_status END WHERE id = $1`,
       [p.id, now()],
     )
-    await event(c, p.id, 'CANCELLED', actor, `Cancelled by customer, with the whole gift ${formatOrderNumber(g.number)}`)
+    await event(c, p.id, 'CANCELLED', actor, `Cancelled by customer, with the whole ${g.kind === 'BAG' ? 'pre-order bag' : 'gift'} ${formatOrderNumber(g.number)}`)
   }
   await c.query(
     `UPDATE preorder_groups SET status = 'CANCELLED', payment_status = 'CANCELLED', hold_expires_at = NULL, cancelled_at = $2 WHERE id = $1`,
@@ -1087,36 +1133,97 @@ async function cancelGroupUnpaid(c, g, actor) {
  * once), the boxes one buyer may hold. Returns the group row.
  */
 export async function bookPreorderGroup(c, { customerId, name, phone, recipients }, actor) {
+  return bookGroup(c, { kind: 'GIFT', customerId, name, phone, entries: recipients }, actor)
+}
+
+/** The most box lines one pre-order bag takes (a line is one box size and ripeness; 20 boxes a line at most). */
+export const PREORDER_BAG_MAX_LINES = 10
+
+/** "Line 2 (Kesar 3 kg box)": how a bag's errors name the line, as the shop shows it. */
+const lineName = (i, sku) => `Line ${i + 1} (${findProduct(sku)?.name ?? sku})`
+
+/**
+ * Books the customer's pre-order bag (kind BAG): one pre-order per line { sku, stage, qty, weekStart? }, all to
+ * `pincode`/`address`, in one transaction (inside the caller's) with one hold and one total, paid by one payment
+ * link (ensureGroupPaymentLink). Each line, in order, gets the earliest week with room (bookPreorder), so lines can
+ * fall in different weeks. A line's `weekStart` is the week the shop showed (quotePreorderBag): when it no longer
+ * matches, or no week has room, the whole bag fails with 409 (PREORDER_FULL / PREORDER_WEEK_CHANGED / PREORDER_TOO_BIG)
+ * naming the line (extra.row). The same rules as one booking: pre-orders open, the pincode served, one unpaid
+ * pre-order at a time (the bag counts once), the boxes one buyer may hold. Returns the group row.
+ */
+export async function bookPreorderBag(c, { customerId, name, phone, pincode, address, slotId = null, lines }, actor) {
+  const entries = lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, weekStart: l.weekStart ?? null, pincode, address, slotId }))
+  return bookGroup(c, { kind: 'BAG', customerId, name, phone, entries }, actor)
+}
+
+/** The two kinds' one booker: the group row, then each entry as an ordinary pre-order of it, in order. */
+async function bookGroup(c, { kind, customerId, name, phone, entries }, actor) {
   const cfg = getConfig()
   if (seasonPhase(todayIST(), cfg) === 'BEFORE') {
     throw conflict(`Pre-orders open on ${dateWords(cfg.preorderOpensOn)}.`, 'PREORDERS_NOT_OPEN')
   }
-  const boxes = recipients.reduce((t, r) => t + r.qty, 0)
+  const bag = kind === 'BAG'
+  const label = (i, sku) => (bag ? lineName(i, sku) : `Person ${i + 1}`)
+  const boxes = entries.reduce((t, r) => t + r.qty, 0)
   await checkUnpaidPreorders(c, customerId, boxes)
   const id = newId('pgr')
-  // A G number from the one G sequence, as each booking in it (order-number.js).
-  const number = await nextOrderNumber(c, 'G')
+  // A bag is for yourself: a P number, as each of its bookings. A gift: a G number from the one G sequence (order-number.js).
+  const number = await nextOrderNumber(c, bag ? 'P' : 'G')
   const holdExpiresAt = new Date(now().getTime() + cfg.holdMinutes * 60_000)
-  const priced = recipients.map((r, i) => {
+  const priced = entries.map((r, i) => {
     const p = sellable(r.sku)
-    if (!p) throw new HttpError(400, 'INVALID_SKU', `Person ${i + 1}: unknown box ${r.sku}`, { row: i + 1 })
+    if (!p) throw new HttpError(400, 'INVALID_SKU', `${label(i, r.sku)}: unknown box ${r.sku}`, { row: i + 1 })
     return p.price * r.qty
   })
   const total = priced.reduce((t, x) => t + x, 0)
   await c.query(
-    `INSERT INTO preorder_groups (id, number, customer_id, status, recipient_count, boxes, total, payment_status, hold_expires_at, created_at)
-     VALUES ($1, $2, $3, 'PAYMENT_PENDING', $4, $5, $6, 'INITIATED', $7, $8)`,
-    [id, number, customerId, recipients.length, boxes, total, holdExpiresAt, now()],
+    `INSERT INTO preorder_groups (id, number, customer_id, status, recipient_count, boxes, total, payment_status, hold_expires_at, created_at, kind)
+     VALUES ($1, $2, $3, 'PAYMENT_PENDING', $4, $5, $6, 'INITIATED', $7, $8, $9)`,
+    [id, number, customerId, entries.length, boxes, total, holdExpiresAt, now(), kind],
   )
-  for (const [i, r] of recipients.entries()) {
+  for (const [i, r] of entries.entries()) {
     try {
-      await bookPreorder(c, { ...r, customerId, name, phone, channel: 'app', waitlist: false }, actor, { group: { id, number, position: i + 1, holdExpiresAt } })
+      await bookPreorder(c, { ...r, customerId, name, phone, channel: 'app', waitlist: false }, actor, { group: { id, number, kind, position: i + 1, size: entries.length, holdExpiresAt } })
     } catch (err) {
       if (!(err instanceof HttpError)) throw err
-      throw new HttpError(err.status, err.code, `Person ${i + 1}: ${err.message}`, { weekStart: r.weekStart ?? null, ...(err.extra ?? {}), row: i + 1, sku: r.sku })
+      throw new HttpError(err.status, err.code, `${label(i, r.sku)}: ${err.message}`, { weekStart: r.weekStart ?? null, ...(err.extra ?? {}), row: i + 1, sku: r.sku })
     }
   }
   return (await c.query('SELECT * FROM preorder_groups WHERE id = $1', [id])).rows[0]
+}
+
+/**
+ * What a pre-order bag would book now, without booking it (POST /v1/preorders/quote): each line's price and the
+ * week it would get, found as bookPreorderBag books them: lines in order, each the earliest week with room for its
+ * kg in its variety, counting the kg of the lines before it. Nothing is reserved, so a week can still fill before
+ * Pay; confirm then answers 409 with the line's new week. A line no week can take says why: `tooBig` (heavier than
+ * any whole week of its variety) or `full` (every week to the season's end is full); the bag can't be paid then.
+ * Throws INVALID_SKU (400, extra.row) for a box not on sale.
+ */
+export async function quotePreorderBag(c, lines) {
+  const weeks = await deliveryWeeks(c)
+  const products = lines.map((l, i) => {
+    const p = sellable(l.sku)
+    if (!p) throw new HttpError(400, 'INVALID_SKU', `${lineName(i, l.sku)}: this box is not on sale`, { row: i + 1, sku: l.sku })
+    return p
+  })
+  const rooms = weeks.length ? await varietyRoom(c, weeks, [...new Set(products.map((p) => p.variety))]) : new Map()
+  const left = new Map([...rooms].map(([v, room]) => [v, room.map((w) => ({ ...w }))]))
+  const out = lines.map((l, i) => {
+    const p = products[i]
+    const kg = weekLoad({ sku: l.sku, qty: l.qty })
+    const room = left.get(p.variety) ?? []
+    const biggest = Math.max(0, ...room.map((w) => w.limit))
+    const tooBig = biggest > 0 && kg > biggest
+    const week = tooBig ? null : weekFor(room, kg)
+    if (week) week.remaining = roundKg(week.remaining - kg)
+    return {
+      sku: l.sku, stage: l.stage, qty: l.qty, name: p.name, variety: p.variety, boxSize: p.boxSize, unitPrice: p.price, linePrice: p.price * l.qty, kg,
+      weekStart: week?.weekStart ?? null, firstWeek: room[0]?.weekStart ?? null, tooBig, full: !tooBig && !week, limitKg: biggest,
+    }
+  })
+  const total = out.reduce((t, l) => t + l.linePrice, 0)
+  return { lines: out, total, boxes: out.reduce((t, l) => t + l.qty, 0), payable: out.length > 0 && out.every((l) => l.weekStart), nonRefundable: true }
 }
 
 /** Creates the one payment link of an unpaid group (and copies it onto its bookings). */
@@ -1128,7 +1235,9 @@ export async function ensureGroupPaymentLink(groupId) {
   if (!lead) return g
   const link = await createPaymentLink({
     amount: g.total, number: g.number, preorderId: lead.id, name: lead.customer_name, phone: lead.phone,
-    description: `MandiMangoes gift pre-order ${formatOrderNumber(g.number)} for ${g.recipient_count} ${g.recipient_count === 1 ? 'person' : 'people'}`,
+    description: g.kind === 'BAG'
+      ? `MandiMangoes pre-order ${formatOrderNumber(g.number)}, ${g.boxes} ${g.boxes === 1 ? 'box' : 'boxes'}`
+      : `MandiMangoes gift pre-order ${formatOrderNumber(g.number)} for ${g.recipient_count} ${g.recipient_count === 1 ? 'person' : 'people'}`,
     holdUntil: g.hold_expires_at,
   })
   return tx(async (c) => {

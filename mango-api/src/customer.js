@@ -21,7 +21,7 @@ import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, CU
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { bookPreorder, bookPreorderGroup, cancelPreorder, ensureGroupPaymentLink, ensurePaymentLink, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
+import { bookPreorder, bookPreorderBag, bookPreorderGroup, cancelPreorder, PREORDER_BAG_MAX_LINES, quotePreorderBag, ensureGroupPaymentLink, ensurePaymentLink, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
 import { perRecipientMax } from './gifts.js'
 import { seasonView } from './season-phase.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
@@ -564,6 +564,38 @@ router.get(
       weeks, stages: SALE_STAGES, season: seasonView(),
       cancelPolicy: 'Harvest varies with the weather and other conditions, so your delivery week can change. A pre-order can’t be cancelled once you pay, unless we delay it: then you can cancel it for a full refund until it is packed.',
     })
+  }),
+)
+
+/**
+ * The pre-order bag (preorders.js bookPreorderBag, migration 089): several boxes pre-ordered for yourself in one
+ * checkout and one payment, each line keeping its own delivery week. A line is one box (sku) and ripeness; the same
+ * box and ripeness twice is one line with more boxes (400 DUPLICATE_LINE).
+ */
+const bagLineSchema = z.object({ sku: z.string().trim().min(1).max(40), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20) }).strict()
+const preBagLines = (extra = {}) =>
+  z.array(extra.weekStart ? bagLineSchema.extend(extra) : bagLineSchema).min(1, 'Add at least one box').max(PREORDER_BAG_MAX_LINES, `Up to ${PREORDER_BAG_MAX_LINES} lines in one pre-order`)
+function noDuplicateLines(lines) {
+  const seen = new Map()
+  for (const [i, l] of lines.entries()) {
+    const k = `${l.sku}|${l.stage}`
+    if (seen.has(k)) throw new HttpError(400, 'DUPLICATE_LINE', `Line ${i + 1} is the same box and ripeness as line ${seen.get(k) + 1}: put them on one line.`, { row: i + 1 })
+    seen.set(k, i)
+  }
+}
+
+/**
+ * POST /v1/preorders/quote { lines: [{ sku, stage, qty }] } → { lines: [{ ..., unitPrice, linePrice, kg, weekStart,
+ * firstWeek, tooBig, full }], total, boxes, payable, nonRefundable, season }: what the bag would book now, each line's
+ * week included, without booking anything (quotePreorderBag). Public, as /preorders/weeks: the shop's bag shows the
+ * weeks before sign-in.
+ */
+router.post(
+  '/preorders/quote',
+  asyncHandler(async (req, res) => {
+    const b = parse(z.object({ lines: preBagLines() }).strict(), req.body)
+    noDuplicateLines(b.lines)
+    res.json({ ...(await quotePreorderBag({ query }, b.lines)), season: seasonView() })
   }),
 )
 
@@ -1826,12 +1858,73 @@ router.post(
   }),
 )
 
+/**
+ * POST /v1/preorders/confirm (Idempotency-Key) { lines: [{ sku, stage, qty, weekStart? }], pincode, address, name?,
+ * slotId?, nonRefundable: true } → 201 the group (groupView, kind BAG) with its one payment link: one pre-order per
+ * line, booked together and paid once. `weekStart` per line is the week the quote showed; `nonRefundable` is the
+ * customer's tick that a paid pre-order can only be cancelled if we delay it. 409 UNPAID_PREORDER_EXISTS while
+ * another pre-order (or bag) is unpaid; 409 PREORDER_FULL / PREORDER_WEEK_CHANGED / PREORDER_TOO_BIG naming the line
+ * (extra.row) when a week changed: nothing is booked then.
+ */
+router.post(
+  '/preorders/confirm',
+  asyncHandler(async (req, res) => {
+    const rawKey = req.get('Idempotency-Key')
+    if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    const b = parse(
+      z.object({
+        lines: preBagLines({ weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable() }),
+        pincode: PIN, address: z.string().trim().min(10, 'Enter the full delivery address').max(500),
+        name: z.string().trim().max(80).optional(), slotId: z.string().max(64).optional().nullable(),
+        nonRefundable: z.literal(true, { error: 'Tick the box to confirm a paid pre-order can only be cancelled if we delay it' }),
+      }).strict(),
+      req.body,
+    )
+    noDuplicateLines(b.lines)
+    const key = `${req.customer.id}:prebag:${rawKey}`
+    const hash = requestHash(b)
+    const existing = () => replayFor(key, hash, 'preorder_groups')
+    const view = async (g) => res.json(groupView(g, (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [g.id])).rows))
+    const replay = await existing()
+    if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
+    if (replay) return view(replay)
+    const group = await tx(async (c) => {
+      const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
+      if (!ins.rowCount) return null
+      if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
+      const cust = await requirePhone(c, req.customer.id)
+      const g = await bookPreorderBag(c, { customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone, pincode: b.pincode, address: b.address, slotId: b.slotId ?? null, lines: b.lines }, req.actor)
+      await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, g.id])
+      return g
+    })
+    if (!group) {
+      const first = await existing()
+      if (stillStarting(first, 'payment_link_url')) throw startingPayment()
+      return view(first)
+    }
+    try {
+      const g = await ensureGroupPaymentLink(group.id)
+      res.status(201)
+      return view(g)
+    } catch (err) {
+      logger.error({ err, preorderGroupId: group.id }, 'could not create the payment link for a pre-order bag')
+      await tx(async (c) => {
+        const lead = (await c.query('SELECT id FROM preorders WHERE group_id = $1 ORDER BY group_position LIMIT 1', [group.id])).rows[0]
+        if (lead) await cancelPreorder(c, lead.id, req.customer.id, SYSTEM)
+        // A retry with the same key books again instead of replaying the cancelled bag.
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
+      throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
+    }
+  }),
+)
+
 router.get(
   '/preorders/groups/:id',
   asyncHandler(async (req, res) => {
-    if (!isOn('MULTI_GIFT')) throw notFound()
     const { rows } = await query('SELECT * FROM preorder_groups WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
-    if (!rows.length) throw notFound('Gift pre-order not found')
+    // A gift for several people only while MULTI_GIFT is on; a pre-order bag (migration 089) always.
+    if (!rows.length || (rows[0].kind !== 'BAG' && !isOn('MULTI_GIFT'))) throw notFound('Pre-order not found')
     const members = (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [rows[0].id])).rows
     res.json(groupView(rows[0], members))
   }),
@@ -1842,7 +1935,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { rows } = await query(
       `SELECT p.*, o.status AS order_status, ${GROUP_COLUMNS} FROM preorders p LEFT JOIN preorder_groups g ON g.id = p.group_id LEFT JOIN orders o ON o.id = p.order_id
-        WHERE p.customer_id = $1 ORDER BY p.created_at DESC, p.group_position NULLS FIRST LIMIT 50`,
+        WHERE p.customer_id = $1 ORDER BY COALESCE(g.created_at, p.created_at) DESC, COALESCE(p.group_id, p.id), p.group_position NULLS FIRST LIMIT 50`,
       [req.customer.id],
     )
     res.json(rows.map(preorderView))
