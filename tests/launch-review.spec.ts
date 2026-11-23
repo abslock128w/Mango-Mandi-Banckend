@@ -7,16 +7,27 @@ import { confirmItsMe, mockApi } from './mock-api'
 // customer's recent history.
 
 test('a manager cancels a paid booking with a refund; operators cannot', async ({ page }) => {
-  const api = await mockApi(page, { signedIn: true })
-  await page.goto('/preorders')
-  await page.getByRole('button', { name: /^Cancel PRE-1001/ }).click()
-  const dialog = page.getByRole('dialog')
+  const api = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  // The bookings are the Pre-order plan's second tab.
+  await page.goto('/preorders?tab=bookings')
+  const cancel = page.getByRole('button', { name: /^Cancel and refund PRE-1001/ })
+  // An operator sees the button, but it is a manager's action.
+  await expect(cancel).toBeDisabled()
+  await expect(page.getByText('Moving or cancelling a pre-order: requires manager role.')).toBeVisible()
+
+  api.role = 'MANAGER'
+  await page.reload()
+  await cancel.click()
+  const dialog = page.getByRole('dialog', { name: 'Cancel pre-order PRE-1001?' })
+  await expect(dialog).toContainText('The customer paid ₹2,598.00. It goes back to them in full.')
   await dialog.getByLabel('Reason').fill('Hail damaged the crop')
-  await dialog.getByRole('button', { name: 'Cancel and refund' }).click()
+  await dialog.getByRole('button', { name: 'Cancel and refund ₹2,598.00' }).click()
   await expect.poll(() => api.calls.find((c) => c.path === '/preorders/p1/cancel')?.body).toEqual({ reason: 'Hail damaged the crop' })
   // The refund moves money, so the manager confirms it is them and the same cancel is sent again.
   await confirmItsMe(page)
   await expect.poll(() => api.calls.filter((c) => c.path === '/preorders/p1/cancel').at(-1)?.body).toEqual({ reason: 'Hail damaged the crop', confirmCode: 'manager123' })
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('row', { name: /PRE-1001/ })).toContainText('Cancelled: nothing to do.')
 })
 
 test('a photo delivery is signed off or flagged from Needs attention', async ({ page }) => {

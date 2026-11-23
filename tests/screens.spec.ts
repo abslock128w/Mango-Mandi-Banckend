@@ -385,35 +385,80 @@ test('Planning: coverage gaps, closing a day, and manager-only rules', async ({ 
   expect([saved.rules.cutoffHourIST, saved.confirmCode]).toEqual([17, 'manager123'])
 })
 
-test('Preorders: weekly capacity, bookings by state, and setting capacity', async ({ page }) => {
+test("Pre-order plan: a full delivery week, a delayed booking and its order, the bookings filters, and a manager changing one week's kg", async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/preorders')
-  const cap = page.getByRole('region', { name: 'Weekly capacity' })
-  await expect(cap.getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('100')
-  const list = page.getByRole('region', { name: 'Preorders' })
-  await expect(list.getByRole('row', { name: /PRE-1001/ })).toContainText('Moved once: no stock')
-  await expect(list.getByRole('link', { name: 'ORD-1042' })).toBeVisible()
-  await page.getByRole('button', { name: 'Waitlist', exact: true }).click()
-  await expect(page).toHaveURL(/status=WAITLISTED/)
-  await expect(page.getByText('No preorders here.')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Plan and weeks' })).toHaveAttribute('aria-selected', 'true')
+  // The plan's lines and the delivery weeks come from GET /preorder-weeks: the week of 1 Mar is full, 8 Mar has room.
+  await expect(page.getByLabel('Alphonso', { exact: true })).toHaveValue('30')
+  const weeks = page.locator('section', { has: page.getByRole('heading', { name: 'Delivery weeks' }) })
+  await expect(weeks).toContainText('4 bookings wait on the waitlist')
+  const week = (label: string) => weeks.getByRole('listitem').filter({ has: page.getByRole('heading', { name: label }) })
+  await expect(week('Week of 1 Mar 2027')).toContainText('350 kg booked · 58 pre-orders')
+  await expect(week('Week of 1 Mar 2027')).toContainText('Alphonso 210 of 210 kg · full')
+  await expect(week('Week of 1 Mar 2027').getByRole('img', { name: 'Kesar: 140 of 140 kg booked' })).toBeVisible()
+  const next = week('Week of 8 Mar 2027')
+  await expect(next).toContainText('New pre-orders start here')
+  await expect(next).toContainText('Alphonso 45 of 210 kg')
 
-  await page.getByRole('button', { name: 'Set capacity' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Set preorder capacity' })
-  await dialog.getByLabel('Week starting (Monday)').fill('2027-03-02')
-  await dialog.getByLabel('Boxes').fill('80')
-  await dialog.getByRole('button', { name: 'Save' }).click()
-  await expect(dialog.getByRole('alert')).toHaveText('Pick the Monday the week starts on.')
-  await dialog.getByLabel('Week starting (Monday)').fill('2027-03-08')
-  await dialog.getByLabel('Product').selectOption({ label: 'Kesar 3kg Box' })
-  await dialog.getByRole('button', { name: 'Save' }).click()
-  await expect(dialog).toHaveCount(0)
-  expect(api.calls.find((c) => c.method === 'PUT' && c.path === '/preorder-capacity/2027-03-08/KES-3')?.body).toEqual({ capacity: 80 })
+  // A manager gives the week of 8 Mar its own Alphonso kg: a preview first, then Apply.
+  const change = { weeks: [{ weekStart: '2027-03-08', variety: 'Alphonso', limitKg: 250 }] }
+  await next.getByRole('listitem').filter({ hasText: 'Alphonso' }).getByLabel('Expected this week').fill('250')
+  await next.getByRole('button', { name: /^Check this week.s change$/ }).click()
+  const preview = page.getByRole('dialog', { name: 'Check before you apply' })
+  await expect(preview).toContainText('No pre-order is delayed.')
+  await expect(preview).toContainText('1 week changes.')
+  await expect(preview.getByRole('row', { name: /8 Mar 2027 Alphonso/ })).toContainText('250 kg')
+  expect(api.calls.find((c) => c.method === 'POST' && c.path === '/preorder-plan/preview')?.body).toEqual(change)
+  await preview.getByRole('button', { name: 'Apply', exact: true }).click()
+  // A week's own kg is not a rules change, so no password is asked.
+  await expect.poll(() => api.calls.find((c) => c.method === 'POST' && c.path === '/preorder-plan/apply')?.body).toEqual(change)
+  await expect(preview).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: 'Done.' })).toContainText('No pre-order was delayed. 1 week changed.')
+  await expect(next).toContainText('Alphonso 45 of 250 kg')
+
+  // The Bookings tab: PRE-1001 was delayed a week; PRE-1002 is an order now.
+  await page.getByRole('tab', { name: 'Bookings' }).click()
+  await expect(page).toHaveURL(/tab=bookings/)
+  const list = page.getByRole('region', { name: 'Pre-orders' })
+  const pre1001 = list.getByRole('row', { name: /PRE-1001/ })
+  await expect(pre1001).toContainText('22 Feb 2027 → 1 Mar 2027')
+  await expect(pre1001).toContainText('Delay message: sent')
+  await expect(pre1001.getByText('Delayed', { exact: true })).toBeVisible()
+  await expect(list.getByRole('row', { name: /PRE-1002/ }).getByRole('link', { name: 'ORD-1042' })).toHaveAttribute('href', '/orders/o1')
+
+  // The filters: chips on a wide screen, a select on a phone; each writes ?filter=.
+  const phone = (page.viewportSize()?.width ?? 1280) < 640
+  const pick = async (label: string, value: string) =>
+    phone ? page.getByLabel('Status', { exact: true }).selectOption(value) : page.getByRole('button', { name: label, exact: true }).click()
+  await pick('Delayed', 'delayed')
+  await expect(page).toHaveURL(/filter=delayed/)
+  await expect(list.getByRole('row', { name: /PRE-1001/ })).toBeVisible()
+  await expect(list.getByRole('row', { name: /PRE-1002/ })).toHaveCount(0)
+  await pick('Unpaid', 'unpaid')
+  await expect(page).toHaveURL(/filter=unpaid/)
+  await expect(page.getByText('No pre-orders are unpaid.')).toBeVisible()
 })
 
-test('Operators cannot set preorder capacity', async ({ page }) => {
-  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+test("Operators cannot change a week's kg or cancel bookings", async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true, role: 'OPERATOR' })
   await page.goto('/preorders')
-  await expect(page.getByRole('button', { name: /Set capacity/ })).toBeDisabled()
+  await expect(page.getByText('Only a manager can change the plan.')).toBeVisible()
+  await expect(page.getByText('Changing the plan: requires manager role.')).toBeVisible()
+  // The kg a day and each week's kg are read-only, with no buttons to save or check a change.
+  await expect(page.getByLabel('Alphonso', { exact: true })).not.toBeEditable()
+  await expect(page.getByRole('button', { name: '10 kg more a day of Alphonso' })).toBeDisabled()
+  const weeks = page.locator('section', { has: page.getByRole('heading', { name: 'Delivery weeks' }) })
+  await expect(weeks.getByLabel('Expected this week').first()).toBeVisible()
+  for (const input of await weeks.getByLabel('Expected this week').all()) await expect(input).not.toBeEditable()
+  await expect(page.getByRole('button', { name: /^Save changes/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Check this week/ })).toHaveCount(0)
+
+  await page.getByRole('tab', { name: 'Bookings' }).click()
+  await expect(page.getByRole('button', { name: /^Move PRE-1001/ })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /^Cancel and refund PRE-1001/ })).toBeDisabled()
+  await expect(page.getByText('Moving or cancelling a pre-order: requires manager role.')).toBeVisible()
+  expect(api.calls.filter((c) => c.method !== 'GET' && c.path.startsWith('/preorder'))).toEqual([])
 })
 
 test("Planning: moving a day's orders checks first, then lists what didn't move", async ({ page }) => {

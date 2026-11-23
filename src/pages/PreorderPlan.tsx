@@ -113,7 +113,7 @@ function sentences(r: PlanResult, done: boolean): string[] {
     out.push(`${done ? 'Delayed' : 'This delays'} ${plural(d.bookings, 'pre-order', 'pre-orders')} (${kg(d.kg)} kg) to a later week${msg}.`)
   } else out.push(done ? 'No pre-order was delayed.' : 'No pre-order is delayed.')
   if (r.earlier.bookings) out.push(`${plural(r.earlier.bookings, 'pre-order', 'pre-orders')} ${done ? 'moved' : 'move'} earlier${r.earlier.paid ? ' (good news: their customers get a message)' : ''}.`)
-  if (r.changedWeeks) out.push(`${plural(r.changedWeeks, 'week', 'weeks')} ${done ? 'changed' : 'change'}.`)
+  if (r.changedWeeks) out.push(`${plural(r.changedWeeks, 'week', 'weeks')} ${done ? 'changed' : r.changedWeeks === 1 ? 'changes' : 'change'}.`)
   if (r.delayedStay?.bookings) out.push(`${plural(r.delayedStay.bookings, 'delayed order stays', 'delayed orders stay')} in ${r.delayedStay.bookings === 1 ? 'its' : 'their'} current week: an order we delayed is never brought forward.${r.delayedStay.overtakenBy ? ` ${plural(r.delayedStay.overtakenBy, 'newer order', 'newer orders')} will arrive before an older delayed one.` : ''}`)
   if (r.planned?.orders) out.push(`${plural(r.planned.orders, 'regular order', 'regular orders')} booked ahead (${kg(r.planned.kg)} kg) ${done ? 'moved' : 'move'} to a later date first, so pre-orders keep their place${r.planned.paid ? `; ${done ? 'those customers were told' : 'those customers are told'} and can cancel for a full refund until packing` : ''}.`)
   if (r.planned?.noRoom) out.push(`${plural(r.planned.noRoom, 'regular order', 'regular orders')} found no later week with room: see Needs attention.`)

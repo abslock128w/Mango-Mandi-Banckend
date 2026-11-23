@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, LedgerEntry, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, LedgerEntry, PlanChange, PlanResult, Preorder, PreorderWeeks, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
 import type { DayPlan, LiveBoard, OpsAnalytics } from '../src/ops/types'
 
 /** A 1×1 PNG. */
@@ -47,6 +47,8 @@ function asksStepUp(state: MockState, method: string, path: string, body: unknow
   if (method === 'POST' && /^\/(webhook-failures\/[^/]+\/refund|staff\/sign-out-all)$/.test(path)) return true
   if (method === 'POST' && ['/products', '/promos', '/bulk-listings'].includes(path)) return true
   if (method === 'PUT' && path === '/config') return true
+  // Applying a new kg a day saves a rules version, as PUT /config does; a week's own kg alone does not ask.
+  if (method === 'POST' && path === '/preorder-plan/apply') return b.dayKg !== undefined || b.otherDayKg !== undefined
   if (/^\/batches\/[^/]+\/purchases(\/[^/]+)?$/.test(path)) return method === 'POST' || method === 'PATCH'
   if (method === 'PATCH' && /^\/promos\/[^/]+$/.test(path)) return true
   if (method === 'PATCH' && /^\/bulk-listings\/[^/]+$/.test(path)) return ['tiers', 'minQty', 'qtyStep', 'maxQty'].some((k) => k in b)
@@ -57,6 +59,54 @@ function asksStepUp(state: MockState, method: string, path: string, body: unknow
     return Boolean(p) && (['price', 'gstRate', 'hsnCode'] as const).some((k) => k in b && b[k] !== p?.[k])
   }
   return false
+}
+
+type PlanWeek = PreorderWeeks['weeks'][number]
+
+/** A variety's usual kg a week: its own kg a day, or the number for other varieties, x 7. */
+const usualWeekKg = (plan: PreorderWeeks, variety: string) => plan.varieties?.find((v) => v.variety === variety)?.weekKg ?? (plan.otherDayKg ?? 0) * 7
+
+/** A week's own expected kg (null: back to the usual), for one variety or (an older panel) the whole week. */
+function setWeekKg(plan: PreorderWeeks, w: PlanWeek, variety: string | null, limitKg: number | null) {
+  const v = variety ? w.varieties?.find((x) => x.variety === variety) : null
+  if (v && variety) {
+    v.own = limitKg
+    v.limit = limitKg ?? usualWeekKg(plan, variety)
+    v.remaining = Math.max(0, v.limit - v.booked)
+    v.over = Math.max(0, v.booked - v.limit)
+    w.limit = (w.varieties ?? []).reduce((t, x) => t + x.limit, 0)
+  } else {
+    w.own = limitKg
+    w.limit = limitKg ?? plan.limit
+  }
+  w.remaining = Math.max(0, w.limit - w.booked)
+  w.over = Math.max(0, w.booked - w.limit)
+}
+
+/** POST /preorder-plan/preview and /apply: the week rows a change touches. The mock moves no booking. */
+function planResult(plan: PreorderWeeks, change: PlanChange, dryRun: boolean): PlanResult {
+  const rows: PlanResult['weeks'] = []
+  for (const w of plan.weeks) {
+    for (const v of w.varieties ?? []) {
+      const own = change.weeks?.find((x) => x.weekStart === w.weekStart && x.variety === v.variety)
+      const day = change.dayKg?.[v.variety] ?? (change.otherDayKg !== undefined && !plan.varieties?.find((x) => x.variety === v.variety)?.listed ? change.otherDayKg : undefined)
+      const limit = own ? (own.limitKg ?? usualWeekKg(plan, v.variety)) : v.own == null && day != null ? day * 7 : v.limit
+      if (own || limit !== v.limit) rows.push({ weekStart: w.weekStart, variety: v.variety, limit, before: v.booked, after: v.booked })
+    }
+  }
+  return {
+    dryRun,
+    delayed: { bookings: 0, paid: 0, kg: 0 },
+    earlier: { bookings: 0, paid: 0, kg: 0 },
+    noRoom: { bookings: 0, kg: 0 },
+    weeks: rows,
+    changedWeeks: new Set(rows.map((r) => r.weekStart)).size,
+    frozenWeeks: plan.weeks.filter((w) => w.frozen).map((w) => w.weekStart),
+    firstOpenWeek: plan.nextWeek,
+    moves: [],
+    messages: 0,
+    whatsappConnected: false,
+  }
 }
 
 /** Answers the "Confirm it's you" dialog with the manager's password. */
@@ -274,14 +324,44 @@ export function seed() {
       { id: 'slt1', label: 'Morning', startsAt: '07:00', endsAt: '11:00', maxBoxes: 40, active: true, sort: 0 },
       { id: 'slt2', label: 'Evening', startsAt: '16:00', endsAt: '20:00', maxBoxes: null, active: true, sort: 1 },
     ],
-    preorderCapacity: [
-      { sku: 'ALP-3', productName: 'Alphonso 3kg Box', weekStart: '2027-03-01', capacity: 100, reserved: 100, waitlisted: 4 },
-      { sku: 'KES-3', productName: 'Kesar 3kg Box', weekStart: '2027-03-01', capacity: 50, reserved: 12, waitlisted: 0 },
-    ],
+    // GET /preorder-weeks (the Pre-order plan): two delivery weeks, the first one full for both varieties.
+    preorderWeeks: {
+      limit: 350, dayKg: 50, otherDayKg: 20, countsBy: 'kg', nextWeek: '2027-03-08', waitlisted: 4,
+      held: { cutoff: '2027-03-01', rows: [], planned: [] },
+      plannedOrders: [],
+      varieties: [
+        { variety: 'Alphonso', dayKg: 30, listed: true, weekKg: 210, onSale: true, bookedKg: 255, bookings: 49 },
+        { variety: 'Kesar', dayKg: 20, listed: false, weekKg: 140, onSale: true, bookedKg: 152, bookings: 18 },
+      ],
+      weeks: [
+        {
+          weekStart: '2027-03-01', frozen: false, limit: 350, own: null, booked: 350, remaining: 0, over: 0, orders: 58, boxes: 58, unpaid: 0, waitlisted: 4,
+          varieties: [
+            { variety: 'Alphonso', limit: 210, own: null, booked: 210, remaining: 0, over: 0, orders: 41 },
+            { variety: 'Kesar', limit: 140, own: null, booked: 140, remaining: 0, over: 0, orders: 17 },
+          ],
+        },
+        {
+          weekStart: '2027-03-08', frozen: false, limit: 350, own: null, booked: 57, remaining: 293, over: 0, orders: 9, boxes: 9, unpaid: 1, waitlisted: 0,
+          varieties: [
+            { variety: 'Alphonso', limit: 210, own: null, booked: 45, remaining: 165, over: 0, orders: 8 },
+            { variety: 'Kesar', limit: 140, own: null, booked: 12, remaining: 128, over: 0, orders: 1 },
+          ],
+        },
+      ],
+    } as PreorderWeeks,
     preorders: [
-      { id: 'p1', number: 'PRE-1001', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 2, unitPrice: 129900, total: 259800, weekStart: '2027-03-01', pincode: '560034', customerName: 'Asha Rao', phone: '+919876543210', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 1, createdAt: '2027-01-05T06:00:00Z', nonRefundable: true, refund: null, order: null },
-      { id: 'p2', number: 'PRE-1002', status: 'CONVERTED', sku: 'KES-3', productName: 'Kesar 3kg Box', stage: 'SEMI_RIPE', qty: 1, unitPrice: 99900, total: 99900, weekStart: '2027-03-01', pincode: '560034', customerName: 'Vikram S', phone: '+919123456780', channel: 'whatsapp', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-06T06:00:00Z', nonRefundable: false, refund: null, order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2027-03-02' } },
-    ],
+      {
+        id: 'p1', number: 'PRE-1001', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 2, unitPrice: 129900, total: 259800, weekStart: '2027-03-01', pincode: '560034', customerName: 'Asha Rao', phone: '+919876543210', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 1, createdAt: '2027-01-05T06:00:00Z', bookedAt: '2027-01-05T06:05:00Z', nonRefundable: true, refund: null, order: null,
+        variety: 'Alphonso', kg: 6, delayed: { fromWeek: '2027-02-22', toWeek: '2027-03-01', at: '2027-01-20T06:00:00Z', count: 1 },
+        message: { kind: 'PREORDER_DELAYED', status: 'SENT', error: null, logged: false, sentAt: '2027-01-20T06:01:00Z' },
+      },
+      {
+        id: 'p2', number: 'PRE-1002', status: 'CONVERTED', sku: 'KES-3', productName: 'Kesar 3kg Box', stage: 'SEMI_RIPE', qty: 1, unitPrice: 99900, total: 99900, weekStart: '2027-03-01', pincode: '560034', customerName: 'Vikram S', phone: '+919123456780', channel: 'whatsapp', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-06T06:00:00Z', bookedAt: '2027-01-06T06:02:00Z', nonRefundable: false, refund: null, order: { id: 'o1', number: 'ORD-1042', status: 'CONFIRMED', deliveryDate: '2027-03-02' },
+        variety: 'Kesar', kg: 3, delayed: null,
+        message: { kind: 'PREORDER_BOOKED', status: 'SENT', error: null, logged: false, sentAt: '2027-01-06T06:03:00Z' },
+      },
+    ] as Preorder[],
     calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
     config: {
       version: 3,
@@ -906,8 +986,31 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/coverage') return json(route, 200, state.coverage)
     if (path === '/preorders') {
-      const status = url.searchParams.get('status')
-      return json(route, 200, status ? state.preorders.filter((p) => p.status === status) : state.preorders)
+      // As the API: status, week, filter (the Bookings tab's chips) and q (number, name or phone).
+      const [status, week, filter, q] = ['status', 'week', 'filter', 'q'].map((k) => url.searchParams.get(k) || null)
+      const found = state.preorders.filter(
+        (p) =>
+          (!status || p.status === status) &&
+          (!week || p.weekStart === week) &&
+          (filter !== 'delayed' || (Boolean(p.delayed) && ['BOOKED', 'CONVERTED'].includes(p.status))) &&
+          (filter !== 'unpaid' || p.status === 'PAYMENT_PENDING') &&
+          (filter !== 'gift' || Boolean(p.gift || p.group)) &&
+          (filter !== 'waiting' || (p.status === 'BOOKED' && p.weekStart <= '2027-03-01')) &&
+          (filter !== 'cancelledAfterDelay' || Boolean(p.cancelledAfterDelay)) &&
+          (!q || [p.number, p.customerName ?? '', p.phone].some((s) => s.toLowerCase().includes(q.toLowerCase()))),
+      )
+      return json(route, 200, found)
+    }
+    if (/^\/preorders\/[^/]+\/move$/.test(path)) {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      const p = state.preorders.find((x) => x.id === path.split('/')[2])
+      if (!p) return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Pre-order not found', requestId: 'req_404' } })
+      const to = (body as { weekStart: string }).weekStart
+      // Later counts as a delay: its first promised week is kept.
+      if (to > p.weekStart) p.delayed = { fromWeek: p.delayed?.fromWeek ?? p.weekStart, toWeek: to, at: '2027-01-25T06:00:00Z', count: (p.delayed?.count ?? 0) + 1 }
+      p.weekStart = to
+      p.movedCount += 1
+      return json(route, 200, p)
     }
     if (/^\/preorders\/[^/]+\/cancel$/.test(path)) {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
@@ -919,10 +1022,40 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       state.attention = { ...state.attention, photoDeliveries: (state.attention.photoDeliveries ?? []).filter((d) => d.id !== path.split('/')[2]) }
       return route.fulfill({ status: 204 })
     }
-    if (path === '/preorder-capacity') return json(route, 200, state.preorderCapacity)
-    if (path.startsWith('/preorder-capacity/')) {
+    if (path === '/preorder-weeks' && method === 'GET') return json(route, 200, state.preorderWeeks)
+    const weekKg = /^\/preorder-weeks\/([^/]+)$/.exec(path)
+    if (weekKg && method === 'PUT') {
       if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
-      return json(route, 200, body)
+      const w = state.preorderWeeks.weeks.find((x) => x.weekStart === decodeURIComponent(weekKg[1]))
+      if (!w) return json(route, 400, { error: { code: 'INVALID_WEEK', message: 'That is not a delivery week open for pre-orders', requestId: 'req_w' } })
+      const b = body as { limitKg: number | null; variety?: string }
+      setWeekKg(state.preorderWeeks, w, b.variety ?? null, b.limitKg)
+      const v = b.variety ? w.varieties?.find((x) => x.variety === b.variety) : null
+      const r = v ?? w
+      return json(route, 200, { weekStart: w.weekStart, limit: r.limit, own: r.own, booked: r.booked, remaining: r.remaining, over: r.over })
+    }
+    if (path === '/preorder-plan/preview' || path === '/preorder-plan/apply') {
+      if (state.role !== 'MANAGER') return json(route, 403, { error: { code: 'FORBIDDEN', message: 'Requires manager role', requestId: 'req_f' } })
+      const change = (body ?? {}) as PlanChange
+      const plan = state.preorderWeeks
+      const rulesChange = change.dayKg !== undefined || change.otherDayKg !== undefined
+      if (path.endsWith('/preview')) return json(route, 200, { ...planResult(plan, change, true), rulesChange })
+      const result = planResult(plan, change, false)
+      // Applied: the new kg a day (a new rules version), then each week's own kg.
+      if (rulesChange) {
+        if (change.otherDayKg !== undefined) plan.otherDayKg = change.otherDayKg
+        plan.varieties = (plan.varieties ?? []).map((v) => {
+          const day = change.dayKg?.[v.variety] ?? (v.listed ? v.dayKg : (plan.otherDayKg ?? v.dayKg))
+          return { ...v, dayKg: day, weekKg: day * 7, listed: v.listed || change.dayKg?.[v.variety] != null }
+        })
+        for (const w of plan.weeks) for (const v of w.varieties ?? []) if (v.own == null) setWeekKg(plan, w, v.variety, null)
+        state.config = { ...state.config, version: state.config.version + 1 }
+      }
+      for (const c of change.weeks ?? []) {
+        const w = plan.weeks.find((x) => x.weekStart === c.weekStart)
+        if (w) setWeekKg(plan, w, c.variety, c.limitKg)
+      }
+      return json(route, 200, { ...result, version: state.config.version, rulesChanged: rulesChange })
     }
     if (path === '/slots' && method === 'GET') return json(route, 200, state.slots)
     if (path === '/slots' || path.startsWith('/slots/')) {

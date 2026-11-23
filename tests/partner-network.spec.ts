@@ -326,7 +326,7 @@ test('the enquiries list sends search, filters, sort and page to the API and kee
   // A manager's CSV uses the same filters, without the page.
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export CSV' }).click()
-  expect((await download).suggestedFilename()).toMatch(/^mandimangoes-partner-enquiries-\d{4}-\d{2}-\d{2}\.csv$/)
+  expect((await download).suggestedFilename()).toMatch(/^vmr-mangoes-partner-enquiries-\d{4}-\d{2}-\d{2}\.csv$/)
   const exp = pn.calls.find((c) => c.path === '/enquiries/export.csv')!.search
   expect(exp.get('status')).toBe('NEW')
   expect(exp.get('q')).toBe('ravi')

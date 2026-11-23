@@ -159,6 +159,7 @@ test('phone numbers are tap-to-call links on the order, claims and preorders', a
   await expect(page.getByRole('link', { name: '9876543210 (call the customer)' })).toHaveAttribute('href', 'tel:+919876543210')
   await page.goto('/claims')
   await expect(page.getByRole('link', { name: '9123456780 (call the customer)' }).first()).toHaveAttribute('href', 'tel:+919123456780')
-  await page.goto('/preorders')
+  // The Pre-order plan's Bookings tab.
+  await page.goto('/preorders?tab=bookings')
   await expect(page.getByRole('link', { name: '+919876543210 (call Asha Rao)' })).toHaveAttribute('href', 'tel:+919876543210')
 })
