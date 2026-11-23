@@ -434,7 +434,20 @@ chosen: the API gives the earliest week with room, and the shop shows it before 
   them all. An unpaid group is one unpaid booking (`UNPAID_PREORDER_EXISTS`); the buyer's
   cancel before paying cancels the whole group; once paid, non-refundable as any pre-order.
   `GET /v1/preorders/groups/:id` answers the group with its bookings; every booking's view
-  carries `group { id, number, people, total, position }` (null when alone).
+  carries `group { id, number, kind, people, lines, total, position }` (null when alone).
+  A hold that runs out cancels every booking of a group together, whichever sweep finds it.
+- **The pre-order bag** (migrations 089, 090: `preorder_groups.kind` `GIFT` or `BAG`): several
+  boxes pre-ordered for yourself in one checkout and ONE payment, each line keeping its own
+  delivery week. `POST /v1/preorders/quote` (public, no booking) takes `{ lines: [{ sku, stage, qty }] }`
+  (up to 10 lines, one per box and ripeness: `400 DUPLICATE_LINE`) and answers each line's price
+  and week (`weekStart`, or `tooBig` / `full`), counting the lines above it in the same variety, with
+  `total`, `boxes` and `payable`. `POST /v1/preorders/confirm` (`Idempotency-Key` required) takes
+  `{ lines: [{ sku, stage, qty, weekStart? }], pincode, address, name?, slotId?, nonRefundable: true }`
+  and books one pre-order per line under a `P` number (a group of kind `BAG`, `201` with
+  `groupView`), paid by one payment link, exactly as a gift for several people above: a changed week
+  refuses the whole bag naming the line ("Line N (box): …"), one payment books every line, an unpaid
+  bag is one unpaid pre-order, and cancel and delay work per line as for any pre-order. It does not
+  need MULTI_GIFT. `GET /v1/preorders` keeps a bag's lines together.
 - **Season.** Two rules on the Planning page, `seasonStartsOn` and `preorderOpensOn`
   (both optional, `src/season-phase.js`): before the season starts the shop's home page is
   the pre-order shop (phase `PREORDER`), before pre-orders open nothing can be booked

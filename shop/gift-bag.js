@@ -97,9 +97,10 @@ function groupFoot(gift, lines, wd, both, stuck) {
     if (wd && !gd) off = 'No single day has every gift box. Lower a quantity to check out.'
     else if (gd && gd !== wd) note = `<p class="bag-group-note">${icon('leaf')}<span>The gift can go from ${esc(fmtDate(gd))}: some of its boxes are only ready then.</span></p>`
   } else if (stuck) off = 'No single day has every box. Lower a quantity to check out.'
-  if (pre && !gift) off = 'The season hasn’t started: pre-order these boxes from the shop.'
+  // Before the season your own boxes are one pre-order (pre-bag.js): one payment, each box in its own week.
+  if (pre && !gift) note = `<p class="bag-group-note">${icon('sun')}<span>Pre-ordered together: one payment, each box delivered in its own week.</span></p>`
   const id = `bag-co-why-${gift ? 'gift' : 'self'}`
-  const btn = both ? `<div class="bag-group-go"><p class="bag-group-sum"><span>Subtotal · ${boxWord(t.count)}</span><strong>${currency(t.price)}</strong></p><button type="button" class="button ${gift ? 'primary' : 'secondary'}" data-bag-checkout="${gift ? 'gift' : 'self'}"${off ? ` disabled aria-describedby="${id}"` : ''}>${off ? icon('lock') : ''}${gift ? 'Checkout the gift' : 'Checkout my order'} ${off ? '' : icon('arrow')}</button>${off ? `<p class="pay-bar-why bag-group-why" id="${id}">${icon('info')}<span>${esc(off)}</span></p>` : ''}</div>` : ''
+  const btn = both ? `<div class="bag-group-go"><p class="bag-group-sum"><span>Subtotal · ${boxWord(t.count)}</span><strong>${currency(t.price)}</strong></p><button type="button" class="button ${gift ? 'primary' : 'secondary'}" data-bag-checkout="${gift ? 'gift' : 'self'}"${off ? ` disabled aria-describedby="${id}"` : ''}>${off ? icon('lock') : ''}${gift ? 'Checkout the gift' : pre ? 'Pre-order my boxes' : 'Checkout my order'} ${off ? '' : icon('arrow')}</button>${off ? `<p class="pay-bar-why bag-group-why" id="${id}">${icon('info')}<span>${esc(off)}</span></p>` : ''}</div>` : ''
   const several = gift ? `<p class="bag-group-note">${icon('gift')}<span>One bag, one person, one address${both || pre ? '' : ', with its own delivery charge if there is one'}. Sending to more people? <a href="/gifts" data-route>Send to several people</a></span></p>` : ''
   return `<div class="bag-group-foot${gift ? ' is-gift' : ''}">${note}${btn}${several}</div>`
 }
@@ -120,9 +121,10 @@ function bagKindsBar(stuck) {
   const g = cart.some((x) => x.gift), s = cart.some((x) => !x.gift)
   const b = document.querySelector('#pay-bar #checkout')
   if (!g || !b) return
-  const self = s && !preSeason()
+  // Before the season your own boxes check out as the pre-order bag (pre-bag.js), the gift on its own after.
+  const self = s
   b.dataset.bagCheckout = self ? 'self' : 'gift'
-  b.innerHTML = `${self ? 'Checkout my order' : 'Checkout the gift'} ${icon('arrow')}`
+  b.innerHTML = `${self ? (preSeason() ? 'Pre-order my boxes' : 'Checkout my order') : 'Checkout the gift'} ${icon('arrow')}`
 }
 
 // ---- The checkout, one group at a time
@@ -131,8 +133,8 @@ function coSplit() {
   const want0 = ssGet(CO_GROUP)
   coUnsplit()
   const g = ofKind(cart, true), s = ofKind(cart, false)
-  // Before the season only the gift checks out here (your own boxes are pre-ordered from the shop's cards).
-  let want = want0 === 'gift' && g.length ? 'gift' : want0 === 'self' && s.length ? 'self' : s.length && !preSeason() ? 'self' : g.length ? 'gift' : s.length ? 'self' : null
+  // Before the season your own boxes check out as the pre-order bag (pre-bag.js) and the gift as gift pre-orders.
+  let want = want0 === 'gift' && g.length ? 'gift' : want0 === 'self' && s.length ? 'self' : s.length ? 'self' : g.length ? 'gift' : null
   coGroup = want
   if (!want) return
   ssSet(CO_GROUP, want)
