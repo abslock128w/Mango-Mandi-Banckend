@@ -221,7 +221,7 @@ describe('asking a gift recipient for their address', () => {
   })
 
   test('maintenance reminds the recipient and tells the giver once, five days before the week and not before', async () => {
-    const { week, two } = await paidGroup()
+    const { week, g, two } = await paidGroup()
     // Six days before: nothing.
     assert.deepEqual(await sendAddressReminders(), { reminded: 0, giversTold: 0 })
     setNow(`${addDays(week, -5)}T04:30:00Z`)
@@ -232,7 +232,7 @@ describe('asking a gift recipient for their address', () => {
     const told = await messages(two.id, 'GIFT_ADDRESS_MISSING')
     assert.deepEqual([remind.length, remind[0].phone, told.length, told[0].phone], [1, '+919845012342', 1, two.phone])
     assert.equal(told[0].params[0], 'Asha')
-    assert.match(told[0].params[4], new RegExp(`/preorders/${two.id}$`))
+    assert.match(told[0].params[4], new RegExp(`/gifts/pre/${g.id}$`))
   })
 
   test('the allocator leaves a booking without an address booked, and turns it into a delivery once it has one', async () => {

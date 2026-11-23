@@ -391,7 +391,7 @@ Suggested wording: Hi {{1}}, your gift of VMR Mangoes from {{2}} ({{3}}) is due 
   2. recipient name (example: Ravi Kumar)
   3. the box (example: 1 × Alphonso 3kg Box)
   4. week (example: the week of Mon, 1 Mar)
-  5. booking link (example: https://mandimangoes.in/preorders/pre_1)
+  5. gift link (example: https://mandimangoes.in/gifts/pre/pgr_1)
 
 Suggested wording: Hi {{1}}, {{2}} has not given their delivery address yet for your gift ({{3}}, {{4}}). You can send them the link again from your gift’s page: {{5}}
 
