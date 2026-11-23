@@ -3022,3 +3022,36 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 .gift-bar .pay-bar-total small{font-size:13px;line-height:1.3;white-space:normal}
 html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 @media (max-width:420px){.gift-bar .pay-bar-go{padding:0 16px;font-size:16px}.gift-bar .pay-bar-total strong{font-size:21px}}
+
+/* ---- The recipient's address page (gift-address.js, /gift-address/:token) and each person's address status for the giver
+   (gifts.js giftAddrHTML: the done screen and /gifts/pre/:id). */
+.ga-card{max-width:620px;margin:0 auto 14px}
+.ga-head{margin:0 0 16px}
+.ga-head>svg{width:34px;height:34px;color:var(--accent);stroke-width:2;margin:0 0 6px}
+.ga-head h2{margin:0 0 6px;font:400 clamp(24px,5vw,30px)/1.15 'Young Serif',Georgia,serif;color:var(--ink)}
+.ga-head h2:focus{outline:none}
+.ga-head p{margin:0;font-size:16px;line-height:1.5;color:var(--body,var(--ink))}
+.ga-gift{display:flex;gap:12px;align-items:flex-start;margin:0 0 18px;padding:14px 16px;border-radius:16px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--line)}
+.ga-gift>svg{flex:none;width:26px;height:26px;color:var(--accent);stroke-width:2}
+.ga-gift p{margin:0 0 4px;font-size:15px;line-height:1.4;color:var(--ink)}
+.ga-box{font-weight:700}
+.ga-week{display:flex;gap:6px;align-items:center;color:var(--muted)}
+.ga-week svg{width:16px;height:16px;color:var(--accent);stroke-width:2}
+.ga-note{margin:8px 0 0;padding:0 0 0 12px;border-left:3px solid var(--accent);font-style:italic;color:var(--ink);overflow-wrap:anywhere}
+.ga-form{display:grid;gap:12px}
+.ga-form .field textarea,.ga-form .field input{width:100%}
+.gift-addr-status{display:flex;gap:8px;align-items:flex-start;margin:8px 0 0;font-size:14px;line-height:1.4;color:var(--ink)}
+.gift-addr-status>svg{flex:none;width:18px;height:18px;margin-top:1px;color:var(--accent);stroke-width:2.2}
+.gift-addr-status>div{min-width:0;flex:1}
+.gift-addr-status p{display:flex;flex-direction:column;gap:2px;margin:0}
+.gift-addr-status small{color:var(--muted)}
+.gift-link-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:8px 0 0}
+.gift-link-btn{min-height:44px;padding:0 14px;gap:8px;border-radius:12px;font-weight:700}
+.gift-link-btn svg{width:18px;height:18px}
+.gift-link-why{font-size:13px;color:var(--muted)}
+.gift-wa-preview{margin:8px 0 0}
+.gift-wa-preview summary{min-height:44px;display:flex;align-items:center;cursor:pointer;font-weight:700;color:var(--ink)}
+.gift-wa-preview p{margin:4px 0 0;padding:12px 14px;border-radius:14px 14px 14px 4px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+.gift-group-view{max-width:760px}
+.gift-group-top h2{margin:6px 0 4px;font:400 26px/1.2 'Young Serif',Georgia,serif;color:var(--ink)}
+.gift-group-top p{margin:0 0 12px;color:var(--muted)}

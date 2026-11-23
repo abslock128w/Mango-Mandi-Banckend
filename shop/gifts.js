@@ -49,6 +49,8 @@ PAGES.push(
   [/^\/gifts\/send\/?$/, () => giftsPage('form')],
   [/^\/gifts\/send\/review\/?$/, () => giftsPage('form')], // an older link: screen 2 now pays
   [/^\/gifts\/done\/?$/, () => giftsPage('done')],
+  // A gift pre-order for several people, where the giver follows each person's address (from Your orders).
+  [/^\/gifts\/pre\/([^/]+)\/?$/, (m) => signedInThen('Your gift pre-order', () => giftGroupView(decodeURIComponent(m[1])))],
   [/^\/gifts\/([^/]+)\/?$/, (m) => signedInThen('Your gift order', () => giftOrderView(decodeURIComponent(m[1])))],
 )
 const GIFT_PATHS = { packs: '/gifts', form: '/gifts/send', review: '/gifts/send/review', done: '/gifts/done' }
@@ -110,6 +112,7 @@ function giftWhen(weeks) {
   return f ? `week of ${fmtWeek(f)}` : 'in the first open delivery week'
 }
 /** "the first week of March (week of 2 Mar)", escaped. */
+const preWeekText = (d) => `${esc(weekPhrase(d))} <span class="no-wrap">(week of ${esc(fmtWeek(d))})</span>`
 /** Each person's delivery week, as the API gives it: the earliest week with room for their boxes' kg, counting the people
  *  before them (the API books them in this order and checks the same). Every box shares one weekly limit in kg (the API's
  *  deliveryWeeks), so a group can straddle two weeks; one person's boxes are never split. An older API without them: per box, as before. `moved`: earlier weeks are full. */
@@ -1270,12 +1273,78 @@ async function giftPreCancel(b) {
 function giftPreDoneHTML() {
   const g = gift.group
   if (!g) return ''
-  const rows = (g.preorders || []).map((p) => `<li class="gift-review-row">${thumb(p.sku, p.stage, p.productName)}<div><strong>${esc(p.gift ? p.gift.recipientName : '')}</strong><small>${esc(boxName(p.productName, p.sku))} · ${stageOf(p.stage).stage} · ${plural(p.qty, 'box', 'boxes')}</small><small class="gift-review-week">${icon('calendar')}<span>Delivered in ${preWeekText(p.weekStart)}</span></small><small>Pre-order ${esc(orderNo(p.number))} · ${esc(PRE_STATUS[p.status] || p.status)}</small></div><span>${currency(p.total)}</span></li>`).join('')
   return `<div class="success gift-done gift-pre-done">${icon('check')}<p class="gift-pre-chips"><span class="pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip gift-chip">${icon('gift')}Gift</span></p><h2>Gift pre-order <span class="no-wrap">${esc(giftNo(g.number))}</span> is booked.</h2><p>${plural(g.recipientCount, 'person gets', 'people get')} their own pre-order. Paid once: <strong>${currency(g.total)}</strong>.</p></div>
-    ${preChipHTML(esc(giftWhen(groupWeeks(g))), true)}
-    <ol class="gift-review">${rows}</ol>
-    <p class="gift-find">${icon('box')}<span>Find each one in <a href="/orders" data-route>Your orders</a>, marked “Pre-order” and “Gift”.</span></p>
+    ${giftGroupBodyHTML(g, true)}
     <button type="button" class="text-button" data-gift-again>Send another gift ${icon('arrow')}</button>`
+}
+
+/** When a link may go again: `resendAfter` is a time, or seconds from now. */
+const resendAt = (l) => giftResendAt(l)
+const whenWords = (t) => (t ? new Date(t).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '')
+
+/** One person's address, as the giver sees it: typed by the giver at booking, asked of them on WhatsApp (when the link
+ *  went, "Send link" again, and the message they get), or given by them. */
+function giftAddrHTML(g, p) {
+  const st = p.addressState, l = p.addressLink || null
+  if (p.status === 'CANCELLED') return ''
+  if (st === 'ADDRESS_GIVEN') return `<p class="gift-addr-status is-done">${icon('check')}<span><strong>Address received</strong>${p.pincode ? ` · ${esc(p.pincode)}` : ''}</span></p>`
+  if (st !== 'ADDRESS_PENDING') return ''
+  const at = resendAt(l), wait = l && l.canResend === false, whyId = `gift-link-why-${p.id}`
+  const sent = l && l.sentAt ? `Link sent ${esc(whenWords(l.sentAt))}${l.sendCount > 1 ? ` (${l.sendCount} times)` : ''}` : 'We send the link once the payment is in'
+  const until = l && l.expiresAt ? ` · it works until ${esc(whenWords(l.expiresAt))}` : ''
+  const why = wait ? `<small class="gift-link-why" id="${esc(whyId)}">${at ? `You can send it again at ${esc(fmtTime(at))}` : 'It can’t be sent again'}</small>` : ''
+  const btn = g.paymentStatus === 'SUCCEEDED' ? `<button type="button" class="button secondary gift-link-btn" data-gift-link="${esc(p.id)}" data-gift-group="${esc(g.id)}"${wait ? ` disabled aria-describedby="${esc(whyId)}"` : ''} aria-label="Send the address link to ${esc(p.gift ? p.gift.recipientName : 'them')} again">${icon('mail')}<span>Send link</span></button>${why}` : ''
+  const preview = p.addressMessage ? `<details class="gift-wa-preview"><summary>Their WhatsApp message</summary><p>${esc(p.addressMessage)}</p></details>` : ''
+  return `<div class="gift-addr-status is-waiting">${icon('clock')}<div><p id="gift-addr-${esc(p.id)}" tabindex="-1"><strong>Waiting for their address</strong><small>${sent}${until}</small></p><div class="gift-link-row">${btn}</div>${preview}</div></div>`
+}
+
+/** Every person of a gift pre-order, with their box, week, status and address (the done screen and /gifts/pre/:id). */
+function giftGroupBodyHTML(g, paid) {
+  const rows = (g.preorders || []).map((p) => `<li class="gift-review-row">${thumb(p.sku, p.stage, p.productName)}<div><strong>${esc(p.gift ? p.gift.recipientName : '')}</strong><small>${esc(boxName(p.productName, p.sku))} · ${stageOf(p.stage).stage} · ${plural(p.qty, 'box', 'boxes')}</small><small class="gift-review-week">${icon('calendar')}<span>Delivered in ${preWeekText(p.weekStart)}</span></small><small>Pre-order ${esc(orderNo(p.number))} · ${esc(PRE_STATUS[p.status] || p.status)}</small>${giftAddrHTML(g, p)}</div></li>`).join('')
+  const asked = (g.preorders || []).some((p) => p.addressState === 'ADDRESS_PENDING' && p.status !== 'CANCELLED')
+  return `${preChipHTML(esc(giftWhen(groupWeeks(g))), paid)}
+    ${asked ? `<p class="gift-muted">${icon('mail')}<span>We’ve asked on WhatsApp for the addresses you didn’t enter. If one is still missing 5 days before its week, we remind them and tell you.</span></p>` : ''}
+    <ol class="gift-review">${rows}</ol>
+    <p class="gift-find">${icon('box')}<span>Find each one in <a href="/orders" data-route>Your orders</a>, marked “Pre-order” and “Gift”.</span></p>`
+}
+
+/** /gifts/pre/:id: a gift pre-order for several people, opened again later (from Your orders). */
+async function giftGroupView(id, quiet = false) {
+  document.title = 'Your gift pre-order · VMR Mangoes'
+  if (!quiet) host().innerHTML = pageHead('Your gift pre-order') + '<section class="page-card gift-group-view" id="gift-group-view" aria-busy="true"><p class="gift-muted">Loading…</p></section>'
+  let g
+  try { g = await MM.preorderGroup(id) } catch (e) {
+    const box = $('#gift-group-view')
+    if (box) { box.removeAttribute('aria-busy'); box.innerHTML = `<p class="prototype-tag" role="alert">${esc(e.status === 404 ? 'We couldn’t find this gift pre-order.' : e.message)}</p><a class="text-button" href="/orders" data-route>All orders ${icon('arrow')}</a>` }
+    return
+  }
+  const box = $('#gift-group-view')
+  if (!box) return
+  box.removeAttribute('aria-busy')
+  const paid = g.paymentStatus === 'SUCCEEDED'
+  box.innerHTML = `<div class="gift-group-top"><p class="gift-pre-chips"><span class="pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip gift-chip">${icon('gift')}Gift</span></p><h2>Gift pre-order <span class="no-wrap">${esc(giftNo(g.number))}</span></h2><p>${plural(g.recipientCount, 'person', 'people')} · ${plural(g.boxes, 'box', 'boxes')} · ${currency(g.total)}${paid ? ', paid' : ', not paid yet'}</p></div>${giftGroupBodyHTML(g, paid)}`
+}
+
+/** "Send link": the address link goes to that person again on WhatsApp; the status is read again after. */
+async function giftSendLink(b) {
+  const gid = b.dataset.giftGroup, pid = b.dataset.giftLink
+  b.disabled = true
+  try {
+    await MM.api(`/preorders/groups/${encodeURIComponent(gid)}/preorders/${encodeURIComponent(pid)}/send-link`, { method: 'POST', body: {}, auth: true })
+    toast('Sent. They’ll get the link on WhatsApp in a moment.')
+  } catch (e) {
+    const s = e.extra && Number(e.extra.retryAfter)
+    toast(e.code === 'RESEND_TOO_SOON' ? `You can send it again in ${Math.max(1, Math.ceil((s || 60) / 60))} min.` : e.code === 'RESEND_LIMIT' ? 'The link has been sent as many times as it can be. Ask them to look for our earlier message.' : e.code === 'ADDRESS_GIVEN' ? 'They’ve just given their address.' : e.message)
+  }
+  try {
+    const g = await MM.preorderGroup(gid)
+    if (gift.group && gift.group.id === gid && gift.step === 'pre-done') { gift.group = g; renderGiftSend() }
+    else if ($('#gift-group-view')) await giftGroupView(gid, true)
+    // The button is held for a while after a send: the focus goes to that person's status, which says until when.
+    const btn = $(`[data-gift-link="${CSS.escape(pid)}"]`)
+    if (btn && !btn.disabled) btn.focus()
+    else $(`#gift-addr-${CSS.escape(pid)}`)?.focus()
+  } catch { b.disabled = false }
 }
 
 // ---- One gift order (/gifts/:id): the confirmation after paying, and where the buyer finds it later.
@@ -1391,6 +1460,7 @@ document.addEventListener('click', (e) => {
   if (!b) return
   const d = b.dataset
   if (d.giftOpen) { go(`/gifts/${encodeURIComponent(d.giftOpen)}`); return }
+  if (d.giftLink) { giftSendLink(b); return }
   if (d.giftCancel || d.giftCancelOne) { giftCancel(b); return }
   if (d.giftBill) { giftBill(b); return }
   if (d.giftTestpayOrder) { b.disabled = true; giftTestPay(d.giftTestpayOrder, true); return }

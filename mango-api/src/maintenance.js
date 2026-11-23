@@ -52,6 +52,7 @@ import { queueFollowupAlerts } from './partner/alerts.js'
 import { runFarmJobs } from './farm/jobs.js'
 import { runBulkOrderJobs } from './bulk-orders.js'
 import { runSubscriptionJobs } from './subscriptions.js'
+import { giftAddressOn, sendAddressReminders } from './gift-address.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
 import { counterProblems, stepProblems } from './alert-checks.js'
 
@@ -428,6 +429,9 @@ async function steps(forceAll) {
   if (isOn('FARM_EXPERIENCE')) out.farm = await step('farm', () => runFarmJobs())
   // Preorders first: a waitlist spot that opens (or a waitlist that closes) queues a message, which this same run sends.
   out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
+  // Gifts whose recipient was asked for the address (GIFT_ADDRESS_LINKS): five days before the week, a reminder to the
+  // recipient and a note to the giver, once each, sent by the notifications step below.
+  if (giftAddressOn()) out.giftAddressReminders = await step('gift-address-reminders', () => sendAddressReminders())
   // Bulk orders paid at once (bulk-orders.js): missed payments found, unpaid ones closed after their time to pay.
   // Their refunds go out in the refunds step above, whatever the switch says.
   if (isOn('BULK_ENQUIRIES')) out.bulkOrders = await step('bulk-orders', () => runBulkOrderJobs())

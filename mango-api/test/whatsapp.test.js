@@ -148,7 +148,7 @@ describe('WhatsApp rules', () => {
       items: [{ sku: 'ALP-3', stage: 'RAW' }], alert_sku: 'ALP-3', alert_stage: 'SEMI_RIPE', alert_date: '2026-10-16', last_product: 'ALP-3', total: 100, payment_amount: 100,
       pre_qty: 1, pre_sku: 'ALP-3', week_start: '2026-10-19', payment_link_url: 'https://rzp.io/i/x', reward_kind: 'PERCENT', reward_amount: 10, reward_code: 'C', reward_ends_on: '2026-11-30',
       reward_min: 100, summary_params: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], help_number: 'HLP-1', help_ticket_id: 'hlp_1', sub_qty: 1, sub_sku: 'ALP-3', cycle_date: '2026-10-17', sub_id: 'sub_1',
-      claim_reason: 'x', order_id: 'ord_1',
+      claim_reason: 'x', order_id: 'ord_1', gift_link_id: 'gal_1',
     }
     const saved = env.WHATSAPP_ORDER_LINKS
     try {
@@ -157,7 +157,7 @@ describe('WhatsApp rules', () => {
         assert.equal(paramsFor({ ...n, kind: a.kind, partner_params: a.example, bulk_params: a.example, farm_params: a.example, params: a.example }).length, a.params.length, a.kind)
         env.WHATSAPP_ORDER_LINKS = false
         // Always sent: the claim templates' link, the rider-app out-for-delivery Track order button, and the delivery code's copy-code button.
-        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), ['order-link', 'track-order', 'copy-code'].includes(a.button), `${a.kind} without the flag`)
+        assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), ['order-link', 'track-order', 'copy-code', 'gift-address'].includes(a.button), `${a.kind} without the flag`)
         env.WHATSAPP_ORDER_LINKS = true
         assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), Boolean(a.button), `${a.kind} with the flag`)
       }
@@ -179,7 +179,8 @@ describe('WhatsApp rules', () => {
       'PREORDER_MOVED', 'DATE_MOVED', 'GIFT_OUT_FOR_DELIVERY', 'RIPENESS_GUIDE', 'BACK_IN_STOCK', 'REORDER_REMINDER', 'REVIEW_REQUEST', 'CLAIM_RECEIVED', 'CLAIM_REJECTED',
       'REFERRAL_REWARD', 'MANAGER_DAILY_SUMMARY', 'HELP_REPLY', 'SUBSCRIPTION_DUE', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE', 'PARTNER_ENQUIRY_RECEIVED', 'PARTNER_TEAM_ALERT',
       'BULK_ENQUIRY_RECEIVED', 'BULK_QUOTE', 'BULK_ORDER_PAID', 'FARM_VISIT_ENQUIRY_RECEIVED',
-      'FARM_BOOKING_UPDATE', 'FARM_TEAM_ALERT', 'PREORDER_DELAYED', 'PREORDER_EARLIER', 'ORDER_DELAYED']
+      'FARM_BOOKING_UPDATE', 'FARM_TEAM_ALERT', 'PREORDER_DELAYED', 'PREORDER_EARLIER', 'ORDER_DELAYED',
+      'GIFT_ADDRESS_REQUEST', 'GIFT_ADDRESS_REMINDER', 'GIFT_ADDRESS_MISSING']
     assert.deepEqual([...AUTOMATION_KINDS].sort(), [...kinds].sort())
     assert.equal(new Set(AUTOMATION_KINDS).size, AUTOMATIONS.length)
     for (const a of AUTOMATIONS) {

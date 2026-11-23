@@ -143,6 +143,12 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   // With MULTI_GIFT: the most recipients one gift order may have.
   MULTI_GIFT_MAX_RECIPIENTS: z.coerce.number().int().min(1).max(100).default(25),
+  // GIFT_ADDRESS_LINKS (with MULTI_GIFT): a gift for several people before the season may "Ask them on WhatsApp" for a
+  // recipient's address instead of typing it; the recipient fills it in on a signed link (docs/gifting.md).
+  GIFT_ADDRESS_LINKS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   // SHOP_SORT_FILTER: sort and filter controls on the shop's home page.
   SHOP_SORT_FILTER: z
     .enum(['true', 'false'])

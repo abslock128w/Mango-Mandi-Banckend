@@ -29,6 +29,9 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | PREORDER_DELAYED | `mandi_preorder_delayed` | UTILITY | 5 | — |
 | PREORDER_EARLIER | `mandi_preorder_earlier` | UTILITY | 5 | — |
 | ORDER_DELAYED | `mandi_order_delayed` | UTILITY | 5 | — |
+| GIFT_ADDRESS_REQUEST | `mandi_gift_address_request` | UTILITY | 4 | Add my address |
+| GIFT_ADDRESS_REMINDER | `mandi_gift_address_reminder` | UTILITY | 4 | Add my address |
+| GIFT_ADDRESS_MISSING | `mandi_gift_address_missing` | UTILITY | 5 | — |
 | BACK_IN_STOCK | `mandi_back_in_stock` | UTILITY | 4 | — |
 | REORDER_REMINDER | `mandi_reorder_reminder` | MARKETING | 3 | — |
 | REVIEW_REQUEST | `mandi_review_request` | MARKETING | 2 | — |
@@ -339,6 +342,58 @@ Suggested wording: Good news, {{1}}: your VMR Mangoes pre-order {{2}} will now a
   5. order link (example: https://mandimangoes.in/orders/ord_1)
 
 Suggested wording: Hi {{1}}, your VMR Mangoes order {{2}} will now be delivered on {{4}} instead of {{3}}, because less fruit came in than we planned. Sorry for the wait. If you would rather not wait, you can cancel it for a full refund until it is packed: {{5}}
+
+## GIFT_ADDRESS_REQUEST
+
+- Template: `mandi_gift_address_request`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: A gift for several people booked before the season is paid, and the giver chose "Ask them on WhatsApp" for this person (GIFT_ADDRESS_LINKS): the recipient is asked for their address. Sent again, with the same link, when the giver taps Send again (at most every 10 minutes, 5 times).
+- Only with `GIFT_ADDRESS_LINKS=true`
+- Button: URL button "Add my address", `https://<shop>/gift-address/{{1}}` (the link's token; always sent)
+- If it can't be sent: Not sent: the giver sees it was not delivered on the gift page and can send the link again or share it themselves.
+- Variables:
+  1. recipient first name (example: Ravi)
+  2. from (the giver) (example: Asha Rao)
+  3. the box (example: 1 × Alphonso 3kg Box)
+  4. week (example: the week of Mon, 1 Mar)
+
+Suggested wording: Hi {{1}}, {{2}} is sending you a gift of VMR Mangoes: {{3}}, to be delivered in {{4}}. Tap the button below to tell us where to deliver it.
+
+## GIFT_ADDRESS_REMINDER
+
+- Template: `mandi_gift_address_reminder`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Five days before the delivery week, once, when the recipient has still not given their address (GIFT_ADDRESS_LINKS).
+- Only with `GIFT_ADDRESS_LINKS=true`
+- Button: URL button "Add my address", `https://<shop>/gift-address/{{1}}` (the link's token; always sent)
+- If it can't be sent: Not sent: the giver is told (GIFT_ADDRESS_MISSING) and can send the link again.
+- Variables:
+  1. recipient first name (example: Ravi)
+  2. from (the giver) (example: Asha Rao)
+  3. the box (example: 1 × Alphonso 3kg Box)
+  4. week (example: the week of Mon, 1 Mar)
+
+Suggested wording: Hi {{1}}, your gift of VMR Mangoes from {{2}} ({{3}}) is due in {{4}}, and we still need your delivery address. Tap the button below to add it.
+
+## GIFT_ADDRESS_MISSING
+
+- Template: `mandi_gift_address_missing`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Five days before the delivery week, once, to the giver, when a recipient asked on WhatsApp has still not given their address (GIFT_ADDRESS_LINKS). Until the address is given the booking is not turned into a delivery.
+- Only with `GIFT_ADDRESS_LINKS=true`
+- Button: none
+- If it can't be sent: Not sent: the gift page in the shop shows the address is still missing.
+- Variables:
+  1. giver first name (example: Asha)
+  2. recipient name (example: Ravi Kumar)
+  3. the box (example: 1 × Alphonso 3kg Box)
+  4. week (example: the week of Mon, 1 Mar)
+  5. booking link (example: https://mandimangoes.in/preorders/pre_1)
+
+Suggested wording: Hi {{1}}, {{2}} has not given their delivery address yet for your gift ({{3}}, {{4}}). You can send them the link again from your gift’s page: {{5}}
 
 ## BACK_IN_STOCK
 

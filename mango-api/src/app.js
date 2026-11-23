@@ -111,7 +111,8 @@ export function createApp() {
     const start = process.hrtime.bigint()
     res.on('finish', () => {
       const ms = Number(process.hrtime.bigint() - start) / 1e6
-      logger.info({ reqId: req.id, method: req.method, path: req.path, status: res.statusCode, ms: Math.round(ms) }, 'request')
+      // A gift address link's token opens a recipient's address form: never written to the log (gift-address-token.js).
+      logger.info({ reqId: req.id, method: req.method, path: req.path.replace(/^(\/v1\/gift-address\/)[^/]+/, '$1:token'), status: res.statusCode, ms: Math.round(ms) }, 'request')
     })
     next()
   })

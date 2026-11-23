@@ -13,9 +13,11 @@ type Helpers = {
   giftWeekSpan: (weeks: (string | null)[], fmt: (d: string) => string) => string
   giftGroupRecipient: (r: Person, weekStart: string, ask: boolean, note: string) => Record<string, unknown>
   giftBarLine: (boxes: number, when: string) => string
+  giftBoxWords: (b: null | { qty?: number; name?: string; stage?: string }, stageWord: (s: string) => string) => string
+  giftResendAt: (l: null | { resendAfter?: number | string | null }, now?: number) => Date | null
 }
 const code = readFileSync(new URL('../../shop/gift-rows.js', import.meta.url), 'utf8')
-const h = vm.runInNewContext(`${code}\n;({ readGiftDraft, giftDraftJSON, giftPhone, giftPhoneWhy, giftWeekSpan, giftGroupRecipient, giftBarLine })`) as Helpers
+const h = vm.runInNewContext(`${code}\n;({ readGiftDraft, giftDraftJSON, giftPhone, giftPhoneWhy, giftWeekSpan, giftGroupRecipient, giftBarLine, giftBoxWords, giftResendAt })`) as Helpers
 const fmt = (d: string) => ({ '2027-03-01': '1 Mar', '2027-03-08': '8 Mar' })[d] ?? d
 
 test('a v3 draft reads back as it was saved', () => {
@@ -89,4 +91,20 @@ test('a pre-order recipient: one box; the address, or askAddress with no address
     sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: '2027-03-01', pincode: '560038', address: '4 Lake View',
     gift: { recipientName: 'Asha', recipientPhone: '9876543210' },
   })
+})
+
+test('the recipient sees the box in words, without a price', () => {
+  const word = (st: string) => ({ RAW: 'Raw', SEMI_RIPE: 'Semi-ripe' })[st] ?? st
+  assert.equal(h.giftBoxWords({ qty: 1, name: 'Alphonso gift box', stage: 'SEMI_RIPE' }, word), 'Alphonso gift box · Semi-ripe')
+  assert.equal(h.giftBoxWords({ qty: 2, name: 'Kesar gift box', stage: 'RAW' }, word), '2 × Kesar gift box · Raw')
+  assert.equal(h.giftBoxWords(null, word), 'A box of mangoes')
+})
+
+test('when a link may go again: a time, seconds from now, or not said', () => {
+  const now = Date.parse('2027-02-20T10:00:00Z')
+  assert.equal(h.giftResendAt({ resendAfter: 600 }, now)?.toISOString(), '2027-02-20T10:10:00.000Z')
+  assert.equal(h.giftResendAt({ resendAfter: '2027-02-20T10:05:00Z' }, now)?.toISOString(), '2027-02-20T10:05:00.000Z')
+  assert.equal(h.giftResendAt({ resendAfter: null }, now), null)
+  assert.equal(h.giftResendAt({ resendAfter: 'soon' }, now), null)
+  assert.equal(h.giftResendAt(null, now), null)
 })

@@ -81,3 +81,16 @@ function giftGroupRecipient(r, weekStart, ask, note) {
 
 /** The sticky bar's line: "2 boxes · Arrives week of 1 Mar". */
 const giftBarLine = (boxes, when) => `${boxes} ${boxes === 1 ? 'box' : 'boxes'}${when ? ` · Arrives ${when}` : ''}`
+
+/** The recipient's box in words (the address page): "Alphonso gift box · Semi-ripe", "2 × Kesar gift box · Raw".
+ *  `stageWord` turns RAW / SEMI_RIPE into its word. */
+function giftBoxWords(b, stageWord) {
+  if (!b) return 'A box of mangoes'
+  return `${b.qty > 1 ? `${b.qty} × ` : ''}${b.name || 'Mangoes'}${b.stage ? ` · ${stageWord(b.stage)}` : ''}`
+}
+/** When an address link may be sent again (the API's addressLink.resendAfter: a time, or seconds from `now`), or null. */
+function giftResendAt(l, now = Date.now()) {
+  if (!l || l.resendAfter == null) return null
+  const t = typeof l.resendAfter === 'number' ? new Date(now + l.resendAfter * 1000) : new Date(l.resendAfter)
+  return Number.isNaN(t.getTime()) ? null : t
+}

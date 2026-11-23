@@ -16,6 +16,7 @@ import { eatByFor, OLDEST_PLUCK_SQL, readyOnFor, STAGE_WORDS, storageTip } from 
 import { otpMessageFailed } from './sms.js'
 import { deliveryCodeFor } from './delivery-code.js'
 import { billLink } from './bill-link.js'
+import { GIFT_ADDRESS_KINDS, giftAddressToken, LINK_KINDS, linkExpiry } from './gift-address-token.js'
 import { isOn } from './feature-switches.js'
 import { sendOutcome, templateName, whatsappSender } from './whatsapp.js'
 import { refusal } from './wa/consent.js'
@@ -273,6 +274,10 @@ export function paramsFor(n) {
     case 'PREORDER_DELAYED':
     case 'PREORDER_EARLIER':
     case 'ORDER_DELAYED':
+    // Fixed when queued (gift-address.js): the recipient's or giver's words as they were at the time.
+    case 'GIFT_ADDRESS_REQUEST':
+    case 'GIFT_ADDRESS_REMINDER':
+    case 'GIFT_ADDRESS_MISSING':
       return (n.params ?? []).map(String)
     case 'REFERRAL_REWARD':
       // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
@@ -323,6 +328,9 @@ const ORDER_LINK_WITH_FLAG = new Set(['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED'
 /** The rider-app version of mandi_out_for_delivery (no code) has its "Track order" button from the start. */
 const ORDER_LINK_NEW = new Set(['OUT_FOR_DELIVERY', 'GIFT_OUT_FOR_DELIVERY'])
 export function orderLinkFor(n) {
+  // A gift address request or reminder (GIFT_ADDRESS_LINKS): its "Add my address" button opens <shop>/gift-address/{{1}},
+  // the link's token, derived again from the link's id (gift-address-token.js), never stored.
+  if (LINK_KINDS.has(n.kind)) return n.gift_link_id ? giftAddressToken(n.gift_link_id) : null
   if (!n.order_id) return null
   // The copy-code button of an authentication template carries the code itself.
   if (CODE_KINDS.has(n.kind)) return codeFor(n)
@@ -433,7 +441,8 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
   const { rows } = await query(
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.delivery_code_nonce, o.gift_recipient_name, rd.display_name AS rider_name, rd.email AS rider_email, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
-            s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status,
+            s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status, p.address_state,
+            (SELECT gl.id FROM gift_address_links gl WHERE gl.preorder_id = n.preorder_id AND gl.revoked_at IS NULL LIMIT 1) AS gift_link_id,
             (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage, 'pluckedOn', ${OLDEST_PLUCK_SQL}) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
@@ -506,6 +515,14 @@ function staleReason(n) {
     if (n.preorder_status === 'CANCELLED') return 'booking cancelled since'
     const target = n.params?.[n.kind === 'PREORDER_DELAYED' ? 3 : 2]
     if (target && n.week_start && weekWords(n.week_start) !== target) return 'booking moved again since'
+  }
+  // A gift address message (GIFT_ADDRESS_LINKS) is no longer true once the gift was cancelled, the address given or the
+  // link stopped working.
+  if (GIFT_ADDRESS_KINDS.has(n.kind)) {
+    if (n.preorder_status === 'CANCELLED') return 'gift cancelled since'
+    if (n.address_state === 'ADDRESS_GIVEN') return 'address given since'
+    if (!n.gift_link_id) return 'link withdrawn since'
+    if (n.week_start && now() >= linkExpiry(n.week_start)) return 'link expired since'
   }
   const s = n.order_status
   if (!s) return null
