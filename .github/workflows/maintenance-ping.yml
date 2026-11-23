@@ -11,7 +11,9 @@
 # Set two repository secrets (Settings → Secrets and variables → Actions):
 #   MAINTENANCE_URL  the full address, e.g. https://<the API host>/internal/maintenance
 #   CRON_SECRET      the same value as the API's CRON_SECRET setting
-# Without both, the job does nothing and says so.
+# Without both the run fails (CRON-01: a green run must mean the job was called). A copy with no API
+# to call, or a project on Vercel Pro's every-minute cron, sets the repository variable
+# MAINTENANCE_PING_DISABLED=true to skip it on purpose.
 name: maintenance-ping
 
 on:
@@ -34,10 +36,15 @@ jobs:
         env:
           MAINTENANCE_URL: ${{ secrets.MAINTENANCE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MAINTENANCE_PING_DISABLED: ${{ vars.MAINTENANCE_PING_DISABLED }}
         run: |
-          if [ -z "$MAINTENANCE_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "MAINTENANCE_URL or CRON_SECRET is not set: nothing called."
+          if [ "$MAINTENANCE_PING_DISABLED" = "true" ]; then
+            echo "::notice::The maintenance ping is turned off (repository variable MAINTENANCE_PING_DISABLED=true)."
             exit 0
+          fi
+          if [ -z "$MAINTENANCE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::Nothing called: set the MAINTENANCE_URL and CRON_SECRET secrets, or set the repository variable MAINTENANCE_PING_DISABLED=true."
+            exit 1
           fi
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 \
             -H "Authorization: Bearer $CRON_SECRET" "$MAINTENANCE_URL")

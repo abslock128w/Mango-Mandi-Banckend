@@ -43,7 +43,8 @@ try {
     ok.push(`${pins} delivery pincode(s) active`)
     const slots = (await query('SELECT COUNT(*)::int AS n FROM delivery_slots WHERE active')).rows[0].n
     if (!slots) warnings.push('No delivery slots: checkout will not ask for a time window (add them on the Planning page)')
-    if (!env.BACKUP_HEARTBEAT_EXPECTED) {
+    // checkProduction already refuses it off in production (BKP-02); this says it for a preview too.
+    if (!env.BACKUP_HEARTBEAT_EXPECTED && !errors.some((e) => e.startsWith('BACKUP_HEARTBEAT_EXPECTED'))) {
       warnings.push('BACKUP_HEARTBEAT_EXPECTED is off: a stopped nightly backup will not show in Needs attention or Sentry (deploy/VERCEL.md, Backups)')
     }
   }

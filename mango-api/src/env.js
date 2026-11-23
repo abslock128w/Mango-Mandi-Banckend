@@ -55,6 +55,14 @@ const schema = z.object({
   COOKIE_SAMESITE: z.enum(['lax', 'none', 'strict']).default('lax'),
   // Vercel Cron sends "Authorization: Bearer CRON_SECRET" to /internal/maintenance.
   CRON_SECRET: z.string().default(''),
+  // CRON-01: what calls /internal/maintenance every minute in production on Vercel (deploy/SCHEDULER.md):
+  // vercel (Pro, the every-minute cron in vercel.json) or external (a pinger). Unset, a production deploy
+  // on Vercel refuses to start, because the vercel.json Hobby allows runs the job only once a day.
+  MAINTENANCE_SCHEDULER: z.enum(['vercel', 'external', '']).default(''),
+  // SRV-02: how often the scheduler calls the maintenance job, in seconds. /ready (readiness.js) and the
+  // Sentry cron monitor (sentry.js) count the job as stopped from it, so a pinger every 5 minutes (300)
+  // is not reported stopped between its calls, and an every-minute cron (60) still alerts quickly.
+  MAINTENANCE_INTERVAL_S: z.coerce.number().int().min(60).max(86_400).default(60),
   // Sign in with Google: the OAuth web client ID from Google Cloud console.
   GOOGLE_CLIENT_ID: z.string().default(''),
   SENTRY_DSN: z.string().default(''),
@@ -321,6 +329,10 @@ const schema = z.object({
   RAZORPAY_WEBHOOK_SECRET_PREVIOUS: z.string().default(''),
   RAZORPAY_KEY_ID: z.string().default(''),
   RAZORPAY_KEY_SECRET: z.string().default(''),
+  // AREA7-02: a rzp_test_ key stops a production start, since orders would be confirmed and sent for
+  // payments that are not real money. True allows it on purpose (a pre-season week of test orders on
+  // the live site); preflight still warns while it is on.
+  ALLOW_TEST_PAYMENTS_IN_PRODUCTION: flag(),
   METRICS_TOKEN: z.string().default(''),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(12).optional(),
@@ -454,12 +466,11 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   // Backups record each run in maintenance_runs: Needs attention and Sentry warn
   // when none is recorded for 26 hours. Set by deploy/compose.yml (its backup
-  // service); on Vercel set it once the GitHub backup workflow has its
+  // service); on Vercel the GitHub backup workflow records it once it has its
   // BACKUP_HEARTBEAT_DATABASE_URL secret (deploy/VERCEL.md, Backups).
-  BACKUP_HEARTBEAT_EXPECTED: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
+  // BKP-02: unset, on in production and off elsewhere (backupDefault below), and
+  // production refuses false (preflight), so seven silent nights cannot recur.
+  BACKUP_HEARTBEAT_EXPECTED: optionalFlag(),
   // Fixes from the 24 Oct 2026 audit that change what staff, customers or the
   // background run may do (docs/audit-2026-10-24-status-A.md). Unset, each is
   // on in production and off elsewhere (strictDefaults below); false turns one
@@ -539,6 +550,17 @@ export function strictDefaults(e, prod) {
 strictDefaults(env, isProd)
 // PAY-08: the daily match with Razorpay is on in production unless set to false.
 env.PAYMENT_DAILY_RECON ??= isProd
+
+/**
+ * BKP-02: a production deploy expects the backup heartbeat unless it is written false, so a stopped
+ * nightly backup shows in Needs attention and Sentry. Previews (deployEnv 'preview') and development
+ * record no backups, so there it stays off unless written true.
+ */
+export function backupDefault(e, where) {
+  e.BACKUP_HEARTBEAT_EXPECTED ??= where === 'production'
+  return e
+}
+backupDefault(env, deployEnv)
 
 // A fixed login code would let anyone sign in as any customer or rider.
 if (env.DEMO_OTP && deployEnv === 'production') {

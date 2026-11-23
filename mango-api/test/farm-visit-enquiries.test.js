@@ -6,6 +6,7 @@ import { adminToken, client, closeAll, customerToken, resetDb, startServer } fro
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { addDays, todayIST } from '../src/clock.js'
+import { ENQUIRY_MESSAGES_PER_DAY, enquiryMessageKey } from '../src/bulk-enquiries.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
@@ -16,7 +17,7 @@ let srv
 let api
 let manager
 
-const FLAGS = ['BULK_ENQUIRIES', 'WHATSAPP_BULK_UPDATES', 'BULK_ENQUIRY_DAILY_LIMIT', 'FARM_EXPERIENCE']
+const FLAGS = ['BULK_ENQUIRIES', 'WHATSAPP_BULK_UPDATES', 'BULK_ENQUIRY_DAILY_LIMIT', 'FARM_EXPERIENCE', 'TURNSTILE_SECRET_KEY']
 const saved = Object.fromEntries(FLAGS.map((k) => [k, env[k]]))
 
 before(async () => {
@@ -31,9 +32,13 @@ beforeEach(async () => {
   await resetDb()
   manager = await adminToken(api)
   // The form needs no farm switch: FARM_EXPERIENCE stays off here.
-  Object.assign(env, { BULK_ENQUIRIES: true, WHATSAPP_BULK_UPDATES: true, BULK_ENQUIRY_DAILY_LIMIT: 5, FARM_EXPERIENCE: false })
+  Object.assign(env, { BULK_ENQUIRIES: true, WHATSAPP_BULK_UPDATES: true, BULK_ENQUIRY_DAILY_LIMIT: 5, FARM_EXPERIENCE: false, TURNSTILE_SECRET_KEY: '' })
 })
-afterEach(() => Object.assign(env, saved))
+const realFetch = globalThis.fetch
+afterEach(() => {
+  Object.assign(env, saved)
+  globalThis.fetch = realFetch
+})
 
 const FORM = () => ({ name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', variety: 'Alphonso', kg: 150, visitDate: addDays(todayIST(), 10), flexible: false, people: 6, notes: 'Two children' })
 const send = (body, opts = {}) => api.post('/v1/farm-visit-enquiries', body, { headers: { 'Idempotency-Key': newId('idem') }, ...opts })
@@ -94,6 +99,49 @@ describe('sending one from the shop', () => {
     assert.deepEqual([mine[0].farmVisit.kg, mine[0].farmVisit.variety, mine[0].farmVisit.people, mine[0].farmVisit.flexible], [150, 'Alphonso', 6, false])
     assert.equal(mine[0].order, null)
     assert.equal((await send(FORM(), { headers: { 'Idempotency-Key': newId('idem') }, token: 'stale' })).status, 201)
+  })
+})
+
+describe('Turnstile and the daily message cap (AUTH-01)', () => {
+  const counts = async () => (await query(`SELECT (SELECT count(*)::int FROM bulk_enquiries) AS enquiries, (SELECT count(*)::int FROM notifications) AS messages`)).rows[0]
+
+  test('with Turnstile set up, a form without a token is refused, signed in or not, and nothing is saved or queued', async () => {
+    env.TURNSTILE_SECRET_KEY = 'secret'
+    const anon = await send(FORM())
+    assert.deepEqual([anon.status, anon.body.error?.code], [400, 'CAPTCHA_REQUIRED'], JSON.stringify(anon.body))
+    const cust = await customerToken(api, '9876543210')
+    const signed = await send(FORM(), { headers: { 'Idempotency-Key': newId('idem') }, token: cust.accessToken })
+    assert.deepEqual([signed.status, signed.body.error?.code], [400, 'CAPTCHA_REQUIRED'])
+    assert.deepEqual(await counts(), { enquiries: 0, messages: 0 })
+  })
+
+  test('with Turnstile set up, a token solved for the farm visit form sends it; one for the bulk form does not', async () => {
+    env.TURNSTILE_SECRET_KEY = 'secret'
+    const hostname = new URL(env.CUSTOMER_ORIGIN.split(',')[0].trim()).hostname
+    let action = 'bulk'
+    globalThis.fetch = (url, init) =>
+      String(url).startsWith('https://challenges.cloudflare.com/')
+        ? Promise.resolve(new Response(JSON.stringify({ success: true, hostname, action }), { headers: { 'Content-Type': 'application/json' } }))
+        : realFetch(url, init)
+    const wrong = await send({ ...FORM(), captchaToken: 'tok-bulk' })
+    assert.deepEqual([wrong.status, wrong.body.error?.code], [400, 'CAPTCHA_FAILED'])
+    action = 'farm-visit'
+    const ok = await send({ ...FORM(), captchaToken: 'tok-farm' })
+    assert.equal(ok.status, 201, JSON.stringify(ok.body))
+    assert.deepEqual(await counts(), { enquiries: 1, messages: 1 })
+  })
+
+  test('without Turnstile set up the form works as before', async () => {
+    assert.equal((await send(FORM())).status, 201)
+    assert.equal((await send({ ...FORM(), captchaToken: 'ignored' })).status, 201)
+  })
+
+  test('past the shop-wide daily cap the enquiry is saved but no "we got it" message is queued', async () => {
+    await query(`INSERT INTO rate_limits (key, hits, reset_at) VALUES ($1, $2, now() + interval '1 day')`, [enquiryMessageKey(), ENQUIRY_MESSAGES_PER_DAY])
+    const r = await send(FORM())
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    assert.equal((await row(r.body.id)).kind, 'FARM_VISIT')
+    assert.equal((await query('SELECT count(*)::int AS n FROM notifications WHERE bulk_enquiry_id = $1', [r.body.id])).rows[0].n, 0)
   })
 })
 

@@ -16,9 +16,11 @@ import { env } from './env.js'
 import { conflict, HttpError, notFound } from './errors.js'
 import { notify as notifyEvent } from './events.js'
 import { newId } from './ids.js'
+import { logger } from './logger.js'
 import { formatOrderNumber, normaliseOrderNumber, nextOrderNumber } from './order-number.js'
 import { boxKg, findProduct, productName, shopProducts } from './products.js'
 import { enqueueLinkPush } from './push.js'
+import { hit } from './ratelimit.js'
 import { SALE_STAGES, STAGES } from './stage.js'
 import { boxPrices } from './bulk-price.js'
 import { bulkOrderView } from './bulk-orders.js'
@@ -153,6 +155,28 @@ export async function addMessage(c, { enquiryId, kind, eventId, phone, params })
   )
 }
 
+/**
+ * AUTH-01: the most "we got your enquiry" WhatsApp messages (bulk and farm visit together) the whole shop
+ * sends in a day (IST), on top of Turnstile and the per-number BULK_ENQUIRY_DAILY_LIMIT. Real enquiries
+ * are a handful a day, so 200 only bites when someone is using the forms to message strangers; past it
+ * the enquiry is still saved (staff see it on the panel) but no message is queued. A module constant:
+ * no setting needed until the shop really gets that many.
+ */
+export const ENQUIRY_MESSAGES_PER_DAY = 200
+/** The rate_limits row that counts them (ratelimit.js hit), one per IST day. */
+export const enquiryMessageKey = (day = todayIST()) => `enquiry-msg:day:${day}`
+
+/** addMessage for the "received" messages, within ENQUIRY_MESSAGES_PER_DAY. */
+async function addReceivedMessage(c, msg) {
+  if (!env.WHATSAPP_BULK_UPDATES) return
+  const { hits } = await hit(enquiryMessageKey(), 86_400_000)
+  if (hits > ENQUIRY_MESSAGES_PER_DAY) {
+    logger.warn({ enquiryId: msg.enquiryId, kind: msg.kind, limit: ENQUIRY_MESSAGES_PER_DAY }, 'enquiry received message skipped: the shop-wide daily cap is reached')
+    return
+  }
+  await addMessage(c, msg)
+}
+
 /** The same request, whatever the key order (as customer.js requestHash): a retry must send what the first try sent. */
 const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
 export const requestHash = (body) => createHash('sha256').update(JSON.stringify(stable(body))).digest('hex')
@@ -225,7 +249,7 @@ export async function createEnquiry(c, b, { customerId = null, idempotencyKey = 
     [id, number, customerId, b.name, b.business, b.email, b.phone, b.city, b.notes, JSON.stringify(lines), kg, b.ripeness, key, at, order ? 'ORDER' : 'ENQUIRY'],
   )
   await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kg, boxes: boxes(lines), ...(order ? { kind: 'ORDER' } : {}) })
-  await addMessage(c, { enquiryId: id, kind: 'BULK_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), quantityWords({ quantity_kg: kg, lines })] })
+  await addReceivedMessage(c, { enquiryId: id, kind: 'BULK_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), quantityWords({ quantity_kg: kg, lines })] })
   await notifyEvent(c, 'bulk.enquiry', { id, number, status: 'NEW', change: 'created' })
   return { status: 201, body: { id, number, status: 'NEW', kind: order ? 'ORDER' : 'ENQUIRY' } }
 }
@@ -586,7 +610,7 @@ export async function createFarmVisitEnquiry(c, b, { customerId = null, idempote
     [id, number, customerId, b.name, b.phone, b.city, b.notes, b.kg, key, at, b.variety, b.visitDate, b.flexible || !b.visitDate, b.people],
   )
   await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kind: 'FARM_VISIT', kg: b.kg, people: b.people })
-  await addMessage(c, { enquiryId: id, kind: 'FARM_VISIT_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), farmVisitSummary(b)] })
+  await addReceivedMessage(c, { enquiryId: id, kind: 'FARM_VISIT_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), farmVisitSummary(b)] })
   await notifyEvent(c, 'bulk.enquiry', { id, number, status: 'NEW', change: 'created', kind: 'FARM_VISIT' })
   return { status: 201, body: { id, number, status: 'NEW', kind: 'FARM_VISIT' } }
 }

@@ -127,7 +127,8 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ ok: true }))
   // One check for the uptime monitor: the database answers and the maintenance
-  // job (holds, payments, messages) ran in the last 4 minutes (readiness.js).
+  // job (holds, payments, messages) ran in the last four scheduler intervals,
+  // 4 minutes for the every-minute cron (readiness.js, MAINTENANCE_INTERVAL_S).
   // Public, so it says only ready or not and the age of the last run.
   app.get('/ready', async (_req, res) => {
     try {

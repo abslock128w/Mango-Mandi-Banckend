@@ -41,6 +41,7 @@ const STEP_LABEL: Record<string, string> = {
   retention: 'Removing old personal data',
   'delivery-photo-purge': 'Removing old delivery photos',
   'funnel-retention': 'Shop funnel daily totals and clean-up',
+  'partner-retention': 'Removing ended Partner Network applications',
   referrals: 'Issuing referral thank-you codes',
   'manager-summary': "Queueing the managers' evening summary",
   rebalance: 'Re-checking an order',

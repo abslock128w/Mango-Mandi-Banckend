@@ -54,7 +54,12 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
     else errors.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are required: customers could not pay')
   }
   else if (preview && env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) errors.push('RAZORPAY_KEY_ID is a live key on a preview: previews must use test keys, or they could take real money')
-  else if (!preview && env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) warnings.push('RAZORPAY_KEY_ID is a test key: payments are not real money')
+  // AREA7-02: on a test key production confirms orders and sends mangoes for payments that are not
+  // real money, and a warning in the build log is easy to miss. Allowed only when asked for by name.
+  else if (!preview && env.RAZORPAY_KEY_ID.startsWith('rzp_test_')) {
+    if (env.ALLOW_TEST_PAYMENTS_IN_PRODUCTION) warnings.push('RAZORPAY_KEY_ID is a test key: payments are not real money')
+    else errors.push('RAZORPAY_KEY_ID is a test key in production: payments would not be real money. Set the live key, or ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true for a deliberate test week')
+  }
   if (env.RAZORPAY_WEBHOOK_SECRET === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET is the dev default: set the secret from the Razorpay webhook settings')
   if (env.RAZORPAY_WEBHOOK_SECRET_PREVIOUS === 'whsec_dev') errors.push('RAZORPAY_WEBHOOK_SECRET_PREVIOUS is the dev default: unset it')
   else if (env.RAZORPAY_WEBHOOK_SECRET_PREVIOUS) warnings.push('RAZORPAY_WEBHOOK_SECRET_PREVIOUS is set: webhooks signed with the old secret are still accepted; unset it a day after the rotation')
@@ -120,6 +125,11 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
       errors.push('ADMIN_BOOTSTRAP_* is set on previews: tick only Production for it, and give previews PREVIEW_ADMIN_EMAIL and PREVIEW_ADMIN_PASSWORD')
     }
     if (env.CRON_SECRET.length < 16) errors.push('CRON_SECRET is unset or short: Vercel Cron could not run the maintenance job (holds, payments, messages)')
+    // CRON-01: the vercel.json Hobby allows runs the job once a day, so production must say what
+    // calls it every minute. Previews have no cron and need none.
+    if (!preview && !env.MAINTENANCE_SCHEDULER) {
+      errors.push("MAINTENANCE_SCHEDULER is unset: say 'vercel' (Pro, every-minute cron in mango-api/vercel.json) or 'external' (a pinger calling /internal/maintenance every minute); see deploy/SCHEDULER.md")
+    }
     if (/-pooler\./.test(env.DATABASE_URL) && !env.DATABASE_URL_UNPOOLED) {
       errors.push('DATABASE_URL_UNPOOLED is unset: migrations need Neon\'s direct connection')
     }
@@ -139,6 +149,11 @@ export function checkProduction(env, { vercel = Boolean(process.env.VERCEL), tar
   if (!env.SENTRY_DSN) {
     if (preview) warnings.push('SENTRY_DSN is unset: errors are only in the logs')
     else errors.push('SENTRY_DSN is required in production: without it nobody is alerted to errors, failed refunds or a stopped maintenance job')
+  }
+  // BKP-02: on by default in production (env.js backupDefault). Off, nothing in the app notices nights
+  // without a backup: the only signal left is GitHub's failed-run email to whoever last edited the workflow.
+  if (!preview && env.BACKUP_HEARTBEAT_EXPECTED !== true) {
+    errors.push('BACKUP_HEARTBEAT_EXPECTED is off in production: a stopped nightly backup would go unnoticed. Set up the backup workflow and its heartbeat secret, then leave it unset or true (deploy/VERCEL.md, Backups)')
   }
   if (!env.TOTP_ENCRYPTION_KEY) warnings.push('TOTP_ENCRYPTION_KEY is not set: staff two-step secrets are stored unencrypted (openssl rand -base64 32)')
   else if (Buffer.from(env.TOTP_ENCRYPTION_KEY, 'base64').length !== 32) errors.push('TOTP_ENCRYPTION_KEY must be 32 bytes, base64 encoded (openssl rand -base64 32)')

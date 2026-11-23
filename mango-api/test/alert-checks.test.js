@@ -10,14 +10,14 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
-import { ALERT_CHECKS, ALERT_WINDOW_MS, NOTIFY, STEP_FAILS } from '../src/alert-checks.js'
+import { ALERT_CHECKS, ALERT_WINDOW_MS, loopStoppedText, NOTIFY, STEP_FAILS } from '../src/alert-checks.js'
 import { setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 import { checkHealth, cleanupExpired } from '../src/maintenance.js'
 import { recordWebhookFailure } from '../src/payments.js'
-import { onProblemForTests } from '../src/sentry.js'
+import { cronMonitorConfig, onProblemForTests } from '../src/sentry.js'
 import { OTP_ALERTS } from '../src/sms.js'
 
 const apiDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -84,6 +84,26 @@ const SEEDS = {
   'db-busy': () => counter('db-busy', 6),
 }
 const healthKeys = [...new Set(Object.values(ALERT_CHECKS).flatMap((a) => a.checks.filter((c) => c.by === 'checkHealth').map((c) => c.key)))]
+
+describe('the job-stopped alarms follow the scheduler interval (SRV-02, MAINTENANCE_INTERVAL_S)', () => {
+  test('every minute (the default): 4 minutes to /ready 503, a crontab monitor every minute with a 3-minute margin', () => {
+    assert.equal(env.MAINTENANCE_INTERVAL_S, 60)
+    assert.equal(ALERT_CHECKS.MaintenanceLoopStopped.vercel, loopStoppedText(60))
+    assert.match(loopStoppedText(60), /^No maintenance run finished for 4 minutes .*check-in due every minute$/)
+    assert.deepEqual(cronMonitorConfig(60), { schedule: { type: 'crontab', value: '* * * * *' }, checkinMargin: 3, maxRuntime: 2, timezone: 'Etc/UTC' })
+  })
+
+  test('a pinger every 5 minutes (300 s): 20 minutes to /ready 503, a monitor every 5 minutes with a 15-minute margin', () => {
+    assert.match(loopStoppedText(300), /^No maintenance run finished for 20 minutes .*check-in due every 5 minutes$/)
+    assert.deepEqual(cronMonitorConfig(300), { schedule: { type: 'crontab', value: '*/5 * * * *' }, checkinMargin: 15, maxRuntime: 2, timezone: 'Etc/UTC' })
+  })
+
+  test('an interval that does not divide the hour is an interval monitor, not a crontab', () => {
+    assert.deepEqual(cronMonitorConfig(420).schedule, { type: 'interval', value: 7, unit: 'minute' })
+    assert.deepEqual(cronMonitorConfig(90).schedule, { type: 'interval', value: 2, unit: 'minute' })
+    assert.deepEqual(cronMonitorConfig(86_400), { schedule: { type: 'interval', value: 1440, unit: 'minute' }, checkinMargin: 4320, maxRuntime: 2, timezone: 'Etc/UTC' })
+  })
+})
 
 describe('one list: every alerts.yml rule has a check on Vercel', () => {
   const rules = [...read(apiDir, 'ops', 'alerts.yml').matchAll(/^\s*-\s*alert:\s*(\w+)\s*$/gm)].map((m) => m[1])

@@ -6,6 +6,8 @@
 //                                            400 BULK_ORDER_PAY_ONLINE (orders are placed signed in and paid).
 //   POST /farm-visit-enquiries               a farm visit enquiry (kind FARM_VISIT), from 100 kg: no sign-in needed;
 //                                            the same Idempotency-Key, daily limit and connection limit as an enquiry
+//                                            Both forms take an optional captchaToken: with Turnstile on (TURNSTILE_SECRET_KEY)
+//                                            a form without a good one is refused (400 CAPTCHA_REQUIRED / CAPTCHA_FAILED), AUTH-01
 //   POST /me/bulk-orders                     a bulk order from 100 kg at bulk prices, paid at once by payment link
 //                                            (Idempotency-Key required): 201 { ...the order as GET shows it }
 //   POST /me/bulk-orders/:id/pay             the payment link again, or "Pay again" after the time to pay ran out
@@ -30,6 +32,7 @@ import { asyncHandler, badRequest, HttpError, notFound, parse } from './errors.j
 import { isOn } from './feature-switches.js'
 import { logger } from './logger.js'
 import { sharedLimiter } from './ratelimit.js'
+import { requireHuman } from './turnstile.js'
 
 const whenOn = (_req, res, next) => {
   if (!isOn('BULK_ENQUIRIES')) return next(notFound())
@@ -47,18 +50,39 @@ const submitLimiter = sharedLimiter('bulk-enquiry', {
   countOnly: (_req, res) => res.statusCode === 201,
 })
 
+/**
+ * The Turnstile token comes with the form but is not part of it: it is taken out before the form is
+ * checked and hashed, since a retry with the same Idempotency-Key brings a new token (a token works once).
+ */
+const captchaField = z.object({ captchaToken: z.string().max(2048).optional().nullable() })
+function takeCaptcha(raw) {
+  const { captchaToken, ...form } = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  return { captchaToken: parse(captchaField, { captchaToken }).captchaToken ?? null, form }
+}
+
+/**
+ * AUTH-01: both forms make the shop's WhatsApp number message the number typed in, so a script must not
+ * send them. Checked for everyone, signed in or not, after the form is valid and before anything is saved
+ * or counted. Without Turnstile set up (TURNSTILE_SECRET_KEY unset: local, tests) it lets every form through.
+ */
+const human = (field, action) => asyncHandler(async (req, _res, next) => {
+  await requireHuman(req[field].captchaToken, req.ip, { action })
+  next()
+})
+
 /** The form is checked before the limiter counts it (createEnquiry checks the lines again with the catalogue). */
 function validEnquiry(req, _res, next) {
   const key = req.get('Idempotency-Key') ?? null
   if (key !== null && !/^[A-Za-z0-9_-]{8,100}$/.test(key)) return next(badRequest('Idempotency-Key: 8 to 100 letters, digits, - or _', 'IDEMPOTENCY_KEY_INVALID'))
   try {
-    const body = parse(enquiryBody, req.body ?? {})
+    const { captchaToken, form } = takeCaptcha(req.body)
+    const body = parse(enquiryBody, form)
     // Bulk orders are placed signed in and paid at once (POST /me/bulk-orders); this form sends enquiries only.
     if (body.kind === 'ORDER') return next(new HttpError(400, 'BULK_ORDER_PAY_ONLINE', BULK_ORDER_PAY_MESSAGE))
     // An enquiry is for BULK_ENQUIRY_MIN_KG or more (createEnquiry checks it again from the catalogue's box sizes).
     const kg = body.lines.length ? cleanLines(body.lines).reduce((t, l) => t + l.kg, 0) : (body.quantityKg ?? 0)
     if (Math.round(kg) < BULK_ENQUIRY_MIN_KG) return next(new HttpError(400, 'BULK_ENQUIRY_TOO_SMALL', BULK_ENQUIRY_MIN_MESSAGE, { minKg: BULK_ENQUIRY_MIN_KG, orderMinKg: BULK_MIN_KG }))
-    req.enquiry = { key, body }
+    req.enquiry = { key, body, captchaToken }
     next()
   } catch (err) {
     next(err)
@@ -69,6 +93,7 @@ bulkEnquiryPublic.post(
   '/bulk-enquiries',
   whenOn,
   validEnquiry,
+  human('enquiry', 'bulk'),
   submitLimiter,
   optionalCustomer,
   asyncHandler(async (req, res) => {
@@ -85,7 +110,8 @@ function validFarmVisit(req, _res, next) {
   const key = req.get('Idempotency-Key') ?? null
   if (key !== null && !/^[A-Za-z0-9_-]{8,100}$/.test(key)) return next(badRequest('Idempotency-Key: 8 to 100 letters, digits, - or _', 'IDEMPOTENCY_KEY_INVALID'))
   try {
-    req.farmVisit = { key, body: parse(farmVisitBody, req.body ?? {}) }
+    const { captchaToken, form } = takeCaptcha(req.body)
+    req.farmVisit = { key, body: parse(farmVisitBody, form), captchaToken }
     next()
   } catch (err) {
     next(err)
@@ -96,6 +122,7 @@ bulkEnquiryPublic.post(
   '/farm-visit-enquiries',
   whenOn,
   validFarmVisit,
+  human('farmVisit', 'farm-visit'),
   submitLimiter,
   optionalCustomer,
   asyncHandler(async (req, res) => {

@@ -11,6 +11,9 @@ import { now } from './clock.js'
 import { env } from './env.js'
 
 export const BILL_LINK_DAYS = 180
+// Bill links carry no environment (AUTH-02 binds sign-in tokens with aud): a link is bound to its
+// environment only through JWT_SECRET, so a preview sharing production's secret could make links
+// production accepts. It shows one bill, read-only, so this is left as it is.
 const key = () => createHmac('sha256', env.JWT_SECRET).update('bill-link:v1').digest()
 const sign = (body) => createHmac('sha256', key()).update(body).digest('base64url').slice(0, 32)
 

@@ -6,6 +6,7 @@
 import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
+import { ENQUIRY_MESSAGES_PER_DAY, enquiryMessageKey } from '../src/bulk-enquiries.js'
 import { query } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
@@ -16,7 +17,7 @@ let srv
 let api
 let manager
 
-const FLAGS = ['BULK_ENQUIRIES', 'WHATSAPP_BULK_UPDATES', 'BULK_ENQUIRY_DAILY_LIMIT']
+const FLAGS = ['BULK_ENQUIRIES', 'WHATSAPP_BULK_UPDATES', 'BULK_ENQUIRY_DAILY_LIMIT', 'TURNSTILE_SECRET_KEY']
 const saved = Object.fromEntries(FLAGS.map((k) => [k, env[k]]))
 
 before(async () => {
@@ -30,9 +31,13 @@ after(async () => {
 beforeEach(async () => {
   await resetDb()
   manager = await adminToken(api)
-  Object.assign(env, { BULK_ENQUIRIES: true, WHATSAPP_BULK_UPDATES: true, BULK_ENQUIRY_DAILY_LIMIT: 5 })
+  Object.assign(env, { BULK_ENQUIRIES: true, WHATSAPP_BULK_UPDATES: true, BULK_ENQUIRY_DAILY_LIMIT: 5, TURNSTILE_SECRET_KEY: '' })
 })
-afterEach(() => Object.assign(env, saved))
+const realFetch = globalThis.fetch
+afterEach(() => {
+  Object.assign(env, saved)
+  globalThis.fetch = realFetch
+})
 
 const idem = () => ({ headers: { 'Idempotency-Key': newId('idem') } })
 const FORM = { name: 'Asha Rao', business: 'Rao Caterers', email: 'asha@example.com', phone: '98765 43210', city: 'Bengaluru', notes: 'Wedding on the 20th' }
@@ -121,6 +126,65 @@ describe('bulk enquiries from the shop', () => {
   test('a stale token still sends, as anonymous', async () => {
     const r = await send({ ...FORM, ...bulk(250) }, { ...idem(), token: 'not-a-token' })
     assert.equal(r.status, 201)
+  })
+})
+
+/** Turnstile on, with Cloudflare answering every token as solved by the widget with `action` on the shop's own host. */
+function turnstileAnswers(action) {
+  env.TURNSTILE_SECRET_KEY = 'secret'
+  const hostname = new URL(env.CUSTOMER_ORIGIN.split(',')[0].trim()).hostname
+  globalThis.fetch = (url, init) =>
+    String(url).startsWith('https://challenges.cloudflare.com/')
+      ? Promise.resolve(new Response(JSON.stringify({ success: true, hostname, action }), { headers: { 'Content-Type': 'application/json' } }))
+      : realFetch(url, init)
+}
+const counts = async () => (await query(`SELECT (SELECT count(*)::int FROM bulk_enquiries) AS enquiries, (SELECT count(*)::int FROM notifications) AS messages`)).rows[0]
+
+describe('Turnstile and the daily message cap (AUTH-01)', () => {
+  test('with Turnstile set up, a form without a token is refused, signed in or not, and nothing is saved or queued', async () => {
+    env.TURNSTILE_SECRET_KEY = 'secret'
+    const anon = await send({ ...FORM, ...bulk(250) })
+    assert.deepEqual([anon.status, anon.body.error?.code], [400, 'CAPTCHA_REQUIRED'], JSON.stringify(anon.body))
+    const cust = await customerToken(api, '9811111111')
+    const signed = await send({ ...FORM, phone: '9811111111', ...bulk(250) }, { ...idem(), token: cust.accessToken })
+    assert.deepEqual([signed.status, signed.body.error?.code], [400, 'CAPTCHA_REQUIRED'])
+    assert.deepEqual(await counts(), { enquiries: 0, messages: 0 })
+  })
+
+  test('with Turnstile set up, a good token sends it; a token for another form is refused; a retry with a new token is the same enquiry', async () => {
+    turnstileAnswers('otp')
+    const wrong = await send({ ...FORM, ...bulk(250), captchaToken: 'tok-otp' })
+    assert.deepEqual([wrong.status, wrong.body.error?.code], [400, 'CAPTCHA_FAILED'])
+    assert.deepEqual(await counts(), { enquiries: 0, messages: 0 })
+
+    turnstileAnswers('bulk')
+    const opts = idem()
+    const a = await send({ ...FORM, ...bulk(300), captchaToken: 'tok-1' }, opts)
+    assert.equal(a.status, 201, JSON.stringify(a.body))
+    // A token works once, so the retry carries another: it is not part of the form, so the key still matches.
+    const b = await send({ ...FORM, ...bulk(300), captchaToken: 'tok-2' }, opts)
+    assert.equal(b.status, 200, JSON.stringify(b.body))
+    assert.equal(b.body.id, a.body.id)
+    assert.deepEqual(await counts(), { enquiries: 1, messages: 1 })
+  })
+
+  test('without Turnstile set up the form works as before, with or without a token', async () => {
+    assert.equal((await send({ ...FORM, ...bulk(250) })).status, 201)
+    assert.equal((await send({ ...FORM, ...bulk(250), captchaToken: 'ignored' })).status, 201)
+    assert.equal((await send({ ...FORM, ...bulk(250), captchaToken: 42 })).status, 400)
+  })
+
+  test('past the shop-wide daily cap the enquiry is saved but no "we got it" message is queued', async () => {
+    const day = enquiryMessageKey()
+    await query(`INSERT INTO rate_limits (key, hits, reset_at) VALUES ($1, $2, now() + interval '1 day')`, [day, ENQUIRY_MESSAGES_PER_DAY - 1])
+    const last = await send({ ...FORM, ...bulk(250) })
+    assert.equal(last.status, 201)
+    assert.equal((await query('SELECT count(*)::int AS n FROM notifications WHERE bulk_enquiry_id = $1', [last.body.id])).rows[0].n, 1, 'the Nth is still sent')
+    const over = await send({ ...FORM, phone: '9123456789', ...bulk(250) })
+    assert.equal(over.status, 201, JSON.stringify(over.body))
+    assert.equal((await query('SELECT status FROM bulk_enquiries WHERE id = $1', [over.body.id])).rows[0].status, 'NEW')
+    assert.equal((await query('SELECT count(*)::int AS n FROM notifications WHERE bulk_enquiry_id = $1', [over.body.id])).rows[0].n, 0)
+    assert.equal((await query('SELECT hits FROM rate_limits WHERE key = $1', [day])).rows[0].hits, ENQUIRY_MESSAGES_PER_DAY + 1)
   })
 })
 
