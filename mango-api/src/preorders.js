@@ -75,7 +75,7 @@ export async function regularHorizon(c) {
   return dates.at(-1) ?? addDays(todayIST(), getConfig().maxDaysAhead)
 }
 
-export async function addPreorderEvent(c, id, status, actor, reason = null) {
+export function addPreorderEvent(c, id, status, actor, reason = null) {
   return event(c, id, status, actor, reason)
 }
 

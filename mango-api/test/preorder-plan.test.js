@@ -279,8 +279,11 @@ describe('recalculation (preorder-plan.js)', () => {
     const started = Date.now()
     const [r, extra] = await Promise.all([recalculatePreorders({}), paid({ sku: 'ALP-3', qty: 1 }, { pay: false })])
     assert.ok(Date.now() - started < 20_000, `took ${Date.now() - started} ms`)
-    // 9,000 kg in 2,000 kg weeks (666 bookings): 998 keep their week, 2,002 paid ones move later (the unpaid one made meanwhile may too).
-    assert.equal(r.delayed.paid, 2002)
+    // 9,000 kg in 2,000 kg weeks (666 bookings a week): 998 keep their week and 2,002 paid ones move later. The unpaid
+    // booking made meanwhile is the oldest by its time (the 3,000 are stamped after it), so when it commits before the
+    // recalculation reads the queue it takes a place in the first week and pushes one more paid booking out of each of
+    // the first two weeks: 2,004. Either order is right; what must hold is one message per move and counters that agree.
+    assert.ok(r.delayed.paid >= 2002 && r.delayed.paid <= 2004, `delayed ${r.delayed.paid}`)
     assert.ok((await pre(extra.id)).week_start)
     assert.equal((await query(`SELECT COUNT(*)::int AS n FROM notifications WHERE kind = 'PREORDER_DELAYED'`)).rows[0].n, r.delayed.paid)
     assert.deepEqual(await preorderCapacityDrift({ query }), [])

@@ -39,7 +39,7 @@ import { logger } from './logger.js'
 import { enqueuePreorderMoves } from './notify.js'
 import { SYSTEM } from './orders.js'
 import { movablePlanned, moveOutPlanned } from './plan-orders.js'
-import { bookingVariety, delayAfterMove, deliveryWeeks, frozenWeeks, planVarieties, promoteWaitlist, roundKg, setWeekLimit, weekLimit, weekLoad, weekRoom } from './preorders.js'
+import { delayAfterMove, deliveryWeeks, frozenWeeks, planVarieties, promoteWaitlist, roundKg, setWeekLimit, weekLimit, weekLoad, weekRoom } from './preorders.js'
 
 const PLAN_LOCK = 780_178
 
@@ -153,7 +153,7 @@ async function planVariety(c, variety, { dryRun, rules, overrides, actor, reason
 /** Writes a variety's moves in a few set-based statements: the bookings, their events, the kg counters, the messages. */
 async function applyMoves(c, variety, moves, actor, reason) {
   const at = now()
-  const rows = moves.map(({ p, from, to }) => {
+  const rows = moves.map(({ p, to }) => {
     const d = delayAfterMove(p, to, at)
     return { id: p.id, to, delayed_at: d.delayed_at, delayed_from_week: d.delayed_from_week, delay_count: d.delay_count }
   })
