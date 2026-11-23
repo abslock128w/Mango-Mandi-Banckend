@@ -106,10 +106,11 @@ describe('Turnstile and the daily message cap (AUTH-01)', () => {
   const counts = async () => (await query(`SELECT (SELECT count(*)::int FROM bulk_enquiries) AS enquiries, (SELECT count(*)::int FROM notifications) AS messages`)).rows[0]
 
   test('with Turnstile set up, a form without a token is refused, signed in or not, and nothing is saved or queued', async () => {
+    // Signed in first: with Turnstile on, asking for a login code needs a token too.
+    const cust = await customerToken(api, '9876543210')
     env.TURNSTILE_SECRET_KEY = 'secret'
     const anon = await send(FORM())
     assert.deepEqual([anon.status, anon.body.error?.code], [400, 'CAPTCHA_REQUIRED'], JSON.stringify(anon.body))
-    const cust = await customerToken(api, '9876543210')
     const signed = await send(FORM(), { headers: { 'Idempotency-Key': newId('idem') }, token: cust.accessToken })
     assert.deepEqual([signed.status, signed.body.error?.code], [400, 'CAPTCHA_REQUIRED'])
     assert.deepEqual(await counts(), { enquiries: 0, messages: 0 })

@@ -47,6 +47,8 @@ async function startProductionApi() {
       CUSTOMER_ORIGIN: 'https://shop.smoke.invalid',
       // Dummy values: nothing here can reach a real provider.
       RAZORPAY_KEY_ID: 'rzp_test_dummyLocalOnly',
+      // Production refuses a test key unless this is set (preflight.js); here no money can move anyway.
+      ALLOW_TEST_PAYMENTS_IN_PRODUCTION: 'true',
       RAZORPAY_KEY_SECRET: 'dummy-local-only',
       RAZORPAY_WEBHOOK_SECRET: 'dummy-local-webhook-secret',
       SMS_PROVIDER: 'jio',

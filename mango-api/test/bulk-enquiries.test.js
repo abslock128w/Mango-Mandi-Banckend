@@ -142,10 +142,11 @@ const counts = async () => (await query(`SELECT (SELECT count(*)::int FROM bulk_
 
 describe('Turnstile and the daily message cap (AUTH-01)', () => {
   test('with Turnstile set up, a form without a token is refused, signed in or not, and nothing is saved or queued', async () => {
+    // Signed in first: with Turnstile on, asking for a login code needs a token too.
+    const cust = await customerToken(api, '9811111111')
     env.TURNSTILE_SECRET_KEY = 'secret'
     const anon = await send({ ...FORM, ...bulk(250) })
     assert.deepEqual([anon.status, anon.body.error?.code], [400, 'CAPTCHA_REQUIRED'], JSON.stringify(anon.body))
-    const cust = await customerToken(api, '9811111111')
     const signed = await send({ ...FORM, phone: '9811111111', ...bulk(250) }, { ...idem(), token: cust.accessToken })
     assert.deepEqual([signed.status, signed.body.error?.code], [400, 'CAPTCHA_REQUIRED'])
     assert.deepEqual(await counts(), { enquiries: 0, messages: 0 })
