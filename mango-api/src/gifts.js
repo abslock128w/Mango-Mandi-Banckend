@@ -12,6 +12,7 @@ import { now } from './clock.js'
 import { getConfig } from './config.js'
 import { conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
+import { formatOrderNumber, nextOrderNumber } from './order-number.js'
 import { issueGiftBillWithPayment } from './bills.js'
 import { addEvent, createOrder, customerCancel, processPayment, recordDuplicatePayment, SYSTEM } from './orders.js'
 
@@ -47,8 +48,8 @@ export function shareDiscount(amount, prices) {
  */
 export async function createGiftOrder(c, { customerId, buyerName, phone, q, promo, business, holdExpiresAt }, actor) {
   const id = newId('gft')
-  const { rows } = await c.query(`SELECT 'GFT-' || nextval('gift_order_seq') AS number`)
-  const number = rows[0].number
+  // G743406080, from the one G sequence its deliveries draw from too (order-number.js).
+  const number = await nextOrderNumber(c, 'G')
   const recipients = q.recipients
   const subtotal = recipients.reduce((s, r) => s + r.linePrice, 0)
   const discount = promo?.discount ?? 0
@@ -74,7 +75,7 @@ export async function createGiftOrder(c, { customerId, buyerName, phone, q, prom
         lines: [{ sku: r.sku, stage: r.stage, qty: r.qty, unitPrice: r.unitPrice }],
         discount: shares[i], promoCode: promo && shares[i] ? promo.code : null,
         gift: { recipientName: r.name, recipientPhone: r.phone, message: r.note || null },
-        eventReason: `Gift order ${number}, recipient ${i + 1} of ${recipients.length}`,
+        eventReason: `Gift order ${formatOrderNumber(number)}, recipient ${i + 1} of ${recipients.length}`,
       },
       actor,
     )
@@ -120,7 +121,7 @@ export async function processGiftPayment(c, { giftOrderId, outcome, paymentId = 
   if (g.payment_status === 'SUCCEEDED') {
     if (outcome === 'captured' && paymentId && g.payment_id && paymentId !== g.payment_id && kids.length) {
       if (await recordDuplicatePayment(c, { orderId: kids[0].id, paymentId, amount })) {
-        await addEvent(c, kids[0].id, kids[0].status, kids[0].status, actor, `A second payment (${paymentId}) was taken for gift order ${g.number}; it is being refunded`)
+        await addEvent(c, kids[0].id, kids[0].status, kids[0].status, actor, `A second payment (${paymentId}) was taken for gift order ${formatOrderNumber(g.number)}; it is being refunded`)
         return { result: 'duplicate_payment', refundOrderIds: [] }
       }
     }
@@ -129,7 +130,10 @@ export async function processGiftPayment(c, { giftOrderId, outcome, paymentId = 
   if (outcome === 'abandoned' || outcome === 'failed') {
     if (g.status !== 'PAYMENT_PENDING') return { result: 'ignored', refundOrderIds: [] }
     for (const k of kids) await processPayment(c, { orderId: k.id, outcome }, actor)
-    if (outcome === 'failed') return { result: 'attempt_failed', refundOrderIds: [] }
+    if (outcome === 'failed') {
+      await c.query('UPDATE gift_orders SET payment_failed_at = $2 WHERE id = $1', [g.id, now()]) // migration 086
+      return { result: 'attempt_failed', refundOrderIds: [] }
+    }
     await c.query(`UPDATE gift_orders SET status = 'CANCELLED', payment_status = 'FAILED', hold_expires_at = NULL, cancelled_at = $2 WHERE id = $1`, [g.id, now()])
     return { result: 'cancelled', refundOrderIds: [] }
   }
@@ -180,7 +184,7 @@ export async function cancelGiftOrder(c, giftOrderId, customerId, actor) {
     throw new HttpError(
       409,
       'NOT_CANCELLABLE',
-      `Some deliveries are already packed or on their way (${late.map((k) => k.number).join(', ')}), so the whole order can no longer be cancelled. You can still cancel the recipients not yet packed, one by one.`,
+      `Some deliveries are already packed or on their way (${late.map((k) => formatOrderNumber(k.number)).join(', ')}), so the whole order can no longer be cancelled. You can still cancel the recipients not yet packed, one by one.`,
       { orders: late.map((k) => k.number) },
     )
   }
@@ -192,7 +196,7 @@ export async function cancelGiftOrder(c, giftOrderId, customerId, actor) {
 
 /**
  * The buyer cancels one recipient of a paid gift order, before it is packed
- * (customerCancel's rule). That delivery is refunded its own amount; the others
+ * and within the cancel window (customerCancel's rule: CUSTOMER_CANCEL_HOURS). That delivery is refunded its own amount; the others
  * go ahead. Returns true when a refund is due.
  */
 export async function cancelGiftRecipient(c, giftOrderId, orderId, customerId, actor) {

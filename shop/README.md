@@ -41,7 +41,11 @@ There is no pre-order page any more (`/preorder` and `/#preorder` land on `/`). 
   the announcement bar says "Pre-orders are open · season starts …" and scrolls to the shop, and
   every card has a "Pre-order" badge and button (no stock, sold-out or delivery-day words: there
   is no fruit yet). A box with no harvest week open is disabled with the reason. The product sheet
-  books instead of adding to the bag: ripeness, box, harvest week, quantity, a boxed warning that
+  books instead of adding to the bag: ripeness, box, quantity, then the delivery week the API
+  gives (no week to choose: every box shares one weekly limit in kg and a pre-order goes in the earliest
+  week with room for its kg, worked out from `deliveryWeeks` as the API does (`preDayFor`); "This is a pre-order. It will be delivered in the first week of
+  March (week of 1 Mar)", or "The first week of March is fully booked. Your order will be delivered
+  in the second week of March …"), a boxed warning that
   the pre-order can't be cancelled or refunded once paid, a required tick, then
   "Pre-order · pay ₹…" (`app.js` `preDetail` / `renderPreorder`; sign-in and address reuse the
   checkout steps). The bag isn't used: its button hides while empty, and a bag from before shows a

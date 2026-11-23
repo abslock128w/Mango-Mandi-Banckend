@@ -2,7 +2,7 @@
 // reconciliation, trace, recalls, product settings and CSV exports
 // (docs/warehouse/REPORTS.md). Everything here is computed from the boxes,
 // their events and the stock counters at request time.
-import { orderSeqSql } from '../order-number.js'
+import { formatOrderNumber, orderSeqSql } from '../order-number.js'
 import { addDays, now, todayIST } from '../clock.js'
 import { newId } from '../ids.js'
 import { auditLedger, LINE_LOCK_ORDER } from '../inventory.js'
@@ -527,7 +527,7 @@ export async function exportReport(c, report, { from = null, to = null } = {}, w
       [who.warehouseId],
     )
     return csv(['box', 'sku', 'product', 'lot', 'lifecycle', 'quality', 'location', 'best_before', 'verification', 'holds', 'order', 'updated_at'],
-      rows.map((r) => [formatBoxCode(r.code), r.sku, r.sku_name, r.lot, r.lifecycle, r.quality, r.location, r.best_before, r.verification, r.holds, r.order_number, r.updated_at]))
+      rows.map((r) => [formatBoxCode(r.code), r.sku, r.sku_name, r.lot, r.lifecycle, r.quality, r.location, r.best_before, r.verification, r.holds, r.order_number && formatOrderNumber(r.order_number), r.updated_at]))
   }
   if (report === 'events') {
     const start = from ?? addDays(todayIST(), -7)
@@ -542,7 +542,7 @@ export async function exportReport(c, report, { from = null, to = null } = {}, w
       [who.warehouseId, start, end],
     )
     return csv(['at', 'box', 'event', 'by', 'from_lifecycle', 'to_lifecycle', 'from_location', 'to_location', 'quality', 'hold_added', 'hold_released', 'order', 'reason_code', 'reason'],
-      rows.map((r) => [r.created_at, formatBoxCode(r.code), r.type, r.email, r.from_lifecycle, r.to_lifecycle, r.from_location, r.to_location, r.to_quality, r.hold_added, r.hold_released, r.number, r.reason_code, r.reason]))
+      rows.map((r) => [r.created_at, formatBoxCode(r.code), r.type, r.email, r.from_lifecycle, r.to_lifecycle, r.from_location, r.to_location, r.to_quality, r.hold_added, r.hold_released, r.number && formatOrderNumber(r.number), r.reason_code, r.reason]))
   }
   if (report === 'lots') {
     const { rows } = await c.query('SELECT * FROM box_lots WHERE warehouse_id = $1 ORDER BY created_at DESC LIMIT 10000', [who.warehouseId])

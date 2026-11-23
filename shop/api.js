@@ -3,7 +3,7 @@
    the signed-in profile in localStorage `mm-profile`. Money: paise converted to rupees on the way in. */
 (()=>{
 const PROFILE_KEY='mm-profile';
-const MONEY=new Set(['price','unitPrice','linePrice','subtotal','discount','total','retailPrice','fromPrice','savingPerBox','extrasTotal']);
+const MONEY=new Set(['price','unitPrice','linePrice','subtotal','discount','total','retailPrice','fromPrice','savingPerBox','extrasTotal','refundAmount']);
 // An empty apiUrl means the API is proxied on the shop's own origin.
 const base=()=>{const u=(window.MM_CONFIG||{}).apiUrl;return(u?String(u):location.origin).replace(/\/$/,'')};
 function toRupees(v){if(Array.isArray(v))return v.map(toRupees);if(v&&typeof v==='object'){const o={};for(const[k,x]of Object.entries(v))o[k]=MONEY.has(k)&&typeof x==='number'?x/100:toRupees(x);return o}return v}
@@ -77,6 +77,14 @@ window.MM={
   myBulkEnquiries:()=>auth('/me/bulk-enquiries'),
   bulkSeen:id=>auth(`/me/bulk-enquiries/${enc(id)}/seen`,'POST',{}),
   bulkRespond:(id,decision,message)=>auth(`/me/bulk-enquiries/${enc(id)}/respond`,'POST',{decision,...(message?{message}:{})}),
+  // Bulk orders paid at once (mango-api bulk-orders.js) and bulk prices: money stays in paise (bulk.js shows it).
+  bulkPrices:()=>raw('/bulk/prices',{paise:true}),
+  // The Farm visit tab's enquiry (no sign-in needed; a signed-in sender's is linked to their account).
+  farmVisitEnquiry:(body,key)=>maybeAuth('/farm-visit-enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
+  placeBulkOrder:(body,key)=>api('/me/bulk-orders',{method:'POST',body,headers:{'Idempotency-Key':key},auth:true,paise:true}),
+  bulkOrder:id=>api(`/me/bulk-enquiries/${enc(id)}`,{auth:true,paise:true}),
+  payBulkOrder:id=>api(`/me/bulk-orders/${enc(id)}/pay`,{method:'POST',body:{},auth:true,paise:true}),
+  cancelBulkOrder:id=>api(`/me/bulk-orders/${enc(id)}/cancel`,{method:'POST',body:{},auth:true,paise:true}),
   // Farm Experience (docs/farm-experience.md): every route answers 404 while FARM_EXPERIENCE is off. Money in paise.
   farmExperience:()=>raw('/farm-experience',{paise:true}),
   farmDates:(varietyId,kg)=>raw('/farm-experience/dates'+qs({varietyId,kg}),{paise:true}),
@@ -108,12 +116,32 @@ window.MM={
   preorders:()=>auth('/preorders'),
   preorder:id=>auth(`/preorders/${enc(id)}`),
   cancelPreorder:id=>auth(`/preorders/${enc(id)}/cancel`,'POST'),
+  // A gift for several people as pre-orders (before the season; MULTI_GIFT): one booking per person, paid once.
+  bookPreorderGroup:(body,key)=>auth('/preorders/groups','POST',body,{'Idempotency-Key':key}),
+  preorderGroup:id=>auth(`/preorders/groups/${enc(id)}`),
   helpInfo:()=>auth('/me/help'),
   helpRequest:body=>auth('/me/help/requests','POST',body),
+  // Help requests and their threads (HELP_CENTRE; 404 while it is off): help-requests.js.
+  helpRequests:()=>auth('/me/help/requests'),
+  helpThread:id=>auth(`/me/help/requests/${enc(id)}`),
+  helpReply:(id,message)=>auth(`/me/help/requests/${enc(id)}/messages`,'POST',{message}),
+  // Reporting a problem with a delivered box (claims.js): photos first (raw image body), then the claim with their ids.
+  claims:()=>auth('/claims'),
+  fileClaim:body=>auth('/claims','POST',body),
+  claimPhoto:async file=>{if(!token&&profile)await refreshOnce();const send=()=>sendFile('/claims/photos',file,{'X-Session':'cookie',...(token?{Authorization:`Bearer ${token}`}:{})});try{return await send()}catch(e){if(e.status===401&&profile&&await refreshOnce())return send();throw e}},
   addresses:()=>auth('/me/addresses'),
   deleteAddress:id=>auth(`/me/addresses/${enc(id)}`,'DELETE'),
   updateMe:body=>auth('/me','PATCH',body),
   deliveryPhoto:id=>authBlob(`/orders/${enc(id)}/delivery-photo`),
   invoice:id=>authBlob(`/orders/${enc(id)}/bill`),
+  // Gifting (MULTI_GIFT, docs/gifting.md): gift orders to one or many people, paid once. Every route answers 404 while the switch is off.
+  gifts:()=>auth('/gifts'),
+  gift:id=>auth(`/gifts/${enc(id)}`),
+  giftQuote:body=>auth('/gifts/quote','POST',body),
+  giftConfirm:(body,key)=>auth('/gifts/confirm','POST',body,{'Idempotency-Key':key}),
+  giftVerify:(id,reply)=>auth(`/gifts/${enc(id)}/verify-payment`,'POST',{razorpay_payment_id:reply.razorpay_payment_id,razorpay_order_id:reply.razorpay_order_id,razorpay_signature:reply.razorpay_signature}),
+  cancelGift:id=>auth(`/gifts/${enc(id)}/cancel`,'POST',{}),
+  cancelGiftRecipient:(id,orderId)=>auth(`/gifts/${enc(id)}/recipients/${enc(orderId)}/cancel`,'POST',{}),
+  giftBill:id=>authBlob(`/gifts/${enc(id)}/bill`),
 };
 })();

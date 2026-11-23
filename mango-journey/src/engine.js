@@ -21,9 +21,12 @@ export function detectTier() {
   const coarse = matchMedia('(pointer: coarse)').matches
   const small = Math.min(screen.width, screen.height) < 820
   const mem = navigator.deviceMemory || 8, cores = navigator.hardwareConcurrency || 8
-  if (coarse && (mem <= 4 || cores <= 4)) return TIERS.low
+  // (memory only: Brave reports a made-up core count, often 2 to 4, which put every phone in it on the lowest tier)
+  if (coarse && mem <= 4) return TIERS.low
   if (coarse || small) return TIERS.mid
-  if (mem <= 4 || cores <= 4) return TIERS.mid
+  // A desk computer starts at the top tier: its core count and memory are not to be trusted (Brave reports made-up
+  // values to resist fingerprinting, Safari reports none or caps them), and the film's own frame-time budget steps the
+  // quality down within a second or two on a machine that cannot keep up.
   return TIERS.high
 }
 
@@ -104,7 +107,9 @@ vec3 aces(vec3 x){ // Narkowicz ACES fit, with the sRGB→ACEScg-ish input tweak
   return clamp((x * (2.51 * x + .03)) / (x * (2.43 * x + .59) + .14), 0., 1.);
 }
 vec3 toSRGB(vec3 c){ return mix(c * 12.92, 1.055 * pow(c, vec3(1. / 2.4)) - .055, step(.0031308, c)); }
-float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+// grain hash without sin(): sin() of large arguments loses precision on many phone GPUs and the grain turns into
+// crawling stripes and blocks there (Dave Hoskins' hash12)
+float h(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 void main(){
   vec2 uv = vUv, d = uv - uRC;
   vec3 col;
@@ -126,8 +131,10 @@ void main(){
   vec2 q = (uv - .5) * vec2(uRes.x / uRes.y, 1.);
   col *= 1. - uVig * smoothstep(.35, 1.25, length(q));
   col = toSRGB(clamp(col, 0., 1.));
-  float g = h(uv * uRes + fract(uTime * 7.3) * 91.7) - .5;
-  col += g * uGrain * (1.2 - l);
+  float g = h(floor(uv * uRes) + vec2(1., 1.7) * floor(fract(uTime * 7.3) * 4093.)) - .5;
+  // more grain in the shadows than the highlights, as before, but eased off in the deepest shadows: a near-black area
+  // with full-strength grain boiled visibly from frame to frame (the largest frame-to-frame change in the whole film)
+  col += g * uGrain * (1.2 - l) * mix(.55, 1., smoothstep(0., .3, l));
   col = mix(col, uFadeCol, uFade);
   gl_FragColor = vec4(col, 1.);
 }`
@@ -144,6 +151,7 @@ export class Engine {
     r.setClearColor(0x0b1f15, 1)
     this.pmrem = new THREE.PMREMGenerator(r)
     this.w = 1; this.h = 1; this.dpr = 1; this.dprScale = 1
+    this.coarse = matchMedia('(pointer: coarse)').matches
     const mk = () => {
       const t = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: tier.msaa })
       t.depthTexture = new THREE.DepthTexture(4, 4)
@@ -179,7 +187,9 @@ export class Engine {
 
   setSize(w, h) {
     this.w = w; this.h = h
-    const dev = Math.min(window.devicePixelRatio || 1, 2)
+    // pixel ratio budget: at most 2 on a desk, 1.5 on a phone or tablet (their screens are dense; the film's grain and
+    // depth of field hide the difference, and it is a third to half fewer pixels to shade)
+    const dev = Math.min(window.devicePixelRatio || 1, this.coarse ? 1.5 : 2)
     this.dpr = Math.max(0.5, Math.min(dev, Math.sqrt(this.tier.pixels / (w * h))) * this.dprScale)
     this.renderer.setPixelRatio(this.dpr)
     this.renderer.setSize(w, h, false)
@@ -251,7 +261,12 @@ export class Engine {
     } else { cu.uHasB.value = 0; cu.tB.value = this.rtA.texture; cu.dB.value = this.rtA.depthTexture } // never sample a target that was not drawn this frame
     if (this.lite) { cu.uDofA.value.z = 0; cu.uDofB.value.z = 0; cu.uRayA.value.z = 0; cu.uRayB.value.z = 0 } // a struggling device: no depth of field, no shafts
     r.setRenderTarget(this.rtC); this.comp.render(r)
-    this.bloom.strength = look.bloom; this.bloom.threshold = look.threshold; this.bloom.radius = look.bloomRadius
+    // Bloom's threshold with a soft knee centred on it (three's pass uses a hard 0.01-wide step): a tiny bright point
+    // (a firefly, a lamp, a glint on an edge) that slid a fraction of a pixel switched its whole glow on and off from
+    // one frame to the next. Over a ramp 40% of the threshold wide, its glow fades in and out instead.
+    const knee = look.threshold * 0.4
+    this.bloom.strength = look.bloom; this.bloom.threshold = look.threshold - knee * 0.5; this.bloom.radius = look.bloomRadius
+    this.bloom.highPassUniforms.smoothWidth.value = knee
     this.bloom.render(r, null, this.rtC, 0.016, false)
     r.setRenderTarget(null)
     fu.uExposure.value = look.exposure; fu.uTime.value = time; fu.uCA.value = look.ca; fu.uRadial.value = look.radial

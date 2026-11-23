@@ -366,7 +366,7 @@ function Detail({ b }: { b: Booking }) {
           onClose={() => setOpen(null)}
           onSubmit={(text) => run(() => farm.hospitality(b.id, 'APPROVE', text || undefined))}
         >
-          <p>The booking becomes Confirmed and the customer is told. Meals start from the farm's included meals; adjust the meal plan after.</p>
+          <p>The booking becomes Confirmed and the customer is told. The meal plan starts from the meals the farm team cooks (the visitors pay the farm team for them at the farm); adjust it after.</p>
         </TextDialog>
       )}
       {dialog('propose') && (

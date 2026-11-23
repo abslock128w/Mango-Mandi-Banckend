@@ -26,7 +26,7 @@ const AREAS = [
   ['Promo codes and referrals', ['promos', 'referrals']],
   ['Bulk deals', ['bulk-listings']],
   ['Bulk enquiries', ['bulk-enquiries']],
-  ['Preorders', ['preorders', 'preorder-capacity']],
+  ['Preorders', ['preorders', 'preorder-capacity', 'preorder-weeks', 'preorder-plan']],
   ['Planning', ['planning', 'pincodes', 'config', 'calendar', 'slots', 'coverage']],
   ['Customer care', ['claims', 'reviews', 'help', 'subscriptions', 'customers']],
   ['Reports', ['summary', 'analytics', 'attention', 'daily-summary', 'exports']],

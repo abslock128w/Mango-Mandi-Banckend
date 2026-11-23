@@ -555,7 +555,12 @@ export default class Fruit extends Stage {
 
     // Camera: chapter 4 a slow push around the swelling fruit; chapter 5 a side view, a pull back and down to show the
     // fall that does not happen, then a close follow of the fruit in the hand.
+    // The camera, focus and blur centre follow the fruit, but not its strain tremor (a 13 Hz shake): followed, that
+    // tremor shook the whole picture, and every edge in it chattered from frame to frame. Measured here without it.
+    const rz = this.fruit.rotation.z
+    this.fruit.rotation.z = rz - jitter * (snap > 0 ? 1 - snap : 1)
     const fruitPos = this.mango.body.getWorldPosition(new THREE.Vector3())
+    this.fruit.rotation.z = rz; this.fruit.updateMatrixWorld(true)
     const target = fruitPos.clone()
     const cam = new THREE.Vector3()
     if (four) {

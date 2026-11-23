@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs'
 import express from 'express'
 import { effectivePermissions } from '../warehouse/permissions.js'
 import jwt from 'jsonwebtoken'
-import { hit, sharedLimiter } from '../ratelimit.js'
+import rateLimit from 'express-rate-limit'
+import { hit, limitsOnInTests, PgStore } from '../ratelimit.js'
 import { z } from 'zod'
 import { audit } from '../access.js'
 import { ACCESS_TTL_S, forgetStaff, issueRefresh, refreshLimiter, revokeRefresh, rotateRefresh, sameSiteOnly, signAccess } from '../auth.js'
@@ -29,8 +30,33 @@ const cookieOptions = () => ({
   path: '/admin/v1/auth',
 })
 
-// Password and two-step tries per address, shared by every instance.
-const authLimiter = sharedLimiter('staff-auth', { windowMs: 15 * 60_000, limit: 30 })
+// Sign-in tries per address, shared by every instance: a ceiling against abuse, not the lock
+// that matters. A whole office signs in from one address, so it is high, and a successful
+// sign-in gives its try back (only refused and wrong attempts count). Wrong passwords are
+// limited per account and address (FAILS_PER_ACCOUNT_ADDRESS) and per account (SEC-4, shared.js).
+const AUTH_WINDOW_MS = 15 * 60_000
+export const STAFF_AUTH_IP_LIMIT = 200
+const authLimiter = rateLimit({
+  windowMs: AUTH_WINDOW_MS,
+  limit: STAFF_AUTH_IP_LIMIT,
+  store: new PgStore('staff-auth'),
+  passOnStoreError: true,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => env.NODE_ENV === 'test' && !limitsOnInTests(),
+  handler: (req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many attempts. Try again later.', requestId: req.id } }),
+})
+
+// Wrong passwords for one account from one address: someone guessing at a colleague's account
+// from the office stops there, without locking anyone else out. Not counted while a lock refuses.
+export const FAILS_PER_ACCOUNT_ADDRESS = 30
+const failKey = (email, ip) => `staff-auth-fail:${email}:${ip ?? 'unknown'}`
+async function failedTooOftenHere(email, ip) {
+  const { rows } = await query('SELECT hits FROM rate_limits WHERE key = $1 AND reset_at > $2', [failKey(email, ip), now()])
+  return (rows[0]?.hits ?? 0) >= FAILS_PER_ACCOUNT_ADDRESS
+}
+const TOO_MANY_HERE = () => new HttpError(429, 'RATE_LIMITED', 'Too many wrong passwords from here. Try again in 15 minutes, or sign in with Google.')
 
 // A real bcrypt hash of a random string, so an unknown email costs the same time.
 const DUMMY_HASH = bcrypt.hashSync(newId('x'), 10)
@@ -96,14 +122,16 @@ signIn.post(
   asyncHandler(async (req, res) => {
     const { email, password } = parse(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().min(1).max(200) }), req.body)
     if (await passwordLocked(email)) throw PW_LOCKED()
+    if (await failedTooOftenHere(email, req.ip)) throw TOO_MANY_HERE()
     const { rows } = await query(`SELECT ${STAFF_COLUMNS}, password_hash FROM admin_users WHERE email = $1`, [email])
     const user = rows[0]
     const ok = await bcrypt.compare(password, user?.password_hash ?? DUMMY_HASH)
     if (!user || !ok) {
-      await passwordFailed(email)
+      await Promise.all([passwordFailed(email), hit(failKey(email, req.ip), AUTH_WINDOW_MS)])
       throw unauthorized('Incorrect email or password', 'INVALID_CREDENTIALS')
     }
     await clearPasswordFailures(email)
+    await query('DELETE FROM rate_limits WHERE key = $1', [failKey(email, req.ip)])
     await passFirstStep(req, res, user, 'password')
   }),
 )

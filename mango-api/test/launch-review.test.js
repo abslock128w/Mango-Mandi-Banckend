@@ -256,6 +256,8 @@ describe('delivery proof', () => {
     await api.post(`/admin/v1/orders/${id}/allocate`, undefined, { token: admin })
     await api.patch(`/admin/v1/orders/${id}/status`, { status: 'PACKED' }, { token: admin })
     assert.equal((await api.post(`/admin/v1/orders/${id}/dispatch`, undefined, { token: admin })).status, 204)
+    // Sent at once on dispatch; back in the outbox so the stubbed sender below shows what they carry.
+    assert.deepEqual(await requeueDispatchMessages(id), gift ? ['DELIVERY_CODE', 'GIFT_DELIVERY_CODE', 'GIFT_OUT_FOR_DELIVERY', 'OUT_FOR_DELIVERY'] : ['DELIVERY_CODE', 'OUT_FOR_DELIVERY'])
     return id
   }
 
@@ -401,3 +403,16 @@ describe('maintenance time slices', () => {
     assert.notEqual(out.drift, null)
   })
 })
+
+/**
+ * Staff sending an order out now sends its WhatsApp messages at once (to the log here: no provider in
+ * tests). Puts them back in the outbox so a stubbed sender can show what they carry.
+ */
+async function requeueDispatchMessages(orderId) {
+  const r = await query(
+    `UPDATE notifications SET status = 'PENDING', sent_at = NULL, provider_id = NULL, next_attempt_at = created_at
+      WHERE order_id = $1 AND kind IN ('OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_OUT_FOR_DELIVERY', 'GIFT_DELIVERY_CODE') AND status = 'SENT' RETURNING kind`,
+    [orderId],
+  )
+  return r.rows.map((x) => x.kind).sort()
+}

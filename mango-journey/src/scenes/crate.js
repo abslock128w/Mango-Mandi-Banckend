@@ -285,11 +285,14 @@ export default class Crate extends Stage {
       const b = new THREE.Mesh(g, m); b.position.set(x, y, z); b.castShadow = true; b.receiveShadow = true
       this.crate.add(b); return b
     }
-    board(W, 0.18, D, 0, 0.09, 0, postM)
+    // The slats sit 0.025 inside the corner posts' faces (the posts stand proud). They used to share the posts' outer
+    // faces exactly, and the two fought for depth: the slat ends flickered dark/light against the posts as the camera breathed.
+    const IN = 0.025
+    board(W - 2 * IN, 0.18, D - 2 * IN, 0, 0.09, 0, postM)
     const slats = [[0.6, 0.85], [1.6, 0.85], [2.56, 0.8]]
     for (const [y, h] of slats) {
-      board(W, h, 0.16, 0, y, D / 2 - 0.08); board(W, h, 0.16, 0, y, -D / 2 + 0.08)
-      for (const sx of [-1, 1]) board(D - 0.32, h, 0.16, sx * (W / 2 - 0.08), y, 0).rotation.y = Math.PI / 2
+      board(W - 2 * IN, h, 0.16, 0, y, D / 2 - 0.08 - IN); board(W - 2 * IN, h, 0.16, 0, y, -D / 2 + 0.08 + IN)
+      for (const sx of [-1, 1]) board(D - 0.32 - 2 * IN, h, 0.16, sx * (W / 2 - 0.08 - IN), y, 0).rotation.y = Math.PI / 2
     }
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) board(H, 0.36, 0.36, sx * (W / 2 - 0.18), H / 2, sz * (D / 2 - 0.18), postM, true)
     // Nail heads: two per slat end, on every face.

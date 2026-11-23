@@ -224,7 +224,7 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
-  // Farm Experience (docs/farm-experience.md): 250 kg or more bought online with a visit to the farm.
+  // Farm Experience (docs/farm-experience.md): 100 kg or more picked on a visit to the farm (the stay free, meals paid at the farm).
   // Off unless set to true; managers can also turn it on or off on the panel once it is allowed here.
   // Customers can book only once a manager also opens bookings on the Farm Settings page.
   FARM_EXPERIENCE: flag(),
@@ -422,6 +422,10 @@ const schema = z.object({
   // Delivery photos (and their Blob files) older than this are removed by the daily maintenance pass;
   // the rows keep step, time, place and the mango check verdict.
   DELIVERY_PHOTO_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
+  // Partner Network (docs/partner-network.md): this many days after an application ended (rejected,
+  // closed or converted), the daily maintenance pass deletes its details (src/partner/erase.js). The
+  // shop's Grow with us form tells applicants this number, so it must be what really happens.
+  PARTNER_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
   WHATSAPP_PROVIDER: z.enum(['log', 'meta']).default('log'),
   WHATSAPP_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),

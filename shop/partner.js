@@ -10,6 +10,7 @@
 PAGES.push(
   [/^\/partner\/?$/, () => partnerView()],
   [/^\/partner\/apply\/?$/, () => partnerApplyView()],
+  [/^\/partner\/privacy\/?$/, () => partnerPrivacyView()],
 )
 
 // ---- The form's rules (a port of partner-form.ts).
@@ -48,6 +49,7 @@ function pnMobile(raw) {
   return /^[6-9]\d{9}$/.test(s) ? `+91${s}` : null
 }
 const PN_EMAIL = /^[^\s@<>()[\]\\,;:"]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/
+const PN_WEB = /^(https?:\/\/)?[^\s<>"]+\.[^\s<>"]+$/i, PN_HANDLE = /^@?[A-Za-z0-9_.]{2,60}$/
 function pnAmount(raw) {
   if (typeof raw === 'number') return raw
   if (typeof raw !== 'string') return NaN
@@ -81,6 +83,8 @@ function pnCheck(q, raw, a, all = new Map()) {
       if (q.min && v.length < q.min) return { code: 'tooShort', vars: { min: q.min } }
       if (v.length > max) return { code: 'tooLong', vars: { max } }
       if (pnPatternApplies(q, a, all) && !new RegExp(q.pattern).test(v)) return { code: 'pattern', message: q.patternMessage }
+      // The API's own rule for the website (partner/enquiries.js): a web address, or a social media handle.
+      if (q.key === 'website' && !PN_WEB.test(v) && !PN_HANDLE.test(v)) return { code: 'website' }
       return null
     }
     case 'EMAIL': {
@@ -206,6 +210,7 @@ function pnProblemText(q, p) {
     case 'tooShort': return `A little more, please: at least ${p.vars.min} characters.`
     case 'tooLong': return `That’s a bit long. Keep it under ${p.vars.max} characters.`
     case 'email': return 'That email address doesn’t look quite right.'
+    case 'website': return 'Enter a web address, like yourfarm.in, or a social media handle, like @yourfarm, with no spaces.'
     case 'phone': return 'Enter a 10-digit Indian mobile number.'
     case 'number': return 'Enter a number, like 5.'
     case 'wholeNumber': return 'Enter a whole number.'
@@ -274,6 +279,74 @@ function partnerOn() {
 
 // ---- The links to /partner (the home doorway, the dock tab, the nav and footer): shown only while the feature is on.
 document.addEventListener('DOMContentLoaded', () => partnerNetwork().then(partnerOn, () => {}))
+
+// ---- How we use what you tell us: the promise the API keeps (mango-api src/partner/erase.js deletes an
+// application's details PARTNER_RETENTION_DAYS after it ended; GET /v1/partner-network says how many days in
+// `retention`). Shown in full before the first question and on /partner/privacy, in short by the consent
+// tick and on the sent screen. Every clause is true of what the API does; change them together.
+
+/** The number of days, from the API; 30 (its default) if an older API doesn't say. */
+function pnKeepDays(net) {
+  const d = net && net.retention ? Number(net.retention.days) : NaN
+  return Number.isInteger(d) && d > 0 ? d : 30
+}
+const pnDays = (n) => `${n} day${n === 1 ? '' : 's'}`
+/** A converted applicant (a partner now) keeps their contact details; the API says so in `retention`. */
+const pnKeepsContact = (net) => !(net && net.retention && net.retention.partnersKeepContact === false)
+/** Where the consent tick's link goes: the page below (an older API named a /privacy page the shop doesn't have). */
+const pnPrivacyPath = (net) => {
+  const p = net && net.consent && net.consent.privacyPath
+  return typeof p === 'string' && p.startsWith('/partner/') ? p : '/partner/privacy'
+}
+const PN_PRIVACY_TITLE = 'How we use what you tell us'
+
+function pnPrivacyNotice(net, id = 'pn-privacy-title') {
+  return `<aside class="pn-privacy" aria-labelledby="${id}">
+      <span class="pn-privacy-icon" aria-hidden="true">${icon('lock')}</span>
+      <div class="pn-privacy-text">
+        <h3 id="${id}">${PN_PRIVACY_TITLE}</h3>
+        <p>Everything you share here is used for one thing only: to decide whether we are a good fit to work together. We don’t share it with anyone or use it for anything else. Once your application has ended, we delete it within ${pnDays(pnKeepDays(net))}.</p>
+        ${pnKeepsContact(net) ? '<p>If we go ahead together, we keep your contact details so we can work with you.</p>' : ''}
+      </div>
+    </aside>`
+}
+
+/** The short form: by the consent tick (with `id` for aria-describedby) and on the sent screen. */
+function pnPrivacyShort(net, id = '') {
+  return `<div class="pn-privacy is-short"${id ? ` id="${id}"` : ''}>
+      <span class="pn-privacy-icon" aria-hidden="true">${icon('lock')}</span>
+      <p>Used only to decide whether we are a good fit, never shared, and deleted within ${pnDays(pnKeepDays(net))} of your application ending. <a href="${esc(pnPrivacyPath(net))}" target="_blank" rel="noopener">${PN_PRIVACY_TITLE}</a></p>
+    </div>`
+}
+
+/** /partner/privacy: the notice, and what it means in practice. */
+async function partnerPrivacyView(seq = ++sheetSeq) {
+  document.title = `${PN_PRIVACY_TITLE} · VMR Mangoes`
+  host().innerHTML = pageHead(PN_PRIVACY_TITLE) + marker(seq) + '<p>Loading…</p>'
+  let net = null
+  // The number of days comes from the API; the page still reads right (30) when the form is closed or offline.
+  try { net = await partnerNetwork() } catch {}
+  if (!alive(seq)) return
+  const n = pnDays(pnKeepDays(net))
+  host().innerHTML = pageHead(PN_PRIVACY_TITLE) + marker(seq) + `
+    <section class="page-card pn-privacy-page">
+      <p class="pn-crumb"><a href="/partner" data-route>${icon('leaf')} Grow with us</a></p>
+      ${pnPrivacyNotice(net, 'pn-privacy-page-title')}
+      <h2>What this means</h2>
+      <dl class="pn-privacy-list">
+        <dt>What we keep while we decide</dt>
+        <dd>What you write in the application and any files you send. Only the staff who handle partner applications can see it.</dd>
+        <dt>What it is for</dt>
+        <dd>Deciding whether we are a good fit, and getting in touch with you about your application. Nothing else: no marketing, and it is not sold or passed on.</dd>
+        <dt>When it is deleted</dt>
+        <dd>Your application ends when we decide not to go ahead, when it is closed, or when we agree to work together. Within ${n} of that, we delete your answers, your files, our notes about it, and your name, phone number, email, business name and address. We keep only the application’s reference number, the kind of partnership, the state it came from and its dates, which can’t identify you, so our counts stay right.</dd>
+        ${pnKeepsContact(net) ? `<dt>If we go ahead together</dt><dd>We keep your contact details so we can work with you. Your answers and files are still deleted within ${n}.</dd>` : ''}
+        <dt>Want it deleted sooner?</dt>
+        <dd><a href="/contact" data-route>Contact us</a> with your reference (it starts with MMP-) and we will delete it.</dd>
+      </dl>
+      <a class="button primary" href="/partner/apply" data-route>Back to my application ${icon('arrow')}</a>
+    </section>`
+}
 
 // ---- Shared bits of the pages.
 
@@ -515,7 +588,7 @@ function pnQuestion(q) {
     case 'CHECKBOX': {
       const consent = q.key === 'consent'
       const label = consent && pn.net.consent && pn.net.consent.text ? pn.net.consent.text : q.label
-      const privacy = consent ? `<p class="pn-hint" id="${id}-privacy">How we look after your details: <a href="${esc((pn.net.consent && pn.net.consent.privacyPath) || '/privacy')}" target="_blank" rel="noopener">our privacy notice</a>.</p>` : ''
+      const privacy = consent ? pnPrivacyShort(pn.net, `${id}-privacy`) : ''
       const desc = [consent ? `${id}-privacy` : '', err ? errId : ''].filter(Boolean).join(' ')
       return `<div class="field pn-q pn-consent${err ? ' has-err' : ''}" data-q="${esc(q.key)}"><label class="pn-check" for="${id}"><input type="checkbox" id="${id}" name="${esc(q.key)}"${value === true ? ' checked' : ''}${desc ? ` aria-describedby="${desc}"` : ''}${err ? ' aria-invalid="true"' : ''}><span class="pn-box" aria-hidden="true">${icon('check')}</span><span>${esc(label)}</span></label>${privacy}${errP}</div>`
     }
@@ -555,6 +628,7 @@ function pnRender() {
         <p class="pn-step-count">Step ${pn.at + 1} of ${steps.length}</p>
         <h2 id="pn-step-title" tabindex="-1">${esc(step.title)}</h2>
         ${step.description ? `<p class="pn-step-desc">${esc(step.description)}</p>` : ''}
+        ${pn.at === 0 ? pnPrivacyNotice(pn.net) : ''}
         <div id="pn-notice">${pnNoticeHtml()}</div>
         ${summary}
         ${step.sections.map((s) => {
@@ -756,6 +830,7 @@ function pnReceived(r, files, duplicate) {
       <h2 tabindex="-1" id="pn-done-title">${duplicate ? 'We already have <em>your application.</em>' : 'Thank you. <em>The first seed is planted.</em>'}</h2>
       <p>${duplicate ? 'The same answers reached us recently, so we kept the first one. Here is its reference.' : 'Your application is with our partnerships team. Keep this reference handy, in case you call us or want to check on it.'}</p>
       <div class="pn-ref"><span>Your reference</span><strong id="pn-ref">${esc(r.reference)}</strong><button type="button" class="button secondary" data-pn-copy>${icon('check')} Copy</button></div>
+      ${pnPrivacyShort(pn.net)}
       ${pn.uploads.length ? `<div class="pn-uploads"><h3>Your documents</h3><ul id="pn-upload-list"></ul></div>` : ''}
       ${skipped ? '<p class="pn-notice is-soft">The files you picked weren’t sent with this one. If we need them, we’ll ask when we call.</p>' : ''}
       <div class="pn-next-steps"><h3>What happens next</h3><ol>

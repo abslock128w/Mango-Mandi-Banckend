@@ -440,6 +440,8 @@ describe('dispatch and messages', () => {
     await query('UPDATE orders SET delivery_date = $2, at_risk = FALSE, at_risk_reason = NULL WHERE id = $1', [o.id, date])
     ok(await api.post(`${W}/operations/${ds.id}/finalize`, {}, { token: manager }))
     ok(await api.post(`/admin/v1/orders/${o.id}/dispatch`, {}, { token: manager }), 204)
+    // Sent at once on dispatch (to the log in tests); back in the outbox for the stubbed sender.
+    assert.deepEqual(await requeueDispatchMessages(o.id), ['DELIVERY_CODE', 'OUT_FOR_DELIVERY'])
     assert.equal(await sendDueNotifications({ sender: stub }), 2)
     // The update and, in its own authentication message, the delivery code (rider app, 053).
     assert.deepEqual([...sent].sort(), ['mandi_delivery_code', 'mandi_out_for_delivery'])
@@ -523,3 +525,16 @@ describe('controls', () => {
     assert.deepEqual(rows[0].detail, { warehouseId: 'wh_main', from: '2026-10-01', to: '2026-10-15' })
   })
 })
+
+/**
+ * Staff sending an order out now sends its WhatsApp messages at once (to the log here: no provider in
+ * tests). Puts them back in the outbox so a stubbed sender can show what they carry.
+ */
+async function requeueDispatchMessages(orderId) {
+  const r = await query(
+    `UPDATE notifications SET status = 'PENDING', sent_at = NULL, provider_id = NULL, next_attempt_at = created_at
+      WHERE order_id = $1 AND kind IN ('OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_OUT_FOR_DELIVERY', 'GIFT_DELIVERY_CODE') AND status = 'SENT' RETURNING kind`,
+    [orderId],
+  )
+  return r.rows.map((x) => x.kind).sort()
+}

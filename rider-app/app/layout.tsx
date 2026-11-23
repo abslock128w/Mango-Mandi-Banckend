@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { connection } from "next/server";
 import "./globals.css";
 import { AppBoot } from "@/components/app-boot";
 import { tokens } from "@/styles/tokens";
@@ -13,9 +14,9 @@ const inter = localFont({
 });
 
 export const metadata: Metadata = {
-  title: { default: "MandiMangoes Rider", template: "%s · Rider" },
-  description: "Today's delivery run for MandiMangoes riders.",
-  applicationName: "MandiMangoes Rider",
+  title: { default: "VMR Mangoes Rider", template: "%s · Rider" },
+  description: "Today's delivery run for VMR Mangoes riders.",
+  applicationName: "VMR Mangoes Rider",
   icons: { icon: "/favicon-32.png", apple: "/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "Rider", statusBarStyle: "default" },
   formatDetection: { telephone: false },
@@ -29,7 +30,10 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Rendered per request: the Content-Security-Policy's nonce (proxy.ts) is new every time,
+  // and Next.js can only put it on its scripts while rendering.
+  await connection();
   return (
     <html lang="en-IN" className={inter.variable}>
       <body className="min-h-dvh">

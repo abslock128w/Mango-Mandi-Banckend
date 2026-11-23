@@ -160,6 +160,16 @@ describe('staff route × role matrix', () => {
     assert.deepEqual(currentPolicy(), POLICY, 'who may call which staff route changed: if on purpose, run with UPDATE_ROLE_POLICY=1 and commit the reviewed diff')
   })
 
+  test('the shop-wide summary: managers and operators get all of it, QC only the sell-by limit, riders and packers nothing', async () => {
+    const full = await api.get('/admin/v1/summary', { token: tokens.OPERATOR })
+    assert.equal(full.status, 200, JSON.stringify(full.body))
+    for (const k of ['orders', 'atRiskOrders', 'batchesNearLimit', 'lowStock', 'overdueOrders', 'maxSellableAge']) assert.ok(k in full.body, k)
+    const qc = await api.get('/admin/v1/summary', { token: tokens.QC })
+    assert.equal(qc.status, 200, JSON.stringify(qc.body))
+    assert.deepEqual(qc.body, { maxSellableAge: full.body.maxSellableAge })
+    for (const role of ['PACKER', 'RIDER']) assert.equal((await api.get('/admin/v1/summary', { token: tokens[role] })).status, 403, role)
+  })
+
   test('docs/authorization-matrix.md is up to date with the policy and the step-up list', () => {
     assert.equal(readFileSync(DOC_FILE, 'utf8'), renderMatrix(POLICY), 'the authorization matrix doc is out of date: run node scripts/auth-matrix-doc.js and commit it')
   })

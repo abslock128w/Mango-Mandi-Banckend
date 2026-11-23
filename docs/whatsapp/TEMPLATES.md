@@ -26,6 +26,9 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | PREORDER_BOOKED | `mandi_preorder_booked` | UTILITY | 4 | — |
 | PREORDER_SPOT_OPEN | `mandi_preorder_spot_open` | UTILITY | 4 | — |
 | PREORDER_MOVED | `mandi_preorder_moved` | UTILITY | 4 | — |
+| PREORDER_DELAYED | `mandi_preorder_delayed` | UTILITY | 5 | — |
+| PREORDER_EARLIER | `mandi_preorder_earlier` | UTILITY | 5 | — |
+| ORDER_DELAYED | `mandi_order_delayed` | UTILITY | 5 | — |
 | BACK_IN_STOCK | `mandi_back_in_stock` | UTILITY | 4 | — |
 | REORDER_REMINDER | `mandi_reorder_reminder` | MARKETING | 3 | — |
 | REVIEW_REQUEST | `mandi_review_request` | MARKETING | 2 | — |
@@ -38,6 +41,8 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 | PARTNER_TEAM_ALERT | `mandi_partner_team_alert` | UTILITY | 4 | — |
 | BULK_ENQUIRY_RECEIVED | `mandi_bulk_enquiry_received` | UTILITY | 3 | — |
 | BULK_QUOTE | `mandi_bulk_quote` | UTILITY | 5 | — |
+| BULK_ORDER_PAID | `mandi_bulk_order_paid` | UTILITY | 5 | — |
+| FARM_VISIT_ENQUIRY_RECEIVED | `mandi_farm_visit_enquiry_received` | UTILITY | 3 | — |
 | FARM_BOOKING_UPDATE | `mandi_farm_booking_update` | UTILITY | 4 | — |
 | FARM_TEAM_ALERT | `mandi_farm_team_alert` | UTILITY | 4 | — |
 | MANAGER_DAILY_SUMMARY | `mandimangoes_daily_summary` | UTILITY | 8 | — |
@@ -53,7 +58,7 @@ The wording is a suggestion for the submission. Keep the variables, their order 
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. delivery date (example: Fri, 16 Oct)
   4. slot (example: 7 AM to 11 AM)
 
@@ -80,7 +85,7 @@ Suggested wording: Hi {{1}}, your MandiMangoes order {{2}} is confirmed and paid
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1094)
+  2. order number (example: S-236 067 978)
   3. delivery date (example: Sat, 17 Oct)
   4. slot (example: 7 AM to 11 AM)
 
@@ -96,7 +101,7 @@ Suggested wording: Hi {{1}}, your replacement order {{2}} is booked at no cost. 
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. when each box is ready (example: Alphonso 3kg Box (raw): ready around Mon, 19 Oct)
   4. storage tip (example: Keep them in a paper bag at room temperature.)
 
@@ -112,7 +117,7 @@ Suggested wording: Hi {{1}}, a guide for order {{2}}: {{3}}. {{4}}
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. new date (example: Sat, 17 Oct)
   4. slot (example: 7 AM to 11 AM)
 
@@ -128,7 +133,7 @@ Suggested wording: Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If tha
 - If it can't be sent: Not sent: the order page in the shop shows the rider is on the way, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. rider first name (example: Ravi)
   4. slot (example: 7 AM to 11 AM)
 
@@ -158,7 +163,7 @@ Suggested wording: (Meta's fixed authentication wording: "{{1}} is your verifica
 - If it can't be sent: Not sent: the buyer sees the update on the order page.
 - Variables:
   1. recipient name (example: Ravi)
-  2. order number (example: ORD-1095)
+  2. order number (example: G-854 101 967)
   3. rider first name (example: Suresh)
   4. slot (example: 7 AM to 11 AM)
 
@@ -188,7 +193,7 @@ Suggested wording: (shares mandi_delivery_code)
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
 
 Suggested wording: Hi {{1}}, order {{2}} has been delivered. If a box is damaged, report it in the app within a day and we will replace it.
 
@@ -202,7 +207,7 @@ Suggested wording: Hi {{1}}, order {{2}} has been delivered. If a box is damaged
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. retry date (example: Sat, 17 Oct)
 
 Suggested wording: Hi {{1}}, we couldn't deliver order {{2}} today. We will bring it on {{3}}.
@@ -212,12 +217,12 @@ Suggested wording: Hi {{1}}, we couldn't deliver order {{2}} today. We will brin
 - Template: `mandi_cancelled`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A confirmed order is cancelled (unpaid holds send nothing).
+- Sent when: A confirmed order is cancelled (unpaid holds send nothing), or a waitlisted pre-order is closed because its week reached the booking horizon (variable 2 is then the booking number, PRE-…).
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
 
 Suggested wording: Hi {{1}}, order {{2}} has been cancelled. If you paid for it, the refund has been started.
 
@@ -231,7 +236,7 @@ Suggested wording: Hi {{1}}, order {{2}} has been cancelled. If you paid for it,
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order or booking number (example: ORD-1093)
+  2. order or booking number (example: S-618 033 989)
   3. amount (example: Rs 1,899)
 
 Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. Your bank usually shows it within 5 to 7 working days.
@@ -241,16 +246,16 @@ Suggested wording: Hi {{1}}, the refund for {{2}} of {{3}} has been started. You
 - Template: `mandi_preorder_booked`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A pre-order is paid. The wording must say pre-orders can't be cancelled or refunded once paid.
+- Sent when: A pre-order is paid. The wording must say harvest can move the week, and that a paid pre-order can't be cancelled unless we delay it.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. booking number (example: PRE-1001)
+  2. booking number (example: P-618 033 989)
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. week (example: the week of Mon, 1 Mar)
 
-Suggested wording: Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.
+Suggested wording: Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Harvest varies with the weather, so the week can change. It can't be cancelled once paid, unless we delay it: then you can cancel for a full refund until it is packed.
 
 ## PREORDER_SPOT_OPEN
 
@@ -273,16 +278,67 @@ Suggested wording: Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep
 - Template: `mandi_preorder_moved`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: A week passed without stock, so the booking moved a week. The wording must not offer a refund on cancel (pre-orders are non-refundable).
+- Sent when: No longer queued (since migration 079 every move is PREORDER_DELAYED or PREORDER_EARLIER); kept so messages queued before it still send.
 - Button: none
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. booking number (example: PRE-1001)
+  2. booking number (example: P-618 033 989)
   3. boxes (example: 2 × Alphonso 3kg Box)
   4. new week (example: the week of Mon, 8 Mar)
 
 Suggested wording: Hi {{1}}, pre-order {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. If the new week doesn't work for you, message us.
+
+## PREORDER_DELAYED
+
+- Template: `mandi_preorder_delayed`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: We move a PAID pre-order to a later week: the Pre-order plan recalculated (a variety expects fewer kg), a week passed without fruit (the allocator), or a manager moved it. Once per move. It now may be cancelled for a full refund until it is packed: the wording must say so. Waits in the outbox until WhatsApp is connected.
+- Button: none
+- If it can't be sent: Not sent yet: the booking in the shop shows Delayed with the cancel button, and the Pre-order plan shows the message as queued.
+- Variables:
+  1. name (example: Asha)
+  2. booking number (example: P-618 033 989)
+  3. old week (example: the week of Mon, 1 Mar)
+  4. new week (example: the week of Mon, 8 Mar)
+  5. booking link (example: https://mandimangoes.in/preorders/pre_1)
+
+Suggested wording: Hi {{1}}, your VMR Mangoes pre-order {{2}} will now be delivered in {{4}} instead of {{3}}, because this season's harvest is smaller than expected. Sorry for the wait. If you would rather not wait, you can cancel it for a full refund any time before it is packed: {{5}}
+
+## PREORDER_EARLIER
+
+- Template: `mandi_preorder_earlier`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: The Pre-order plan recalculated (more kg expected) or a manager moved it, and a PAID pre-order now comes in an earlier week. Once per move; no cancel right. Waits in the outbox until WhatsApp is connected.
+- Button: none
+- If it can't be sent: Not sent yet: the booking in the shop shows the new week.
+- Variables:
+  1. name (example: Asha)
+  2. booking number (example: P-618 033 989)
+  3. new week (example: the week of Mon, 1 Mar)
+  4. old week (example: the week of Mon, 8 Mar)
+  5. booking link (example: https://mandimangoes.in/preorders/pre_1)
+
+Suggested wording: Good news, {{1}}: your VMR Mangoes pre-order {{2}} will now arrive in {{3}}, earlier than {{4}}. See it here: {{5}}
+
+## ORDER_DELAYED
+
+- Template: `mandi_order_delayed`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: We move a PAID regular order booked against the pre-order plan to a later date: its fruit came in short, or a lowered plan left its week short (pre-orders come first). Once per move. It now may be cancelled for a full refund until it is packed: the wording must say so. Waits in the outbox until WhatsApp is connected.
+- Button: none
+- If it can't be sent: Not sent yet: the order in the shop shows Delayed with the cancel button.
+- Variables:
+  1. name (example: Asha)
+  2. order number (example: S-618 033 989)
+  3. old date (example: Tue, 2 Mar)
+  4. new date (example: Mon, 8 Mar)
+  5. order link (example: https://mandimangoes.in/orders/ord_1)
+
+Suggested wording: Hi {{1}}, your VMR Mangoes order {{2}} will now be delivered on {{4}} instead of {{3}}, because less fruit came in than we planned. Sorry for the wait. If you would rather not wait, you can cancel it for a full refund until it is packed: {{5}}
 
 ## BACK_IN_STOCK
 
@@ -326,7 +382,7 @@ Suggested wording: Hi {{1}}, enjoyed the {{2}}? Order again here: {{3}}. Reply S
 - If it can't be sent: Not sent: the order page asks for a review.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
 
 Suggested wording: Hi {{1}}, how were the mangoes in order {{2}}? Rate them in the app; it helps other customers choose.
 
@@ -341,7 +397,7 @@ Suggested wording: Hi {{1}}, how were the mangoes in order {{2}}? Rate them in t
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
 
 Suggested wording: Hi {{1}}, we have your report about order {{2}}. We will look at it and reply here within a day.
 
@@ -356,7 +412,7 @@ Suggested wording: Hi {{1}}, we have your report about order {{2}}. We will look
 - If it can't be sent: Not sent: the order page in the shop shows the same status, and staff see the failure on the WhatsApp page.
 - Variables:
   1. name (example: Asha)
-  2. order number (example: ORD-1093)
+  2. order number (example: S-618 033 989)
   3. reason (example: The photo shows the box was opened before delivery.)
 
 Suggested wording: Hi {{1}}, we looked into your report about order {{2}} and could not offer a replacement: {{3}}. Reply here if you would like to talk to us about it.
@@ -455,7 +511,7 @@ Suggested wording: (write it in WhatsApp Manager)
 - If it can't be sent: Not sent: the shop shows the enquiry number on screen and on the Account page.
 - Variables:
   1. name (example: Asha)
-  2. enquiry number (example: BLK-0012)
+  2. enquiry number (example: B-618 033 989)
   3. quantity (example: 120 kg (40 boxes))
 
 Suggested wording: Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.
@@ -471,12 +527,46 @@ Suggested wording: Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{
 - If it can't be sent: Not sent: the quote is on the Account page in the shop (with a banner and a badge), and the panel offers an Open in WhatsApp link with the quote written out.
 - Variables:
   1. name (example: Asha)
-  2. enquiry number (example: BLK-0012)
+  2. enquiry number (example: B-618 033 989)
   3. total (example: Rs 52,500)
   4. summary (example: 40 × Alphonso 3 kg box, special packaging)
   5. link (example: https://mandimangoes.in/account?enquiry=benq_1)
 
 Suggested wording: Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}
+
+## BULK_ORDER_PAID
+
+- Template: `mandi_bulk_order_paid`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: A bulk order placed on the shop (100 kg or more, at bulk prices) is paid in full. The wording must say our team will call on WhatsApp to arrange the delivery (usually 5 to 7 days), and that it can be cancelled for a full refund within 4 hours of paying, until it is dispatched.
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the shop shows the order, its payment and the cancel window on the bulk order page, and the panel lists it first under Bulk orders.
+- Variables:
+  1. name (example: Asha)
+  2. order number (example: B-618 033 989)
+  3. amount paid (example: Rs 41,250)
+  4. quantity (example: 150 kg (30 boxes))
+  5. order link (example: https://mandimangoes.in/bulk/orders/benq_1)
+
+Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 5 to 7 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}
+
+## FARM_VISIT_ENQUIRY_RECEIVED
+
+- Template: `mandi_farm_visit_enquiry_received`
+- Category: UTILITY
+- Who may receive it: Order and service update: sent unless the number sent STOP
+- Sent when: Someone sends a farm visit enquiry from the Farm visit tab on the shop’s Bulk page (100 kg or more). The wording must say our team will call on WhatsApp to plan the visit.
+- Only with `WHATSAPP_BULK_UPDATES=true`
+- Button: none
+- If it can't be sent: Not sent: the shop shows the enquiry number on screen and on the Account page, and the panel lists it under Farm visit enquiries.
+- Variables:
+  1. name (example: Asha)
+  2. enquiry number (example: B-618 033 989)
+  3. what they asked (example: 150 kg of Alphonso, 6 people, around Sat, 12 Dec)
+
+Suggested wording: Hi {{1}}, we have your VMR Mangoes farm visit enquiry {{2}}: {{3}}. Our team will call you on WhatsApp to plan your visit.
 
 ## FARM_BOOKING_UPDATE
 

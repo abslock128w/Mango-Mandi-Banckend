@@ -6,7 +6,9 @@
 // that confirms the deliveries once however often it comes, a cancel of one
 // recipient refunding only that recipient's amount and only before packing,
 // the one bill, the staff view and a formula-safe CSV template.
-import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, makeBatch, resetDb, signWebhook, startServer, T0 } from './helpers.js'
+import { setNow } from '../src/clock.js'
+import { CUSTOMER_CANCEL_HOURS } from '../src/orders.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -469,6 +471,54 @@ describe('cancelling', () => {
       env.RAZORPAY_KEY_ID = ''
       env.RAZORPAY_KEY_SECRET = ''
     }
+  })
+})
+
+describe('the four-hour cancel window', () => {
+  afterEach(() => setNow(T0))
+
+  test('a gift delivery follows the same window as any order: open for 4 hours after placing, then closed', async () => {
+    await stock()
+    assert.equal(CUSTOMER_CANCEL_HOURS, 4)
+    const { c, cust } = await paid(3)
+    const ks = await kids(c.giftOrderId)
+    const placedAt = new Date(ks[0].placed_at).getTime()
+    const H = 3_600_000
+    const view = async () => (await api.get(`/v1/gifts/${c.giftOrderId}`, { token: cust.accessToken })).body
+    const g0 = await view()
+    assert.equal(g0.cancellable, true)
+    assert.equal(Date.parse(g0.cancelUntil) - placedAt, 4 * H)
+    assert.ok(g0.recipients.every((r) => r.cancellable))
+
+    // 3 h 59 min: one recipient is cancelled and refunded their own amount.
+    setNow(new Date(placedAt + 4 * H - 60_000))
+    assert.equal((await api.post(`/v1/gifts/${c.giftOrderId}/recipients/${ks[1].id}/cancel`, {}, { token: cust.accessToken })).status, 204)
+    assert.notEqual((await kids(c.giftOrderId))[1].refund_requested_at, null)
+
+    // 4 h 01 min: the gift page offers no cancel, and the API refuses one recipient, the whole order and the order route.
+    setNow(new Date(placedAt + 4 * H + 60_000))
+    const g1 = await view()
+    assert.equal(g1.cancellable, false)
+    assert.ok(g1.recipients.every((r) => !r.cancellable))
+    for (const url of [`/v1/gifts/${c.giftOrderId}/recipients/${ks[0].id}/cancel`, `/v1/gifts/${c.giftOrderId}/cancel`, `/v1/orders/${ks[2].id}/cancel`]) {
+      const r = await api.post(url, {}, { token: cust.accessToken })
+      assert.equal(r.status, 409, url)
+      assert.equal(r.body.error.code, 'CANCEL_WINDOW_CLOSED', url)
+    }
+    const after = await kids(c.giftOrderId)
+    assert.deepEqual(after.map((k) => k.status), ['CONFIRMED', 'CANCELLED', 'CONFIRMED'])
+    assert.equal(after[0].refund_requested_at, null)
+    assert.equal(after[2].refund_requested_at, null)
+  })
+
+  test('an unpaid gift order can always be dropped, however long after placing', async () => {
+    await stock()
+    const { c, cust } = await placed(2)
+    const placedAt = new Date((await kids(c.giftOrderId))[0].placed_at).getTime()
+    assert.equal((await api.get(`/v1/gifts/${c.giftOrderId}`, { token: cust.accessToken })).body.cancelUntil, null)
+    setNow(new Date(placedAt + 5 * 3_600_000))
+    assert.equal((await api.post(`/v1/gifts/${c.giftOrderId}/cancel`, {}, { token: cust.accessToken })).status, 204)
+    for (const k of await kids(c.giftOrderId)) assert.equal(k.status, 'CANCELLED')
   })
 })
 

@@ -43,7 +43,6 @@ const route = (method, pattern) => ({ method, re: new RegExp(`^${pattern.replace
 const COMMON = [
   route('GET', '/auth/me'),
   route('GET', '/products'),
-  route('GET', '/summary'),
   route('POST', '/me/two-step/setup'),
   route('POST', '/me/two-step/enable'),
   route('POST', '/me/two-step/disable'),
@@ -72,6 +71,8 @@ const warehouseFor = (role) => WAREHOUSE_ROUTES.filter(([, , perm]) => ROLE_PERM
 export const OPERATOR_ROUTES = [
   ...COMMON,
   ...DELIVERY,
+  // The shop-wide summary (order counts, at-risk orders, batch alerts): Today, for managers and operators.
+  route('GET', '/summary'),
   route('GET', '/batches'),
   route('POST', '/batches'),
   route('GET', '/batches/:id'),
@@ -132,6 +133,7 @@ export const OPERATOR_ROUTES = [
   route('GET', '/slots'),
   route('GET', '/preorders'),
   route('GET', '/preorder-capacity'),
+  route('GET', '/preorder-weeks'),
   route('GET', '/coverage'),
   // Review moderation: the queue, publishing, rejecting, hiding and replies.
   route('GET', '/reviews'),
@@ -191,6 +193,12 @@ export const OPERATOR_ROUTES = [
   route('POST', '/bulk-enquiries/:id/quote'),
   route('POST', '/bulk-enquiries/:id/close'),
   route('POST', '/bulk-enquiries/:id/note'),
+  // Bulk orders paid at once (bulk-orders.js): "Called customer", dispatched, delivered; and reading the bulk prices.
+  // Cancelling one (a refund) and changing the bulk prices are managers'.
+  route('POST', '/bulk-enquiries/:id/status'),
+  // Farm visit enquiries (kind FARM_VISIT): called, visit planned, visited (closing is /close).
+  route('POST', '/bulk-enquiries/:id/farm-status'),
+  route('GET', '/bulk-prices'),
   // Farm Experience (docs/farm-experience.md): bookings, notes, the stay, rooms, the day at the farm and check-in.
   // Dates, cancelling, refunds, no-shows, prices, the calendar, harvest stock, rooms setup, settings and reports are managers'.
   route('GET', '/farm/overview'),
@@ -241,18 +249,32 @@ const LIMITED = {
     route('GET', '/batches/:id/purchases'),
     // Ripeness accuracy from reviews, per batch and variety (read only).
     route('GET', '/reviews/insights'),
+    // The summary cut down to the sell-by limit the batch pages draw (REDUCED_SUMMARY), no orders.
+    route('GET', '/summary'),
     ...warehouseFor('QC'),
   ],
 }
 
+/**
+ * Roles that get GET /summary cut down to these fields. The full summary carries every
+ * order count, the at-risk order numbers and batch alerts: managers' and operators' Today.
+ * QC's batch pages only need the live sell-by limit. Riders and packers are refused it.
+ */
+const REDUCED_SUMMARY = { QC: ['maxSellableAge'] }
+
 /** Refuses everyone but managers anything not listed for their role. */
-export function limitByRole(req, _res, next) {
+export function limitByRole(req, res, next) {
   if (req.admin?.role === 'MANAGER') return next()
   const allowed = LIMITED[req.admin?.role] ?? []
   const ok = allowed.some((r) => r.method === req.method && r.re.test(req.path))
   if (!ok) return next(forbidden(`Not available to the ${req.admin.role.toLowerCase()} role`))
   if (req.admin.role === 'PACKER' && req.method === 'PATCH' && !PACKER_STATUSES.includes(req.body?.status)) {
     return next(forbidden('Packers can only move orders through packing and delivery'))
+  }
+  const keep = REDUCED_SUMMARY[req.admin.role]
+  if (keep && req.method === 'GET' && req.path === '/summary') {
+    const json = res.json.bind(res)
+    res.json = (body) => json(res.statusCode < 400 && body && typeof body === 'object' ? Object.fromEntries(keep.map((k) => [k, body[k]])) : body)
   }
   next()
 }

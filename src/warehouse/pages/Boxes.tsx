@@ -14,7 +14,7 @@ import { WriteOffDialog } from '../WriteOffDialog'
 
 const RESOLVE_ERROR: Record<string, string> = {
   UNKNOWN_CODE: 'No box in this warehouse has that label.',
-  MALFORMED_CODE: 'Not a MandiMangoes label.',
+  MALFORMED_CODE: 'Not a VMR Mangoes label.',
   INVALID_CHECK_DIGIT: 'That code has a typo: check the last character.',
   TOO_LONG: 'Too long to be a label.',
   WRONG_LABEL_TYPE: 'That is not a box label.',

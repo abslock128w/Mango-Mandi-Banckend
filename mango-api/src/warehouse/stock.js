@@ -8,6 +8,7 @@
 // pickable place, so it is not shelf stock until someone puts it away (and
 // the put-away adds it back through the usual box delta). The order is then
 // rebalanced, which reserves the unit again (FEFO).
+import { formatOrderNumber } from '../order-number.js'
 import { newId } from '../ids.js'
 import { ledger, restock } from '../inventory.js'
 import { changeBox, lockBoxes, newDeltas, trackedLine, whError } from './core.js'
@@ -74,7 +75,7 @@ export async function unbindOrderBoxes(c, order, actor, why, { lineId = null } =
     if (box.order_id !== order.id || !['picked', 'packed'].includes(box.lifecycle)) continue
     const staging = await stagingPlace(c, box.warehouse_id)
     const packed = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND line_id = $2 AND state = 'packed' ORDER BY id LIMIT 1`, [order.id, box.line_id])).rows[0]
-    if (packed) await unpickUnit(c, packed, actor, `${order.number}: ${why}`)
+    if (packed) await unpickUnit(c, packed, actor, `${formatOrderNumber(order.number)}: ${why}`)
     // A pack or dispatch scan waiting to be finalized no longer counts this box.
     await c.query('DELETE FROM wh_staged WHERE box_id = $1', [box.id])
     await changeBox(

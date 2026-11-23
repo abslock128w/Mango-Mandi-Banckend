@@ -13,7 +13,7 @@ import { loadConfig } from './config.js'
 import { isDbUnavailable, isPoolTimeout, query } from './db.js'
 import { devRoutesOn, env, errorDetailsOn, onVercel } from './env.js'
 import { HttpError } from './errors.js'
-import { clientErrorOf, EXPOSED_HEADERS, routeMethods } from './http-contract.js'
+import { clientErrorOf, dbInputErrorOf, EXPOSED_HEADERS, hasNul, routeMethods } from './http-contract.js'
 import { logger } from './logger.js'
 import { withLogContext } from './log-context.js'
 import { httpMetrics, metrics, registry } from './metrics.js'
@@ -94,6 +94,12 @@ export function createApp() {
     withLogContext({ reqId: req.id }, next)
   })
   app.use(httpMetrics)
+  // A NUL byte in the path or query (/v1/orders/%00) never reaches a route: Postgres would refuse it as a 500.
+  app.use((req, res, next) => {
+    if (!hasNul(req.originalUrl)) return next()
+    logger.warn({ reqId: req.id, method: req.method }, 'request with a NUL in its address refused')
+    res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'The address is not valid', requestId: req.id } })
+  })
   // SEC-03: no client of ours (shop, panel, Razorpay, Meta) compresses request bodies, so
   // none are inflated: a compressed body is refused before any parser sees it.
   app.use((req, res, next) => {
@@ -362,6 +368,12 @@ export function createApp() {
     // SEC-02: a request the framework could not read (a bad %-sequence in the path, an
     // unsupported charset, a body cut off) is the client's error: 4xx, logged at warn, and
     // not a Sentry event, so junk requests can't use up the error budget.
+    // A value Postgres can't take (a NUL in text, a non-number where a number goes): the client's input.
+    const badValue = dbInputErrorOf(err)
+    if (badValue) {
+      logger.warn({ reqId: req.id, method: req.method, path: req.path, pgCode: err.code }, 'request value refused by the database')
+      return res.status(badValue.status).json({ error: { code: badValue.code, message: badValue.message, requestId: req.id } })
+    }
     const client = env.API_HARDENING ? clientErrorOf(err) : null
     if (client) {
       logger.warn({ reqId: req.id, method: req.method, path: req.path, status: client.status, type: err.type ?? err.name }, 'request could not be read')

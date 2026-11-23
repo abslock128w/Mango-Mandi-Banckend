@@ -7,8 +7,9 @@
 // figure), written out below. The piece keeps time (60 beats a minute); a new chapter takes over at the next half bar,
 // and the film's moments (the shoot, the pick, the stamp, the door) are answered by a few notes on the next beat.
 // Everything is voiced between about 220 Hz and 2 kHz, where a phone's small speaker still speaks, and mixed low.
-// It plays by default and there is no switch. Browsers only let a page make sound after the visitor has clicked,
-// tapped or pressed a key, so it starts at the film's Begin button.
+// Browsers only let a page make sound after the visitor has clicked, tapped or pressed a key, so it starts at the
+// film's Begin button. If the film starts by itself (nobody pressed Begin), it plays muted until the visitor turns the
+// sound on; the film's controls switch it on and off (M).
 
 const BPM = 60, STEP = 60 / BPM / 2 // the grid is eighth notes: half a second each
 const D4 = 293.66
@@ -219,30 +220,55 @@ const GESTURES = ['pointerdown', 'pointerup', 'mousedown', 'touchend', 'click', 
 export class Sound {
   constructor() {
     this.i = 0; this.t = 0; this.p = 0
-    this.live = false
-    this.wake = () => { this.start(); if (this.live && this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {}) }
+    this.live = false // the context is running and the piece is being played
+    this.want = false // the visitor wants sound (Begin, or the sound switch); false: muted
+    // A phone can interrupt the sound (a call, another app): the next touch brings it back, if sound is wanted.
+    this.wake = () => { if (this.want && this.ctx && this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {}) }
+    this.onVis = () => this.visibility()
     GESTURES.forEach((ev) => addEventListener(ev, this.wake, { capture: true, passive: true }))
-    document.addEventListener('visibilitychange', () => this.visibility())
-    this.start() // plays at once where the browser already allows this page to make sound
+    document.addEventListener('visibilitychange', this.onVis)
   }
-  fade(to, sec) { const g = this.a.master.gain, now = this.ctx.currentTime; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(to, now + sec) }
-  start() {
-    if (this.live) return
+  /** Make the context and render the instrument, without playing (part of the film's loading). Resolves when ready. */
+  prepare() {
     if (!this.ctx) {
       const C = window.AudioContext || window.webkitAudioContext
-      if (!C) return
-      this.ctx = new C()
+      if (!C) return Promise.resolve()
+      try { this.ctx = new C() } catch { return Promise.resolve() }
+      if (this.ctx.state === 'running') this.ctx.suspend().catch(() => {}) // nothing plays until the film begins
       this.a = new Ambient(this.ctx, { touch: matchMedia('(pointer: coarse)').matches })
       this.a.master.gain.value = 0
       this.timer = setInterval(() => this.tick(), 120)
     }
+    return this.a.ready
+  }
+  fade(to, sec) { if (!this.a) return; const g = this.a.master.gain, now = this.ctx.currentTime; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(to, now + sec) }
+  /** Sound on. Call it from a click, tap or key handler (the browser's rule for starting sound). */
+  start() {
+    this.want = true
+    this.askedAt = performance.now()
+    this.prepare()
+    if (!this.ctx || this.held) return // paused: the music comes back with the film
     if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {})
     this.loud()
+    if (this.live) this.fade(1, 1.2)
     this.tick()
   }
+  /** Sound off: the piece fades out and the context is suspended (it keeps its place: on again, it carries on). */
+  mute() {
+    this.want = false
+    if (!this.ctx) return
+    this.fade(0, 0.5)
+    clearTimeout(this.sleep)
+    this.sleep = setTimeout(() => { if (!this.want) { this.live = false; this.ctx.suspend().catch(() => {}) } }, 600)
+  }
+  get on() { return this.want }
+  /** Sound is wanted but the browser has not let it start (no click or tap it accepts yet). */
+  get blocked() { return this.want && (!this.ctx || (this.ctx.state !== 'running' && !this.held && !document.hidden && performance.now() - (this.askedAt || 0) > 1200)) }
+  /** The audio clock in seconds while the music is actually playing, else null: the film's playhead follows it. */
+  clock() { return this.live && this.want && this.ctx && this.ctx.state === 'running' && !document.hidden ? this.ctx.currentTime : null }
   tick() {
-    if (this.ctx.state !== 'running' || document.hidden) return
-    if (!this.live) { this.live = true; this.fade(1, 3) } // the gesture listeners stay: a phone can interrupt the sound (a call, another app) and the next touch brings it back
+    if (!this.ctx || this.ctx.state !== 'running' || document.hidden || !this.want) return
+    if (!this.live) { this.live = true; this.a.at = null; this.fade(1, 3) }
     this.a.setSection(sectionAt(this.i, this.t))
     this.a.pump(this.ctx.currentTime + 0.6)
   }
@@ -260,16 +286,34 @@ export class Sound {
     } catch { /* sound simply follows the ringer switch */ }
   }
   visibility() {
-    if (!this.live) return
+    if (!this.ctx || !this.want) return
     clearTimeout(this.sleep)
-    if (document.hidden) { this.fade(0, 0.15); this.hush?.pause(); this.sleep = setTimeout(() => document.hidden && this.ctx.suspend(), 250) }
-    else { this.hush?.play().catch(() => {}); this.ctx.resume().then(() => this.fade(1, 1)).catch(() => {}) }
+    if (document.hidden) { this.fade(0, 0.15); this.hush?.pause(); this.sleep = setTimeout(() => { if (document.hidden) { this.live = false; this.ctx.suspend().catch(() => {}) } }, 250) }
+    else if (!this.held) { this.hush?.play().catch(() => {}); this.ctx.resume().then(() => this.tick()).catch(() => {}) }
+  }
+  /** The film is paused: the music fades and waits; play carries on from there. */
+  hold(on, sec = 0.4) {
+    this.held = on
+    if (!this.ctx || !this.want) return
+    clearTimeout(this.sleep)
+    if (on) { this.fade(0, sec); this.sleep = setTimeout(() => { this.live = false; this.ctx.suspend().catch(() => {}) }, sec * 1000 + 50) }
+    else this.ctx.resume().then(() => this.tick()).catch(() => {})
   }
   chapter() {}
-  /** Every frame, from main.js: the chapter and its progress. Passing one of the film's moments, going forward, cues its notes. */
-  update(i, t) {
+  /** Every frame, from main.js: the chapter and its progress. Passing one of the film's moments, going forward at
+   *  playing speed, cues its notes (a seek or a glide past it does not). */
+  update(i, t, seeking = false) {
     const p = i + t, was = this.p
     this.i = i; this.t = t; this.p = p
-    if (this.live && p > was && p - was < 0.2) for (const [at, kind] of CUES) if (was < at && p >= at) this.a.cue(kind)
+    if (this.live && !seeking && p > was && p - was < 0.05) for (const [at, kind] of CUES) if (was < at && p >= at) this.a.cue(kind)
+  }
+  /** Leaving the page: stop everything and give the audio device back. */
+  close() {
+    clearInterval(this.timer); clearTimeout(this.sleep)
+    GESTURES.forEach((ev) => removeEventListener(ev, this.wake, { capture: true, passive: true }))
+    document.removeEventListener('visibilitychange', this.onVis)
+    try { this.hush?.pause() } catch {}
+    try { this.ctx?.close() } catch {}
+    this.live = false; this.want = false
   }
 }

@@ -100,6 +100,8 @@ test('without a token, only the public routes answer', () => {
     'GET /metrics',
     'GET /ready',
     'GET /v1/auth/config',
+    // Bulk prices for the bulk page (src/bulk-price.js): the boxes' shop and bulk prices, nothing personal.
+    'GET /v1/bulk/prices',
     // Partner With Us (docs/partner-network.md): the form and its categories, no sign-in by design.
     'GET /v1/partner-network/',
     'GET /v1/partner-network/categories',

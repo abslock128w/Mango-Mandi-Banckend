@@ -5,6 +5,7 @@
 // Drawn from the bill's snapshot, so a bill reads the same every time it is
 // downloaded; only the CANCELLED stamp is added once the order is cancelled.
 import { BILL_CANCELLED_BY, BILL_TITLES } from './bills.js'
+import { orderNo } from './order-number.js'
 
 /** The only cancel wordings a bill prints (fixed, customer-safe; a typed staff reason never reaches a bill). */
 const CANCEL_WORDING = new Set(Object.values(BILL_CANCELLED_BY))
@@ -167,8 +168,8 @@ const DESC_W = COL.hsn - COL.desc - 10
  * The bill as a PDF. `bill` is a bills row (snapshot, number, dates, buyer,
  * cancelled_at). Every page carries the bill number and "page x of y".
  */
-/** Order numbers are shown as the shop shows them: #7434060801 (older ones keep ORD-1024). */
-export const orderNo = (n) => (/^\d{10}$/.test(String(n ?? '')) ? `#${n}` : String(n ?? ''))
+/** Order numbers are shown as the shop shows them: S-743 406 080, #7434060801, ORD-1024 (order-number.js). */
+export { orderNo }
 
 const METHODS = { upi: 'UPI', card: 'Card', netbanking: 'Net banking', wallet: 'Wallet', emi: 'EMI', paylater: 'Pay later', cardless_emi: 'Cardless EMI', demo: 'Test payment' }
 

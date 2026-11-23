@@ -12,6 +12,8 @@ let whereBusy = false
 const shortAddress = (a) => a.name || addressText(a.address).split(',').slice(0, 2).join(',').trim()
 
 const beforeSeason = () => typeof preSeason === 'function' && Boolean(preSeason())
+/** A delivery day that can't take every box in the bag (app.js dayOk: stock, a sourcing batch, a full day). */
+const bagUnfit = (x) => typeof cart !== 'undefined' && cart.length > 0 && typeof dayOk === 'function' && !dayOk(x)
 
 function whereLabel() {
   if (!where.pincode) return 'Choose your location'
@@ -45,8 +47,9 @@ async function whereSheet({ first = false } = {}) {
   const d = $('#where-dialog')
   d.innerHTML = `${formHeader('Where should we deliver?')}
     <p class="where-intro">${beforeSeason() ? 'We’ll check that we deliver to your area. You’ll add the flat and building when you pre-order.' : 'We’ll show what’s in stock and the delivery days for your area. You’ll add the flat and building at checkout.'}</p>
-    ${where.pincode && (where.deliveryDates || []).length && !beforeSeason() ? `<div class="field">Delivery day for ${esc(where.pincode)}</div><div class="date-cards where-days" role="group" aria-label="Delivery day">${where.deliveryDates.map((x) => { const dt = new Date(x + 'T00:00:00'); return `<button type="button" class="date-card" data-pick-date="${esc(x)}" aria-pressed="${x === where.deliveryDate}" aria-label="${esc(fmtDate(x))}"><small>${esc(dt.toLocaleDateString('en-IN', { weekday: 'short' }))}</small><strong>${dt.getDate()}</strong><small>${esc(dt.toLocaleDateString('en-IN', { month: 'short' }))}</small></button>` }).join('')}</div><p class="where-days-note">Stock changes by the day as the mangoes ripen. Pick a later day to see what’s coming.</p>` : ''}
+    ${where.pincode && (where.deliveryDates || []).length && !beforeSeason() ? `<div class="field">Delivery day for ${esc(where.pincode)}</div><div class="date-cards where-days" role="group" aria-label="Delivery day">${where.deliveryDates.map((x) => { const dt = new Date(x + 'T00:00:00'), unfit = bagUnfit(x), why = unfit ? unfitWhy(x) : ''; return `<button type="button" class="date-card${unfit ? ' is-unfit' : ''}" data-pick-date="${esc(x)}" aria-pressed="${x === where.deliveryDate}" aria-label="${esc(fmtDate(x))}${unfit ? `, ${esc(why)}` : ''}"${unfit ? ' aria-disabled="true"' : ''}><small>${esc(dt.toLocaleDateString('en-IN', { weekday: 'short' }))}</small><strong>${dt.getDate()}</strong><small>${esc(dt.toLocaleDateString('en-IN', { month: 'short' }))}</small>${unfit ? `<small class="date-unfit">${icon('close')}<span>${esc(why)}</span></small>` : ''}</button>` }).join('')}</div>${where.deliveryDates.some(bagUnfit) ? `<p class="date-caption">${icon('close')}<span>Crossed-out days can’t take every box in your bag.</span></p>` : ''}<p class="where-days-note">Stock changes by the day as the mangoes ripen. Pick a later day to see what’s coming.</p>` : ''}
     <button class="button primary full" data-where-locate>${icon('pin')} Use my current location</button>
+    <p class="locate-status" id="where-locating" role="status"></p>
     <p class="where-error prototype-tag" role="alert" hidden></p>
     ${saved.length ? `<div class="field">Your saved addresses</div><div class="address-cards">${saved.map((a) => `<button type="button" class="address-card" data-where-saved="${esc(a.id)}" aria-pressed="${a.id === where.savedId}"><strong>${esc(shortAddress(a))}</strong><small>${esc(addressText(a.address))} <span class="no-wrap">· ${esc(a.pincode)}</span></small></button>`).join('')}</div>` : ''}
     <div class="field">Or find it on the map</div>
@@ -70,6 +73,17 @@ async function whereSheet({ first = false } = {}) {
   }).catch(() => {})
 }
 
+/** While the browser looks for the customer: "Finding your location, please wait!" with the pin, in a live region (role
+    status). The checkout's own location buttons (app.js renderCo) draw the same note. */
+const LOCATING = 'Finding your location, please wait!'
+const locatingNote = (id) => `<p class="locate-status is-on" id="${id}" role="status">${icon('pin')}<span>${LOCATING}</span></p>`
+function whereLocating(on) {
+  const s = $('#where-locating')
+  if (!s) return
+  s.classList.toggle('is-on', on)
+  s.innerHTML = on ? `${icon('pin')}<span>${LOCATING}</span>` : ''
+}
+
 function whereError(msg) {
   const p = $('#where-dialog .where-error')
   if (!p) return toast(msg)
@@ -84,7 +98,7 @@ async function whereDo(fn) {
   try {
     await fn()
   } catch (e) {
-    whereError(e.code === 1 ? 'Location is turned off for this site. Allow it in your browser, or use the map or a pincode.' : e.message || 'Something went wrong. Try again.')
+    whereError(e.code === 1 ? 'Location is turned off for this site. Allow it in your browser, or use the map or a pincode.' : e.code === 2 || e.code === 3 ? 'We couldn’t find your location. Try again, or use the map or a pincode.' : e.message || 'Something went wrong. Try again.')
   } finally {
     whereBusy = false
   }
@@ -97,18 +111,26 @@ document.addEventListener('click', (e) => {
   else if (b.hasAttribute('data-where-locate')) {
     whereDo(async () => {
       if (!navigator.geolocation) throw new Error('This browser can’t share your location. Use the map or a pincode.')
+      // Disabled while it looks, the reason right under it (the live note); cleared however it ends.
       b.disabled = true
-      b.innerHTML = `${icon('pin')} Finding you…`
+      b.setAttribute('aria-describedby', 'where-locating')
+      whereLocating(true)
+      // Closing the sheet cancels: the note goes, and a position that arrives later is not used.
+      const sheet = $('#where-dialog'), cancel = () => whereLocating(false)
+      sheet.addEventListener('close', cancel, { once: true })
       try {
         const pos = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }))
+        if (!sheet.open) return
         const { latitude: lat, longitude: lng } = pos.coords
         window.MapPick?.moveTo(lat, lng, 17, { pick: false, accuracy: pos.coords.accuracy < 2000 ? pos.coords.accuracy : null })
         const g = await reverseGeocode(lat, lng)
         if (!/^[1-9]\d{5}$/.test(g.pincode)) throw new Error('We found you, but not your pincode. Move the map or type it below.')
         await setWhere(g.pincode, { area: g.area, lat, lng, street: g.address })
       } finally {
+        sheet.removeEventListener('close', cancel)
+        whereLocating(false)
         b.disabled = false
-        b.innerHTML = `${icon('pin')} Use my current location`
+        b.removeAttribute('aria-describedby')
       }
     })
   } else if (b.hasAttribute('data-where-map')) {

@@ -1,11 +1,12 @@
-/* Farm Experience (docs/farm-experience.md, FARM_EXPERIENCE): the farm card on /bulk, /farm-experience (what the
+/* Farm Experience (docs/farm-experience.md, FARM_EXPERIENCE): the Farm visit tab on /bulk (bulk.js), /farm-experience (what the
    visit is), /farm-experience/book (six steps: variety, kilograms, date, group, details, review), /farm-bookings (the
    customer's visits) and /farm-bookings/:id (one visit: status, check-in code, itinerary, the bill after weighing and
    Pay, cancel, change of date, and the answer to a proposed arrangement).
    Hidden unless GET /v1/policy says features.farmExperience: no card, no tab, and the pages say the visit is not open
    (every farm route answers 404 while the switch is off).
-   The rules are the API's: 250 kg or more of one variety, no guest limit, nothing paid at booking, the bill after
-   weighing, cancel and move by the farm's policy. This file only shows what the API sends and asks it again.
+   The rules are the API's: 100 kg or more of one variety, no guest limit, the stay free, meals paid to the farm team at
+   the farm (never on our bill), nothing paid at booking, the bill for the mangoes after weighing, cancel and move by the
+   farm's policy. This file only shows what the API sends and asks it again.
    Everything about the farm (name, rooms, meals, policies, FAQs) is what the farm team wrote on the panel's Farm
    settings; where they have written nothing, the page says our team will confirm it, and never makes it up.
    Money in farm answers stays in paise (api.js `farm`), shown with fxMoney. Answers in the booking form are kept in
@@ -26,20 +27,11 @@ function farmFeature() {
   return fxFlag ??= MM.policy().then((p) => Boolean(p && p.features && p.features.farmExperience), () => { fxFlag = null; return false })
 }
 
-/** The feature is on: the "Farm visits" tab on the account pages, and the card on /bulk. */
+/** The feature is on: the "Farm visits" tab on the account pages. (The bulk page's Farm visit tab, bulk.js, replaced the old card.) */
 function fxOn() {
   if (!ACCOUNT_TABS.some(([href]) => href === '/farm-bookings')) ACCOUNT_TABS.push(['/farm-bookings', 'Farm visits'])
   const tabs = $('.page-tabs')
   if (tabs && !$('a[href="/farm-bookings"]', tabs)) tabs.insertAdjacentHTML('beforeend', '<a href="/farm-bookings" data-route>Farm visits</a>')
-  farmCard()
-}
-
-/** The farm card on /bulk, under the hero. */
-function farmCard() {
-  if (document.body.dataset.page !== 'bulk' || $('#fx-card')) return
-  const hero = $('#page-body .door-hero.bulk')
-  if (!hero) return
-  hero.insertAdjacentHTML('afterend', `<section class="page-card fx-card" id="fx-card" aria-labelledby="fx-card-title"><span class="pn-icon" aria-hidden="true">${icon('sun')}</span><div><h2 id="fx-card-title">Farm Experience</h2><p>Visit our mango farm, pick 250 kg or more yourself, stay at the farmhouse and pay after picking.</p></div><a class="button secondary" href="/farm-experience" data-route>See the farm visit ${icon('arrow')}</a></section>`)
 }
 
 document.addEventListener('DOMContentLoaded', () => farmFeature().then((on) => { if (on) fxOn() }))
@@ -82,6 +74,10 @@ const fxMeals = (meals) => {
   const names = FX_MEALS.filter(([k]) => meals && meals[k]).map(([, label]) => label)
   return names.length ? names.join(', ') : FX_CONFIRM
 }
+/** Food at the farm: cooked by the farm team, paid to them there, never on our bill (the owner's rule). */
+const FX_FOOD = 'Meals are cooked by our farm team and paid to them directly at the farm.'
+const fxFood = (meals) => { const m = fxMeals(meals); return `${FX_FOOD}${m === FX_CONFIRM ? '' : ` They cook: ${m}.`}` }
+const FX_STAY_FREE = 'Your stay is free: there is no charge for the farmhouse.'
 const fxTransport = (yes) => (yes ? 'Transport is included, as described in the transport policy.' : 'Transport is not included.')
 /** What the farm team wrote, or that our team will confirm it. */
 const fxSaid = (text) => (text ? esc(text) : `<span class="fx-soft">${FX_CONFIRM}</span>`)
@@ -174,10 +170,10 @@ async function farmView(seq = ++sheetSeq) {
   host().innerHTML = pageHead('Farm Experience') + marker(seq) + `
     <section class="pn-hero fx-hero">
       <span class="pn-kicker">${where || 'VMR Mangoes farm visits'}</span>
-      <h2>Pick your own mangoes, <em>stay at the farm.</em></h2>
-      <p>Visit our mango farm, pick your mangoes with our team and stay at the farmhouse. Every booking is for ${fxKg(f.minKg)} or more of one variety.</p>
+      <h2>Pick your own mangoes. <em>Your stay is free.</em></h2>
+      <p>Visit our mango farm, pick your mangoes with our team and stay at the farmhouse at no charge. Every booking is for ${fxKg(f.minKg)} or more of one variety.</p>
       ${book}
-      <small>Nothing to pay when you book · you pay after picking</small>
+      <small>Nothing to pay when you book · the stay is free · food is paid at the farm · you pay for the mangoes after picking</small>
       ${MM.profile() ? `<a class="fx-hero-link" href="/farm-bookings" data-route>My farm visits ${icon('arrow')}</a>` : ''}
     </section>
     <section class="page-card">
@@ -194,8 +190,8 @@ async function farmView(seq = ++sheetSeq) {
       <h3>What’s included</h3>
       <ul class="fx-list">
         <li>${icon('check')}<span>${fxKg(f.minKg)} or more of the variety you choose, at the price shown when you book.</span></li>
-        <li>${icon('check')}<span>A stay at the farmhouse for your group, as our team confirms it.</span></li>
-        <li>${icon('check')}<span>Meals during your stay: ${fxMeals(s.meals)}${fxMeals(s.meals) === FX_CONFIRM ? '' : '.'}</span></li>
+        <li>${icon('check')}<span><strong>Your stay is free:</strong> the farmhouse for your group, as our team confirms it, at no charge.</span></li>
+        <li>${icon('info')}<span><strong>Food is not included:</strong> ${fxFood(s.meals)}</span></li>
         <li>${icon(s.transportIncluded ? 'check' : 'info')}<span>${fxTransport(s.transportIncluded)}</span></li>
       </ul>
       ${s.mealNotes ? `<p class="fx-text">${esc(s.mealNotes)}</p>` : ''}
@@ -220,8 +216,8 @@ async function farmView(seq = ++sheetSeq) {
         <li>Choose a variety and how many kilograms (${fxKg(f.minKg)} or more).</li>
         <li>Pick a visit date that has enough of your variety.</li>
         <li>Tell us who is coming, how long you stay and what you eat.</li>
-        <li>Book without paying anything now.</li>
-        <li>Our team plans your rooms and meals and confirms your stay.</li>
+        <li>Book without paying anything now. Your stay is free.</li>
+        <li>Our team plans your rooms and meals and confirms your stay. You pay the farm team for meals at the farm.</li>
         <li>After picking, our team weighs and checks the mangoes with you, and you pay for the kilograms accepted, online or at the farm.</li>
       </ol>
     </section>
@@ -383,7 +379,7 @@ function fxShowQuote() {
   if (box) box.innerHTML = fxQuoteHtml()
 }
 
-/** The visit dates with 250 kg or more of the chosen variety (GET /v1/farm-experience/dates). A day with less than the
+/** The visit dates with enough kg (100 or more) of the chosen variety (GET /v1/farm-experience/dates). A day with less than the
  * customer's kilograms shows crossed, with how much is left. */
 async function fxDates(fresh = false) {
   const id = fx.d.varietyId
@@ -469,13 +465,13 @@ function fxStepHtml(step) {
       ${fxFact('Variety', esc(v ? v.name : ''))}
       ${fxFact('Mangoes', q ? `${fxKg(kg)} at ${fxMoney(q.pricePerKg)} per kg` : fxKg(kg))}
       ${fxFact('Visit date', fmtDate(d.visitDate))}
-      ${fxFact('Stay', fxStay(stay.from, stay.to))}
+      ${fxFact('Stay', `${fxStay(stay.from, stay.to)} · <strong>free</strong>`)}
       ${fxFact('Group', fxGroup(fxWhole(d.adults) ?? 0, fxWhole(d.children) ?? 0, fxWhole(d.overnight) ?? 0))}
-      ${fxFact('Meals', fxMeals(s.meals))}
+      ${fxFact('Meals', fxFood(s.meals))}
       ${fxFact('Transport', fxTransport(s.transportIncluded))}
     </dl>
     <div class="fx-total"><span>Estimated price</span><strong>${q ? fxMoney(q.total) : fx.quote && fx.quote.state === 'error' ? 'Not available' : 'Working it out…'}</strong></div>
-    ${fxNote('Nothing is paid now. This is an estimate: after picking, you pay for the kilograms weighed and accepted.')}
+    ${fxNote(`Nothing is paid now. ${FX_STAY_FREE} This is an estimate for the mangoes: after picking, you pay for the kilograms weighed and accepted. Meals are paid to the farm team at the farm.`)}
     <details class="fx-more"><summary>Important information${icon('chevron')}</summary>${fxPolicies(f)}</details>
     <label class="fx-accept"><input type="checkbox" name="accept"${d.accept ? ' checked' : ''}><span>I have read the booking policies, including cancelling and changing the date.</span></label>`
 }
@@ -605,7 +601,7 @@ async function farmBookingsView(seq = ++sheetSeq) {
   if (!alive(seq)) return
   const body = list.length
     ? list.map((b) => `<div class="order-row"><a class="guide-choice fx-row" href="/farm-bookings/${encodeURIComponent(b.id)}" data-route><span class="dot ${['CANCELLED', 'NO_SHOW'].includes(b.status) ? 'raw' : b.status === 'PAYMENT_DUE' ? 'semi' : 'ripe'}"></span><span><strong>${esc(b.number)} · ${FX_STATUS[b.status] || esc(b.status)}</strong><small>${fxKg(b.kg)} ${esc(b.variety)} · ${fmtDate(b.visitDate)} · ${b.billAmount != null ? fxMoney(b.billAmount) : `about ${fxMoney(b.total)}`}</small></span>${icon('arrow')}</a></div>`).join('')
-    : `<div class="empty-cart bag-empty empty-state">${icon('sun')}<h2>No farm visits yet.</h2><p>Pick your own mangoes and stay at the farmhouse.</p><a class="button primary bag-explore" href="/farm-experience" data-route>About the farm visit ${icon('arrow')}</a></div>`
+    : `<div class="empty-cart bag-empty empty-state">${icon('sun')}<h2>No farm visits yet.</h2><p>Pick your own mangoes and stay at the farmhouse for free.</p><a class="button primary bag-explore" href="/farm-experience" data-route>About the farm visit ${icon('arrow')}</a></div>`
   host().innerHTML = pageHead('My farm visits') + marker(seq) + `<div class="page-card">${body}</div>${list.length ? `<a class="button secondary fx-wide" href="/farm-experience" data-route>About the farm visit ${icon('arrow')}</a>` : ''}`
 }
 
@@ -809,13 +805,13 @@ function fbRender() {
         <h3>Your itinerary</h3>
         <dl class="fx-facts">
           ${fxFact('Visit date', fmtDate(b.visitDate))}
-          ${fxFact('Stay', fxStay(g.arrivalDate, g.departureDate))}
+          ${fxFact('Stay', `${fxStay(g.arrivalDate, g.departureDate)} · <strong>free</strong>`)}
           ${f.checkInTime && f.checkOutTime ? fxFact('Check-in and check-out', `Check-in from ${fxClock(f.checkInTime)}, check-out by ${fxClock(f.checkOutTime)}`) : ''}
           ${fxFact('Group', fxGroup(g.adults, g.children, g.overnight))}
           ${fxFact('Variety', esc(b.variety.name))}
           ${fxFact('Mangoes', `${fxKg(b.kg)} at ${fxMoney(b.pricePerKg)} per kg`)}
           ${b.bill ? '' : fxFact('Estimated price', `<strong>${fxMoney(b.total)}</strong> · you pay after picking`)}
-          ${fxFact('Meals', `${fxMeals(f.meals)}${f.mealNotes ? ` · ${esc(f.mealNotes)}` : ''}`)}
+          ${fxFact('Meals', `${fxFood(f.meals)}${f.mealNotes ? ` ${esc(f.mealNotes)}` : ''}`)}
           ${fxFact('Transport', `${fxTransport(f.transportIncluded)}${f.transportPolicy ? ` ${esc(f.transportPolicy)}` : ''}`)}
         </dl>
       </section>

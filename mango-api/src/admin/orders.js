@@ -1,5 +1,5 @@
 // Orders: the list and detail, status changes, cancel, reschedule, and the pack list.
-import { orderSeqSql } from '../order-number.js'
+import { normaliseOrderNumber, orderSeqSql } from '../order-number.js'
 import { feeOf } from '../delivery-fee.js'
 import express from 'express'
 import { z } from 'zod'
@@ -66,8 +66,8 @@ router.get(
     if (f.unpacked) where.push("o.status IN ('CONFIRMED', 'PROCESSING')")
     if (f.olderThanMinutes) add('o.placed_at < ?', new Date(now().getTime() - f.olderThanMinutes * 60_000))
     if (f.q) {
-      // "#7434060801" as the shop shows it.
-      const q = f.q.replace(/^#(?=\d)/, '')
+      // "S-743 406 080", "#s743406080" or "#7434060801" as the shop shows it: the number as stored (order-number.js).
+      const q = normaliseOrderNumber(f.q)
       params.push(`${likeEscape(q)}%`, `%${likeEscape(q)}%`)
       // ADM-1: callers give a name or an area as often as a number.
       const [starts, has] = [`$${params.length - 1}`, `$${params.length}`]
@@ -89,6 +89,8 @@ router.get(
         status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, atRisk: o.at_risk, channel: o.channel,
         // Backorders: some boxes were sold before stock arrived (awaiting stock while atRisk).
         backorder: Boolean(o.backorder),
+        // Booked against the plan: delivered from a later harvest (plan-orders.js); delayed: we moved it later.
+        planned: Boolean(o.planned), delayed: Boolean(o.planned && o.delayed_at && o.delayed_from_date),
         // The slot and rider, for the workbench's Due and Rider columns.
         slotId: o.slot_id ?? null, riderId: o.rider_id ?? null,
         // A delivery of a gift order to many recipients (MULTI_GIFT).
@@ -144,6 +146,8 @@ export async function orderDetail(c, orderId) {
     atRisk: o.at_risk, atRiskReason: o.at_risk_reason, channel: o.channel,
     // Backorders: sold before stock arrived; awaiting stock while atRisk (expected, not a problem).
     backorder: Boolean(o.backorder),
+    // Booked against the plan: no stock until its fruit arrives, after that week's pre-orders (plan-orders.js).
+    planned: o.planned ? { week: o.plan_week, delayedFrom: o.delayed_at ? o.delayed_from_date : null, delayCount: o.delay_count } : null,
     // PLT-08, PLT-09 (DELIVERY_CHECKS): staff can give a missed delivery's retry another day.
     retryDateMovable: env.DELIVERY_CHECKS && o.status === 'DELIVERY_FAILED',
     replacementFor: o.replacement_for ? { id: o.replacement_for, number: o.replacement_for_number } : null,

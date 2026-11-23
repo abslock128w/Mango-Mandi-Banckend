@@ -19,3 +19,14 @@ export function duration(ms: number) {
   const h = Math.floor(m / 60);
   return h ? `${h} h ${m % 60} min` : `${m} min`;
 }
+
+/**
+ * An order number as everyone reads it (as mango-api order-number.js, the shop and the panel):
+ * S743406080 is S-743 406 080 (the letter set apart: S looks like 5, B like 8), 7434060801 is
+ * #7434060801, older ones (ORD-1024) as they are.
+ */
+export function orderNo(n: string | null | undefined): string {
+  const s = String(n ?? "");
+  if (/^[SPGB]\d{9}$/.test(s)) return `${s[0]}-${s.slice(1, 4)} ${s.slice(4, 7)} ${s.slice(7)}`;
+  return /^[1-9]\d{9}$/.test(s) ? `#${s}` : s;
+}

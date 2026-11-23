@@ -152,6 +152,7 @@ secrets with `openssl rand -hex 32`. Never commit them.
 | `MANGO_CHECK` | `shadow` for the first week, then `on` | `shadow` | `on`: a failed check means retake (continue for review after two); `shadow`: stored and shown on the panel, never blocks; `off`: no call |
 | `BLOB_CALLBACK_URL` | leave unset | leave unset | where Blob reports a rider's finished photo upload; unset, the API's own `/webhooks/blob/delivery-photos` |
 | `DELIVERY_PHOTO_RETENTION_DAYS` | leave unset (`90`) | | delivery photo images are deleted after this many days by the daily maintenance pass; the rows, GPS and mango verdicts stay |
+| `PARTNER_RETENTION_DAYS` | leave unset (`30`) | | days after a Grow with us application ended (rejected, closed, converted) that its details are deleted by the daily maintenance pass; the form tells applicants this number. A converted one keeps the contact details |
 | `OTP_DAILY_LIMIT` | `3000` | `200` | login codes per day before sending pauses; Sentry warns at 80% |
 | `OTP_NEW_NUMBER_SHARE` | `0.6` | | the part of that budget numbers with no account may use; the rest is kept for existing customers |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | from Cloudflare Turnstile | Cloudflare's test keys | a check, usually invisible, before a login code is sent; set both or neither |

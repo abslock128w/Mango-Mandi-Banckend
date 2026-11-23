@@ -145,6 +145,7 @@ router.post(
     const assignTo = rider ? req.admin.id : (b.riderId ?? null)
     const dispatched = []
     const skipped = []
+    const sentOut = []
     for (const o of rows) {
       if (['CONFIRMED', 'PROCESSING'].includes(o.status)) {
         skipped.push({ number: o.number, reason: 'Not packed yet' })
@@ -155,11 +156,16 @@ router.post(
           if (assignTo) await assignRider(c, o.id, assignTo, { onlyIfFree: rider })
           return dispatchOrder(c, o.id, req.actor)
         })
-        if (sent) dispatched.push(o.number)
+        if (sent) {
+          dispatched.push(o.number)
+          sentOut.push(o.id)
+        }
       } catch (err) {
         skipped.push({ number: o.number, reason: err.message })
       }
     }
+    // The customers hear now (the update and the delivery code), not at the next maintenance run.
+    await sendDispatchMessagesNow(sentOut)
     res.json({ dispatched, skipped })
   }),
 )
@@ -170,14 +176,35 @@ router.post(
     const b = parse(z.object({ override: z.boolean().optional(), reason: z.string().trim().max(300).optional() }), req.body ?? {})
     if (b.override && req.admin.role !== 'MANAGER') throw new HttpError(403, 'FORBIDDEN', 'Only a manager can override this')
     if (b.override && !b.reason) throw badRequest('Say why it is going out anyway', 'REASON_REQUIRED')
-    await tx(async (c) => {
+    const sent = await tx(async (c) => {
       // A rider sending out an unassigned stop takes it (riderScope let them reach it for this).
       if (req.admin.role === 'RIDER') await assignRider(c, req.params.id, req.admin.id, { onlyIfFree: true })
       return dispatchOrder(c, req.params.id, req.actor, { override: Boolean(b.override), reason: b.reason })
     })
+    if (sent) await sendDispatchMessagesNow([req.params.id])
     res.status(204).end()
   }),
 )
+
+/** The messages an order going out queues: the update and the delivery code (a gift's recipient gets both too). */
+const DISPATCH_KINDS = ['OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_OUT_FOR_DELIVERY', 'GIFT_DELIVERY_CODE']
+
+/**
+ * Sends the dispatch messages just queued for these orders, after the dispatch committed.
+ * Never fails the request: a message not sent stays in the outbox for its retry.
+ */
+async function sendDispatchMessagesNow(orderIds) {
+  if (!orderIds.length) return
+  try {
+    const { rows } = await query(
+      `SELECT id FROM notifications WHERE order_id = ANY($1) AND kind = ANY($2) AND status = 'PENDING' AND next_attempt_at <= $3`,
+      [orderIds, DISPATCH_KINDS, now()],
+    )
+    if (rows.length) await sendNotificationsNow(rows.map((r) => r.id))
+  } catch (err) {
+    logger.warn({ err, orders: orderIds.length }, 'dispatch messages not sent at once; the outbox retries them')
+  }
+}
 
 // ---------------------------------------------------------------- rider assignment (SEC-02)
 
@@ -398,7 +425,12 @@ router.post(
       return pickupOrder(c, req.params.id, req.actor)
     })
     const ids = r.eventId ? (await query('SELECT id FROM notifications WHERE event_id = $1', [r.eventId])).rows.map((x) => x.id) : []
-    const messages = r.already ? await messageStates(ids) : await sendNotificationsNow(ids)
+    // A repeat (or an order the panel sent out first) still sends whatever of these is pending:
+    // only PENDING rows that are due are claimed, so nothing already sent goes twice.
+    const messages = await sendNotificationsNow(ids).catch((err) => {
+      logger.warn({ err, orderId: req.params.id }, 'pickup messages not sent at once; the outbox retries them')
+      return messageStates(ids)
+    })
     res.json({ status: 'OUT_FOR_DELIVERY', already: r.already, messages })
   }),
 )
@@ -529,7 +561,9 @@ router.post(
   '/rider/location',
   asyncHandler(async (req, res) => {
     const b = parse(
-      z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).max(100_000).nullable().optional(), at: z.number().optional() }),
+      // at: when the phone took the fix, as the rider app sends it (an ISO time; a number from older builds). Not
+      // stored: the server's clock is (a phone's clock can be wrong), so it only has to be well formed.
+      z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).max(100_000).nullable().optional(), at: z.union([z.number(), z.string().max(40)]).optional() }),
       req.body,
     )
     const at = now()

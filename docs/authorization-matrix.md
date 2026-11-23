@@ -12,7 +12,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 - **Audit.** Every successful change is written to `staff_audit` (who, route, target, body without secrets). The table is append-only.
   Views marked here record who looked at customer details. See [authorization.md](authorization.md).
 
-291 routes; 28 ask for step-up.
+302 routes; 31 ask for step-up.
 
 ## Your account
 
@@ -49,8 +49,8 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 |---|:-:|:-:|:-:|:-:|:-:|---|---|
 | `GET /delivery-reviews` | ✓ | ✓ |  |  |  |  |  |
 | `POST /delivery-reviews/:id` | ✓ | ✓ |  |  |  |  | Each change |
-| `GET /gift-orders` | ✓ | ✓ |  |  |  |  |  |
-| `GET /gift-orders/:id` | ✓ | ✓ |  |  |  |  |  |
+| `GET /gift-orders` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `GET /gift-orders/:id` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
 | `GET /manifest` | ✓ | ✓ | ✓ |  | ✓ |  | Views (STAFF_AUDIT_TRAIL) |
 | `POST /manifest/assign` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /manifest/auto-assign` | ✓ | ✓ |  |  |  |  | Each change |
@@ -143,9 +143,12 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 |---|:-:|:-:|:-:|:-:|:-:|---|---|
 | `GET /bulk-enquiries` | ✓ | ✓ |  |  |  |  |  |
 | `GET /bulk-enquiries/:id` | ✓ | ✓ |  |  |  |  |  |
+| `POST /bulk-enquiries/:id/cancel` | ✓ |  |  |  |  | Always: cancelling a paid bulk order, which refunds it in full | Each change |
 | `POST /bulk-enquiries/:id/close` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/farm-status` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /bulk-enquiries/:id/note` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /bulk-enquiries/:id/quote` | ✓ | ✓ |  |  |  |  | Each change |
+| `POST /bulk-enquiries/:id/status` | ✓ | ✓ |  |  |  |  | Each change |
 
 ## Preorders
 
@@ -154,9 +157,14 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /preorder-capacity` | ✓ | ✓ |  |  |  |  |  |
 | `PUT /preorder-capacity/:weekStart/:sku` | ✓ |  |  |  |  |  | Each change |
 | `POST /preorder-capacity/:weekStart/:sku/recount` | ✓ |  |  |  |  |  | Each change |
+| `POST /preorder-plan/apply` | ✓ |  |  |  |  | Always: changing the kg a day expected per variety (a rules change), which can delay pre-orders and message customers | Each change |
+| `POST /preorder-plan/preview` | ✓ |  |  |  |  |  | Each change |
+| `GET /preorder-weeks` | ✓ | ✓ |  |  |  |  |  |
+| `PUT /preorder-weeks/:weekStart` | ✓ |  |  |  |  |  | Each change |
 | `GET /preorders` | ✓ | ✓ |  |  |  |  |  |
 | `POST /preorders/:id/cancel` | ✓ |  |  |  |  | Always: cancelling a paid booking, which refunds it in full | Each change |
 | `POST /preorders/:id/keep` | ✓ |  |  |  |  |  | Each change |
+| `POST /preorders/:id/move` | ✓ |  |  |  |  |  | Each change |
 
 ## Planning
 
@@ -218,7 +226,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `GET /attention` | ✓ | ✓ |  |  |  |  |  |
 | `GET /daily-summary/preview` | ✓ |  |  |  |  |  |  |
 | `GET /exports/:kind` | ✓ |  |  |  |  |  | Each view |
-| `GET /summary` | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |
+| `GET /summary` | ✓ | ✓ |  | ✓ |  |  |  |
 
 ## Recovery
 
@@ -334,6 +342,7 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 | `POST /partner-network/enquiries/:id/contact-attempts` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /partner-network/enquiries/:id/convert` | ✓ |  |  |  |  |  | Each change |
 | `GET /partner-network/enquiries/:id/documents/:documentId` | ✓ | ✓ |  |  |  |  | Views (STAFF_AUDIT_TRAIL) |
+| `POST /partner-network/enquiries/:id/erase` | ✓ |  |  |  |  |  | Each change |
 | `POST /partner-network/enquiries/:id/followups` | ✓ | ✓ |  |  |  |  | Each change |
 | `PATCH /partner-network/enquiries/:id/followups/:followupId` | ✓ | ✓ |  |  |  |  | Each change |
 | `POST /partner-network/enquiries/:id/notes` | ✓ | ✓ |  |  |  |  | Each change |
@@ -352,6 +361,8 @@ It is generated from the reviewed role snapshot (`mango-api/test/fixtures/role-p
 
 | Route | Manager | Operator | Packer | QC | Rider | Step-up | Audit |
 |---|:-:|:-:|:-:|:-:|:-:|---|---|
+| `GET /bulk-prices` | ✓ | ✓ |  |  |  |  |  |
+| `PUT /bulk-prices` | ✓ |  |  |  |  | Always: changing bulk prices (the default discount or a box's own bulk price) | Each change |
 | `GET /day` | ✓ | ✓ |  |  |  |  |  |
 | `GET /deliveries/live` | ✓ | ✓ |  |  |  |  |  |
 | `GET /events` | ✓ | ✓ |  |  |  |  |  |

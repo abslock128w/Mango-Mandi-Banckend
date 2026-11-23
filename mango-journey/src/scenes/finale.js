@@ -119,18 +119,22 @@ export default class Finale extends Stage {
     g.fillText(CHAPTERS[k].name, 26, Hc - 20)
   }
 
-  setShots(shots) {
-    shots.forEach((src, k) => {
+  /** Paint the stills onto the cards and upload them now (main.js awaits this while the film loads): left to the
+   *  finale's first frame, twelve canvas uploads at once cost WebKit over half a second. */
+  async setShots(shots) {
+    // the card labels are canvas text: ask for their two faces by name (fonts.ready alone resolves before a face
+    // nobody has used yet is even requested, and the labels came out in the fallback serif)
+    await Promise.race([Promise.all([`400 34px ${SERIF}`, `700 18px ${SANS}`].map((f) => document.fonts?.load(f))).catch(() => {}), new Promise((r) => setTimeout(r, 2500))])
+    await Promise.all(shots.map(async (src, k) => {
       if (!src || !this.cards[k]) return
       const img = new Image()
-      img.onload = () => {
-        const { canvas, tex } = this.cards[k].userData
-        const draw = () => { this.paintCard(canvas, k, img); tex.needsUpdate = true }
-        draw()
-        document.fonts?.ready.then(draw)
-      }
       img.src = src
-    })
+      try { await img.decode() } catch { return }
+      const { canvas, tex } = this.cards[k].userData
+      this.paintCard(canvas, k, img)
+      tex.needsUpdate = true
+      try { this.engine.renderer.initTexture(tex) } catch { /* uploaded on first use */ }
+    }))
   }
 
   update(i, tt, time) {

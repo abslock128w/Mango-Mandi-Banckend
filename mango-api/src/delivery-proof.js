@@ -14,6 +14,7 @@
 // sends it out for delivery. At the door the code is only accepted once the
 // door photo and an open-box photo that passed the mango check (or was flagged
 // for review) are in.
+import { formatOrderNumber } from './order-number.js'
 import { now, todayIST } from './clock.js'
 import { codeMatches, deliveryCodeFor } from './delivery-code.js'
 import { badRequest, conflict, HttpError, notFound } from './errors.js'
@@ -56,7 +57,7 @@ export async function dispatchOrder(c, orderId, actor, opts = {}) {
   if (o.status === 'OUT_FOR_DELIVERY') return false
   if (!['PACKED', 'SHIPPED', 'DELIVERY_FAILED'].includes(o.status)) {
     const why = ['CONFIRMED', 'PROCESSING'].includes(o.status) ? 'is not packed yet' : `is ${o.status.toLowerCase().replace(/_/g, ' ')}`
-    throw badRequest(`Order ${o.number} ${why}`, 'INVALID_TRANSITION')
+    throw badRequest(`Order ${formatOrderNumber(o.number)} ${why}`, 'INVALID_TRANSITION')
   }
   if (o.status === 'PACKED') await setOrderStatus(c, orderId, 'SHIPPED', actor, opts)
   await setOrderStatus(c, orderId, 'OUT_FOR_DELIVERY', actor, opts)
@@ -187,7 +188,7 @@ export async function pickupOrder(c, orderId, actor) {
   }
   if (!['PACKED', 'SHIPPED', 'DELIVERY_FAILED'].includes(o.status)) {
     const why = ['CONFIRMED', 'PROCESSING'].includes(o.status) ? 'is not packed yet' : `is ${o.status.toLowerCase().replace(/_/g, ' ')}`
-    throw badRequest(`Order ${o.number} ${why}`, 'INVALID_TRANSITION')
+    throw badRequest(`Order ${formatOrderNumber(o.number)} ${why}`, 'INVALID_TRANSITION')
   }
   if (!photo) throw badRequest('Take the pickup photo of the sealed box first', 'PICKUP_PHOTO_REQUIRED')
   if (o.status === 'PACKED') await setOrderStatus(c, orderId, 'SHIPPED', actor)
@@ -305,7 +306,7 @@ export async function recordDelivery(c, orderId, input, actor) {
   const o = await lockOrder(c, orderId)
   if (o.status !== 'OUT_FOR_DELIVERY') {
     if (['DELIVERED', 'DELIVERY_FAILED'].includes(o.status)) throw conflict('This delivery was already recorded.')
-    throw badRequest(`Order ${o.number} is not out for delivery`, 'INVALID_TRANSITION')
+    throw badRequest(`Order ${formatOrderNumber(o.number)} is not out for delivery`, 'INVALID_TRANSITION')
   }
   // ORD-4: a report for an earlier attempt (resent after the order went out again) must not count against this one.
   if (input.attempt !== undefined && input.attempt !== o.delivery_failures + 1) {
@@ -345,6 +346,14 @@ export async function recordDelivery(c, orderId, input, actor) {
       throw new HttpError(403, 'HANDOVER_NOT_ALLOWED', "Leaving the box without the code needs a manager's OK for this order. Call ops.")
     }
     if (!input.receivedBy?.trim()) throw badRequest('Say who took the order, or where it was left', 'RECEIVER_REQUIRED')
+    // The handover photo is taken at the door on this attempt: not the warehouse pickup photo, not a
+    // removed one, and not one from an earlier attempt (that box came back and went out again).
+    const { rows: fresh } = await c.query(
+      `SELECT 1 FROM delivery_photos WHERE id = $1 AND order_id = $2 AND attempt = $3 AND removed_at IS NULL
+          AND (step IS NULL OR step <> 'pickup')`,
+      [input.photoId, orderId, o.delivery_failures + 1],
+    )
+    if (!fresh.length) throw badRequest('Take a photo at the door on this delivery attempt', 'PHOTO_NOT_CURRENT')
     method = 'photo'
   } else {
     throw badRequest("Enter the customer's code, or take a photo of the handover", 'PROOF_REQUIRED')

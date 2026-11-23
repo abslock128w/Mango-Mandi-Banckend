@@ -305,6 +305,15 @@
   "OPERATOR": "forbidden",
   "MANAGER": "notfound"
  },
+ "GET /admin/v1/bulk-prices": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
  "GET /admin/v1/calendar": {
   "anonymous": "signin",
   "customer": "signin",
@@ -719,6 +728,15 @@
   "OPERATOR": "ok",
   "MANAGER": "ok"
  },
+ "GET /admin/v1/preorder-weeks": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
  "GET /admin/v1/preorders": {
   "anonymous": "signin",
   "customer": "signin",
@@ -866,8 +884,8 @@
  "GET /admin/v1/summary": {
   "anonymous": "signin",
   "customer": "signin",
-  "RIDER": "ok",
-  "PACKER": "ok",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
   "QC": "ok",
   "OPERATOR": "ok",
   "MANAGER": "ok"
@@ -1259,6 +1277,15 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "GET /v1/bulk/prices": {
+  "anonymous": "ok",
+  "customer": "ok",
+  "RIDER": "ok",
+  "PACKER": "ok",
+  "QC": "ok",
+  "OPERATOR": "ok",
+  "MANAGER": "ok"
+ },
  "GET /v1/cart": {
   "anonymous": "signin",
   "customer": "signin",
@@ -1484,6 +1511,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/me/ordered-products": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "GET /v1/me/push": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -1629,6 +1665,15 @@
   "MANAGER": "signin"
  },
  "GET /v1/preorders/:id": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "GET /v1/preorders/groups/:id": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "signin",
@@ -2006,6 +2051,15 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "POST /admin/v1/bulk-enquiries/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
  "POST /admin/v1/bulk-enquiries/:id/close": {
   "anonymous": "signin",
   "customer": "signin",
@@ -2014,6 +2068,15 @@
   "QC": "forbidden",
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/farm-status": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
  },
  "POST /admin/v1/bulk-enquiries/:id/note": {
   "anonymous": "signin",
@@ -2025,6 +2088,15 @@
   "MANAGER": "refused"
  },
  "POST /admin/v1/bulk-enquiries/:id/quote": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/bulk-enquiries/:id/status": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "forbidden",
@@ -2528,6 +2600,15 @@
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
  },
+ "POST /admin/v1/partner-network/enquiries/:id/erase": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "notfound"
+ },
  "POST /admin/v1/partner-network/enquiries/:id/followups": {
   "anonymous": "signin",
   "customer": "signin",
@@ -2609,6 +2690,24 @@
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
  },
+ "POST /admin/v1/preorder-plan/apply": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
+ "POST /admin/v1/preorder-plan/preview": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "ok"
+ },
  "POST /admin/v1/preorders/:id/cancel": {
   "anonymous": "signin",
   "customer": "signin",
@@ -2619,6 +2718,15 @@
   "MANAGER": "refused"
  },
  "POST /admin/v1/preorders/:id/keep": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "POST /admin/v1/preorders/:id/move": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "forbidden",
@@ -3365,6 +3473,15 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "POST /v1/dev/pay-bulk": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /v1/dev/pay-farm": {
   "anonymous": "refused",
   "customer": "refused",
@@ -3473,6 +3590,15 @@
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
  },
+ "POST /v1/farm-visit-enquiries": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
+ },
  "POST /v1/gifts/:id/cancel": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -3528,6 +3654,33 @@
   "MANAGER": "signin"
  },
  "POST /v1/me/bulk-enquiries/:id/seen": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-orders": {
+  "anonymous": "signin",
+  "customer": "refused",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-orders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-orders/:id/pay": {
   "anonymous": "signin",
   "customer": "notfound",
   "RIDER": "signin",
@@ -3725,6 +3878,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/preorders/groups": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "POST /v1/reviews": {
   "anonymous": "signin",
   "customer": "refused",
@@ -3797,6 +3959,15 @@
   "OPERATOR": "forbidden",
   "MANAGER": "refused"
  },
+ "PUT /admin/v1/bulk-prices": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
  "PUT /admin/v1/calendar/:date": {
   "anonymous": "signin",
   "customer": "signin",
@@ -3861,6 +4032,15 @@
   "MANAGER": "notfound"
  },
  "PUT /admin/v1/preorder-capacity/:weekStart/:sku": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "forbidden",
+  "PACKER": "forbidden",
+  "QC": "forbidden",
+  "OPERATOR": "forbidden",
+  "MANAGER": "refused"
+ },
+ "PUT /admin/v1/preorder-weeks/:weekStart": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "forbidden",

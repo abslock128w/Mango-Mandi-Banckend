@@ -1,7 +1,7 @@
 // 24 Oct 2026 audit, payments leftovers (docs/audit-2026-10-24-status-A.md).
 // Each test failed on the code before its fix. Razorpay is never called: a
 // fetch stub stands in for its API and records every call.
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, onePreorderWeek, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
@@ -315,8 +315,7 @@ describe('PAY-08: the daily check of payments Razorpay captured', () => {
   })
 
   test('a booking paid on its link 4 days after its payment window opened is booked', async () => {
-    const week = farWeek()
-    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 4 }, { token: manager })).status, 200)
+    const week = await onePreorderWeek(24, farWeek())
     const cust = await customerToken(api)
     const b = await api.post(
       '/v1/preorders',

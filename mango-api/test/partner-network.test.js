@@ -325,8 +325,9 @@ describe('messages', () => {
     const sent = []
     const n = await sendDueNotifications({ sender: async (m) => (sent.push(m), `wamid.${sent.length}`) })
     assert.equal(n, 3)
-    assert.equal(sent[0].template, `${env.WHATSAPP_TEMPLATE_PREFIX}partner_enquiry_received`)
-    assert.equal(sent[0].params.length, 3)
+    // Messages due at the same moment go in no fixed order.
+    const receipt = sent.find((m) => m.template === `${env.WHATSAPP_TEMPLATE_PREFIX}partner_enquiry_received`)
+    assert.equal(receipt.params.length, 3)
   })
 
   test('a failed send never loses the enquiry, and is recorded', async () => {

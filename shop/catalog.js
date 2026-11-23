@@ -11,10 +11,10 @@
   const ROWS = [
     ['Alphonso', 'Ratnagiri', 'Ratnagiri and Devgad, Maharashtra', 'Rich, creamy and fragrant with saffron-gold flesh',
       'Known locally as Hapus, Alphonso grows in the red laterite soil of the Konkan coast. Each fruit is hand-picked at maturity and ripened in hay, never with carbide.',
-      [3, 6], 5, 100, [0, 7, 22, 32], 'Most loved for desserts', ['hapus', 'dessert', 'aamras', 'premium'], ['dessert', 'gifting']],
+      [3, 6], 5, 100, [0, 7, 22, 32], 'Most loved for desserts', ['hapus', 'dessert', 'aamras', 'premium'], ['dessert']],
     ['Kesar', 'Gir', 'Gir, Junagadh, Gujarat', 'Saffron-sweet with a hint of honey',
       'Grown in the foothills of Gir, Kesar takes its name from its saffron colour. It is the classic choice for aamras and shrikhand.',
-      [5, 7], 5, 92, [5, 12, 23, 33], 'The classic aamras mango', ['aamras', 'dessert', 'saffron', 'shrikhand'], ['dessert', 'gifting']],
+      [5, 7], 5, 92, [5, 12, 23, 33], 'The classic aamras mango', ['aamras', 'dessert', 'saffron', 'shrikhand'], ['dessert']],
     ['Banganapalli', 'Kurnool', 'Kurnool, Andhra Pradesh', 'Mild, sweet and fibreless with a firm bite',
       'Also called Benishan, Banganapalli has a GI tag and thin golden skin. Its fibreless flesh slices cleanly for salads and lunch boxes.',
       [3, 6], 4, 85, [16, 19, 24, 11], 'Slices clean, no fibre', ['benishan', 'slices', 'fibreless'], ['pickle']],
@@ -32,7 +32,7 @@
       [5, 7], 2, 75, [22, 24, 28, 23], 'For the pickle jar', ['pickle', 'kairi', 'chutney', 'tangy', 'achar'], ['pickle']],
     ['Himsagar', 'Murshidabad', 'Murshidabad, West Bengal', 'Creamy, fibreless and very sweet',
       "Bengal's pride, Himsagar has a short season and a creamy texture loved for mishti doi and desserts.",
-      [5, 6], 5, 78, [1, 34, 30, 20], "Bengal's creamy pride", ['bengal', 'dessert', 'fibreless'], ['dessert', 'gifting']],
+      [5, 6], 5, 78, [1, 34, 30, 20], "Bengal's creamy pride", ['bengal', 'dessert', 'fibreless'], ['dessert']],
     ['Neelam', 'Krishnagiri', 'Krishnagiri, Tamil Nadu', 'Floral, mildly sweet with a long shelf life',
       'Neelam fruits late and keeps well. Its floral aroma makes it a favourite for smoothies and milkshakes.',
       [6, 8], 3, 60, [17, 28, 22, 13], 'Keeps well, blends well', ['floral', 'shake', 'smoothie'], ['juice']],
@@ -50,13 +50,13 @@
       [4, 6], 4, 58, [18, 27, 26, 37], 'Juiciest pulp', ['juice', 'pulp', 'ice cream'], ['juice']],
     ['Imam Pasand', 'Krishna', 'Krishna, Andhra Pradesh', 'Large, fibreless and richly sweet',
       'Once reserved for royalty, Imam Pasand is a large, thin-skinned mango with fibreless flesh and a lingering finish.',
-      [3, 6], 5, 74, [39, 9, 27, 34], 'Once a royal favourite', ['himayat', 'royal', 'premium'], ['dessert', 'gifting']],
+      [3, 6], 5, 74, [39, 9, 27, 34], 'Once a royal favourite', ['himayat', 'royal', 'premium'], ['dessert']],
     ['Malgova', 'Salem', 'Salem, Tamil Nadu', 'Round, juicy and sweet with a soft texture',
       'Malgova is a round mango from Salem with soft, juicy flesh, a summer staple across Tamil Nadu.',
       [5, 7], 4, 62, [11, 15, 28, 33], 'Round, soft and juicy', ['salem', 'round'], ['juice']],
     ['Mixed Box', 'Four regions', 'Maharashtra, Gujarat, Andhra Pradesh and West Bengal', 'Four favourites in one box',
       "Can't pick one? The Mixed Box packs a fixed assortment of four in-season favourites, each wrapped and labelled so you can taste them side by side.",
-      [5, 7], 5, 90, [20, 21, 30, 12], 'Four favourites, one box', ['gift', 'assorted', 'sampler', 'mixed', 'combo'], ['gifting']],
+      [5, 7], 5, 90, [20, 21, 30, 12], 'Four favourites, one box', ['gift', 'assorted', 'sampler', 'mixed', 'combo'], []],
   ]
 
   const varieties = ROWS.map(([name, region, origin, flavour, story, season, sweetness, popularity, pics, bestFor, tags, occasions]) => ({
@@ -85,7 +85,6 @@
       { id: 'dessert', label: 'Dessert & aamras' },
       { id: 'pickle', label: 'Pickle & chutney' },
       { id: 'juice', label: 'Juice & shakes' },
-      { id: 'gifting', label: 'Gifting' },
     ],
 
     // Search words that point at a variety (and the stage it should open at).

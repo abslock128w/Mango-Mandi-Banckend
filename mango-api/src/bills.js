@@ -477,5 +477,5 @@ export async function billFor(c, orderId) {
   return rows[0] ?? null
 }
 
-/** The file name a bill downloads as: MandiMangoes-bill-MM-26-27-000001.pdf. */
-export const billFileName = (b) => `MandiMangoes-bill-${b.number.replace(/\//g, '-')}.pdf`
+/** The file name a bill downloads as: VMR-Mangoes-bill-MM-26-27-000001.pdf. */
+export const billFileName = (b) => `VMR-Mangoes-bill-${b.number.replace(/\//g, '-')}.pdf`

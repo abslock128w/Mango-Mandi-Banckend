@@ -8,6 +8,7 @@ import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
 import { sellWindow } from '../delivery.js'
 import { photoReviews } from '../delivery-proof.js'
+import { newFarmVisits } from '../bulk-enquiries.js'
 import { query } from '../db.js'
 import { env } from '../env.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
@@ -17,7 +18,7 @@ import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
 import { pushOn } from '../push.js'
-import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
+import { lateArrivals, overdueOrders, preorderCapacityDrift, preorderPlanIssues, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 import { boxCheck } from '../warehouse/reports.js'
 
 export const router = express.Router()
@@ -119,6 +120,7 @@ export function attentionCount(a) {
   const lists = [
     a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.boxMismatches, a.preorderCapacityDrift,
     a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.failedPushes, a.disputes, a.webhookFailures,
+    a.preorderDelayedOften, a.preorderWeeksOver, a.delayRefunds,
   ]
   return (a.loop.stale ? 1 : 0) + (a.backup?.stale ? 1 : 0) + (a.lowRatings.length ? 1 : 0) + lists.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0)
 }
@@ -228,8 +230,15 @@ export async function attentionReport(at = now()) {
       [week, new Date(at.getTime() - 15 * 60_000), pushOn()],
     ),
   ])
+  // The pre-order plan (migration 079): bookings delayed more than twice, weeks over a variety's limit, refunds owed after delay-cancels.
+  const plan = await preorderPlanIssues({ query })
   const tick = runs.rows.find((r) => r.step === 'tick')
   return {
+    // Farm visit enquiries waiting for a call (bulk-enquiries.js): work to do, not a fault, so attentionCount leaves them out.
+    farmVisitEnquiries: await newFarmVisits({ query }),
+    preorderDelayedOften: plan.delayedOften,
+    preorderWeeksOver: plan.weeksOver,
+    delayRefunds: plan.delayRefunds,
     loop: {
       lastRunAt: tick?.last_ok_at ?? null,
       stale: !tick?.last_ok_at || at - tick.last_ok_at > LOOP_STALE_MS,

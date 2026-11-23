@@ -3,7 +3,7 @@ import { tokens } from "@/styles/tokens";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "MandiMangoes Rider",
+    name: "VMR Mangoes Rider",
     short_name: "Rider",
     description: "Today's delivery run: pickup photos, doorstep proof and delivery codes.",
     id: "/",

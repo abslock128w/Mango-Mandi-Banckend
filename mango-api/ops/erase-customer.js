@@ -1,6 +1,9 @@
 // Deletes a customer's account and personal data for a request that came by
 // email or WhatsApp instead of the app's "Delete my account" (DPDP Act,
 // SEC-05). Same steps as DELETE /v1/me (src/privacy.js eraseCustomer).
+// Grow with us applications sent with the same number (or, with --email, the
+// same email) are deleted too, contact details included, even when the person
+// has no shop account (src/partner/erase.js).
 //
 //   node --env-file=.env ops/erase-customer.js --phone 9876543210          (shows who it would delete)
 //   node --env-file=.env ops/erase-customer.js --phone 9876543210 --yes    (deletes)
@@ -18,6 +21,7 @@ import { closePool, query, tx } from '../src/db.js'
 import { forgetCustomer } from '../src/auth.js'
 import { dropPhoto } from '../src/photos.js'
 import { eraseCustomer } from '../src/privacy.js'
+import { applicationsOf, eraseApplicantApplications } from '../src/partner/erase.js'
 
 /** +91XXXXXXXXXX from what the customer wrote (spaces, dashes, 0 or 91 in front). */
 export const normalisePhone = (s) => {
@@ -28,12 +32,18 @@ export const normalisePhone = (s) => {
 export async function main(args = process.argv.slice(2)) {
   const { values } = parseArgs({ args, options: { phone: { type: 'string' }, id: { type: 'string' }, email: { type: 'string' }, yes: { type: 'boolean' } } })
   let where
+  // Whose partner applications to look for besides the account's own number.
+  const applicant = { phone: null, email: null }
   if (values.id) where = ['id = $1', values.id]
   else if (values.phone) {
     const phone = normalisePhone(values.phone)
     if (!phone) throw new Error(`${values.phone} is not a 10-digit Indian mobile number`)
     where = ['phone = $1', phone]
-  } else if (values.email) where = ['lower(email) = lower($1)', values.email.trim()]
+    applicant.phone = phone
+  } else if (values.email) {
+    where = ['lower(email) = lower($1)', values.email.trim()]
+    applicant.email = values.email.trim()
+  }
   else {
     console.error('usage: ops/erase-customer.js --phone <number> | --id <cus_...> | --email <address>  [--yes]')
     process.exitCode = 2
@@ -44,18 +54,31 @@ export async function main(args = process.argv.slice(2)) {
        FROM customers c WHERE ${where[0]} AND c.deleted_at IS NULL`,
     [where[1]],
   )
+  const applications = await applicationsOf({ query }, applicant)
+  if (rows.length > 1) throw new Error(`${rows.length} accounts match; run it again with --id`)
+  if (applications.length) console.log(`Grow with us applications: ${applications.map((a) => `${a.reference} (${a.status})`).join(', ')}.`)
   if (!rows.length) {
-    console.log('No live account matches. Nothing to delete.')
+    if (!applications.length) {
+      console.log('No live account or partner application matches. Nothing to delete.')
+      return
+    }
+    console.log('No live account matches.')
+    if (!values.yes) {
+      console.log('Run again with --yes to delete these applications.')
+      return
+    }
+    const docs = await tx((c) => eraseApplicantApplications(c, applicant))
+    for (const p of docs) await dropPhoto(p)
+    console.log(`Deleted ${applications.length} partner application(s): ${applications.map((a) => a.reference).join(', ')}.`)
     return
   }
-  if (rows.length > 1) throw new Error(`${rows.length} accounts match; run it again with --id`)
   const who = rows[0]
   console.log(`Account ${who.id} (${who.name ?? 'no name'}), since ${who.created_at.toISOString().slice(0, 10)}, ${who.orders} orders.`)
   if (!values.yes) {
     console.log('Run again with --yes to delete it.')
     return
   }
-  const photos = await tx((c) => eraseCustomer(c, who.id))
+  const photos = await tx(async (c) => [...(await eraseCustomer(c, who.id)), ...(await eraseApplicantApplications(c, applicant))])
   forgetCustomer(who.id)
   for (const p of photos) await dropPhoto(p)
   console.log(`Deleted ${who.id}. Keep this id with the request (ops/reapply-deletions.js --ids ${who.id} after a restore).`)

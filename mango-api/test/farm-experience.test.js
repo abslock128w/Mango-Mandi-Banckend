@@ -1,4 +1,4 @@
-// Farm Experience (docs/farm-experience.md): 250 kg or more, booked without
+// Farm Experience (docs/farm-experience.md): 100 kg or more (250 until 23 Nov 2026), booked without
 // paying, a farm stay arranged by staff, and the bill paid after picking for
 // the kilograms weighed and accepted. The rules on their own (price, minimum,
 // bill, status moves, cancel and move options, meal plan), then the whole flow
@@ -133,11 +133,11 @@ async function startPay(cust, id) {
 
 describe('rules', () => {
   const v = { price_per_kg: 12_000, tiers: [{ minKg: 500, pricePerKg: 10_000 }, { minKg: 1000, pricePerKg: 9_000 }] }
-  test('249 kg is refused, 250 kg is the minimum, tiers apply from their kg', () => {
-    assert.equal(MIN_KG, 250)
-    assert.throws(() => priceFor(v, 249), /minimum is 250 kg/)
-    assert.throws(() => priceFor(v, 250.5), /minimum/)
-    assert.deepEqual([priceFor(v, 250).total, priceFor(v, 499).pricePerKg, priceFor(v, 500).pricePerKg, priceFor(v, 1000).total], [3_000_000, 12_000, 10_000, 9_000_000])
+  test('99 kg is refused, 100 kg is the minimum, tiers apply from their kg', () => {
+    assert.equal(MIN_KG, 100)
+    assert.throws(() => priceFor(v, 99), /minimum is 100 kg/)
+    assert.throws(() => priceFor(v, 100.5), /minimum/)
+    assert.deepEqual([priceFor(v, 100).total, priceFor(v, 250).total, priceFor(v, 499).pricePerKg, priceFor(v, 500).pricePerKg, priceFor(v, 1000).total], [1_200_000, 3_000_000, 12_000, 10_000, 9_000_000])
     assert.equal(priceFor(v, 7500).pricePerKg, 9_000) // no top limit
   })
   test('the bill charges the accepted kilograms: the booked part at the booking price, extra at the extra price, to the paisa', () => {
@@ -211,40 +211,61 @@ describe('switch and setup', () => {
     assert.equal(b.body.error.code, 'FARM_BOOKINGS_CLOSED')
   })
 
+  test('FAQs say what is true now: the stay is free, meals are paid at the farm, 100 kg; old default answers are replaced', async () => {
+    const { settingsFrom, DEFAULTS } = await import('../src/farm/settings.js')
+    const faq = (s, q) => s.faqs.find((f) => f.q === q)?.a
+    const fresh = settingsFrom({ data: DEFAULTS })
+    assert.equal(faq(fresh, 'Are meals included?'), 'Meals are cooked by our farm team and paid to them directly at the farm.')
+    assert.equal(faq(fresh, 'Is accommodation included?'), 'Yes. Your stay at the farmhouse is free: there is no charge for the rooms.')
+    assert.match(faq(fresh, 'Can I buy more than 100 kg?'), /from 100 kg up/)
+    assert.match(faq(fresh, 'Is advance payment mandatory?'), /^No\. Nothing is paid when you book/)
+    // Stored under the old rules (250 kg, meals included): the old defaults and the meals answer are brought up to date.
+    const old = settingsFrom({ data: { ...DEFAULTS, faqs: [
+      { q: 'Can I purchase more than 250 kg?', a: 'Yes. Book any amount from 250 kg up, as long as that much of your variety is available for your date.' },
+      { q: 'Are meals included?', a: 'Yes, all meals are included.' },
+      { q: 'Can I bring my family?', a: 'Of course.' },
+    ] } })
+    assert.deepEqual(old.faqs.map((f) => f.q), ['Can I buy more than 100 kg?', 'Are meals included?', 'Can I bring my family?'])
+    assert.match(old.faqs[0].a, /from 100 kg up/)
+    assert.match(old.faqs[1].a, /paid to them directly at the farm/)
+    assert.equal(old.faqs[2].a, 'Of course.')
+  })
+
   test('the public page lists varieties with what is left, and dates only where enough is left', async () => {
     const { varietyId } = await setupFarm({ bookableKg: 400 })
     const page = await api.get('/v1/farm-experience')
     assert.equal(page.body.bookingsOpen, true)
-    assert.equal(page.body.minKg, 250)
+    assert.equal(page.body.minKg, 100)
     assert.equal(page.body.varieties[0].available, true)
     assert.equal(page.body.varieties[0].pricePerKg, 12_000)
     assert.equal((await api.get(`/v1/farm-experience/dates?varietyId=${varietyId}&kg=400`)).body.dates.length, 3)
     assert.equal((await api.get(`/v1/farm-experience/dates?varietyId=${varietyId}&kg=401`)).body.dates.length, 0)
     const q = await api.post('/v1/farm-experience/quote', { varietyId, kg: 600 })
     assert.deepEqual([q.body.pricePerKg, q.body.total], [10_000, 6_000_000])
-    assert.equal((await api.post('/v1/farm-experience/quote', { varietyId, kg: 249 })).body.error.code, 'FARM_MIN_KG')
+    assert.equal((await api.post('/v1/farm-experience/quote', { varietyId, kg: 99 })).body.error.code, 'FARM_MIN_KG')
+    assert.equal((await api.post('/v1/farm-experience/quote', { varietyId, kg: 100 })).body.total, 1_200_000)
   })
 })
 
 // ---------------------------------------------------------------- booking
 
 describe('booking (nothing paid up front)', () => {
-  test('249 kg is refused by the API; 250 kg is booked with the kilograms held and nothing to pay yet', async () => {
+  test('99 kg is refused by the API; 100 kg is booked with the kilograms held and nothing to pay yet', async () => {
     const { varietyId } = await setupFarm()
     const cust = await customerToken(api)
-    const low = await book(cust, input(varietyId, { kg: 249 }))
+    const low = await book(cust, input(varietyId, { kg: 99 }))
     assert.equal(low.status, 400)
     assert.equal(low.body.error.code, 'FARM_MIN_KG')
-    const ok = await book(cust, { ...input(varietyId, { kg: 250 }) })
+    const ok = await book(cust, { ...input(varietyId, { kg: 100 }) })
     assert.equal(ok.status, 201, JSON.stringify(ok.body))
-    assert.deepEqual([ok.body.status, ok.body.estimate, ok.body.kg], ['HOSPITALITY_REVIEW', 250 * 12_000, 250])
+    assert.deepEqual([ok.body.status, ok.body.estimate, ok.body.kg], ['HOSPITALITY_REVIEW', 100 * 12_000, 100])
     assert.equal(ok.body.razorpayOrderId, undefined)
     // A price sent by the shop is not accepted at all.
     const sneaky = await book(await customerToken(api), { ...input(varietyId), total: 1 })
     assert.equal(sneaky.status, 400)
     const b = await booking(ok.body.bookingId)
     assert.deepEqual([b.status, b.kg_reserved, b.bill_amount, b.paid_at], ['HOSPITALITY_REVIEW', true, null, null])
-    assert.equal((await harvestRow(varietyId)).reserved_kg, 250)
+    assert.equal((await harvestRow(varietyId)).reserved_kg, 100)
     assert.equal((await one('SELECT COUNT(*)::int AS n FROM farm_booking_payments')).n, 0)
     const page = await api.get(`/v1/farm-bookings/${ok.body.bookingId}`, { token: cust.accessToken })
     assert.deepEqual([page.body.payment, page.body.canPay, page.body.bill, page.body.canCancel], [null, false, null, 'CANCEL'])

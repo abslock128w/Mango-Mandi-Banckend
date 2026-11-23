@@ -7,7 +7,7 @@ import { useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api'
-import { dateTime, istDate } from '../../format'
+import { date, dateTime, istDate } from '../../format'
 import { useSession } from '../../session'
 import { BackLink, Badge, ConfirmDialog, Dialog, DisabledReason, EmptyState, FormError, ReasonDialog, Tabs, tabPanelProps, usePageTitle, useToast } from '../../ui'
 import { pn } from './api'
@@ -18,6 +18,7 @@ import {
   DocumentList,
   ENQUIRY_STATUS_LABEL,
   EnquiryStatusBadge,
+  erasedLabel,
   LoadError,
   NotesPanel,
   PRIORITY_LABEL,
@@ -77,6 +78,7 @@ type Dialogs =
   | { kind: 'reject' | 'close' | 'reopen' }
   | { kind: 'convert' }
   | { kind: 'requestInfo' }
+  | { kind: 'erase' }
 
 function EnquiryView({ e }: { e: Detail }) {
   const { me } = useSession()
@@ -118,14 +120,38 @@ function EnquiryView({ e }: { e: Detail }) {
     ['activity', 'Activity history'],
   ]
   const managerActions = (['approve', 'reject', 'close', 'reopen', 'convert'] as const).filter((a) => e.actions[a])
-  const who = `${e.name}, ${e.reference}`
+  const who = `${e.name ?? 'Applicant'}, ${e.reference}`
+  const erased = Boolean(e.erasedAt)
+
+  const erase = useMutation({
+    mutationFn: () => pn.erase(e.id),
+    onSuccess: (next) => {
+      saved(next)
+      setDialog(null)
+      toast.success('The application’s details are deleted')
+    },
+  })
 
   return (
     <>
       <div className="topbar mb-2">
-        <h1>{e.name}</h1>
+        <h1>{e.name ?? e.reference}</h1>
         <EnquiryStatusBadge status={e.status} />
       </div>
+      {e.erasedAt && (
+        <p className="notice notice-warn" role="note">
+          <strong>{erasedLabel(e.erasedAt)}.</strong>{' '}
+          {e.contactKept
+            ? 'This applicant became a partner, so their contact details were kept. Their answers, documents, notes and follow-ups were deleted.'
+            : 'The application ended, so its answers, documents, notes, follow-ups and the applicant’s details were deleted, as the Grow with us form promises. The reference, categories, status and dates stay for the counts.'}
+        </p>
+      )}
+      {!e.erasedAt && e.retention?.eraseDueAt && (
+        <p className="notice notice-info" role="note">
+          This application has ended. Its details will be deleted on {date(e.retention.eraseDueAt)}
+          {e.status === 'CONVERTED' ? ', except the contact details (a partner now)' : ''}, {e.retention.days} days after it ended, as the Grow with us form promises.
+        </p>
+      )}
       <p className="pn-meta">
         <span className="mono">{e.reference}</span>
         {e.businessName && <span>{e.businessName}</span>}
@@ -141,18 +167,29 @@ function EnquiryView({ e }: { e: Detail }) {
           Actions
         </h2>
         <div className="btn-row">
-          <ContactButtons enquiryId={e.id} contact={e.contact} who={e.name} />
-          <button type="button" className="btn" onClick={() => setDialog({ kind: 'requestInfo' })}>
-            Request more information
-          </button>
+          <ContactButtons enquiryId={e.id} contact={e.contact} who={e.name ?? e.reference} />
+          {!erased && e.contact && (
+            <button type="button" className="btn" onClick={() => setDialog({ kind: 'requestInfo' })}>
+              Request more information
+            </button>
+          )}
           {managerActions.map((a) => (
             <button key={a} type="button" className={`btn${a === managerActions[0] && (a === 'approve' || a === 'convert') ? ' btn-primary' : ''}`} onClick={() => setDialog({ kind: a } as Dialogs)}>
               {ACTION_LABEL[a]}
             </button>
           ))}
+          {e.actions.erase && (
+            <button type="button" className="btn btn-danger" onClick={() => setDialog({ kind: 'erase' })}>
+              Delete this application’s details now
+            </button>
+          )}
         </div>
-        <p className="muted small mb-0 mt-2">Call, WhatsApp and Email open on this device and are recorded as contact attempts. Nothing is sent from the panel.</p>
-        {me?.role !== 'MANAGER' && <DisabledReason>Approve, reject, close, reopen and convert: requires manager role.</DisabledReason>}
+        {e.contact ? (
+          <p className="muted small mb-0 mt-2">Call, WhatsApp and Email open on this device and are recorded as contact attempts. Nothing is sent from the panel.</p>
+        ) : (
+          <p className="muted small mb-0">There is nothing left to act on: the applicant&rsquo;s details were deleted.</p>
+        )}
+        {me?.role !== 'MANAGER' && !erased && <DisabledReason>Approve, reject, close, reopen and convert: requires manager role.</DisabledReason>}
       </section>
 
       <ManageCard e={e} staff={staff} onSaved={saved} />
@@ -170,7 +207,10 @@ function EnquiryView({ e }: { e: Detail }) {
             <DocumentList enquiryId={e.id} documents={e.documents} />
           </section>
         )}
-        {tab === 'notes' && (
+        {erased && ['personal', 'business', 'proposal', 'category', 'documents', 'notes', 'followups'].includes(tab) && (
+          <p className="muted">{e.erasedAt ? erasedLabel(e.erasedAt) : ''}: this part of the application was deleted.</p>
+        )}
+        {tab === 'notes' && !erased && (
           <section className="card">
             <h2>Internal notes</h2>
             <NotesPanel
@@ -182,7 +222,7 @@ function EnquiryView({ e }: { e: Detail }) {
             />
           </section>
         )}
-        {tab === 'followups' && <FollowupsTab e={e} staff={staff} myEmail={me?.email} onSaved={() => saved()} />}
+        {tab === 'followups' && !erased && <FollowupsTab e={e} staff={staff} myEmail={me?.email} onSaved={() => saved()} />}
         {tab === 'activity' && (
           <section className="card">
             <h2>Activity history</h2>
@@ -219,6 +259,28 @@ function EnquiryView({ e }: { e: Detail }) {
         />
       )}
       {dialog?.kind === 'requestInfo' && <RequestInfoDialog e={e} onClose={() => setDialog(null)} onSaved={() => saved()} who={who} />}
+      {dialog?.kind === 'erase' && (
+        <ConfirmDialog
+          title={`Delete the details of ${e.reference} now?`}
+          confirmLabel="Delete the details"
+          busyLabel="Deleting…"
+          tone="danger"
+          busy={erase.isPending}
+          error={erase.error}
+          onClose={() => {
+            setDialog(null)
+            erase.reset()
+          }}
+          onConfirm={() => erase.mutate()}
+        >
+          <p>
+            {e.status === 'CONVERTED'
+              ? 'The answers, documents, notes and follow-ups are deleted. The contact details stay, because this applicant is a partner now.'
+              : 'The answers, documents, notes, follow-ups and the applicant’s name, number, email, business and address are deleted.'}{' '}
+            The reference, categories, status and dates stay. This can’t be undone, and it is recorded in the activity log.
+          </p>
+        </ConfirmDialog>
+      )}
     </>
   )
 }
@@ -841,27 +903,27 @@ function openLink(href: string, newTab: boolean) {
 function RequestInfoDialog({ e, onClose, onSaved, who }: { e: Detail; onClose: () => void; onSaved: () => void; who: string }) {
   const uid = useId()
   const channels: Channel[] = [
-    ...(e.contact.whatsapp ? (['WHATSAPP'] as const) : []),
-    ...(e.contact.mailto ? (['EMAIL'] as const) : []),
-    ...(e.contact.tel ? (['PHONE'] as const) : []),
+    ...(e.contact?.whatsapp ? (['WHATSAPP'] as const) : []),
+    ...(e.contact?.mailto ? (['EMAIL'] as const) : []),
+    ...(e.contact?.tel ? (['PHONE'] as const) : []),
   ]
   const preferred = channels.includes(e.preferredContact as Channel) ? (e.preferredContact as Channel) : (channels[0] ?? 'WHATSAPP')
   const [channel, setChannel] = useState<Channel>(preferred)
-  const firstName = e.name.split(/\s+/)[0] || e.name
+  const firstName = e.name?.split(/\s+/)[0] || e.name || 'there'
   const [message, setMessage] = useState(
-    `Hello ${firstName}, thank you for your partnership enquiry ${e.reference} with MandiMangoes. To take it forward, could you please share: `,
+    `Hello ${firstName}, thank you for your partnership enquiry ${e.reference} with VMR Mangoes. To take it forward, could you please share: `,
   )
   const [done, setDone] = useState<{ channel: Channel; link: string | null } | null>(null)
-  const subject = `Your MandiMangoes partnership enquiry ${e.reference}`
+  const subject = `Your VMR Mangoes partnership enquiry ${e.reference}`
 
   const send = useMutation({
     mutationFn: () => pn.requestInfo(e.id, channel, message.trim()),
     onSuccess: () => {
       onSaved()
       const link =
-        channel === 'WHATSAPP' && e.contact.whatsapp
+        channel === 'WHATSAPP' && e.contact?.whatsapp
           ? withMessage(e.contact.whatsapp, 'WHATSAPP', message.trim())
-          : channel === 'EMAIL' && e.contact.mailto
+          : channel === 'EMAIL' && e.contact?.mailto
             ? withMessage(e.contact.mailto, 'EMAIL', message.trim(), subject)
             : null
       if (link) openLink(link, channel === 'WHATSAPP')

@@ -1,6 +1,7 @@
 // Backorders (README, Checkout → Backorders): a box with no stock on the chosen day can still be ordered
-// for a day at least BACKORDER_LEAD_DAYS out; the order is a backorder, at-risk until stock arrives, and
-// the hourly rebalance fills it then. With the switch off, a short line is STOCK_INSUFFICIENT as before.
+// for a day at least BACKORDER_LEAD_DAYS out when a batch on its way can supply it (earliest-date.test.js
+// covers the cap and the no-batch case); the order is a backorder, at-risk until stock arrives, and the
+// hourly rebalance fills it then. With the switch off, a short line is STOCK_INSUFFICIENT as before.
 import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -33,6 +34,13 @@ afterEach(() => {
   env.BACKORDERS = false
 })
 
+/** A batch not yet dispatched (ARRIVING), plucked 10-12 and due 10-15: semi-ripe on 10-16 to 10-19, 8 boxes expected. */
+async function arriving() {
+  const id = await makeBatch({ age: 3, status: 'ARRIVING', rating: null, lines: { 'ALP-3': 10 } })
+  await query('UPDATE batches SET eta_date = $2 WHERE id = $1', [id, '2026-10-15'])
+  return id
+}
+
 const pay = (orderId) => api.post('/v1/dev/pay', { orderId, outcome: 'captured' })
 const order = async (id) => (await query('SELECT * FROM orders WHERE id = $1', [id])).rows[0]
 const items = async (id) => (await query('SELECT * FROM order_items WHERE order_id = $1', [id])).rows
@@ -49,6 +57,7 @@ describe('backorders', () => {
   })
 
   test('quote with no stock on a day two or more days out: 200, the line and the quote flagged', async () => {
+    await arriving()
     const cust = await customerToken(api)
     const q = await quote(cust.accessToken, EARLIEST)
     assert.equal(q.status, 200, JSON.stringify(q.body))
@@ -67,6 +76,7 @@ describe('backorders', () => {
   })
 
   test('too soon a day: 409 BACKORDER_DATE with the earliest day it can come', async () => {
+    await arriving()
     const cust = await customerToken(api)
     const q = await quote(cust.accessToken, TOO_SOON)
     assert.equal(q.status, 409)
@@ -76,6 +86,7 @@ describe('backorders', () => {
   })
 
   test('confirm places a backorder; payment keeps its day; the rebalance fills it once stock arrives', async () => {
+    await arriving()
     const cust = await customerToken(api)
     const c = await checkout(api, cust.accessToken, [BOX], { deliveryDate: EARLIEST })
     assert.equal(c.status, 201, JSON.stringify(c.body))

@@ -1,6 +1,7 @@
 // The order confirmation that carries the invoice (WHATSAPP_ORDER_INVOICE): one WhatsApp
 // message with the confirmation, a "Track order" button and a "Download invoice" button
 // whose signed link opens the bill's PDF without a sign-in (src/bill-link.js).
+import { formatOrderNumber } from '../src/order-number.js'
 import { closeAll, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -88,7 +89,7 @@ describe('the order confirmation on WhatsApp with the invoice', () => {
     const [m] = all
     assert.equal(m.template, 'mandi_order_confirmed_invoice')
     assert.equal(m.params.length, 4)
-    assert.equal(m.params[1], number)
+    assert.equal(m.params[1], formatOrderNumber(number))
     assert.equal(m.urlParams.length, 2)
     assert.equal(m.urlParams[0], orderId, 'Track order: the order page')
     assert.equal(m.urlParam, orderId)
@@ -97,7 +98,7 @@ describe('the order confirmation on WhatsApp with the invoice', () => {
     const res = await open(m.urlParams[1])
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('content-type'), 'application/pdf')
-    assert.match(res.headers.get('content-disposition'), /^inline; filename="MandiMangoes-bill-.+\.pdf"$/)
+    assert.match(res.headers.get('content-disposition'), /^inline; filename="VMR-Mangoes-bill-.+\.pdf"$/)
     assert.equal(res.headers.get('cache-control'), 'no-store')
     assert.equal(Buffer.from(await res.arrayBuffer()).subarray(0, 5).toString(), '%PDF-')
   })

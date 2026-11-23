@@ -71,6 +71,16 @@
       "source": "/preorder",
       "destination": "/",
       "permanent": false
+    },
+    {
+      "source": "/legacy/story",
+      "destination": "/legacy",
+      "permanent": false
+    },
+    {
+      "source": "/legacy/story/",
+      "destination": "/legacy",
+      "permanent": false
     }
   ],
   "rewrites": [
@@ -124,6 +134,14 @@
     },
     {
       "source": "/bulk",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gifts",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gifts/:id",
       "destination": "/index.html"
     },
     {

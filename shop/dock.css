@@ -95,3 +95,17 @@ html.bag-open .toast{bottom:calc(160px + env(safe-area-inset-bottom))}
 .page-view,html.pay-bar-on .page-view,body[data-page="bulk"] .page-view,html.pay-bar-on body[data-page="bulk"] .page-view{padding-bottom:32px}
 body.page-open .page-view{min-height:0}
 }
+
+/* ===== Sunny storefront (Nov 2026): the same dock (Shop, Bulk, Grow, Legacy, the round Help button and the bag bar,
+   same shape), in the new palette: a cream bar, the current tab a light-green pill with deep-green icon and label.
+   Dark versions in theme.css. */
+:root{--tab-pill:#dcebc9;--tab-ink:#174631;--tab-fill:#17463124}
+@media(max-width:900px){
+.dock-row{background:rgba(255,251,238,.97);border-color:#efe3bf;box-shadow:inset 0 1px 0 #fff,0 12px 30px #6b4f0d24,0 2px 6px #183c2112}
+.liquid-tab{color:#3d5340}
+.liquid-tab.is-current{background:var(--tab-pill);color:var(--tab-ink);font-weight:700}
+.liquid-tab.is-current svg{fill:var(--tab-fill);stroke-width:2.1}
+.dock-orb{box-shadow:0 4px 12px #17463138,0 0 0 3px #ffe9a6}
+}
+/* The Legacy page keeps its own dark glass dock (legacy.css): its current tab stays the solid accent pill it had. */
+@media(max-width:900px){body[data-page="legacy"] .liquid-tab.is-current{background:var(--accent);color:var(--on-accent)}body[data-page="legacy"] .liquid-tab.is-current svg{fill:none}body[data-page="legacy"] .liquid-tab:not(.is-current){color:inherit}}

@@ -46,6 +46,10 @@ export function localPlan(argv, wifiIps = []) {
   const shared = link || argv.includes('--wifi')
   const wifi = shared ? wifiIps : []
   const api = {
+    // The API answers on this computer only, in every mode: the panel, rider app and shop here call
+    // localhost, and a shared shop (--phone, --wifi) reaches it through serve-shop.mjs's /v1 proxy,
+    // so phones need only port 5174. Never on the Wi-Fi itself, where /v1/dev and the test logins are.
+    HOST: '127.0.0.1',
     NODE_ENV: 'development',
     COOKIE_SECURE: 'false',
     // The shop's test-mode pay buttons use /v1/dev (on this computer only: see shopCmd).

@@ -6,6 +6,7 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { now } from '../clock.js'
 import { conflict, HttpError } from '../errors.js'
+import { env } from '../env.js'
 import { gstinProblem, normaliseGstin } from '../gstin.js'
 import { newId } from '../ids.js'
 import { checkPhoto, storePhoto } from '../photos.js'
@@ -39,7 +40,11 @@ export async function formFor(c, { captchaRequired }) {
     categories,
     documentCategories: Object.entries(DOCUMENT_CATEGORIES).map(([code, label]) => ({ code, label })),
     uploads: { maxFiles: MAX_DOCUMENTS, maxFileBytes: MAX_DOCUMENT_BYTES, types: DOCUMENT_TYPES },
-    consent: { text: QUESTIONNAIRES[CURRENT_VERSION].questions.consent.label, privacyPath: '/privacy' },
+    // The shop's /partner/privacy page says how an application is used and kept.
+    consent: { text: QUESTIONNAIRES[CURRENT_VERSION].questions.consent.label, privacyPath: '/partner/privacy' },
+    // What the form promises (partner/erase.js keeps it): an ended application's details are deleted within
+    // `days`; a converted one (a partner now) keeps the contact details.
+    retention: { days: env.PARTNER_RETENTION_DAYS, partnersKeepContact: true },
     captcha: { siteKeyRequired: Boolean(captchaRequired), siteKey: captchaRequired ? captchaRequired : null, action: 'partner' },
   }
 }

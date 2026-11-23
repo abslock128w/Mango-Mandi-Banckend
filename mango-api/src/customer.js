@@ -15,11 +15,14 @@ import { newId } from './ids.js'
 import { availability, availabilityByDate } from './inventory.js'
 import { logger } from './logger.js'
 import { metrics } from './metrics.js'
-import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, withinCancelWindow, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
+import { bookPlan, planOffer, planOffersFor, plannedView, planWeekWords, WAITING_SQL } from './plan-orders.js'
+import { isDelayedPlanned, sweepExpiredPlanned } from './orders.js'
+import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, CUSTOMER_CANCEL_HOURS, withinCancelWindow, HOLD_EXPIRED_REASON, customerCancel, MAX_DELIVERY_ATTEMPTS, eatByFor, moveOrderToDate, processPayment, SYSTEM } from './orders.js'
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { bookPreorder, cancelPreorder, ensurePaymentLink, openWeeks, preorderView, processPreorderPayment } from './preorders.js'
+import { bookPreorder, bookPreorderGroup, cancelPreorder, ensureGroupPaymentLink, ensurePaymentLink, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
+import { perRecipientMax } from './gifts.js'
 import { seasonView } from './season-phase.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
@@ -41,7 +44,8 @@ import { isOn } from './feature-switches.js'
 import { appFeel } from './app-feel-routes.js'
 import { languages } from './language-routes.js'
 import { BROWSER_ID, rememberCheckout } from './funnel.js'
-import { backorderEta, backorderPolicy, canBackorder, leadDays, markBackorder, windowDays } from './backorders.js'
+import { backorderable, backorderEta, backorderPolicy, backorderRoom, backordersOn, leadDays, markBackorder, windowDays } from './backorders.js'
+import { dayLabel, dayRoom, findEarliest } from './earliest.js'
 import { setConsent } from './wa/consent.js'
 import { growthMe, growthPublic } from './growth-routes.js'
 import { moveFavourites } from './favourites.js'
@@ -50,8 +54,8 @@ import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
 import { partnerPublic } from './partner/routes.js'
-import { assertInRange, deliveryFor, feeOf, feePolicy } from './delivery-fee.js'
-import { bulkEnquiryMe, bulkEnquiryPublic } from './bulk-enquiry-routes.js'
+import { assertInRange, deliveryFor, feeOf, feePolicy, weightKg } from './delivery-fee.js'
+import { bulkEnquiryMe, bulkEnquiryPublic, devBulk } from './bulk-enquiry-routes.js'
 import { devFarm, farmCustomer, farmPublic } from './farm/routes.js'
 import { orderCycle, subscriptionsOpen } from './subscriptions.js'
 
@@ -139,6 +143,15 @@ export const phoneSchema = z
   .transform((s) => s.replace(/[\s-]/g, '').replace(/^(\+91|91|0)(?=\d{10}$)/, ''))
   .refine((s) => /^[6-9]\d{9}$/.test(s), 'Enter a 10-digit Indian mobile number')
   .transform((s) => `+91${s}`)
+
+/** Who a gift is for: the recipient's name and mobile, and an optional message. */
+const giftRecipientSchema = z.object({
+  recipientName: z.string().trim().min(1, "Enter the recipient's name").max(80),
+  recipientPhone: phoneSchema,
+  message: z.string().trim().max(200).optional().nullable(),
+})
+/** Optional: the order (or pre-order) is a gift, delivered to someone else. */
+const giftSchema = giftRecipientSchema.optional().nullable()
 
 const otpRequest = z.object({ phone: phoneSchema, channel: z.enum(['sms', 'whatsapp']).optional(), captchaToken: z.string().max(2048).optional() })
 
@@ -336,7 +349,7 @@ const pinFrom = (q) => {
 }
 /** What the shop is told about a delivery charge (delivery-fee.js): paise, and how the distance is known. */
 const deliveryView = (d) => ({
-  fee: d.fee, distanceKm: d.distanceKm, basis: d.basis, freeAbove: d.freeAbove, feeAtOrAbove: d.feeAtOrAbove, feeBelow: d.feeBelow, tooFar: d.tooFar, maxKm: d.maxKm,
+  fee: d.fee, distanceKm: d.distanceKm, basis: d.basis, freeAbove: d.freeAbove, freeFromKg: d.freeFromKg, freeWithinKm: d.freeWithinKm, feeAtOrAbove: d.feeAtOrAbove, feeBelow: d.feeBelow, tooFar: d.tooFar, maxKm: d.maxKm,
 })
 
 export const cutoffLabel = () => `${String(getConfig().cutoffHourIST).padStart(2, '0')}:00 IST`
@@ -393,9 +406,24 @@ router.get(
     const { date, dates } = await deliveryDateFor({ query }, pincode, wanted)
     // One read of the stock for the chosen day and the later bookable days, so
     // a sold-out choice can say when it is back instead of being a dead end.
-    const byDate = await availabilityByDate({ query }, [date, ...dates.filter((x) => x > date)])
+    const [allPools, room] = await Promise.all([availabilityByDate({ query }, dates), dayRoom({ query }, dates)])
+    const byDate = new Map([date, ...dates.filter((x) => x > date)].map((d) => [d, allPools.get(d)]))
     const pool = byDate.get(date)
     const later = [...byDate].filter(([d]) => d !== date)
+    // earliestDate (earliest.js): the first bookable day, from the whole window, a box can come: stock
+    // that day and room left in the day's cap and slots. fullDates: days with no room for even one box.
+    // backorder: when an incoming batch can still supply it (backorders.js), from which day and how many.
+    const boFrom = backordersOn() ? backorderEta().from : null
+    const boDays = boFrom ? dates.filter((d) => d >= boFrom) : []
+    const boRoom = boDays.length ? await backorderRoom({ query }, boDays) : new Map()
+    const earliestFor = (key) => dates.find((d) => (room.get(d) ?? Infinity) >= 1 && (allPools.get(d).get(key) ?? 0) > 0) ?? null
+    const backorderFor = (key) => {
+      const d = boDays.find((x) => (room.get(x) ?? Infinity) >= 1 && (boRoom.get(x)?.get(key) ?? 0) > 0)
+      return d ? { from: d, qty: boRoom.get(d).get(key) } : null
+    }
+    // The plan's next days with room for one box of each (plan-orders.js): for a box no bookable day can supply, or more of it than any day has.
+    const offers = await planOffersFor({ query }, shopProducts().map((p) => p.sku))
+    const planOffers = Object.fromEntries([...offers].map(([sku, o]) => [sku, { ...o, words: planWeekWords(o.weekStart) }]))
     const items = shopProducts().flatMap((p) =>
       SALE_STAGES.map((stage) => {
         const key = `${p.sku}|${stage}`
@@ -407,10 +435,14 @@ router.get(
           // Boxes free on the chosen day and each later bookable day (0 included), so the shop can
           // move an order to the first day everything in the bag is ready.
           availability: [...byDate].map(([d, lp]) => ({ date: d, qty: lp.get(key) ?? 0 })),
+          earliestDate: earliestFor(key),
+          ...(backorderFor(key) ? { backorder: backorderFor(key) } : {}),
+          ...(!earliestFor(key) && !backorderFor(key) && offers.has(p.sku) ? { weekBooked: planOffers[p.sku] } : {}),
         }
       }),
     )
-    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items, season })
+    const fullDates = dates.filter((d) => (room.get(d) ?? Infinity) < 1)
+    res.json({ serviceable: true, deliveryDate: date, deliveryDates: dates, cutoffTime: cutoffLabel(), items, fullDates, season, planOffers })
   }),
 )
 
@@ -423,6 +455,8 @@ router.get('/policy', (_req, res) => {
   const cfg = getConfig()
   res.json({
     holdMinutes: cfg.holdMinutes, cutoffTime: cutoffLabel(), maxDaysAhead: cfg.maxDaysAhead, claimWindowHours: cfg.claimWindowHours,
+    // How long after placing it a customer may cancel a paid order (orders.js CUSTOMER_CANCEL_HOURS): the shop's checkout says it.
+    cancelWindowHours: CUSTOMER_CANCEL_HOURS,
     // bills: checkout offers a business name and GSTIN for the bill only while bills are on (BILLS_ENABLED).
     bills: isOn('BILLS_ENABLED'),
     // The delivery charge on regular orders: { enabled: false } or the table the shop's pages quote (delivery-fee.js).
@@ -495,20 +529,40 @@ router.get(
 // ---------------------------------------------------------------- cart
 
 /**
- * Weeks open for preorders, with capacity left per SKU, and the season (phase, start, when
- * pre-orders open), which the shop reads before it knows a pincode.
+ * The pre-order delivery weeks and the season (phase, start, when pre-orders open), which the shop reads
+ * before it knows a pincode. Every week has a limit in kg PER VARIETY (the variety's expected kg a day x 7, or the week's
+ * own expected kg for it; migrations 074, 076, 078) and a booking gets the earliest week with room for its kg (boxes x the
+ * box's kg) in its own variety:
+ *   nextWeek       { weekStart, limit, remaining }: the earliest week ANY box on sale can get (one box of it), for the
+ *                  home page's "from"; null when no box has a week to the season's end (the waitlist).
+ *   boxes          [{ sku, variety, nextWeek }]: each box's own earliest week (the cards and the pre-order sheet).
+ *   varieties      [{ variety, dayKg, weeks: [{ weekStart, limit, remaining }] }]: each variety's weeks, so the shop finds a
+ *                  booking's week (and each person's in a gift for several people, in list order) as the API books it.
+ *   firstWeek      the first delivery week offered (before the season: the week holding its first day).
+ *   limit, countsBy  the weekly limit and what it counts ('kg').
+ *   deliveryWeeks  [{ weekStart, limit, remaining }] every week to the season's end, every variety added up (an older
+ *                  shop's guess at a week; the API still answers 409 PREORDER_FULL / PREORDER_WEEK_CHANGED with the real one).
+ *   weeks          as before: one entry per box on sale and week, from firstWeek to the earliest week with
+ *                  room for one box of it, with its variety's `capacity` (= limit) and `remaining` in kg that week,
+ *                  and the box's name, variety, size and price.
  */
 router.get(
   '/preorders/weeks',
   asyncHandler(async (req, res) => {
     const sku = req.query.sku ? String(req.query.sku) : null
-    const weeks = (await openWeeks({ query }, sku)).flatMap((w) => {
+    const open = await openWeeks({ query }, sku)
+    const weeks = open.flatMap((w) => {
       const p = sellable(w.sku)
       return p ? [{ ...w, name: p.name, variety: p.variety, boxSize: p.boxSize, price: p.price }] : []
     })
+    const shown = ({ weekStart, limit, remaining }) => ({ weekStart, limit, remaining })
     res.json({
+      nextWeek: open.next ? shown(open.next) : null, firstWeek: open.room[0]?.weekStart ?? null,
+      limit: defaultWeekKg(), dayKg: varietyDayKg(null), countsBy: WEEK_COUNTS_BY, deliveryWeeks: open.room.map(shown),
+      boxes: open.boxes.map((x) => ({ sku: x.sku, variety: x.variety, nextWeek: x.next ? shown(x.next) : null })),
+      varieties: [...open.rooms].map(([variety, room]) => ({ variety, dayKg: varietyDayKg(variety), weeks: room.map(shown) })),
       weeks, stages: SALE_STAGES, season: seasonView(),
-      cancelPolicy: "Pre-orders can't be cancelled or refunded once paid. If we can't deliver your box, we refund you in full.",
+      cancelPolicy: 'Harvest varies with the weather and other conditions, so your delivery week can change. A pre-order can’t be cancelled once you pay, unless we delay it: then you can cancel it for a full refund until it is packed.',
     })
   }),
 )
@@ -639,6 +693,35 @@ router.get(
   asyncHandler(async (req, res) => {
     const { rows } = await query('SELECT * FROM customer_addresses WHERE customer_id = $1 ORDER BY last_used_at DESC, id', [req.customer.id])
     res.json(rows.map(addressView))
+  }),
+)
+
+/**
+ * "Ordered before" on the shop's cards: per variety the signed-in customer has had DELIVERED (an order made from a
+ * pre-order counts once it is delivered; placed, cancelled or failed orders do not), how many delivered orders had it,
+ * the day the last one came (IST) and that order's box and ripeness (the card's "Order again" adds that box).
+ * [{ variety, sku, stage, times, lastDeliveredOn }], newest first. One query on the customer's own orders (idx_orders_customer).
+ */
+router.get(
+  '/me/ordered-products',
+  asyncHandler(async (req, res) => {
+    const { rows } = await query(
+      `SELECT o.id, i.sku, i.stage, i.quantity,
+              COALESCE((SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'DELIVERED'), o.delivery_date::timestamp AT TIME ZONE 'Asia/Kolkata') AS delivered_at
+         FROM orders o JOIN order_items i ON i.order_id = o.id
+        WHERE o.customer_id = $1 AND o.status = 'DELIVERED' AND i.stage IS NOT NULL
+        ORDER BY delivered_at DESC, i.quantity DESC, i.sku LIMIT 1000`,
+      [req.customer.id],
+    )
+    const byVariety = new Map()
+    for (const r of rows) {
+      const variety = findProduct(r.sku)?.variety ?? r.sku
+      const v = byVariety.get(variety)
+      // Rows come newest first: the first row of a variety is its last delivery (the biggest line of that order).
+      if (!v) byVariety.set(variety, { variety, sku: r.sku, stage: r.stage, orders: new Set([r.id]), lastDeliveredOn: todayIST(new Date(r.delivered_at)) })
+      else v.orders.add(r.id)
+    }
+    res.json([...byVariety.values()].map(({ orders, ...v }) => ({ ...v, times: orders.size })))
   }),
 )
 
@@ -903,25 +986,34 @@ router.post(
       }),
       req.body,
     )
-    const quote = await tx(async (c) => {
-      const { date, dates } = await deliveryDateFor(c, b.pincode, b.deliveryDate || null)
+    const quote = await withEarliest(req.customer.id, { date: b.deliveryDate || null }, () => tx(async (c) => {
+      const { date, dates, planned = null } = await checkoutDay(c, b.pincode, b.deliveryDate || null, req.customer.id)
       const { rows } = await c.query('SELECT sku, stage, qty FROM carts WHERE customer_id = $1 ORDER BY sku, stage', [req.customer.id])
       const pool = await availability(c, date)
       const bulk = await bulkQuoteLines(c, req.customer.id, pool, date)
       if (!rows.length && !bulk.length) throw badRequest('Your cart is empty', 'CART_EMPTY')
-      const retail = rows.map((l) => {
+      if (planned && bulk.length) throw conflict('Bulk deals are delivered from stock only. Remove them to book this day.', 'PLAN_NOT_FOR_BULK')
+      const retail = []
+      for (const l of rows) {
         if (!sellable(l.sku)) throw conflict(`${findProduct(l.sku)?.name ?? l.sku} is no longer sold. Remove it from your cart.`, 'PRODUCT_UNAVAILABLE')
         // A line added as RIPE before RIPE stopped being sold.
         if (!SALE_STAGES.includes(l.stage)) throw conflict(`${findProduct(l.sku).name} is no longer sold ripe. Remove it from your cart and choose raw or semi-ripe.`, 'STAGE_UNAVAILABLE')
-        // Backorders: short on this day, the line is still sold (sourced for a day far enough out) unless backorders are off.
-        const short = (pool.get(`${l.sku}|${l.stage}`) ?? 0) < l.qty
-        if (short && !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
+        // Backorders: short on this day, the line is still sold when a batch on its way can supply it (backorders.js).
+        // Otherwise STOCK_INSUFFICIENT, which the handler answers with the earliest day the bag can come (earliest.js).
+        const have = pool.get(`${l.sku}|${l.stage}`) ?? 0
+        // A day booked against the plan needs no stock now (plan-orders.js).
+        const short = !planned && have < l.qty
+        if (short) {
+          const bo = await backorderable(c, { date, dates, sku: l.sku, stage: l.stage, short: l.qty - have })
+          if (!bo.ok) throw new HttpError(409, 'STOCK_INSUFFICIENT', `Not enough stock for ${l.sku}`, { sku: l.sku, backorderFrom: bo.earliest })
+        }
         const price = findProduct(l.sku).price
-        return {
+        retail.push({
           sku: l.sku, name: findProduct(l.sku).name, stage: l.stage, qty: l.qty, unitPrice: price, linePrice: price * l.qty, eatBy: eatByFor(l.stage, date),
           ...(short ? { backorder: true } : {}),
-        }
-      })
+          ...(planned ? { planned: true } : {}),
+        })
+      }
       // One order line per box and ripeness: the same box can't be both a regular and a bulk line.
       for (const b of bulk) {
         if (retail.some((l) => l.sku === b.sku && l.stage === b.stage)) {
@@ -945,15 +1037,18 @@ router.post(
       if (b.promoCode?.trim() && !retail.length) throw badRequest('Promo codes apply to regular boxes, not bulk deals', 'PROMO_NOT_FOR_BULK')
       const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, retailSubtotal) : null
       const discount = promo?.discount ?? 0
-      // The delivery charge goes by what the boxes cost after the promo, and how far the address is.
-      const delivery = await deliveryFor(c, { pincode: b.pincode, location: b.location ?? null, goods: subtotal - discount })
+      // The delivery charge goes by what the boxes cost after the promo, what they weigh, and how far the address is.
+      const kg = weightKg(lines)
+      const delivery = await deliveryFor(c, { pincode: b.pincode, location: b.location ?? null, goods: subtotal - discount, kg })
       assertInRange(delivery)
       const data = {
         pincode: b.pincode, deliveryDate: date, slotId: slot?.id ?? null, slot, lines, subtotal,
         promo: promo ? { code: promo.code, description: promo.description ?? null } : null, discount,
-        deliveryFee: delivery.fee, ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
+        deliveryFee: delivery.fee, ...(delivery.enabled ? { delivery: { ...deliveryView(delivery), weightKg: kg } } : {}),
         total: subtotal - discount + delivery.fee,
-        ...(retail.some((l) => l.backorder) ? { backorder: true, backorderEta: backorderEta() } : {}),
+        ...(retail.some((l) => l.backorder) ? { backorder: true, backorderEta: backorderEta(date) } : {}),
+        // Booked against the plan: "Booked for <date>: confirmed when the fruit arrives".
+        ...(planned ? { planned: true, plannedWeek: planned.weekStart, reason: planned.reason } : {}),
       }
       const expiresAt = new Date(now().getTime() + getConfig().quoteMinutes * 60_000)
       const quoteId = newId('quo')
@@ -961,10 +1056,102 @@ router.post(
       // UX-3: how long the boxes are held once Pay is tapped, from the live rule (the review step says so).
       // bills: the shop offers business details (name and GSTIN) for the bill only while bills are on.
       return { quoteId, ...data, expiresAt, holdMinutes: getConfig().holdMinutes, bills: isOn('BILLS_ENABLED') }
-    })
+    }))
     res.json(quote)
   }),
 )
+
+/** The boxes to place, for the earliest-date answer: a quote's lines, or the cart (regular and bulk lines). */
+async function bagLines(c, customerId, quoteId) {
+  if (quoteId) {
+    const { rows } = await c.query('SELECT data FROM quotes WHERE id = $1 AND customer_id = $2', [quoteId, customerId])
+    return { lines: (rows[0]?.data?.lines ?? []).map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty })), date: rows[0]?.data?.deliveryDate ?? null }
+  }
+  const { rows } = await c.query(
+    `SELECT sku, stage, qty FROM carts WHERE customer_id = $1
+     UNION ALL SELECT l.sku, b.stage, b.qty FROM bulk_cart_lines b JOIN bulk_listings l ON l.id = b.listing_id WHERE b.customer_id = $1`,
+    [customerId],
+  )
+  return { lines: rows, date: null }
+}
+
+/**
+ * The day of a quote: a bookable day, or (`planned`: the offer) a day after the booking horizon that the plan offers for
+ * this bag, only when no bookable day can take the bag (plan-orders.js).
+ */
+async function checkoutDay(c, pincode, wanted, customerId) {
+  try {
+    return await deliveryDateFor(c, pincode, wanted)
+  } catch (e) {
+    if (e.code !== 'INVALID_DATE' || !wanted) throw e
+    const { lines } = await bagLines(c, customerId, null)
+    if (!lines.length || (await findEarliest(c, lines)).earliestDate) throw e
+    const offer = await planOffer(c, lines)
+    if (!offer?.dates.some((d) => d.date === wanted)) throw e
+    return { date: wanted, dates: [], planned: offer }
+  }
+}
+
+const andList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`)
+
+/**
+ * The owner: "if we run out of stock for today then we update the delivery date accordingly". A
+ * STOCK_INSUFFICIENT from the quote or the confirm (whoever raised it, the race at createOrder included)
+ * keeps its code, status and `sku`, and gains when the bag can come (earliest.js): requestedDate,
+ * earliestDate (the first bookable day the whole bag fits), nextDate (the first such day on or after the
+ * requested one), lines (each line's stock on the requested day, its own earliest day, and the first
+ * day each other ripeness of that box fits) and neverFit (lines no day can supply). A box that can't
+ * come from stock on any day but can be sourced (backorders.js) still answers BACKORDER_DATE.
+ */
+async function withEarliest(customerId, { date = null, quoteId = null }, run) {
+  try {
+    return await run()
+  } catch (e) {
+    if (!(e instanceof HttpError) || e.code !== 'STOCK_INSUFFICIENT' || e.extra?.earliestDate !== undefined) throw e
+    let answer
+    try {
+      answer = await earliestError(e, customerId, { date, quoteId })
+    } catch (inner) {
+      logger.warn({ err: inner }, 'earliest date for a stock shortfall failed')
+      throw e
+    }
+    throw answer
+  }
+}
+
+async function earliestError(e, customerId, { date, quoteId }) {
+  const { backorderFrom = null, ...extra } = e.extra ?? {}
+  const bag = await bagLines({ query }, customerId, quoteId)
+  const dates = await orderableDates({ query })
+  const asked = date ?? bag.date ?? dates[0] ?? null
+  const plan = await findEarliest({ query }, bag.lines, { requestedDate: asked, dates })
+  if (!plan.earliestDate && backorderFrom) {
+    return new HttpError(409, 'BACKORDER_DATE', `This box is being sourced and can be delivered from ${backorderFrom}. Pick that day or later.`, { earliest: backorderFrom, sku: extra.sku })
+  }
+  const nextDate = plan.days.find((d) => d.ok && asked && d.date >= asked)?.date ?? null
+  // No bookable day takes the bag: the days the plan can still offer (plan-orders.js), after unpaid planned orders that lapsed gave their room back.
+  let offer = null
+  if (!plan.earliestDate && bag.lines.length) {
+    await tx((c) => sweepExpiredPlanned(c)).catch((err) => logger.warn({ err }, 'expired planned orders not swept'))
+    offer = await planOffer({ query }, bag.lines)
+  }
+  const names = (ls) => andList([...new Set(ls.map((l) => findProduct(l.sku)?.variety ?? findProduct(l.sku)?.name ?? l.sku))])
+  const short = plan.lines.filter((l) => l.available < l.qty)
+  const when = nextDate ?? plan.earliestDate
+  const causes = plan.neverFit.length ? plan.neverFit : short.length ? short : plan.lines
+  const message = offer
+    ? `This week is fully booked for ${names(causes)}. It can be delivered ${planWeekWords(offer.weekStart)}: choose a day.`
+    : when
+    ? `We're out of ${names(short.length ? short : plan.lines)} for ${asked ? dayLabel(asked) : 'that day'}. The earliest day for everything in your bag is ${dayLabel(when)}.`
+    : plan.neverFit.length
+      ? `${names(plan.neverFit)} can't be delivered on any day we can book right now. Remove it from your bag or choose another ripeness.`
+      : 'No single day we can book has every box in your bag. Lower a quantity.'
+  return new HttpError(409, 'STOCK_INSUFFICIENT', message, {
+    ...extra, requestedDate: asked, earliestDate: plan.earliestDate, nextDate, lines: plan.lines, neverFit: plan.neverFit,
+    // reason WEEK_BOOKED: `offer` { weekStart, from, dates: [{ date, slots }] } and `boxes`, those that caused it.
+    ...(offer ? { reason: offer.reason, offer: { weekStart: offer.weekStart, from: offer.from, dates: offer.dates, words: planWeekWords(offer.weekStart) }, boxes: causes.map(({ sku, stage, qty }) => ({ sku, stage, qty, name: findProduct(sku)?.name ?? sku })) } : {}),
+  })
+}
 
 /** Checks the customer's slot choice at quote time; confirm re-checks it under lock. */
 export async function quoteSlot(c, date, wanted, boxes) {
@@ -1035,14 +1222,7 @@ router.post(
         quoteId: z.string().min(1),
         address: z.string().trim().min(10, 'Enter the full delivery address').max(500),
         name: z.string().trim().max(80).optional(),
-        gift: z
-          .object({
-            recipientName: z.string().trim().min(1, "Enter the recipient's name").max(80),
-            recipientPhone: phoneSchema,
-            message: z.string().trim().max(200).optional().nullable(),
-          })
-          .optional()
-          .nullable(),
+        gift: giftSchema,
         // Optional: a business buying, printed on the bill (BILLS_ENABLED). The GSTIN's check character is verified.
         business: businessSchema.optional().nullable(),
         // FUNNEL_ANALYTICS: the shop's random per-browser id, so "paid" can be counted for it when the payment is captured.
@@ -1064,7 +1244,7 @@ router.post(
     }
     if (replay) return res.status(200).json(confirmResponse(replay))
 
-    const order = await tx(async (c) => {
+    const order = await withEarliest(req.customer.id, { quoteId: b.quoteId }, () => tx(async (c) => {
       // Claimed first: a concurrent retry with the same key waits here, then replays.
       const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
       if (!ins.rowCount) return null
@@ -1072,7 +1252,9 @@ router.post(
       const q = rows[0]
       // A gift order's quote (MULTI_GIFT) is confirmed at /gifts/confirm, never here.
       if (!q || q.expires_at <= now() || q.data.kind === 'multi-gift') throw conflict('This quote has expired. Review your cart again.', 'QUOTE_EXPIRED')
-      const { date, dates } = await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
+      // A day booked against the plan was checked at the quote; its week's kg is taken below, under the week's row.
+      const planned = Boolean(q.data.planned)
+      const { date, dates } = planned ? { date: q.data.deliveryDate, dates: [] } : await deliveryDateFor(c, q.data.pincode, q.data.deliveryDate)
       // Bulk lines are priced again from the listing as it is now (stale prices fail with PRICE_CHANGED).
       const quoted = await checkBulkLinesAtConfirm(c, q.data.lines)
       // PAY-B10: a product taken off sale after the quote is not sold on it.
@@ -1082,23 +1264,29 @@ router.post(
         }
       }
       await checkUnpaidLimit(c, req.customer.id, quoted.reduce((t, l) => t + l.qty, 0))
-      // Backorders: a regular line short of stock on the day is placed anyway (for a day far enough out) and
-      // fulfilled when stock arrives; bulk lines and everything with backorders off stay all-or-nothing.
+      // Backorders: a regular line short of stock on the day is placed anyway when a batch on its way can
+      // supply it (backorders.js), and fulfilled when stock arrives; bulk lines and everything with backorders
+      // off stay all-or-nothing. A shortfall is answered with the earliest day the bag can come (earliest.js).
       const pool = await availability(c, date)
-      const backorder = quoted.some((l) => {
-        if ((pool.get(`${l.sku}|${l.stage}`) ?? 0) >= l.qty) return false
-        if (l.listingId || !canBackorder(date, dates, l.sku)) throw new StockError(l.sku)
-        return true
-      })
+      let backorder = false
+      for (const l of planned ? [] : quoted) {
+        const have = pool.get(`${l.sku}|${l.stage}`) ?? 0
+        if (have >= l.qty) continue
+        if (l.listingId) throw new StockError(l.sku)
+        const bo = await backorderable(c, { date, dates, sku: l.sku, stage: l.stage, short: l.qty - have })
+        if (!bo.ok) throw new HttpError(409, 'STOCK_INSUFFICIENT', `Not enough stock for ${l.sku}`, { sku: l.sku, backorderFrom: bo.earliest })
+        backorder = true
+      }
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
       const retailSubtotal = quoted.filter((l) => !l.listingId).reduce((t, l) => t + l.unitPrice * l.qty, 0)
       // The code is checked again, locked, so a limited code can't be over-used. Bulk lines never count toward it.
       const promo = q.data.promo ? await applyPromo(c, q.data.promo.code, req.customer.id, retailSubtotal, { lock: true }) : null
+      const booked = planned ? await bookPlan(c, quoted, date) : null
       const created = await createOrder(
         c,
         {
-          customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address,
+          customerId: req.customer.id, customerName: b.name ?? cust.name, phone: cust.phone, pincode: q.data.pincode, address: b.address, planned: booked,
           deliveryDate: date, slotId: q.data.slotId ?? null, strictSlot: Boolean(q.data.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED', allOrNothing: !backorder,
           holdExpiresAt: new Date(now().getTime() + getConfig().holdMinutes * 60_000),
           lines: quoted.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice, listingId: l.listingId ?? null, pricing: l.pricing ?? null })),
@@ -1123,7 +1311,7 @@ router.post(
       await c.query('DELETE FROM carts WHERE customer_id = $1', [req.customer.id])
       await c.query('DELETE FROM bulk_cart_lines WHERE customer_id = $1', [req.customer.id])
       return (await c.query('SELECT * FROM orders WHERE id = $1', [created.id])).rows[0]
-    })
+    }))
     if (!order) {
       const first = await existing()
       if (stillStarting(first, 'razorpay_order_id')) throw startingPayment()
@@ -1223,10 +1411,12 @@ router.get(
   asyncHandler(async (req, res) => {
     const { rows } = await query(
       `SELECT o.*, (SELECT COALESCE(SUM(quantity), 0)::int FROM order_items i WHERE i.order_id = o.id) AS item_count,
+              o.planned AND ${WAITING_SQL} AS plan_waiting, o.delayed_at AS order_delayed_at, o.delay_count AS order_delay_count,
               EXISTS (SELECT 1 FROM order_ratings r WHERE r.order_id = o.id) AS rated,
               EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id) AS has_bill,
-              (SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'DELIVERED') AS delivered_at
-         FROM orders o WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT 100`,
+              (SELECT MAX(e.created_at) FROM order_events e WHERE e.order_id = o.id AND e.status = 'DELIVERED') AS delivered_at,
+              p.status AS pre_status, p.delayed_at, p.delayed_from_week, p.week_start, p.delay_count, p.payment_status AS pre_payment_status
+         FROM orders o LEFT JOIN preorders p ON p.id = o.preorder_id WHERE o.customer_id = $1 ORDER BY o.placed_at DESC LIMIT 100`,
       [req.customer.id],
     )
     const bills = isOn('BILLS_ENABLED')
@@ -1236,19 +1426,77 @@ router.get(
       hasBill: bills && o.has_bill,
       rated: o.rated,
       deliveredAt: o.status === 'DELIVERED' ? o.delivered_at : null,
+      // A cancelled, paid order's refund, so the list can say it too (refundView).
+      refund: refundView(o),
       // Lets the shop point to an unpaid order that is still held (FE-5).
       holdExpiresAt: o.status === 'PAYMENT_PENDING' ? o.hold_expires_at : null,
+      // Payment failed: try again while held, or the order was closed unpaid (migration 086, paymentState).
+      ...paymentState(o),
       // A delivery of a gift order to many recipients (MULTI_GIFT): the shop links it to its gift order.
-      ...(o.gift_order_id ? { giftOrderId: o.gift_order_id, giftRecipient: o.gift_recipient_name } : {}),
+      ...(o.gift_order_id ? { giftOrderId: o.gift_order_id } : {}),
+      // Any gift (one recipient or a delivery of a gift order): the shop marks the row Gift with the person's name.
+      ...(o.gift_recipient_name ? { giftRecipient: o.gift_recipient_name } : {}),
       ...backorderView(o),
+      // The order a pre-order became that we delayed (migration 079): the row says Delayed and offers the cancel until packed.
+      ...delayedOrderView(o, { status: o.pre_status, delayed_at: o.delayed_at, delayed_from_week: o.delayed_from_week, week_start: o.week_start, delay_count: o.delay_count }),
+      // Booked against the plan (plan-orders.js), and delayed by us if so.
+      ...plannedOrderView({ ...o, delayed_at: o.order_delayed_at, delay_count: o.order_delay_count }, o.plan_waiting),
     })))
   }),
 )
+
+/**
+ * The payment in the customer's words (migration 086): paymentFailed, the last attempt failed and it can still be paid
+ * (unpaid and held: "Try payment again"); paymentClosed, it was closed unpaid by us (the hold ran out, or the payment
+ * failed and the boxes were released), not cancelled by the customer or the shop: the shop offers Order again.
+ */
+const paymentState = (o) => ({
+  paymentFailed: o.status === 'PAYMENT_PENDING' && Boolean(o.payment_failed_at),
+  paymentClosed: o.status === 'CANCELLED' && !['SUCCEEDED', 'REFUNDED'].includes(o.payment_status) && !o.customer_cancelled_at && !o.staff_cancelled_at,
+})
+
+/** For an order made from a pre-order: { delayed, canCancelDelayed, cancelUntil } when we delayed it (empty otherwise). */
+function delayedOrderView(o, pre) {
+  const delayed = pre?.status ? delayView(pre) : null
+  if (!delayed) return {}
+  const open = BEFORE_PACKED.includes(o.status) && o.payment_status === 'SUCCEEDED'
+  return { delayed, canCancelDelayed: open, cancelUntil: 'PACKED' }
+}
+
+/** A regular order booked against the plan: what to expect, and when we delayed it the same right as a delayed pre-order. */
+function plannedOrderView(o, waiting) {
+  if (!o.planned) return {}
+  const delayed = isDelayedPlanned(o)
+  return {
+    ...plannedView(o, waiting),
+    ...(delayed
+      ? { delayed: { fromDate: o.delayed_from_date, toDate: o.delivery_date, at: o.delayed_at, count: o.delay_count }, canCancelDelayed: BEFORE_PACKED.includes(o.status) && o.payment_status === 'SUCCEEDED', cancelUntil: 'PACKED' }
+      : {}),
+  }
+}
+
+/**
+ * The refund on a cancelled, paid order, for the customer's order pages (null when none is due):
+ * PENDING once it is due or started (Razorpay has it; the bank has not paid it yet), PROCESSED once
+ * the bank has paid it (or a manager paid it back another way, 'manual'), FAILED when sending it went
+ * wrong and staff are handling it. refundAmount in paise, what refundOrder sends back.
+ */
+const refundView = (o) => {
+  if (!o.refund_requested_at && !o.refunded_at && !o.refund_status) return null
+  const status = o.refund_status === 'processed' || o.refund_status === 'manual' ? 'PROCESSED' : o.refund_status === 'failed' ? 'FAILED' : 'PENDING'
+  return {
+    status, refundAmount: Number(o.payment_amount ?? o.total),
+    requestedAt: o.refund_requested_at ?? null, startedAt: o.refunded_at ?? null,
+    processedAt: status === 'PROCESSED' ? (o.refund_checked_at ?? o.refunded_at ?? null) : null,
+  }
+}
 
 router.get(
   '/orders/:id',
   asyncHandler(async (req, res) => {
     const o = await ownOrder({ query }, req)
+    const planWaiting = o.planned ? (await query(`SELECT ${WAITING_SQL} AS w FROM orders o WHERE o.id = $1`, [o.id])).rows[0].w : false
+    const planView = plannedOrderView(o, planWaiting)
     const [items, events, slot, proof, rating, cancel, delivered, bill, tracking, fromPre] = await Promise.all([
       query(`SELECT i.*, ${OLDEST_PLUCK_SQL} AS plucked_on FROM order_items i WHERE i.order_id = $1 ORDER BY i.sku, i.stage`, [o.id]),
       query(`SELECT status, created_at FROM order_events WHERE order_id = $1 AND from_status IS DISTINCT FROM status ORDER BY created_at, id`, [o.id]),
@@ -1264,7 +1512,7 @@ router.get(
       isOn('BILLS_ENABLED') ? billFor({ query }, o.id) : null,
       // LIVE_TRACKING: while out for delivery, stops before this one on the rider's run (a count, nothing more).
       isOn('LIVE_TRACKING') ? trackingFor({ query }, o) : null,
-      o.preorder_id ? query('SELECT id, number, non_refundable FROM preorders WHERE id = $1', [o.preorder_id]) : { rows: [] },
+      o.preorder_id ? query('SELECT id, number, non_refundable, status, delayed_at, delayed_from_week, week_start, delay_count FROM preorders WHERE id = $1', [o.preorder_id]) : { rows: [] },
     ])
     const pre = fromPre.rows[0]
     const r = rating.rows[0]
@@ -1281,9 +1529,12 @@ router.get(
       deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km), total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
       refundStatus: o.refunded_at ? 'REFUNDED' : o.refund_requested_at ? 'PENDING' : null, razorpayOrderId: o.razorpay_order_id,
+      // The refund in the customer's words: due or on its way, paid back, or being handled (refundView).
+      refund: refundView(o),
       // The public key id, so checkout can be reopened from any device while unpaid.
       razorpayKeyId: o.status === 'PAYMENT_PENDING' && o.razorpay_order_id ? env.RAZORPAY_KEY_ID || null : null,
       holdExpiresAt: o.hold_expires_at,
+      ...paymentState(o),
       // Why it was cancelled, so the shop never says "nothing was charged" while
       // a late payment can still land on a hold that ran out (FE-1).
       cancelReason: !cancelled ? null : o.staff_cancelled_at ? 'STAFF' : cancelled.reason === HOLD_EXPIRED_REASON ? 'HOLD_EXPIRED' : 'OTHER',
@@ -1305,9 +1556,12 @@ router.get(
       giftOrderId: o.gift_order_id ?? null,
       // The pre-order this order was made from; a non-refundable one can't be cancelled by the customer (orders.js customerCancel).
       preorder: pre ? { id: pre.id, number: pre.number, nonRefundable: pre.non_refundable } : null,
-      canCancel: CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable && withinCancelWindow(o),
+      canCancel: (CUSTOMER_CANCELLABLE.includes(o.status) && !pre?.non_refundable && withinCancelWindow(o)) || Boolean(delayedOrderView(o, pre).canCancelDelayed) || Boolean(planView.canCancelDelayed),
       // A paid order can be cancelled for four hours after it was placed (orders.js CUSTOMER_CANCEL_HOURS); this is when that closes.
       cancelUntil: CUSTOMER_CANCELLABLE.includes(o.status) ? (cancelClosesAt(o)?.toISOString() ?? null) : null,
+      // Made from a pre-order we delayed (migration 079): { delayed, canCancelDelayed, cancelUntil: 'PACKED' } (the until-packed rule wins).
+      ...delayedOrderView(o, pre),
+      ...planView,
       items: items.rows.map((i) => ({
         sku: i.sku, name: findProduct(i.sku)?.name ?? i.sku, stage: i.stage, quantity: i.quantity, unitPrice: i.unit_price, linePrice: i.line_price,
         eatBy: i.stage ? eatByFor(i.stage, o.delivery_date, i.plucked_on) : null, readyOn: i.stage ? readyOnFor(i.stage, o.delivery_date, i.plucked_on) : null,
@@ -1459,9 +1713,12 @@ router.post(
     const b = parse(
       z.object({
         sku: z.string().min(1), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
-        weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), pincode: PIN,
+        // Optional: the week the shop showed before paying (preorders.js bookPreorder). Without it the API picks the earliest week with room.
+        weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable(), pincode: PIN,
         address: z.string().trim().min(10, 'Enter the full delivery address').max(500), name: z.string().trim().max(80).optional(),
         slotId: z.string().max(64).optional().nullable(), waitlist: z.boolean().optional(),
+        // A booking for someone else: the order it becomes is a gift order (as the checkout's gift).
+        gift: giftSchema,
       }),
       req.body,
     )
@@ -1500,10 +1757,94 @@ router.post(
   }),
 )
 
+/**
+ * A gift for several people, before the season (MULTI_GIFT, docs/gifting.md): one gift pre-order per
+ * person, booked together and paid once by one payment link (preorders.js bookPreorderGroup). Each
+ * person names their box, ripeness, quantity, week (the shop shows it before paying), pincode,
+ * address and the gift (name, mobile, message, as for one gift pre-order).
+ */
+const groupRecipientSchema = z
+  .object({
+    sku: z.string().trim().min(1, 'Choose a box').max(40), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
+    // Optional, as for one pre-order: the week the shop showed for this person.
+    weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable(), pincode: PIN,
+    address: z.string().trim().min(10, 'Enter the full delivery address').max(500),
+    gift: giftRecipientSchema,
+  })
+  .strict()
+
+router.post(
+  '/preorders/groups',
+  asyncHandler(async (req, res) => {
+    if (!isOn('MULTI_GIFT')) throw notFound()
+    const rawKey = req.get('Idempotency-Key')
+    if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
+    const max = env.MULTI_GIFT_MAX_RECIPIENTS
+    const b = parse(
+      z.object({ name: z.string().trim().max(80).optional(), recipients: z.array(groupRecipientSchema).min(1, 'Add at least one person').max(100) }).strict(),
+      req.body,
+    )
+    if (b.recipients.length > max) throw new HttpError(400, 'TOO_MANY_RECIPIENTS', `A gift can go to up to ${max} people at once.`, { maxRecipients: max })
+    const boxMax = perRecipientMax()
+    const over = b.recipients.findIndex((r) => r.qty > boxMax)
+    if (over >= 0) throw new HttpError(400, 'RECIPIENTS_INVALID', `Person ${over + 1}: up to ${boxMax} boxes for one person`, { rows: [{ row: over + 1, field: 'qty', message: `Up to ${boxMax} boxes for one person` }] })
+    const key = `${req.customer.id}:pregrp:${rawKey}`
+    const hash = requestHash(b)
+    const existing = () => replayFor(key, hash, 'preorder_groups')
+    const view = async (g) => res.json(groupView(g, (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [g.id])).rows))
+    const replay = await existing()
+    if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
+    if (replay) return view(replay)
+    const group = await tx(async (c) => {
+      const ins = await c.query('INSERT INTO idempotency_keys (key, order_id, created_at, request_hash) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [key, 'pending', now(), hash])
+      if (!ins.rowCount) return null
+      if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
+      const cust = await requirePhone(c, req.customer.id)
+      const g = await bookPreorderGroup(c, { customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone, recipients: b.recipients }, req.actor)
+      await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, g.id])
+      return g
+    })
+    if (!group) {
+      const first = await existing()
+      if (stillStarting(first, 'payment_link_url')) throw startingPayment()
+      return view(first)
+    }
+    try {
+      const g = await ensureGroupPaymentLink(group.id)
+      res.status(201)
+      return view(g)
+    } catch (err) {
+      logger.error({ err, preorderGroupId: group.id }, 'could not create the payment link for a gift pre-order group')
+      await tx(async (c) => {
+        const lead = (await c.query('SELECT id FROM preorders WHERE group_id = $1 ORDER BY group_position LIMIT 1', [group.id])).rows[0]
+        if (lead) await cancelPreorder(c, lead.id, req.customer.id, SYSTEM)
+        // A retry with the same key books again instead of replaying the cancelled group.
+        await c.query('DELETE FROM idempotency_keys WHERE key = $1', [key])
+      })
+      throw new HttpError(502, 'PAYMENT_GATEWAY_ERROR', 'Could not start the payment. Please try again.')
+    }
+  }),
+)
+
+router.get(
+  '/preorders/groups/:id',
+  asyncHandler(async (req, res) => {
+    if (!isOn('MULTI_GIFT')) throw notFound()
+    const { rows } = await query('SELECT * FROM preorder_groups WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
+    if (!rows.length) throw notFound('Gift pre-order not found')
+    const members = (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [rows[0].id])).rows
+    res.json(groupView(rows[0], members))
+  }),
+)
+
 router.get(
   '/preorders',
   asyncHandler(async (req, res) => {
-    const { rows } = await query('SELECT * FROM preorders WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50', [req.customer.id])
+    const { rows } = await query(
+      `SELECT p.*, o.status AS order_status, ${GROUP_COLUMNS} FROM preorders p LEFT JOIN preorder_groups g ON g.id = p.group_id LEFT JOIN orders o ON o.id = p.order_id
+        WHERE p.customer_id = $1 ORDER BY p.created_at DESC, p.group_position NULLS FIRST LIMIT 50`,
+      [req.customer.id],
+    )
     res.json(rows.map(preorderView))
   }),
 )
@@ -1511,7 +1852,11 @@ router.get(
 router.get(
   '/preorders/:id',
   asyncHandler(async (req, res) => {
-    const { rows } = await query('SELECT * FROM preorders WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
+    const { rows } = await query(
+      `SELECT p.*, o.status AS order_status, ${GROUP_COLUMNS} FROM preorders p LEFT JOIN preorder_groups g ON g.id = p.group_id LEFT JOIN orders o ON o.id = p.order_id
+        WHERE p.id = $1 AND p.customer_id = $2`,
+      [req.params.id, req.customer.id],
+    )
     if (!rows.length) throw notFound('Preorder not found')
     res.json(preorderView(rows[0]))
   }),
@@ -1682,5 +2027,6 @@ devRouter.post(
 
 devRouter.use(devGifts)
 devRouter.use(devFarm)
+devRouter.use(devBulk)
 
 devRouter.post('/reconcile', asyncHandler(async (_req, res) => res.json({ reconciled: await reconcilePendingPayments({ minAgeSeconds: 0 }) })))

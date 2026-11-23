@@ -147,6 +147,47 @@ describe('SEC-4: staff password lockout and two-step for every role', () => {
     assert.equal((await api.post('/admin/v1/auth/login', { ...PACKER, password: 'a-new-password-1' })).status, 200)
   })
 
+  test('one person getting passwords wrong does not lock the office: failures count per account and address', async () => {
+    enforceLimitsInTests(true)
+    // 45 wrong passwords from this address across five accounts (more than the old shared limit of 30).
+    for (let i = 0; i < 45; i++) {
+      const r = await api.post('/admin/v1/auth/login', { email: `guess${i % 5}@mandimangoes.test`, password: 'wrong-password' })
+      assert.equal(r.status, 401, `try ${i + 1}: ${JSON.stringify(r.body)}`)
+    }
+    // A colleague on the same address still signs in.
+    assert.equal((await api.post('/admin/v1/auth/login', PACKER)).status, 200)
+    // 30 wrong passwords for one account from one address stop that account there, ahead of the account's own pause.
+    const [failKey] = await limitKey('staff-auth-fail:guess0@%')
+    assert.ok(failKey, 'the failure was counted for the account and address')
+    await setHits(failKey, 30)
+    const here = await api.post('/admin/v1/auth/login', { email: 'guess0@mandimangoes.test', password: 'x' })
+    assert.equal(here.status, 429)
+    assert.equal(here.body.error.code, 'RATE_LIMITED')
+    // The same account from another address is not stopped by it (only by the per-account pause after 10).
+    await query('UPDATE rate_limits SET key = $2 WHERE key = $1', [failKey, 'staff-auth-fail:guess0@mandimangoes.test:203.0.113.9'])
+    assert.equal((await api.post('/admin/v1/auth/login', { email: 'guess0@mandimangoes.test', password: 'x' })).status, 401)
+  })
+
+  test('a right password clears its account and address count; successful sign-ins do not use up the address ceiling', async () => {
+    enforceLimitsInTests(true)
+    assert.equal((await api.post('/admin/v1/auth/login', { ...PACKER, password: 'wrong-password' })).status, 401)
+    const [failKey] = await limitKey('staff-auth-fail:packer@%')
+    await setHits(failKey, 29)
+    assert.equal((await api.post('/admin/v1/auth/login', PACKER)).status, 200)
+    assert.deepEqual(await limitKey('staff-auth-fail:packer@%'), [])
+
+    // The per-address ceiling (200 in 15 minutes) only counts refused and wrong tries.
+    const [ipKey] = await limitKey('staff-auth:%')
+    await setHits(ipKey, 199)
+    for (let i = 0; i < 3; i++) assert.equal((await api.post('/admin/v1/auth/login', MANAGER)).status, 200)
+    const hits = async () => (await query('SELECT hits FROM rate_limits WHERE key = $1', [ipKey])).rows[0].hits
+    assert.equal(await hits(), 199)
+    assert.equal((await api.post('/admin/v1/auth/login', { ...MANAGER, password: 'wrong-password' })).status, 401)
+    const ceiling = await api.post('/admin/v1/auth/login', MANAGER)
+    assert.equal(ceiling.status, 429)
+    assert.equal(ceiling.body.error.code, 'RATE_LIMITED')
+  })
+
   test('with STAFF_TWO_STEP=all (the production default) packers must set up two-step too', async () => {
     env.STAFF_TWO_STEP = 'all'
     const packer = await adminToken(api, PACKER.email, PACKER.password)

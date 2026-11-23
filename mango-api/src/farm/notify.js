@@ -21,7 +21,7 @@ const day = (d) => IST_DATE.format(new Date(`${d}T00:00:00Z`))
 /** What the customer is told for each step (only steps listed here send anything). */
 const rupees = (paise) => `₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(paise / 100)}`
 const CUSTOMER = {
-  CREATED: (b) => `We have your booking for ${b.kg} kg of ${b.variety_name} on ${day(b.visit_date)}. Our team is arranging your stay. You pay after picking, for the mangoes weighed and accepted.`,
+  CREATED: (b) => `We have your booking for ${b.kg} kg of ${b.variety_name} on ${day(b.visit_date)}. Our team is arranging your free stay. You pay after picking, for the mangoes weighed and accepted.`,
   HOSPITALITY_APPROVED: (b) => `Your farm visit on ${day(b.visit_date)} is confirmed. Your itinerary and check-in code are in your booking.`,
   ALTERNATIVE_ACCEPTED: (b) => `Your farm visit on ${day(b.visit_date)} is confirmed with the arrangement you accepted.`,
   ALTERNATIVE_PROPOSED: () => 'We have proposed a change to your stay. Please open your booking to accept or decline it.',
@@ -32,7 +32,7 @@ const CUSTOMER = {
   BILL_ISSUED: (b) => `Your mangoes are weighed: ${Number(b.accepted_kg)} kg accepted. Your bill is ${rupees(b.bill_amount)}. Please pay it in your booking.`,
   BILL_REVISED: (b) => `Your bill was corrected to ${rupees(b.bill_amount)} for ${Number(b.accepted_kg)} kg. Please pay it in your booking.`,
   PAID: (b) => `We received your payment of ${rupees(b.bill_amount)}. Your mangoes are being packed.`,
-  TO_COMPLETED: () => 'Your farm visit is complete. Thank you for visiting MandiMangoes.',
+  TO_COMPLETED: () => 'Your farm visit is complete. Thank you for visiting VMR Mangoes.',
   REFUND_SENT: () => 'We took your payment twice, so we have refunded one. It can take 5 to 7 working days to show.',
   REQUEST_DECLINED: () => 'Our team replied to your request. Please open your booking to see it.',
 }

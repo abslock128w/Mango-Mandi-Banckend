@@ -3,6 +3,7 @@
 // every search, view and reveal in staff_audit before anything is shown.
 // Exports: managers only, date range capped, cells made formula-safe,
 // streamed in pages, audited with the row count.
+import { formatOrderNumber } from '../src/order-number.js'
 import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -292,7 +293,8 @@ describe('CSV exports', () => {
     const r = await exportCsv('payments', `from=${payDay}&to=${payDay}`)
     assert.equal(r.status, 200, r.text)
     const head = r.rows[0]
-    const row = r.rows.find((x) => x[head.indexOf('reference')] === number)
+    // Exports show order numbers grouped, as people read them (order-number.js).
+    const row = r.rows.find((x) => x[head.indexOf('reference')] === formatOrderNumber(number))
     assert.ok(row, `the payment is listed on ${payDay}:\n${r.text}`)
     assert.match(row[head.indexOf('paid_at')], new RegExp(`^${payDay}T`))
     assert.match(row[head.indexOf('bill_number')], /^MM\/26-27\//)

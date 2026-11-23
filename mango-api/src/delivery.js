@@ -4,7 +4,7 @@ import { addDays, istParts, now } from './clock.js'
 import { badRequest, conflict } from './errors.js'
 
 /** Closed days between two dates (inclusive), as a Set of "YYYY-MM-DD". */
-async function closedDays(c, from, to) {
+export async function closedDays(c, from, to) {
   const { rows } = await c.query(
     'SELECT date FROM delivery_calendar WHERE date BETWEEN $1 AND $2 AND NOT is_open',
     [from, to],

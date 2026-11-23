@@ -35,9 +35,12 @@ const BODY = {
   DELIVERY_FAILED: "Hi {{1}}, we couldn't deliver order {{2}} today. We will bring it on {{3}}.",
   CANCELLED: 'Hi {{1}}, order {{2}} has been cancelled. If you paid for it, the refund has been started.',
   REFUNDED: 'Hi {{1}}, the refund for {{2}} of {{3}} has been started. Your bank usually shows it within 5 to 7 working days.',
-  PREORDER_BOOKED: "Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Pre-orders can't be cancelled or refunded once paid; if we can't deliver your box, we refund you in full.",
+  PREORDER_BOOKED: "Hi {{1}}, pre-order {{2}} is confirmed and paid: {{3}} for {{4}}. We will confirm the delivery day nearer the time. Harvest varies with the weather, so the week can change. It can't be cancelled once paid, unless we delay it: then you can cancel for a full refund until it is packed.",
   PREORDER_SPOT_OPEN: "Hi {{1}}, a spot opened for {{2}} for {{3}}. Pay here to keep it: {{4}} Pre-orders can't be cancelled or refunded once paid.",
   PREORDER_MOVED: "Hi {{1}}, pre-order {{2}} ({{3}}) moves to {{4}} because the mangoes were not ready. If the new week doesn't work for you, message us.",
+  PREORDER_DELAYED: 'Hi {{1}}, your VMR Mangoes pre-order {{2}} will now be delivered in {{4}} instead of {{3}}, because this season\'s harvest is smaller than expected. Sorry for the wait. If you would rather not wait, you can cancel it for a full refund any time before it is packed: {{5}}',
+  PREORDER_EARLIER: 'Good news, {{1}}: your VMR Mangoes pre-order {{2}} will now arrive in {{3}}, earlier than {{4}}. See it here: {{5}}',
+  ORDER_DELAYED: 'Hi {{1}}, your VMR Mangoes order {{2}} will now be delivered on {{4}} instead of {{3}}, because less fruit came in than we planned. Sorry for the wait. If you would rather not wait, you can cancel it for a full refund until it is packed: {{5}}',
   BACK_IN_STOCK: 'Hi {{1}}, {{2}} is back. The first delivery day is {{3}}. Order here: {{4}}',
   REORDER_REMINDER: 'Hi {{1}}, enjoyed the {{2}}? Order again here: {{3}}. Reply STOP OFFERS to stop these reminders.',
   REVIEW_REQUEST: 'Hi {{1}}, how were the mangoes in order {{2}}? Rate them in the app; it helps other customers choose.',
@@ -48,6 +51,8 @@ const BODY = {
   SUBSCRIPTION_DUE: 'Hi {{1}}, your next subscription box, {{2}}, is set for {{3}}. Pay here to confirm it: {{4}}',
   BULK_ENQUIRY_RECEIVED: 'Hi {{1}}, we have your MandiMangoes bulk enquiry {{2}} for {{3}}. We will price it and send you a quote here soon.',
   BULK_QUOTE: 'Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}',
+  FARM_VISIT_ENQUIRY_RECEIVED: 'Hi {{1}}, we have your VMR Mangoes farm visit enquiry {{2}}: {{3}}. Our team will call you on WhatsApp to plan your visit.',
+  BULK_ORDER_PAID: 'Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 5 to 7 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}',
   MANAGER_DAILY_SUMMARY: 'MandiMangoes, {{1}}: {{2}} orders, {{3}} taken. Delivered {{4}} boxes, failed {{5}}. New claims {{6}}, unhappy ratings {{7}}, needs attention {{8}}.',
 }
 

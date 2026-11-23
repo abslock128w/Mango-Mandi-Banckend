@@ -7,6 +7,7 @@ import { now } from './clock.js'
 import { query } from './db.js'
 import { env, isProd } from './env.js'
 import { newId } from './ids.js'
+import { formatOrderNumber } from './order-number.js'
 import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
@@ -89,6 +90,52 @@ export async function enqueuePreorder(c, preorderId, kind) {
     [newId('ntf'), preorderId, preorderEvent(rows[0], kind), kind, rows[0].phone, at],
   )
 }
+
+/**
+ * The plan moved bookings (src/preorders.js recalculatePreorders, the allocator, a manager's move): one message per
+ * moved PAID booking, PREORDER_DELAYED (later: the customer may now cancel for a full refund until it is packed) or
+ * PREORDER_EARLIER (good news, no cancel right). `items`: [{ id, number, name, phone, movedCount, kind, from, to }].
+ * The variables are fixed now (params): later moves must not rewrite which week this one was about. The event is the
+ * move itself (moved_count after it), so a step run twice adds no second message, and a plan applied again with no
+ * change moves nothing and sends nothing. Queued in one statement, for a recalculation of thousands of bookings.
+ */
+export async function enqueuePreorderMoves(c, items) {
+  const rows = items.filter((m) => m.phone)
+  if (!rows.length) return 0
+  const at = now()
+  const link = (id) => `${shopUrl()}/preorders/${encodeURIComponent(id)}`
+  const params = rows.map((m) => {
+    const name = m.name?.trim() || 'there'
+    return m.kind === 'PREORDER_DELAYED'
+      ? [name, formatOrderNumber(m.number), weekWords(m.from), weekWords(m.to), link(m.id)]
+      : [name, formatOrderNumber(m.number), weekWords(m.to), weekWords(m.from), link(m.id)]
+  })
+  const r = await c.query(
+    `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, params, next_attempt_at, created_at)
+     SELECT x.id, x.preorder_id, x.event_id, x.kind, x.phone, x.params, $2, $2
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, preorder_id text, event_id text, kind text, phone text, params jsonb)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [JSON.stringify(rows.map((m, i) => ({ id: newId('ntf'), preorder_id: m.id, event_id: `${m.id}:moved:${m.movedCount}`, kind: m.kind, phone: m.phone, params: params[i] }))), at],
+  )
+  return r.rowCount
+}
+
+/**
+ * We moved a paid order booked against the plan to a later date (plan-orders.js): one ORDER_DELAYED per move (`count`:
+ * its delay_count after the move). The variables are fixed now; the customer may cancel for a full refund until packed.
+ */
+export async function enqueueOrderDelayed(c, { id, number, name, phone, count, from, to }) {
+  if (!phone) return
+  const at = now()
+  await c.query(
+    `INSERT INTO notifications (id, order_id, event_id, kind, phone, params, next_attempt_at, created_at) VALUES ($1, $2, $3, 'ORDER_DELAYED', $4, $5, $6, $6)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('ntf'), id, `${id}:delayed:${count}`, phone, JSON.stringify([name?.trim() || 'there', formatOrderNumber(number), dateWords(from), dateWords(to), `${shopUrl()}/orders/${encodeURIComponent(id)}`]), at],
+  )
+}
+
+/** Messages that wait for WhatsApp to be connected instead of being dropped (the owner: "queue it so it sends once the key is connected"). */
+export const WAITS_FOR_WHATSAPP = new Set(['PREORDER_DELAYED', 'PREORDER_EARLIER', 'ORDER_DELAYED'])
 
 /**
  * Customer care (docs/care.md): "we replied to your help request". The browser notification
@@ -189,6 +236,8 @@ const codeFor = (n) => (n.order_id ? deliveryCodeFor({ id: n.order_id, delivery_
 
 /** Template body variables, in order, for each kind of update. */
 export function paramsFor(n) {
+  // S743406080 reads S-743 406 080 in a message; older numbers as they are (order-number.js).
+  if (n.number != null) n = { ...n, number: formatOrderNumber(n.number) }
   const name = n.customer_name?.trim() || 'there'
   switch (n.kind) {
     case 'ORDER_CONFIRMED':
@@ -220,6 +269,11 @@ export function paramsFor(n) {
       return [name, n.number, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start)]
     case 'PREORDER_SPOT_OPEN':
       return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
+    // Fixed when queued (enqueuePreorderMoves): the weeks this move was from and to.
+    case 'PREORDER_DELAYED':
+    case 'PREORDER_EARLIER':
+    case 'ORDER_DELAYED':
+      return (n.params ?? []).map(String)
     case 'REFERRAL_REWARD':
       // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
       // {{2}} is "10%" for a percent code, "Rs 100" for a flat one.
@@ -234,6 +288,8 @@ export function paramsFor(n) {
       return (n.partner_params ?? []).map(String)
     case 'BULK_ENQUIRY_RECEIVED':
     case 'BULK_QUOTE':
+    case 'BULK_ORDER_PAID':
+    case 'FARM_VISIT_ENQUIRY_RECEIVED':
       // Fixed when queued (bulk-enquiries.js): a quote's total and link are as they were sent.
       return (n.bulk_params ?? []).map(String)
     case 'MANAGER_DAILY_SUMMARY':
@@ -444,8 +500,20 @@ function staleReason(n) {
   }
   // A "pay for this box" reminder once the box is paid for, skipped or the subscription stopped is no longer true.
   if (n.kind === 'SUBSCRIPTION_DUE' && (n.cycle_status !== 'DUE' || n.subscription_status !== 'ACTIVE')) return `cycle is ${n.cycle_status ?? 'gone'} now`
+  // A delayed or earlier message is about one move: once the booking moved again (a newer message is queued), was
+  // cancelled or delivered, it is no longer true.
+  if (n.kind === 'PREORDER_DELAYED' || n.kind === 'PREORDER_EARLIER') {
+    if (n.preorder_status === 'CANCELLED') return 'booking cancelled since'
+    const target = n.params?.[n.kind === 'PREORDER_DELAYED' ? 3 : 2]
+    if (target && n.week_start && weekWords(n.week_start) !== target) return 'booking moved again since'
+  }
   const s = n.order_status
   if (!s) return null
+  // One move's message: no longer true once the order was cancelled, delivered or moved again.
+  if (n.kind === 'ORDER_DELAYED') {
+    if (s === 'CANCELLED' || s === 'DELIVERED') return `order is ${s} now`
+    if (n.params?.[3] && n.delivery_date && dateWords(n.delivery_date) !== n.params[3]) return 'order moved again since'
+  }
   if ((n.kind === 'ORDER_CONFIRMED' || n.kind === 'REPLACEMENT_CONFIRMED' || n.kind === 'DATE_MOVED') && s === 'CANCELLED') return 'order cancelled since'
   if (['OUT_FOR_DELIVERY', 'GIFT_OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE'].includes(n.kind) && s !== 'OUT_FOR_DELIVERY') return `order is ${s} now`
   if (n.kind === 'DELIVERY_FAILED' && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
@@ -472,7 +540,7 @@ function staleSince(n) {
 
 /** Sends one claimed message and records the outcome. Returns true when sent. */
 async function sendOne(n, sender, at) {
-  if (at - n.created_at > MAX_AGE_MS) {
+  if (at - n.created_at > MAX_AGE_MS && !WAITS_FOR_WHATSAPP.has(n.kind)) {
     // OPS_ALERTS: next_attempt_at records when it was given up, for checkHealth (INT-06).
     await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
     return false
@@ -510,6 +578,12 @@ async function sendOne(n, sender, at) {
     return false
   }
   if (!sender) {
+    if (isProd && WAITS_FOR_WHATSAPP.has(n.kind)) {
+      // Kept in the outbox and tried again every 6 hours: it goes out once WhatsApp is connected (staleReason drops it
+      // if the booking moved again or was cancelled in the meantime).
+      await mark(n.id, { last_error: 'waiting for WhatsApp to be connected', next_attempt_at: new Date(at.getTime() + 6 * 3_600_000) })
+      return false
+    }
     if (isProd) {
       logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
       await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
@@ -557,7 +631,7 @@ async function sendOne(n, sender, at) {
 }
 
 /** How an order update reads in its conversation (no delivery code: staff never need it there). */
-const updateSummary = (n) => `Update sent: ${n.kind.toLowerCase().replaceAll('_', ' ')}${n.number ? ` (${n.number})` : ''}`
+const updateSummary = (n) => `Update sent: ${n.kind.toLowerCase().replaceAll('_', ' ')}${n.number ? ` (${formatOrderNumber(n.number)})` : ''}`
 
 /** Why a queued message may not go now (switch, consent), or null. */
 function sendGate(n) {

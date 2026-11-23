@@ -101,6 +101,8 @@ const ISOLATION_CASES = [
   'GET /v1/orders/:id', 'GET /v1/orders/:id/bill', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
   'POST /v1/orders/:id/cancel', 'POST /v1/orders/:id/reschedule', 'PUT /v1/orders/:id/rating', 'POST /v1/orders/:id/demo-pay',
   'GET /v1/preorders/:id', 'POST /v1/preorders/:id/cancel',
+  // A gift for several people as pre-orders (MULTI_GIFT, migration 071, test/preorders.test.js).
+  'GET /v1/preorders/groups/:id',
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
@@ -112,6 +114,8 @@ const ISOLATION_CASES = [
   'POST /v1/me/subscriptions/:id/skip', 'POST /v1/me/subscriptions/:id/cycles/:cycleId/pay', 'POST /v1/me/subscriptions',
   // Bulk enquiries (mango-api README): the caller's own, by account or by their number (test/bulk-enquiries.test.js).
   'GET /v1/me/bulk-enquiries/:id', 'POST /v1/me/bulk-enquiries/:id/seen', 'POST /v1/me/bulk-enquiries/:id/respond',
+  // Bulk orders paid at once (src/bulk-orders.js, test/bulk-orders.test.js): pay again and cancel, the caller's own only.
+  'POST /v1/me/bulk-orders/:id/pay', 'POST /v1/me/bulk-orders/:id/cancel',
   // Farm Experience (FARM_EXPERIENCE, docs/farm-experience.md): switched on for the cases below.
   'GET /v1/farm-bookings/:id', 'GET /v1/farm-bookings/:id/qr.svg', 'POST /v1/farm-bookings/:id/pay', 'POST /v1/farm-bookings/:id/verify-payment',
   'POST /v1/farm-bookings/:id/cancel', 'POST /v1/farm-bookings/:id/reschedule', 'POST /v1/farm-bookings/:id/hospitality',
@@ -140,7 +144,9 @@ describe('every route is filed', () => {
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
       // Bulk Deals: published deals only, their prices and the photos of published deals (test/bulk-deals.test.js).
-      'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
+      'GET /v1/bulk-deals', 'GET /v1/bulk-deals/:id', 'GET /v1/bulk-deals/:id/photos/:photoId', 'GET /v1/bulk-deals/:id/price',
+      // Bulk prices for the bulk page: every 5 kg box and its 10 kg bulk box at shop and bulk price; nothing personal (test/bulk-orders.test.js).
+      'GET /v1/bulk/prices', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
       // Farm Experience (docs/farm-experience.md): the page, open dates and a price quote; nothing personal (test/farm-experience.test.js).
       'GET /v1/farm-experience', 'GET /v1/farm-experience/dates',
       // The invoice link in the WhatsApp order confirmation: the signed link is the permission (src/bill-link.js, test/whatsapp-invoice.test.js).
@@ -160,6 +166,8 @@ describe('every route is filed', () => {
       // The shop's anonymous funnel steps (FUNNEL_ANALYTICS): rate limited, step names checked, no personal data (test/growth.test.js).
       'POST /v1/events',
       'POST /v1/farm-experience/quote',
+      // The Farm visit tab's enquiry form: no sign-in by design, the same limits and checks as the bulk enquiry form (test/farm-visit-enquiries.test.js).
+      'POST /v1/farm-visit-enquiries',
       'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
     ])
   })
@@ -262,6 +270,9 @@ describe('customer to customer', () => {
     const open = await paid(a)
     const pre = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }, { ...A, headers: { 'Idempotency-Key': newId('idem') } })
     assert.equal(pre.status, 201, JSON.stringify(pre.body))
+    // A's gift pre-order group (migration 071), as bookPreorderGroup stores it.
+    await query(`INSERT INTO preorder_groups (id, number, customer_id, status, recipient_count, boxes, total, payment_status, created_at)
+                 VALUES ('pgr_iso', 'PGR-9999', $1, 'PAYMENT_PENDING', 1, 1, 100, 'INITIATED', $2)`, [a.customer.id, now()])
     const claimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
     const looseClaimPhoto = (await image('/v1/claims/photos', a.accessToken)).body.id
     const claim = await api.post('/v1/claims', { orderId: done.orderId, issueType: 'DAMAGED', description: 'two were squashed', photoIds: [claimPhoto] }, A)
@@ -291,8 +302,11 @@ describe('customer to customer', () => {
     assert.equal(sub.status, 201, JSON.stringify(sub.body))
     const cycle = sub.body.cycles[0].id
     // A bulk enquiry from A's number, priced by staff.
-    const bulk = (await api.post('/v1/bulk-enquiries', { name: 'A', phone: '9876500101', city: 'Bengaluru', quantityKg: 150 }, { headers: { 'Idempotency-Key': newId('k') } })).body
+    const bulk = (await api.post('/v1/bulk-enquiries', { name: 'A', phone: '9876500101', city: 'Bengaluru', lines: [{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 50 }] }, { headers: { 'Idempotency-Key': newId('k') } })).body
     assert.equal((await api.post(`/admin/v1/bulk-enquiries/${bulk.id}/quote`, { lines: [{ label: 'Mangoes per kg', qty: 150, unitPrice: 15_000 }] }, { token: manager })).status, 201)
+    // A's bulk order, paid at once (src/bulk-orders.js).
+    const bulkOrder = (await api.post('/v1/me/bulk-orders', { name: 'A', phone: '9876500101', city: 'Bengaluru', address: '12, 4th Cross, Koramangala', pincode: '560034', lines: [{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 20 }] }, { ...A, headers: { 'Idempotency-Key': newId('k') } })).body
+    assert.equal((await api.post('/v1/dev/pay-bulk', { bulkOrderId: bulkOrder.id, outcome: 'captured' })).body.result, 'paid')
     // A Farm Experience booking (FARM_EXPERIENCE): a ready farm, then A books.
     const farmFlags = { FARM_EXPERIENCE: env.FARM_EXPERIENCE, STAFF_STEP_UP: env.STAFF_STEP_UP }
     Object.assign(env, { FARM_EXPERIENCE: true, STAFF_STEP_UP: false })
@@ -322,7 +336,7 @@ describe('customer to customer', () => {
       help: (await query('SELECT t.status, (SELECT COUNT(*)::int FROM help_messages m WHERE m.ticket_id = t.id) AS messages FROM help_tickets t ORDER BY t.id')).rows,
       subscriptions: (await query('SELECT id, status, paused_at, cancelled_at, customer_id FROM subscriptions ORDER BY id')).rows,
       cycles: (await query('SELECT id, status, order_id FROM subscription_cycles ORDER BY id')).rows,
-      bulk: (await query('SELECT id, status, quote_seen_at, customer_id FROM bulk_enquiries ORDER BY id')).rows,
+      bulk: (await query('SELECT id, status, quote_seen_at, customer_id, payment_status, refund_requested_at FROM bulk_enquiries ORDER BY id')).rows,
       farm: (await query('SELECT id, status, visit_date, hospitality_status, request_kind, version FROM farm_bookings ORDER BY id')).rows,
     })
     const before = await snapshot()
@@ -343,6 +357,7 @@ describe('customer to customer', () => {
       ['PUT /v1/orders/:id/rating', () => api.put(`/v1/orders/${done.orderId}/rating`, { stars: 1 }, B), () => api.put('/v1/orders/ord_none/rating', { stars: 1 }, B)],
       ['GET /v1/preorders/:id', () => api.get(`/v1/preorders/${pre.body.id}`, B), () => api.get('/v1/preorders/pre_none', B)],
       ['POST /v1/preorders/:id/cancel', () => api.post(`/v1/preorders/${pre.body.id}/cancel`, {}, B), () => api.post('/v1/preorders/pre_none/cancel', {}, B)],
+      ['GET /v1/preorders/groups/:id', () => api.get('/v1/preorders/groups/pgr_iso', B), () => api.get('/v1/preorders/groups/pgr_none', B)],
       ['DELETE /v1/me/addresses/:id', () => api.del(`/v1/me/addresses/${address}`, B), () => api.del('/v1/me/addresses/adr_none', B)],
       ['DELETE /v1/stock-alerts/:id', () => api.del(`/v1/stock-alerts/${alert}`, B), () => api.del('/v1/stock-alerts/sal_none', B)],
       ['PATCH /v1/reviews/:id', () => api.patch(`/v1/reviews/${rid}`, { rating: 1 }, B), () => api.patch('/v1/reviews/rvw_none', { rating: 1 }, B)],
@@ -370,6 +385,8 @@ describe('customer to customer', () => {
       ['GET /v1/me/bulk-enquiries/:id', () => api.get(`/v1/me/bulk-enquiries/${bulk.id}`, B), () => api.get('/v1/me/bulk-enquiries/benq_none', B)],
       ['POST /v1/me/bulk-enquiries/:id/seen', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/seen`, {}, B), () => api.post('/v1/me/bulk-enquiries/benq_none/seen', {}, B)],
       ['POST /v1/me/bulk-enquiries/:id/respond', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/respond`, { decision: 'ACCEPT' }, B), () => api.post('/v1/me/bulk-enquiries/benq_none/respond', { decision: 'ACCEPT' }, B)],
+      ['POST /v1/me/bulk-orders/:id/pay', () => api.post(`/v1/me/bulk-orders/${bulkOrder.id}/pay`, {}, B), () => api.post('/v1/me/bulk-orders/benq_none/pay', {}, B)],
+      ['POST /v1/me/bulk-orders/:id/cancel', () => api.post(`/v1/me/bulk-orders/${bulkOrder.id}/cancel`, {}, B), () => api.post('/v1/me/bulk-orders/benq_none/cancel', {}, B)],
       ['GET /v1/farm-bookings/:id', () => api.get(`/v1/farm-bookings/${farmBooking.id}`, B), () => api.get('/v1/farm-bookings/fbk_none', B)],
       ['GET /v1/farm-bookings/:id/qr.svg', () => api.get(`/v1/farm-bookings/${farmBooking.id}/qr.svg`, B), () => api.get('/v1/farm-bookings/fbk_none/qr.svg', B)],
       ['POST /v1/farm-bookings/:id/verify-payment', () => api.post(`/v1/farm-bookings/${farmBooking.id}/verify-payment`, { razorpay_payment_id: 'pay_b', razorpay_order_id: farmBooking.rzp, razorpay_signature: sig(farmBooking.rzp, 'pay_b') }, B),
@@ -521,12 +538,16 @@ describe('staff sessions', () => {
     }
   })
 
-  test('staff sign-in is limited per address: the 31st try in 15 minutes is refused, the right password too', async () => {
+  test('staff sign-in has a per-address ceiling of 200 refused tries in 15 minutes; past it the right password is refused too', async () => {
     enforceLimitsInTests(true)
+    // 30 wrong tries (the old shared limit) no longer stop the address.
     for (let i = 0; i < 30; i++) {
       const r = await api.post('/admin/v1/auth/login', { email: `nobody${i}@mandimangoes.test`, password: 'wrong-password-123' })
       assert.equal(r.status, 401, `try ${i + 1}`)
     }
+    const [{ key }] = (await query("SELECT key FROM rate_limits WHERE key LIKE 'staff-auth:%'")).rows
+    assert.equal((await query('SELECT hits FROM rate_limits WHERE key = $1', [key])).rows[0].hits, 30)
+    await query('UPDATE rate_limits SET hits = 200, reset_at = $2 WHERE key = $1', [key, new Date(now().getTime() + 600_000)])
     const blocked = await api.post('/admin/v1/auth/login', { email: 'manager@mandimangoes.test', password: 'manager123' })
     assert.equal(blocked.status, 429)
     assert.equal(blocked.body.error.code, 'RATE_LIMITED')

@@ -50,6 +50,8 @@ export default function Deliveries() {
   const [params, setParams] = useSearchParams()
   const { me } = useSession()
   const rider = me?.role === 'RIDER'
+  // Riders and packers may open only yesterday's, today's and tomorrow's run (access.js riderScope, SEC-02).
+  const runOnly = rider || me?.role === 'PACKER'
   const today = istDate(0)
   const tomorrow = istDate(1)
   const day = params.get('date') || (rider ? today : tomorrow)
@@ -108,6 +110,11 @@ export default function Deliveries() {
           </button>
         </div>
       )}
+      {me?.role === 'PACKER' && (
+        <p className="muted small no-print" role="note">
+          Packers see today's and tomorrow's deliveries only.
+        </p>
+      )}
       {rider && !routeView && (q.data?.unassigned ?? 0) > 0 && <TakeStops day={day} count={q.data!.unassigned!} />}
       {/* Rider app proof, live (managers and operators): photos, mango checks, WhatsApp status, rider positions. */}
       {canAssign && <LiveProofPanel day={day} manager={me?.role === 'MANAGER'} />}
@@ -115,7 +122,7 @@ export default function Deliveries() {
         q.data.runs.length === 0 && !q.data.unassigned ? (
           <>
             <EmptyState>No deliveries on {date(day)}.</EmptyState>
-            <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
+            <NextDay day={day} onPick={setDay} lastDay={runOnly ? tomorrow : null} />
           </>
         ) : (
           <RiderRoute key={day} manifest={q.data} day={day} onDelivered={setDelivering} onMissed={setMissing} />
@@ -127,7 +134,7 @@ export default function Deliveries() {
       ) : q.data.runs.length === 0 ? (
         <>
           <EmptyState>No deliveries on {date(day)}.</EmptyState>
-          <NextDay day={day} onPick={setDay} lastDay={rider ? tomorrow : null} />
+          <NextDay day={day} onPick={setDay} lastDay={runOnly ? tomorrow : null} />
         </>
       ) : canAssign ? (
         <DispatchBoard
@@ -194,7 +201,7 @@ export default function Deliveries() {
 }
 
 /** On an empty day, points at the next day (within a few) that has deliveries. */
-// A rider may open only today's and tomorrow's run (SEC-02): `lastDay` stops the look-ahead there,
+// A rider or packer may open only today's and tomorrow's run (SEC-02): `lastDay` stops the look-ahead there,
 // rather than asking for days the API refuses and then saying they are empty.
 function NextDay({ day, onPick, lastDay }: { day: string; onPick: (d: string) => void; lastDay: string | null }) {
   const days = Array.from({ length: LOOK_AHEAD }, (_, i) => addDays(day, i + 1)).filter((d) => !lastDay || d <= lastDay)
@@ -205,6 +212,8 @@ function NextDay({ day, onPick, lastDay }: { day: string; onPick: (d: string) =>
   const i = results.findIndex((r) => (r.data?.runs.length ?? 0) > 0)
   if (i < 0) {
     if (days.length === 0) return null
+    // A day we couldn't read (refused, offline) is not an empty day: say nothing rather than "nothing".
+    if (results.some((r) => r.isError)) return null
     return <p className="muted small">{days.length === 1 ? `Nothing on ${date(days[0])} either.` : `Nothing in the next ${days.length} days either.`}</p>
   }
   const next = results[i].data!
@@ -788,7 +797,7 @@ function DeliveredDialog({ order, day, onClose }: { order: ManifestOrder; day: s
                 aria-describedby="dl-code-hint"
               />
               <p id="dl-code-hint" className="small muted">
-                The customer has it in the MandiMangoes app and on WhatsApp.
+                The customer has it in the VMR Mangoes app and on WhatsApp.
               </p>
             </div>
             <button type="button" className="link-btn" onClick={() => switchMode('photo')}>

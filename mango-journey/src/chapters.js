@@ -1,8 +1,19 @@
-// The film's script: thirteen chapters, their scroll length, their copy and where the type sits.
+// How long the film stays on each chapter, in seconds: the one table to tune its pace. The film plays by itself; its
+// position moves through chapter i in SECONDS[id] seconds, on one smooth curve (player.js), so the speed changes
+// gently across each border. LEAD is the hold on the title before anything moves. Total: just under two minutes.
+// Each figure is set by what the chapter has to show and say: its line and caption stay up from about a tenth to
+// seven tenths of the chapter (main.js), so the shortest (7 s) still keeps its words up for over four seconds.
+export const LEAD = 2.4
+export const SECONDS = {
+  begin: 5.5, seed: 7, tree: 8.5, blossom: 7, fruit: 7, pick: 9, crate: 7,
+  road: 8.5, grade: 10, pack: 7.5, door: 10, counter: 10.5, finale: 9,
+}
+
+// The film's script: thirteen chapters, their weight (their old scroll length, kept as the relative pace), their copy and where the type sits.
 // Copy follows the brief's facts only. `key` words are set in italic gold. `ink` says whether the type is cream (light)
 // or night green (dark) over that chapter's picture. `pos` is the type's place: landscape / portrait.
 export const CHAPTERS = [
-  { id: 'begin', name: 'One mango', weight: 1.1, ink: 'light', pos: 'center', line: 'One *Mango*', kicker: 'VMR Mangoes · since 1976', cap: 'A film you scroll: one fruit, from a seed in the dark to a bowl on your counter.' },
+  { id: 'begin', name: 'One mango', weight: 1.1, ink: 'light', pos: 'center', line: 'One *Mango*', kicker: 'VMR Mangoes · since 1976', cap: 'A short film: one fruit, from a seed in the dark to a bowl on your counter.' },
   { id: 'seed', name: 'Seed', weight: 1.7, ink: 'light', pos: 'bl', line: 'It starts smaller than your *thumb.*', kicker: '01 · Seed', cap: 'In the warm dark the seed splits. A root goes down, a shoot goes up, looking for light.' },
   { id: 'tree', name: 'The tree grows', weight: 2.6, ink: 'light', pos: 'tl', line: 'Then it takes its time. *Fifty summers* of it.', kicker: '02 · The tree', cap: 'Sun, monsoon, cool nights, more sun. Our orchards have been growing since 1976.' },
   { id: 'blossom', name: 'Blossom', weight: 1.6, ink: 'light', pos: 'br', line: 'Every spring it *flowers.*', kicker: '03 · Blossom', cap: 'Thousands of tiny flowers on every branch. The bees do their work. A few set fruit.' },
@@ -26,6 +37,6 @@ export function fruitDay(i, t) {
   if (i === 8) return 1
   if (i === 9) return 1 + Math.min(3, Math.max(0, (t - 0.1) / 0.6) * 3)
   if (i === 10) return 4 + Math.min(1, Math.max(0, (t - 0.1) / 0.5))
-  if (i === 11) return 5 + Math.min(4, Math.max(0, (t - 0.1) / 0.55) * 4)
+  if (i === 11) return 5 + Math.min(4, Math.max(0, (t - 0.1) / 0.44) * 4) // the four days end at 0.54 of the chapter (counter.js)
   return null
 }

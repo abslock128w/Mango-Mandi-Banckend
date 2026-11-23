@@ -62,6 +62,8 @@ export const pn = {
   /** Approve, reject, close, reopen, convert: managers only. Each returns the detail. */
   action: (enquiryId: string, action: EnquiryAction, body: Record<string, string>) =>
     apiRequest<EnquiryDetail>('POST', `${P}/enquiries/${id(enquiryId)}/${action}`, body),
+  /** Managers: deletes an ended application's details now (the same deletion the hourly pass makes). Returns the detail. */
+  erase: (enquiryId: string) => apiRequest<EnquiryDetail>('POST', `${P}/enquiries/${id(enquiryId)}/erase`, {}),
   /** A supporting document as an object URL; images can be asked for inline. */
   documentUrl: (enquiryId: string, documentId: string, inline = false) =>
     apiBlobUrl(`${P}/enquiries/${id(enquiryId)}/documents/${id(documentId)}${inline ? '?inline=1' : ''}`),

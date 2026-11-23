@@ -6,6 +6,7 @@
 // buyer's name and address kept on the bill for BILL_RETENTION_MONTHS whatever
 // the order's 12-month retention or an account deletion removes.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
+import { formatOrderNumber } from '../src/order-number.js'
 import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
 import { paymentDetails } from '../src/payments.js'
 import assert from 'node:assert/strict'
@@ -181,7 +182,7 @@ describe('issuing bills', () => {
     const pdf = await download(`/v1/orders/${id}/bill`, cust.accessToken)
     assert.equal(pdf.status, 200)
     assert.equal(pdf.type, 'application/pdf')
-    assert.match(pdf.disposition, /attachment; filename="MandiMangoes-bill-MM-26-27-000001\.pdf"/)
+    assert.match(pdf.disposition, /attachment; filename="VMR-Mangoes-bill-MM-26-27-000001\.pdf"/)
     const text = pdfText(pdf.body)
     for (const want of ['BILL OF SUPPLY', 'MM/26-27/000001', 'Mandi Fresh Fruits LLP', `GSTIN: ${SELLER_GSTIN}`, 'Karnataka (code 29)', '08045020', 'Rs. 1,899.00', 'Rs. 3,798.00', 'Ravi Kumar', 'Koramangala', 'Notification 2/2017', 'Page 1 of 1']) {
       assert.ok(text.includes(want), `the PDF says ${want}:\n${text}`)
@@ -532,7 +533,9 @@ describe('issuing bills', () => {
     assert.equal(b?.number, 'MM/26-27/000001')
     assert.equal(b.total, p.total)
     const text = pdfText((await download(`/v1/orders/${o.id}/bill`, cust.accessToken)).body)
-    assert.ok(text.includes(o.number), text)
+    // The bill keeps its own number series and prints the order's (the booking's P number) grouped beside it.
+    assert.match(o.number, /^P\d{9}$/)
+    assert.ok(text.includes(formatOrderNumber(o.number)), text)
     assert.equal((await runPreorderJobs()).converted, 0)
     assert.equal(await issueMissingBills(), 0, 'billed once')
   })

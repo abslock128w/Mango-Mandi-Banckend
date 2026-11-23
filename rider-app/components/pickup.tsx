@@ -4,7 +4,7 @@ import { Check, CheckCheck, Clock, MessageCircle, Navigation, Warehouse, X } fro
 import { motion } from "motion/react";
 import { useState } from "react";
 import { db, stepKey, type Job } from "@/lib/db";
-import { firstName, STAGE, warehouseDirections } from "@/lib/format";
+import { firstName, orderNo, STAGE, warehouseDirections } from "@/lib/format";
 import { enqueue, newClientId, queuePhoto, whenSettled } from "@/lib/queue";
 import { useRun } from "@/lib/run-context";
 import type { PickupMessage, PickupResult } from "@/lib/types";
@@ -52,7 +52,7 @@ export function Pickup({ id }: { id: string }) {
 
   return (
     <>
-      <BackBar title={`Pickup · ${o.number}`} />
+      <BackBar title={`Pickup · ${orderNo(o.number)}`} />
       <div className="flex flex-col gap-4 p-4">
         {o.pickupWarehouse && (
           <Card data-testid="pickup-warehouse-card">
@@ -72,7 +72,7 @@ export function Pickup({ id }: { id: string }) {
           </Card>
         )}
         <Card>
-          <p className="text-sm font-bold text-muted">{o.number}</p>
+          <p className="text-sm font-bold text-muted">{orderNo(o.number)}</p>
           <h2 className="text-2xl font-extrabold">{firstName(o.customerName)}</h2>
           <ul className="mt-2 flex flex-col gap-1 text-base">
             {o.items.map((i) => (

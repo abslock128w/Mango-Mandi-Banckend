@@ -272,6 +272,23 @@ test('Pincodes: add validates six digits; operators cannot delete', async ({ pag
   await expect.poll(() => api.calls.find((c) => c.method === 'POST' && c.path === '/pincodes')?.body).toEqual({ pincode: '400050', city: 'Mumbai' })
 })
 
+test('Pincodes: a pincode without a centre is flagged; its centre is checked and saved', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  await page.goto('/pincodes')
+  await expect(page.getByRole('status').filter({ hasText: 'no centre' })).toContainText('400001, 411001')
+  await page.getByRole('button', { name: 'Set centre of 400001' }).click()
+  const dialog = page.getByRole('dialog')
+  // Latitude and longitude the wrong way round are caught before anything is sent.
+  await dialog.getByLabel('Centre latitude').fill('72.8354')
+  await dialog.getByLabel('Centre longitude').fill('18.9388')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Latitude must be between 6 and 37.5')
+  await dialog.getByLabel('Centre latitude').fill('18.9388')
+  await dialog.getByLabel('Centre longitude').fill('72.8354')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => api.calls.find((c) => c.method === 'PATCH' && c.path === '/pincodes/400001')?.body).toEqual({ lat: 18.9388, lng: 72.8354 })
+})
+
 test('Dialogs close on Escape and return focus', async ({ page }) => {
   await mockApi(page, { signedIn: true })
   await page.goto('/pincodes')

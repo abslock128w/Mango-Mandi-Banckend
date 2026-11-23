@@ -170,7 +170,7 @@ function Setup() {
   }
 
   if (codes) {
-    const text = `MandiMangoes Ops recovery codes\nEach code works once, if you lose your phone.\n\n${codes.join('\n')}\n`
+    const text = `VMR Mangoes Ops recovery codes\nEach code works once, if you lose your phone.\n\n${codes.join('\n')}\n`
     return (
       <div>
         <h2>Save your recovery codes</h2>
@@ -181,7 +181,7 @@ function Setup() {
           ))}
         </ul>
         <div className="btn-row">
-          <a className="btn" href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download="mandimangoes-recovery-codes.txt">
+          <a className="btn" href={`data:text/plain;charset=utf-8,${encodeURIComponent(text)}`} download="vmr-mangoes-recovery-codes.txt">
             Download codes
           </a>
           <button type="button" className="btn btn-primary" onClick={() => void finish()}>

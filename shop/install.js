@@ -8,7 +8,10 @@
   const iOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   const phone = () => matchMedia('(max-width: 900px)').matches && matchMedia('(pointer: coarse)').matches
   const homePage = () => (location.pathname === '/' || location.pathname === '/index.html')
-  let deferred = null, shown = false
+  let deferred = null, shown = false, waits = 0
+  // The shop's live policy (app.js loads it: GET /v1/policy). Nothing is offered until it has loaded, and only while
+  // the API's switch is on (features.installApp, SHOP_INSTALL); an API that doesn't say counts as off.
+  const loadedPolicy = () => (typeof policy !== 'undefined' && policy ? policy : null)
 
   const rest = () => save(KEY, { at: Date.now(), done: false })
   const done = () => save(KEY, { at: Date.now(), done: true })
@@ -47,6 +50,9 @@ ${showSteps ? steps() : `<button class="button primary full" type="button" data-
   function show() {
     if (shown || standalone() || resting() || !phone() || !homePage()) return
     if (typeof openDialog !== 'function') return
+    const p = loadedPolicy()
+    if (!p) { if (++waits <= 20) setTimeout(show, 1000); return }
+    if (!p.features || p.features.installApp !== true) return
     // Something else is already up (a deep link's product or order sheet): come back once it closes.
     const busy = document.querySelector('dialog[open]')
     if (busy || document.body.classList.contains('locked')) {

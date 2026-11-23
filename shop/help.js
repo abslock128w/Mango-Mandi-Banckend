@@ -4,7 +4,7 @@
    Help: complaints and refunds. A signed-in customer sends a help request (the API's help centre: a topic, optionally
    one of their orders, and a message; the shop answers on the panel's Help desk and the customer is told on WhatsApp).
    When the help centre is off, or nobody is signed in, the page says how to reach us instead. It also states the
-   cancellation rule (four hours) and what the shop does with a customer's information, with the button that deletes
+   cancellation rule (app.js cancelHours(): the API's cancelWindowHours, 4 by default) and what the shop does with a customer's information, with the button that deletes
    the account (the API's DELETE /v1/me).
    Loaded after pages.js (it adds to PAGES) and before app.js. Styles: style.css (.help-). */
 
@@ -45,14 +45,15 @@ function helpView() {
   document.title = HELP_TITLE
   host().innerHTML = pageHead('Help') + `
     <section class="page-card help-card" id="help-request"><h2 class="flow-head">Complaints and refunds</h2><div class="help-request-body" aria-busy="true"><p>One moment…</p></div></section>
+    <section class="page-card help-card" id="your-requests" hidden><h2 class="flow-head">Your requests</h2><div class="req-body"></div></section>
     <section class="page-card help-card">
       <h2 class="flow-head">Cancelling an order</h2>
-      <p>You can cancel an order yourself for <strong>four hours after placing it</strong>: open the order under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. A paid order cancelled in that time is refunded to the way you paid.</p>
-      <p>After four hours, cancelling is closed: by then your box is being picked and packed. If something is wrong, send us a request above and we’ll help.</p>
+      <p>You can cancel an order yourself only within <strong>${hoursWord(cancelHours())} of placing it</strong>: open the order under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. A paid order cancelled in that time is refunded to the way you paid.</p>
+      <p>After ${hoursWord(cancelHours())}, cancelling is closed and the order can’t be cancelled or refunded: by then your box is being picked and packed. If something is wrong, send us a request above and we’ll help.</p>
     </section>
     <section class="page-card help-card">
       <h2 class="flow-head">If your mangoes arrive damaged, wrong or missing</h2>
-      <p>Tell us as soon as you can, with a photo if you have one. We look at every case and put right what went wrong.</p>
+      <p>Open the order under <a href="/orders" data-route>Your orders</a> and choose “Report a problem with this order”<span data-claim-hours>${claimHoursText()}</span>. Add a photo if you can. We look at every report and send a replacement for what went wrong.</p>
     </section>
     <section class="page-card help-card" id="your-information">
       <h2 class="flow-head">Your information</h2>
@@ -62,7 +63,24 @@ function helpView() {
       <p><strong>Deleting it.</strong> You can delete your account at any time once no order is on its way. Your name, number, email and addresses are removed and your bag is emptied. The amounts of past orders are kept, without your details, because our accounts need them.</p>
       <div class="help-delete"></div>
     </section>`
-  MM.restore().then(() => { if (document.body.dataset.page === 'help') { helpRequestBox(); helpDeleteBox() } })
+  // the claim window once the policy has loaded, if it hadn't yet
+  helpCentreOn().then(() => { const el = $('[data-claim-hours]'); if (el) el.textContent = claimHoursText() })
+  MM.restore().then(() => { if (document.body.dataset.page === 'help') { helpRequestBox(); helpDeleteBox(); if (typeof helpRequestsBox === 'function') helpRequestsBox() } })
+}
+
+/** Within how long of delivery a problem can be reported (the policy's claimWindowHours), when the policy has loaded. */
+function claimHoursText() {
+  const p = (typeof policy !== 'undefined' && policy) || helpPolicy
+  const h = Number(p && p.claimWindowHours)
+  return Number.isFinite(h) && h > 0 ? ` within ${hoursWord(h)} of delivery` : ' soon after delivery'
+}
+
+/** The help centre is switched on (the policy's care.helpCentre): only then are replies shown on the account. */
+let helpPolicy = null
+async function helpCentreOn() {
+  let p = typeof policy !== 'undefined' && policy ? policy : helpPolicy
+  if (!p) p = helpPolicy = await MM.policy().catch(() => null)
+  return Boolean(p && p.care && p.care.helpCentre)
 }
 
 /** The request form for a signed-in customer; otherwise how to reach us. */
@@ -72,11 +90,16 @@ async function helpRequestBox() {
   const wa = helpWa(), waLink = wa ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent('Hi VMR Mangoes, I need help with an order')}" target="_blank" rel="noopener">Message us on WhatsApp ${icon('arrow')}</a>` : ''
   box.removeAttribute('aria-busy')
   if (!MM.profile()) {
-    box.innerHTML = `<p>Something wrong with an order, a delivery or a payment? Sign in and tell us: we answer every request, and you’ll see our reply here and on WhatsApp.</p><div class="help-actions"><a class="button primary" href="/login?next=%2Fhelp" data-route>Sign in to send a request ${icon('arrow')}</a>${waLink}</div>`
+    const on = await helpCentreOn()
+    if (!box.isConnected) return
+    box.innerHTML = on
+      ? `<p>Something wrong with an order, a delivery or a payment? Sign in and tell us: we answer every request, and you’ll see our reply on this page under “Your requests” and on WhatsApp.</p><div class="help-actions"><a class="button primary" href="/login?next=%2Fhelp" data-route>Sign in to send a request ${icon('arrow')}</a>${waLink}</div>`
+      : `<p>Something wrong with an order, a delivery or a payment? Tell us and we’ll put it right.</p><div class="help-actions">${waLink || `<a class="button primary" href="/contact" data-route>Contact us ${icon('arrow')}</a>`}</div>`
     return
   }
   let info = null, orders = []
-  try { info = await MM.helpInfo() } catch { info = null }
+  // Asked only while the help centre is on (its routes answer 404 while it is off).
+  if (await helpCentreOn()) try { info = await MM.helpInfo() } catch { info = null }
   if (document.body.dataset.page !== 'help' || !box.isConnected) return
   if (!info || !Array.isArray(info.topics)) {
     // the help centre is switched off on this shop: point to the other ways
@@ -86,7 +109,7 @@ async function helpRequestBox() {
   try { orders = await MM.orders() } catch { orders = [] }
   if (!box.isConnected) return
   const min = Number(info.firstMessageMin) || 10, max = Number(info.messageMax) || 2000
-  box.innerHTML = `<p>Tell us what went wrong. We answer every request; you’ll see our reply on your account and on WhatsApp.</p>
+  box.innerHTML = `<p>Tell us what went wrong. We answer every request; you’ll see our reply below under “Your requests” and on WhatsApp.</p>
     <form id="help-form" novalidate><p class="prototype-tag help-error" role="alert" hidden></p>
       <div class="form-grid">
         <label class="field">What is it about?<select name="topic" required>${info.topics.map((t) => `<option value="${esc(t.id)}"${t.id === 'PAYMENT' ? ' selected' : ''}>${esc(t.label)}</option>`).join('')}</select></label>
@@ -104,7 +127,8 @@ async function helpRequestBox() {
     btn.disabled = true
     try {
       const r = await MM.helpRequest({ topic: f.topic.value, orderId: f.orderId.value || null, message })
-      box.innerHTML = `<div class="help-sent" role="status">${icon('check')}<div><strong>Request sent${r && r.number ? ` · ${esc(String(r.number))}` : ''}.</strong><p>We’ll reply here and on WhatsApp. Thank you for telling us.</p></div></div>`
+      box.innerHTML = `<div class="help-sent" role="status">${icon('check')}<div><strong>Request sent${r && r.number ? ` · ${esc(String(r.number))}` : ''}.</strong><p>We’ll reply below under “Your requests” and on WhatsApp. Thank you for telling us.</p></div></div>`
+      if (typeof helpRequestsBox === 'function') helpRequestsBox()
     } catch (ex) {
       err.textContent = (ex && ex.message) || 'We could not send that just now. Please try again.'
       err.hidden = false

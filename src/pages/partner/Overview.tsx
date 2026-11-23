@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { date, dateTime } from '../../format'
 import { Badge, EmptyState, LinkRow, RowLink, scrollRegion, usePageTitle } from '../../ui'
 import { pn } from './api'
-import { EnquiryStatusBadge, LoadError, PartnerSubnav, ProposalStatusBadge, Skeleton } from './shared'
+import { applicantName, EnquiryStatusBadge, LoadError, PartnerSubnav, ProposalStatusBadge, Skeleton } from './shared'
 import type { EnquiryRow, Followup, Overview as OverviewData } from './types'
 
 const enquiryPath = (enquiryId: string) => `/partner-network/enquiries/${encodeURIComponent(enquiryId)}`
@@ -94,10 +94,10 @@ function OverviewBody({ data }: { data: OverviewData }) {
                 {data.proposalsNeedingAttention.map((p) => (
                   <li key={p.id} className="pn-line">
                     <span>
-                      <Link to={`/partner-network/proposals/${encodeURIComponent(p.id)}`}>{p.productName}</Link>{' '}
+                      <Link to={`/partner-network/proposals/${encodeURIComponent(p.id)}`}>{p.productName ?? `Product proposal ${p.reference}`}</Link>{' '}
                       <span className="mono small muted">{p.reference}</span>
                       <div className="muted small">
-                        {p.submittedBy.name} · {date(p.submittedAt)}
+                        {applicantName({ name: p.submittedBy.name, erasedAt: p.erasedAt })} · {date(p.submittedAt)}
                       </div>
                     </span>
                     <ProposalStatusBadge status={p.status} />
@@ -134,7 +134,7 @@ function OverviewBody({ data }: { data: OverviewData }) {
               <ul className="plain-list">
                 {data.recentlyConverted.map((e) => (
                   <li key={e.id}>
-                    <Link to={enquiryPath(e.id)}>{e.name}</Link> <span className="mono small muted">{e.reference}</span>
+                    <Link to={enquiryPath(e.id)}>{applicantName(e)}</Link> <span className="mono small muted">{e.reference}</span>
                     <div className="muted small">
                       {e.primaryCategory?.name ?? '—'} · {[e.city, e.state].filter(Boolean).join(', ') || '—'}
                     </div>
@@ -167,7 +167,7 @@ function EnquiryMiniTable({ rows, label, empty }: { rows: EnquiryRow[]; label: s
             <LinkRow key={e.id}>
               <td className="card-title">
                 <RowLink to={enquiryPath(e.id)} more={e.reference}>
-                  {e.name}
+                  {applicantName(e)}
                 </RowLink>
                 <div className="mono small muted">{e.reference}</div>
               </td>
@@ -219,7 +219,7 @@ export function FollowupList({ items, empty }: { items: Followup[]; empty: strin
       {items.map((f) => (
         <li key={f.id} className={`pn-line${f.overdue ? ' pn-overdue' : ''}`}>
           <span>
-            <Link to={`${enquiryPath(f.enquiry.id)}?tab=followups`}>{f.enquiry.name}</Link>{' '}
+            <Link to={`${enquiryPath(f.enquiry.id)}?tab=followups`}>{f.enquiry.name ?? f.enquiry.reference}</Link>{' '}
             <span className="mono small muted">{f.enquiry.reference}</span>
             <div className="small">
               {dateTime(f.scheduledAt)} · {f.assignedTo?.email ?? 'Not assigned'}

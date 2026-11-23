@@ -5,15 +5,20 @@
 // batch_ledger row. on_hand moves only through INTAKE, ADJUST, PACK, RESTOCK,
 // CONDEMN and RETIRE rows, so their sum must equal on_hand. held and committed
 // must equal the order_stock rows in those states. The nightly audit checks both.
+import { formatOrderNumber } from './order-number.js'
 import { getConfig } from './config.js'
 import { addDays, diffDays, now, todayIST } from './clock.js'
 import { env } from './env.js'
+import { HttpError } from './errors.js'
 import { newId } from './ids.js'
 import { findProduct } from './products.js'
+import { afterHold, heldForPreorders } from './holdback.js'
 import { keepsPromise, saleStage, stageFor } from './stage.js'
 
 export const SELLABLE_STATUSES = ['IN_TRANSIT', 'ARRIVED', 'RIPENING', 'SELLING']
 const PHYSICAL_STATUSES = ['ARRIVED', 'RIPENING', 'SELLING']
+/** Batches whose fruit is not in the warehouse yet: their boxes may be promised, never packed or shipped. */
+export const INCOMING_STATUSES = ['ARRIVING', 'IN_TRANSIT']
 const ON_HAND_EVENTS = ['INTAKE', 'ADJUST', 'PACK', 'RESTOCK', 'CONDEMN', 'RETIRE']
 
 /**
@@ -100,6 +105,36 @@ export const sellableRows = async (c, { sku = null, excludeBatchIds = [] } = {})
     )
   ).rows
 
+/** Every line of a batch not yet in the warehouse (ARRIVING or IN_TRANSIT), with its latest QC reading. */
+export const incomingRows = async (c, { sku = null } = {}) =>
+  (
+    await c.query(
+      `${lineSelect('$3::timestamptz')}
+        WHERE b.status = ANY($1) AND ($2::text IS NULL OR l.sku = $2)
+        ORDER BY b.plucked_on, b.id, l.id`,
+      [INCOMING_STATUSES, sku, now()],
+    )
+  ).rows
+
+/**
+ * Backorders (backorders.js): whether an incoming line can supply `deliveryDate` beyond what
+ * availability already counts, and as what. Its truck is due before the day (the rule sellableAs
+ * applies to stock in transit), it is not late (INV-08), the fruit is inside the age limit and has a
+ * stage that day. A line availability already sells for the day is left out, so it is never counted
+ * twice. Returns { stage, factor } (factor: the forecast confidence) or null.
+ */
+export function incomingAs(row, deliveryDate, cfg = getConfig()) {
+  if (!INCOMING_STATUSES.includes(row.status) || row.condition === 'REJECT') return null
+  if (sellableAs(row, deliveryDate, cfg)) return null
+  if (diffDays(deliveryDate, row.plucked_on) > saleLimitDays(row.sku, cfg)) return null
+  const eta = row.eta_date ?? addDays(row.plucked_on, cfg.transitDays)
+  if (deliveryDate <= eta) return null
+  if (env.STOCK_INTAKE_CHECKS && eta < todayIST()) return null
+  const qc = row.ripeness_rating ? { ripenessRating: row.ripeness_rating, loggedAt: row.logged_at } : null
+  const stage = stageFor(cfg, { variety: row.variety, pluckedOn: row.plucked_on }, deliveryDate, qc)
+  return stage ? { stage, factor: cfg.forecastConfidence } : null
+}
+
 /** The rows that can be sold for `deliveryDate`, with their stage and sellable quantity. */
 function linesFor(rows, deliveryDate, stage = null, cfg = getConfig()) {
   const out = []
@@ -111,9 +146,13 @@ function linesFor(rows, deliveryDate, stage = null, cfg = getConfig()) {
   return out
 }
 
-/** Every line that could fill an order for `deliveryDate`, oldest batch first (FEFO). */
-export async function candidateLines(c, deliveryDate, { sku = null, stage = null, excludeBatchIds = [] } = {}) {
-  return linesFor(await sellableRows(c, { sku, excludeBatchIds }), deliveryDate, stage)
+/**
+ * Every line that could fill an order for `deliveryDate`, oldest batch first (FEFO).
+ * `physicalOnly`: only stock already in the warehouse (boxes about to be packed).
+ */
+export async function candidateLines(c, deliveryDate, { sku = null, stage = null, excludeBatchIds = [], physicalOnly = false } = {}) {
+  const rows = await sellableRows(c, { sku, excludeBatchIds })
+  return linesFor(physicalOnly ? rows.filter((r) => PHYSICAL_STATUSES.includes(r.status)) : rows, deliveryDate, stage)
 }
 
 function poolOf(lines) {
@@ -125,9 +164,13 @@ function poolOf(lines) {
   return pool
 }
 
-/** Sellable boxes per SKU and stage for one delivery date: Map "sku|stage" → qty. */
-export async function availability(c, deliveryDate) {
-  return poolOf(await candidateLines(c, deliveryDate))
+/**
+ * Sellable boxes per SKU and stage for one delivery date: Map "sku|stage" → qty. What a regular order may take:
+ * the boxes held for pre-orders are left out (holdback.js). `raw`: every sellable box, held or not.
+ */
+export async function availability(c, deliveryDate, { raw = false } = {}) {
+  const pool = poolOf(await candidateLines(c, deliveryDate))
+  return raw ? pool : afterHold(pool, await heldForPreorders(c))
 }
 
 /**
@@ -135,10 +178,25 @@ export async function availability(c, deliveryDate) {
  * (which lines are sellable, and as what, depends on the date; the rows
  * don't). Map date → Map "sku|stage" → qty.
  */
-export async function availabilityByDate(c, dates) {
-  const rows = await sellableRows(c)
+export async function availabilityByDate(c, dates, { raw = false } = {}) {
+  const [rows, held] = await Promise.all([sellableRows(c), raw ? null : heldForPreorders(c)])
   const cfg = getConfig()
-  return new Map(dates.map((d) => [d, poolOf(linesFor(rows, d, null, cfg))]))
+  return new Map(dates.map((d) => {
+    const pool = poolOf(linesFor(rows, d, null, cfg))
+    return [d, raw ? pool : afterHold(pool, held)]
+  }))
+}
+
+/**
+ * Boxes of sku+stage a REGULAR order may still take for `deliveryDate` once the boxes held for pre-orders are kept
+ * back (holdback.js), read under lock: every sellable line of the SKU is locked first (lockSkuLines, DB-01 order),
+ * so two orders, or an order and the pre-order allocator, can't both count the same free boxes.
+ */
+export async function roomAfterHold(c, deliveryDate, sku, stage, { countPlanned = true } = {}) {
+  await lockSkuLines(c, [sku])
+  const rows = await sellableRows(c, { sku })
+  const held = await heldForPreorders(c, { sku, planned: countPlanned })
+  return afterHold(poolOf(linesFor(rows, deliveryDate)), held).get(`${sku}|${saleStage(stage)}`) ?? 0
 }
 
 /** Why staff changed a count (INV-D), stored on ADJUST and RESTOCK rows as reason_code. */
@@ -159,12 +217,15 @@ export async function ledger(c, { batchId, eventType, sku, delta, actorType = 'a
  * oversell. Returns the quantity actually taken; callers decide whether a
  * shortfall is fatal.
  */
-export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, stage, qty, state, actor, excludeBatchIds = [] }) {
+export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, stage, qty, state, actor, excludeBatchIds = [], physicalOnly = false, holdBack = true, countPlanned = true }) {
   const col = state === 'held' ? 'held' : 'committed'
   const cfg = getConfig()
-  let left = qty
+  // A regular order never takes boxes held for pre-orders (holdback.js); the pre-order allocator passes holdBack: false.
+  // An order booked against the plan passes countPlanned: false: it is one of those the planned part of the hold is for.
+  const wanted = holdBack ? Math.min(qty, await roomAfterHold(c, deliveryDate, sku, stage, { countPlanned })) : qty
+  let left = wanted
   // Stock promised as RIPE before RIPE stopped being sold is filled with boxes that are SEMI_RIPE on the day (stage.js keepsPromise).
-  for (const line of await candidateLines(c, deliveryDate, { sku, stage: saleStage(stage), excludeBatchIds })) {
+  for (const line of await candidateLines(c, deliveryDate, { sku, stage: saleStage(stage), excludeBatchIds, physicalOnly })) {
     if (left === 0) break
     let take = Math.min(left, line.sellable)
     for (let attempt = 0; take > 0 && attempt < 5; attempt++) {
@@ -197,7 +258,7 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
           delta: take,
           actorType: actor.type,
           actorId: actor.id,
-          reason: orderNumber,
+          reason: formatOrderNumber(orderNumber),
         })
         left -= take
         break
@@ -210,7 +271,7 @@ export async function allocate(c, { orderId, orderNumber, deliveryDate, sku, sta
       take = Math.min(left, Math.max(0, cur.rows[0]?.n ?? 0))
     }
   }
-  return qty - left
+  return wanted - left
 }
 
 /**
@@ -230,6 +291,36 @@ export async function lockLines(c, lineIds) {
   await c.query(
     `SELECT l.id FROM batch_lines l JOIN batches b ON b.id = l.batch_id WHERE l.id = ANY($1) ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
     [[...new Set(lineIds)]],
+  )
+}
+
+/**
+ * Locks every line of these SKUs that can be sold (SELLABLE_STATUSES), and `lineIds` (an order's own lines, which may
+ * sit on a batch that no longer sells), in LINE_LOCK_ORDER, in one statement. A regular order takes this before it
+ * counts what is left after the hold (roomAfterHold); an order that also locks its own lines takes this instead of
+ * lockLines, so every line is locked in the one order (DB-01).
+ */
+export async function lockSkuLines(c, skus, lineIds = []) {
+  if (!skus.length && !lineIds.length) return
+  await c.query(
+    `SELECT l.id FROM batch_lines l JOIN batches b ON b.id = l.batch_id
+      WHERE (l.sku = ANY($1) AND b.status = ANY($2)) OR l.id = ANY($3)
+      ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
+    [[...new Set(skus)], SELLABLE_STATUSES, [...new Set(lineIds)]],
+  )
+}
+
+/**
+ * A batch operation (QC, condemn, retire) locks the batch's own lines and every sellable line of the same boxes, in
+ * LINE_LOCK_ORDER: the orders it then rebalances lock those (lockOrderLines), and a payment or checkout that locks
+ * them in the same order queues behind it instead of deadlocking with it (DB-01, INV-03).
+ */
+export async function lockBatchSkuLines(c, batchId) {
+  await c.query(
+    `SELECT l.id FROM batch_lines l JOIN batches b ON b.id = l.batch_id
+      WHERE l.batch_id = $1 OR (l.sku IN (SELECT sku FROM batch_lines WHERE batch_id = $1) AND b.status = ANY($2))
+      ORDER BY ${LINE_LOCK_ORDER} FOR UPDATE OF l`,
+    [batchId, SELLABLE_STATUSES],
   )
 }
 
@@ -257,8 +348,31 @@ export async function commitHeld(c, row, actor, reason) {
   await ledger(c, { batchId: row.batch_id, eventType: 'COMMIT', sku: row.sku, delta: row.quantity, actorType: actor.type, actorId: actor.id, reason })
 }
 
-/** committed → packed: the boxes leave the shelf. */
+/**
+ * Fruit still on the truck can't be packed or shipped: 409 BATCH_NOT_ARRIVED naming every batch of
+ * these order_stock rows that is ARRIVING or IN_TRANSIT, for staff to mark arrived first. Packing it
+ * would also take on_hand down while the line still counts at the forecast factor, which would make
+ * more boxes look sellable than there are. Holding and committing it for later days is unchanged.
+ */
+export async function assertArrived(c, rows, what = 'These boxes') {
+  const ids = [...new Set(rows.map((r) => r.batch_id))]
+  if (!ids.length) return
+  const { rows: late } = await c.query(
+    `SELECT id, variety, plucked_on, status, eta_date FROM batches WHERE id = ANY($1) AND status = ANY($2) ORDER BY plucked_on, id`,
+    [ids, INCOMING_STATUSES],
+  )
+  if (!late.length) return
+  const names = late.map((b) => `batch ${b.id} (${b.variety}, plucked ${b.plucked_on}) is still ${b.status === 'ARRIVING' ? 'arriving' : 'in transit'}${b.eta_date ? `, due ${b.eta_date}` : ''}`)
+  throw new HttpError(
+    409, 'BATCH_NOT_ARRIVED',
+    `${what} can't be packed or sent yet: ${names.join('; ')}. Mark the batch arrived (Batches page) once the fruit is in the warehouse.`,
+    { batchIds: late.map((b) => b.id) },
+  )
+}
+
+/** committed → packed: the boxes leave the shelf. Never from a batch that hasn't arrived (assertArrived). */
 export async function pack(c, row, actor, reason) {
+  await assertArrived(c, [row], `${row.quantity}× ${row.sku}`)
   await c.query('UPDATE batch_lines SET committed = committed - $2, on_hand = on_hand - $2 WHERE id = $1', [row.line_id, row.quantity])
   await c.query(`UPDATE order_stock SET state = 'packed' WHERE id = $1`, [row.id])
   await ledger(c, { batchId: row.batch_id, eventType: 'PACK', sku: row.sku, delta: -row.quantity, actorType: actor.type, actorId: actor.id, reason })

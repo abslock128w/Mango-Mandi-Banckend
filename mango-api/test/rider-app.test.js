@@ -347,13 +347,65 @@ describe('rider sign-in on the phone', () => {
     assert.deepEqual(codes, ['WRONG_PIN', 'WRONG_PIN', 'WRONG_PIN', 'WRONG_PIN', 'PIN_LOCKED'])
     assert.equal((await api.post('/admin/v1/rider/pin/unlock', { deviceId: device, refreshToken: set.body.refreshToken, pin: '4071' })).body.error.code, 'DEVICE_REVOKED')
   })
+
+  /** The login code, its check and the PIN on `dev`: the PIN set's answer and the ticket. */
+  async function bind(dev) {
+    const req = await api.post('/admin/v1/rider/otp/request', { phone: '9000000011' })
+    const v = await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: req.body.devCode, deviceId: dev })
+    assert.equal(v.status, 200, JSON.stringify(v.body))
+    const set = await api.post('/admin/v1/rider/pin/set', { setupToken: v.body.setupToken, deviceId: dev, pin: '4071' })
+    assert.equal(set.status, 200, JSON.stringify(set.body))
+    return { set, ticket: v.body.setupToken }
+  }
+
+  test('the PIN setup ticket works once: a second PIN set with it is refused and binds nothing', async () => {
+    const { ticket } = await bind(device)
+    const again = await api.post('/admin/v1/rider/pin/set', { setupToken: ticket, deviceId: device, pin: '5082' })
+    assert.equal(again.status, 401)
+    assert.equal(again.body.error.code, 'TICKET_USED')
+    const devices = (await api.get(`/admin/v1/staff/${riderId}/devices`, { token: admin })).body
+    assert.equal(devices.length, 1, 'only the first PIN set bound the phone')
+  })
+
+  test('a number gets at most 10 login codes a day, from every address; the next IST day it gets codes again', async () => {
+    for (let i = 0; i < 10; i++) {
+      // The hourly limit cleared each time: only the daily cap is left to stop it.
+      await query("DELETE FROM rate_limits WHERE key LIKE 'rider-otp:%'")
+      const r = await api.post('/admin/v1/rider/otp/request', { phone: '9000000011' })
+      assert.equal(r.status, 200, `code ${i + 1}: ${JSON.stringify(r.body)}`)
+    }
+    await query("DELETE FROM rate_limits WHERE key LIKE 'rider-otp:%'")
+    const refused = await api.post('/admin/v1/rider/otp/request', { phone: '9000000011' })
+    assert.equal(refused.status, 429)
+    assert.equal(refused.body.error.code, 'OTP_LIMIT')
+    assert.match(refused.body.error.message, /today/)
+    setNow(new Date(now().getTime() + 24 * 3_600_000).toISOString())
+    assert.equal((await api.post('/admin/v1/rider/otp/request', { phone: '9000000011' })).status, 200)
+  })
+
+  test('every newly bound phone is on the staff activity log, with how many other phones are still signed in', async () => {
+    await bind(device)
+    await bind('device-second-phone')
+    const { rows } = await query("SELECT admin_id, target, detail FROM staff_audit WHERE action = 'auth.rider_device_bound' ORDER BY created_at, id")
+    assert.equal(rows.length, 2)
+    assert.equal(rows[0].admin_id, riderId)
+    assert.deepEqual([rows[0].detail.device, rows[0].detail.otherPhones, rows[0].detail.samePhoneAgain], [device, 0, false])
+    assert.deepEqual([rows[1].detail.device, rows[1].detail.otherPhones], ['device-second-phone', 1])
+    // Managers see it on Staff → Activity.
+    const log = await api.get('/admin/v1/audit', { token: admin })
+    assert.equal(log.status, 200, JSON.stringify(log.body))
+    assert.equal(log.body.items.filter((e) => e.action === 'auth.rider_device_bound').length, 2)
+  })
 })
 
 describe('live view, positions and photo purge', () => {
   test('rider positions are kept once per 20 seconds; the live view shows the last one and what changed', async () => {
     const { id, date } = await packedOrder()
     const at = (await api.get(`/admin/v1/deliveries/live?date=${date}`, { token: admin })).body.cursor
-    assert.equal((await api.post('/admin/v1/rider/location', { lat: 12.93, lng: 77.62, accuracy: 9 }, { token: rider })).body.stored, true)
+    // The body the rider app sends (rider-app/lib/run.ts): accuracy rounded and the fix time as an ISO string.
+    const sent = await api.post('/admin/v1/rider/location', { lat: 12.93, lng: 77.62, accuracy: 9, at: now().toISOString() }, { token: rider })
+    assert.equal(sent.status, 200, JSON.stringify(sent.body))
+    assert.equal(sent.body.stored, true)
     assert.equal((await api.post('/admin/v1/rider/location', { lat: 12.94, lng: 77.63 }, { token: rider })).body.stored, false)
     setNow(new Date(now().getTime() + 21_000).toISOString())
     assert.equal((await api.post('/admin/v1/rider/location', { lat: 12.95, lng: 77.64 }, { token: rider })).body.stored, true)

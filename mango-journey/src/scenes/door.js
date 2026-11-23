@@ -646,7 +646,7 @@ function groundMaterial(U) {
         col *= 1. - .35 * wet;
         roughnessFactor = mix(.9, .08, wet);
         diffuseColor.rgb = col;
-        totalEmissiveRadiance += vec3(1., .6, .28) * lampPool(p) * uLamp * (1. + wet);
+        totalEmissiveRadiance += vec3(.8, .42, .15) * lampPool(p) * uLamp * (1. + .8 * wet); // sodium-warm, kept below white so the pool keeps its colour
         totalEmissiveRadiance += vec3(1., .66, .34) * lampGlint(p, cameraPosition) * uLamp * (.25 + 1.6 * wet) * (1. - .85 * smoothstep(70., 260., cameraPosition.y));
       }`)
   }
@@ -661,7 +661,7 @@ const LAMP_GLSL = /* glsl */ `
   float lampPool(vec2 p){
     vec2 l1 = lampAt1(p), l2 = lampAt2(p);
     float d1 = length(p - l1), d2 = length(p - l2);
-    return exp(-d1 * d1 / 900.) * lampOk(l1, 0.) + exp(-d2 * d2 / 900.) * lampOk(l2, 1.);
+    return 1.6 * (exp(-d1 * d1 / 320.) * lampOk(l1, 0.) + exp(-d2 * d2 / 320.) * lampOk(l2, 1.)); // distinct pools, dark road between
   }
   // the reflection of the nearest lamp head (h 58) in a wet road: a streak stretched towards the camera
   float lampGlint(vec2 p, vec3 cam){
@@ -699,7 +699,7 @@ function slabMaterial(U) {
           vec3 col = mix(tile * mix(.62, 1., grout), vec3(.62, .6, .56) * (.85 + .2 * mmNoise2(vWP.xz * .3)), kerb);
           col *= .85 + .15 * mmNoise2(vWP.xz * .05);
           diffuseColor.rgb = col;
-          totalEmissiveRadiance += vec3(1., .6, .28) * lampPool(vWP.xz) * uLamp * .8;
+          totalEmissiveRadiance += vec3(.8, .42, .15) * lampPool(vWP.xz) * uLamp * .75;
         } else {
           float st = step(.5, fract((vWP.x + vWP.z) / 12.));
           float worn = smoothstep(.3, .7, mmNoise2(vWP.xz * .2 + vWP.y));
@@ -1088,7 +1088,8 @@ function buildCity(sc, T, U, route, mats) {
   // trees along the warehouse street and the house street; a gulmohar near the house
   for (const [x, z, s, k] of [[40, -56, 1.0, 0], [300, -56, 0.95, 0], [-340, 56, 1.0, 1], [-330, -58, 1.05, 0], [-232, -58, 0.9, 0], [-480, -56, 1.0, 0], [-470, 56, 0.9, 0], [560, 894, 1.15, 1], [470, 786, 1.0, 0], [820, 894, 1.05, 0], [474, 470, 0.95, 0], [474, 640, 1.0, 1], [366, 300, 1.0, 0]]) props.tree.push([x, z, s, k])
   // ---- clear the tracking camera's lane and the doorstep ----
-  const nearHouse = (x, z) => Math.abs(x - HOUSE.x) < 60 && Math.abs(z - HOUSE.z) < 40
+  // (and the lane the crane comes down through onto the doorstep shot, where a gulmohar's canopy used to fill a phone frame)
+  const nearHouse = (x, z) => (Math.abs(x - HOUSE.x) < 60 && Math.abs(z - HOUSE.z) < 40) || Math.hypot(x - HOUSE.x - 40, z - HOUSE.z + 100) < 30
   for (const k of ['tree', 'bike', 'cycle']) props[k] = props[k].filter(([x, z]) => !clearCam(x, z) && !nearHouse(x, z))
   makeTrees(sc, props.tree, props.farTree, U, hi)
   const bikeCols = ['#b8312f', '#2a6fb0', '#f2f0ea', '#1d1d1f', '#6a7a82', '#d8a22a', '#3a8a5a']
@@ -1576,7 +1577,9 @@ const T_HI = (st) => st.tier.name === 'high'
 
 export default class Door extends Stage {
   constructor(engine) {
-    super(engine, { far: 5000 })
+    // near 0.5, not the default 0.05: the street is seen from hundreds of units away, and with the default the depth
+    // buffer cannot tell the road's overlays, ledges and slabs apart, so they flip from frame to frame (flicker)
+    super(engine, { near: 0.5, far: 5000 })
     const sc = this.scene, T = this.tier
     this.fov = 34
     this.frame = [0.16, 0]
@@ -1652,8 +1655,8 @@ export default class Door extends Stage {
     this.warm = new THREE.PointLight('#ffb460', 0, 160, 1.5); this.warm.position.copy(HOUSE).add(new THREE.Vector3(0, 30, 14)); sc.add(this.warm)
     this.faceLight = new THREE.PointLight('#ffc27a', 0, 60, 1.6); this.faceLight.position.copy(HOUSE).add(new THREE.Vector3(12, PORCH_Y + 31, -12)); sc.add(this.faceLight) // the porch light on both faces
     this.meetLight = new THREE.PointLight('#fff0dc', 0, 80, 1.6); sc.add(this.meetLight) // a soft key on the rider's face while we first meet him
-    this.porch = new THREE.PointLight('#ffc070', 320, 130, 1.6); this.porch.position.copy(HOUSE).add(new THREE.Vector3(-21, PORCH_Y + 32, -8)); sc.add(this.porch)
-    this.streetLamp = new THREE.PointLight('#ffc070', 500, 180, 1.5); this.streetLamp.position.set(PITCH * 2 - 120, 56, PITCH * 2 + 34); sc.add(this.streetLamp)
+    this.porch = new THREE.PointLight('#ffc070', 320, 110, 2); this.porch.position.copy(HOUSE).add(new THREE.Vector3(-21, PORCH_Y + 32, -8)); sc.add(this.porch)
+    this.streetLamp = new THREE.PointLight('#ffb862', 2000, 95, 2); // a pool, not a floodlight: falls off to blue between lamps this.streetLamp.position.set(PITCH * 2 - 120, 56, PITCH * 2 + 34); sc.add(this.streetLamp)
     this.bellPos = HOUSE.clone().add(new THREE.Vector3(16.5, PORCH_Y + 17.5, -0.9))
     this.doorGlow = HOUSE.clone().add(new THREE.Vector3(0, PORCH_Y + 26, 14))
 
@@ -1738,6 +1741,13 @@ export default class Door extends Stage {
     return out
   }
 
+  /** Where the box rests once she holds it: against her front, chest-to-waist high (from her placement alone, so it is
+   *  known before her pose is updated this frame). */
+  custHoldAt(C, z, yaw) {
+    const s = C.scale.x, f = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw))
+    return HOUSE.clone().add(new THREE.Vector3(0.5, PORCH_Y + 16.8 * s, z)).addScaledVector(f, 6.7 * s)
+  }
+
   update(i, tt, time, dt) {
     const t = clamp(tt, -0.2, 1)
     const P = this.person, C = this.customer, S = this.scooter, B = this.box, SU = S.userData
@@ -1756,10 +1766,15 @@ export default class Door extends Stage {
     const walk = smoother(0.655, 0.75, t)        // to the door
     const ring = Math.sin(clamp((t - 0.752) / 0.034) * Math.PI) // balance the box, press the bell
     const open = smoother(0.77, 0.815, t)        // the door opens
-    const give = smoother(0.81, 0.85, t)         // offered…
+    const give = smoother(0.818, 0.852, t)         // offered…
     const take = smoother(0.845, 0.875, t)       // …and taken
     const back = smoother(0.872, 0.905, t)       // he steps back
     const wave = smooth(0.88, 0.9, t) * (1 - smooth(0.985, 1, t))
+    // the doorstep: after the bell he steps back down onto the step while she opens and comes to the threshold, so they
+    // meet a comfortable arm's length apart (about 9 units between their fronts, the box between them)
+    const settle = smoother(0.784, 0.828, t)     // he steps back from the bell to the step
+    const custZ = lerp(9, 2.2, smooth(0.79, 0.84, t)) // her distance inside the door (house z)
+    const custYaw = Math.PI - 0.3 * smooth(0.8, 0.84, t), riderYaw = 0.5
 
     // ---- Scooter on the route ----
     const R = this.ride(go, {})
@@ -1854,22 +1869,38 @@ export default class Door extends Stage {
     } else {
       // the walk to the door with the box, the bell, the handover, a step back and a wave
       const a = loc(-9.5, 0, -14.0)
-      const doorStand = HOUSE.clone().add(new THREE.Vector3(-1.5, 0, -6.8))
-      const stepBack = HOUSE.clone().add(new THREE.Vector3(-13, 0, -9.5))
+      // he rings standing side-on beside the bell (right of the door), the box out on his street side so it clears the
+      // wall, the door and himself; then he steps back down onto the step to wait in front of the door
+      const doorStand = HOUSE.clone().add(new THREE.Vector3(11.5, 0, -8.8)), bellYaw = 1.35
+      const handStand = HOUSE.clone().add(new THREE.Vector3(0.9, 0, -11.7))
+      const stepBack = HOUSE.clone().add(new THREE.Vector3(-7, 0, -18))
       let G
-      if (back <= 0) {
+      if (settle <= 0) {
         G = gait(a, doorStand, walk, g, { stride: 10.5, lead: 'L', width: 1.05 })
-        G.yaw = lerp(G.yaw, 0.55 * smooth(0.8, 0.84, t), smooth(0.75, 1, walk))
+        G.yaw = lerp(G.yaw, bellYaw, smooth(0.75, 1, walk))
       } else {
-        G = gait(doorStand, stepBack, back, g, { stride: 7, lead: 'L', width: 1.05, yaw: lerp(0, 0.45, back) })
+        // each leg of the doorstep dance starts from where the last one left his feet (their stances differ a little,
+        // so the difference is eased out over the first step instead of popping)
+        const o1 = { stride: 10.5, lead: 'L', width: 1.05 }, o2 = { stride: 6.5, lead: 'R', width: -1.05 }, o3 = { stride: 7, lead: 'L', width: -1.05 }
+        const seam = (Gp, Gs, k) => { for (const F of ['L', 'R']) G.feet[F].p.add(Gp.feet[F].p.clone().sub(Gs.feet[F].p).multiplyScalar(1 - smooth(0, 0.3, k))) }
+        if (back <= 0) {
+          G = gait(doorStand, handStand, settle, g, { ...o2, yaw: lerp(bellYaw, riderYaw, smoother(0.3, 1, settle)) })
+          seam(gait(a, doorStand, 1, g, o1), gait(doorStand, handStand, 0, g, o2), settle)
+        } else {
+          G = gait(handStand, stepBack, back, g, { ...o3, yaw: lerp(riderYaw, 0.45, back) })
+          seam(gait(doorStand, handStand, 1, g, o2), gait(handStand, stepBack, 0, g, o3), back)
+        }
       }
       P.position.set(G.pos.x, G.hipY - 15.45, G.pos.z)
       P.rotation.set(0, G.yaw, 0)
       feet = { L: G.feet.L, R: G.feet.R, yaw: G.yaw }
       if (take > 0.6) armSwing = G
-      const custFace = HOUSE.clone().add(new THREE.Vector3(0.5, PORCH_Y + 25.6, lerp(9, 1, smooth(0.79, 0.84, t)) - 1.2))
-      headTarget = walk < 0.92 ? HOUSE.clone().add(new THREE.Vector3(0, 26, 0)) : ring > 0.05 ? this.bellPos : open > 0.3 ? (give > 0 && take < 0.5 ? B.position.clone().lerp(custFace, 0.5) : custFace) : HOUSE.clone().add(new THREE.Vector3(0, 30, 0))
-      base = { ...base, spine: [0.04 + give * 0.08 * (1 - take), 0, 0] }
+      // where he looks: the house, the bell, then her face (blended, never switched, so scrubbing never pops)
+      const custFace = HOUSE.clone().add(new THREE.Vector3(0.5, PORCH_Y + 24.4, custZ - 1.0))
+      headTarget = HOUSE.clone().add(new THREE.Vector3(0, 26, 0))
+        .lerp(this.bellPos, smooth(0.746, 0.758, t) * (1 - smooth(0.782, 0.796, t)))
+        .lerp(custFace, smooth(0.788, 0.81, t))
+      base = { ...base, spine: [0.03 + give * 0.03 * (1 - take), 0, 0] }
     }
     P.setHelmet(helm > 0.5)
     // ride pose details and arms swing
@@ -1895,10 +1926,11 @@ export default class Door extends Stage {
 
     // ---- The box: in his hands, onto the rack, strapped, rides, lifted off, carried, balanced, handed over ----
     const onRack = loc(0, 16.4 + 3.1, -14.6)
-    const inHands = P.localToWorld(new THREE.Vector3(0, 17.6, 6.0))
-    const onLeft = P.localToWorld(new THREE.Vector3(3.6, 16.4, 4.6))
-    const handover = HOUSE.clone().add(new THREE.Vector3(-0.6, PORCH_Y + 18.6, -2.0))
-    const custHold = C.localToWorld(new THREE.Vector3(0, 17.8, 5.6))
+    const inHands = P.localToWorld(new THREE.Vector3(0, 17.6, 6.3))
+    const onLeft = P.localToWorld(new THREE.Vector3(5.0, 20.0, 6.2))
+    // held out half-way between his front and hers, chest high; then drawn against her front, never into it
+    const handover = HOUSE.clone().add(new THREE.Vector3(0.7, 22, -4.75))
+    const custHold = this.custHoldAt(C, custZ, custYaw)
     const boxP = new THREE.Vector3()
     if (t < 0.6) boxP.copy(inHands).lerp(onRack, rack)
     else boxP.copy(onRack).lerp(inHands, lift)
@@ -1909,7 +1941,8 @@ export default class Door extends Stage {
     const qBody = new THREE.Quaternion().setFromAxisAngle(this.up, P.rotation.y)
     if (t < 0.6) B.quaternion.copy(qBody).slerp(S.getWorldQuaternion(new THREE.Quaternion()), rack)
     else B.quaternion.copy(S.getWorldQuaternion(new THREE.Quaternion())).slerp(qBody, lift)
-    if (give > 0) B.quaternion.slerp(new THREE.Quaternion(), give)
+    if (give > 0) B.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(this.up, (riderYaw + custYaw - Math.PI) / 2), give) // square to the pair
+    if (take > 0) B.quaternion.slerp(new THREE.Quaternion().setFromAxisAngle(this.up, custYaw - Math.PI), take)
     if (ring > 0) B.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -0.12 * ring))
     B.userData.strap.scale.set(1, Math.max(0.001, strap * (1 - lift)), 1)
     B.userData.strap.visible = strap > 0.01 && lift < 0.99
@@ -1973,10 +2006,10 @@ export default class Door extends Stage {
     this.house.roomM.emissiveIntensity = 0.15 + open * 0.35
     this.house.bell.material.color.setRGB(1, 0.82, 0.48).multiplyScalar(1.5 + ring * 6)
     C.visible = open > 0.02
-    C.position.copy(HOUSE).add(new THREE.Vector3(0.5, PORCH_Y, lerp(9, 1, smooth(0.79, 0.84, t))))
-    C.rotation.set(0, Math.PI - 0.3 * smooth(0.8, 0.84, t), 0) // she opens a little towards the street
+    C.position.copy(HOUSE).add(new THREE.Vector3(0.5, PORCH_Y, custZ))
+    C.rotation.set(0, custYaw, 0) // she opens a little towards the street
     const nod = t > 0.862 && t < 0.91 ? 0.17 * Math.sin(clamp((t - 0.862) / 0.048) * Math.PI) * Math.abs(Math.sin(clamp((t - 0.862) / 0.048) * Math.PI * 2)) : 0
-    C.pose({ ...Person.STAND, spine: [0.03 + give * 0.06, 0, 0], smile: 0.4 + smooth(0.79, 0.84, t) * 0.5 + take * 0.3, blink: Person.blinkAt(time, 2.2) })
+    C.pose({ ...Person.STAND, spine: [0.03 + give * 0.03 * (1 - take), 0, 0], smile: 0.4 + smooth(0.79, 0.84, t) * 0.4 + smooth(0.86, 0.88, t) * 0.4, blink: Person.blinkAt(time, 2.2) })
     C.updateMatrixWorld(true)
     for (const sd of [1, -1]) C.foot(sd > 0 ? 'L' : 'R', C.localToWorld(new THREE.Vector3(sd * 1.3, 1.35, 0)).setY(PORCH_Y + 1.35 * 0.94), Math.PI + sd * 0.1, 0)
     C.updateMatrixWorld(true)
@@ -1997,13 +2030,14 @@ export default class Door extends Stage {
       C.reach(L, p, q, C.localToWorld(new THREE.Vector3(s * 9, 12, -6)))
       C.pose({ ['curl' + L]: reachK > 0.5 ? 0.5 : 0.3, ['thumb' + L]: 0.5, ['spread' + L]: 0.15 })
     }
-    C.lookAt(P.j.head.localToWorld(new THREE.Vector3(0, 1.98, 1.0)), 0.85, 1)
+    // she greets him, looks down at the box as she takes it, then back up at him with a smile
+    { const face = P.j.head.localToWorld(new THREE.Vector3(0, 1.98, 1.0)), atBox = smooth(0.818, 0.836, t) * (1 - smooth(0.862, 0.882, t)); C.lookAt(face.lerp(B.localToWorld(new THREE.Vector3(0, 2.4, 0)), atBox), 0.85, 1) }
     C.j.head.rotation.x += nod
     P.j.head.rotation.x += 0.14 * Math.sin(clamp((t - 0.85) / 0.04) * Math.PI) // his small nod as she takes it
 
     // ---- Light: the last gold of the day turning to blue hour ----
     const dusk = smooth(-0.1, 1, t), set = smooth(0, 0.62, t), k3s = smoother(0.52, 0.62, t)
-    const el = 0.16 - 0.22 * Math.pow(clamp(t / 0.7), 1.5)
+    const el = 0.16 - 0.22 * Math.pow(clamp(t / 0.3), 1.3) // down behind the rooftops by the ride-out: blue hour, a warm band left at the horizon
     this.sun.set(1, el, -0.1).normalize()
     const lampOn = smooth(0.06, 0.4, t), lit = lerp(0.1, 0.62, smooth(0.04, 0.8, t))
     const su = this.sky.userData.u
@@ -2027,20 +2061,40 @@ export default class Door extends Stage {
     this.city.bulbMat.color.setScalar(0.4 + 2.6 * lampOn)
     this.mats.glow.color.setScalar(1.05 + 1.1 * lampOn)
     this.skyline.forEach((m, i) => { m.uniforms.uHaze.value.copy(su.uHor.value).lerp(fogC, 0.3); m.uniforms.uCol.value.copy(c3(V(0.2, 0.15, 0.24), V(0.13, 0.11, 0.2), V(0.05, 0.06, 0.12), dusk)).lerp(fogC, i * 0.12) })
-    this.city.spillMat.uniforms.uOp.value = 0.25 + lampOn
+    this.city.spillMat.uniforms.uOp.value = 0.25 + lampOn * 2.2 // shopfronts throw their light across the pavement and the road
+    // blue hour: from the ride-off on, the ambient sinks and cools (sky, hemisphere, environment, fog) while the practicals
+    // (lamp heads, their pools and wet-road glints, windows, shopfronts) come up, so the street reads in warm pools against
+    // a deep blue: the cool sky is the fill, the lamps and windows are the keys, a cold moonlit sun the rim on the roofs
+    const bh = smooth(0.1, 0.3, t) // well under way as he rides out, complete by the crane
+    su.uTop.value.lerp(V(0.03, 0.03, 0.15), 0.8 * bh) // deep blue-violet overhead
+    su.uHor.value.lerp(V(0.85, 0.42, 0.3), 0.35 * bh); su.uHaze.value *= 1 - 0.7 * bh // a thin warm band at the horizon, the last of the sunset
+    su.uCloudCol.value.lerp(V(0.3, 0.32, 0.5), 0.5 * bh); su.uCloudShade.value.lerp(V(0.05, 0.07, 0.15), 0.5 * bh)
+    this.hemi.intensity *= lerp(1, 0.6, bh)
+    this.hemi.color.lerp(V(0.3, 0.43, 0.95), 0.6 * bh); this.hemi.groundColor.lerp(V(0.07, 0.08, 0.13), 0.7 * bh)
+    this.scene.environmentIntensity *= 1 - 0.45 * bh
+    this.sunCol.lerp(V(0.45, 0.58, 1), 0.6 * bh); this.sunL.intensity = Math.max(3.4 * smooth(-0.01, 0.09, el), 0.4 * (1 + 0.5 * bh))
+    // the haze cools first, ahead of the rest, and thins near the camera so the far street falls into blue, not pink milk
+    fogC.lerp(V(0.07, 0.1, 0.22), 0.85 * smooth(0.08, 0.28, t)); this.scene.fog.color.copy(fogC); this.scene.fog.far += 1100 * bh; this.scene.fog.near += 350 * bh
+    this.U.uLit.value = lerp(lit, 0.82, 0.8 * bh); this.U.uLamp.value *= 1 + 0.2 * bh
+    this.city.headMat.color.multiplyScalar(1 + 0.6 * bh)
+    this.mats.glow.color.multiplyScalar(1 + 0.35 * bh)
+    this.skyline.forEach((m, i) => { m.uniforms.uHaze.value.copy(su.uHor.value).lerp(fogC, 0.3); m.uniforms.uCol.value.lerp(V(0.03, 0.045, 0.1), 0.6 * bh) })
     // the crane: festoons, lamp pools and above all the scooter's headlight path read strongly
     const crane = smooth(0.38, 0.44, t) * (1 - smooth(0.56, 0.6, t))
-    this.city.bulbMat.color.multiplyScalar(1 - 0.5 * crane).lerp(V(0.55, 0.62, 0.8), 0.35 * crane); this.U.uLamp.value *= 1 - 0.5 * crane; this.city.headMat.color.multiplyScalar(1 - 0.5 * crane)
-    this.house.glass.material.color.setRGB(1, 0.81, 0.5).multiplyScalar(1.45 + 3 * crane)
+    this.hemi.intensity *= 1 - 0.22 * crane; this.scene.environmentIntensity *= 1 - 0.25 * crane // roofs a touch darker and cooler from above, so the lit streets carry it
+    this.city.bulbMat.color.multiplyScalar(1 - 0.5 * crane).lerp(V(0.55, 0.62, 0.8), 0.35 * crane); this.U.uLamp.value *= 1 - 0.3 * crane; this.city.headMat.color.multiplyScalar(1 - 0.5 * crane)
+    this.house.glass.material.color.setRGB(1, 0.81, 0.5).multiplyScalar((1.45 + 3 * crane) * (1 - 0.4 * smooth(0.79, 0.84, t))) // a lamp, not a white blob, in the two-shot
     this.routeMat.uniforms.uOp.value *= 1 + 1.6 * crane; { const u2 = this.routeMat2.uniforms; u2.uHead.value = this.routeMat.uniforms.uHead.value; u2.uTime.value = time; u2.uOp.value = crane; this.routeWide.visible = crane > 0.01 } SU.spot.intensity *= (1 + 2 * crane) * (1 - 0.6 * smoother(0.255, 0.305, t) * (1 - smoother(0.33, 0.42, t))); SU.cone.material.uniforms.uOp.value *= (1 + crane) * (1 - 0.9 * smoother(0.255, 0.305, t) * (1 - smoother(0.33, 0.42, t)))
-    this.mistMat.uniforms.uTime.value = time; this.mistMat.uniforms.uOp.value = lerp(0.3, 0.2, dusk) * (1 - k3s); this.mistMat.uniforms.uCol.value.copy(fogC).lerp(su.uHor.value, 0.4)
+    this.mistMat.uniforms.uTime.value = time; this.mistMat.uniforms.uOp.value = lerp(0.3, 0.2, dusk) * (1 - k3s) * (1 - 0.7 * bh); this.mistMat.uniforms.uCol.value.copy(fogC).lerp(su.uHor.value, 0.4)
     P.rimU.uRimCol.value.setRGB(1, lerp(0.7, 0.8, dusk), lerp(0.5, 0.62, dusk)); P.rimU.uRim.value = lerp(0.45, 0.3, dusk)
     C.rimU.uRimCol.value.setRGB(1, 0.8, 0.6); C.rimU.uRim.value = 0.3
     this.life.update(t, time)
     this.house.tailPivot.rotation.set(Math.sin(time * 1.3) * 0.12, Math.sin(time * 1.7) * 0.35, 0)
     this.house.poolM.uniforms.uOp.value = 0.25 + 0.35 * lampOn
-    this.porch.intensity = 120 + 260 * lampOn
-    this.faceLight.intensity = 140 * smooth(0.76, 0.82, t)
+    this.porch.intensity = (120 + 260 * lampOn) * 3.2 // decay 2 now: brighter at the door, falling off to blue along the wall
+    // a soft warm key on both faces from the porch side of the camera (it sat behind her before, so her face was the darkest thing in the shot)
+    this.faceLight.position.copy(HOUSE).add(new THREE.Vector3(14, PORCH_Y + 29, -10)); this.faceLight.distance = 70
+    this.faceLight.intensity = 320 * smooth(0.76, 0.82, t)
     this.dockLight.intensity = t < 0.47 ? 600 : 0
     this.warehouse.visible = t < 0.47
     this.house.room.visible = t > 0.5
@@ -2067,13 +2121,17 @@ export default class Door extends Stage {
     // E/F: close on the handover, then into the warm doorway.
     // E: a two-shot from the side: both faces and the box between them, the open door and the lit room behind
     const por = this.camera.aspect < 1
-    const cE = HOUSE.clone().add(por ? new THREE.Vector3(48, 30, -34) : new THREE.Vector3(36, 26, -21)), lE = HOUSE.clone().add(new THREE.Vector3(por ? -5 : -12, por ? 21 : 23, -5))
-    const cF = HOUSE.clone().add(new THREE.Vector3(-4, 29, -17)), lF = HOUSE.clone().add(new THREE.Vector3(0.5, 23, 6))
+    // (they now stand about 14 apart, her in the doorway, him on the step: the shot sits back far enough for both, head to knee)
+    const cE = HOUSE.clone().add(por ? new THREE.Vector3(52, 29, -40) : new THREE.Vector3(60, 25, -46)), lE = HOUSE.clone().add(new THREE.Vector3(por ? -3 : -3.7, por ? 20 : 21.5, por ? -5.5 : -10.8))
+    // F: into the doorway, passing on his far side of the box (he has stepped back to the left of the step)
+    const cF = HOUSE.clone().add(new THREE.Vector3(8, 29, -14)), lF = HOUSE.clone().add(new THREE.Vector3(0.5, 23, 6))
     const k1 = smoother(0.17, 0.25, t), k2 = smoother(0.33, 0.42, t), k3 = smoother(0.52, 0.62, t), k4 = smoother(0.745, 0.86, t), k5 = smoother(0.9, 1.0, t)
     // the crane lifts first and travels after: it climbs inside the lane kept clear for the tracking shot and only
     // crosses the street once it is above the trees (it used to pass through a canopy on the way up)
     { cam.copy(cA).lerp(cB, k1); const y = lerp(cam.y, cC.y, k2); cam.lerp(cC, smoother(0.35, 0.42, t)); cam.y = y; cam.lerp(cD, k3).lerp(cE, k4).lerp(cF, k5) }
     look.copy(lA).lerp(lB, k1).lerp(lC, k2).lerp(lD, k3).lerp(lE, k4).lerp(lF, k5)
+    // phones: he rings the bell to the right of the door, outside the tall frame; look over to him while he does
+    if (por) look.add(new THREE.Vector3(13, 0, 6).multiplyScalar(smoother(0.67, 0.765, t) * (1 - smoother(0.785, 0.835, t))))
     aim(this.camera, cam, look, -lean * 0.15 * (1 - k2))
     // the opening: his face is turned away from the lit bay, so give it a gentle key from the camera's side
     { const hp = P.j.head.getWorldPosition(this.tmpH || (this.tmpH = new THREE.Vector3())); this.meetLight.position.copy(cam).sub(hp).normalize().multiplyScalar(26).add(hp); this.meetLight.position.y += 8; this.meetLight.intensity = 400 * (1 - smooth(0.19, 0.27, t)) }
@@ -2083,7 +2141,10 @@ export default class Door extends Stage {
     this.post.focus = cam.distanceTo(subject); this.post.range = lerp(40, 25, k4); this.post.dof = lerp(3, 8, k4) * (1 - k2 * (1 - k3))
     this.focus.copy(B.position)
     // landscape: keep the rider to the right of and below the headline (top-left) while loading and riding off
-    this.frame = [lerp(lerp(lerp(0.2, 0.42, k1), 0.1, k2), 0.16, k3), lerp(lerp(lerp(-0.04, -0.17, k1), -0.05, k2), 0, k3)]
+    // landscape: at the bell and while the headline fades (to about 0.84) the subject sits low and right of it; then the
+    // two-shot centres on the pair
+    const hlK = smoother(0.655, 0.765, t) * (1 - smoother(0.8, 0.865, t)) // eased over the walk up: in 0.03 of t it was a whip
+    this.frame = [lerp(lerp(lerp(0.2, 0.42, k1), 0.1, k2), 0.16, k3) + 0.06 * hlK, lerp(lerp(lerp(-0.04, -0.17, k1), -0.05, k2), 0, k3) - 0.22 * hlK]
     this.framePortrait = [lerp(0.1, 0, k1), lerp(-0.08, -0.1, k1)] // eased with the move (it used to step a tenth of the screen sideways half-way through)
 
     // Shadows follow the action.
@@ -2091,7 +2152,7 @@ export default class Door extends Stage {
     this.sunL.position.copy(center).add(this.sun.clone().multiplyScalar(260)); this.sunL.target.position.copy(center)
     this.sunL.color.copy(this.sunCol)
     { const wide = k2 > 0.5 && k3 < 0.5, ext = wide && T_HI(this) ? 300 : 110, cs = this.sunL.shadow.camera; for (const m of this.city.tiles) if (m.userData.caster) m.castShadow = !wide; if (cs.right !== ext) { cs.left = cs.bottom = -ext; cs.right = cs.top = ext; cs.far = wide ? 1400 : 520; cs.updateProjectionMatrix() } if (wide) this.sunL.position.copy(center).add(this.sun.clone().multiplyScalar(700)) }
-    this.look.bloom = lerp(0.5, 0.36, k3); this.look.threshold = lerp(1.0, 1.15, k3); this.look.exposure = lerp(0.95, 1.04, dusk) - k4 * 0.04; this.look.vig = 0.6
+    this.look.bloom = lerp(0.5, 0.36, k3); this.look.threshold = lerp(1.0, 1.15, k3); this.look.exposure = lerp(0.95, 1.04, dusk) - k4 * 0.04 - 0.05 * bh; this.look.vig = 0.6
     this.grade([0.0, lerp(0.012, 0.016, dusk), lerp(0.03, 0.05, dusk)], [1.04, 0.99, lerp(0.92, 0.97, dusk)], 1.1)
     // light shafts: from the low sun behind the warehouse street, then from the porch lantern and the open door
     const doorRays = smooth(0.56, 0.64, t)
@@ -2104,8 +2165,9 @@ export default class Door extends Stage {
     }
     // the ride-off looks straight at the low sun and oncoming lamps: hold the bloom and shafts down so the street stays readable
     { const ck = smoother(0.24, 0.325, t) * (1 - smoother(0.33, 0.4, t)); this.look.bloom *= 1 - 0.55 * ck; this.look.threshold += 0.6 * ck; this.look.rays *= 1 - 0.7 * ck; this.look.exposure *= 1 - 0.08 * ck }
+    { const tw = smooth(0.8, 0.85, t) * (1 - k5); this.look.bloom *= 1 - 0.45 * tw; this.look.threshold += 0.5 * tw } // the two-shot: lamps read as lamps
     this.fillL.position.copy(cam).add(new THREE.Vector3(0, 40, 0)); this.fillL.target.position.copy(subject)
-    this.fillL.intensity = lerp(0.7, 0.9, dusk); this.fillL.color.setRGB(lerp(0.85, 0.72, dusk), lerp(0.85, 0.8, dusk), 1)
+    this.fillL.intensity = lerp(0.7, 0.9, dusk) * (1 - 0.6 * smooth(0.1, 0.3, t) * (1 - 0.5 * smooth(0.76, 0.84, t))); this.fillL.color.setRGB(lerp(0.85, 0.62, dusk), lerp(0.85, 0.74, dusk), 1)
     this.dust.userData.u.uTime.value = time
   }
 }

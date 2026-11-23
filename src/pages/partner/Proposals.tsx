@@ -10,9 +10,11 @@ import { BackLink, Dialog, DisabledReason, EmptyState, FormError, LinkRow, Reaso
 import { pn } from './api'
 import {
   ActivityTimeline,
+  applicantName,
   ContactButtons,
   DocumentList,
   EnquiryStatusBadge,
+  erasedLabel,
   LoadError,
   NotesPanel,
   PROPOSAL_STATUS_LABEL,
@@ -120,13 +122,13 @@ function ProposalList() {
                 {list.data.items.map((p) => (
                   <LinkRow key={p.id}>
                     <td className="card-title">
-                      <RowLink to={`/partner-network/proposals/${encodeURIComponent(p.id)}`} more={p.productName}>
+                      <RowLink to={`/partner-network/proposals/${encodeURIComponent(p.id)}`} more={p.productName ?? applicantName({ name: null, erasedAt: p.erasedAt })}>
                         <span className="mono">{p.reference}</span>
                       </RowLink>
                     </td>
-                    <td data-label="Product">{p.productName}</td>
+                    <td data-label="Product">{p.productName ?? <span className="muted">{applicantName({ name: null, erasedAt: p.erasedAt })}</span>}</td>
                     <td data-label="Category">{p.productCategory ?? '—'}</td>
-                    <td data-label="Submitted by">{p.submittedBy.name}</td>
+                    <td data-label="Submitted by">{applicantName({ name: p.submittedBy.name, erasedAt: p.erasedAt })}</td>
                     <td data-label="Applicant location">{p.applicantLocation ?? '—'}</td>
                     <td data-label="Source location">{p.sourceLocation ?? '—'}</td>
                     <td className="num" data-label="Procurement price">
@@ -237,17 +239,22 @@ function ProposalView({ p }: { p: ProposalDetail }) {
   return (
     <>
       <div className="topbar mb-2">
-        <h1>{p.productName}</h1>
+        <h1>{p.productName ?? `Product proposal ${p.reference}`}</h1>
         <ProposalStatusBadge status={p.status} />
       </div>
       <p className="pn-meta">
         <span className="mono">{p.reference}</span>
         <span>Submitted {dateTime(p.submittedAt)}</span>
         <span>
-          From <Link to={`/partner-network/enquiries/${encodeURIComponent(p.enquiry.id)}`}>{p.submittedBy.name}, enquiry {p.enquiry.reference}</Link>{' '}
+          From <Link to={`/partner-network/enquiries/${encodeURIComponent(p.enquiry.id)}`}>{p.submittedBy.name ?? 'The applicant'}, enquiry {p.enquiry.reference}</Link>{' '}
           <EnquiryStatusBadge status={p.enquiry.status} />
         </span>
       </p>
+      {p.erasedAt && (
+        <p className="notice notice-warn" role="note">
+          {erasedLabel(p.erasedAt)}. The application ended, so what was proposed was deleted as the Grow with us form promises. The reference, status and dates stay.
+        </p>
+      )}
       <p className="notice notice-info" role="note">
         {p.status === 'APPROVED' ? NOT_IN_SHOP : 'Approving a proposal does not add a product to the shop. Adding it is a separate step on the Products page.'}
       </p>
@@ -257,8 +264,8 @@ function ProposalView({ p }: { p: ProposalDetail }) {
           Actions
         </h2>
         <div className="btn-row">
-          <ContactButtons enquiryId={p.enquiry.id} contact={p.contact} who={p.submittedBy.name} />
-          {p.status !== 'SAMPLE_REQUESTED' && !PROPOSAL_FINAL.has(p.status) && (
+          <ContactButtons enquiryId={p.enquiry.id} contact={p.contact} who={p.submittedBy.name ?? p.enquiry.reference} />
+          {!p.erasedAt && p.status !== 'SAMPLE_REQUESTED' && !PROPOSAL_FINAL.has(p.status) && (
             <button type="button" className="btn" onClick={() => setSampling(true)}>
               Request samples
             </button>
@@ -296,7 +303,7 @@ function ProposalView({ p }: { p: ProposalDetail }) {
             <h2>Product</h2>
             <dl className="kv pn-kv">
               <dt>Product</dt>
-              <dd>{p.productName}</dd>
+              <dd>{p.productName ?? '—'}</dd>
               <dt>Category</dt>
               <dd>{p.productCategory ?? '—'}</dd>
               <dt>Stage</dt>
@@ -335,15 +342,19 @@ function ProposalView({ p }: { p: ProposalDetail }) {
         <div>
           <section className="card">
             <h2>Notes</h2>
-            <NotesPanel
-              notes={p.notes}
-              label="Add a note about this proposal"
-              hint="Only staff see notes."
-              onAdd={async (note) => {
-                await pn.proposalNote(p.id, note)
-                refresh()
-              }}
-            />
+            {p.erasedAt ? (
+              <p className="muted mb-0">The notes were deleted with the application&rsquo;s details.</p>
+            ) : (
+              <NotesPanel
+                notes={p.notes}
+                label="Add a note about this proposal"
+                hint="Only staff see notes."
+                onAdd={async (note) => {
+                  await pn.proposalNote(p.id, note)
+                  refresh()
+                }}
+              />
+            )}
           </section>
           <section className="card">
             <h2>Activity</h2>
@@ -354,7 +365,7 @@ function ProposalView({ p }: { p: ProposalDetail }) {
 
       {asking && (
         <ReasonDialog
-          title={`${PROPOSAL_STATUS_LABEL[asking]}: ${p.productName}?`}
+          title={`${PROPOSAL_STATUS_LABEL[asking]}: ${p.productName ?? p.reference}?`}
           confirmLabel={asking === 'APPROVED' ? 'Approve' : asking === 'REJECTED' ? 'Reject' : 'Close'}
           tone={asking === 'APPROVED' ? 'primary' : 'danger'}
           minLength={5}

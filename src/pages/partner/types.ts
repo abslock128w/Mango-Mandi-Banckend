@@ -44,7 +44,8 @@ export interface StaffRef {
 export interface EnquiryRow {
   id: string
   reference: string
-  name: string
+  /** Null once the application's details were deleted (erasedAt). */
+  name: string | null
   businessName: string | null
   primaryCategory: CategoryRef | null
   categories: CategoryRef[]
@@ -56,14 +57,22 @@ export interface EnquiryRow {
   status: EnquiryStatus
   priority: Priority
   assignedTo: StaffRef | null
+  /**
+   * When the application's details were deleted: PARTNER_RETENTION_DAYS after it ended, by a manager,
+   * or at the applicant's request (mango-api src/partner/erase.js). Absent from an older API.
+   */
+  erasedAt?: string | null
+  /** A converted partner's contact details stayed when the rest was deleted. */
+  contactKept?: boolean
 }
 
 export interface ProposalRow {
   id: string
   reference: string
-  productName: string
+  /** Null once the application's details were deleted. */
+  productName: string | null
   productCategory: string | null
-  submittedBy: { name: string; enquiryId: string; enquiryReference: string }
+  submittedBy: { name: string | null; enquiryId: string; enquiryReference: string }
   applicantLocation: string | null
   sourceLocation: string | null
   /** Rupees, not paise. */
@@ -73,11 +82,12 @@ export interface ProposalRow {
   sampleAvailable: string | boolean | null
   submittedAt: string
   status: ProposalStatus
+  erasedAt?: string | null
 }
 
 export interface Followup {
   id: string
-  enquiry: { id: string; reference: string; name: string }
+  enquiry: { id: string; reference: string; name: string | null }
   scheduledAt: string
   assignedTo: StaffRef | null
   notes: string | null
@@ -182,6 +192,8 @@ export interface EnquiryActions {
   convert: boolean
   assign: boolean
   export: boolean
+  /** Managers: "Delete this application's details now" (ended applications with details left). */
+  erase?: boolean
 }
 
 export interface EnquiryDetail extends EnquiryRow {
@@ -206,7 +218,10 @@ export interface EnquiryDetail extends EnquiryRow {
   /** Managers and operators an enquiry or follow-up can be assigned to. */
   staff?: StaffOption[]
   actions: EnquiryActions
-  contact: ContactLinks
+  /** Null once the contact details were deleted. */
+  contact: ContactLinks | null
+  /** PARTNER_RETENTION_DAYS, and when the hourly pass will delete this one's details (null: not ended, or already deleted). */
+  retention?: { days: number; eraseDueAt: string | null }
 }
 
 export interface ProposalList {
@@ -228,7 +243,7 @@ export interface ProposalDetail extends ProposalRow {
   notes: Note[]
   activity: Activity[]
   allowedStatuses: ProposalStatus[]
-  contact: ContactLinks
+  contact: ContactLinks | null
   enquiry: { id: string; reference: string; status: EnquiryStatus }
 }
 

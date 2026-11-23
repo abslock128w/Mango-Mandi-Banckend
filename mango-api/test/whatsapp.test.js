@@ -3,6 +3,7 @@
 // handoff, typed questions answered from the customer's own records, account
 // and template events, the panel's inbox and set-up routes, and the 15
 // end-to-end scenarios. Meta is never called: every send goes to a stub.
+import { formatOrderNumber } from '../src/order-number.js'
 import { adminToken, client, closeAll, customerToken, line, makeBatch, resetDb, signWebhook, startServer, T0, checkout } from './helpers.js'
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
@@ -153,7 +154,7 @@ describe('WhatsApp rules', () => {
     try {
       for (const a of AUTOMATIONS) {
         // Partner, bulk and farm messages carry words fixed when queued (partner/alerts.js, farm/notify.js), one per variable.
-        assert.equal(paramsFor({ ...n, kind: a.kind, partner_params: a.example, bulk_params: a.example, farm_params: a.example }).length, a.params.length, a.kind)
+        assert.equal(paramsFor({ ...n, kind: a.kind, partner_params: a.example, bulk_params: a.example, farm_params: a.example, params: a.example }).length, a.params.length, a.kind)
         env.WHATSAPP_ORDER_LINKS = false
         // Always sent: the claim templates' link, the rider-app out-for-delivery Track order button, and the delivery code's copy-code button.
         assert.equal(Boolean(orderLinkFor({ ...n, kind: a.kind })), ['order-link', 'track-order', 'copy-code'].includes(a.button), `${a.kind} without the flag`)
@@ -177,8 +178,8 @@ describe('WhatsApp rules', () => {
     const kinds = ['ORDER_CONFIRMED', 'REPLACEMENT_CONFIRMED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED', 'CANCELLED', 'REFUNDED', 'PREORDER_BOOKED', 'PREORDER_SPOT_OPEN',
       'PREORDER_MOVED', 'DATE_MOVED', 'GIFT_OUT_FOR_DELIVERY', 'RIPENESS_GUIDE', 'BACK_IN_STOCK', 'REORDER_REMINDER', 'REVIEW_REQUEST', 'CLAIM_RECEIVED', 'CLAIM_REJECTED',
       'REFERRAL_REWARD', 'MANAGER_DAILY_SUMMARY', 'HELP_REPLY', 'SUBSCRIPTION_DUE', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE', 'PARTNER_ENQUIRY_RECEIVED', 'PARTNER_TEAM_ALERT',
-      'BULK_ENQUIRY_RECEIVED', 'BULK_QUOTE',
-      'FARM_BOOKING_UPDATE', 'FARM_TEAM_ALERT']
+      'BULK_ENQUIRY_RECEIVED', 'BULK_QUOTE', 'BULK_ORDER_PAID', 'FARM_VISIT_ENQUIRY_RECEIVED',
+      'FARM_BOOKING_UPDATE', 'FARM_TEAM_ALERT', 'PREORDER_DELAYED', 'PREORDER_EARLIER', 'ORDER_DELAYED']
     assert.deepEqual([...AUTOMATION_KINDS].sort(), [...kinds].sort())
     assert.equal(new Set(AUTOMATION_KINDS).size, AUTOMATIONS.length)
     for (const a of AUTOMATIONS) {
@@ -279,7 +280,7 @@ describe('WhatsApp end to end', () => {
     assert.equal(await sendDueNotifications({ sender: t.sender }), 1)
     assert.equal(t.calls[0].template, templateFor('ORDER_CONFIRMED'))
     assert.equal(t.calls[0].phone, ch.phone)
-    assert.ok(t.calls[0].params.includes(order.number))
+    assert.ok(t.calls[0].params.includes(formatOrderNumber(order.number)))
     const out = (await msgs(ch.phone, 'OUT')).filter((m) => m.type === 'template')
     assert.equal(out.length, 1)
     assert.equal(out[0].template, templateFor('ORDER_CONFIRMED'))
@@ -338,10 +339,10 @@ describe('WhatsApp end to end', () => {
     const { order } = await chatOrder(asha)
     await postRazorpay(paidHook(order))
     const [mine] = await asha.say(`where is ${order.number}?`)
-    assert.match(mine.text, new RegExp(`\\*${order.number}\\*: Confirmed`))
+    assert.match(mine.text, new RegExp(`\\*${formatOrderNumber(order.number)}\\*: Confirmed`))
     assert.match(mine.text, /paid/)
     const [money] = await asha.say('was my payment received')
-    assert.match(money.text, new RegExp(`${order.number}\\*: paid`))
+    assert.match(money.text, new RegExp(`${formatOrderNumber(order.number)}\\*: paid`))
 
     const ravi = chatter('919800000001', 'Ravi')
     await ravi.say('hi')

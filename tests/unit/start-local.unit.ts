@@ -32,6 +32,8 @@ test('by default nothing leaves this computer: no link, no Wi-Fi, codes on scree
   assert.equal(p.shopCmd, 'node scripts/serve-shop.mjs --port 5174')
   assert.doesNotMatch(p.shopCmd, /--host|--api/)
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174')
+  // The API listens on this computer only, not on every network interface.
+  assert.equal(p.api.HOST, '127.0.0.1')
   assert.equal(p.api.OTP_CODE_IN_RESPONSE, undefined)
   assert.equal(p.api.WAREHOUSE_V2, 'true')
   for (const flag of ['WAREHOUSE_STOCKTAKE', 'WAREHOUSE_REPACK', 'WAREHOUSE_CAMERA_SCAN', 'LIVE_TRACKING', 'FAVOURITES', 'SHOP_SORT_FILTER', 'SHOW_ERROR_DETAILS', 'REFERRALS', 'FUNNEL_ANALYTICS', 'MANAGER_DAILY_SUMMARY', 'STOCK_FORECAST', 'PURCHASE_RECORDS', 'PANEL_FEATURE_SWITCHES', 'MULTI_GIFT', 'HELP_CENTRE', 'SUBSCRIPTIONS', 'SHOP_LANGUAGES']) {
@@ -54,6 +56,8 @@ test('--phone shares the shop, and the API keeps codes out of its answers', () =
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174,http://192.168.1.20:5174')
   assert.deepEqual(p.shopEnv, {})
   assert.equal(p.shopCmd, 'node scripts/serve-shop.mjs --port 5174 --host 0.0.0.0 --api http://localhost:3000')
+  // Shared, only the shop is on the Wi-Fi; it passes /v1 to the API, which still listens on 127.0.0.1.
+  assert.equal(p.api.HOST, '127.0.0.1')
 })
 
 test('--wifi shares on the Wi-Fi only, with the same protections', () => {
@@ -63,6 +67,7 @@ test('--wifi shares on the Wi-Fi only, with the same protections', () => {
   assert.equal(p.api.OTP_CODE_IN_RESPONSE, 'false')
   assert.equal(p.api.CUSTOMER_ORIGIN, 'http://localhost:5174,http://10.0.0.5:5174')
   assert.match(p.shopCmd, / --api http:\/\/localhost:3000$/)
+  assert.equal(p.api.HOST, '127.0.0.1')
 })
 
 test('--phone with no Wi-Fi address keeps the shop on 127.0.0.1 (the link reaches it there) and still proxies /v1', () => {

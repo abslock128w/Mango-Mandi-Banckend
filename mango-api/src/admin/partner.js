@@ -18,6 +18,7 @@ import {
   listEnquiries, listProposals, overview, PRIORITIES, PROPOSAL_FINAL, PROPOSAL_STATUSES, proposalDetail, proposalEnquiry, recordContact, requestInfo, updateCategory,
   updateEnquiry, updateFollowup, updateProposal,
 } from '../partner/staff.js'
+import { dropDocuments, eraseNow } from '../partner/erase.js'
 
 export const router = express.Router()
 const P = '/partner-network'
@@ -182,6 +183,24 @@ for (const [action, schema] of Object.entries(ACTION_BODIES)) {
     }),
   )
 }
+
+// "Delete this application's details now" (managers): the same deletion the daily pass makes
+// PARTNER_RETENTION_DAYS after an application ended (partner/erase.js), for an ended one only.
+// The audit row says what went, never what it said.
+router.post(
+  `${P}/enquiries/:id/erase`,
+  requireManager,
+  asyncHandler(async (req, res) => {
+    parse(z.object({}).strict(), req.body ?? {})
+    const done = await tx(async (c) => {
+      const r = await eraseNow(c, req.params.id, req.admin)
+      await auditNow(req, 'ERASE partner enquiry', { target: req.params.id, detail: { status: r.status, keptContact: r.keptContact, documents: r.documents } }, c)
+      return r
+    })
+    await dropDocuments(done.blobs)
+    res.json(await detail(req, req.params.id))
+  }),
+)
 
 router.get(
   `${P}/enquiries/:id/documents/:documentId`,

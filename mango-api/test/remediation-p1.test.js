@@ -1,5 +1,5 @@
 // Remediation Stage 2 (P1) regression tests, one block per audit finding.
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer, T0 } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, onePreorderWeek, resetDb, startServer, T0 } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { addDays, setNow, todayIST } from '../src/clock.js'
@@ -250,7 +250,7 @@ describe('a waitlist spot gets a link that lasts as long as the spot (PAY-01)', 
     const { runPreorderJobs } = await import('../src/maintenance.js')
     let week = addDays(todayIST(), 6)
     while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
-    await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: manager })
+    week = await onePreorderWeek(6) // one week of 6 kg, one 2 x 3 kg booking: the next one waits
     const book = (token, extra = {}) =>
       api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
         { token, headers: { 'Idempotency-Key': newId('idem') } })

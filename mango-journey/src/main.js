@@ -1,40 +1,52 @@
-// One Mango: the director. Builds the page, the stage and the chapters; scroll → one master progress p (0…13) that
-// drives every scene's state, the camera, the post look and a single paused GSAP timeline for the type.
+// One Mango: the director. Builds the page, the stage and the chapters, then plays the film by itself: a clock → the
+// film's time τ → one master progress p (0…13, player.js) that drives every scene's state, the camera, the post look and
+// a single paused GSAP timeline for the type. Small controls (controls.js) pause, seek, step and switch the music.
+//
+// Loading is real work counted step by step (every chapter's set built, every shader compiled, every texture uploaded,
+// one still of each chapter taken, the music's instrument rendered) and all of it happens before the film starts, so
+// nothing is built or compiled while it plays.
+//
+// Embedded in the shop's Legacy page (?embed=1) the page around it shows the loading and the Begin button, and starts
+// the film through window.__mm.begin(); on its own the film has its own opening card and Begin button. Either way, if
+// nobody presses Begin the film starts by itself a few seconds after it is ready, muted.
 import * as THREE from 'three'
 import gsap from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
-import Lenis from 'lenis'
 import { Engine, detectTier } from './engine.js'
-import { CHAPTERS, fruitDay } from './chapters.js'
+import { CHAPTERS, SECONDS, LEAD, fruitDay } from './chapters.js'
 import { ICONS } from './icons.js'
 import { Sound } from './sound.js'
 import { buildStill } from './still.js'
-import { clamp, damp, smooth } from './lib/util.js'
-
-gsap.registerPlugin(ScrollTrigger)
+import { makeTimeline } from './player.js'
+import { controls } from './controls.js'
+import { clamp, damp, smooth, easeInOut } from './lib/util.js'
 
 const $ = (s, r = document) => r.querySelector(s)
 const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 const html = document.documentElement
 const params = new URLSearchParams(location.search)
 // Embedded: the shop shows the film inside its Legacy page, in a frame, under its own header and dock.
-const embed = params.has('embed')
+const embed = params.has('embed') && parent !== window
 if (embed) document.documentElement.classList.add('is-embed')
-const tell = (msg) => { if (embed && parent !== window) parent.postMessage({ type: 'one-mango', ...msg }, location.origin) }
-// links to the shop's pages ("/", "/legacy/story") open in the shop's window, not inside the frame
-if (embed) document.addEventListener('click', (e) => { const a = e.target instanceof Element ? e.target.closest('a[href^="/"]') : null; if (a) a.target = '_top' }, true)
+const tell = (msg) => { if (embed) parent.postMessage({ type: 'one-mango', ...msg }, location.origin) }
+// links to the shop's pages ("/") are opened by the shop's own router, not inside the frame
+if (embed) document.addEventListener('click', (e) => { const a = e.target instanceof Element ? e.target.closest('a[href^="/"]') : null; if (a) { e.preventDefault(); tell({ go: a.getAttribute('href') }) } }, true)
 const N = CHAPTERS.length
 const T0 = 0.86 // where a chapter's iris into the next one begins
 const STAGE_OF = ['seed', 'seed', 'tree', 'blossom', 'fruit', 'fruit', 'crate', 'road', 'grade', 'pack', 'door', 'counter', 'finale']
-const KEY_T = [0.3, 0.7, 0.85, 0.55, 0.55, 0.5, 0.5, 0.55, 0.45, 0.6, 0.7, 0.88]
-const MM = (window.__mm = { ready: false, p: 0, fps: 0, tier: '', errors: [] })
+const KEY_T = [0.3, 0.7, 0.85, 0.55, 0.55, 0.5, 0.5, 0.55, 0.45, 0.6, 0.7, 0.88, 0.88]
+const AUTO_START = 4000 // ms after the film is ready: nobody pressed Begin, so it starts by itself, muted
+const MM = (window.__mm = { ready: false, state: 'loading', load: 0, p: 0, fps: 0, tier: '', errors: [], steps: [] })
+const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+// Give the browser a moment between loading steps (to draw a frame of whatever is on screen), without waiting long.
+const yieldNow = () => (window.scheduler && scheduler.yield ? scheduler.yield() : wait(0))
 
 // ---- Mode -----------------------------------------------------------------------------------------------------------
 
 function webglOk() {
   try { const c = document.createElement('canvas'); return Boolean(c.getContext('webgl2')) } catch { return false }
 }
-const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches || params.has('still')
+// Reduced motion keeps the long-form still version unless the visitor chose to play the film (?play).
+const reduced = (matchMedia('(prefers-reduced-motion: reduce)').matches && !params.has('play')) || params.has('still')
 const hasGL = webglOk() && !params.has('nogl')
 
 // ---- Type: words in masks; the key phrase (between asterisks) in italic gold ---------------------------------------
@@ -79,8 +91,8 @@ function buildFilm() {
             <li><b data-num="0">${odometer(1)}</b><span>shortcuts</span></li>
           </ul>
           <div class="ctas">
-            <a class="btn is-gold" href="/" data-magnet data-cursor="open">Order this season <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-            <a class="btn is-line" href="/legacy/story" data-magnet data-cursor="open">Read our legacy</a>
+            <a class="btn is-gold" href="/" data-magnet data-cursor="shop">Shop the mangoes <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+            <button class="btn is-line" type="button" data-replay data-magnet data-cursor="again">Watch again</button>
           </div>
         </div>
       </section>`
@@ -107,61 +119,112 @@ function buildRail(goto) {
   $$('button', ol).forEach((b) => b.addEventListener('click', () => goto(Number(b.dataset.go))))
 }
 
-// ---- Placeholder stage (for any chapter whose set fails to build: never a blank frame) -----------------------------
+// ---- Loading ----------------------------------------------------------------------------------------------------------
 
-async function loadStages(engine, onStep) {
-  const mods = {
-    seed: () => import('./scenes/seed.js'), tree: () => import('./scenes/tree.js'), blossom: () => import('./scenes/blossom.js'),
-    fruit: () => import('./scenes/fruit.js'), crate: () => import('./scenes/crate.js'), road: () => import('./scenes/road.js'),
-    grade: () => import('./scenes/grade.js'), pack: () => import('./scenes/pack.js'), door: () => import('./scenes/door.js'),
-    counter: () => import('./scenes/counter.js'), finale: () => import('./scenes/finale.js'),
-  }
+const STAGE_MODS = {
+  seed: () => import('./scenes/seed.js'), tree: () => import('./scenes/tree.js'), blossom: () => import('./scenes/blossom.js'),
+  fruit: () => import('./scenes/fruit.js'), crate: () => import('./scenes/crate.js'), road: () => import('./scenes/road.js'),
+  grade: () => import('./scenes/grade.js'), pack: () => import('./scenes/pack.js'), door: () => import('./scenes/door.js'),
+  counter: () => import('./scenes/counter.js'), finale: () => import('./scenes/finale.js'),
+}
+
+/** Every chapter's set: fetch its code, build it (a placeholder for any set that fails: never a blank frame). */
+async function loadStages(engine, step) {
   const out = {}
-  const keys = Object.keys(mods)
-  for (let k = 0; k < keys.length; k++) {
-    const key = keys[k]
+  for (const key of Object.keys(STAGE_MODS)) {
     try {
-      const m = await mods[key]()
+      const m = await STAGE_MODS[key]()
+      await yieldNow()
       out[key] = new m.default(engine)
     } catch (e) {
       console.warn('stage', key, e)
       const m = await import('./scenes/placeholder.js')
       out[key] = new m.default(engine, key)
     }
-    onStep((k + 1) / keys.length)
-    await new Promise((r) => setTimeout(r, 0))
+    step('build ' + key)
+    await yieldNow()
   }
   return out
+}
+
+/** Get a set fully ready to draw: every material's shaders compiled (the ones hidden at this moment of the chapter
+ *  too, so nothing compiles when they appear later), off the main thread where the browser can (compileAsync), and
+ *  every texture uploaded. */
+async function warm(engine, st) {
+  const r = engine.renderer, hidden = []
+  st.scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true } })
+  try {
+    if (r.compileAsync) await r.compileAsync(st.scene, st.camera)
+    else r.compile(st.scene, st.camera)
+  } finally { hidden.forEach((o) => { o.visible = false }) }
+  uploadTextures(engine, st)
+}
+
+/** Upload every texture a set's materials use that is new or has changed since (initTexture skips the rest). */
+function uploadTextures(engine, st) {
+  const r = engine.renderer, tex = new Set()
+  st.scene.traverse((o) => {
+    for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+      for (const k in m) { const v = m[k]; if (v && v.isTexture) tex.add(v) }
+      if (m.uniforms) for (const k in m.uniforms) { const v = m.uniforms[k] && m.uniforms[k].value; if (v && v.isTexture) tex.add(v) }
+    }
+  })
+  for (const t of tex) { try { if (!t.isRenderTargetTexture && !t.isDepthTexture) r.initTexture(t) } catch { /* drawn later */ } }
+}
+
+/** A still of what the canvas shows now, encoded off the main thread (a blob: address). */
+function shot(src) {
+  const c = document.createElement('canvas')
+  c.width = 800; c.height = 500
+  c.getContext('2d').drawImage(src, 0, 0, 800, 500)
+  return new Promise((res) => c.toBlob((b) => res(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.86))
 }
 
 // ---- Boot -----------------------------------------------------------------------------------------------------------
 
 async function boot() {
   const film = buildFilm()
-  if (!hasGL) return still(null)
+  if (!hasGL) { tell({ still: true }); return still(null) }
 
   // In a frame, the page can start before the frame has been given its size: wait for a real viewport.
-  while (!(innerWidth > 0 && innerHeight > 0)) await new Promise((r) => setTimeout(r, 50))
+  while (!(innerWidth > 0 && innerHeight > 0)) await wait(50)
   const tier = detectTier()
   MM.tier = tier.name
   const engine = new Engine($('#gl'), tier)
+  MM.engine = engine
   // If the browser takes the graphics context away (a phone under memory pressure, a long spell in the background),
   // ask for it back and start the film again cleanly, instead of leaving a frozen or black picture.
-  $('#gl').addEventListener('webglcontextlost', (e) => { e.preventDefault(); MM.errors.push('context lost') })
-  $('#gl').addEventListener('webglcontextrestored', () => location.reload())
+  $('#gl').addEventListener('webglcontextlost', (e) => { if (MM.destroyed) return; e.preventDefault(); MM.errors.push('context lost') })
+  $('#gl').addEventListener('webglcontextrestored', () => { if (!MM.destroyed) location.reload() })
   engine.setSize(innerWidth, innerHeight)
+
+  // The loading card: on its own page the opening card (#pre); embedded, the shop's page shows it (told by message).
   const pre = $('#pre'), preNum = $('[data-pre-num]'), preWord = $('[data-pre-word]')
+  if (embed) pre?.remove()
   let shown = 0, word = ''
-  // what the opening card says it is doing while it loads
   const wordAt = (n) => (n < 34 ? 'Planting the seed' : n < 68 ? 'Waking the orchard' : n < 99 ? 'Tuning the quiet music' : 'Ready when you are')
   const setLoad = (v) => {
+    MM.load = v
+    tell({ load: v })
+    if (!pre || !pre.isConnected) return
     const target = Math.round(v * 100)
     gsap.to({ v: shown }, { v: target, duration: 0.5, ease: 'power2.out', onUpdate() {
       shown = this.targets()[0].v; preNum.textContent = Math.round(shown); pre.style.setProperty('--p', (shown / 100).toFixed(3))
       const w = wordAt(shown); if (preWord && w !== word) { word = w; preWord.textContent = w }
     } })
   }
-  const stages = await loadStages(engine, (f) => setLoad(f * 0.7))
+  // Real steps: build each of the 11 sets, ready each of the 13 chapters (shaders, textures, a still), the music.
+  const sound = reduced ? null : new Sound()
+  const total = Object.keys(STAGE_MODS).length + N + (sound ? 1 : 0)
+  let done = 0, stepAt = performance.now()
+  const step = (label) => {
+    const now = performance.now()
+    MM.steps.push([label, Math.round(now - stepAt)]); stepAt = now
+    setLoad(++done / total)
+  }
+  const soundReady = sound ? sound.prepare().then(() => step('music'), () => step('music')) : null
+
+  const stages = await loadStages(engine, step)
   const S = STAGE_OF.map((k) => stages[k])
   S.forEach((s, i) => s.mountUI && !s._mounted && (s._mounted = true, s.mountUI(film, i)))
 
@@ -170,30 +233,43 @@ async function boot() {
   {
     const w0 = engine.w, h0 = engine.h
     engine.setSize(800, 500)
-    const c2 = document.createElement('canvas')
-    for (let i = 0; i < N - 1; i++) {
+    for (let i = 0; i < N; i++) {
       const st = S[i]
       try {
         st.update(i, KEY_T[i], 3, 0.016)
         engine.frameCamera(st)
         st.sunToView()
-        engine.renderer.compile(st.scene, st.camera)
+        await warm(engine, st)
+        st.update(i, KEY_T[i], 3, 0.016)
+        engine.frameCamera(st)
+        st.sunToView()
         engine.render(st, null, 0, null, 0, { ...st.look, ca: 0, radial: 0, fade: 0, grain: 0 })
-        c2.width = 800; c2.height = 500
-        c2.getContext('2d').drawImage(engine.renderer.domElement, 0, 0, 800, 500)
-        shots.push(c2.toDataURL('image/jpeg', 0.86))
-      } catch (e) { console.warn('shot', i, e); shots.push(null) }
-      setLoad(0.7 + 0.3 * (i + 1) / (N - 1))
-      await new Promise((r) => setTimeout(r, 0))
+        if (i < N - 1) shots.push(await shot(engine.renderer.domElement))
+      } catch (e) { console.warn('warm', i, e); if (i < N - 1) shots.push(null) }
+      step('ready ' + CHAPTERS[i].id)
+      await yieldNow()
     }
     engine.setSize(w0, h0)
-    stages.finale.setShots?.(shots)
+    await stages.finale.setShots?.(shots)
+    // The sets redraw their printed labels once the brand fonts arrive: wait for those fonts, then upload whatever
+    // changed, so no label is re-uploaded on its chapter's first frame (WebKit pays dearly for canvas uploads).
+    await Promise.race([Promise.all(['700 30px Figtree', '800 40px Figtree', "400 40px 'Young Serif'"].map((f) => document.fonts.load(f))).catch(() => {}), wait(2500)])
+    await yieldNow()
+    for (const st of new Set(S)) { try { uploadTextures(engine, st) } catch { /* drawn later */ } }
+    // one frame of the opening at the real size, so the first frame the visitor sees allocates and compiles nothing
+    try {
+      const st = S[0]
+      st.update(0, 0, 0, 0.016); engine.frameCamera(st); st.sunToView()
+      engine.render(st, null, 0, null, 0, { ...st.look, rc: new THREE.Vector2(0.5, 0.5), ca: 0, radial: 0, fade: 1, grain: 0 })
+    } catch (e) { console.warn('warm frame', e) }
   }
   MM.shots = shots
+  if (soundReady) await soundReady
+  await Promise.race([document.fonts?.ready, wait(1500)])
   // Reduced motion: the long-form version, illustrated with stills rendered from the film itself.
-  if (reduced) { engine.renderer.setAnimationLoop(null); MM.ready = true; return still(shots) }
+  if (reduced) { MM.ready = true; MM.state = 'still'; tell({ still: true }); return still(shots) }
 
-  run(engine, S, film)
+  run(engine, S, film, sound)
 }
 
 function still(shots) {
@@ -205,47 +281,101 @@ function still(shots) {
 
 // ---- The film -------------------------------------------------------------------------------------------------------
 
-function run(engine, S, film) {
+function run(engine, S, film, sound) {
   const fine = matchMedia('(hover: hover) and (pointer: fine)').matches
   if (fine) html.classList.add('is-fine')
-  const lenis = fine && !params.has('nolenis') ? new Lenis({ lerp: 0.1, wheelMultiplier: 0.85, smoothWheel: true }) : null
-  if (lenis) {
-    lenis.on('scroll', ScrollTrigger.update)
-    gsap.ticker.add((t) => lenis.raf(t * 1000))
-  }
   gsap.ticker.lagSmoothing(0)
   // Phones and tablets: draw at 60 a second at most. Many now refresh at 90 or 120, and the film gains nothing from
   // drawing twice as often; it only costs battery and heat.
   const touch = matchMedia('(pointer: coarse)').matches
   if (touch) gsap.ticker.fps(60)
-  ScrollTrigger.config({ ignoreMobileResize: true })
 
-  // Scroll length: each chapter's weight in screen heights.
-  const W = CHAPTERS.map((c) => c.weight), WSUM = W.reduce((a, b) => a + b, 0)
-  const CUM = W.reduce((a, w, i) => (a.push(a[i] + w), a), [0])
-  const scroller = $('[data-scroller]')
-  let vh = innerHeight
-  const sizeScroller = () => { scroller.style.height = `${Math.round(WSUM * vh * 1.0 + vh)}px` }
-  sizeScroller()
-  const sToP = (s) => { // 0…1 of the page → p (chapter + t)
-    const x = s * WSUM
-    let i = 0
-    while (i < N - 1 && x >= CUM[i + 1]) i++
-    return Math.min(N - 0.0001, i + (x - CUM[i]) / W[i])
-  }
-  const pToY = (p) => { const i = Math.floor(clamp(p, 0, N - 0.001)); const x = CUM[i] + (p - i) * W[i]; return (x / WSUM) * (document.documentElement.scrollHeight - innerHeight) }
-  let target = 0
-  const st = ScrollTrigger.create({ trigger: scroller, start: 'top top', end: 'bottom bottom', onUpdate: (self) => { target = sToP(self.progress) } })
+  // ---- The playhead: the film's time τ (seconds) and what it maps to.
+  const TL = makeTimeline(CHAPTERS.map((c) => SECONDS[c.id]), LEAD)
+  MM.duration = TL.end
+  const P = { tau: 0, playing: false, glide: null, fade: null, scrub: false, anchor: null, ended: false, fadeK: 0 }
+  let p = 0, pvel = 0, pv = 0, time = 0, running = false, fpsAcc = 0, fpsN = 0, fpsWork = 0, fpsDt = [], slow = 0, needSize = false, cutNext = true
+  let lastNow = performance.now(), begun = false, parkAt = 0
+  const freeze = params.has('freeze')
 
-  const goto = (i, frac = 0.42) => {
-    const y = pToY(i + (i === N - 1 ? 0.9 : i === 0 ? 0 : frac))
-    if (lenis) lenis.scrollTo(y, { duration: Math.min(4, 1.2 + Math.abs(i - p) * 0.35), easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) })
-    else window.scrollTo({ top: y, behavior: 'smooth' })
+  const setState = (s) => {
+    if (MM.state === s) return
+    MM.state = s
+    html.dataset.state = s
+    tell({ state: s })
+    ui.sync()
   }
-  MM.goto = (pp) => { const y = pToY(pp); if (lenis) lenis.scrollTo(y, { immediate: true }); else window.scrollTo(0, y); target = pp; p = pp; pvel = 0; cutNext = true }
-  buildRail(goto)
-  $('[data-skip]').addEventListener('click', (e) => { e.preventDefault(); goto(N - 1) })
-  $('[data-skip]').addEventListener('focus', (e) => e.target.classList.add('is-shown'))
+  /** Draw frames (or stop drawing: the film is not on screen, or it has ended and sat still a while). */
+  const wakeLoop = () => {
+    parkAt = P.ended ? performance.now() + 12000 : 0
+    if (running || document.hidden || !begun || MM.destroyed || MM.parked) return
+    running = true; lastNow = performance.now()
+    gsap.ticker.wake()
+    gsap.ticker.add(frame)
+  }
+  // Not drawing: the GSAP ticker (its own rAF loop) is put to sleep too; any new tween wakes it again.
+  const sleepLoop = () => { if (!running) return; running = false; gsap.ticker.remove(frame); gsap.ticker.sleep() }
+  const playNow = () => {
+    if (P.ended || P.tau >= TL.end - 0.05) { P.ended = false; jump(0, 'fade') }
+    P.playing = true; P.anchor = null
+    sound?.hold(false)
+    setState('playing')
+    wakeLoop()
+  }
+  const pauseNow = (quiet = false) => {
+    if (!P.playing) return
+    P.playing = false
+    sound?.hold(true)
+    setState('paused')
+    if (!quiet) ui.show()
+  }
+  const toggle = () => (P.playing ? pauseNow() : playNow())
+  /** Move the playhead. 'glide': a short eased travel through what lies between (near targets); 'fade': through the
+   *  night colour and back (far targets); 'cut': at once (scrubbing the bar). */
+  const jump = (tau, how = 'glide') => {
+    tau = clamp(tau, 0, TL.end)
+    P.anchor = null
+    if (tau < TL.end - 0.05) P.ended = false
+    if (how === 'cut') { P.glide = null; P.fade = null; P.tau = tau; cutNext = true }
+    else if (how === 'fade') { P.glide = null; P.fade = { to: tau, t0: performance.now(), swapped: false } }
+    else { P.fade = null; const d = Math.abs(TL.p(tau) - TL.p(P.tau)); P.glide = { from: P.tau, to: tau, t0: performance.now(), dur: 700 + Math.min(900, d * 450) } }
+    if (MM.state === 'ended' && tau < TL.end - 0.05) setState(P.playing ? 'playing' : 'paused')
+    wakeLoop()
+  }
+  const toP = (pp, how) => jump(TL.tauOf(pp), how)
+  const nearOrFar = (tau) => (Math.abs(TL.p(tau) - p) <= 1.6 ? 'glide' : 'fade')
+  const chapterNow = () => Math.floor(clamp(TL.p(P.glide ? P.glide.to : P.fade ? P.fade.to : P.tau), 0, N - 0.0001))
+  const toChapter = (i) => { i = clamp(i, 0, N - 1); const tau = i === 0 ? 0 : TL.starts[i]; jump(tau, nearOrFar(tau)) }
+  const next = () => toChapter(chapterNow() + 1)
+  const prev = () => {
+    const i = chapterNow(), into = P.tau - TL.starts[i]
+    toChapter(into > 2.5 && i > 0 ? i : i - 1) // like a player: back to this chapter's start, or the one before
+  }
+  const end = () => {
+    P.playing = false; P.ended = true
+    setState('ended')
+    sound?.hold(true, 4) // the music dies away with the last picture
+    ui.show(true)
+    parkAt = performance.now() + 12000 // the end card sits still: after a while, stop drawing
+  }
+  const soundOn = () => { sound?.start(); ui.sync() }
+  const soundOff = () => { sound?.mute(); ui.sync() }
+
+  // ---- The controls.
+  const ui = controls({
+    chapters: CHAPTERS, starts: TL.starts, duration: TL.end, embed, touch,
+    state: () => MM.state, tau: () => P.tau, p: () => p, sound: () => Boolean(sound && sound.on && !sound.blocked),
+    toggle, next, prev, toChapter, replay: () => { P.ended = false; jump(0, 'fade'); playNow() },
+    soundOn, soundOff, soundToggle: () => (sound && sound.on ? soundOff() : soundOn()),
+    seek: (tau, how) => jump(tau, how || nearOrFar(tau)),
+    scrub: (on) => { P.scrub = on; if (on) P.wasPlaying = P.playing, P.playing = false; else if (P.wasPlaying && !P.ended) { P.playing = true; P.anchor = null } },
+    onUi: (on) => tell({ ui: on }),
+    wake: wakeLoop,
+  })
+  MM.ui = ui
+  MM.sound = sound
+  // the switch follows what is really heard: sound wanted but held back by the browser shows as off
+  sound?.ctx?.addEventListener?.('statechange', () => setTimeout(() => ui.sync(), 300))
 
   // ---- The master timeline for type: chapter i occupies [i, i+1).
   const tl = gsap.timeline({ paused: true })
@@ -262,7 +392,7 @@ function run(engine, S, film) {
       if (extra.length) tl.fromTo(extra, { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.12, stagger: 0.03, ease: 'expo.out' }, i + 0.12 + o)
     }
     if (i < N - 1) {
-      const exitAt = CHAPTERS[i].id === 'pick' ? 0.4 : CHAPTERS[i].id === 'begin' ? 0.32 : 0.7
+      const exitAt = CHAPTERS[i].id === 'pick' ? 0.4 : CHAPTERS[i].id === 'begin' ? 0.5 : 0.7
       tl.fromTo(words, { yPercent: 0, rotate: 0 }, { yPercent: -118, rotate: -3, duration: 0.1, stagger: 0.006, ease: 'power3.in', immediateRender: false }, i + exitAt)
       tl.fromTo(kick, { yPercent: 0 }, { yPercent: -120, duration: 0.08, ease: 'power3.in', immediateRender: false }, i + exitAt)
       tl.fromTo(cap, { opacity: 1 }, { opacity: 0, duration: 0.07, immediateRender: false }, i + exitAt)
@@ -276,7 +406,7 @@ function run(engine, S, film) {
     }
   })
   tl.set({}, {}, N)
-  // Chapter 0's title arrives on load (time-based), not on scroll.
+  // Chapter 0's title arrives on its own time as the film begins.
   const intro = gsap.timeline({ paused: true })
   {
     const el = chEls[0]
@@ -286,14 +416,18 @@ function run(engine, S, film) {
   }
 
   // ---- HUD
+  buildRail((i) => { toChapter(i); ui.show() })
+  $('[data-skip]').addEventListener('click', (e) => { e.preventDefault(); toChapter(N - 1) })
+  $('[data-skip]').addEventListener('focus', (e) => e.target.classList.add('is-shown'))
+  $$('[data-replay]').forEach((b) => b.addEventListener('click', () => { P.ended = false; jump(0, 'fade'); playNow() }))
   const railBtns = $$('[data-rail] button'), railName = $('[data-rail-name]'), count = $('[data-count]')
-  const day = $('[data-day]'), dayNum = $('[data-day-num]'), daySub = $('[data-day-sub]'), hint = $('[data-hint]')
+  const day = $('[data-day]'), dayNum = $('[data-day-num]'), daySub = $('[data-day-sub]')
   const yearOdo = $('.year .odo'), numOdos = $$('[data-num]')
   let lastI = -1, lastDay = -1, lastInk = ''
   const dayWord = (i, d) => i <= 6 ? 'Plucked' : i === 7 ? (d < 1 ? 'On the road' : 'At the warehouse') : i === 8 ? 'Graded by hand' : i === 9 ? (d < 4 ? 'Raw: days 1 to 3' : 'Semi-ripe: days 4 to 7') : i === 10 ? 'At your door' : 'On your counter'
 
   // ---- Pointer: parallax, cursor, magnetic buttons, drag-to-turn
-  const ptr = { x: 0, y: 0, sx: 0, sy: 0, cx: innerWidth / 2, cy: innerHeight / 2, rx: innerWidth / 2, ry: innerHeight / 2, down: false, dragging: false, lx: 0, ly: 0 }
+  const ptr = { x: 0, y: 0, sx: 0, sy: 0, cx: innerWidth / 2, cy: innerHeight / 2, rx: innerWidth / 2, ry: innerHeight / 2, dragging: false, lx: 0, ly: 0 }
   const cursor = $('[data-cursor]'), cWord = $('[data-cursor-word]'), cDot = $('.cursor-dot'), cRing = $('.cursor-ring')
   addEventListener('pointermove', (e) => {
     ptr.x = (e.clientX / innerWidth) * 2 - 1; ptr.y = -((e.clientY / innerHeight) * 2 - 1)
@@ -303,59 +437,38 @@ function run(engine, S, film) {
   }, { passive: true })
   document.addEventListener('mouseleave', () => cursor.classList.remove('is-on'))
   const curStage = () => S[Math.floor(clamp(p, 0, N - 0.001))]
-  const canDrag = (e) => { const s = curStage(); return s && s.dragHit && !e.target.closest('a,button') && s.dragHit((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1), Math.floor(p), p % 1) }
-  addEventListener('pointerdown', (e) => { if (canDrag(e)) { ptr.dragging = true; ptr.lx = e.clientX; ptr.ly = e.clientY; cursor.classList.add('is-drag') } })
-  addEventListener('pointerup', () => { ptr.dragging = false; cursor.classList.remove('is-drag') })
-  addEventListener('pointercancel', () => { ptr.dragging = false })
-  addEventListener('touchmove', (e) => { if (ptr.dragging) e.preventDefault() }, { passive: false })
+  const canDrag = (e) => { const s = curStage(); return s && s.dragHit && !e.target.closest('a,button,[data-ctl]') && s.dragHit((e.clientX / innerWidth) * 2 - 1, -((e.clientY / innerHeight) * 2 - 1), Math.floor(p), p % 1) }
+  addEventListener('pointerdown', (e) => { if (canDrag(e)) { ptr.dragging = true; ui.dragging = true; ptr.lx = e.clientX; ptr.ly = e.clientY; cursor.classList.add('is-drag') } })
+  addEventListener('pointerup', () => { ptr.dragging = false; setTimeout(() => { ui.dragging = false }, 0); cursor.classList.remove('is-drag') })
+  addEventListener('pointercancel', () => { ptr.dragging = false; ui.dragging = false })
   $$('[data-magnet]').forEach((b) => {
     b.addEventListener('pointermove', (e) => { if (!fine) return; const r = b.getBoundingClientRect(); gsap.to(b, { x: (e.clientX - r.left - r.width / 2) * 0.3, y: (e.clientY - r.top - r.height / 2) * 0.4, duration: 0.5, ease: 'power3.out' }) })
     b.addEventListener('pointerleave', () => gsap.to(b, { x: 0, y: 0, duration: 0.9, ease: 'elastic.out(1,.4)' }))
   })
   document.addEventListener('pointerover', (e) => {
-    const t = e.target.closest?.('a,button')
-    cursor.classList.toggle('is-big', Boolean(t))
+    const t = e.target.closest?.('a,button,[data-ctl-track]')
+    cursor.classList.toggle('is-big', Boolean(t) && !e.target.closest('[data-ctl]'))
     if (t) cWord.textContent = t.dataset.cursor || (t.matches('[data-go]') ? 'go' : 'open')
   })
 
-  // ---- Keyboard: chapter to chapter
-  addEventListener('keydown', (e) => {
-    if (e.target.closest('input,textarea') || e.metaKey || e.ctrlKey || e.altKey) return
-    const i = Math.round(p - 0.42)
-    const next = ['ArrowDown', 'PageDown', 'ArrowRight'].includes(e.key) || (e.key === ' ' && !e.shiftKey)
-    const prev = ['ArrowUp', 'PageUp', 'ArrowLeft'].includes(e.key) || (e.key === ' ' && e.shiftKey)
-    if (e.key === ' ' && e.target.closest('a,button')) return
-    if (next) { e.preventDefault(); goto(Math.min(N - 1, i + 1)) }
-    else if (prev) { e.preventDefault(); goto(Math.max(0, i - 1)) }
-    else if (e.key === 'Home') { e.preventDefault(); goto(0) }
-    else if (e.key === 'End') { e.preventDefault(); goto(N - 1) }
-  })
-
-  // ---- Sound (quiet background music; plays by default, from the visitor's first click, tap or key)
-  const sound = new Sound(); MM.sound = sound
-
   // ---- Resize
   let rT = 0
-  const onResize = () => {
-    clearTimeout(rT)
-    rT = setTimeout(() => {
-      rT = 0
-      needSize = true
-      if (Math.abs(innerHeight - vh) > 140 || innerWidth !== lastW) { vh = innerHeight; sizeScroller(); ScrollTrigger.refresh() }
-      lastW = innerWidth
-    }, 120)
-  }
-  let lastW = innerWidth
+  const onResize = () => { clearTimeout(rT); rT = setTimeout(() => { rT = 0; needSize = true; wakeLoop() }, 120) }
   addEventListener('resize', onResize)
 
+  // ---- Tab hidden: the film, its drawing and its music all wait; back on the tab, they carry on.
+  let hiddenWasPlaying = false
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenWasPlaying = P.playing; if (P.playing) pauseNow(true); sleepLoop() }
+    else { if (hiddenWasPlaying) playNow(); else wakeLoop(); hiddenWasPlaying = false }
+  })
+
   // ---- Loop
-  let p = 0, pvel = 0, pv = 0, time = 0, running = true, fpsAcc = 0, fpsN = 0, slow = 0, needSize = false
-  // ---- Field of view and the picture's offset follow each scene's values with a short, smooth lag (about an eighth of
-  // a second), so a step in either becomes a glide. They snap on a true cut: a jump to another place (MM.goto) or a
-  // scene that was not on screen last frame. (The camera's own position and aim are left exactly as each scene sets
-  // them: a general lag on those was tried and measured, and it added unevenness in fast moves instead of removing it.)
+  // Field of view and the picture's offset follow each scene's values with a short, smooth lag (about an eighth of
+  // a second), so a step in either becomes a glide. They snap on a true cut: a jump to another place or a scene that
+  // was not on screen last frame.
   const steadyOn = !params.has('nosteady')
-  let tick = 0, cutNext = true
+  let tick = 0
   const steady = (st, dt) => {
     const m = st._steady || (st._steady = { fov: st.fov, f: [0, 0], fp: [0, 0], seen: -9 })
     const cut = cutNext || m.seen !== tick - 1 || !steadyOn
@@ -369,42 +482,66 @@ function run(engine, S, film) {
     }
     st._fov = m.fov; st._frame = m.f; st._framePortrait = m.fp // engine.frameCamera reads these when they are there
   }
-  let toldP = -1
-  const freeze = params.has('freeze')
-  document.addEventListener('visibilitychange', () => { running = !document.hidden })
   const center = new THREE.Vector2(), cA = new THREE.Vector2(), cB = new THREE.Vector2()
   const look = { ...S[0].look, rc: new THREE.Vector2(0.5, 0.5), lift: new THREE.Vector3(), gain: new THREE.Vector3(1, 1, 1) }
   let startFade = 1
 
-  const frame = (tSec, dtMs) => {
+  /** Advance the playhead by this frame's real time. While the music plays, the playhead follows the audio clock:
+   *  it runs a few per cent faster or slower until any drift between the two is gone, so a run of dropped frames can
+   *  never leave the picture ahead of (or behind) the music. */
+  const advance = (dtW, now) => {
+    if (P.fade) {
+      const k = (now - P.fade.t0) / 1000
+      if (!P.fade.swapped && k >= 0.32) { P.fade.swapped = true; P.tau = P.fade.to; cutNext = true }
+      P.fadeK = k < 0.32 ? smooth(0, 0.32, k) : 1 - smooth(0.4, 0.95, k)
+      if (k >= 0.95) { P.fade = null; P.fadeK = 0 }
+      if (P.fade && !P.fade.swapped) return
+    }
+    if (P.glide) {
+      const g = P.glide, k = Math.min(1, (now - g.t0) / g.dur)
+      P.tau = g.from + (g.to - g.from) * easeInOut(k)
+      if (k >= 1) { P.glide = null; P.anchor = null }
+      return
+    }
+    if (!P.playing || P.scrub) return
+    let rate = 1
+    const a = sound ? sound.clock() : null
+    if (a !== null) {
+      if (!P.anchor) P.anchor = { a, tau: P.tau }
+      else {
+        const drift = (a - P.anchor.a) - (P.tau - P.anchor.tau) // > 0: the music is ahead
+        if (Math.abs(drift) > 1) P.anchor = { a, tau: P.tau } // a long stall (a phone call): start following afresh
+        else rate = clamp(1 + drift * 0.6, 0.9, 1.1)
+      }
+    } else P.anchor = null
+    P.tau += dtW * rate
+    if (P.tau >= TL.end) { P.tau = TL.end; end() }
+  }
+
+  const frame = () => {
     if (!running) return
+    const now = performance.now()
     // A resize clears the canvas, so it happens before this frame renders, never after.
-    // a size change that came without a resize event we heard (a frame growing while the film was still loading)
     if ((innerWidth !== engine.w || innerHeight !== engine.h) && innerWidth > 0 && innerHeight > 0 && !rT) onResize()
     if (needSize && innerWidth > 0 && innerHeight > 0) { needSize = false; engine.setSize(innerWidth, innerHeight) }
-    const dt = Math.min(0.05, (dtMs || 16) / 1000)
+    const dtW = Math.min(0.5, Math.max(0, (now - lastNow) / 1000)); lastNow = now
+    const dt = Math.min(0.05, dtW || 0.016)
     time = freeze ? 3 : time + dt
-    // The film's position follows the scroll like a weight on a spring that never overshoots (critically damped): it
-    // gathers speed and sheds it smoothly, so a wheel notch or a flick never starts or stops the camera with a jolt.
-    // (A plain ease towards the target starts at full speed the instant the target moves.) Solved exactly for this
-    // frame's length, so it is the same at 30, 60 or 120 frames a second.
-    {
-      const w = lenis ? 13 : 12, c1 = p - target, c2 = pvel + w * c1, e = Math.exp(-w * dt)
-      p = target + (c1 + c2 * dt) * e
-      pvel = (c2 - w * (c1 + c2 * dt)) * e
-      if (Math.abs(p - target) < 0.00005 && Math.abs(pvel) < 0.0005) { p = target; pvel = 0 }
-    }
-    MM.p = p
+    advance(dtW, now)
+    const was = p
+    p = clamp(TL.p(P.tau), 0, N - 0.0001)
+    pvel = cutNext ? 0 : (p - was) / dt
+    MM.p = p; MM.tau = P.tau
     pv = damp(pv, pvel, 6, dt)
     ptr.sx = damp(ptr.sx, ptr.x, 3, dt); ptr.sy = damp(ptr.sy, ptr.y, 3, dt)
 
-    const i = Math.floor(clamp(p, 0, N - 0.0001)), t = p - i
+    const i = Math.floor(p), t = p - i
     const A = S[i]
     A.update(i, t, time, dt)
     let B = null, mix = 0
     if (t > T0 && i < N - 1 && S[i + 1] !== A) { B = S[i + 1]; mix = smooth(T0, 1, t); B.update(i + 1, t - 1, time, dt) }
     // The camera is held, not bolted down: it breathes a little all the time (two slow, unrelated waves on each axis, a
-    // fraction of a degree), and at speed the view opens by up to two degrees and closes again as the scroll settles.
+    // fraction of a degree), and on a fast move (a glide to another chapter) the view opens by up to two degrees.
     engine.fovKick = Math.min(2, Math.abs(pv) * 1.3)
     const bx = (Math.sin(time * 0.23) + Math.sin(time * 0.37 + 1.7)) * 0.0013, by = (Math.sin(time * 0.19 + 0.6) + Math.sin(time * 0.31 + 2.9)) * 0.001, bz = Math.sin(time * 0.17 + 4.1) * 0.0007
     tick++
@@ -429,7 +566,7 @@ function run(engine, S, film) {
     look.radial = L.radial
     look.rc.copy(L.rc)
     look.ca = Math.min(0.006, L.ca + Math.abs(pv) * 0.0025 + (B ? Math.sin(mix * Math.PI) * 0.003 : 0))
-    look.fade = startFade
+    look.fade = Math.max(startFade, P.fadeK)
     engine.render(A, B, mix, center, time, look)
     tl.time(p)
 
@@ -442,7 +579,6 @@ function run(engine, S, film) {
       const ink = CHAPTERS[i].ink
       if (ink !== lastInk) { html.classList.toggle('is-dark', ink === 'dark'); lastInk = ink }
       chEls.forEach((el, j) => el.classList.toggle('is-live', j === i || (j === i + 1 && t > 0.8)))
-      sound.chapter(i)
     }
     chEls.forEach((el, j) => { if (j === i + 1) el.classList.toggle('is-live', t > 0.8) })
     const d = fruitDay(i, t)
@@ -451,69 +587,127 @@ function run(engine, S, film) {
       const dd = Math.floor(d + 0.0001)
       if (dd !== lastDay) { lastDay = dd; dayNum.textContent = dd; daySub.textContent = dayWord(i, dd) }
     }
-    hint.classList.toggle('is-away', p > 0.15)
     if (yearOdo && (i === 2 || (i === 1 && t > 0.8) || (i === 3 && t < 0.2))) roll(yearOdo, 1976 + 50 * (i === 2 ? smooth(0.05, 0.85, t) : i === 3 ? 1 : 0))
     if (i === N - 1) numOdos.forEach((b) => { const n = Number(b.dataset.num); roll(b.querySelector('.odo'), n * smooth(0.6, 0.85, t)) })
-    sound.update(i, t, pv, time)
-    if (embed && Math.abs(p - toldP) > 0.004) { toldP = p; tell({ p }) } // the shop hides its header while the film moves
+    sound?.update(i, t, Boolean(P.glide || P.fade || P.scrub || !P.playing))
     S.forEach((s) => s.ui && s.uiUpdate?.(s === A || s === B, i, t, engine))
+    ui.frame()
 
     // Cursor
     if (fine) {
       ptr.rx = damp(ptr.rx, ptr.cx, 12, dt); ptr.ry = damp(ptr.ry, ptr.cy, 12, dt)
       cDot.style.transform = `translate3d(${ptr.cx}px,${ptr.cy}px,0)`
       cRing.style.transform = `translate3d(${ptr.rx}px,${ptr.ry}px,0)`
-      if (!cursor.classList.contains('is-big')) cWord.textContent = A.dragHit && A.dragHit(ptr.x, ptr.y, i, t) ? 'drag' : 'scroll'
+      if (!cursor.classList.contains('is-big')) {
+        const w = A.dragHit && A.dragHit(ptr.x, ptr.y, i, t) ? 'drag' : MM.state === 'playing' ? 'pause' : 'play'
+        if (cWord.textContent !== w) cWord.textContent = w
+      }
     }
 
-    // Frame rate and the adaptive pixel ratio.
-    fpsAcc += dt; fpsN++
-    if (fpsAcc > 1) {
-      MM.fps = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0
-      // Too slow for two seconds running: first draw fewer pixels, step by step; if that is not enough, drop the two
-      // costliest effects (depth of field and light shafts). Phones are held to a higher bar, so they stay smooth.
-      const want = touch ? 48 : 38, floor = touch ? 0.55 : 0.62
-      if (MM.fps < want && !freeze && time > 4) {
-        if (++slow >= 2) {
-          slow = 0
-          if (engine.dprScale > floor) { engine.dprScale = Math.max(floor, engine.dprScale * 0.86); needSize = true }
-          else if (!engine.lite && MM.fps < want - 8) { engine.lite = true; MM.lite = true }
-        }
-      } else slow = 0
+    // Frame rate, and a quality budget that only ever steps down: when frames take longer than about 22 ms (under
+    // 45 a second) for a whole second while the film plays, first draw fewer pixels, step by step; if that is not
+    // enough, drop the two costliest effects (depth of field and light shafts). It never steps back up during the film.
+    // A browser that holds every page to 30 frames a second (Chrome's and Brave's Energy Saver on battery, a 30 Hz
+    // display) is not a slow device: frames then arrive like clockwork every 33 ms while each takes us only a few ms,
+    // and the picture keeps its quality. (Frames arriving unevenly, or each costing us much, still count as slow.)
+    fpsAcc += dtW; fpsN++
+    fpsDt.push(dtW * 1000)
+    fpsWork += performance.now() - now
+    if (fpsAcc >= 1) {
+      MM.fps = Math.round(fpsN / fpsAcc)
+      const mean = fpsDt.reduce((a, b) => a + b, 0) / fpsDt.length, even = fpsDt.filter((d) => Math.abs(d - mean) < 3).length / fpsDt.length
+      const capped = mean > 28 && mean < 36 && even > 0.85 && fpsWork / fpsN < 9
+      MM.capped = capped
+      fpsAcc = 0; fpsN = 0; fpsDt.length = 0; fpsWork = 0
+      const want = 45, floor = touch ? 0.55 : 0.62
+      if (MM.fps < want && !capped && !freeze && P.playing && time > 3) {
+        slow = 0
+        if (engine.dprScale > floor) { engine.dprScale = Math.max(floor, engine.dprScale * 0.86); needSize = true }
+        else if (!engine.lite && MM.fps < want - 8) { engine.lite = true }
+        MM.quality = { dprScale: +engine.dprScale.toFixed(2), lite: Boolean(engine.lite), dpr: +engine.dpr.toFixed(2) }
+      }
     }
+    if (parkAt && now > parkAt && !P.playing && !P.glide && !P.fade) sleepLoop()
   }
-  gsap.ticker.add(frame)
 
-  // Leave the preloader: the root has drawn; the seed cracks; we drop into the soil.
+  // ---- Begin: the music (when asked for), the opening card leaves, the film plays.
   const pre = $('#pre')
   const leave = () => {
-    pre.classList.add('is-crack')
-    gsap.to({ v: 1 }, { v: 0, duration: 1.6, delay: 0.5, ease: 'power2.inOut', onUpdate() { startFade = this.targets()[0].v } })
+    gsap.to({ v: 1 }, { v: 0, duration: 1.6, delay: embed ? 0.2 : 0.5, ease: 'power2.inOut', onUpdate() { startFade = this.targets()[0].v } })
+    if (!pre || !pre.isConnected) { setTimeout(() => intro.play(), embed ? 500 : 0); return }
+    pre.classList.add('is-crack'); pre.classList.remove('is-gate')
     setTimeout(() => { pre.classList.add('is-done'); intro.play() }, 700)
     setTimeout(() => pre.remove(), 2000)
   }
-  // The film opens on a "Begin" button. Browsers only let a page make sound once the visitor has clicked, tapped or
-  // pressed a key (scrolling does not count), so this one click is what lets the music start with the first frame.
-  // Test tooling (a ?p= jump, or a driven browser) goes straight in.
-  const go = $('[data-begin]')
-  if (!go || ((params.has('p') || navigator.webdriver) && !params.has('gate'))) leave()
-  else {
-    pre.classList.add('is-gate'); pre.removeAttribute('aria-hidden') // the button must be reachable by screen readers
-    html.style.overflow = 'hidden'; lenis?.stop()
-    setTimeout(() => go.focus({ preventScroll: true }), 900) // once it is visible, so Enter or Space begins too
-    go.addEventListener('click', () => { tell({ begun: true }); sound.start(); html.style.overflow = ''; lenis?.start(); window.scrollTo(0, 0); pre.classList.remove('is-gate'); leave() }, { once: true })
+  let autoT = 0
+  const begin = ({ sound: withSound = false } = {}) => {
+    if (MM.destroyed) return
+    MM.parked = false
+    if (begun) {
+      // a second visit to the shop's Legacy page (the film was parked): from the top again
+      clearTimeout(autoT)
+      if (withSound) { sound?.start(); setTimeout(() => ui.sync(), 1600) }
+      P.ended = false; P.glide = null; P.fade = null; P.tau = 0; cutNext = true
+      startFade = 1
+      gsap.to({ v: 1 }, { v: 0, duration: 1.4, delay: 0.2, ease: 'power2.inOut', onUpdate() { startFade = this.targets()[0].v } })
+      intro.progress(0).pause(); setTimeout(() => intro.play(), 400)
+      playNow()
+      ui.show()
+      return
+    }
+    begun = true
+    clearTimeout(autoT)
+    if (withSound) { sound?.start(); setTimeout(() => ui.sync(), 1600) }
+    leave()
+    html.classList.add('is-live')
+    const startP = Number(params.get('p'))
+    if (startP > 0) { P.tau = TL.tauOf(startP); startFade = 0; intro.progress(1); cutNext = true }
+    playNow()
+    ui.show()
   }
-  const startP = params.get('p')
-  if (startP) { requestAnimationFrame(() => { MM.goto(Number(startP)); startFade = 0; intro.progress(1) }) }
+  MM.begin = begin
+  // The shop's page was left: pause, stop drawing, hold the music; begin() starts it again from the top.
+  MM.park = () => { MM.parked = true; hiddenWasPlaying = false; pauseNow(true); sleepLoop(); ui.hide() }
+  MM.play = playNow; MM.pause = () => pauseNow(); MM.toggle = toggle; MM.next = next; MM.prev = prev
+  MM.seek = (pp, how = 'cut') => toP(pp, how)
+  MM.goto = (pp) => toP(pp, 'cut') // test tooling: straight to a place in the film
+  MM.mute = (m) => (m ? soundOff() : soundOn())
+  MM.destroy = () => {
+    if (MM.destroyed) return
+    MM.destroyed = true
+    clearTimeout(autoT)
+    sleepLoop()
+    ui.destroy()
+    gsap.globalTimeline.getChildren().forEach((c) => c.kill())
+    sound?.close()
+    try { engine.renderer.dispose(); engine.renderer.forceContextLoss() } catch { /* already gone */ }
+  }
   MM.ready = true
-  MM.engine = engine
   MM.stages = S
-  ScrollTrigger.refresh()
-  st.refresh()
+
+  if (embed) {
+    // The shop's page shows the loading and the Begin button, and calls MM.begin() (it also starts the film by itself
+    // if nobody presses Begin). Until then nothing is drawn: the frame is behind the shop's opening.
+    setState('ready')
+    tell({ ready: true })
+  } else if (params.has('p') || params.has('autoplay')) begin({ sound: false })
+  else {
+    // The film opens on a "Begin" button. Browsers only let a page make sound once the visitor has clicked, tapped or
+    // pressed a key, so this one press is what lets the music start with the first frame. Nobody pressing it: the film
+    // starts by itself after a few seconds, muted, with a "Sound off · tap to turn on" switch in view.
+    const go = $('[data-begin]')
+    setState('gate')
+    pre.classList.add('is-gate'); pre.removeAttribute('aria-hidden') // the button must be reachable by screen readers
+    setTimeout(() => go.focus({ preventScroll: true }), 900) // once it is visible, so Enter or Space begins too
+    go.addEventListener('click', () => begin({ sound: true }), { once: true })
+    if (!reducedPref) autoT = setTimeout(() => begin({ sound: false }), AUTO_START)
+  }
 }
+const reducedPref = matchMedia('(prefers-reduced-motion: reduce)').matches
 
 boot().catch((e) => {
   console.error(e)
   MM.errors.push(String(e))
+  tell({ failed: true })
   still(MM.shots || null)
 })

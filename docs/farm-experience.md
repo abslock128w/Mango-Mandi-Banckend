@@ -1,8 +1,10 @@
 # Farm Experience
 
-Customers book a visit to the MandiMangoes farm: they book **250 kg or more** of one mango
-variety on a visit date **without paying**, stay at the farmhouse with meals, harvest and weigh
-their mangoes with the farm team, and **pay after picking** for the kilograms accepted. Packing
+Customers book a visit to the VMR Mangoes farm: they book **100 kg or more** of one mango
+variety on a visit date **without paying**, stay at the farmhouse **free of charge**, harvest and weigh
+their mangoes with the farm team, and **pay after picking** for the kilograms accepted. **Food is not
+ours to sell:** the farm team cooks meals and the visitors pay them directly at the farm; meals are never
+on our bill (the owner, 23 Nov 2026; until then the minimum was 250 kg and meals were part of the stay). Packing
 starts once the bill is paid. Staff run every booking from the
 panel under **Bulk Orders → Farm Experience Bookings**.
 
@@ -11,7 +13,12 @@ shows no farm card or pages, the panel shows no farm screens, and every farm rou
 404 (`FEATURE_OFF`). Turning it on still shows nothing bookable until a manager fills in the
 farm settings and presses **Open bookings**.
 
-**Shop pages:** `shop/farm.js` holds the customer pages: the farm card on `/bulk`, `/farm-experience`
+**Shop pages:** the **Farm visit** tab of the bulk page (`/bulk/farm-visit`, `shop/bulk.js`) is a farm visit
+**enquiry** form (the owner, 23 Nov 2026: "the person still sends an ENQUIRY"), always open, whatever this switch
+says: it lands in the panel's Bulk orders → Farm visits list (mango-api/README.md, farm visit enquiries) and our team
+calls to plan the visit. The tab no longer sends customers into the six-step booking below; only while this switch is
+on and bookings are open does it show a quiet "Already agreed a date with us? Book your visit" link. The booking
+stays for staff use later. `shop/farm.js` holds the customer pages: `/farm-experience`
 (the page about the visit), `/farm-experience/book` (six steps: variety, kilograms, date, group, details,
 review), `/farm-bookings` (my farm visits, also a tab on the account pages) and `/farm-bookings/:id` (status,
 check-in code, itinerary, the bill and Pay, cancel, change of date, and the answer to a proposed arrangement).
@@ -22,7 +29,8 @@ tab and the pages say farm visits are not open.
 
 | Rule | Where |
 | --- | --- |
-| Minimum 250 kg of one variety per booking, whole kilograms. A fixed business rule, not a setting. | `MIN_KG` in `mango-api/src/farm/settings.js`, checked on every quote and booking |
+| Minimum 100 kg of one variety per booking, whole kilograms. A fixed business rule, not a setting. | `MIN_KG` in `mango-api/src/farm/settings.js`, checked on every quote and booking; `farm_bookings_kg_check` (migration 084) |
+| The stay is free. Meals are cooked by the farm team and paid to them at the farm, never on our bill. | The bill (`billFor`) charges mangoes only; the settings' `meals` say which meals the farm team can cook ("Meals available at the farm (paid there)", same stored shape); the FAQ answers for meals, accommodation, the minimum and advance payment are the rule's own (`currentFaqs` in `farm/settings.js` updates ones saved under the old rules) |
 | No maximum except what is left of that variety's bookable kg on that day. | `reserveKg` in `farm/bookings.js` (one conditional `UPDATE` on `farm_harvest`) |
 | No guest limit. A group larger than the farmhouse is flagged **Large group** and goes to a manager, who approves or proposes an alternative the customer accepts or declines. | `createBooking`, `approveHospitality`, `proposeAlternative`, `answerAlternative` |
 | The price comes from the server only: the variety's price per kg, or its tier for that many kg. | `priceFor` in `farm/rules.js` |
@@ -129,7 +137,7 @@ checks it changed. Nothing existing is dropped or rewritten.
 
 In the panel, set up the following:
 
-- **Farm settings:** the farm's name, place, contact, arrival, check-in and check-out times, the stay, meals, transport, policies, FAQs, the season, notice days, upcoming visits per customer, cancel and move days, usual nights, and an optional extra-kg price.
+- **Farm settings:** the farm's name, place, contact, arrival, check-in and check-out times, the stay, the meals the farm team can cook (paid at the farm), transport, policies, FAQs, the season, notice days, upcoming visits per customer, cancel and move days, usual nights, and an optional extra-kg price.
 - **Harvest stock:** varieties with their price per kg and tiers, and the bookable kg per day.
 - **Calendar:** which days are open, and an optional cap on visits per day.
 - **Rooms:** the farmhouse rooms, how many each sleeps, and extra beds.
@@ -151,4 +159,4 @@ In the panel, set up the following:
 ## Tests
 
 - **API:** `mango-api/test/farm-experience.test.js` covers the rules, the bill, the open-bookings cap, concurrency, paying the bill (webhooks, once however often), recorded payments, refunds of double or old-bill payments, the state machine and permissions. Farm routes are also in the step-up, isolation, auth-matrix and WhatsApp suites.
-- **Shop and panel together:** `node scripts/farm-shop-journey.mjs` walks the shop in a real browser against a running API (phone and desktop, light and dark): a customer books 300 kg in six steps without paying, accepts a proposed arrangement and moves the date; the farm side approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer's test payment fails once and then pays it; the visit is completed; a second visit is declined and cancelled; and with the switch off there is no card and the pages are closed. It needs the two APIs and the shop its header describes, so it is run by hand, not in CI.
+- **Shop and panel together:** `node scripts/farm-shop-journey.mjs` walks the shop in a real browser against a running API (phone and desktop, light and dark): a customer books 300 kg in six steps (the minimum is 100 kg) without paying, accepts a proposed arrangement and moves the date; the farm side approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer's test payment fails once and then pays it; the visit is completed; a second visit is declined and cancelled; and with the switch off there is no card and the pages are closed. It needs the two APIs and the shop its header describes, so it is run by hand, not in CI.

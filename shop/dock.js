@@ -1,4 +1,4 @@
-/* The phone dock (up to 900px): solid tabs that are page links (Shop /, Bulk /bulk, Grow /partner, Legacy /legacy; before the season the shop is where pre-orders are made),
+/* The phone dock (up to 900px): solid tabs that are page links (Shop /, Bulk /bulk, Gifts /gifts, Grow /partner, Legacy /legacy; before the season the shop is where pre-orders are made),
    a round Help button (the support page, /help), and the bag bar above them while the bag has something in it. The current tab follows the
    route (pages.js fires `mm:route`), as do the desktop nav's links. The bag bar reads app.js's bagTotals() and
    listens for its `mm:cart` event. Loaded last, after app.js. */
@@ -6,7 +6,7 @@
 const dock=document.querySelector('.liquid-navigation'),rail=dock.querySelector('.liquid-rail'),tabs=[...rail.querySelectorAll('.liquid-tab')],orb=dock.querySelector('.dock-orb'),mini=dock.querySelector('.dock-mini'),navLinks=[...document.querySelectorAll('.desktop-nav a[data-nav]')];
 
 // ---- The current tab: by the address, not by scrolling.
-function section(path){if(/^\/help(\/|$)/.test(path))return '/help';if(/^\/bulk\/?$/.test(path))return '/bulk';if(/^\/partner(\/|$)/.test(path))return '/partner';if(/^\/legacy(\/|$)/.test(path))return '/legacy';if(path==='/'||path==='/index.html')return '/';return null}
+function section(path){if(/^\/help(\/|$)/.test(path))return '/help';if(/^\/bulk\/?$/.test(path))return '/bulk';if(/^\/gifts(\/|$)/.test(path))return '/gifts';if(/^\/partner(\/|$)/.test(path))return '/partner';if(/^\/legacy(\/|$)/.test(path))return '/legacy';if(path==='/'||path==='/index.html')return '/';return null}
 function mark(){const at=section(location.pathname);if(orb){const on=at==='/help';orb.classList.toggle('is-current',on);if(on)orb.setAttribute('aria-current','page');else orb.removeAttribute('aria-current')}tabs.forEach(t=>{const on=t.getAttribute('href')===at;t.classList.toggle('is-current',on);if(on)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current')});navLinks.forEach(a=>{const on=a.dataset.nav===at;a.classList.toggle('active',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 window.addEventListener('mm:route',mark);window.addEventListener('popstate',mark);
 // Shop while already on the home page: back to the top of the shop.

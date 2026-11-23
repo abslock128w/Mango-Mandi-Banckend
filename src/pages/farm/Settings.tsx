@@ -33,7 +33,7 @@ const SECTIONS: { title: string; fields: Text[] }[] = [
       { key: 'bathroomFacilities', label: 'Bathroom facilities', long: true },
       { key: 'otherFacilities', label: 'Other facilities', long: true },
       { key: 'groupCoordination', label: 'How large groups are hosted', long: true, hint: 'Leave empty to show the standard sentence: no fixed limit, our team plans rooms and meals with you.' },
-      { key: 'mealNotes', label: 'Meal notes', long: true },
+      { key: 'mealNotes', label: 'Meal notes', long: true, hint: 'Shown to visitors: what the farm team cooks and what it costs. Meals are paid to the farm team at the farm, never on our bill.' },
     ],
   },
   {
@@ -150,7 +150,7 @@ function Form({ data, manager }: { data: { settings: FarmSettings; version: numb
           ))}
           {sec.title === 'The stay' && (
             <fieldset className="field">
-              <legend>Meals included in the stay</legend>
+              <legend>Meals the farm team can cook (visitors pay for them at the farm)</legend>
               <div className="farm-actions">
                 {(['breakfast', 'lunch', 'dinner', 'refreshments'] as const).map((m) => (
                   <label key={m} className="check">
@@ -191,7 +191,7 @@ function Form({ data, manager }: { data: { settings: FarmSettings; version: numb
           <label htmlFor={`${id}-extra`}>Price per kg for extra mangoes picked on the day (₹, empty = the booking's own price)</label>
           <input id={`${id}-extra`} type="number" min={0.01} step={0.01} disabled={!manager} value={extra} onChange={(e) => set({ extraPricePerKg: e.target.value === '' ? null : toPaise(e.target.value) })} />
         </div>
-        <p className="muted small">The 250 kg minimum is a fixed rule of the business, not a setting.</p>
+        <p className="muted small">The 100 kg minimum is a fixed rule of the business, not a setting. The stay is free; meals are paid to the farm team at the farm, never on the bill.</p>
       </section>
 
       <section className="card">

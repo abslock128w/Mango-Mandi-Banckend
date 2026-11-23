@@ -5,7 +5,7 @@ import { NavLink } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api'
 import type { Tone } from '../../format'
-import { dateTime } from '../../format'
+import { date, dateTime } from '../../format'
 import { AuthedPhoto, Badge, DownloadButton, EmptyState, FormError, QueryError, useToast } from '../../ui'
 import { pn } from './api'
 import type { Activity, Channel, ContactLinks, EnquiryStatus, Note, PartnerDocument, Priority, ProposalStatus } from './types'
@@ -144,7 +144,18 @@ export function withMessage(link: string, channel: 'WHATSAPP' | 'EMAIL', message
  * Call, WhatsApp and Email as links that open on this device. Opening one is recorded as a
  * contact attempt on the enquiry: it never means a message was sent or answered.
  */
-export function ContactButtons({ enquiryId, contact, who }: { enquiryId: string; contact: ContactLinks; who: string }) {
+/** "Details deleted on 12 Dec 2026": what an application whose details were deleted shows instead of blank fields. */
+export const erasedLabel = (erasedAt: string) => `Details deleted on ${date(erasedAt)}`
+
+/**
+ * The applicant's name, or "Details deleted on <date>" once the application's details were
+ * deleted (mango-api src/partner/erase.js), or a dash.
+ */
+export function applicantName(e: { name: string | null; erasedAt?: string | null }): string {
+  return e.name ?? (e.erasedAt ? erasedLabel(e.erasedAt) : '—')
+}
+
+export function ContactButtons({ enquiryId, contact, who }: { enquiryId: string; contact: ContactLinks | null; who: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const record = useMutation({
@@ -155,11 +166,13 @@ export function ContactButtons({ enquiryId, contact, who }: { enquiryId: string;
     },
     onError: (err) => toast.error(err),
   })
-  const links: [Channel, string | null, string][] = [
-    ['PHONE', contact.tel, 'Call'],
-    ['WHATSAPP', contact.whatsapp, 'WhatsApp'],
-    ['EMAIL', contact.mailto, 'Email'],
-  ]
+  const links: [Channel, string | null, string][] = contact
+    ? [
+        ['PHONE', contact.tel, 'Call'],
+        ['WHATSAPP', contact.whatsapp, 'WhatsApp'],
+        ['EMAIL', contact.mailto, 'Email'],
+      ]
+    : []
   return (
     <>
       {links.map(([channel, href, label]) =>

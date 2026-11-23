@@ -8,7 +8,7 @@ import { dateTime, istDate } from '../../format'
 import { useSession } from '../../session'
 import { DownloadButton, EmptyState, LinkRow, RowLink, scrollRegion, usePageTitle } from '../../ui'
 import { pn } from './api'
-import { ENQUIRY_STATUS_LABEL, EnquiryStatusBadge, LoadError, PRIORITY_LABEL, PartnerSubnav, PriorityText, Skeleton } from './shared'
+import { applicantName, ENQUIRY_STATUS_LABEL, EnquiryStatusBadge, LoadError, PRIORITY_LABEL, PartnerSubnav, PriorityText, Skeleton } from './shared'
 import { ENQUIRY_STATUSES, PRIORITIES, type EnquiryQuery, type EnquirySort } from './types'
 
 const PAGE_SIZES = [10, 25, 50, 100]
@@ -103,7 +103,7 @@ export default function Enquiries() {
         <h1>Enquiries</h1>
         <span className="spacer" />
         {isManager && (
-          <DownloadButton getUrl={() => pn.exportUrl(filters)} filename={`mandimangoes-partner-enquiries-${istDate(0)}.csv`}>
+          <DownloadButton getUrl={() => pn.exportUrl(filters)} filename={`vmr-mangoes-partner-enquiries-${istDate(0)}.csv`}>
             Export CSV
           </DownloadButton>
         )}
@@ -265,12 +265,12 @@ export default function Enquiries() {
                   return (
                     <LinkRow key={e.id}>
                       <td className="card-title">
-                        <RowLink to={to} more={e.name}>
+                        <RowLink to={to} more={applicantName(e)}>
                           <span className="mono">{e.reference}</span>
                         </RowLink>
                       </td>
                       <td data-label="Applicant" className="pn-wrap">
-                        {e.name}
+                        {e.name ?? <span className="muted">{applicantName(e)}</span>}
                         {e.businessName && <div className="muted small">{e.businessName}</div>}
                       </td>
                       <td data-label="Primary category">{e.primaryCategory?.name ?? '—'}</td>

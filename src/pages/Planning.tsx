@@ -769,9 +769,17 @@ function RulesCard() {
             {RULE_FIELDS.map((f) => (
               <div key={f.key} className="contents">
                 <dt>{f.label}</dt>
-                <dd>{String(q.data.rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '—')}</dd>
+                <dd>
+                  {String(q.data.rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '—')}
+                </dd>
               </div>
             ))}
+            <div className="contents">
+              <dt>Pre-order kg per variety</dt>
+              <dd>
+                Set on the <Link to="/preorders">Pre-order plan</Link> page, which shows who moves before anything changes.
+              </dd>
+            </div>
             <div className="contents">
               <dt>Pre-orders open on</dt>
               <dd>{q.data.rules.preorderOpensOn ? date(q.data.rules.preorderOpensOn) : 'Not set'}</dd>
@@ -913,7 +921,7 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
           <div className="field">
             <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
             <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />
-            <p className="hint">Preorders booked for a week after this day wait for a manager to keep or refund them.</p>
+            <p className="hint">Pre-orders are offered for delivery weeks up to this day. Preorders moved to a week after it wait for a manager to keep or refund them.</p>
           </div>
           <fieldset>
             <legend>Ripeness by age, all varieties</legend>
@@ -953,26 +961,37 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
 
 // ---------------------------------------------------------------- delivery charge (part of the selling rules)
 
-/** What the API starts with (src/config.js): off, free within 2 km on orders of ₹1,000 or more. */
+/** What the API starts with (src/config.js): off; on, charged by weight and distance, free within 2 km on orders of 5 kg or more. */
 const DELIVERY_FEE_DEFAULTS: DeliveryFeeRules = {
   enabled: false,
-  freeAbove: 1000,
+  freeFromKg: 5,
+  freeWithinKm: 2,
   bands: [
     { uptoKm: 2, fee: 0, feeSmall: 30 },
     { uptoKm: 5, fee: 30, feeSmall: 50 },
     { uptoKm: 8, fee: 50, feeSmall: 70 },
     { uptoKm: 12, fee: 80, feeSmall: 100 },
   ],
-  beyond: 'refuse',
+  beyond: 'perKm',
+  perKmBeyond: { fee: 15, feeSmall: 20 },
   unknownKm: 5,
   origins: [],
 }
+const PER_KM_DEFAULT = { fee: 15, feeSmall: 20 }
 
 const feeWord = (rupeeAmount: number) => (rupeeAmount === 0 ? 'Free' : `₹${rupeeAmount}`)
 
+/** The two columns of the table, named by the weight line (`freeFromKg` 0: no line, one column applies to all). */
+const kgColumns = (kg: number | string) =>
+  Number(kg) > 0 ? { light: `Under ${kg} kg`, heavy: `${kg} kg and above` } : { light: 'Every order', heavy: 'Not used (no weight line)' }
+
+/** What a heavy order pays in a band starting at `fromKm`: free at or within the free distance, the band's charge past it. */
+const heavyWord = (b: { uptoKm: number; fee: number }, fromKm: number, freeWithinKm: number) =>
+  b.uptoKm <= freeWithinKm ? 'Free' : fromKm < freeWithinKm ? `Free up to ${freeWithinKm} km, then ${feeWord(b.fee)}` : feeWord(b.fee)
+
 /**
  * The delivery charge on regular orders: by how far the address is from the nearest warehouse and
- * what the order is worth. Saved with the selling rules, as a new version.
+ * what the order weighs. Saved with the selling rules, as a new version.
  */
 function DeliveryFeeCard() {
   const { me } = useSession()
@@ -1006,21 +1025,28 @@ function DeliveryFeeCard() {
               <thead>
                 <tr>
                   <th>Distance</th>
-                  <th>Order of ₹{fee.freeAbove} or more</th>
-                  <th>Smaller order</th>
+                  <th>{kgColumns(fee.freeFromKg).light}</th>
+                  <th>{kgColumns(fee.freeFromKg).heavy}</th>
                 </tr>
               </thead>
               <tbody>
                 {fee.bands.map((b, i) => (
                   <tr key={b.uptoKm}>
                     <td>{i === 0 ? `Up to ${b.uptoKm} km` : `${fee.bands[i - 1].uptoKm} to ${b.uptoKm} km`}</td>
-                    <td>{feeWord(b.fee)}</td>
                     <td>{feeWord(b.feeSmall)}</td>
+                    <td>{fee.freeFromKg > 0 ? heavyWord(b, i === 0 ? 0 : fee.bands[i - 1].uptoKm, fee.freeWithinKm) : '–'}</td>
                   </tr>
                 ))}
                 <tr>
                   <td>Beyond {fee.bands[fee.bands.length - 1].uptoKm} km</td>
-                  <td colSpan={2}>{fee.beyond === 'refuse' ? 'Not delivered' : 'The last charge above'}</td>
+                  {fee.beyond === 'perKm' ? (
+                    <>
+                      <td>Last charge + ₹{(fee.perKmBeyond ?? PER_KM_DEFAULT).feeSmall} for each km</td>
+                      <td>Last charge + ₹{(fee.perKmBeyond ?? PER_KM_DEFAULT).fee} for each km</td>
+                    </>
+                  ) : (
+                    <td colSpan={2}>{fee.beyond === 'refuse' ? 'Not delivered' : 'The last charge above'}</td>
+                  )}
                 </tr>
               </tbody>
             </table>
@@ -1030,6 +1056,7 @@ function DeliveryFeeCard() {
               ? `Measured from: ${fee.origins.map((o) => o.name).join(', ')}.`
               : 'Measured from the warehouses’ saved positions. If none is saved, every order pays the charge for an assumed distance.'}{' '}
             Unknown position: {fee.unknownKm} km assumed.
+            {fee.freeFromKg > 0 && ` Orders of ${fee.freeFromKg} kg or more are delivered free within ${fee.freeWithinKm} km; past that there is always a charge.`}
           </p>
           {!allowed && <ManagerOnlyNote what="Changing the delivery charge" />}
         </>
@@ -1043,9 +1070,13 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
   const toast = useToast()
   const queryClient = useQueryClient()
   const [enabled, setEnabled] = useState(fee.enabled)
-  const [freeAbove, setFreeAbove] = useState(String(fee.freeAbove))
+  const [freeFromKg, setFreeFromKg] = useState(String(fee.freeFromKg ?? DELIVERY_FEE_DEFAULTS.freeFromKg))
+  const [freeWithinKm, setFreeWithinKm] = useState(String(fee.freeWithinKm ?? DELIVERY_FEE_DEFAULTS.freeWithinKm))
+  const cols = kgColumns(freeFromKg || '…')
   const [bands, setBands] = useState(() => fee.bands.map((b) => ({ uptoKm: String(b.uptoKm), fee: String(b.fee), feeSmall: String(b.feeSmall) })))
   const [beyond, setBeyond] = useState(fee.beyond)
+  const [perKm, setPerKm] = useState(String((fee.perKmBeyond ?? PER_KM_DEFAULT).fee))
+  const [perKmSmall, setPerKmSmall] = useState(String((fee.perKmBeyond ?? PER_KM_DEFAULT).feeSmall))
   const [unknownKm, setUnknownKm] = useState(String(fee.unknownKm))
   const [origins, setOrigins] = useState(() => fee.origins.map((o) => ({ name: o.name, lat: String(o.lat), lng: String(o.lng) })))
   const [formError, setFormError] = useState<string | null>(null)
@@ -1068,10 +1099,17 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
     e.preventDefault()
     setFormError(null)
     const whole = /^\d+$/, decimal = /^-?\d+(\.\d+)?$/
-    if (!whole.test(freeAbove)) return setFormError('The order value must be a whole number of rupees.')
+    if (!/^\d+(\.\d+)?$/.test(freeFromKg) || Number(freeFromKg) > 1000) return setFormError('The weight must be a number of kg from 0 to 1000.')
+    if (!/^\d+(\.\d+)?$/.test(freeWithinKm) || Number(freeWithinKm) > 200) return setFormError('The free distance must be a number of km from 0 to 200.')
     if (bands.some((b) => !decimal.test(b.uptoKm) || Number(b.uptoKm) <= 0)) return setFormError('Every distance must be a number of km above 0.')
     if (bands.some((b) => !whole.test(b.fee) || !whole.test(b.feeSmall))) return setFormError('Every charge must be a whole number of rupees (0 for free).')
     if (bands.some((b, i) => i > 0 && Number(b.uptoKm) <= Number(bands[i - 1].uptoKm))) return setFormError('Each distance must be more than the one before it.')
+    // The same check as the API (config.js): past the free distance there is always a charge.
+    const lastCharged = (i: number) => beyond !== 'refuse' && i === bands.length - 1
+    if (beyond === 'perKm' && (!whole.test(perKm) || !whole.test(perKmSmall) || Number(perKm) > 1000 || Number(perKmSmall) > 1000)) return setFormError('The charge for each extra km must be a whole number of rupees, up to 1000.')
+    if (bands.some((b, i) => (Number(b.uptoKm) > Number(freeWithinKm) || lastCharged(i)) && (Number(b.fee) <= 0 || Number(b.feeSmall) <= 0))) {
+      return setFormError(`Past ${freeWithinKm} km every row needs a charge above ₹0 in both columns: free delivery is only within ${freeWithinKm} km.`)
+    }
     if (!decimal.test(unknownKm) || Number(unknownKm) < 0) return setFormError('The assumed distance must be a number of km.')
     if (origins.some((o) => !o.name.trim())) return setFormError('Give every warehouse a name.')
     if (origins.some((o) => !decimal.test(o.lat) || !decimal.test(o.lng) || Math.abs(Number(o.lat)) > 90 || Math.abs(Number(o.lng)) > 180)) {
@@ -1081,9 +1119,11 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
       ...rules,
       deliveryFee: {
         enabled,
-        freeAbove: Number(freeAbove),
+        freeFromKg: Number(freeFromKg),
+        freeWithinKm: Number(freeWithinKm),
         bands: bands.map((b) => ({ uptoKm: Number(b.uptoKm), fee: Number(b.fee), feeSmall: Number(b.feeSmall) })),
         beyond,
+        perKmBeyond: { fee: Number(perKm) || 0, feeSmall: Number(perKmSmall) || 0 },
         unknownKm: Number(unknownKm),
         origins: origins.map((o) => ({ name: o.name.trim(), lat: Number(o.lat), lng: Number(o.lng) })),
       },
@@ -1114,9 +1154,14 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
             <p className="hint">Off: every order is delivered free, and the shop says so. On: the table below applies to new orders from now.</p>
           </div>
           <div className="field">
-            <label htmlFor="fee-free-above">Order value for the lower charge (₹)</label>
-            <input id="fee-free-above" inputMode="numeric" value={freeAbove} onChange={(e) => setFreeAbove(e.target.value.trim())} />
-            <p className="hint">Counted on the boxes after any promo. An order worth this or more pays the first charge in each row; a smaller one the second.</p>
+            <label htmlFor="fee-free-kg">Charge by weight: orders of this many kg and above pay the lower charge (kg)</label>
+            <input id="fee-free-kg" inputMode="decimal" value={freeFromKg} onChange={(e) => setFreeFromKg(e.target.value.trim())} />
+            <p className="hint">The weight of the boxes decides the column, not the order value. 0: no weight line, every order pays the first column and none is free.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="fee-free-km">Free within (km) for those orders</label>
+            <input id="fee-free-km" inputMode="decimal" value={freeWithinKm} onChange={(e) => setFreeWithinKm(e.target.value.trim())} />
+            <p className="hint">Only orders of {freeFromKg || '…'} kg and above, only up to this distance; past it every row must charge something.</p>
           </div>
           <fieldset>
             <legend>Charge by distance from the nearest warehouse</legend>
@@ -1127,12 +1172,12 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
                   <input id={`fee-km-${i}`} inputMode="decimal" size={4} value={b.uptoKm} onChange={(e) => setBand(i, 'uptoKm', e.target.value)} />
                 </div>
                 <div className="field">
-                  <label htmlFor={`fee-big-${i}`}>₹{freeAbove || '…'} or more (₹)</label>
-                  <input id={`fee-big-${i}`} inputMode="numeric" size={4} value={b.fee} onChange={(e) => setBand(i, 'fee', e.target.value)} />
+                  <label htmlFor={`fee-small-${i}`}>{cols.light} (₹)</label>
+                  <input id={`fee-small-${i}`} inputMode="numeric" size={4} value={b.feeSmall} onChange={(e) => setBand(i, 'feeSmall', e.target.value)} />
                 </div>
                 <div className="field">
-                  <label htmlFor={`fee-small-${i}`}>Smaller order (₹)</label>
-                  <input id={`fee-small-${i}`} inputMode="numeric" size={4} value={b.feeSmall} onChange={(e) => setBand(i, 'feeSmall', e.target.value)} />
+                  <label htmlFor={`fee-big-${i}`}>{cols.heavy} (₹)</label>
+                  <input id={`fee-big-${i}`} inputMode="numeric" size={4} value={b.fee} onChange={(e) => setBand(i, 'fee', e.target.value)} />
                 </div>
                 {bands.length > 1 && (
                   <button type="button" className="btn" onClick={() => setBands(bands.filter((_, j) => j !== i))} aria-label={`Remove the row up to ${b.uptoKm} km`}>
@@ -1146,15 +1191,29 @@ function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: Deliver
                 Add a distance
               </button>
             )}
-            <p className="hint">Enter 0 for free delivery.</p>
+            <p className="hint">Orders of {freeFromKg || '…'} kg and above are free within {freeWithinKm || '…'} km whatever their column says; past {freeWithinKm || '…'} km both columns need a charge above ₹0.</p>
           </fieldset>
           <div className="field">
             <label htmlFor="fee-beyond">Further than the last distance</label>
             <select id="fee-beyond" value={beyond} onChange={(e) => setBeyond(e.target.value as DeliveryFeeRules['beyond'])}>
               <option value="refuse">Don’t deliver (the customer is told how far they are)</option>
+              <option value="perKm">Deliver, at the last row’s charge plus an amount for each extra km</option>
               <option value="charge">Deliver, at the last row’s charge</option>
             </select>
           </div>
+          {beyond === 'perKm' && (
+            <div className="btn-row align-end">
+              <div className="field">
+                <label htmlFor="fee-perkm-small">{cols.light}: ₹ for each extra km</label>
+                <input id="fee-perkm-small" inputMode="numeric" size={6} value={perKmSmall} onChange={(e) => setPerKmSmall(e.target.value.trim())} />
+              </div>
+              <div className="field">
+                <label htmlFor="fee-perkm">{cols.heavy}: ₹ for each extra km</label>
+                <input id="fee-perkm" inputMode="numeric" size={6} value={perKm} onChange={(e) => setPerKm(e.target.value.trim())} />
+              </div>
+              <p className="hint">Added to the last row’s charge for every km past the last distance. A part km counts as a whole one.</p>
+            </div>
+          )}
           <fieldset>
             <legend>Warehouses to measure from</legend>
             {origins.map((o, i) => (

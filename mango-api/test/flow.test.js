@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from 'node:test'
 import { ROLE_PERMISSIONS } from '../src/warehouse/permissions.js'
 import { setNow } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
+import { CUSTOMER_CANCEL_HOURS } from '../src/orders.js'
 import { auditLedger } from '../src/inventory.js'
 import { runMaintenance } from '../src/maintenance.js'
 
@@ -436,6 +437,63 @@ describe('orders', () => {
     const u = (await api.get(`/v1/orders/${unpaid.body.orderId}`, { token: cust.accessToken })).body
     assert.deepEqual([u.canCancel, u.cancelUntil], [true, null])
     assert.equal((await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })).status, 204)
+  })
+
+  test('the shop is told the cancel window (GET /v1/policy cancelWindowHours), and the API holds to it to the minute', async () => {
+    assert.equal((await api.get('/v1/policy')).body.cancelWindowHours, CUSTOMER_CANCEL_HOURS)
+    assert.equal(CUSTOMER_CANCEL_HOURS, 4)
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
+    const cust = await customerToken(api)
+    const placeAndPay = async () => {
+      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+      assert.equal((await pay(o.body.orderId)).status, 200)
+      return { id: o.body.orderId, placedAt: Date.parse((await api.get(`/v1/orders/${o.body.orderId}`, { token: cust.accessToken })).body.placedAt) }
+    }
+    const view = async (id) => (await api.get(`/v1/orders/${id}`, { token: cust.accessToken })).body
+    const cancel = (id) => api.post(`/v1/orders/${id}/cancel`, undefined, { token: cust.accessToken })
+    const H = 3_600_000
+
+    // 3 h 59 min after placing: cancelled, with the full refund queued.
+    const early = await placeAndPay()
+    at(new Date(early.placedAt + 4 * H - 60_000))
+    assert.equal((await view(early.id)).canCancel, true)
+    assert.equal((await cancel(early.id)).status, 204)
+    const e = (await query('SELECT status, refund_requested_at, customer_cancelled_at FROM orders WHERE id = $1', [early.id])).rows[0]
+    assert.equal(e.status, 'CANCELLED')
+    assert.notEqual(e.refund_requested_at, null)
+    assert.notEqual(e.customer_cancelled_at, null)
+    assert.equal((await view(early.id)).paymentStatus, 'REFUNDED')
+
+    // 4 h 01 min after placing: refused with CANCEL_WINDOW_CLOSED, nothing changes.
+    at(T0)
+    const late = await placeAndPay()
+    at(new Date(late.placedAt + 4 * H + 60_000))
+    assert.equal((await view(late.id)).canCancel, false)
+    const r = await cancel(late.id)
+    assert.equal(r.status, 409)
+    assert.equal(r.body.error.code, 'CANCEL_WINDOW_CLOSED')
+    const l = (await query('SELECT status, refund_requested_at FROM orders WHERE id = $1', [late.id])).rows[0]
+    assert.deepEqual([l.status, l.refund_requested_at], ['CONFIRMED', null])
+
+    // Packed inside the window: refused all the same (NOT_CANCELLABLE).
+    at(T0)
+    const packed = await placeAndPay()
+    await move(packed.id, 'PROCESSING')
+    await api.post(`/admin/v1/orders/${packed.id}/allocate`, undefined, { token: admin })
+    const pk = await move(packed.id, 'PACKED')
+    assert.equal(pk.status, 204, JSON.stringify(pk.body))
+    at(new Date(packed.placedAt + H))
+    assert.equal((await view(packed.id)).canCancel, false)
+    const p = await cancel(packed.id)
+    assert.equal(p.status, 409)
+    assert.equal(p.body.error.code, 'NOT_CANCELLABLE')
+
+    // Staff are not bound by the window: a manager still cancels the late order with a refund.
+    at(new Date(late.placedAt + 30 * H))
+    const m = await api.post(`/admin/v1/orders/${late.id}/cancel`, { reason: 'Customer asked by phone', refund: true, confirmCode: 'manager123' }, { token: admin })
+    assert.equal(m.status, 204, JSON.stringify(m.body))
+    const lv = await view(late.id)
+    assert.deepEqual([lv.status, lv.paymentStatus], ['CANCELLED', 'REFUNDED'])
   })
 
   test('batches retire at age 8 and the books balance', async () => {

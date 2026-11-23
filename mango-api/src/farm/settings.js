@@ -2,14 +2,15 @@
 // meals, policies and FAQs. One row in farm_settings, edited by managers on the
 // panel's Farm Settings page. Nothing is made up here: farm details start
 // empty, and the shop says "confirmed by our team" until a manager fills them.
-// The rules that protect money and stock (the 250 kg minimum, the hold) are
-// not settings.
+// The rules that protect money and stock (the 100 kg minimum, the hold) are
+// not settings. The stay is complimentary (free); meals are cooked by the farm
+// team and paid to them at the farm, never on our bill (the owner, 23 Nov 2026).
 import { z } from 'zod'
 import { now } from '../clock.js'
 import { HttpError } from '../errors.js'
 
-/** The business rule: no booking below this. Not a setting. */
-export const MIN_KG = 250
+/** The business rule: no booking below this. Not a setting. (250 kg until 23 Nov 2026.) */
+export const MIN_KG = 100
 
 /** The FAQ questions the spec asks for. Answers start empty: a manager writes them. */
 const FAQ_QUESTIONS = [
@@ -20,7 +21,7 @@ const FAQ_QUESTIONS = [
   'Are meals included?',
   'Can I pick mangoes myself?',
   'Can I choose a particular variety?',
-  'Can I purchase more than 250 kg?',
+  `Can I buy more than ${MIN_KG} kg?`,
   'How do I transport my mangoes?',
   'What happens if the weather is unsuitable?',
   'What happens if the selected mango variety is unavailable?',
@@ -29,11 +30,35 @@ const FAQ_QUESTIONS = [
 ]
 
 /** Answers that only restate the rules the system enforces; the rest wait for the business. */
+const MEALS_ANSWER = 'Meals are cooked by our farm team and paid to them directly at the farm.'
 const RULE_ANSWERS = {
   'Is there a minimum purchase?': `Yes. Every Farm Experience booking is for at least ${MIN_KG} kg of mangoes.`,
-  'Can I purchase more than 250 kg?': 'Yes. Book any amount from 250 kg up, as long as that much of your variety is available for your date.',
-  'Is advance payment mandatory?': 'Yes. The full price of your mangoes is paid online when you book. Your booking is confirmed only after the payment is verified.',
-  'Can I bring a large group?': 'Yes. There is no fixed limit on your group. Tell us how many are coming and our team will plan rooms and meals with you before your visit.',
+  [`Can I buy more than ${MIN_KG} kg?`]: `Yes. Book any amount from ${MIN_KG} kg up, as long as that much of your variety is available for your date.`,
+  'Is advance payment mandatory?': 'No. Nothing is paid when you book. After picking, you pay for the mangoes weighed and accepted.',
+  'Can I bring a large group?': 'Yes. There is no fixed limit on your group. Tell us how many are coming and our team will plan rooms with you before your visit.',
+  'Is accommodation included?': 'Yes. Your stay at the farmhouse is free: there is no charge for the rooms.',
+  'Are meals included?': MEALS_ANSWER,
+}
+
+/**
+ * FAQs saved under the old rules (the 250 kg minimum, meals included, paying when booking) say what is true now. A
+ * question whose answer is still the old default text, or empty, gets today's rule answer; "Are meals included?"
+ * always does (the owner's rule: meals are paid at the farm). A manager's own wording for anything else is kept.
+ */
+const OLD_QUESTIONS = { 'Can I purchase more than 250 kg?': `Can I buy more than ${MIN_KG} kg?` }
+const OLD_ANSWERS = new Set([
+  'Yes. Every Farm Experience booking is for at least 250 kg of mangoes.',
+  'Yes. Book any amount from 250 kg up, as long as that much of your variety is available for your date.',
+  'Yes. The full price of your mangoes is paid online when you book. Your booking is confirmed only after the payment is verified.',
+  'Yes. There is no fixed limit on your group. Tell us how many are coming and our team will plan rooms and meals with you before your visit.',
+])
+export function currentFaqs(faqs) {
+  return (faqs ?? []).map((f) => {
+    const q = OLD_QUESTIONS[f.q] ?? f.q
+    const rule = RULE_ANSWERS[q]
+    if (!rule) return { q, a: f.a }
+    return { q, a: q === 'Are meals included?' || !f.a || OLD_ANSWERS.has(f.a) ? rule : f.a }
+  })
 }
 
 const text = (max) => z.string().trim().max(max).default('')
@@ -57,7 +82,8 @@ export const settingsSchema = z
     bathroomFacilities: text(1500),
     otherFacilities: text(1500),
     groupCoordination: text(1500),
-    // Meals included during the agreed stay.
+    // Meals the farm team can cook during the stay. Paid by the visitor to the farm team at the farm, never on our
+    // bill (the field kept its name and shape: stored settings stay valid).
     meals: z
       .object({ breakfast: z.boolean().default(false), lunch: z.boolean().default(false), dinner: z.boolean().default(false), refreshments: z.boolean().default(false) })
       .default({ breakfast: false, lunch: false, dinner: false, refreshments: false }),
@@ -94,10 +120,11 @@ export const settingsSchema = z
 
 export const DEFAULTS = settingsSchema.parse({})
 
-/** The stored settings with defaults filled in (fields added later get theirs). */
+/** The stored settings with defaults filled in (fields added later get theirs), and FAQs as today's rules say them. */
 export function settingsFrom(row) {
   const r = settingsSchema.safeParse({ ...DEFAULTS, ...(row?.data ?? {}) })
-  return r.success ? r.data : { ...DEFAULTS, ...(row?.data ?? {}) }
+  const s = r.success ? r.data : { ...DEFAULTS, ...(row?.data ?? {}) }
+  return { ...s, faqs: currentFaqs(s.faqs) }
 }
 
 export async function loadSettings(c, { lock = false } = {}) {
@@ -118,7 +145,7 @@ export async function readinessProblems(c, s) {
   if (!s.checkInTime || !s.checkOutTime) out.push('Set the check-in and check-out times.')
   if (!s.sleepingArrangements) out.push('Describe the sleeping arrangements.')
   if (!s.bathroomFacilities) out.push('Describe the bathroom facilities.')
-  if (!Object.values(s.meals).some(Boolean)) out.push('Choose which meals are included.')
+  if (!Object.values(s.meals).some(Boolean)) out.push('Choose which meals the farm team can cook (visitors pay for them at the farm).')
   if (!s.transportPolicy) out.push('Write the transport policy (say plainly whether transport is included).')
   if (!s.weatherPolicy) out.push('Write what happens when the weather is unsuitable.')
   if (!s.seasonStart || !s.seasonEnd) out.push('Set the season’s first and last visit dates.')

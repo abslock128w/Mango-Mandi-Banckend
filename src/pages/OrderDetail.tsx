@@ -27,6 +27,7 @@ import {
   AuthedPhoto,
   BackLink,
   BackorderBadge,
+  PlannedBadge,
   Badge,
   ConfirmDialog,
   Dialog,
@@ -101,6 +102,7 @@ type Override = { to: OrderStatus; why: string | null }
 export default function OrderDetail() {
   const { id = '' } = useParams()
   const q = useQuery({ queryKey: ['order', id], queryFn: () => api.order(id) })
+  const { me } = useSession()
   usePageTitle(q.data ? `Order ${q.data.number}` : q.isError ? 'Order not found' : 'Order')
 
   if (q.isPending) return <Spinner />
@@ -109,7 +111,8 @@ export default function OrderDetail() {
       return (
         <div className="card">
           <h1>Order not found</h1>
-          <Link to="/orders">Back to orders</Link>
+          {/* Packers get 404 for orders off today's and tomorrow's run too (access.js riderScope): the API does not say which. */}
+          {canSee(me?.role, 'orders') ? <Link to="/orders">Back to orders</Link> : <Link to="/pack-list">Back to the pack list</Link>}
         </div>
       )
     }
@@ -193,6 +196,7 @@ function OrderView({ order }: { order: Order }) {
         <h1>Order {order.number}</h1>
         <OrderBadge status={order.status} />
         {order.backorder && <BackorderBadge awaiting={order.atRisk} />}
+        {order.planned && <PlannedBadge delayed={Boolean(order.planned.delayedFrom)} waiting={order.stock.length ? false : undefined} />}
       </div>
       <ul className="detail-meta">
         <li>
@@ -212,6 +216,12 @@ function OrderView({ order }: { order: Order }) {
         </li>
       </ul>
 
+      {order.planned && (
+        <div className="notice notice-info" role="status">
+          <strong>Booked ahead against the plan:</strong> no boxes were taken when it was ordered. Its fruit is set aside automatically when it arrives, after that week's pre-orders, oldest order first.
+          {order.planned.delayedFrom ? ` We moved it from ${date(order.planned.delayedFrom)}, so the customer can cancel for a full refund until it is packed.` : ''}
+        </div>
+      )}
       {order.atRisk && order.backorder && (
         <div className="notice notice-info" role="status">
           <strong>Backorder, awaiting stock:</strong> {order.atRiskReason ?? 'some boxes have no stock yet'}. The customer was told it comes on{' '}
@@ -847,6 +857,21 @@ function BulkItemNote({ bulk }: { bulk: NonNullable<Order['items'][number]['bulk
   )
 }
 
+/**
+ * Why an order shows no bill. A cancelled order is never billed afterwards, so "not yet" is only
+ * for an open order; a paid order cancelled before its bill was written says what happened to the money.
+ */
+function noBillWords(order: Order): string {
+  const gift = order.giftOrder ? `Gift order ${order.giftOrder.number} has one bill for every recipient, on its first delivery` : null
+  if (order.status !== 'CANCELLED') return gift ? `${gift}, once it is paid.` : 'No bill yet: an order gets its numbered bill once it is paid.'
+  if (gift) return `This delivery was cancelled. ${gift}, if it was paid.`
+  const p = order.payment
+  const refund = p?.refund
+  if (p?.status === 'REFUNDED' || refund?.refundedAt) return 'No bill: the order was cancelled before a bill was issued, and the payment was refunded.'
+  if (refund || p?.status === 'SUCCEEDED') return 'No bill: the order was cancelled before a bill was issued; the refund is under way.'
+  return 'No bill: the order was cancelled before it was paid.'
+}
+
 /** The order's numbered bill (managers and operators). Each download is recorded in the activity log. */
 function BillCard({ order }: { order: Order }) {
   const b = order.bill
@@ -864,7 +889,7 @@ function BillCard({ order }: { order: Order }) {
             {b.cancelled && b.cancelledAt ? ` The order was cancelled ${dateTime(b.cancelledAt)}; the bill keeps its number and is marked cancelled.` : ''}
           </p>
           <div className="btn-row">
-            <DownloadButton getUrl={() => api.billUrl(order.id)} filename={`MandiMangoes-bill-${b.number.replace(/\//g, '-')}.pdf`}>
+            <DownloadButton getUrl={() => api.billUrl(order.id)} filename={`VMR-Mangoes-bill-${b.number.replace(/\//g, '-')}.pdf`}>
               Download bill (PDF)
             </DownloadButton>
           </div>
@@ -874,9 +899,7 @@ function BillCard({ order }: { order: Order }) {
         <p className="muted">
           {order.replacementFor
             ? "A free replacement has no bill of its own; the original order's bill stands."
-            : order.giftOrder
-              ? `Gift order ${order.giftOrder.number} has one bill for every recipient, on its first delivery, once it is paid.`
-              : 'No bill yet: an order gets its numbered bill once it is paid.'}
+            : noBillWords(order)}
         </p>
       )}
     </section>

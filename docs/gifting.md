@@ -97,14 +97,28 @@ Migration: `mango-api/migrations/042_gifting.sql`.
 
 ### Cancelling
 
-The owner's rule holds: a refund only when the customer cancels before packing.
+The owner's rule holds: a refund only when the customer cancels a paid order within 4 hours of placing it (`CUSTOMER_CANCEL_HOURS`, the same window as any order) and before packing. After the 4 hours every buyer cancel below is refused with `409 CANCEL_WINDOW_CLOSED`, and the gift view's `cancellable` flags turn false; `cancelUntil` on the gift order says when the window closes (null while unpaid).
 
 - **Unpaid:** the buyer can cancel the whole gift order. Nothing is charged, and the boxes go back on sale.
-- **Paid, whole order:** the buyer can cancel the whole gift order while no delivery is packed. Each delivery is refunded its own amount.
+- **Paid, whole order:** the buyer can cancel the whole gift order within the 4 hours, while no delivery is packed. Each delivery is refunded its own amount.
   - If any delivery is packed, the whole cancel is refused with `409 NOT_CANCELLABLE`, which lists the packed deliveries, and nothing changes.
-- **Paid, one recipient:** the buyer can cancel one recipient before their boxes are packed (`CONFIRMED` or `PROCESSING`). That delivery is refunded its own amount, and the others go ahead.
-- **After packing:** nothing is refunded. Claims stay replacement or reject.
+- **Paid, one recipient:** the buyer can cancel one recipient within the 4 hours, before their boxes are packed (`CONFIRMED` or `PROCESSING`). That delivery is refunded its own amount, and the others go ahead.
+- **After packing, or after the 4 hours:** nothing is refunded on the buyer's cancel (a manager can still cancel with a refund). Claims stay replacement or reject.
 - **Managers:** they can still cancel an undeliverable delivery from its order page, as for any order.
+
+### Before the season: a gift for several people as pre-orders
+
+A gift for one person and a gift for several people are the same thing with more people (the owner's rule), so both can be pre-ordered before the season (migration 071).
+
+- **Shop:** before the season "Send as a gift" is open (it no longer waits for the season). The buyer adds the people as in season (name, mobile, pincode, address, box, ripeness, boxes, note; the same limits and checks). There is no delivery day or slot: each person's boxes go in the earliest delivery week with room for their kg (every box shares one weekly limit in kg, migrations 074 and 076; one person's boxes are never split), worked out from `GET /v1/preorders/weeks` (`deliveryWeeks`) in list order as the API books them, and shown per person before paying; a group can straddle two weeks. When people get different weeks, or a week is full so a person moves to the next open week, the review says so plainly; when no week has room for someone, Pay is off and says why.
+- **Review and pay:** the review states, prominently, that it is a pre-order, the delivery week, that it is paid in full now and can't be cancelled or refunded once paid, with the same tick-box as one gift pre-order, and the one total. Pay books the group and opens the one payment (the payment link; locally the test payment). The done screen lists each person's pre-order; Your orders lists each one with the Pre-order and Gift tags.
+- **API:** `POST /v1/preorders/groups` (`Idempotency-Key`) with `{ name?, recipients: [{ sku, stage, qty, weekStart?, pincode, address, gift: { recipientName, recipientPhone, message? } }] }` (`weekStart`: the week the shop showed for that person; the API refuses the group if it changed), and `GET /v1/preorders/groups/:id`. Both answer 404 while `MULTI_GIFT` is off. See mango-api/README.md, Preorders.
+- **Data:** one `preorder_groups` row (`PGR-1001` onward: the total, the hold, the one payment link and the payment id), and one ordinary gift pre-order per person with `preorders.group_id` and `group_position`. Every booking carries the group's link.
+- **One payment:** paying the link (webhook, reconcile loop, the test payment with any of the bookings) books every booking at once; a replay changes nothing, a second payment is a duplicate and is refunded. Each booking records its own amount; the payment id stays on the group.
+- **Holds:** one hold for all. If it runs out, each booking is cancelled and its week's room freed; a payment that lands later still books them all.
+- **Rules kept:** an unpaid group is one unpaid booking (`UNPAID_PREORDER_EXISTS`); a person whose shown week changed since, or with no week with room, fails the whole group (`409 PREORDER_FULL` or `PREORDER_WEEK_CHANGED`, "Person N: …") and nothing is booked; groups never join the waitlist. The buyer can cancel before paying, and then the whole group; once paid nothing can be cancelled by the buyer (non-refundable). A manager can still cancel one booking (a week we can't fill), which refunds that booking's own amount from the group's payment.
+- **Season:** when the season's allocation runs, each booking becomes its own delivery order carrying its recipient, as for one gift pre-order. In season, "Send as a gift" is the gift order above, unchanged.
+- **Panel:** the Preorders page shows each booking with its recipient and a "Part of gift group PGR-… · N people" hint.
 
 ## API
 
@@ -172,7 +186,7 @@ Staff routes (managers and operators, as for the order list; 404 while off):
   - idempotent Pay and webhook, duplicate and short payments
   - the recipient's gift message
   - the one bill with GSTIN
-  - whole and partial cancel with refunds only before packing (Razorpay stubbed)
+  - whole and partial cancel with refunds only before packing (Razorpay stubbed), and only within the 4-hour window
   - cross-customer 404s
   - staff roles
   - the CSV template's formula guard

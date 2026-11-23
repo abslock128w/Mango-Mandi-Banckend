@@ -243,6 +243,9 @@ export interface OrderListItem {
   atRisk?: boolean
   /** Backorders: sold before stock arrived; awaiting stock while atRisk (absent from older servers). */
   backorder?: boolean
+  /** Booked against the pre-order plan: its fruit comes from a later harvest. delayed: we moved it to a later date. */
+  planned?: boolean
+  delayed?: boolean
   /** Where the customer placed it: the app or the WhatsApp chat. */
   channel?: 'app' | 'whatsapp'
   /** A delivery of a gift order to many recipients (MULTI_GIFT, docs/gifting.md). */
@@ -359,6 +362,8 @@ export interface OrderDetail {
   atRiskReason?: string | null
   /** Backorders: sold before stock arrived. While atRisk it is awaiting stock (expected, not a problem). */
   backorder?: boolean
+  /** Booked against the pre-order plan. delayedFrom: the date first promised, when we moved it later. */
+  planned?: { week: string | null; delayedFrom: string | null; delayCount: number } | null
   /** A missed delivery whose retry staff can move to another day (PLT-08, PLT-09; DELIVERY_CHECKS on the API). */
   retryDateMovable?: boolean
   replacementFor?: { id: string; number: string } | null
@@ -581,6 +586,9 @@ export interface Pincode {
   city: string
   zone: string | null
   active: boolean
+  /** The area's centre: the delivery charge's floor and the nearest-rider assignment. Null until staff set it. */
+  lat?: number | null
+  lng?: number | null
 }
 
 export interface StageWindow {
@@ -592,19 +600,26 @@ export interface StageWindow {
 /** One ring of the delivery charge: addresses up to `uptoKm` from the nearest warehouse. Rupees. */
 export interface DeliveryFeeBand {
   uptoKm: number
-  /** Charged when the order is worth `freeAbove` or more (0 is free delivery). */
+  /** Charged when the order's boxes weigh `freeFromKg` or more (0 within `freeWithinKm` regardless). */
   fee: number
-  /** Charged on a smaller order. */
+  /** Charged on a lighter order. */
   feeSmall: number
 }
 
 /** The delivery charge on regular orders (mango-api src/delivery-fee.js). */
 export interface DeliveryFeeRules {
   enabled: boolean
-  freeAbove: number
+  /** Decided the column before 18 Nov; still stored and parsed, decides nothing, not shown. */
+  freeAbove?: number
+  /** The weight line between the two columns: orders of this many kg or more pay `fee`. 0: every order pays `feeSmall`. */
+  freeFromKg: number
+  /** At or within this many km, an order of `freeFromKg` or more is delivered free. */
+  freeWithinKm: number
   bands: DeliveryFeeBand[]
-  /** Past the last band: refuse the order, or charge the last band. */
-  beyond: 'refuse' | 'charge'
+  /** Past the last band: refuse the order, charge the last band, or the last band plus `perKmBeyond` for every km past it. */
+  beyond: 'refuse' | 'charge' | 'perKm'
+  /** Rupees added per km past the last band (`beyond: 'perKm'`): `fee` for the heavier orders, `feeSmall` for the lighter. */
+  perKmBeyond?: { fee: number; feeSmall: number }
   /** The distance assumed when the address's position isn't known. */
   unknownKm: number
   /** Where distances are measured from. Empty: the warehouses' own positions. */
@@ -631,6 +646,10 @@ export interface Rules {
   outForDeliveryAlertHours?: number
   /** A preorder moved forward more times than this waits for a manager. */
   maxPreorderMoves?: number
+  /** Mangoes expected per day for pre-orders, kg (default 1000); a delivery week takes 7 days of it unless it has its own (migration 076). */
+  preorderDayKg?: number
+  /** Migration 074's limit in pre-orders a week: decides nothing since 076; kept on stored versions. */
+  preorderWeekLimit?: number
   /** Live tracking: rough minutes a rider spends per stop, for "N stops away" (docs/app-feel.md). */
   minutesPerStop?: number
   /** The season's last delivery day (YYYY-MM-DD); preorders after it wait for a manager. */
@@ -689,19 +708,103 @@ export interface Preorder {
   paymentStatus: string | null
   movedCount: number
   createdAt: string
+  bookedAt?: string | null
   /** Sold as non-refundable (pre-orders since migration 064): the customer can't cancel it once paid. A manager's cancel still refunds in full. */
   nonRefundable?: boolean
   refund: { requestedAt: string; refundedAt: string | null; id: string | null } | null
   order: { id: string; number: string; status: OrderStatus; deliveryDate: string } | null
+  /** Booked as a gift for someone else (migration 070); the order it becomes carries the same recipient. */
+  gift?: Gift | null
+  /** One of several gift pre-orders booked and paid together (migration 071); null when booked alone. */
+  group?: { id: string; number: string | null; people: number | null; total: number | null; position: number | null } | null
+  /** The plan line it counts against (migration 078). */
+  variety?: string
+  /** Delayed by us (migration 079): its first promised week, the week now, when, and how often; null when not delayed. */
+  delayed?: { fromWeek: string; toWeek: string; at: string; count: number } | null
+  /** The customer may cancel it themselves (a delayed paid one: for a full refund until packed). */
+  canCancel?: boolean
+  /** When the customer cancelled it because we delayed it. */
+  cancelledAfterDelay?: string | null
+  /** Bookings list only: how often we delayed it, its kg, and its latest WhatsApp message. */
+  delayCount?: number
+  kg?: number
+  message?: { kind: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; error: string | null; logged: boolean; sentAt: string | null } | null
 }
 
-export interface PreorderCapacity {
-  sku: string
-  productName: string
-  weekStart: string
-  capacity: number
-  reserved: number
+/** The Pre-order plan's bookings filters (GET /preorders?filter=). */
+export type BookingFilter = 'delayed' | 'unpaid' | 'gift' | 'waiting' | 'cancelledAfterDelay'
+
+/** One line of the plan: a variety's expected kg a day (migration 078). */
+export interface PlanVariety {
+  variety: string
+  dayKg: number
+  /** Its own number (false: it takes the number for other varieties). */
+  listed: boolean
+  weekKg: number
+  onSale: boolean
+  /** Booked this season (unpaid, paid and converted), kg and pre-orders. */
+  bookedKg: number
+  bookings: number
+}
+
+/** A change to the plan: daily kg per variety (null drops its own number), the others' daily kg, week limits per variety. */
+export interface PlanChange {
+  dayKg?: Record<string, number | null>
+  otherDayKg?: number
+  weeks?: { weekStart: string; variety: string; limitKg: number | null }[]
+}
+
+/** What a plan change does (preview) or did (apply). kg in kilograms. */
+export interface PlanResult {
+  dryRun: boolean
+  delayed: { bookings: number; paid: number; kg: number }
+  earlier: { bookings: number; paid: number; kg: number }
+  noRoom: { bookings: number; kg: number }
+  /** Regular orders booked against the plan that move to a later date: pre-orders come first. */
+  planned?: { orders: number; paid: number; kg: number; noRoom: number }
+  /** Delayed pre-orders that keep their week (a delayed order is never brought forward). overtakenBy: newer orders now ahead of one. */
+  delayedStay?: { bookings: number; kg: number; overtakenBy: number }
+  weeks: { weekStart: string; variety: string; limit: number; before: number; after: number }[]
+  changedWeeks: number
+  frozenWeeks: string[]
+  firstOpenWeek: string | null
+  moves: { id: string; number: string; variety: string; from: string; to: string; kg: number; paid: boolean }[]
+  messages: number
+  whatsappConnected: boolean
+  rulesChange?: boolean
+  rulesChanged?: boolean
+  version?: number
+}
+
+/** GET /admin/v1/preorder-weeks: each delivery week with its one limit for every box (migration 074). */
+export interface PreorderWeeks {
+  /** Kilograms a week takes by default: mangoes expected per day (Planning's preorderDayKg) x 7. */
+  limit: number
+  /** Mangoes expected per day for pre-orders, kg (Planning). */
+  dayKg?: number
+  /** What the limit counts: 'kg' (before migration 076: 'orders'). */
+  countsBy: 'kg' | 'orders' | 'boxes'
+  /** The week a pre-order made now gets; null when every week to the season's end is full. */
+  nextWeek: string | null
+  /** Bookings waiting for a spot (only when every week is full). */
   waitlisted: number
+  /** booked, limit, remaining: kg. orders: pre-orders holding the week. */
+  /** limit: the week's own expected kg (`own`) or the default; over: booked beyond it (lowered after booking). */
+  weeks: {
+    weekStart: string; limit: number; own: number | null; booked: number; planned?: number; remaining: number; over: number; orders: number; boxes: number; unpaid: number; waitlisted: number
+    /** Its deliveries have started: the plan no longer changes it (migration 078). */
+    frozen?: boolean
+    /** Each variety's limit and kg that week. */
+    varieties?: { variety: string; limit: number; own: number | null; booked: number; planned?: number; remaining: number; over: number; orders: number }[]
+  }[]
+  /** The plan's lines (migration 078). */
+  varieties?: PlanVariety[]
+  /** Kg a day for a variety not listed. */
+  otherDayKg?: number
+  /** Boxes held back from regular shoppers for paid bookings whose week has come (the API's holdback.js). */
+  held?: { cutoff: string; rows: { variety: string; stage: string; boxes: number; kg: number }[]; planned?: { variety: string; stage: string; boxes: number; kg: number }[] }
+  /** Regular orders booked against the plan, per week and variety. */
+  plannedOrders?: { week: string; variety: string; kg: number; orders: number }[]
 }
 
 /** One order picked by a bulk reschedule. */
@@ -889,6 +992,12 @@ export interface Attention {
   }[]
   /** Preorder weeks whose reserved capacity disagrees with the bookings holding it (INV-06). */
   preorderCapacityDrift?: { sku: string; weekStart: string; reserved: number; booked: number }[]
+  /** The pre-order plan (migration 079): weeks over a variety's limit, bookings delayed more than twice, refunds owed after delay-cancels. */
+  preorderWeeksOver?: { weekStart: string; variety: string; limit: number; booked: number; over: number }[]
+  preorderDelayedOften?: { id: string; number: string; customerName: string | null; sku: string; weekStart: string; firstWeek: string; delayCount: number }[]
+  /** Farm visit enquiries waiting for a call (bulk-enquiries.js newFarmVisits). */
+  farmVisitEnquiries?: { new: number; oldestAt: string | null }
+  delayRefunds?: { id: string; number: string; customerName: string | null; cancelledAt: string; amount: number; order: { id: string; number: string } | null }[]
   /** Batches still in transit after their arrival date; sellingPaused: their stock no longer sells to new orders (INV-08). */
   lateArrivals?: { id: string; variety: string; farm: string | null; etaDate: string; promised: number; sellingPaused: boolean }[]
   /** Paid orders past their date or out for delivery too long. */
@@ -1701,13 +1810,31 @@ export interface LiveDeliveries {
 
 // ---------------------------------------------------------------- bulk enquiries (mango-api README, Bulk enquiries)
 
-export type BulkEnquiryStatus = 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CLOSED'
+/** Enquiries: NEW … CLOSED. Bulk orders paid at once (mango-api bulk-orders.js): PAYMENT_PENDING … CANCELLED. */
+export type BulkEnquiryStatus =
+  | 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CLOSED' | 'PAYMENT_PENDING' | 'PAID' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'
+  | 'CONTACTED' | 'VISIT_PLANNED' | 'VISITED'
+/** ENQUIRY (a quote, 250 kg+), ORDER (paid at once, 100 kg+), FARM_VISIT (a farm visit enquiry, 100 kg+). */
+export type BulkKind = 'ENQUIRY' | 'ORDER' | 'FARM_VISIT'
+/** A farm visit enquiry's own fields (kind FARM_VISIT). Dates are YYYY-MM-DD. */
+export interface FarmVisitFields {
+  variety: string | null
+  kg: number
+  preferredDate: string | null
+  flexible: boolean
+  people: number | null
+  plannedDate: string | null
+  contactedAt: string | null
+  visitPlannedAt: string | null
+  visitedAt: string | null
+  closeReason: string | null
+}
 
 export interface BulkEnquiryRow {
   id: string
   number: string
-  /** ORDER: placed directly from the shop (100 kg or more, 5 kg or 10 kg boxes); an agent phones to confirm. */
-  kind: 'ENQUIRY' | 'ORDER'
+  /** ORDER: placed from the shop (100 kg or more, 5 kg or 10 kg boxes) at bulk prices and paid at once; older ones were unpaid. */
+  kind: BulkKind
   status: BulkEnquiryStatus
   createdAt: string
   updatedAt: string
@@ -1718,16 +1845,67 @@ export interface BulkEnquiryRow {
   customerId: string | null
   quantityKg: number
   boxes: number
-  /** The latest quote's total, paise. */
+  /** The latest quote's total, or a paid order's total, paise. */
   total: number | null
   quotedAt: string | null
   quoteSeenAt: string | null
   respondedAt: string | null
+  /** A bulk order paid online (it has a total worked out by the API). */
+  paid?: boolean
+  paymentStatus?: 'INITIATED' | 'SUCCEEDED' | 'REFUNDED' | 'CANCELLED' | null
+  paidAmount?: number | null
+  paidAt?: string | null
+  refundStatus?: 'REFUND_DUE' | 'REFUND_SENT' | 'REFUNDED' | 'NEEDS_MANAGER' | null
+  farmVisit?: FarmVisitFields | null
+}
+
+/** A paid bulk order's money and payment (paise), as the API's bulkOrderView sends it. */
+export interface BulkOrderMoney {
+  amountPaise: number
+  mangoesPaise: number
+  deliveryPaise: number
+  shopValuePaise: number | null
+  savingPaise: number | null
+  deliveryPct: number
+  address: string | null
+  pincode: string | null
+  paymentStatus: 'INITIATED' | 'SUCCEEDED' | 'REFUNDED' | 'CANCELLED' | null
+  payBy: string | null
+  paidAt: string | null
+  paidPaise: number | null
+  cancelUntil: string | null
+  canCancel: boolean
+  cancelHours: number
+  cancelledAt: string | null
+  cancelledBy: 'customer' | 'shop' | 'expired' | null
+  refund: { requestedAt: string; refundedAt: string | null; status: string | null; gaveUp: boolean } | null
+  confirmedAt: string | null
+  dispatchedAt: string | null
+  deliveredAt: string | null
+}
+
+/** The bulk price editor (GET /admin/v1/bulk-prices): per variety, its 5 kg box (bulk boxes are made of it). */
+export interface BulkPriceBox {
+  price: number
+  bulkPrice: number
+  custom: boolean
+  savingPct: number
+}
+export interface BulkPriceList {
+  discountPct: number
+  version: number
+  varieties: {
+    variety: string
+    box: { sku: string; name: string; price: number; bulkPrice: number | null; fiveKg: BulkPriceBox; tenKg: BulkPriceBox } | null
+    other: { sku: string; name: string; boxSize: string }[]
+  }[]
 }
 
 export interface BulkEnquiryList {
   items: BulkEnquiryRow[]
   counts: Record<BulkEnquiryStatus | 'ALL', number>
+  /** Per kind, for the three lists and their badges (absent on an older API). */
+  kinds?: Partial<Record<BulkKind, Partial<Record<BulkEnquiryStatus | 'ALL', number>>>>
 }
 
 export interface BulkQuoteLine {
@@ -1764,7 +1942,13 @@ export interface BulkEnquiryDetail extends BulkEnquiryRow {
   email: string | null
   notes: string | null
   ripeness: string | null
-  lines: { sku: string; stage: Ripeness; boxes: number; kg: number; packKg?: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null }[]
+  lines: {
+    sku: string; stage: Ripeness; boxes: number; kg: number; packKg?: number; label: string; name: string; variety: string | null; boxSize: string | null; listPrice: number | null
+    /** Today's bulk price per box (the quote's starting point). */
+    bulkPrice: number | null
+    /** A paid order's line: the bulk price it was paid at, the shop price then, and the line. */
+    unitPrice?: number; shopUnitPrice?: number; linePrice?: number
+  }[]
   quote: BulkQuote | null
   quotedByEmail: string | null
   customerMessage: string | null
@@ -1774,4 +1958,15 @@ export interface BulkEnquiryDetail extends BulkEnquiryRow {
   events: { id: string; type: string; actor: string; detail: Record<string, unknown> | null; at: string }[]
   messages: { id: string; kind: 'BULK_ENQUIRY_RECEIVED' | 'BULK_QUOTE'; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; round: number | null; deliveryStatus: string | null; error: string | null; sentAt: string | null; createdAt: string }[]
   whatsappOn: boolean
+  /** A bulk order paid online; null for enquiries and older unpaid orders. */
+  order: BulkOrderMoney | null
+  deliveryAddress: string | null
+  pincode: string | null
+  paymentId: string | null
+  paymentMethod: string | null
+  cancelReason: string | null
+  refundId: string | null
+  refundRequestedAt: string | null
+  refundedAt: string | null
+  closeReason?: string | null
 }

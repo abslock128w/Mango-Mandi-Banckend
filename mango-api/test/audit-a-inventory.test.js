@@ -1,7 +1,7 @@
 // 24 Oct 2026 audit, inventory leftovers (docs/audit-2026-10-24-status-A.md).
 // Each test failed on the code before its fix; the flag-off tests show the
 // rollback keeps the old behaviour.
-import { adminToken, checkout, client, closeAll, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, makeBatch, onePreorderWeek, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { handleInbound } from '../src/chat.js'
@@ -178,8 +178,7 @@ describe('INV-06: preorder capacity audit', () => {
     )
 
   test('the counters balance through booking, waitlist, cancel and promotion; drift is reported and listed', async () => {
-    const week = farWeek()
-    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: manager })).status, 200)
+    const week = await onePreorderWeek(6, farWeek()) // one week of 6 kg, one 2 x 3 kg booking: the next one waits
     const a = await customerToken(api)
     const held = (await book(a.accessToken, week)).body
     const b = await customerToken(api)
@@ -199,31 +198,32 @@ describe('INV-06: preorder capacity audit', () => {
   })
 
   test('a manager recounts a drifted week from its bookings; the freed spots go to the waitlist; stale numbers and other roles are refused', async () => {
-    const week = farWeek()
-    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 4 }, { token: manager })).status, 200)
+    const week = await onePreorderWeek(12, farWeek()) // one week of 12 kg: two 2 x 3 kg bookings
     const a = await customerToken(api)
     assert.equal((await book(a.accessToken, week)).status, 201)
-    // Drifted up: the week looks full (4 of 4 taken) though bookings hold 2, so the next customer is waitlisted.
-    await query('UPDATE preorder_capacity SET reserved = 4 WHERE sku = $1 AND week_start = $2', ['ALP-3', week])
+    // Drifted up: the week looks full (12 of 12 kg) though bookings hold 6, so the next customer is waitlisted.
+    // The counter that decides is the variety's (migration 078), shown and recounted as sku ALL:<variety>.
+    await query(`UPDATE preorder_variety_week_kg SET reserved_kg = 12 WHERE week_start = $1 AND variety = 'Alphonso'`, [week])
+    assert.deepEqual(await preorderCapacityDrift({ query }), [{ sku: 'ALL:Alphonso', variety: 'Alphonso', weekStart: week, reserved: 12, booked: 6 }])
     const c = await customerToken(api)
     const waiting = await book(c.accessToken, week, { waitlist: true })
     assert.equal(waiting.body.status, 'WAITLISTED', JSON.stringify(waiting.body))
-    const recount = (body, token = manager) => api.post(`/admin/v1/preorder-capacity/${week}/ALP-3/recount`, body, { token })
+    const recount = (body, token = manager) => api.post(`/admin/v1/preorder-capacity/${week}/${encodeURIComponent('ALL:Alphonso')}/recount`, body, { token })
     const ops = await adminToken(api, 'ops@mandimangoes.test', 'operator123')
-    assert.equal((await recount({ reserved: 4, booked: 2, reason: 'counter drifted' }, ops)).status, 403)
-    const stale = await recount({ reserved: 3, booked: 2, reason: 'counter drifted' })
+    assert.equal((await recount({ reserved: 12, booked: 6, reason: 'counter drifted' }, ops)).status, 403)
+    const stale = await recount({ reserved: 13, booked: 6, reason: 'counter drifted' })
     assert.equal(stale.status, 409, JSON.stringify(stale.body))
     assert.equal(stale.body.error.code, 'PREVIEW_CHANGED')
-    const r = await recount({ reserved: 4, booked: 2, reason: 'counter drifted' })
+    const r = await recount({ reserved: 12, booked: 6, reason: 'counter drifted' })
     assert.equal(r.status, 200, JSON.stringify(r.body))
-    assert.deepEqual([r.body.recounted, r.body.before, r.body.reserved], [true, 4, 2])
+    assert.deepEqual([r.body.recounted, r.body.before, r.body.reserved], [true, 12, 6])
     // The spots it freed went to the waitlisted customer, and the counter still balances.
     assert.equal((await query('SELECT status FROM preorders WHERE id = $1', [waiting.body.id])).rows[0].status, 'PAYMENT_PENDING')
     assert.deepEqual(await preorderCapacityDrift({ query }), [])
     const audit = (await query(`SELECT detail FROM staff_audit WHERE action = 'POST /preorder-capacity/:weekStart/:sku/recount'`)).rows
-    assert.deepEqual(audit.map((x) => x.detail), [{ reason: 'counter drifted', before: 4, after: 2 }])
+    assert.deepEqual(audit.map((x) => x.detail), [{ reason: 'counter drifted', before: 12, after: 6 }])
     // Again: nothing to do, nothing written.
-    const again = await recount({ reserved: 4, booked: 4, reason: 'counter drifted' })
+    const again = await recount({ reserved: 12, booked: 12, reason: 'counter drifted' })
     assert.deepEqual([again.status, again.body.recounted], [200, false])
     assert.equal((await recount({ reserved: 0, booked: 0, reason: 'x' })).status, 400, 'a reason of 3 characters or more')
   })

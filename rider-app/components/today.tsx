@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { OPS_PHONE } from "@/lib/config";
-import { dateWords, firstName, mapsDirections, STAGE, telHref, warehouseDirections } from "@/lib/format";
+import { dateWords, firstName, mapsDirections, orderNo, STAGE, telHref, warehouseDirections } from "@/lib/format";
 import { useRun, type RunOrder } from "@/lib/run-context";
 import { PendingBadge } from "./pending-badge";
 import { StopChip } from "./stop-chip";
@@ -97,7 +97,7 @@ function CurrentStop({ o, index }: { o: RunOrder; index: number }) {
     <Card className="sticky top-[118px] z-10 border-2 border-brand" aria-label="Current stop" data-testid="current-stop">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-bold text-muted">
-          Stop {index} · {o.number}
+          Stop {index} · {orderNo(o.number)}
         </p>
         <StopChip state={o.state} />
       </div>

@@ -3,8 +3,10 @@
 //
 // The panel's policy, in two places:
 // - a response header (vercel.json, and the Vite dev and preview servers), which
-//   also carries frame-ancestors; vercel.json cannot know the API's address, so
-//   the header allows any https: API (`api: null`);
+//   also carries frame-ancestors; vercel.json is static and cannot know the API
+//   address the build was given, so the header (`api: null`) lets the panel talk
+//   to the shop's known API origins only (KNOWN_APIS: production and staging),
+//   not any https: host. A panel built for another API needs its origin added there;
 // - a <meta> tag that `cspPlugin` writes into the built index.html with the
 //   exact API origin from VITE_API_URL. Browsers enforce both, so the stricter
 //   connect-src and img-src of the meta tag win wherever the app is hosted
@@ -19,6 +21,12 @@ import type { HtmlTagDescriptor, Plugin } from 'vite'
 export type App = 'panel'
 
 const SENTRY = ['https://*.ingest.sentry.io', 'https://*.ingest.us.sentry.io', 'https://*.ingest.de.sentry.io']
+/**
+ * The APIs a deployed panel is built against (VITE_API_URL): production and staging (previews).
+ * Everything the panel fetches goes to its API (src/api.ts), Sentry or Google sign-in: photo
+ * uploads go through the API, map tiles and Blob photos are images (img-src), not fetches.
+ */
+export const KNOWN_APIS = ['https://api.mandimangoes.in', 'https://mandi-api-staging.vercel.app']
 const GOOGLE = 'https://accounts.google.com'
 // Photos may be served from Vercel Blob directly; profile pictures in the Google button.
 const IMAGES = ['https://*.public.blob.vercel-storage.com', 'https://*.googleusercontent.com']
@@ -39,7 +47,7 @@ function originOf(url: string | null | undefined): string | null {
 }
 
 interface Options {
-  /** The API's URL; null for "any https: origin" (the static vercel.json header). */
+  /** The API's URL; null for the static vercel.json header (KNOWN_APIS to fetch from, any https: image). */
   api: string | null
   /** Vite's dev server: its inline React-refresh preamble and HMR websocket. */
   dev?: boolean
@@ -50,7 +58,9 @@ interface Options {
 }
 
 export function policy(app: App, { api, dev = false, meta = false, tiles }: Options): string {
-  const apiSrc = api === null ? ['https:'] : [originOf(api)].filter((x): x is string => Boolean(x))
+  const apiSrc = api === null ? KNOWN_APIS : [originOf(api)].filter((x): x is string => Boolean(x))
+  // Images: the static header can't know the tile host (VITE_MAP_TILES_URL), so it allows any https: image.
+  const imgSrc = api === null ? ['https:'] : apiSrc
   void app // the panel is the only app with a policy here
   const mapTiles = api !== null ? [tileOrigin(tiles)].filter((x): x is string => Boolean(x)) : []
   const d: Record<string, string[]> = {
@@ -58,7 +68,7 @@ export function policy(app: App, { api, dev = false, meta = false, tiles }: Opti
     'script-src': ["'self'", `${GOOGLE}/gsi/client`, ...(dev ? ["'unsafe-inline'"] : [])],
     // Google's button adds its own inline styles.
     'style-src': ["'self'", "'unsafe-inline'", `${GOOGLE}/gsi/style`],
-    'img-src': ["'self'", 'data:', 'blob:', ...apiSrc, ...IMAGES, ...mapTiles],
+    'img-src': ["'self'", 'data:', 'blob:', ...imgSrc, ...IMAGES, ...mapTiles],
     'font-src': ["'self'", 'data:'],
     'connect-src': ["'self'", ...apiSrc, `${GOOGLE}/gsi/`, ...SENTRY, ...(dev ? ['ws:', 'wss:'] : [])],
     'frame-src': [GOOGLE],
@@ -73,7 +83,7 @@ export function policy(app: App, { api, dev = false, meta = false, tiles }: Opti
     .join('; ')
 }
 
-/** The header vercel.json sends: any https: API. */
+/** The header vercel.json sends: the known APIs (KNOWN_APIS). */
 export const header = (app: App) => policy(app, { api: null })
 
 /**

@@ -50,6 +50,19 @@ const upload = (id, bytes, type = 'image/jpeg') =>
   api.raw('POST', `/admin/v1/orders/${id}/delivery-photos`, { token: rider, headers: { 'Content-Type': type }, raw: bytes })
 const mine = (cust, id) => api.get(`/v1/orders/${id}`, { token: cust.accessToken })
 
+/**
+ * Staff sending an order out now sends its WhatsApp messages at once (to the log here: no provider in
+ * tests). Puts them back in the outbox so a stubbed sender can show what they carry.
+ */
+async function requeueDispatchMessages(orderId) {
+  const r = await query(
+    `UPDATE notifications SET status = 'PENDING', sent_at = NULL, provider_id = NULL, next_attempt_at = created_at
+      WHERE order_id = $1 AND kind IN ('OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_OUT_FOR_DELIVERY', 'GIFT_DELIVERY_CODE') AND status = 'SENT' RETURNING kind`,
+    [orderId],
+  )
+  return r.rows.map((x) => x.kind).sort()
+}
+
 describe('proof of delivery', () => {
   test('riders see only the run; the customer code marks the order delivered', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
@@ -68,6 +81,8 @@ describe('proof of delivery', () => {
 
     const code = (await mine(cust, id)).body.deliveryCode
     assert.match(code, /^\d{4}$/)
+    // Sending the run out sends the update and the code at once, not at the next maintenance run.
+    assert.deepEqual(await requeueDispatchMessages(id), ['DELIVERY_CODE', 'OUT_FOR_DELIVERY'])
     // The code goes in its own authentication message (body and copy-code button); the update carries none (053).
     const sent = []
     await sendDueNotifications({ sender: async (m) => (sent.push(m), 'wamid.x') })

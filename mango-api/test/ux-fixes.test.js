@@ -2,6 +2,7 @@
 // (UX-5), box contents, the hold length at Pay (UX-3), claim rejection reasons
 // and claim WhatsApp messages (UX-4 / ADM-3), order links in WhatsApp (UX-7),
 // staff order search by name and address (ADM-1) and the price-change audit (ADM-2).
+import { formatOrderNumber } from '../src/order-number.js'
 import { closeAll, adminToken, checkout, client, customerToken, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
@@ -94,7 +95,7 @@ describe('UX-3: the hold length at Pay comes from the rules', () => {
     const r = await api.get('/v1/policy')
     assert.equal(r.status, 200)
     assert.deepEqual(r.body, {
-      holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24,
+      holdMinutes: 10, cutoffTime: '18:00 IST', maxDaysAhead: 5, claimWindowHours: 24, cancelWindowHours: 4,
       // bills: whether checkout takes business details for the bill (on outside production: trust-config.js).
       bills: true,
       // The delivery charge on regular orders: off as shipped (delivery-fee.js).
@@ -148,7 +149,8 @@ describe('UX-4 / ADM-3: claim rejections say why, and the customer hears about i
     let calls = (await sent()).filter((m) => m.template.includes('claim'))
     assert.equal(calls.length, 1)
     assert.equal(calls[0].template, 'mandi_claim_received')
-    assert.deepEqual(calls[0].params, ['Ravi Kumar', number])
+    // Messages show the number grouped (order-number.js).
+    assert.deepEqual(calls[0].params, ['Ravi Kumar', formatOrderNumber(number)])
     assert.equal(calls[0].urlParam, orderId, 'the claim templates carry the "Open order" button')
 
     const reason = 'The photo shows\nthe boxes intact.'
@@ -156,7 +158,7 @@ describe('UX-4 / ADM-3: claim rejections say why, and the customer hears about i
     calls = await sent()
     assert.equal(calls.length, 1)
     assert.equal(calls[0].template, 'mandi_claim_rejected')
-    assert.deepEqual(calls[0].params, ['Ravi Kumar', number, 'The photo shows the boxes intact.'])
+    assert.deepEqual(calls[0].params, ['Ravi Kumar', formatOrderNumber(number), 'The photo shows the boxes intact.'])
     assert.equal(calls[0].urlParam, orderId)
   })
 })

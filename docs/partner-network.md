@@ -57,6 +57,46 @@ Proposal statuses: SUBMITTED, UNDER_EVALUATION, SAMPLE_REQUESTED, QUALITY_REVIEW
 
 Priorities: LOW, NORMAL (the default), HIGH and URGENT.
 
+## How long applications are kept
+
+The Grow with us form promises this, in full before the first question and on `/partner/privacy`, in short by the
+consent tick and on the "application sent" screen:
+
+> **How we use what you tell us.** Everything you share here is used for one thing only: to decide whether we are a
+> good fit to work together. We don’t share it with anyone or use it for anything else. Once your application has
+> ended, we delete it within N days. If we go ahead together, we keep your contact details so we can work with you.
+
+N is `PARTNER_RETENTION_DAYS` (default 30, at least 1), sent to the shop as `retention.days` on `GET /v1/partner-network`.
+`src/partner/erase.js` keeps the promise; every deletion path goes through its `eraseEnquiry`:
+
+- **When.** An application has ended when it is REJECTED, CLOSED or CONVERTED. The maintenance run checks every hour
+  (step `partner-retention`, bounded batch, `FOR UPDATE SKIP LOCKED`, one transaction each) and deletes the details of
+  ended applications whose `status_changed_at` is `PARTNER_RETENTION_DAYS` old, less one hour, so none is late. A
+  reopened application starts over; it runs with `PARTNER_NETWORK` off too.
+- **What goes.** The answers, the documents (rows and their Blob files), staff notes, follow-ups, the business
+  opportunity, what the product proposal said (name, category, description, source, prices, capacity,
+  certifications), the applicant's messages in the outbox, document file names and written reasons, titles, notes and
+  messages in the activity history and in `staff_audit` (`detail.reason`, `detail.title`), and on the enquiry row: name,
+  mobile, email, city, PIN code, business name, address, website, GSTIN, years operating, comments, best time to call,
+  the duplicate-check hash and the upload secret.
+- **What stays.** The reference, categories, state, status, decision, priority, assignment, the form version and
+  consent wording, the dates, and `erased_at` (migration 069), so the counts stay honest; the activity history keeps
+  what happened and when.
+- **CONVERTED** means the applicant became a partner: their contact details (name, mobile, email, business name,
+  address, website, city, PIN code, GSTIN) and the business opportunity stay; everything else above goes. If a
+  converted partner is closed later, the contact details go `PARTNER_RETENTION_DAYS` after that.
+- **Sooner.** A manager can press "Delete this application’s details now" on an ended application
+  (`POST /admin/v1/partner-network/enquiries/:id/erase`, managers only, recorded in `staff_audit` as
+  `ERASE partner enquiry` with the status, whether contact details were kept and the document count). The applicant
+  deleting their shop account (`DELETE /v1/me`) erases every application sent from the account's number, contact
+  details included, closing an open one first; `ops/erase-customer.js --phone|--email` does the same for a request by
+  email or WhatsApp, even with no shop account.
+- **After.** An erased application can't be changed (409 `ENQUIRY_ERASED`), except that a converted one may still be
+  closed. The panel shows "Details deleted on <date>" in the list and on the page; the CSV export marks the row.
+- **Backups.** Database backups (`ops/backup.sh`, `RETAIN_DAYS`, default 14) still hold deleted details until they
+  age out. After a restore, the hourly step deletes ended applications again within the hour; deletions made early
+  (a manager's button, the applicant's request) must be made again.
+
 ## The questionnaire
 
 `mango-api/src/partner/questionnaire.js` is the only definition of the form. The shop draws the form from `GET /v1/partner-network`, and the API checks submissions against the same definition.
@@ -97,7 +137,8 @@ Returns everything the form needs:
                              "questions": [{ "key": "fullName", "label": "Full name", "type": "TEXT", "required": true, "min": 2, "max": 120 }] }] }],
   "documentCategories": [{ "code": "BUSINESS_PROFILE", "label": "Business profile" }],
   "uploads": { "maxFiles": 10, "maxFileBytes": 5242880, "types": ["application/pdf", "image/jpeg", "image/png", "image/webp"] },
-  "consent": { "text": "I agree that ...", "privacyPath": "/privacy" },
+  "consent": { "text": "I agree that ...", "privacyPath": "/partner/privacy" },
+  "retention": { "days": 30, "partnersKeepContact": true },
   "captcha": { "siteKeyRequired": false, "action": "partner" }
 }
 ```

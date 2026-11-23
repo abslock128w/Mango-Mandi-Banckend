@@ -18,7 +18,7 @@ import { poolMaterial, beamMaterial, beam, bokeh, glints } from './grade.js'
 const W = 8, D = 5.6, H = 3.0, TH = 0.09
 const SLOTS = [[-2.85, -1.35], [-0.95, -1.35], [0.95, 1.35], [2.85, -1.35], [-2.85, 1.35], [-0.95, 1.35], [2.85, 1.35]]
 const OURS = new THREE.Vector3(0.95, TH + 1.05, -1.35) // the back row, so the hand that places it stays in view over the front wall
-const LABEL = new THREE.Vector3(0.5, H + TH * 1.6, 0.2)
+const LABEL = new THREE.Vector3(0.5, H + TH * 2.6, 0.2) // on the closed lid (the flaps lie on the walls: top at H + 2 TH)
 const PAD = new THREE.Vector3(6.6, 0, 2.6) // the ink pad on the bench
 const STAMP_UV = [0.27, 0.46] // where the stamp lands on the label (u, v)
 const WIN = new THREE.Vector3(-16, 13, -19) // the window, behind and left
@@ -358,9 +358,12 @@ export default class Pack extends Stage {
     this.left = piece(new THREE.BoxGeometry(TH, H, D - 2 * TH), mats(1, sideP), -W / 2, TH, 0, TH / 2, H / 2, 0)
     const flapG = new THREE.BoxGeometry(W, D / 2, TH)
     this.flapF = new THREE.Group(); this.flapF.position.set(0, H, 0); this.front.add(this.flapF)
-    const ff = new THREE.Mesh(flapG, [inner, inner, inner, inner, plain, inner]); ff.position.set(0, D / 4, -TH / 2); ff.castShadow = true; ff.receiveShadow = true; this.flapF.add(ff)
+    // The flaps are hinged on the walls' outer top edges, so a closed flap lies ON the walls. (Hinged on the inner
+    // edge, a closed flap sat inside the walls' top strip, its top face in the same plane as theirs, and the rim of
+    // the closed box flickered between the two.)
+    const ff = new THREE.Mesh(flapG, [inner, inner, inner, inner, plain, inner]); ff.position.set(0, D / 4, TH / 2); ff.castShadow = true; ff.receiveShadow = true; this.flapF.add(ff)
     this.flapB = new THREE.Group(); this.flapB.position.set(0, H, 0); this.back.add(this.flapB)
-    const fb = new THREE.Mesh(flapG, [inner, inner, inner, inner, inner, plain]); fb.position.set(0, D / 4, TH / 2); fb.castShadow = true; fb.receiveShadow = true; this.flapB.add(fb)
+    const fb = new THREE.Mesh(flapG, [inner, inner, inner, inner, inner, plain]); fb.position.set(0, D / 4, -TH / 2); fb.castShadow = true; fb.receiveShadow = true; this.flapB.add(fb)
     this.pieces = [this.bottom, this.front, this.back, this.right, this.left]
     this.burst = [new THREE.Vector3(0, 2.0, 0), new THREE.Vector3(0, 5.0, 7.0), new THREE.Vector3(0, 6.5, -7.0), new THREE.Vector3(7.5, 5.5, 0), new THREE.Vector3(-7.5, 4.0, 0)]
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.pieces.length * 6), 3))

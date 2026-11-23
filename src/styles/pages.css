@@ -939,3 +939,255 @@ tr.row-flagged td {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+
+/* ---------- Pre-order plan (pages/PreorderPlan.tsx) ---------- */
+.plan-panel {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.plan-panel > .card {
+  margin: 0;
+}
+.plan-how-list {
+  margin: 0;
+  padding-left: var(--space-6);
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-base);
+}
+.plan-readonly {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.plan-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+/* The held-for-pre-orders line: icon beside the first line of text. */
+.plan-held p {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+}
+.plan-held .plan-icon {
+  margin-top: 2px;
+}
+.plan-held .plan-ahead {
+  display: block;
+  margin-top: var(--space-2);
+}
+.plan-result {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-md);
+  background: var(--color-success-soft);
+}
+.plan-result p {
+  margin: 0 0 var(--space-1);
+}
+.plan-result-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  color: var(--color-success);
+}
+.plan-variety {
+  font-weight: 650;
+  font-size: var(--text-md);
+}
+.plan-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plan-step {
+  width: var(--tap-min);
+  padding: 0;
+}
+.plan-kg-input {
+  width: 7.5rem;
+  min-height: var(--tap-min);
+  font-size: var(--text-lg);
+  font-weight: 650;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.plan-table tr.is-changed td {
+  background: var(--color-accent-soft);
+}
+.plan-week-kg {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plan-save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.plan-save-hint {
+  flex-basis: 100%;
+  margin: 0;
+}
+.plan-sentence {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+}
+.plan-preview .table-wrap {
+  margin-top: var(--space-3);
+}
+.plan-weeks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.plan-week {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.plan-week.is-over {
+  border-color: var(--color-error);
+}
+.plan-week-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.plan-week-head h3 {
+  margin: 0;
+}
+.plan-over {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+}
+.plan-over p {
+  margin: 0 0 var(--space-1);
+}
+.plan-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.plan-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'text edit' 'bar edit';
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+}
+.plan-bar-row > .plan-bar-text {
+  grid-area: text;
+}
+.plan-bar-row > .plan-bar {
+  grid-area: bar;
+}
+.plan-bar-row > .plan-bar-edit {
+  grid-area: edit;
+}
+.plan-bar {
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.plan-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-success);
+}
+.plan-bar-row.is-near .plan-bar > span {
+  background: var(--color-accent);
+}
+.plan-bar-row.is-over .plan-bar > span {
+  background: var(--color-error);
+}
+.plan-bar-text {
+  font-variant-numeric: tabular-nums;
+}
+.plan-bar-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plan-week-input {
+  width: 7rem;
+  min-height: var(--tap-min);
+  text-align: right;
+}
+.plan-search label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+.plan-search input {
+  min-width: 16rem;
+  min-height: var(--tap-min);
+}
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.no-wrap {
+  white-space: nowrap;
+}
+.plan-msg.tone-good {
+  color: var(--color-success);
+}
+.plan-msg.tone-warn {
+  color: var(--color-warning);
+}
+.plan-msg.tone-bad {
+  color: var(--color-error);
+}
+.plan-msg.tone-info {
+  color: var(--color-info);
+}
+@media (max-width: 640px) {
+  .plan-bar-row {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'text' 'bar' 'edit';
+  }
+  .plan-search input {
+    min-width: 0;
+    flex: 1;
+  }
+  .plan-kg-input {
+    width: 6rem;
+  }
+  /* The stepper gets the card's whole width: two 44px buttons and the number never spill out. */
+  .plan-table td.plan-kg-cell {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Farm visit enquiries (BulkEnquiries.tsx): big plain step buttons, and the nav's count of new ones (Layout.tsx). */
+.btn-lg { min-height: 48px; padding: 0 20px; font-size: 15px; }
+.nav-count { margin-left: auto; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: #c2410c; color: #fff; font-size: 12px; font-weight: 700; line-height: 22px; text-align: center; }
+.app.is-collapsed .sidebar .nav-count { position: absolute; margin: 0; transform: translate(14px, -10px); min-width: 18px; height: 18px; line-height: 18px; font-size: 11px; }
+/* The bulk page's lists wrap rather than hide a tab on a phone. */
+.bulk-list-tabs .tabs { flex-wrap: wrap; overflow: visible; }

@@ -29,15 +29,22 @@ const profileOf = (stages) =>
 /**
  * Delivery charge on a regular order (src/delivery-fee.js), in rupees. Off until a manager turns it on.
  * `bands` run outwards from the nearest warehouse: an address up to `uptoKm` away pays `fee` when the
- * order is `freeAbove` or more, and `feeSmall` when it is less. Past the last band the order is refused
- * (`beyond: 'refuse'`) or pays the last band's charge (`'charge'`). `origins` are the warehouses the
- * distance is measured from; empty, the warehouses' own coordinates are used. `unknownKm` is the
- * distance assumed when neither the address nor its pincode has a known position.
+ * order's boxes weigh `freeFromKg` (5) kg or more, and `feeSmall` when they weigh less (0: no weight line,
+ * every order pays `feeSmall`). Those heavier orders pay nothing at or within `freeWithinKm` (2) km, whatever
+ * the band says; past it there is always a charge (a manager can't save a band reaching past it with a 0
+ * charge: `rulesSchema` below). Past the last band the order is refused (`beyond: 'refuse'`) or pays the
+ * last band's charge (`'charge'`). `origins` are the warehouses the distance is measured from; empty, the
+ * warehouses' own coordinates are used. `unknownKm` is the distance assumed when neither the address nor its
+ * pincode has a known position. `freeAbove` (rupees) decided the column before 18 Nov: it still parses, so
+ * older versions load, and is still sent to the shop, but decides nothing. Older versions without a key get
+ * its default; migration 072 moves a live `freeFromKg` of 6 to 5.
  */
 const deliveryFeeSchema = z
   .object({
     enabled: z.boolean().default(false),
     freeAbove: z.number().int().min(0).max(100_000).default(1000),
+    freeFromKg: z.number().min(0).max(1000).default(5),
+    freeWithinKm: z.number().min(0).max(200).default(2),
     bands: z
       .array(z.object({ uptoKm: z.number().positive().max(200), fee: z.number().int().min(0).max(5000), feeSmall: z.number().int().min(0).max(5000) }).strict())
       .min(1)
@@ -49,7 +56,10 @@ const deliveryFeeSchema = z
         { uptoKm: 8, fee: 50, feeSmall: 70 },
         { uptoKm: 12, fee: 80, feeSmall: 100 },
       ]),
-    beyond: z.enum(['refuse', 'charge']).default('refuse'),
+    // Past the last band: 'perKm' (the default since 19 Nov) delivers at the last band's charge plus perKmBeyond for
+    // every km past it (a part km counts as a whole one); 'charge' delivers at the last band's charge; 'refuse' does not deliver.
+    beyond: z.enum(['refuse', 'charge', 'perKm']).default('perKm'),
+    perKmBeyond: z.object({ fee: z.number().int().min(0).max(1000), feeSmall: z.number().int().min(0).max(1000) }).strict().default({ fee: 15, feeSmall: 20 }),
     unknownKm: z.number().min(0).max(200).default(5),
     origins: z
       .array(z.object({ name: z.string().trim().min(1).max(60), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180) }).strict())
@@ -82,6 +92,22 @@ const rulesFieldsFor = (stages) => z.object({
   // season's last day, waits for a manager's decision.
   outForDeliveryAlertHours: z.number().int().min(1).max(48).default(8),
   maxPreorderMoves: z.number().int().min(1).max(20).default(3),
+  // Mangoes expected per day for pre-orders, in kg (about one 1,000 kg batch a day). A delivery week takes 7 days
+  // of it (src/preorders.js defaultWeekKg: 7,000 kg), across every box, counted as weekLoad counts (a booking's
+  // boxes x its box's kg); a week's own expected kg (Pre-orders page, preorder_week_kg.limit_kg) replaces it for
+  // that week. A full week sends new pre-orders to the next week. Older rule versions get the default (076 writes it).
+  preorderDayKg: z.number().min(1).max(1_000_000).default(1000),
+  // The pre-order plan per VARIETY (the owner, 18 Nov 2026: "expected kg per day per variety"; migration 078): the
+  // mangoes of each variety (products.variety, e.g. "Alphonso"; a Mixed Box is its own line, its components are not
+  // recorded) expected per day for pre-orders, in kg. A delivery week takes 7 days of it for that variety's boxes
+  // (src/preorders.js varietyWeekKg), or the week's own expected kg for that variety (preorder_variety_week_kg.limit_kg).
+  // A variety not listed takes preorderOtherVarietyDayKg (default 20 kg a day: the owner's placeholder, 18 Nov 2026).
+  // preorderDayKg decides nothing any more; it is kept for the previous release, which still limits by it.
+  preorderVarietyDayKg: z.record(z.string().trim().min(1).max(80), z.number().min(0).max(1_000_000)).default({}),
+  preorderOtherVarietyDayKg: z.number().min(0).max(1_000_000).default(20),
+  // Migration 074's limit in pre-orders a week: decides nothing since 076 (kg). Still accepted and kept, so
+  // stored versions and a previous release, which reads it, keep working.
+  preorderWeekLimit: z.number().int().min(1).max(1_000_000).optional(),
   seasonEndsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be a date (YYYY-MM-DD)').nullable().default(null),
   // Before the season (src/season-phase.js): from preorderOpensOn the shop's home page takes
   // pre-orders, and from seasonStartsOn it sells as usual. Unset (older versions too): in season.
@@ -92,6 +118,9 @@ const rulesFieldsFor = (stages) => z.object({
   minutesPerStop: z.number().int().min(1).max(120).default(10),
   // The delivery charge on regular orders (above). Older rule versions get it switched off.
   deliveryFee: deliveryFeeSchema.default(DEFAULT_DELIVERY_FEE),
+  // Bulk orders (src/bulk-price.js): a box's bulk price is its shop price less this many percent, in whole rupees,
+  // unless a manager set the box's own bulk price (products.bulk_price, migration 084). Older versions get 25.
+  bulkDiscountPct: z.number().int().min(0).max(90).default(25),
   stageProfiles: z.record(z.string(), profileOf(stages)).refine((p) => 'default' in p, 'a "default" profile is required'),
 })
 const retireAfterSellable = [(r) => r.retireAge > r.maxSellableAge, { message: 'retireAge must be greater than maxSellableAge' }]
@@ -104,8 +133,20 @@ const startsBeforeEnd = [
   { message: 'The season must start before it ends', path: ['seasonStartsOn'] },
 ]
 
+/**
+ * Free delivery stops at `freeWithinKm`: every band reaching past it (and the last band, when it is charged
+ * past the end) must charge both columns. Only on save, so an older stored version still loads.
+ */
+const chargedPastFree = [
+  (r) => {
+    const f = r.deliveryFee
+    return f.bands.every((b, i) => (b.uptoKm <= f.freeWithinKm && !(f.beyond !== 'refuse' && i === f.bands.length - 1)) || (b.fee > 0 && b.feeSmall > 0))
+  },
+  { message: `Past the free distance every band must have a charge above ₹0 in both columns`, path: ['deliveryFee', 'bands'] },
+]
+
 /** What a manager may save: unknown keys are a typo and are refused, and so is a RIPE window. */
-export const rulesSchema = rulesFieldsFor(SALE_STAGES).strict().refine(...retireAfterSellable).refine(...opensBeforeStart).refine(...startsBeforeEnd)
+export const rulesSchema = rulesFieldsFor(SALE_STAGES).strict().refine(...retireAfterSellable).refine(...opensBeforeStart).refine(...startsBeforeEnd).refine(...chargedPastFree)
 
 /**
  * What the API reads back. Unknown keys are dropped, not refused, so a rollback
@@ -138,11 +179,15 @@ export const DEFAULT_RULES = {
   maxHeldBoxes: 40,
   outForDeliveryAlertHours: 8,
   maxPreorderMoves: 3,
+  preorderDayKg: 1000,
+  preorderVarietyDayKg: {},
+  preorderOtherVarietyDayKg: 20,
   seasonEndsOn: null,
   seasonStartsOn: null,
   preorderOpensOn: null,
   minutesPerStop: 10,
   deliveryFee: DEFAULT_DELIVERY_FEE,
+  bulkDiscountPct: 25,
   stageProfiles: {
     default: [
       { stage: 'RAW', minAge: 1, maxAge: 3 },

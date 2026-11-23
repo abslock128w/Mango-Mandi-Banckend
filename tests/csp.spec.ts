@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from './fixtures'
-import { cspPlugin, header, policy, preconnectTags, type App } from '../scripts/csp'
+import { cspPlugin, header, KNOWN_APIS, policy, preconnectTags, type App } from '../scripts/csp'
 
 // SEC-10: both apps send a Content-Security-Policy. The panel's policy is written
 // once in scripts/csp.ts; vercel.json carries a copy, which must not drift. Every
@@ -24,28 +24,65 @@ test('vercel.json sends the panel policy from scripts/csp.ts', () => {
   expect(vercelCsp('vercel.json')).toBe(header('panel'))
 })
 
-test('shop/vercel.json sends the shop policy on every path', () => {
-  const shop = vercelCsp('shop/vercel.json', '/(.*)')
-  expect(shop).toBeTruthy()
-  const p = shop!
-  // Razorpay Checkout and Turnstile are the only outside scripts.
-  expect(directive(p, 'script-src')).toBe("script-src 'self' https://checkout.razorpay.com https://challenges.cloudflare.com")
+test('the panel header fetches only from the known APIs, Google sign-in and Sentry, not any https: host', () => {
+  const connect = directive(header('panel'), 'connect-src')
+  expect(connect.split(' ')).not.toContain('https:')
+  expect(connect).toBe(
+    `connect-src 'self' ${KNOWN_APIS.join(' ')} https://accounts.google.com/gsi/ https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://*.ingest.de.sentry.io`,
+  )
+  expect(KNOWN_APIS).toEqual(['https://api.mandimangoes.in', 'https://mandi-api-staging.vercel.app'])
+  // The built page's meta tag names the one API it was built for.
+  const built = directive(policy('panel', { api: 'https://mandi-api-staging.vercel.app/', meta: true }), 'connect-src')
+  expect(built).toContain('https://mandi-api-staging.vercel.app')
+  expect(built).not.toContain('https://api.mandimangoes.in')
+})
+
+// The shop's pages, and the One Mango film (shop/one-mango/), which the shop shows in a frame of its own.
+const SHOP_PAGES = '/((?!one-mango/).*)'
+const SHOP_FILM = '/one-mango/(.*)'
+
+/** What the shop and its film share: the same sources, every one named. */
+function expectShopSources(p: string) {
+  // Razorpay Checkout, Turnstile and Google Maps (the address map, behind a key) are the only outside scripts.
+  expect(directive(p, 'script-src')).toBe("script-src 'self' https://checkout.razorpay.com https://challenges.cloudflare.com https://maps.googleapis.com")
   const connect = directive(p, 'connect-src')
   expect(connect).toMatch(/^connect-src 'self' /)
+  expect(connect.split(' ')).not.toContain('https:')
   expect(connect).toContain('https://api.mandimangoes.in')
   expect(connect).toContain('https://*.razorpay.com')
   expect(connect).toContain('https://challenges.cloudflare.com')
-  expect(directive(p, 'frame-src')).toBe('frame-src https://*.razorpay.com https://challenges.cloudflare.com')
-  expect(p).toContain("frame-ancestors 'none'")
+  expect(connect).toContain('https://maps.googleapis.com')
+  // 'self': the shop frames its own One Mango film.
+  expect(directive(p, 'frame-src')).toBe("frame-src 'self' https://*.razorpay.com https://challenges.cloudflare.com")
   expect(p).toContain("object-src 'none'")
   expect(p).toContain("default-src 'self'")
+}
+
+test('shop/vercel.json sends the shop policy on every page but the film, and no page can be framed', () => {
+  const cfg = JSON.parse(readFileSync(path.join(root, 'shop/vercel.json'), 'utf8')) as VercelJson
+  const withCsp = cfg.headers.filter((h) => h.headers.some((x) => x.key === 'Content-Security-Policy')).map((h) => h.source)
+  expect(withCsp).toEqual([SHOP_PAGES, SHOP_FILM])
+  const shop = vercelCsp('shop/vercel.json', SHOP_PAGES)
+  expect(shop).toBeTruthy()
+  expectShopSources(shop!)
+  expect(shop).toContain("frame-ancestors 'none'")
+})
+
+test('the One Mango film may be framed by the shop itself, and nobody else', () => {
+  const film = vercelCsp('shop/vercel.json', SHOP_FILM)
+  expect(film).toBeTruthy()
+  expectShopSources(film!)
+  expect(directive(film!, 'frame-ancestors')).toBe("frame-ancestors 'self'")
+  const xfo = (JSON.parse(readFileSync(path.join(root, 'shop/vercel.json'), 'utf8')) as VercelJson).headers
+    .find((h) => h.source === SHOP_FILM)!.headers.find((h) => h.key === 'X-Frame-Options')?.value
+  expect(xfo).toBe('SAMEORIGIN')
 })
 
 test('the policies allow what each app loads, and nothing inline', () => {
   const panel = policy('panel', { api: 'https://api.mandimangoes.in', meta: true })
   expect(panel).not.toContain('razorpay')
   expect(panel).not.toContain('frame-ancestors') // not allowed in a <meta> tag
-  for (const p of [panel, header('panel'), vercelCsp('shop/vercel.json', '/(.*)')!]) {
+  for (const p of [panel, header('panel'), vercelCsp('shop/vercel.json', SHOP_PAGES)!, vercelCsp('shop/vercel.json', SHOP_FILM)!]) {
     expect(p.match(/script-src [^;]*/)![0]).not.toContain('unsafe')
     expect(p).toContain("object-src 'none'")
   }

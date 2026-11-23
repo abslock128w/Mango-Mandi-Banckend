@@ -171,9 +171,25 @@ const SCENARIOS = {
       unchanged: async () => (await one('SELECT version FROM bulk_listings WHERE id = $1', [made.body.id])).version === 1,
     }
   },
+  'POST /bulk-enquiries/:id/cancel': async () => {
+    const cust = await customerToken(api)
+    const o = await api.post('/v1/me/bulk-orders', { name: 'Asha', phone: '9876543210', city: 'Bengaluru', address: '12, 4th Cross, Koramangala', pincode: '560034', lines: [{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 20 }] },
+      { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } })
+    assert.equal(o.status, 201, JSON.stringify(o.body))
+    assert.equal((await api.post('/v1/dev/pay-bulk', { bulkOrderId: o.body.id, outcome: 'captured' })).body.result, 'paid')
+    return { path: `/bulk-enquiries/${o.body.id}/cancel`, body: { reason: 'No fruit this week' }, ok: 200, unchanged: async () => (await one('SELECT status FROM bulk_enquiries WHERE id = $1', [o.body.id])).status === 'PAID' }
+  },
+  'PUT /bulk-prices': async () => ({
+    path: '/bulk-prices', method: 'PUT', body: { discountPct: 30, prices: [{ sku: 'ALP-5', bulkPrice: 200_000 }] }, ok: 200,
+    unchanged: async () => (await one(`SELECT bulk_price FROM products WHERE sku = 'ALP-5'`)).bulk_price === null,
+  }),
   'PUT /config': async () => {
     const cfg = (await api.get('/admin/v1/config', { token: manager })).body
     return { path: '/config', method: 'PUT', body: { rules: { ...cfg.rules, cutoffHourIST: 17 } }, ok: 200, unchanged: async () => (await api.get('/admin/v1/config', { token: manager })).body.version === cfg.version }
+  },
+  'POST /preorder-plan/apply': async () => {
+    const cfg = (await api.get('/admin/v1/config', { token: manager })).body
+    return { path: '/preorder-plan/apply', body: { dayKg: { Alphonso: 300 } }, ok: 200, unchanged: async () => (await api.get('/admin/v1/config', { token: manager })).body.version === cfg.version }
   },
   'POST /batches/:id/purchases': async () => {
     const { batchId, body } = await batchWithPurchase()

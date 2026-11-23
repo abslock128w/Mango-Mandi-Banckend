@@ -21,7 +21,7 @@ const Deliveries = lazy(() => import('./pages/Deliveries'))
 const Claims = lazy(() => import('./pages/Claims'))
 const Pincodes = lazy(() => import('./pages/Pincodes'))
 const Planning = lazy(() => import('./pages/Planning'))
-const Preorders = lazy(() => import('./pages/Preorders'))
+const PreorderPlan = lazy(() => import('./pages/PreorderPlan'))
 const Staff = lazy(() => import('./pages/Staff'))
 const Products = lazy(() => import('./pages/Products'))
 const Promos = lazy(() => import('./pages/Promos'))
@@ -228,7 +228,7 @@ export default function App() {
               <Route path="/subscriptions" element={<Only screen="subscriptions"><Subscriptions /></Only>} />
               <Route path="/pincodes" element={<Only screen="pincodes"><Pincodes /></Only>} />
               <Route path="/planning" element={<Only screen="planning"><Planning /></Only>} />
-              <Route path="/preorders" element={<Only screen="preorders"><Preorders /></Only>} />
+              <Route path="/preorders" element={<Only screen="preorders"><PreorderPlan /></Only>} />
               <Route path="/staff" element={<Only screen="staff"><Staff /></Only>} />
               <Route path="/products" element={<Only screen="products"><Products /></Only>} />
               <Route path="/bulk-enquiries" element={<Only screen="bulkEnquiries"><BulkEnquiries /></Only>} />

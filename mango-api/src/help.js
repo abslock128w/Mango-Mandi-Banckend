@@ -10,6 +10,7 @@
 // request (the customer's to OPEN, staff's to WAITING_CUSTOMER).
 import { now } from './clock.js'
 import { env } from './env.js'
+import { normaliseOrderNumber } from './order-number.js'
 import { conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { enqueueHelpReply } from './notify.js'
@@ -134,7 +135,8 @@ const STAFF_SELECT = `SELECT t.*, cu.name AS customer_name, cu.phone AS customer
  * Filters: status, topic, and q (a request or order number).
  */
 export async function inbox(c, { status = null, topic = null, q = null, limit = 200 } = {}) {
-  const term = q ? q.trim().toUpperCase() : null
+  // HLP-12, or an order number typed any way (S-743 406 080, #s743406080, #7434060801): as stored (order-number.js).
+  const term = q ? normaliseOrderNumber(q).toUpperCase() : null
   const { rows } = await c.query(
     `${STAFF_SELECT}
       WHERE ($1::text IS NULL OR t.status = $1) AND ($2::text IS NULL OR t.topic = $2)

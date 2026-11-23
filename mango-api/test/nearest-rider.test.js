@@ -9,6 +9,7 @@ import { now, setNow } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { assignNearest, km, POSITION_FRESH_MS } from '../src/nearest.js'
+import { orderSeqSql } from '../src/order-number.js'
 
 let srv
 let api
@@ -110,7 +111,7 @@ async function expectedAssignment(date, orderIds = null) {
     `SELECT o.id, o.pickup_warehouse_id, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
       WHERE o.delivery_date = $1 AND o.rider_id IS NULL ${orderIds ? 'AND o.id = ANY($2)' : ''}
         AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED')
-      ORDER BY o.slot_id NULLS LAST, o.number`,
+      ORDER BY o.slot_id NULLS LAST, ${orderSeqSql('o.number')}`,
     orderIds ? [date, orderIds] : [date],
   )
   const out = new Map()

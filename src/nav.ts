@@ -85,7 +85,7 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     links: [
       ['/batches', 'Batches', 'batches', Package, 'stock inventory receive qc'],
       ['/planning', 'Planning', 'planning', CalendarRange, 'coverage calendar slots rules'],
-      ['/preorders', 'Preorders', 'preorders', ClipboardList, 'capacity bookings'],
+      ['/preorders', 'Pre-order plan', 'preorders', ClipboardList, 'preorders capacity bookings plan weeks varieties delayed'],
       ['/farms', 'Farms', 'farms', Sprout, 'purchases margins'],
     ],
   },
@@ -119,7 +119,7 @@ const GROUPS: { id: string; label: string; links: Entry[] }[] = [
     links: [
       ['/analytics', 'Analytics', 'analytics', BarChart3, 'reports sales wastage'],
       ['/products', 'Products', 'products', Tags, 'catalogue price sku'],
-      ['/bulk-enquiries', 'Bulk enquiries', 'bulkEnquiries', PackageSearch, 'customer bulk requests quotes wholesale'],
+      ['/bulk-enquiries', 'Bulk orders', 'bulkEnquiries', PackageSearch, 'customer bulk orders paid enquiries quotes wholesale refunds'],
       ['/bulk-deals', 'Bulk Deals', 'bulkDeals', HandCoins, 'wholesale listings'],
       ['/promos', 'Promos', 'promos', Tag, 'coupons codes offers'],
       ['/staff', 'Staff', 'staff', Users, 'people roles activity audit'],

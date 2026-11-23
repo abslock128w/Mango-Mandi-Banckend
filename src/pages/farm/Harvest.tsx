@@ -82,7 +82,7 @@ export default function FarmHarvest() {
 
       <section className="card">
         <h2>Kg per day</h2>
-        <p className="muted small">Each cell: bookable kg, then booked or held. Customers can book only what is left of bookable kg, in one variety per booking, 250 kg or more.</p>
+        <p className="muted small">Each cell: bookable kg, then booked or held. Customers can book only what is left of bookable kg, in one variety per booking, 100 kg or more.</p>
         <div className="farm-actions mb-3">
           <button type="button" className="btn btn-small" onClick={() => setFrom(addDays(from, -14))}>
             Earlier
@@ -228,7 +228,7 @@ function VarietyDialog({ v, onClose }: { v: Variety | null; onClose: () => void 
           <div key={i} className="field-row">
             <div className="field mb-0">
               <label htmlFor={`${id}-t${i}k`}>From kg</label>
-              <input id={`${id}-t${i}k`} type="number" min={250} value={t.minKg} onChange={(e) => set({ tiers: f.tiers.map((x, j) => (j === i ? { ...x, minKg: e.target.value } : x)) })} />
+              <input id={`${id}-t${i}k`} type="number" min={100} value={t.minKg} onChange={(e) => set({ tiers: f.tiers.map((x, j) => (j === i ? { ...x, minKg: e.target.value } : x)) })} />
             </div>
             <div className="field mb-0">
               <label htmlFor={`${id}-t${i}p`}>₹ per kg</label>

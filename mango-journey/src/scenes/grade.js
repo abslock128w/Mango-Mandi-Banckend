@@ -168,7 +168,7 @@ export default class Grade extends Stage {
     this.framePortrait = [0, -0.1]
     const HAZE = '#3a3d38'
     sc.background = new THREE.Color('#1c1a16')
-    sc.fog = new THREE.Fog(HAZE, 45, 190)
+    sc.fog = new THREE.Fog(HAZE, 62, 270) // thinner: the haze was greying the whole room
     sc.environment = engine.env({ top: '#6a5a48', mid: '#e0a050', bottom: '#120a05', sun: '#fff0d0', sunDir: new THREE.Vector3(0.3, 0.6, 1), sunPower: 3 })
     this.scene.environmentIntensity = 0.45
     this.sun.set(-0.6, 0.62, -0.5).normalize() // morning sun, low, behind the room's back wall
@@ -176,20 +176,20 @@ export default class Grade extends Stage {
 
     // ---- Light. Warm pendant key over the table (soft shadows), a warm face key from the camera side, a cool window rim
     // from behind, low warm bounce, and the low sun through the high windows (no shadow; drawn as shafts and pools).
-    this.key = new THREE.SpotLight('#ffcf8a', 820, 160, 0.62, 0.75, 1.6)
+    this.key = new THREE.SpotLight('#ffcf8a', 1180, 160, 0.62, 0.75, 1.6)
     this.key.position.set(2, 44, 4); this.key.target.position.set(0, TOP, -3)
     this.key.castShadow = true; this.key.shadow.mapSize.set(T.shadow, T.shadow); this.key.shadow.bias = -0.0003; this.key.shadow.radius = 5
     this.key.shadow.camera.near = 8; this.key.shadow.camera.far = 80
     sc.add(this.key, this.key.target)
-    this.rim = new THREE.SpotLight('#a9c6ff', 900, 120, 0.3, 0.7, 1.6); sc.add(this.rim, this.rim.target)
+    this.rim = new THREE.SpotLight('#a9c6ff', 1150, 120, 0.3, 0.7, 1.6); sc.add(this.rim, this.rim.target)
     this.rim2 = new THREE.SpotLight('#ffd9a0', 420, 120, 0.28, 0.8, 1.6); sc.add(this.rim2, this.rim2.target)
-    this.fill = new THREE.PointLight('#ff9c50', 50, 90, 1.4); this.fill.position.set(20, 26, 22); sc.add(this.fill)
-    this.face = new THREE.SpotLight('#ffd2a0', 190, 90, 0.12, 0.85, 1.5); sc.add(this.face, this.face.target)
+    this.fill = new THREE.PointLight('#ff9c50', 32, 90, 1.4); this.fill.position.set(20, 26, 22); sc.add(this.fill)
+    this.face = new THREE.SpotLight('#ffd2a0', 270, 90, 0.12, 0.85, 1.5); sc.add(this.face, this.face.target)
     this.mangoLight = new THREE.PointLight('#fff0c8', 22, 9, 1.5); sc.add(this.mangoLight)
-    this.cool = new THREE.DirectionalLight('#8fb0d8', 0.35); this.cool.position.set(-30, 20, 40); sc.add(this.cool)
+    this.cool = new THREE.DirectionalLight('#8fb0d8', 0.62); this.cool.position.set(-30, 20, 40); sc.add(this.cool)
     this.sunL = new THREE.DirectionalLight('#ffd49a', 1.1); this.sunL.position.set(-60, 62, -50); sc.add(this.sunL)
-    sc.add(new THREE.HemisphereLight('#8a7058', '#120a06', 0.4))
-    for (const [x, z] of [[-60, -48], [-5, -48], [50, -48], [-30, -74], [30, -74]]) { const b = new THREE.PointLight('#ffb870', 70, 55, 1.6); b.position.set(x, 30, z); sc.add(b) }
+    sc.add(new THREE.HemisphereLight('#5f7f98', '#140c08', 0.44)) // a cool sky side, so the shade is not the same brown as the light
+    for (const [x, z] of [[-60, -48], [-5, -48], [50, -48], [-30, -74], [30, -74]]) { const b = new THREE.PointLight('#ffb870', 44, 55, 1.6); b.position.set(x, 30, z); sc.add(b) }
 
     const r = rng(8)
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(1, 1, 1), e = new THREE.Euler(), v = new THREE.Vector3()
@@ -495,7 +495,9 @@ export default class Grade extends Stage {
       for (const [w, d, px, pz] of [[15, 0.6, 0, -3.2], [15, 0.6, 0, 3.2], [0.6, 6.4, -7.5, 0], [0.6, 6.4, 7.5, 0]]) { const s = new THREE.Mesh(new THREE.BoxGeometry(w, 1.6, d), wood); s.position.set(px, 0.8, pz); s.castShadow = true; g.add(s) }
       const liner = new THREE.Mesh(new THREE.BoxGeometry(14, 0.1, 5.8), new THREE.MeshStandardMaterial({ color: '#d8c79a', roughness: 1 })); liner.position.y = 0.55; g.add(liner)
       const card = new THREE.Mesh(new THREE.PlaneGeometry(9.2, 3.25), new THREE.MeshStandardMaterial({ map: cardTex(label, sub, tone), roughness: 0.8 }))
-      card.position.set(0, 1.0, 3.62); card.rotation.x = -0.38; g.add(card)
+      // leant against the front rim from outside: its top line used to sit inside the rim (y 1.3 at z 3.5, the rim's
+      // front face), hidden by it and fighting it for depth in the wide shots
+      card.position.set(0, 1.5, 3.98); card.rotation.x = -0.38; g.add(card)
       sc.add(g)
       return g
     }
@@ -668,9 +670,11 @@ export default class Grade extends Stage {
     // eyes on the fruit; lets go, straightens and steps back; then slides the bruised one off the belt onto NEVER SOLD
     // with his left hand, the right resting on the bench. Elbows stay bent and low (all targets are within reach).
     const sOut = smooth(0.58, 0.68, t), sBack = smooth(0.8, 0.9, t), sB = sOut * (1 - sBack)
-    const placeLean = smooth(0.62, 0.7, t) * (1 - smooth(0.75, 0.82, t))
+    const placeLean = smooth(0.62, 0.7, t) * (1 - smooth(0.79, 0.87, t))
     const bk = smooth(0.82, 0.86, t) * (1 - smooth(0.92, 0.97, t))
-    const lean = Math.max(smooth(0.08, 0.18, t) * (1 - smooth(0.2, 0.3, t)), placeLean * 1.25, bk * 0.7)
+    // the tray is across the belt from him: he bends well over it (standing nearly upright his arm ran out of reach and
+    // locked straight, the wrist bent back on the end of it)
+    const lean = Math.max(smooth(0.08, 0.18, t) * (1 - smooth(0.2, 0.3, t)), placeLean * 2.1, bk * 1.1)
     const tilt = smooth(0.3, 0.38, t) * (1 - smooth(0.56, 0.64, t))
     const pressK = smooth(0.47, 0.52, t) * (1 - smooth(0.58, 0.62, t))
     const nodK = clamp((t - 0.6) / 0.075)
@@ -680,7 +684,7 @@ export default class Grade extends Stage {
     const shift = -0.55 * smooth(0.06, 0.16, t) * (1 - smooth(0.24, 0.34, t)) - 0.45 * placeLean + 0.35 * bk
     const dip = 0.35 * lean + 0.15 * pressK
     // Where he stands: home, or half a pace to the right (body turned a little), feet stepping one after the other.
-    const HOME = new THREE.Vector3(-1, 0, -11.2), SIDE = new THREE.Vector3(-5.8, 0, -10.6), SIDE_YAW = -0.3
+    const HOME = new THREE.Vector3(-1, 0, -11.2), SIDE = new THREE.Vector3(-6.6, 0, -9.5), SIDE_YAW = -0.3
     P.position.lerpVectors(HOME, SIDE, sB); P.rotation.y = SIDE_YAW * sB
     P.pose({
       hips: [0, turnBody * 0.5, -shift * 0.05], spine: [0.05 + lean * 0.26 + breathe + pressK * 0.06, turnBody * 0.5, shift * 0.06], chest: [0.02 + lean * 0.18 + tilt * 0.06, 0, 0],
@@ -767,7 +771,8 @@ export default class Grade extends Stage {
     this.rim2.target.position.copy(headW).add(new THREE.Vector3(0, -5, 0)); this.rim2.position.copy(headW).add(new THREE.Vector3(16, 8, -22))
     const holdK = smooth(0.18, 0.28, t) * (1 - smooth(0.6, 0.7, t))
     this.mangoLight.position.copy(mWorld).add(new THREE.Vector3(1.5, 3, 4)); this.mangoLight.intensity = 26 * holdK
-    this.post.focus = cam.distanceTo(mWorld) + 2.0 * a * (1 - b); this.post.range = lerp(12, 9, a); this.post.dof = lerp(4, 6, a)
+    this.post.focus = cam.distanceTo(mWorld) + 2.0 * a * (1 - b); // the wide shots keep the trays and their card in focus (they were a smear in the foreground)
+    this.post.range = lerp(lerp(12, 9, a), 30, b); this.post.dof = lerp(lerp(4, 6, a), 2.2, b)
     this.focus.copy(t < 0.1 ? onBelt : mWorld)
 
     // The precious one: a soft halo behind it and a few glints that come and go on its skin as it turns.
@@ -794,8 +799,8 @@ export default class Grade extends Stage {
     this.hangScale.rotation.z = Math.sin(time * 0.5) * 0.012; this.hangScale.rotation.x = Math.sin(time * 0.37 + 1) * 0.01
     this.beamMat.uniforms.uTime.value = time
 
-    this.look.bloom = 0.55; this.look.threshold = 0.95; this.look.exposure = 1.18; this.look.vig = 0.58
-    this.grade([0.004, 0.012, 0.018], [1.07, 1.0, 0.9], 1.04)
+    this.look.bloom = 0.42; this.look.threshold = 1.25; this.look.exposure = 1.1; this.look.vig = 0.66
+    this.grade([0.002, 0.01, 0.02], [1.08, 1.0, 0.88], 1.16)
     // On a tall screen the type sits over the window: keep it a soft glow there, not a blaze.
     const tall = this.camera.aspect < 1
     this.winM.color.setRGB(1.8, 1.7, 1.55).multiplyScalar(tall ? 0.35 : 1)

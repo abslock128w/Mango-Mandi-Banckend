@@ -11,7 +11,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { Stage, aim, motes } from './stage.js'
 import { Mango, mangoOutline, mangoMaterial, leafGeometry, leafMaterial, leafDepthMaterial } from '../lib/mango.js'
 import { beamMaterial, beam, glints, bokeh } from './grade.js'
-import { kraftTexture, drawWordmark, strawMesh, woodTexture } from './crate-kit.js'
+import { kraftTexture, drawWordmark, strawMesh, strawBedTexture, woodTexture } from './crate-kit.js'
 import { canvasTex, rng, clamp, lerp, smooth, smoother, easeInOut, expoOut, inv } from '../lib/util.js'
 
 const DAYS = 4
@@ -20,14 +20,15 @@ const BOWL = new THREE.Vector3(-0.6, 0, -0.2)
 const CUT = 0.1 // the cut plane, just off the seed
 
 /** Flesh: deep gold, juicy (clearcoat), a little glow for the light inside it. */
-function fleshMaterial(map = null) {
-  return new THREE.MeshPhysicalMaterial({ color: map ? '#ffffff' : '#ffa21a', map, roughness: 0.5, clearcoat: 0.28, clearcoatRoughness: 0.55, sheen: 0.3, sheenColor: new THREE.Color('#ffe0a0'), emissive: new THREE.Color('#ff7a00'), emissiveIntensity: 0.06 })
+function fleshMaterial(map = null, cubes = false) {
+  // `cubes`: the scored flesh, wet and bright; its colour comes per cube (the material stays white, or the two multiply to brick)
+  return new THREE.MeshPhysicalMaterial({ color: map || cubes ? '#ffffff' : '#ffb21e', map, roughness: cubes ? 0.4 : 0.5, clearcoat: cubes ? 0.45 : 0.28, clearcoatRoughness: cubes ? 0.25 : 0.55, envMapIntensity: cubes ? 0.55 : 1, sheen: cubes ? 0 : 0.3, sheenColor: new THREE.Color('#ffe0a0'), emissive: new THREE.Color('#ff8a00'), emissiveIntensity: cubes ? 0.2 : 0.1 })
 }
 
 function fleshTexture(withSeed) {
   return canvasTex(512, 512, (g, W, H) => {
     const grd = g.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, W * 0.55)
-    grd.addColorStop(0, '#ffc23a'); grd.addColorStop(0.7, '#ffa418'); grd.addColorStop(1, '#f08a10')
+    grd.addColorStop(0, '#ffc238'); grd.addColorStop(0.7, '#ffac20'); grd.addColorStop(1, '#f39410')
     g.fillStyle = grd; g.fillRect(0, 0, W, H)
     const r = rng(withSeed ? 3 : 4)
     g.lineCap = 'round'
@@ -53,7 +54,7 @@ export default class Counter extends Stage {
     this.fov = 32
     this.frame = [0.19, -0.07]
     this.framePortrait = [0, -0.16]
-    sc.background = new THREE.Color('#e9dcc2')
+    sc.background = new THREE.Color('#1a1510')
 
     // Room: counter (warm terrazzo-like stone), back wall with a window opening (four blocks), mullions.
     const stone = canvasTex(1024, 512, (g, W, H) => {
@@ -68,7 +69,8 @@ export default class Counter extends Stage {
     top.position.set(0, -0.6, 0); top.receiveShadow = true; sc.add(top)
     const front = new THREE.Mesh(new THREE.BoxGeometry(44, 12, 0.5), new THREE.MeshStandardMaterial({ color: '#2a5a3e', roughness: 0.7 }))
     front.position.set(0, -7.2, 7.2); sc.add(front)
-    const wallM = new THREE.MeshStandardMaterial({ color: '#efe3cc', roughness: 0.95, emissive: '#f3e6cc', emissiveIntensity: 0.32 })
+    // the wall no longer glows on its own (it lit the whole room flat): it takes the bounce and falls off into shade
+    const wallM = new THREE.MeshStandardMaterial({ color: '#e2d2b4', roughness: 0.95, emissive: '#e8c79a', emissiveIntensity: 0.05 })
     const WX0 = -3, WX1 = 9, WY0 = 1.0, WY1 = 11.5, WZ = -7.5
     const wall = (x0, x1, y0, y1) => { const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, 0.8), wallM); m.position.set((x0 + x1) / 2, (y0 + y1) / 2, WZ); m.castShadow = true; m.receiveShadow = true; sc.add(m) }
     wall(-40, WX0, -1, 30); wall(WX1, 40, -1, 30); wall(WX0, WX1, -1, WY0); wall(WX0, WX1, WY1, 30)
@@ -109,28 +111,59 @@ export default class Counter extends Stage {
     const jarM = new THREE.MeshPhysicalMaterial({ color: '#2f6a4a', roughness: 0.25, clearcoat: 1 })
     ;[[21, 1.6, 2.6], [23.5, 1.2, 2.0], [26, 1.4, 3.0]].forEach(([x, r, h]) => { const j = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.8, r, h, 32), jarM); j.position.set(x, 9.2 + h / 2, WZ + 1.4); j.castShadow = true; sc.add(j) })
 
-    // A tiled backsplash (cream glazed tiles, one green band), the plain wall above it.
+    // The backsplash: hand-glazed ceramic in a running bond. Warm white tiles, no two quite the same shade, each a
+    // little pillowed and tilted so it catches the window light on its own; one course in deep green; grey grout sunk
+    // between them. Three maps drawn from one layout: colour, height (for the light) and gloss (glaze shines, grout doesn't).
     {
-      const tileTex = canvasTex(512, 512, (g, Wd, Hd) => {
-        g.fillStyle = '#e8dcc4'; g.fillRect(0, 0, Wd, Hd)
-        const rr = rng(13), n = 8, s = Wd / n
-        for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-          const band = j === 2
-          const l = band ? 66 + rr() * 6 : 88 + rr() * 5
-          g.fillStyle = band ? `hsl(${140 + rr() * 8},${22 + rr() * 8}%,${l}%)` : `hsl(${40 + rr() * 6},${30 + rr() * 10}%,${l}%)`
-          g.fillRect(i * s + 2, j * s + 2, s - 4, s - 4)
-          const gr = g.createRadialGradient(i * s + s * 0.35, j * s + s * 0.3, 2, i * s + s / 2, j * s + s / 2, s * 0.7)
-          gr.addColorStop(0, 'rgba(255,255,255,.18)'); gr.addColorStop(1, 'rgba(0,0,0,.06)')
-          g.fillStyle = gr; g.fillRect(i * s + 2, j * s + 2, s - 4, s - 4)
-        }
-      }, { repeat: true })
-      tileTex.repeat.set(5, 1)
-      const tileM = new THREE.MeshPhysicalMaterial({ map: tileTex, roughness: 0.22, clearcoat: 0.7, clearcoatRoughness: 0.18 })
-      for (const [x0, x1] of [[-40, WX0], [WX1, 40]]) {
-        const t = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 5.4), tileM); t.position.set((x0 + x1) / 2, 2.7, WZ + 0.42)
-        t.material.map.repeat.set((x1 - x0) / 8, 1); t.receiveShadow = true; sc.add(t)
+      const TW = 256, TH = 128, COLS = 4, ROWS = 6, GROUT = 5, W = TW * COLS, H = TH * ROWS, GREEN_ROW = 1
+      const rr = rng(13)
+      const tiles = [] // one entry per tile: where it is and what it is like
+      for (let j = 0; j < ROWS; j++) for (let i = 0; i < COLS; i++) tiles.push({ x: i * TW + (j % 2 ? TW / 2 : 0), y: j * TH, green: j === GREEN_ROW, tone: rr(), hue: rr(), tiltX: rr() - 0.5, tiltY: rr() - 0.5, speck: rr() })
+      // a tile, drawn at its place and again one repeat to the left, so the half-shifted rows wrap
+      const each = (g, fn) => { for (const t of tiles) for (const dx of [0, -W]) { g.save(); g.translate(t.x + dx + GROUT / 2, t.y + GROUT / 2); fn(g, t, TW - GROUT, TH - GROUT); g.restore() } }
+      const round = (g, w, h, r) => { g.beginPath(); g.roundRect(0, 0, w, h, r) }
+      const colour = canvasTex(W, H, (g) => {
+        g.fillStyle = '#8f8778'; g.fillRect(0, 0, W, H) // grout
+        each(g, (g2, t, w, h) => {
+          round(g2, w, h, 7)
+          g2.fillStyle = t.green ? `hsl(${150 + t.hue * 10},${40 + t.tone * 10}%,${22 + t.tone * 7}%)` : `hsl(${38 + t.hue * 8},${26 + t.tone * 14}%,${84 + t.tone * 6}%)`
+          g2.fill(); g2.save(); g2.clip()
+          // the glaze pools darker at the edges and lighter over the middle
+          const pool = g2.createRadialGradient(w * (0.4 + t.tiltX * 0.3), h * (0.4 + t.tiltY * 0.3), 4, w / 2, h / 2, w * 0.62)
+          pool.addColorStop(0, t.green ? 'rgba(120,200,150,.16)' : 'rgba(255,255,255,.22)'); pool.addColorStop(1, t.green ? 'rgba(0,20,10,.3)' : 'rgba(150,120,70,.2)')
+          g2.fillStyle = pool; g2.fillRect(0, 0, w, h)
+          // a few pinholes and flecks in the glaze
+          const fr = rng(Math.floor(t.speck * 9999) + 1)
+          for (let k = 0; k < 14; k++) { g2.fillStyle = t.green ? `rgba(0,0,0,${0.06 + fr() * 0.1})` : `rgba(120,90,50,${0.05 + fr() * 0.1})`; g2.beginPath(); g2.arc(fr() * w, fr() * h, 0.6 + fr() * 1.4, 0, 7); g2.fill() }
+          g2.restore()
+        })
+      }, { repeat: true, aniso: 8 })
+      const height = canvasTex(W, H, (g) => {
+        g.fillStyle = '#000'; g.fillRect(0, 0, W, H)
+        each(g, (g2, t, w, h) => {
+          round(g2, w, h, 7); g2.save(); g2.clip()
+          // each tile sits at its own slight tilt
+          const tilt = g2.createLinearGradient(0, 0, w * (0.5 + t.tiltX), h * (0.5 + t.tiltY))
+          const a = Math.round(168 + t.tiltX * 26), b = Math.round(168 + t.tiltY * 26)
+          tilt.addColorStop(0, `rgb(${a},${a},${a})`); tilt.addColorStop(1, `rgb(${b},${b},${b})`)
+          g2.fillStyle = tilt; g2.fillRect(0, 0, w, h)
+          // pillowed: the edges roll off
+          g2.lineWidth = 16; g2.strokeStyle = 'rgba(0,0,0,.32)'; g2.filter = 'blur(6px)'; round(g2, w, h, 7); g2.stroke(); g2.filter = 'none'
+          g2.restore()
+        })
+      }, { srgb: false, repeat: true, aniso: 8 })
+      const gloss = canvasTex(W, H, (g) => {
+        g.fillStyle = '#e6e6e6'; g.fillRect(0, 0, W, H) // grout: matt
+        each(g, (g2, t, w, h) => { round(g2, w, h, 7); const v = Math.round(34 + t.tone * 26); g2.fillStyle = `rgb(${v},${v},${v})`; g2.fill() }) // glaze: glossy, some tiles more than others
+      }, { srgb: false, repeat: true, aniso: 8 })
+      const tileM = new THREE.MeshPhysicalMaterial({ map: colour, bumpMap: height, bumpScale: 2.2, roughnessMap: gloss, roughness: 1, clearcoat: 0.5, clearcoatRoughness: 0.12, envMapIntensity: 1.3 })
+      // every panel takes its tiles from the same wall-wide grid (8 units by 5.4 to one repeat), so courses line up
+      const panel = (x0, x1, y0, y1) => {
+        const geo = new THREE.PlaneGeometry(x1 - x0, y1 - y0), uv = geo.attributes.uv
+        for (let k = 0; k < uv.count; k++) uv.setXY(k, (x0 + uv.getX(k) * (x1 - x0)) / 8, (y0 + uv.getY(k) * (y1 - y0)) / 5.4)
+        const t = new THREE.Mesh(geo, tileM); t.position.set((x0 + x1) / 2, (y0 + y1) / 2, WZ + 0.42); t.receiveShadow = true; sc.add(t)
       }
-      const under = new THREE.Mesh(new THREE.PlaneGeometry(WX1 - WX0, WY0), tileM); under.position.set((WX0 + WX1) / 2, WY0 / 2, WZ + 0.42); under.receiveShadow = true; sc.add(under)
+      panel(-40, WX0, 0, 5.4); panel(WX1, 40, 0, 5.4); panel(WX0, WX1, 0, WY0)
     }
     // A plant on the sill (a terracotta pot, a few leaves).
     {
@@ -332,34 +365,70 @@ export default class Counter extends Stage {
     Object.assign(this.sunL.shadow.camera, { left: -22, right: 22, top: 18, bottom: -18, near: 1, far: 120 })
     this.sunL.shadow.bias = -0.0005; this.sunL.shadow.normalBias = 0.03; this.sunL.shadow.radius = 0.6
     sc.add(this.sunL, this.sunL.target)
-    this.hemi = new THREE.HemisphereLight('#fff4e0', '#a08060', 0.5); sc.add(this.hemi)
-    sc.environmentIntensity = 0.32
-    this.fill = new THREE.PointLight('#ffd9a0', 11, 40, 1.6); this.fill.position.set(-8, 8, 10); sc.add(this.fill)
+    this.hemi = new THREE.HemisphereLight('#ffe9cc', '#6a4a30', 0.2); sc.add(this.hemi)
+    sc.environmentIntensity = 0.2
+    this.fill = new THREE.PointLight('#ffc98a', 5, 40, 1.6); this.fill.position.set(-8, 8, 10); sc.add(this.fill)
+    // The box's own light: low evening sun from a second window off to the left, a warm pool on the carton with the
+    // wall falling away dark behind it (the opening shot had no direct light at all).
+    this.boxKey = new THREE.SpotLight('#ffa850', 0, 60, 0.5, 0.35, 1.1)
+    this.boxKey.map = canvasTex(512, 512, (g, W, H) => {
+      g.fillStyle = '#000'; g.fillRect(0, 0, W, H)
+      g.filter = 'blur(3px)'
+      g.save(); g.translate(W / 2, H / 2); g.rotate(-0.1)
+      g.fillStyle = '#fff'; g.fillRect(-150, -185, 300, 370)                                   // the window
+      g.fillStyle = '#000'; g.fillRect(-7, -185, 14, 370); g.fillRect(-150, -30, 300, 13)       // its bars
+      g.restore()
+      g.filter = 'blur(7px)'; g.fillStyle = 'rgba(0,0,0,.9)'
+      const r = rng(41)
+      for (let i = 0; i < 26; i++) { g.save(); g.translate(W * (0.5 + r() * 0.42), H * (0.08 + r() * 0.5)); g.rotate(r() * 3); g.beginPath(); g.ellipse(0, 0, 26 + r() * 22, 9 + r() * 7, 0, 0, 7); g.fill(); g.restore() } // leaves outside it
+      g.filter = 'none'
+    })
+    this.boxKey.castShadow = true; this.boxKey.shadow.mapSize.set(1024, 1024); this.boxKey.shadow.bias = -0.0006; this.boxKey.shadow.normalBias = 0.03; this.boxKey.shadow.radius = 3
+    sc.add(this.boxKey, this.boxKey.target)
+    // a cool whisper from the room side, so shadows keep a colour of their own
+    this.cool = new THREE.PointLight('#8fb4ff', 0, 40, 1.4); sc.add(this.cool)
+    // The cut on the board: a low warm key raking across the flesh from the window side, and a small rim behind it.
+    this.cutKey = new THREE.SpotLight('#ffcf8a', 0, 40, 0.42, 0.8, 1.1); sc.add(this.cutKey, this.cutKey.target)
+    this.cutRim = new THREE.SpotLight('#fff0d0', 0, 40, 0.3, 0.7, 1.1); sc.add(this.cutRim, this.cutRim.target)
     sc.environment = engine.env({ top: '#fff4dc', mid: '#f2dcb4', bottom: '#8a6a48', sun: '#fff0d0', sunDir: new THREE.Vector3(0.4, 0.5, -1), sunPower: 6 })
     // Soft shafts from the window through the room's dust, turned with the sun.
-    this.beamMat = beamMaterial('#fff0d0', 0.05)
+    this.beamMat = beamMaterial('#ffe2b0', 0.1)
     this.beams = [[-0.5, 8], [3, 6.5], [6.5, 5]].map(([x, y]) => { const b = beam(2.4, 34, this.beamMat, new THREE.Vector3(0, -1, 0)); b.position.set(x, y, WZ + 0.4); sc.add(b); return b })
     this.rayFrom = new THREE.Vector3((WX0 + WX1) / 2, (WY0 + WY1) / 2, WZ - 4)
     this.look.rayThreshold = 1.7; this.look.rayTint.setRGB(1, 0.9, 0.7)
 
     // The box from the warehouse, open, straw inside.
-    const kraft = new THREE.MeshStandardMaterial({ map: kraftTexture(512, 256, (g, W, H) => drawWordmark(g, W / 2, H * 0.42, 70), 7), roughness: 0.85 })
+    const kraft = new THREE.MeshStandardMaterial({ map: kraftTexture(512, 336, (g, W, H) => drawWordmark(g, W / 2, H * 0.5, 70), 7), roughness: 0.85 })
     const kraftIn = new THREE.MeshStandardMaterial({ map: kraftTexture(256, 256, null, 9), color: '#e2c79a', roughness: 0.9 })
     this.box = new THREE.Group()
-    const BW = 5.2, BD = 3.6, BH = 2.6
+    const BW = 5.2, BD = 3.6, BH = 3.4 // a carton's proportions (at 2.6 high, with a stub of a front flap, it read as a box cut in half)
     const side = (w, h, x, z, ry, m) => { const s = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.08), [kraftIn, kraftIn, kraftIn, kraftIn, m, kraftIn]); s.position.set(x, h / 2, z); s.rotation.y = ry; s.castShadow = true; s.receiveShadow = true; this.box.add(s) }
     side(BW, BH, 0, BD / 2, 0, kraft); side(BW, BH, 0, -BD / 2, Math.PI, kraft); side(BD, BH, BW / 2, 0, Math.PI / 2, kraftIn); side(BD, BH, -BW / 2, 0, -Math.PI / 2, kraftIn)
     const bottom = new THREE.Mesh(new THREE.BoxGeometry(BW, 0.08, BD), kraftIn); bottom.position.y = 0.04; this.box.add(bottom)
-    const straw = strawMesh(Math.round(600 * T.particles + 200), -BW / 2 + 0.2, BW / 2 - 0.2, -BD / 2 + 0.2, BD / 2 - 0.2, BH - 0.7, 12, 0.5)
+    const straw = strawMesh(Math.round(600 * T.particles + 200), -BW / 2 + 0.2, BW / 2 - 0.2, -BD / 2 + 0.2, BD / 2 - 0.2, BH - 1.35, 12, 0.5)
+    // kept inside the carton: strands are up to two units long, and scattered wall to wall they stuck out through the
+    // cardboard. The scatter is drawn in from the walls, over a flat bed of straw.
+    straw.scale.set(0.72, 1, 0.6)
     this.box.add(straw)
+    { const bedTex = strawBedTexture(); const sb = new THREE.Mesh(new THREE.PlaneGeometry(BW - 0.16, BD - 0.16), new THREE.MeshStandardMaterial({ map: bedTex, roughness: 0.8 })); sb.rotation.x = -Math.PI / 2; sb.position.y = BH - 1.42; sb.receiveShadow = true; this.box.add(sb) }
     this.lid = new THREE.Mesh(new THREE.BoxGeometry(BW + 0.12, 0.1, BD + 0.12), [kraftIn, kraftIn, new THREE.MeshStandardMaterial({ map: kraftTexture(512, 360, (g, W, H) => drawWordmark(g, W / 2, H * 0.45, 64), 8), roughness: 0.85 }), kraftIn, kraftIn, kraftIn])
     this.lid.castShadow = true
     this.box.add(this.lid)
+    // An opened carton: its four flaps folded back (front and sides out and down a little, the back one up against the wall).
+    {
+      const flap = (w, d, x, z, ry, tilt) => { const hinge = new THREE.Group(); hinge.position.set(x, BH, z); hinge.rotation.y = ry; const f = new THREE.Mesh(new THREE.BoxGeometry(w, 0.06, d), kraftIn); f.position.z = d / 2; f.castShadow = true; f.receiveShadow = true; const tip = new THREE.Group(); tip.rotation.x = tilt; tip.add(f); hinge.add(tip); this.box.add(hinge) }
+      // all four full flaps, opened up and out the way a carton's are; the front one low enough to see in over
+      flap(BW - 0.1, BD / 2, 0, BD / 2, 0, -0.42)             // front
+      flap(BW - 0.1, BD / 2, 0, -BD / 2, Math.PI, -1.25)      // back: up against the wall
+      flap(BD - 0.1, BD / 2, BW / 2, 0, Math.PI / 2, -0.72)   // right
+      flap(BD - 0.1, BD / 2, -BW / 2, 0, -Math.PI / 2, -0.66) // left
+    }
     this.box.position.set(-17, 0, -6.6); this.box.rotation.y = 0.3
     sc.add(this.box)
     // Two more mangoes still in the straw (the rest of the order).
     const m2 = new Mango({ ripe: 0.55, leaf: false, detail: 0.6, stem: false }), m3 = new Mango({ ripe: 0.7, leaf: false, detail: 0.6, stem: false })
-    m2.position.set(-1.2, BH - 0.35, 0.3); m2.rotation.set(-Math.PI / 2, 0, 1.7); m3.position.set(1.3, BH - 0.4, -0.4); m3.rotation.set(-Math.PI / 2, 0, 1.3)
+    // nested in the straw, below the rim (they used to sit on top of the box, proud of it)
+    m2.position.set(-1.35, BH - 0.98, 0.35); m2.rotation.set(-Math.PI / 2, 0, 1.7); m3.position.set(1.45, BH - 1.02, -0.45); m3.rotation.set(-Math.PI / 2, 0, 1.3)
     this.box.add(m2, m3)
 
     // The bowl: glazed stoneware, cream inside, deep green outside, a gold lip.
@@ -446,16 +515,16 @@ export default class Counter extends Stage {
     const R = (a) => { const f = ((a / (Math.PI * 2)) % 1 + 1) % 1 * N, i = Math.floor(f), k = f - i; const p = outline[i % N].clone().lerp(outline[(i + 1) % N], k); return p.distanceTo(c) }
     const ang = (x, y) => Math.atan2(y - c.y, x - c.x)
     const Dmax = 0.5
-    const cells = [], step = 0.19
+    const cells = [], step = 0.29 // about seven cuts across the cheek, as a hand scores it (it was a fine grid of little pillars)
     for (let y = -1.2; y <= 1.2; y += step) for (let x = -1; x <= 1; x += step) {
       const cx = x + step / 2, cy = y + step / 2, a = ang(cx, cy), rho = Math.hypot(cx - c.x, cy - c.y) / R(a)
-      if (rho < 0.9) cells.push({ x: cx, y: cy, rho })
+      if (rho < 0.96) cells.push({ x: cx, y: cy, rho }) // right out to the skin, the outer ones smaller
     }
     this.hh = { c, R, Dmax, cells, step }
-    const geo = new RoundedBoxGeometry(1, 1, 1, 2, 0.12)
-    const m = new THREE.InstancedMesh(geo, fleshMaterial(), cells.length)
+    const geo = new RoundedBoxGeometry(1, 1, 1, 3, 0.17)
+    const m = new THREE.InstancedMesh(geo, fleshMaterial(null, true), cells.length)
     const col = new THREE.Color()
-    cells.forEach((cl, i) => m.setColorAt(i, col.setHSL(0.1 + (Math.sin(i * 1.7) * 0.012), 1, 0.5 + 0.06 * Math.sin(i * 3.1) - cl.rho * 0.06)))
+    cells.forEach((cl, i) => m.setColorAt(i, col.setHSL(0.098 + Math.sin(i * 1.7) * 0.008, 1, 0.47 + 0.03 * Math.sin(i * 3.1) - cl.rho * 0.05))) // saffron gold, a touch deeper towards the skin
     m.castShadow = true; m.receiveShadow = true
     // Shell: rings × angles, deformed on the CPU each frame.
     const rings = 14, segs = 72
@@ -465,7 +534,10 @@ export default class Counter extends Stage {
     const shellM = mangoMaterial({ ripe: 1 }); shellM.side = THREE.DoubleSide
     const shell = new THREE.Mesh(sg, shellM)
     shell.castShadow = true; shell.receiveShadow = true
-    this.hedge = new THREE.Group(); this.hedge.add(m, shell)
+    // between the cubes: the flesh left on the skin, a hair inside the shell so it only shows from the cut side
+    const bed = new THREE.Mesh(sg, new THREE.MeshPhysicalMaterial({ color: '#ee8f0e', roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3, side: THREE.DoubleSide, emissive: new THREE.Color('#ff7a00'), emissiveIntensity: 0.08 }))
+    bed.receiveShadow = true; this.bed = bed
+    this.hedge = new THREE.Group(); this.hedge.add(m, shell, bed)
     this.hedgeCubes = m; this.shell = shell; this.shellRings = rings; this.shellSegs = segs
     this.scene.add(this.hedge)
   }
@@ -473,19 +545,22 @@ export default class Counter extends Stage {
   /** e: 0 natural (flat cut face, skin dome below) … 1 inverted. score: 0 a solid face … 1 cut into cubes. */
   setHedge(e, score) {
     const { c, R, Dmax, cells, step } = this.hh
-    const lift = lerp(-1, 0.45, e) // shell height factor (negative: dome below the cut face)
+    const lift = lerp(-1, 0.9, e) // shell height factor (negative: dome below the cut face; pushed right through, the cheek stands up in a dome and the cubes fan out)
     const g = (rho) => Dmax * Math.sqrt(Math.max(0.03, 1 - rho * rho))
     const rhoAt = (x, y) => Math.min(0.995, Math.hypot(x - c.x, y - c.y) / R(Math.atan2(y - c.y, x - c.x)))
     const h = (x, y) => lift * g(rhoAt(x, y))
     const n = this.v, up = new THREE.Vector3(0, 0, 1), base = new THREE.Vector3(), sc = new THREE.Vector3()
-    const gap = lerp(1.0, 0.88, score)
+    const gap = lerp(1.0, 0.86, score)
     cells.forEach((cl, i) => {
       const z0 = h(cl.x, cl.y), eps = 0.02
       n.set(-(h(cl.x + eps, cl.y) - h(cl.x - eps, cl.y)) / (2 * eps), -(h(cl.x, cl.y + eps) - h(cl.x, cl.y - eps)) / (2 * eps), 1).normalize()
-      const len = g(cl.rho)
+      const jig = Math.sin(i * 12.9898) * 43758.5453, j1 = jig - Math.floor(jig), j2 = (jig * 1.7) - Math.floor(jig * 1.7)
+      const len = g(cl.rho) * (0.66 + 0.14 * j1)
+      n.x += (j1 - 0.5) * 0.1 * e; n.y += (j2 - 0.5) * 0.1 * e; n.normalize() // each cube leans its own way once the cheek is pushed through
       this.q.setFromUnitVectors(up, n)
       base.set(cl.x, cl.y, z0).addScaledVector(n, len / 2)
-      this.m4.compose(base, this.q, sc.set(step * gap, step * gap, len))
+      const edge = 1 - 0.42 * smooth(0.78, 0.96, cl.rho)
+      this.m4.compose(base, this.q, sc.set(step * gap * edge, step * gap * edge, Math.max(len, 0.09)))
       this.hedgeCubes.setMatrixAt(i, this.m4)
     })
     this.hedgeCubes.instanceMatrix.needsUpdate = true
@@ -500,7 +575,10 @@ export default class Counter extends Stage {
   }
 
   update(i, tt, time, dt) {
-    const t = clamp(tt, -0.2, 1)
+    // The chapter's own clock: the four days take a little less of the scroll and the cut is over by 0.84, so the opened
+    // cheek is held on screen before the chapter closes (every beat below keeps its old number on this clock).
+    const tr = clamp(tt, -0.2, 1)
+    const t = tr < 0.2 ? tr : tr < 0.54 ? lerp(0.2, 0.62, (tr - 0.2) / 0.34) : tr < 0.84 ? lerp(0.62, 0.94, (tr - 0.54) / 0.3) : lerp(0.94, 1, (tr - 0.84) / 0.16)
     // Phases.
     const open = smoother(-0.1, 0.06, t)                  // the lid lifts away
     const toBowl = easeInOut(inv(0.04, 0.2, t))           // out of the box, into the bowl
@@ -509,8 +587,8 @@ export default class Counter extends Stage {
     const knife = inv(0.68, 0.75, t)                      // the knife passes
     const cut = t >= 0.715
     const flip = smooth(0.74, 0.808, t)                   // the top cheek turns over (an even turn: the cubic ease threw it across in a blink)
-    const score = smooth(0.8, 0.85, t)
-    const evert = easeInOut(inv(0.85, 0.94, t))           // pushed inside out
+    const score = smooth(0.79, 0.83, t)
+    const evert = easeInOut(inv(0.825, 0.9, t))           // pushed inside out (done by 0.9, so the opened cheek is held before the chapter closes)
     const ripe = lerp(0.62, 1.0, smooth(0.0, 1.0, days))
 
     // Sunlight: four sweeps across the room, a dip between days.
@@ -541,17 +619,17 @@ export default class Counter extends Stage {
       const xw = m.x + this.sun.x * tt2, yw = m.y + this.sun.y * tt2
       this.mangoLit = smooth(-3, -1.8, xw) * (1 - smooth(7.8, 9, xw)) * smooth(1, 1.8, yw) * (1 - smooth(5.6, 6.3, yw)) * dip
     }
-    this.sunL.intensity = 8 * (0.04 + 0.96 * Math.pow(dip, 0.6)) * (1 - 0.6 * smooth(0.6, 0.68, t)) // softer for the close board shots: wet flesh and steel catch it
-    this.sunL.color.setRGB(1, lerp(0.6, 0.84, dip), lerp(0.32, 0.58, dip))
+    this.sunL.intensity = 11 * (0.04 + 0.96 * Math.pow(dip, 0.6)) * (1 - 0.7 * smooth(0.6, 0.68, t)) // softer for the close board shots: wet flesh and steel catch it
+    this.sunL.color.setRGB(1, lerp(0.5, 0.78, dip), lerp(0.22, 0.44, dip))
     this.sunCol.copy(this.sunL.color)
     this.outsideM.color.setRGB(lerp(0.6, 1.35, dip), lerp(0.5, 1.3, dip), lerp(0.45, 1.15, dip))
-    this.hemi.intensity = lerp(0.24, 0.42, dip)
+    this.hemi.intensity = lerp(0.1, 0.22, dip)
     // Each day the light is a little warmer, as the fruit deepens.
     const warm = smooth(0.15, 0.7, t)
     this.sunL.color.multiply(new THREE.Color(1, 1 - 0.1 * warm, 1 - 0.32 * warm)); this.sunCol.copy(this.sunL.color)
     this.hemi.color.setRGB(1, lerp(0.96, 0.88, warm), lerp(0.88, 0.7, warm))
     this.fill.color.setRGB(1, lerp(0.85, 0.74, warm), lerp(0.63, 0.45, warm))
-    this.look.exposure = lerp(0.85, 0.95, dip)
+    this.look.exposure = lerp(0.92, 1.04, dip)
 
     // The box: lid off, then it slides back out of the way.
     // The box is already open on the counter. Its lid used to float up off it as a loose board and blink out; with the
@@ -565,14 +643,14 @@ export default class Counter extends Stage {
     const M = this.mango
     M.ripe = ripe
     this.box.updateMatrixWorld(true)
-    const inBox = this.box.localToWorld(new THREE.Vector3(0.1, 2.8, 0.1))
+    const inBox = this.box.localToWorld(new THREE.Vector3(0.05, 2.5, 0.05))
     const inBowl = BOWL.clone().add(new THREE.Vector3(0.1, 0.9, 0.05))
     const onBoard = BOARD.clone().add(new THREE.Vector3(0, 0.56, -1.2))
     const p = new THREE.Vector3()
     if (toBoard <= 0) {
       p.copy(inBox).lerp(inBowl, toBowl); p.y += Math.sin(Math.PI * toBowl) * 3.2
       M.position.copy(p)
-      M.rotation.set(lerp(-1.3, -Math.PI / 2 + 0.22, toBowl), lerp(0.3, 0.05, toBowl), lerp(1.4, 1.15, toBowl) + Math.sin(toBowl * Math.PI) * 0.6)
+      M.rotation.set(lerp(-Math.PI / 2 + 0.06, -Math.PI / 2 + 0.22, toBowl), lerp(0.3, 0.05, toBowl), lerp(1.4, 1.15, toBowl) + Math.sin(toBowl * Math.PI) * 0.6)
     } else {
       p.copy(inBowl).lerp(onBoard, toBoard); p.y += Math.sin(Math.PI * toBoard) * 1.1
       M.position.copy(p)
@@ -584,6 +662,16 @@ export default class Counter extends Stage {
     this.bounce.intensity = (0.8 + 3.5 * (this.mangoLit || 0)) * (1 - toBoard) * (cut ? 0 : 1)
     this.rimSpot.position.copy(M.position).add(new THREE.Vector3(3.5, 4.2, -7.5)); this.rimSpot.target.position.copy(M.position)
     this.rimSpot.intensity = 26 * (0.25 + 0.75 * dip) * (1 - smooth(0.6, 0.66, t))
+    // The opening's pool of low sun on the carton, and the cut's raking key and rim (these spots fall off slowly, decay 1.1,
+    // so tens to a couple of hundred stand beside the sun).
+    {
+      const bk = 1 - smoother(0.14, 0.3, t), ck = smooth(0.64, 0.74, t), bp = this.box.position
+      this.boxKey.position.set(bp.x - 8, 9.5, bp.z + 11); this.boxKey.target.position.set(bp.x + 0.6, 2.4, bp.z - 0.6)
+      this.boxKey.intensity = 200 * bk; this.boxKey.castShadow = bk > 0.01; this.boxKey.visible = bk > 0.001
+      this.cutKey.position.copy(onBoard).add(this.v.set(-5.5, 4.2, -6.5)); this.cutKey.target.position.copy(onBoard).add(this.v.set(-0.1, 0, 1.6)); this.cutKey.intensity = 30 * ck
+      this.cutRim.position.copy(onBoard).add(this.v.set(6, 3, -5)); this.cutRim.target.position.copy(onBoard).add(this.v.set(-0.1, 0, 1.6)); this.cutRim.intensity = 44 * ck
+      this.cool.position.set(lerp(bp.x + 10, 11, ck), 6, lerp(8, 10, ck)); this.cool.intensity = 14 * bk + 10 * ck
+    }
 
     // After the cut: two pieces where the fruit lay; the top cheek lifts and turns over beside it.
     M.updateMatrixWorld(true)
@@ -609,6 +697,7 @@ export default class Counter extends Stage {
       this.hedge.position.set(onBoard.x - 0.1, BOARD.y + lerp(this.hh.Dmax, 0.04, evert), onBoard.z + 2.6)
       this.hedge.rotation.set(-Math.PI / 2, 0, 1.35)
       this.setHedge(evert, score)
+      this.bed.position.z = lerp(-0.012, 0.012, evert) // on the cube side of the skin, whichever way up it is
       this.shell.material.userData.u.uRipe.value = ripe
     }
 
@@ -632,7 +721,7 @@ export default class Counter extends Stage {
     if (juice > 0) {
       const base = this.hedge.visible ? this.hedge.position : onBoard
       this.dropSeeds.forEach(([a, b, c2, d], k) => {
-        const s = 0.025 + d * 0.05
+        const s = k < 12 ? 0.012 + d * 0.02 : 0 // a few beads of juice, not a scatter of balls
         const pos = this.v.set(base.x + (a - 0.5) * 1.4, base.y + 0.1 + b * 0.25 + evert * 0.35 * (1 - Math.abs(a - 0.5) * 2), base.z + (c2 - 0.5) * 1.8)
         this.m4.compose(pos, this.q.identity(), new THREE.Vector3(s, s * 0.7, s))
         this.drops.setMatrixAt(k, this.m4)
@@ -642,11 +731,11 @@ export default class Counter extends Stage {
 
     // Camera: a warm wide on the box and bowl, a slow push while the days pass, then close on the board.
     const cam = new THREE.Vector3(), tgt = new THREE.Vector3()
-    const A = { c: new THREE.Vector3(-14, 6.2, 5.1), t: new THREE.Vector3(-15.8, 2.0, -6.2) }
+    const A = { c: new THREE.Vector3(-13.4, 9.6, 4.8), t: new THREE.Vector3(-16.3, 2.7, -6.3) } // high enough to look down into the open carton
     const B = { c: new THREE.Vector3(2.2, 3.9, 10.6), t: new THREE.Vector3(0.4, 1.9, -1.6) }
     const C = { c: new THREE.Vector3(6.2, 5.4, 7.6), t: onBoard.clone().add(new THREE.Vector3(0, -0.1, 0.6)) }
-    const D = { c: new THREE.Vector3(5.6, 4.8, 8.6), t: onBoard.clone().add(new THREE.Vector3(0, -0.2, 2.2)) }
-    const k1 = smoother(0.03, 0.24, t), k2 = smoother(0.57, 0.715, t), k3 = smoother(0.78, 0.92, t)
+    const D = { c: new THREE.Vector3(6.1, 2.8, 7.8), t: onBoard.clone().add(new THREE.Vector3(-0.1, 0.1, 2.5)) } // low and close on the opened cheek, the window behind it
+    const k1 = smoother(0.03, 0.24, t), k2 = smoother(0.57, 0.715, t), k3 = smoother(0.76, 0.9, t)
     cam.copy(A.c).lerp(B.c, k1).lerp(C.c, k2).lerp(D.c, k3)
     tgt.copy(A.t).lerp(B.t, k1).lerp(C.t, k2).lerp(D.t, k3)
     cam.x += Math.sin(time * 0.15) * 0.15
@@ -655,9 +744,9 @@ export default class Counter extends Stage {
     this.post.focus = cam.distanceTo(subject); this.post.range = lerp(5, 3, k2); this.post.dof = lerp(7, 10, k2)
     this.focus.copy(t < 0.1 ? this.box.position : subject)
 
-    this.look.bloom = lerp(0.45, 0.2, k2); this.look.threshold = lerp(1.6, 3.2, k2); this.look.vig = 0.42; this.look.grain = 0.04
+    this.look.bloom = lerp(0.6, 0.28, k2) * (1 - 0.35 * (1 - smoother(0.14, 0.3, t))); this.look.threshold = lerp(1.3, 2.6, k2); this.look.vig = 0.64; this.look.grain = 0.05
     this.look.exposure *= lerp(1, 0.8, k2)
-    this.grade([0.01, 0.005, 0], [1.02, 0.99, 0.92], 1.08)
+    this.grade([0.004, 0.008, 0.018], [1.07, 1.0, 0.9], 1.14) // cool in the shadows, warm in the light
     this.dust.userData.u.uTime.value = time
 
     // The morning moving: leaves outside sway (their shadows cross the counter), the curtain stirs, the chai steams, the
@@ -679,9 +768,9 @@ export default class Counter extends Stage {
       this.steam.forEach((sp, k) => { sp.rotation.y = Math.atan2(cam.x - sp.position.x, cam.z - sp.position.z) + (k - 0.5) * 0.9 })
       const bd = this.v.copy(this.sun).negate()
       this.beams.forEach((b) => b.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), bd))
-      this.beamMat.uniforms.uOp.value = 0.03 * Math.pow(dip, 1.5) * (1 - smooth(0.58, 0.66, t)) // the shafts cross the lens in the close board shots
+      this.beamMat.uniforms.uOp.value = 0.075 * Math.pow(dip, 1.5) * (1 - smooth(0.58, 0.66, t)) // the shafts cross the lens in the close board shots
       this.beamMat.uniforms.uTime.value = time
-      this.look.rays = 0.3 * Math.pow(dip, 1.2) * (1 - 0.7 * smooth(0.58, 0.66, t))
+      this.look.rays = 0.6 * Math.pow(dip, 1.2) * (1 - 0.7 * smooth(0.58, 0.66, t))
       for (const lm of [this.branchM, this.plantLeafM]) lm.userData.u.uTime.value = time
       this.gardenBok.userData.u.uTime.value = time; this.gardenBok.userData.u.uScale.value = this.engine.h * this.engine.dpr / 900
       this.gardenBok.userData.u.uOp.value = 0.5 * (0.3 + 0.7 * dip)

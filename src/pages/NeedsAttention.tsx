@@ -15,6 +15,7 @@ const STEP_LABEL: Record<string, string> = {
   'whatsapp-templates': 'Reading WhatsApp templates from Meta',
   'partner-followups': 'Queuing Partner Network follow-up alerts',
   farm: 'Queuing farm visit reminders',
+  'bulk-orders': 'Checking bulk order payments and closing unpaid ones',
   refunds: 'Sending refunds',
   'duplicate-payments': 'Refunding second payments',
   preorders: 'Preorder jobs',
@@ -108,7 +109,7 @@ export default function NeedsAttention({ whenClear = null }: { whenClear?: React
             : a.kind === 'keep'
               ? `Preorder ${a.preorder.number} kept`
               : a.kind === 'recount'
-                ? `Preorder capacity for ${a.week.sku} recounted`
+                ? `Preorder capacity for ${boxesOf(a.week.sku)} recounted`
                 : `Refund for ${a.refund.number} recorded as paid back`,
       ),
     onError: (err) => {
@@ -313,7 +314,7 @@ export default function NeedsAttention({ whenClear = null }: { whenClear?: React
       )),
       ...preorderDrift.map((w) => (
         <li key={`pre-drift-${w.sku}-${w.weekStart}`}>
-          <strong>Preorder capacity disagrees with the bookings</strong> for {w.sku} in the week of {date(w.weekStart)}
+          <strong>Preorder capacity disagrees with the bookings</strong> for {boxesOf(w.sku)} in the week of {date(w.weekStart)}
           <span className="muted">
             {' '}
             (taken {w.reserved}, booked {w.booked})
@@ -323,7 +324,7 @@ export default function NeedsAttention({ whenClear = null }: { whenClear?: React
             <>
               {' '}
               <button type="button" className="btn btn-small" onClick={() => setAct({ kind: 'recount', week: w })}>
-                Recount from the bookings<span className="sr-only"> for {w.sku}, week of {date(w.weekStart)}</span>
+                Recount from the bookings<span className="sr-only"> for {boxesOf(w.sku)}, week of {date(w.weekStart)}</span>
               </button>
             </>
           ) : null}
@@ -391,6 +392,37 @@ export default function NeedsAttention({ whenClear = null }: { whenClear?: React
         ) : null}
       </li>
     )) },
+    { key: 'preorder-plan', title: 'Pre-order plan', items: [
+      ...(a.preorderWeeksOver ?? []).map((w) => (
+        <li key={`over-${w.weekStart}-${w.variety}`}>
+          <strong>{w.variety} is {w.over.toLocaleString('en-IN')} kg over</strong> in the week of {date(w.weekStart)}
+          <span className="muted"> ({w.booked.toLocaleString('en-IN')} kg booked, {w.limit.toLocaleString('en-IN')} kg expected)</span>. Open the{' '}
+          <Link to="/preorders">Pre-order plan</Link> to move the newest orders to the next week (it shows who moves first).
+        </li>
+      )),
+      ...(a.preorderDelayedOften ?? []).map((p) => (
+        <li key={`often-${p.id}`}>
+          <strong>Pre-order {p.number} has been delayed {p.delayCount} times</strong>
+          {p.customerName ? ` (${p.customerName})` : ''}
+          <span className="muted">: first promised the week of {date(p.firstWeek)}, now the week of {date(p.weekStart)}</span>. Consider calling the customer;
+          they can cancel for a full refund until it is packed. <Link to="/preorders?tab=bookings&filter=delayed">See delayed pre-orders</Link>
+        </li>
+      )),
+      ...(a.delayRefunds ?? []).map((r) => (
+        <li key={`delay-refund-${r.id}`}>
+          <strong>Refund of {rupees(r.amount)} not through yet</strong> for pre-order {r.number}
+          {r.order ? <> (order <Link to={`/orders/${r.order.id}`}>{r.order.number}</Link>)</> : null}, cancelled by the customer after we delayed it
+          <span className="muted"> on {dateTime(r.cancelledAt)}</span>. The refund job retries it; check Refunds if it stays here.
+        </li>
+      )),
+    ] },
+    { key: 'farm-visits', title: 'Farm visit enquiries to call', items: a.farmVisitEnquiries?.new ? [
+      <li key="farm-visits">
+        <strong>{a.farmVisitEnquiries.new} new farm visit {a.farmVisitEnquiries.new === 1 ? 'enquiry' : 'enquiries'}</strong>
+        {a.farmVisitEnquiries.oldestAt ? <span className="muted"> (the oldest sent {dateTime(a.farmVisitEnquiries.oldestAt)})</span> : null}. Call them on WhatsApp to plan the visit:{' '}
+        <Link to="/bulk-enquiries?kind=FARM_VISIT&status=NEW">open Farm visit enquiries</Link>.
+      </li>,
+    ] : [] },
     { key: 'no-proof', title: 'Deliveries marked without proof', items: noProof.map(photoItem) },
     { key: 'photos', title: 'Photo deliveries to check', items: photos.map(photoItem) },
     { key: 'messages', title: 'WhatsApp messages not delivered', items: a.failedMessages.map((m) => (
@@ -525,6 +557,8 @@ type StuckRefund = Attention['stuckRefunds'][number]
 const disputeOpen = (r: StuckRefund) => r.state === 'held' && !['won', 'lost', 'closed'].includes(r.dispute?.status ?? 'open')
 type PreorderDecision = NonNullable<Attention['preorderDecisions']>[number]
 type PreorderDrift = NonNullable<Attention['preorderCapacityDrift']>[number]
+/** sku ALL is a week's one limit for every box (preorder_weeks, migration 074). */
+const boxesOf = (sku: string) => (sku === 'ALL' ? 'all boxes' : sku.startsWith('ALL:') ? `${sku.slice(4)} (all its boxes)` : sku)
 /** A manager's way out of one item (each is recorded in the staff activity with its reason). */
 type Act =
   | { kind: 'repair'; drift: LedgerDrift }
@@ -602,7 +636,7 @@ function RecoveryDialog({
       <ReasonDialog
         {...common}
         tone="primary"
-        title={`Recount preorder capacity for ${w.sku}?`}
+        title={`Recount preorder capacity for ${boxesOf(w.sku)}?`}
         label="What you checked"
         confirmLabel="Recount"
         hint="Taken capacity is set to what the live bookings hold. Spots it frees go to the waitlist."

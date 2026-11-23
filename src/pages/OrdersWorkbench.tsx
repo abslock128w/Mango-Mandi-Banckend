@@ -12,7 +12,7 @@ import { usePref } from '../ops/prefs'
 import { dueOf } from '../ops/time'
 import { useNow } from '../ops/useQueue'
 import type { DeliverySlot, OrderListItem, Ripeness } from '../types'
-import { BackorderBadge, DataTable, OrderBadge, PeekDrawer, QueryError, Spinner, rowsToCsv, usePeek, useToast, type Column } from '../ui'
+import { BackorderBadge, PlannedBadge, DataTable, OrderBadge, PeekDrawer, QueryError, Spinner, rowsToCsv, usePeek, useToast, type Column } from '../ui'
 
 /** The URL parameters a view is made of. */
 const VIEW_KEYS = ['status', 'from', 'to', 'q', 'delivery', 'slot', 'unpacked', 'olderThanMinutes'] as const
@@ -205,6 +205,12 @@ export function OrdersWorkbench({ items, canAct }: { items: OrderListItem[]; can
               <BackorderBadge awaiting={o.atRisk} />
             </>
           )}
+          {o.planned && o.status !== 'CANCELLED' && (
+            <>
+              {' '}
+              <PlannedBadge delayed={o.delayed} />
+            </>
+          )}
         </>
       ) },
     { key: 'delivery', header: 'Delivery', sort: (a, b) => a.deliveryDate.localeCompare(b.deliveryDate), cell: (o) => date(o.deliveryDate) },
@@ -330,6 +336,12 @@ function OrderPeek({ id, onClose }: { id: string; onClose: () => void }) {
               <>
                 {' '}
                 <BackorderBadge awaiting={o!.atRisk} />
+              </>
+            )}
+            {o!.planned && o!.status !== 'CANCELLED' && (
+              <>
+                {' '}
+                <PlannedBadge delayed={Boolean(o!.planned.delayedFrom)} waiting={(o!.stock ?? []).length ? false : undefined} />
               </>
             )}{' '}
             · {rupees(o!.total)} · delivery {date(o!.deliveryDate)}

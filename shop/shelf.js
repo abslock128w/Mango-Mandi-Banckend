@@ -106,7 +106,7 @@ function stageFor(v) {
 function boxFor(v, stage, chosen = cardBox[v.name]) {
   // Before the season: the chosen box, else the first with a harvest week open.
   if (preSeason()) return (chosen && v.skus.some((s) => s.sku === chosen) ? chosen : (v.skus.find((s) => preWeeksOf(s.sku).length) || v.skus[0]).sku)
-  if (chosen && v.skus.some((s) => s.sku === chosen) && (qtyOf(chosen, stage) !== 0 || (!v.skus.some((s) => qtyOf(s.sku, stage) > 0) && maxOn(chosen, stage) > 0))) return chosen
+  if (chosen && v.skus.some((s) => s.sku === chosen) && (qtyOf(chosen, stage) !== 0 || (!v.skus.some((s) => qtyOf(s.sku, stage) > 0) && maxOn(chosen, stage) > 0) || (maxOn(chosen, stage) === 0 && planOf(chosen)))) return chosen
   const first = v.skus.find((s) => qtyOf(s.sku, stage) > 0) || (chosen && v.skus.find((s) => s.sku === chosen && maxOn(s.sku, stage) > 0)) || v.skus.find((s) => maxOn(s.sku, stage) > 0) || v.skus.find((s) => s.sku === chosen) || v.skus[0]
   return first.sku
 }
@@ -116,7 +116,7 @@ function boxFor(v, stage, chosen = cardBox[v.name]) {
 function boxCards(v, stage, selected, scope) {
   const i = Math.max(0, v.skus.findIndex((s) => s.sku === selected))
   return `<div class="box-cards" role="group" aria-label="${esc(v.name)} box size" style="--n:${v.skus.length};--i:${i}"><span class="box-lens" aria-hidden="true"></span>${v.skus.map((s) => {
-    const out = !preSeason() && qtyOf(s.sku, stage) === 0 && maxOn(s.sku, stage) === 0 && !bo(), on = s.sku === selected
+    const none = !preSeason() && qtyOf(s.sku, stage) === 0 && maxOn(s.sku, stage) === 0 && !canSource(s.sku, stage), ahead = none && planOf(s.sku), out = none && !ahead, on = s.sku === selected
     return `<button class="box-card" data-box="${esc(v.name)}" data-sku="${esc(s.sku)}" data-scope="${scope}" aria-pressed="${on}" ${out ? 'disabled' : ''}><strong>${esc(String(s.boxSize).replace('kg', ' kg'))}</strong><small>${out ? 'Sold out' : currency(s.price)}</small></button>`
   }).join('')}</div>`
 }
@@ -136,7 +136,10 @@ function pickBox(b) {
   cards.forEach((c) => c.setAttribute('aria-pressed', c === b))
   slideLens(group, '.box-lens', cards.indexOf(b))
   if (b.dataset.scope === 'detail') {
+    const was = detail.sku
     detail.sku = sku
+    // To or from a box fully booked this week: the notice and the button change with it.
+    if (maxOn(sku, detail.stage) === 0 || maxOn(was, detail.stage) === 0) return renderDetail()
     $('#detail-price').innerHTML = `${currency(priceOf(sku))}<small> / box</small>`
     window.Liquid?.pop($('#detail-price'), 0.35)
     return
@@ -173,17 +176,19 @@ function cardAction(v, sku, stage, out) {
   if (!s) return ''
   if (preSeason()) return preCardAction(v, s, st)
   const what = esc(`${boxText(s)} of ${st.stage.toLowerCase()} ${v.name}`)
-  const line = cart.find((x) => x.sku === sku && x.stage === stage)
+  const line = cart.find((x) => x.sku === sku && x.stage === stage && !x.gift)
   const key = `data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-variety="${esc(v.name)}"`
   if (!line && (out || qtyOf(sku, stage) === 0)) {
     const next = nextOf(sku, stage) || (maxOn(sku, stage) > 0 ? nextFor(v, stage) : null)
-    if (next) return `<button class="quick-add is-next" data-add="${esc(v.name)}" ${key} aria-label="${what}: delivered from ${esc(fmtDate(next))}. Add to bag">Add</button>`
+    if (next) return `<button class="quick-add is-next" data-add="${esc(v.name)}" ${key} aria-label="${what}: earliest delivery ${esc(fmtDate(next))}. Add to bag">Add</button>${out ? '' : `<small class="quick-add-why is-next">${icon('info')}<span>Earliest delivery: ${esc(fmtDate(next))}</span></small>`}`
     // Backorders: no stock on any bookable day, still addable; it is sourced and delivered in lead–window days.
-    if (bo() && maxOn(sku, stage) === 0) return `<button class="quick-add is-later" data-add="${esc(v.name)}" ${key} aria-label="${what}: delivered in ${esc(boSpan())}. Add to bag">Add</button>`
+    if (canSource(sku, stage) && maxOn(sku, stage) === 0) return `<button class="quick-add is-later" data-add="${esc(v.name)}" ${key} aria-label="${what}: delivered in ${esc(boSpan())}. Add to bag">Add</button>`
+    // Fully booked this week, with room in the plan: still addable, and checkout offers the days (app.js planOf).
+    if (planOf(sku) && maxOn(sku, stage) === 0) return `<button class="quick-add is-later" data-add="${esc(v.name)}" ${key} aria-label="${what}: this week is fully booked, delivered ${esc(planOf(sku).words)}. Add to bag">Add</button><small class="quick-add-why is-next">${icon('clock')}<span>Fully booked this week. Delivered ${esc(planOf(sku).words)}</span></small>`
     return `<button class="quick-add is-out" disabled aria-label="${what}: sold out for now, not on any delivery day this week">${icon('close')}<span>Sold out</span></button><small class="quick-add-why">Not on any delivery day this week</small>`
   }
   if (!line) return `<button class="quick-add" data-add="${esc(v.name)}" aria-label="Add a ${what} to bag">Add</button>`
-  return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}"${line.qty >= 20 ? ' aria-disabled="true" title="20 boxes is the most per order"' : ''}>+</button></div>${line.qty >= 20 ? `<small class="quick-add-why is-next">${icon('info')}<span>20 max · bulk enquiry for more</span></small>` : ''}`
+  return `<div class="card-stepper" role="group" aria-label="${what} in your bag"><button data-card-qty="-1" ${key} aria-label="Remove one ${what}">−</button><span aria-live="polite">${line.qty}</span><button data-card-qty="1" ${key} aria-label="Add one more ${what}"${line.qty >= 20 ? ' aria-disabled="true" title="20 boxes is the most per order"' : ''}>+</button></div>${line.qty >= 20 ? `<small class="quick-add-why is-next">${icon('info')}<span>20 max · bulk order for more</span></small>` : ''}`
 }
 
 /** Before the season: "Pre-order" (opens the product sheet's booking panel), or disabled with an icon and the reason. */
@@ -195,7 +200,10 @@ function preCardAction(v, s, st) {
     return `<button class="quick-add is-out is-pre" disabled aria-label="${what}: pre-orders open ${when}">${icon('info')}<span>Pre-orders open ${when}</span></button>`
   }
   if (!preWeeksOf(s.sku).length) return `<button class="quick-add is-out is-pre" disabled aria-label="${what}: no harvest weeks open yet">${icon('info')}<span>No weeks open yet</span></button>`
-  return `<button class="quick-add is-pre" data-pre-open="${esc(v.name)}" ${key} aria-label="Pre-order a ${what}">${icon('sun')}<span>Pre-order</span></button>`
+  // The box's own week (its variety's room, migration 078): the API's per-box nextWeek, else the last week it is offered.
+  const own = ((pre.boxes || []).find((b) => b.sku === s.sku) || {}).nextWeek
+  const week = (own && own.weekStart) || (preWeeksOf(s.sku).map((w) => String(w.weekStart)).sort().at(-1)) || null
+  return `<button class="quick-add is-pre" data-pre-open="${esc(v.name)}" ${key} aria-label="Pre-order a ${what}${week ? `, delivered in the week of ${esc(fmtWeek(week))}` : ''}">${icon('sun')}<span>Pre-order${week ? ` · week of ${esc(fmtWeek(week))}` : ''}</span></button>`
 }
 
 /** Redraw the cards' Add/stepper controls from the bag (all, or one), keeping focus on the control that was used. */
@@ -217,12 +225,14 @@ function cardHTML(v) {
   const out = soldOut(v, stage), saved = favorites.includes(v.name), hit = hits.get(v.name)
   const next = out ? nextFor(v, stage) : null
   // Backorders: nothing on any bookable day, but still sold (sourced for the customer).
-  const later = out && !next && bo() && maxOn(sku, stage) === 0
-  const tag = out ? (next ? `Delivers ${fmtDate(next)}` : later ? `Delivered in ${boSpan()}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
+  const later = out && !next && canSource(sku, stage) && maxOn(sku, stage) === 0
+  // Fully booked this week: it can still come from the plan's next days.
+  const ahead = out && !next && !later && maxOn(sku, stage) === 0 ? planOf(sku) : null
+  const tag = out ? (next ? `Earliest delivery: ${fmtDate(next)}` : later ? `Delivered in ${boSpan()}` : ahead ? `Delivered ${ahead.words}` : 'Sold out for now') : hit ? hit.reason : v.c.bestFor
   const name = esc(v.name)
   // Before the season every card is a pre-order: the badge on the photo says so.
-  const badge = preSeason() ? `<span class="product-tag pre-badge">${icon('sun')}Pre-order</span>` : tag ? `<span class="product-tag liquid">${esc(tag)}</span>` : ''
-  return `<article class="product-card${out && !next && !later ? ' sold-out' : ''}${preSeason() ? ' is-pre' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${badge}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+  const badge = preSeason() ? `<span class="product-tag pre-badge">${icon('sun')}Pre-order</span>` : tag ? `<span class="product-tag liquid${out ? ' is-stock' : ''}">${esc(tag)}</span>` : ''
+  return `<article class="product-card${out && !next && !later && !ahead ? ' sold-out' : ''}${preSeason() ? ' is-pre' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${badge}${typeof roCardHTML === 'function' ? roCardHTML(v) : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -342,7 +352,8 @@ function setFilter(value) {
 }
 
 function setOccasion(value) {
-  occasion = value
+  // An occasion the shop no longer offers (the old 'gifting' chip, say) falls back to every mango.
+  occasion = occasionsShown().some((o) => o.id === value) ? value : 'all'
   renderOccasions()
   renderProducts()
 }
@@ -356,9 +367,9 @@ function add(name, sku, stage) {
   sku = sku || boxFor(v, stage)
   const s = skuOf(sku), st = stageOf(stage)
   if (!s) return
-  const match = cart.find((x) => x.sku === sku && x.stage === stage)
+  const match = cart.find((x) => x.sku === sku && x.stage === stage && !x.gift)
   if (match && match.qty >= 20) {
-    toast('For larger quantities, use our bulk enquiry.')
+    toast('For larger quantities, place a bulk order.')
     return
   }
   // Out on the chosen day is fine when a later day has it: the order moves to the first day the whole bag is ready.
@@ -367,15 +378,19 @@ function add(name, sku, stage) {
     toast(why)
     return
   }
-  const before = bagDate()
   if (match) match.qty++
   else cart.push({ sku, stage, qty: 1, weight: kgOf(s) })
-  const after = bagDate()
+  // Gift lines (gift-bag.js) are their own delivery: only your own boxes move your day.
+  const mine = cart.filter((x) => !x.gift), after = bagDate(mine), was = where.deliveryDate, gone = was ? bagBlockers(was, mine) : []
   updateCart()
-  if (!match && isBackorder(cart[cart.length - 1]) && after) toast(`Added. ${st.stage} ${v.name} is being sourced for you, so this order will be delivered ${fmtDate(after)}${after === backorderDate() ? ` (in ${boSpan()})` : ''}.`)
-  else if (after && where.deliveryDate && after > where.deliveryDate && after !== before) toast(`Added. ${st.stage} ${v.name} is ready ${fmtDate(after)}, so this order will be delivered then.`)
+  // The order goes on the first day every box can come (app.js moveBagDate); the bag can offer the old day back.
+  const moved = after && was && after !== was ? moveBagDate(after) : null
+  if (!after && bagPlan(mine)) toast(`Added. ${planFull(planBox(sku, stage))} It can be delivered ${bagPlan(mine).offer.words}: choose a day at checkout.`)
+  else if (!match && isBackorder(cart[cart.length - 1]) && after) toast(`Added. ${st.stage} ${v.name} is being sourced for you, so this order will be delivered ${fmtDate(after)}${after === backorderDate() ? ` (in ${boSpan()})` : ''}.`)
+  else if (moved) toast(`Added. ${movedLine(moved, after, gone)}`)
   else toast(`${String(s.boxSize).replace('kg', ' kg')} of ${st.stage.toLowerCase()} ${v.name} added`)
-  if (window.gsap && !reduced) gsap.fromTo('.bag-count', { scale: 1.5 }, { scale: 1, duration: 0.5, ease: 'elastic.out(1,.5)' })
+  // fly.js takes the pop when its flight (or, under reduced motion, its light) follows this add.
+  if (window.gsap && !reduced && !(window.MMFly && MMFly.took)) gsap.fromTo('.bag-count', { scale: 1.5 }, { scale: 1, duration: 0.5, ease: 'elastic.out(1,.5)' })
 }
 
 /** Photo for a bag, checkout or order row. */
@@ -403,8 +418,10 @@ function renderDetail(focus) {
   if (!v) return
   const c = v.c, st = stageOf(detail.stage), s = skuOf(detail.sku), r = CATALOG.ripeness[detail.stage] || {}
   // Out on the chosen day but ready later: still addable, and the button says the day.
-  const sourced = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !!bo()
-  const never = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !sourced, later = !never && qtyOf(detail.sku, detail.stage) === 0 ? nextOf(detail.sku, detail.stage) : null
+  const sourced = stock !== null && maxOn(detail.sku, detail.stage) === 0 && canSource(detail.sku, detail.stage)
+  // Fully booked this week, with room in the plan: added, and a day is chosen at checkout.
+  const ahead = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !sourced ? planOf(detail.sku) : null
+  const never = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !sourced && !ahead, later = !never && qtyOf(detail.sku, detail.stage) === 0 ? nextOf(detail.sku, detail.stage) : null
   const main = detail.photo || (c.photos && c.photos[detail.stage])
   const gallery = [...new Set([c.photos && c.photos[detail.stage], ...(c.gallery || [])].filter(Boolean))].slice(0, 3)
   const sweet = c.sweetness ? `<span class="sweet-meter" role="img" aria-label="${c.sweetness} out of 5">${[1, 2, 3, 4, 5].map((n) => `<i class="${n <= c.sweetness ? 'on' : ''}"></i>`).join('')}</span>` : ''
@@ -414,10 +431,10 @@ function renderDetail(focus) {
     c.bestFor && ['Best for', esc(c.bestFor)],
   ].filter(Boolean)
   const preMode = preSeason()
-  $('#product-dialog').innerHTML = `<div class="product-detail${preMode ? ' is-pre' : ''}"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2><p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}${preMode ? `<section id="pre-box" class="detail-pre" aria-label="Pre-order ${esc(v.name)}"></section><p class="detail-care">${st.care}</p></div></div>` : `<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
-    const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage) && !bo()
+  $('#product-dialog').innerHTML = `<div class="product-detail${preMode ? ' is-pre' : ''}"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2>${typeof roDetailHTML === 'function' ? roDetailHTML(v) : ''}<p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}${preMode ? `<section id="pre-box" class="detail-pre" aria-label="Pre-order ${esc(v.name)}"></section><p class="detail-care">${st.care}</p></div></div>` : `<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
+    const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage) && !v.skus.some((s) => canSource(s.sku, x.apiStage) || planOf(s.sku))
     return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
-  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? `${icon('close')} Sold out for now` : sourced ? `${icon('bag')} Add · in ${esc(boSpan())}` : later ? `${icon('bag')} Add · delivers ${esc(fmtDate(later))}` : `${icon('bag')} Add to bag`}</button><p class="detail-care">${st.care}</p></div></div>`}`
+  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}${ahead ? `<div class="bag-moved co-moved is-plan" role="status"><span class="bag-moved-icon" aria-hidden="true">${icon('clock')}</span><p><strong>${esc(planFull(planBox(detail.sku, detail.stage)))}</strong> It can be delivered ${esc(ahead.words)}: choose a day at checkout.</p></div>` : ''}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? `${icon('close')} Sold out for now` : ahead ? `${icon('bag')} Add · delivered ${esc(ahead.words)}` : sourced ? `${icon('bag')} Add · in ${esc(boSpan())}` : later ? `${icon('bag')} Add · earliest delivery ${esc(fmtDate(later))}` : `${icon('bag')} Add to bag`}</button><p class="detail-care">${st.care}</p></div></div>`}`
   if (preMode) preDetail(v.name, detail.sku, detail.stage)
   if (focus) $(focus, $('#product-dialog'))?.focus()
 }
@@ -434,7 +451,7 @@ document.addEventListener('click', (e) => {
     const { sku, stage, variety } = b.dataset
     if (b.dataset.cardQty === '1') add(variety, sku, stage)
     else {
-      const i = cart.findIndex((x) => x.sku === sku && x.stage === stage)
+      const i = cart.findIndex((x) => x.sku === sku && x.stage === stage && !x.gift)
       if (i < 0) return
       if (--cart[i].qty <= 0) cart.splice(i, 1)
       updateCart()

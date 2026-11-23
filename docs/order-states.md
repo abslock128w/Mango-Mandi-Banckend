@@ -7,7 +7,9 @@ goes wrong. The code is the source: `ORDER_TRANSITIONS` in
 
 **The refund rule.** MandiMangoes refunds in two cases only:
 
-1. a customer cancels their own paid order before it is packed (not a paid
+1. a customer cancels their own paid order within 4 hours of placing it and
+   before it is packed (`CUSTOMER_CANCEL_HOURS` in `orders.js`; after that the
+   API answers `409 CANCEL_WINDOW_CLOSED`; not a paid
    pre-order, or the order it became: pre-orders are non-refundable once paid;
    bookings made before that rule keep their refund);
 2. a manager cancels a paid order or booking that we cannot deliver.
@@ -44,9 +46,9 @@ paid, and a payment for the wrong amount. Those refunds are automatic.
 | `PAYMENT_PENDING` | `CONFIRMED` | The payment is captured (webhook, Checkout reply, or the reconcile loop). |
 | `PAYMENT_PENDING` | `CANCELLED` | The hold runs out unpaid, the payment cannot be started, or the customer or staff cancel. |
 | `CONFIRMED` | `PROCESSING` | Staff start it, or the warehouse picks its first labelled box. |
-| `CONFIRMED` | `CANCELLED` | The customer cancels (refund if paid), or a manager cancels with a full refund. |
+| `CONFIRMED` | `CANCELLED` | The customer cancels (refund if paid; a paid order only within 4 hours of placing it), or a manager cancels with a full refund. |
 | `PROCESSING` | `PACKED` | Staff mark it packed, or the warehouse finishes the pack session. |
-| `PROCESSING` | `CANCELLED` | The customer cancels (refund if paid), or a manager cancels with a full refund. |
+| `PROCESSING` | `CANCELLED` | The customer cancels (refund if paid; a paid order only within 4 hours of placing it), or a manager cancels with a full refund. |
 | `PACKED` | `SHIPPED` | Staff dispatch it, or the warehouse finishes the dispatch session. |
 | `PACKED` | `CANCELLED` | A manager cancels with a full refund (the customer can no longer cancel). |
 | `PACKED` | `PROCESSING` | The warehouse takes a box off it (unpick); it is packed again. Staff cannot make this move by hand. |
@@ -140,13 +142,30 @@ The other refund columns: `refund_requested_at` (when it became due),
 `refund_gave_up_at`, `refunded_at` and `refund_id` (Razorpay's id, or
 `manual:<reference>`).
 
+## Orders booked against the plan (`orders.planned`)
+
+A regular order for a day after the booking horizon, taken when no bookable day can supply the bag
+(`mango-api/src/plan-orders.js`, migration 083). It has the ordinary states above, with these differences:
+
+- `PAYMENT_PENDING` holds no stock. It holds its week's kg of each variety (`orders.plan_week`,
+  `preorder_variety_week_kg.planned_kg`); a cancel, or a hold that runs out, gives them back.
+- `CONFIRMED` without boxes is expected, not at risk. It can't be packed or sent until its boxes are there.
+- When its day comes within reach, the boxes it waits for are held from other shoppers, and it gets real stock after
+  that week's pre-orders, oldest order first, all its boxes or none.
+- If the fruit is short on its day, or a lowered plan leaves its week short (pre-orders come first), it moves to a later
+  date: `delayed_at`, `delayed_from_date`, `delay_count`, and `ORDER_DELAYED` when it is paid. The customer may then cancel
+  for a full refund until it is packed (`delay_cancelled_at`). Every other order keeps the 4-hour rule. With no later
+  date it keeps its date and is flagged at risk for staff.
+- A delay is for good, here and for pre-orders: `delayed_at` is never cleared, the Delayed tag and the cancel right (until
+  packed) stay, and the order or booking is never moved to an earlier date or week again.
+
 ## Preorders (bookings for a later week)
 
 | Status | Meaning |
 |---|---|
-| `PAYMENT_PENDING` | Capacity in the week is held while the customer pays. |
-| `WAITLISTED` | The week was full; waiting for a spot. |
-| `BOOKED` | Paid; the week's capacity is taken. |
+| `PAYMENT_PENDING` | Its place in the week (the earliest with room) is held while the customer pays. |
+| `WAITLISTED` | Every week to the season's end was full; waiting for a spot (it gets the earliest week with room). |
+| `BOOKED` | Paid; its kg in its variety's week is taken (`preorder_variety_week_kg`, migration 078). The Pre-order plan's recalculation or a manager can move it; moved later it is **delayed** (`delayed_at`, `delayed_from_week`, `delay_count`, migration 079): the customer is messaged and may cancel it, and the order it becomes until that order is `PACKED`, for a full refund. |
 | `CONVERTED` | Its order exists. From here on the order's states apply (a manager's cancel goes through the order; the customer can't cancel it). |
 | `CANCELLED` | Cancelled. A paid one is refunded in full. |
 
@@ -176,7 +195,7 @@ cancelled delivery is refunded its own full price.
 
 | What happened | What the system does | Who acts |
 |---|---|---|
-| **The hold runs out unpaid** | The order is cancelled ("Payment not received before the hold expired") and its stock goes back on sale. Bookings give their week's capacity back. | Nobody: the maintenance run (every minute). |
+| **The hold runs out unpaid** | The order is cancelled ("Payment not received before the hold expired") and its stock goes back on sale. Bookings give their week's place back. | Nobody: the maintenance run (every minute). |
 | **The payment lands after the hold ran out** | The order is confirmed after all (`CANCELLED` to `CONFIRMED`), never refunded: on its own date if there is still stock and room, else on the next date with stock, else flagged at risk for staff. Bookings and gift orders work the same way. | Nobody; at-risk orders show on Needs attention. |
 | **Paid after the customer or staff cancelled** | The order stays cancelled and the payment is refunded in full. | Nobody. |
 | **Charged twice** (two tabs, a retried link) | The second payment is recorded in `duplicate_payments` and refunded; the order is untouched. | Nobody. |

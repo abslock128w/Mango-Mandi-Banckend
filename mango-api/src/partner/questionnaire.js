@@ -191,7 +191,7 @@ const Q1 = {
   callbackTime: { label: 'Preferred time for a callback', type: 'SELECT', required: false, column: true, options: opts([['MORNING', 'Morning (9 AM to 12 PM)'], ['AFTERNOON', 'Afternoon (12 PM to 4 PM)'], ['EVENING', 'Evening (4 PM to 7 PM)'], ['ANY', 'Any time']]) },
   additionalComments: { label: 'Additional comments', type: 'TEXTAREA', required: false, column: true, max: 3000 },
   documents: { label: 'Supporting documents', type: 'FILE_UPLOAD', required: false, description: 'Optional. PDF, JPEG, PNG or WebP. You can add them after you submit.' },
-  consent: { label: 'I agree that MandiMangoes may contact me about this enquiry by phone, WhatsApp or email, and store these details as described in the privacy notice.', type: 'CHECKBOX', required: true, column: true },
+  consent: { label: 'I agree that MandiMangoes may contact me about this enquiry by phone, WhatsApp or email, and keep these details only to consider it, as explained in How we use what you tell us.', type: 'CHECKBOX', required: true, column: true },
 }
 
 const STEPS_1 = [

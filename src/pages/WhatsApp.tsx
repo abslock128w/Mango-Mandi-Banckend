@@ -350,7 +350,7 @@ function Conversation({ d }: { d: WaConversationDetail }) {
           />
           <p id={`${replyId}-hint`} className="hint">
             {c.windowOpen
-              ? `${who} gets this on WhatsApp from MandiMangoes. ${reply.length}/${REPLY_MAX}. Replying takes the conversation over, so the bot stays quiet.`
+              ? `${who} gets this on WhatsApp from VMR Mangoes. ${reply.length}/${REPLY_MAX}. Replying takes the conversation over, so the bot stays quiet.`
               : 'More than 24 hours have passed since the customer last wrote, so WhatsApp only allows approved templates. Ask them to message us first (on a call, or through an order update).'}
           </p>
         </div>
@@ -392,7 +392,7 @@ const STATUS_WORDS: Record<string, string> = {
 }
 
 function MessageItem({ m, who, onRetry, retrying, canRetry }: { m: WaMessage; who: string; onRetry: () => void; retrying: boolean; canRetry: boolean }) {
-  const from = m.direction === 'IN' ? who : m.author.kind === 'staff' ? `MandiMangoes (${m.author.email ?? 'staff'})` : m.author.kind === 'system' ? 'Order update' : 'MandiMangoes bot'
+  const from = m.direction === 'IN' ? who : m.author.kind === 'staff' ? `VMR Mangoes (${m.author.email ?? 'staff'})` : m.author.kind === 'system' ? 'Order update' : 'VMR Mangoes bot'
   const failed = m.status === 'FAILED' || m.status === 'UNKNOWN'
   return (
     <li className={`card wa-message ${m.direction === 'IN' ? 'wa-in' : 'wa-out'}`}>

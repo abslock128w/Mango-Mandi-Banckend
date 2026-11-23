@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { BellRing, ChevronDown, ChevronsLeft, ChevronsRight, Keyboard, KeyRound, LogOut, Menu as MenuIcon, Moon, Pin, PinOff, Rows3, Search, Sun, X } from 'lucide-react'
 import { api } from './api'
 import { ROLE_LABEL, canSee, homeFor } from './permissions'
@@ -66,6 +67,15 @@ function Shell() {
   const focusInto = useRef(false)
 
   const groups = navGroups(me)
+  // The Bulk orders badge: new farm visit enquiries waiting for a call (refreshed by the live stream's bulk.enquiry).
+  const bulkShown = groups.some((g) => g.links.some((l) => l.to === '/bulk-enquiries'))
+  const farmNew = useQuery({
+    queryKey: ['bulk-enquiries', 'nav-badge'],
+    queryFn: () => api.bulkEnquiries({ kind: 'FARM_VISIT', status: 'NEW' }),
+    enabled: bulkShown,
+    refetchInterval: 60_000,
+    retry: false,
+  }).data?.kinds?.FARM_VISIT?.NEW ?? 0
   const primary = primaryLinks(groups)
   const primaryTo = new Set(primary.map((l) => l.to))
   const twoStepOff = !!me?.twoStep && !me.twoStep.enabled
@@ -157,6 +167,12 @@ function Shell() {
     >
       <l.icon className="nav-icon" aria-hidden="true" strokeWidth={1.75} />
       <span className="nav-text">{l.label}</span>
+      {l.to === '/bulk-enquiries' && farmNew > 0 && (
+        <span className="nav-count" title={`${farmNew} new farm visit ${farmNew === 1 ? 'enquiry' : 'enquiries'}`}>
+          {farmNew}
+          <span className="sr-only"> new farm visit {farmNew === 1 ? 'enquiry' : 'enquiries'}</span>
+        </span>
+      )}
     </NavLink>
   )
 

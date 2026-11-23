@@ -6,7 +6,9 @@
 import { now, todayIST } from '../clock.js'
 import { conflict, HttpError, notFound } from '../errors.js'
 import { newId } from '../ids.js'
+import { env } from '../env.js'
 import { queuePartnerMessages } from './alerts.js'
+import { ENDED_STATUSES, hasDetailsLeft, KEEPS_CONTACT } from './erase.js'
 import { DOCUMENT_CATEGORIES, normaliseMobile } from './questionnaire.js'
 
 export const ENQUIRY_STATUSES = ['NEW', 'UNDER_REVIEW', 'CONTACTED', 'NEGOTIATION', 'CONVERTED', 'REJECTED', 'CLOSED']
@@ -61,7 +63,9 @@ const ACTIVITY_WORDS = {
   PROPOSAL_STATUS_CHANGED: 'Product proposal status changed',
   PROPOSAL_NOTE_ADDED: 'Product proposal note added',
   SAMPLE_REQUESTED: 'Samples requested',
+  DETAILS_ERASED: 'Application details deleted',
 }
+const ERASED_BY = { RETENTION: 'after the retention period', MANAGER: 'by a manager', APPLICANT: 'at the applicant\'s request' }
 const STATUS_WORDS = {
   NEW: 'New', UNDER_REVIEW: 'Under review', CONTACTED: 'Contacted', NEGOTIATION: 'Negotiation', CONVERTED: 'Converted', REJECTED: 'Rejected', CLOSED: 'Closed',
   LOW: 'Low', NORMAL: 'Normal', HIGH: 'High', URGENT: 'Urgent',
@@ -94,18 +98,21 @@ const enquiryRow = (e) => ({
   city: e.city, state: e.state, mobile: e.mobile_number, email: e.email,
   submittedAt: e.submitted_at, status: e.status, priority: e.priority,
   assignedTo: e.assigned_admin_id ? { id: e.assigned_admin_id, email: e.assignee_email } : null,
+  // Set once the details were deleted (partner/erase.js); contactKept: a converted partner's contact details stayed.
+  erasedAt: e.erased_at ?? null, contactKept: Boolean(e.erased_at && e.applicant_name != null),
 })
 
 const money = (v) => (v == null ? null : Number(v))
 const proposalRow = (p) => ({
   id: p.id, reference: p.reference, productName: p.product_name, productCategory: p.product_category,
   submittedBy: { name: p.applicant_name, enquiryId: p.enquiry_id, enquiryReference: p.enquiry_reference },
-  applicantLocation: `${p.city}, ${p.state}`, sourceLocation: p.source_location,
+  applicantLocation: [p.city, p.state].filter(Boolean).join(', ') || null, sourceLocation: p.source_location,
   procurementPrice: money(p.procurement_price), suggestedSellingPrice: money(p.suggested_selling_price),
   monthlySupplyCapacity: p.monthly_supply_capacity, sampleAvailable: p.sample_available,
   submittedAt: p.created_at, status: p.status,
+  erasedAt: p.erased_at ?? null,
 })
-const PROPOSAL_SELECT = `SELECT p.*, e.applicant_name, e.reference AS enquiry_reference, e.city, e.state, e.mobile_number, e.email, e.status AS enquiry_status
+const PROPOSAL_SELECT = `SELECT p.*, e.applicant_name, e.reference AS enquiry_reference, e.city, e.state, e.mobile_number, e.email, e.status AS enquiry_status, e.erased_at
   FROM partner_product_proposals p JOIN partner_enquiries e ON e.id = p.enquiry_id`
 
 const followupView = (f, at = now()) => ({
@@ -114,13 +121,14 @@ const followupView = (f, at = now()) => ({
   notes: f.notes, status: f.status, completedAt: f.completed_at, overdue: f.status === 'PENDING' && f.scheduled_at < at,
 })
 
-/** tel:, wa.me and mailto: links for an applicant (the panel opens them; nothing is sent from here). */
+/** tel:, wa.me and mailto: links for an applicant (the panel opens them; nothing is sent from here). Null once the details are deleted. */
 export function contactLinks(mobile, email, reference) {
-  const digits = String(mobile).replace(/^\+/, '')
+  if (!mobile && !email) return null
+  const digits = String(mobile ?? '').replace(/^\+/, '')
   return {
-    tel: `tel:${mobile}`,
-    whatsapp: `https://wa.me/${digits}`,
-    mailto: `mailto:${email}?subject=${encodeURIComponent(`Your MandiMangoes partnership enquiry ${reference}`)}`,
+    tel: mobile ? `tel:${mobile}` : null,
+    whatsapp: mobile ? `https://wa.me/${digits}` : null,
+    mailto: email ? `mailto:${email}?subject=${encodeURIComponent(`Your MandiMangoes partnership enquiry ${reference}`)}` : null,
   }
 }
 
@@ -178,11 +186,13 @@ const csvCell = (x) => {
 export async function exportCsv(c, f, admin) {
   const { sql, vals } = listWhere(f, admin)
   const { rows } = await c.query(`${ROW_SELECT} ${sql} ORDER BY e.submitted_at DESC, e.id LIMIT ${EXPORT_MAX_ROWS}`, vals)
-  const head = ['Reference', 'Name', 'Business', 'Primary category', 'Other categories', 'City', 'State', 'PIN code', 'Mobile', 'Email', 'Submitted (IST)', 'Status', 'Priority', 'Assigned to']
+  const head = ['Reference', 'Name', 'Business', 'Primary category', 'Other categories', 'City', 'State', 'PIN code', 'Mobile', 'Email', 'Submitted (IST)', 'Status', 'Priority', 'Assigned to', 'Details deleted (IST)']
   const ist = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })
+  // An erased application keeps its row (the counts stay honest) with its name cell saying so; its details are blank.
   const lines = rows.map((e) => [
-    e.reference, e.applicant_name, e.business_name, e.primary_name, (e.cats ?? []).filter((x) => x.code !== e.primary_category).map((x) => x.name).join('; '),
-    e.city, e.state, e.pincode, e.mobile_number, e.email, ist.format(e.submitted_at), e.status, e.priority, e.assignee_email,
+    e.reference, e.erased_at && e.applicant_name == null ? `(details deleted ${ist.format(e.erased_at)})` : e.applicant_name, e.business_name, e.primary_name,
+    (e.cats ?? []).filter((x) => x.code !== e.primary_category).map((x) => x.name).join('; '),
+    e.city, e.state, e.pincode, e.mobile_number, e.email, ist.format(e.submitted_at), e.status, e.priority, e.assignee_email, e.erased_at ? ist.format(e.erased_at) : '',
   ].map(csvCell).join(','))
   return { csv: [head.join(','), ...lines].join('\r\n') + '\r\n', count: rows.length }
 }
@@ -194,22 +204,35 @@ export async function assignableStaff(c) {
 
 // ---------------------------------------------------------------- detail
 
-async function lockEnquiry(c, id) {
+/**
+ * Locks an enquiry for a change. Once its details are deleted nothing more is
+ * added to it (a note, a follow-up, a reopen would start an empty application
+ * again); a converted partner's that kept its contact details may still be closed.
+ */
+async function lockEnquiry(c, id, { allowErased = false } = {}) {
   const { rows } = await c.query('SELECT * FROM partner_enquiries WHERE id = $1 FOR UPDATE', [id])
   if (!rows.length) throw notFound('Enquiry not found')
+  if (rows[0].erased_at && !allowErased) throw conflict('This application\'s details were deleted, so it can\'t be changed any more', 'ENQUIRY_ERASED')
   return rows[0]
 }
 
+/** When the daily pass will delete an ended application's details (null: not ended, or nothing left to delete). */
+const eraseDueAt = (e) =>
+  ENDED_STATUSES.includes(e.status) && hasDetailsLeft(e) ? new Date(e.status_changed_at.getTime() + env.PARTNER_RETENTION_DAYS * 86_400_000) : null
+
 function actionsFor(e, admin) {
   const m = isManager(admin)
+  const live = !e.erased_at
   return {
-    approve: m && ACTION_FROM.approve.includes(e.status),
-    reject: m && ACTION_FROM.reject.includes(e.status),
-    close: m && ACTION_FROM.close.includes(e.status),
-    reopen: m && ACTION_FROM.reopen.includes(e.status),
-    convert: m && ACTION_FROM.convert.includes(e.status),
-    assign: true,
+    approve: m && live && ACTION_FROM.approve.includes(e.status),
+    reject: m && live && ACTION_FROM.reject.includes(e.status),
+    close: m && ACTION_FROM.close.includes(e.status) && (live || e.status === KEEPS_CONTACT),
+    reopen: m && live && ACTION_FROM.reopen.includes(e.status),
+    convert: m && live && ACTION_FROM.convert.includes(e.status),
+    assign: live,
     export: m,
+    // "Delete this application's details now" (partner/erase.js eraseNow).
+    erase: m && ENDED_STATUSES.includes(e.status) && hasDetailsLeft(e),
   }
 }
 
@@ -225,6 +248,7 @@ function activityView(a) {
   else if (['REJECTED', 'CLOSED', 'REOPENED', 'APPROVED'].includes(a.activity_type) && md.reason) summary = `${words}: ${md.reason}`
   else if (a.activity_type === 'CONVERTED' && md.title) summary = `${words}: ${md.title}`
   else if (a.activity_type.startsWith('FOLLOWUP_') && a.new_value) summary = `${words} (${a.new_value})`
+  else if (a.activity_type === 'DETAILS_ERASED') summary = `${words} ${ERASED_BY[a.new_value] ?? ''}${md.keptContact ? '; contact details kept (a partner now)' : ''}`.replace(/ ;/, ';').trim()
   return { id: a.id, type: a.activity_type, summary, oldValue: a.old_value, newValue: a.new_value, actor: a.actor_email, at: a.created_at, about: a.proposal_id ? 'PROPOSAL' : 'ENQUIRY' }
 }
 
@@ -274,8 +298,9 @@ export async function enquiryDetail(c, id, admin) {
     activity: acts.map(activityView),
     proposal: proposal ? { id: proposal.id, reference: proposal.reference, status: proposal.status } : null,
     opportunity: opp ? { title: opp.title, notes: opp.notes, createdAt: opp.created_at, createdBy: opp.creator ?? null } : null,
-    allowedStatuses: PLAIN_MOVES[e.status],
+    allowedStatuses: e.erased_at ? [] : PLAIN_MOVES[e.status],
     actions: actionsFor(e, admin),
+    retention: { days: env.PARTNER_RETENTION_DAYS, eraseDueAt: eraseDueAt(e) },
     staff: await assignableStaff(c),
     contact: contactLinks(e.mobile_number, e.email, e.reference),
   }
@@ -325,7 +350,8 @@ export async function updateEnquiry(c, id, admin, b) {
 
 /** approve, reject, close, reopen or convert (managers; the route checks the role). */
 export async function decide(c, id, admin, action, { reason = null, note = null, title = null, notes = null } = {}) {
-  const e = await lockEnquiry(c, id)
+  const e = await lockEnquiry(c, id, { allowErased: action === 'close' })
+  if (e.erased_at && e.status !== KEEPS_CONTACT) throw conflict('This application\'s details were deleted, so it can\'t be changed any more', 'ENQUIRY_ERASED')
   const done = { approve: 'approved', reject: 'rejected', close: 'closed', reopen: 'reopened', convert: 'converted' }[action]
   if (!ACTION_FROM[action].includes(e.status)) throw conflict(`An enquiry that is ${e.status} can't be ${done}`, 'INVALID_TRANSITION')
   const to = ACTION_TO[action]
@@ -507,8 +533,8 @@ export async function proposalDetail(c, id, admin) {
     documents: await documentsOf(c, p.enquiry_id),
     notes: await notesOf(c, p.enquiry_id, id),
     activity: acts.map(activityView),
-    allowedStatuses: proposalMoves(p, admin),
-    actions: Object.fromEntries([['approve', 'APPROVED'], ['reject', 'REJECTED'], ['close', 'CLOSED']].map(([k, s]) => [k, proposalMoves(p, admin).includes(s)])),
+    allowedStatuses: p.erased_at ? [] : proposalMoves(p, admin),
+    actions: Object.fromEntries([['approve', 'APPROVED'], ['reject', 'REJECTED'], ['close', 'CLOSED']].map(([k, s]) => [k, !p.erased_at && proposalMoves(p, admin).includes(s)])),
     contact: contactLinks(p.mobile_number, p.email, p.enquiry_reference),
     enquiry: { id: p.enquiry_id, reference: p.enquiry_reference, status: p.enquiry_status },
     addsToShop: false,
@@ -516,6 +542,8 @@ export async function proposalDetail(c, id, admin) {
 }
 
 export async function updateProposal(c, id, admin, { status, reason }, type = 'PROPOSAL_STATUS_CHANGED') {
+  // The enquiry first (the order every other change and partner/erase.js take), refused once its details are deleted.
+  await lockEnquiry(c, await proposalEnquiry(c, id))
   const p = await lockProposal(c, id)
   if (status === p.status) return { from: p.status, to: status }
   if (!proposalMoves(p, admin).includes(status)) {

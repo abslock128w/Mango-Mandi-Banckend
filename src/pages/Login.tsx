@@ -51,22 +51,22 @@ export default function Login() {
     <main className="login-wrap">
       <div className="login-hero">
         <div className="login-hero-brand">
-          <img src="/brand/logo-480.webp" srcSet="/brand/logo-480.webp 1x, /brand/logo-960.webp 2x" width="152" height="64" alt="MandiMangoes" />
+          <img src="/brand/logo-480.webp" srcSet="/brand/logo-480.webp 1x, /brand/logo-960.webp 2x" width="152" height="64" alt="VMR Mangoes" />
         </div>
         <div className="login-hero-body">
           <h2>Every box, from the orchard to the door.</h2>
-          <p>Orders, ripening stock, packing and deliveries for the MandiMangoes team, in one place.</p>
+          <p>Orders, ripening stock, packing and deliveries for the VMR Mangoes team, in one place.</p>
           <ul className="login-points" aria-label="What Mango Ops covers">
             <li>Ripeness-aware stock</li>
             <li>Pack lists and rider runs</li>
             <li>Claims and reviews</li>
           </ul>
         </div>
-        <p className="login-hero-foot">For MandiMangoes staff only.</p>
+        <p className="login-hero-foot">For VMR Mangoes staff only.</p>
       </div>
       <div className="login-panel">
         <div className="card login-card">
-          <img src="/brand/mark-96.webp" srcSet="/brand/mark-96.webp 1x, /brand/mark-256.webp 2x" width="56" height="56" alt="MandiMangoes" className="login-logo" />
+          <img src="/brand/mark-96.webp" srcSet="/brand/mark-96.webp 1x, /brand/mark-256.webp 2x" width="56" height="56" alt="VMR Mangoes" className="login-logo" />
           <h1>Mango Ops</h1>
           <p className="login-sub">Sign in with your work account.</p>
           {ticket ? (
@@ -150,7 +150,7 @@ function CodeStep({ ticket, onDone, onRestart }: { ticket: string; onDone: (me: 
       <p className="muted">
         {recovery
           ? 'Enter one of the recovery codes you saved when you set up two-step sign-in. Each works once.'
-          : 'Open your authenticator app and enter the 6-digit code for MandiMangoes Ops.'}
+          : 'Open your authenticator app and enter the 6-digit code for VMR Mangoes staff (the app lists it as MandiMangoes Ops).'}
       </p>
       <div className="field">
         <label htmlFor="two-step-code">{recovery ? 'Recovery code' : '6-digit code'}</label>
