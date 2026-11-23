@@ -322,7 +322,7 @@ function giftPreHTML(dis) {
   const price = (w && w.price) || (s && s.price) || 0, many = ofKind(cart, true).length
   const moved = week && first && week.weekStart !== first.weekStart
   const when = w && !big ? `<div class="pre-when" role="note">${icon('calendar')}<p><strong>This is a pre-order.</strong> ${moved ? `${esc(preFullLine(first.weekStart, w.weekStart))} Your order` : 'It'} will be delivered in <strong>${esc(weekPhrase(w.weekStart))}</strong> <span class="no-wrap">(week of ${esc(fmtWeek(w.weekStart))})</span>.</p></div>` : ''
-  const warn = `<div class="pre-warn" role="note">${icon('info')}<p><strong>Paid in full now. It can’t be cancelled once you pay, unless we delay it.</strong> If we can’t deliver, we refund you in full.</p></div>${harvestNote()}<label class="pre-agree"><input type="checkbox" name="gift-pre-agree" ${gp.agree ? 'checked' : ''} required><span>I understand this pre-order can only be cancelled if it is delayed.</span></label>`
+  const warn = `<div class="pre-warn" role="note">${icon('info')}<p><strong>Paid in full now. It can’t be cancelled once you pay, unless we delay it.</strong> If we can’t deliver, we refund you in full.${policyLink()}</p></div>${harvestNote()}<label class="pre-agree"><input type="checkbox" name="gift-pre-agree" ${gp.agree ? 'checked' : ''} required><span>I understand this pre-order can only be cancelled if it is delayed.</span></label>`
   const unpaid = gp.unpaid ? `<p class="prototype-tag">You already have an unpaid pre-order ${esc(orderNo(gp.unpaid.number))}. Pay for it or cancel it first.</p><button type="button" class="button primary full" data-pre="view" data-id="${esc(gp.unpaid.preorderId)}">Pay for it ${icon('arrow')}</button><button type="button" class="text-button" data-gp="unpaid-cancel" style="margin:15px auto 0" ${dis}>Cancel it and continue</button>` : ''
   const off = !gp.agree ? 'Tick the box above to continue' : ''
   const go = big ? `<p class="pre-why is-block" id="gp-big-why">${icon('info')}<span>${esc(preTooBigWords(x.sku))}</span></p><button class="button primary full" type="button" disabled aria-describedby="gp-big-why">${icon('lock')} Choose fewer boxes</button>`
@@ -347,7 +347,8 @@ async function giftPreBook() {
   co.busy = true; co.error = ''; renderCo()
   let r
   try {
-    r = await MM.bookPreorder({ sku: x.sku, stage: x.stage, qty: x.qty, weekStart: w.weekStart, pincode: where.pincode, address, ...coGiftBody(), waitlist: !week })
+    const body = { sku: x.sku, stage: x.stage, qty: x.qty, weekStart: w.weekStart, pincode: where.pincode, address, ...coGiftBody(), waitlist: !week }
+    r = await MM.bookPreorder(body, MM.keyFor(gp, body))
   } catch (e) {
     co.busy = false
     if (e.status === 401) { co.step = 'phone'; co.error = 'Please sign in again.' }

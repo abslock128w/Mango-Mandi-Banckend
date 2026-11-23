@@ -1,10 +1,12 @@
-/* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /bulk.
+/* Pages: /cart, /checkout, /orders, /orders/:id (and the API's /order/:id), /account, /bulk, and the four policy pages
+   (/privacy, /terms, /refund, /shipping) with the footer's business small print (bizInfo, footerLegal, legalView).
    (The Partner Network pages are in partner.js, the Farm Experience pages in farm.js and /legacy in legacy.js; all add to PAGES.)
    There is no pre-order page any more: before the season the home page is the pre-order shop (shelf.js), and the
    old /preorder and /#preorder land on / (shop/vercel.json redirects /preorder; route() does the same here).
    They replace the home page (main#home) with #page-view, keep the header, footer and dock, and
    use the History API, so back and forward work and the addresses can be shared or reloaded
-   (shop/vercel.json and scripts/serve-shop.mjs serve index.html for them). Checkout and orders
+   (shop/vercel.json serves index.html for them, or for a page in routes.js its own copy in _routes/; scripts/serve-shop.mjs
+   serves index.html). Checkout and orders
    reuse app.js's flows, which draw wherever `view` points; the profile page is here.
    The home page's old sections (#bulk, #partner) are pages now: those anchors open them (anchorPage).
    Every route change fires `mm:route` on window (dock.js and the desktop nav mark the current tab from it).
@@ -65,9 +67,16 @@ const missingPath = (p) => p !== '/' && p !== '/index.html' && !OLD_PREORDER.tes
 
 function notFoundView() {
   document.title = 'Page not found · VMR Mangoes'
+  notFoundNoindex(true)
   host().innerHTML = pageHead('That page isn’t here') + `<section class="page-card empty-cart bag-empty empty-state not-found"><p>The link may be old, or the address may have a typo. The mangoes are all still here.</p><a class="button primary bag-explore" href="/" data-route>Back to the mangoes ${icon('arrow')}</a></section>`
 }
 const routed = () => window.dispatchEvent(new CustomEvent('mm:route', { detail: { path: location.pathname } }))
+/** The not-found page asks search engines not to index it (like the server's own 404.html); the next page takes that away (the mm:route listener below). */
+function notFoundNoindex(on) {
+  const m = document.querySelector('meta[name="robots"][data-not-found]')
+  if (on && !m) document.head.insertAdjacentHTML('beforeend', '<meta name="robots" content="noindex" data-not-found>')
+  else if (!on && m) m.remove()
+}
 
 function showPage(path) {
   if (!pageOpen()) homeScroll = scrollY
@@ -152,7 +161,7 @@ function cancelNote(o, canCancel) {
   if (Number.isNaN(until.getTime())) return ''
   const when = esc(until.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))
   const h = hoursWord(cancelHours())
-  const box = (cls, lead, more) => `<div class="co-cancel cancel-note${cls}" role="note"><span class="co-cancel-icon" aria-hidden="true">${icon('clock')}</span><div><p class="co-cancel-lead">${lead}</p><p class="co-cancel-more">${more}</p></div></div>`
+  const box = (cls, lead, more) => `<div class="co-cancel cancel-note${cls}" role="note"><span class="co-cancel-icon" aria-hidden="true">${icon('clock')}</span><div><p class="co-cancel-lead">${lead}</p><p class="co-cancel-more">${more}${policyLink()}</p></div></div>`
   if (canCancel) return box('', `You can cancel this order until ${when}.`, `That is ${h} after it was placed. After that cancelling closes and the order can’t be cancelled or refunded.`)
   if (until.getTime() >= Date.now()) return ''
   return box(' is-closed', `Cancelling closed at ${when}.`, `Orders can be cancelled only within ${h} of placing them. Something wrong? ${helpLink('Message us', `Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}.`)
@@ -763,7 +772,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
       ${o.status === 'DELIVERED' ? `<button class="button secondary" data-review="${esc(o.id)}">${o.rating ? 'Edit your review' : 'Rate this order'}</button>` : ''}
       ${o.delayed && o.status !== 'CANCELLED' ? delayBlock(o, 'order', 'page') : canCancel ? `<button class="button secondary is-danger" data-cancel-order="${esc(o.id)}" data-number="${esc(orderNo(o.number))}">${icon('close')} Cancel order</button>` : ''}
       ${o.delayed ? '' : cancelNote(o, canCancel)}
-      ${fromPre && !o.delayed && !ENDED.includes(o.status) ? `<p class="pre-nocancel">${icon('info')}<span>This was a pre-order, so it can’t be cancelled unless we delay it. Something wrong? ${helpLink('Message us', `Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}</span></p>` : ''}
+      ${fromPre && !o.delayed && !ENDED.includes(o.status) ? `<p class="pre-nocancel">${icon('info')}<span>This was a pre-order, so it can’t be cancelled unless we delay it; then you can cancel it for a full refund until it is packed. Something wrong? ${helpLink('Message us', `Hi VMR Mangoes, about my order ${orderNo(o.number)}`)}</span></p>` : ''}
       <button class="button secondary" data-orders>All orders</button>
     </section>`
   if (pin) MapPick.readOnly($('.track-map', host()), pin).catch(() => {})
@@ -832,6 +841,8 @@ async function sendBulkEnquiry(form) {
     ...(listed ? { lines } : { quantityKg: Math.round(kg), ripeness: data.ripeness || null }),
     ...(order ? { kind: 'ORDER' } : {}),
   }
+  // AUTH-01: the Turnstile check, when the shop has it on (app.js formCaptcha).
+  if (bulkCap.captchaOn && !bulkCap.captcha) return fail(CAPTCHA_ASK)
   // One key per filled-in form: a retry after a dropped connection is the same enquiry.
   form.dataset.key ||= MM.idem()['Idempotency-Key']
   const button = form.querySelector('[type="submit"]')
@@ -840,9 +851,10 @@ async function sendBulkEnquiry(form) {
   $('.bulk-error', form).hidden = true
   let r
   try {
-    r = await MM.bulkEnquiry(body, form.dataset.key)
+    r = await MM.bulkEnquiry(body, form.dataset.key, bulkCap.captcha)
   } catch (e) {
     delete form.dataset.busy
+    resetFormCaptcha(bulkCap)
     if (button) { button.disabled = false; button.firstChild.textContent = order ? 'Place bulk order ' : 'Send enquiry ' }
     return fail(bulkError(e))
   }
@@ -997,6 +1009,160 @@ document.addEventListener('submit', (e) => {
 // Signing in or out, and moving between pages (the banner stays off the account page, where the quote is).
 window.addEventListener('mm:profile', () => bulkWatch())
 window.addEventListener('mm:route', () => bulkSigns())
+
+// ---- The business details and the four policy pages (/privacy, /terms, /refund, /shipping).
+// Legal copy: a draft from the shop's own rules, to be confirmed by the owner's CA/lawyer. Every number comes from the
+// same place the rest of the shop reads it (cancelHours(), GET /v1/policy, BULK_DAYS), so a page never drifts from the
+// API. A business detail the build did not set (build-config.mjs: BUSINESS_NAME, BUSINESS_ADDRESS, FSSAI_NUMBER, GSTIN,
+// SUPPORT_EMAIL…) is left out, never shown as a placeholder. Styles: style.css (.legal-, .footer-legal).
+
+/** The contact and business details the build wrote into config.js: '' for each one it did not. */
+function bizInfo() {
+  const c = window.MM_CONFIG || {}, s = (k) => String(c[k] || '').trim()
+  const wa = s('supportWhatsapp')
+  return { legalName: s('businessName'), name: s('businessName') || 'VMR Mangoes', address: s('businessAddress'), fssai: s('fssaiNumber'), gstin: s('gstin'), phone: s('supportPhone'), email: s('supportEmail'), wa: /^\d+$/.test(wa) ? wa : '' }
+}
+
+/** The footer's small print: name, address, FSSAI and GSTIN, only those that are set (called once on load). */
+function footerLegal() {
+  const el = document.getElementById('footer-legal')
+  if (!el) return
+  const b = bizInfo()
+  const parts = [b.legalName, b.address, b.fssai && `FSSAI Lic. No. ${b.fssai}`, b.gstin && `GSTIN ${b.gstin}`].filter(Boolean)
+  el.textContent = parts.join(' · ')
+  el.hidden = !parts.length
+}
+footerLegal()
+
+/** "Full policy", appended to each note that states a cancelling rule (checkout, pre-order, bulk, gift, order page). */
+const policyLink = () => ` <a class="text-button inline-link" href="/refund" data-route>Full policy</a>`
+
+const LEGAL_UPDATED = '23 November 2026'
+const LEGAL_PAGES = { privacy: 'Privacy policy', terms: 'Terms and conditions', refund: 'Refund and cancellation policy', shipping: 'Shipping and delivery' }
+const LEGAL_TITLES = Object.values(LEGAL_PAGES).map((t) => `${t} · VMR Mangoes`)
+let legalPolicy = null
+
+PAGES.push([/^\/(privacy|terms|refund|shipping)\/?$/, (m) => legalView(m[1])])
+
+/** The live rules (GET /v1/policy), from app.js once it has them, else asked here once. */
+const legalPol = () => (typeof policy !== 'undefined' && policy) || legalPolicy
+/** The cancel window, in hours: cancelHours() (the API's cancelWindowHours), also before app.js has the policy. */
+const legalHours = () => { const h = Number(legalPol() && legalPol().cancelWindowHours); return hoursWord(Number.isFinite(h) && h > 0 ? h : cancelHours()) }
+const legalClaim = () => { const h = Number(legalPol() && legalPol().claimWindowHours); return Number.isFinite(h) && h > 0 ? `within ${hoursWord(h)} of delivery` : 'soon after delivery' }
+const legalRs = (paise) => currency(Math.round(Number(paise) || 0) / 100)
+
+function legalView(key) {
+  document.title = `${LEGAL_PAGES[key]} · VMR Mangoes`
+  const body = { privacy: privacyHTML, terms: termsHTML, refund: refundHTML, shipping: shippingHTML }[key]()
+  host().innerHTML = `<!-- Legal copy: a draft from the shop's own rules, to be confirmed by the owner's CA/lawyer. -->` + pageHead(LEGAL_PAGES[key]) + body +
+    `<section class="page-card help-card legal-card legal-foot"><p>${legalOthers(key)}</p><p class="legal-updated">Last updated ${LEGAL_UPDATED}</p></section>`
+  // The numbers once the policy has loaded, if it hadn't yet.
+  if (!legalPol()) MM.policy().then((p) => { legalPolicy = p; if (p && document.body.dataset.page === key) legalView(key) }).catch(() => {})
+}
+
+const legalSec = (title, ...paras) => `<section class="page-card help-card legal-card"><h2 class="flow-head">${title}</h2>${paras.filter(Boolean).map((p) => p.startsWith('<') ? p : `<p>${p}</p>`).join('')}</section>`
+const legalOthers = (key) => 'Our other policies: ' + Object.entries(LEGAL_PAGES).filter(([k]) => k !== key).map(([k, t]) => `<a href="/${k}" data-route>${t}</a>`).join(', ') + '.'
+/** How to reach us about this page, as a sentence: the email when there is one, the help form, and WhatsApp when there is one. */
+function legalAsk() {
+  const b = bizInfo()
+  const ways = [b.email && `email <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`, `send us a request from <a href="/help" data-route>Help</a>`, b.wa && `message us on <a href="https://wa.me/${b.wa}" target="_blank" rel="noopener">WhatsApp</a>`].filter(Boolean)
+  const s = ways.length > 2 ? `${ways.slice(0, -1).join(', ')} or ${ways[ways.length - 1]}` : ways.join(' or ')
+  return s[0].toUpperCase() + s.slice(1)
+}
+/** Who we are, in one line: the name, and the address and GSTIN when the build set them. */
+function legalWho() {
+  const b = bizInfo()
+  return `${esc(b.name)}${b.address ? `, ${esc(b.address)}` : ''}${b.gstin ? ` (GSTIN ${esc(b.gstin)})` : ''}${b.fssai ? `, FSSAI Lic. No. ${esc(b.fssai)}` : ''}`
+}
+
+function privacyHTML() {
+  return legalSec('Who we are', `This policy explains what ${legalWho()} (“we”) keeps about you when you use this shop, why, and who else sees it. We do not sell your information.`) +
+    legalSec('What we keep',
+      `<ul class="legal-list">
+        <li><strong>Your mobile number</strong>, to sign you in with a one-time code (OTP) and to tell you about your orders.</li>
+        <li><strong>Your name, delivery addresses and pincode</strong>, and the spot you drop on the delivery map if you choose to, so the rider can find you and we can work out the delivery charge.</li>
+        <li><strong>Your orders, pre-orders, gift orders and payments</strong>: what you bought, for whom, when and how much. For a gift, the name, phone number and address of the person you send it to.</li>
+        <li><strong>Your ratings and notes</strong> on a delivered order, and the <strong>photos and description</strong> you send when you report a problem.</li>
+        <li><strong>The help requests you send us</strong> and our replies.</li>
+        <li><strong>Bulk order, enquiry and farm visit details</strong>: your name, business, phone number, address, quantities and dates.</li>
+        <li><strong>Grow with us applications</strong>: your answers and any files you attach.</li>
+      </ul>`) +
+    legalSec('Why we keep it', 'To take and deliver your orders, to take payment and give refunds, to answer you and put problems right, to send order updates on WhatsApp or SMS (and reminders only if you turn them on), to stop fake or automated orders, and to keep the accounts the law asks of us.') +
+    legalSec('Who else sees it',
+      `<ul class="legal-list">
+        <li><strong>Razorpay</strong> takes your payment. Your card, UPI or bank details go to Razorpay and are never stored by us; we keep only the payment’s reference and amount.</li>
+        <li><strong>The rider</strong> who brings your order sees your name, address and phone number for that delivery.</li>
+        <li><strong>Our WhatsApp and SMS providers</strong> carry your order updates and sign-in codes to your number.</li>
+        <li><strong>Cloudflare Turnstile</strong> checks that a form is sent by a person, not a bot.</li>
+        <li><strong>Google Maps or OpenStreetMap</strong> look up an address or place when you search for one or use the delivery map.</li>
+        <li><strong>Our own staff</strong>, to pack, deliver and answer you. And anyone the law requires us to share it with.</li>
+      </ul>`) +
+    legalSec('On this device', 'Signing in sets a cookie that keeps you signed in. Your bag, your saved area, your favourites, the light or dark look and any half-filled form are kept in this browser’s own storage, so they are still here next time. We use no advertising or tracking cookies. Clearing this site’s data in your browser removes them.') +
+    legalSec('How long we keep it', 'Your account details are kept while your account is open. Records of orders and payments are kept for as long as our accounts and the tax rules require.') +
+    legalSec('Your choices', `You can see and change your name and saved addresses on <a href="/account" data-route>your profile</a>, and turn WhatsApp reminders on or off there. You can delete your account at any time once no order is on its way, from the <a href="/help" data-route>Help</a> page: your name, number, email and addresses are removed and your bag is emptied. The amounts of past orders are kept, without your details, because our accounts need them.`,
+      `Questions about your information? ${legalAsk()}.`)
+}
+
+function termsHTML() {
+  const pol = legalPol(), hold = Number(pol && pol.holdMinutes)
+  return legalSec('Who sells', `This shop is run by ${legalWho()}. By placing an order you agree to these terms.`) +
+    legalSec('Ordering and paying', `Prices are in rupees and include GST. You pay in full when you order, online through Razorpay; there is no cash on delivery. ${hold > 0 ? `At Pay your mangoes are held for you for ${hold} minutes` : 'At Pay your mangoes are held for you for a short time, shown on the page'}; an order not paid by then lapses and nothing is charged. An order is confirmed once the payment comes through.`,
+      'Mangoes are natural produce: size, colour and ripeness vary from fruit to fruit, and pictures on the site are illustrative.') +
+    legalSec('Pre-orders', 'Before the season you can pre-order. You pay in full now, so the price is fixed when you pay, and you choose the week it is delivered in. Harvest varies with the weather and other conditions, so we may have to move your week; we tell you when we do. A pre-order can’t be cancelled once paid, unless we delay it; then you can cancel it for a full refund until it is packed.') +
+    legalSec('Bulk orders', `From ${BULK_MIN_KG} kg you can order and pay directly at bulk prices; from ${BULK_ENQUIRY_MIN_KG} kg you can also send an enquiry and we quote a price. Delivery on a bulk order is ${BULK_DELIVERY_PCT}% of the mangoes’ value, added to the total, and our team calls you to arrange the day, usually within ${BULK_DAYS}.`) +
+    legalSec('Gifts', 'You can send boxes to other people. Please make sure their name, phone number and address are right and that they are happy for us to use them to deliver. Each person’s box is a delivery of its own.') +
+    legalSec('Delivery', `We deliver only within our delivery area, on the days the shop offers. The <a href="/shipping" data-route>Shipping and delivery</a> page has the details and the delivery charge.`) +
+    legalSec('Cancelling and refunds', `A normal order can be cancelled within ${legalHours()} of placing it, before it is packed. A pre-order can’t be cancelled once paid, unless we delay it; then you can cancel it for a full refund until it is packed. A paid bulk order can be cancelled within ${legalHours()} of paying, until it is dispatched. On a gift order, each person’s delivery can be cancelled within ${legalHours()} of placing it, as long as their box isn’t packed. If we can’t deliver an order, we refund you in full. The <a href="/refund" data-route>Refund and cancellation policy</a> has every rule.`) +
+    legalSec('Damaged, wrong or missing mangoes', `Tell us ${legalClaim()} from the order’s page under <a href="/orders" data-route>Your orders</a>, with a photo if you can. We look at every report and send a replacement for what went wrong.`) +
+    legalSec('Using the shop', 'Please give true details, order only for real deliveries, and treat our riders and staff with respect. Don’t try to break, overload or copy the site, or use it with automated tools. We may refuse or cancel an order that looks fraudulent, refunding anything paid.') +
+    legalSec('The law', 'These terms are governed by the laws of India, and the courts of India decide any dispute about them. We may update these terms; the version on this page when you place an order applies to that order.')
+}
+
+function refundHTML() {
+  const h = legalHours()
+  const rows = [
+    ['Normal order', `Within ${h} of placing it`, 'As long as it hasn’t been packed', 'In full'],
+    ['Pre-order', 'Not once paid, unless we delay it', 'If we delay it: until it is packed', 'In full'],
+    ['Bulk order', `Within ${h} of paying`, 'Until it is dispatched', 'In full'],
+    ['Gift order', `Each person’s delivery, within ${h} of placing the order`, 'As long as that person’s box hasn’t been packed', 'That delivery’s own amount'],
+  ]
+  const heads = ['Order', 'When you can cancel', 'Condition', 'Refund']
+  return legalSec('Cancelling, at a glance', `Each kind of order has its own rule. You cancel from the order’s page under <a href="/orders" data-route>Your orders</a> (a bulk order from its own page, a gift from the gift order’s page).`,
+    `<div class="legal-table-wrap"><table class="legal-table"><caption class="sr-only">When each kind of order can be cancelled</caption><thead><tr>${heads.map((x) => `<th scope="col">${x}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr><th scope="row">${r[0]}</th>${r.slice(1).map((c, i) => `<td data-label="${heads[i + 1]}">${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`,
+    `After those times cancelling closes and the order can’t be cancelled or refunded: by then your box is being picked and packed. An order you didn’t pay for costs nothing: its hold simply lapses, or you can cancel it.`) +
+    legalSec('When we delay an order', 'Harvest varies with the weather. If we move a pre-order’s week, or give an order a new date because the fruit fell short, you can cancel it for a full refund until it is packed, even after the usual time. The order shows a “Cancel and get a refund” button while you can.') +
+    legalSec('How refunds are paid', 'A refund goes back to the way you paid (your card, UPI or bank account through Razorpay), usually within 5 to 7 working days. If we can’t deliver an order, we cancel it and refund you in full.') +
+    legalSec('Damaged, wrong or missing mangoes', `Report it ${legalClaim()}: open the order under <a href="/orders" data-route>Your orders</a> and choose “Report a problem with this order”, with up to three photos. We look at every report and put it right with a replacement for what went wrong, rather than a refund.`) +
+    legalSec('Questions', `Something not covered here? ${legalAsk()}.`)
+}
+
+function shippingHTML() {
+  const pol = legalPol(), fee = pol && pol.deliveryFee, cut = pol && pol.cutoffTime, ahead = Number(pol && pol.maxDaysAhead)
+  let charge
+  if (!fee) charge = 'The delivery charge depends on how far you are from our warehouse and what your order weighs. It is shown at checkout, before you pay.'
+  else if (!fee.enabled) charge = 'Delivery on a normal order is free at present. If a charge applies, it is shown at checkout, before you pay.'
+  else {
+    const bands = Array.isArray(fee.bands) ? fee.bands : [], last = bands[bands.length - 1], kg = Number(fee.freeFromKg) || 0
+    const table = bands.length ? `<div class="legal-table-wrap"><table class="legal-table"><caption class="sr-only">The delivery charge by distance</caption><thead><tr><th scope="col">Distance</th>${kg ? `<th scope="col">${kg} kg and above</th><th scope="col">Under ${kg} kg</th>` : '<th scope="col">Charge</th>'}</tr></thead><tbody>${bands.map((b, i) => `<tr><th scope="row">${i ? `${bands[i - 1].uptoKm} to ${b.uptoKm} km` : `Up to ${b.uptoKm} km`}</th>${kg ? `<td data-label="${kg} kg and above">${b.uptoKm <= fee.freeWithinKm ? 'Free' : legalRs(b.fee)}</td><td data-label="Under ${kg} kg">${legalRs(b.feeSmall)}</td>` : `<td data-label="Charge">${legalRs(b.feeSmall)}</td>`}</tr>`).join('')}</tbody></table></div>` : ''
+    const beyond = !last ? '' : fee.beyond === 'refuse' ? `We don’t deliver past ${last.uptoKm} km.` : fee.beyond === 'perKm' && fee.perKmBeyond ? `Past ${last.uptoKm} km the last charge goes up by ${legalRs(fee.perKmBeyond.fee)}${kg ? ` (${legalRs(fee.perKmBeyond.feeSmall)} under ${kg} kg)` : ''} for every km further.` : `Past ${last.uptoKm} km the last charge applies.`
+    charge = `${kg && fee.freeWithinKm > 0 ? `Delivery is free on orders of ${kg} kg and above within ${fee.freeWithinKm} km of our warehouse. ` : ''}Otherwise the charge depends on the distance (a straight line from our nearest warehouse to your pin, or to your pincode) and on what your order weighs:</p>${table}<p>${beyond} The exact charge is shown at checkout, before you pay.`
+  }
+  return legalSec('Where we deliver', 'We deliver within our delivery area around our warehouse. Enter your pincode, or drop a pin on the map, and the shop tells you straight away whether we deliver there and on which days. We don’t deliver outside that area, and the shop won’t take an order we can’t deliver.') +
+    legalSec('The delivery charge', charge) +
+    legalSec('When it arrives', `${cut ? `Order before ${esc(cut)} for delivery the next day, when that day has room.` : 'Order before the day’s cutoff, shown at checkout, for delivery the next day, when that day has room.'} At checkout you choose the delivery day${ahead > 0 ? ` (up to ${ahead} days ahead)` : ''} and a time slot. We send updates on WhatsApp or SMS, and you can follow the order under <a href="/orders" data-route>Your orders</a>.`) +
+    legalSec('Pre-orders', 'A pre-order is delivered in the week you chose. Harvest varies with the weather and other conditions, so the week can change; if we delay it we tell you, and you can then cancel it for a full refund until it is packed.') +
+    legalSec('Bulk orders and gifts', `A bulk order is delivered on a day our team arranges with you by phone or WhatsApp, usually within ${BULK_DAYS} of paying; its delivery is ${BULK_DELIVERY_PCT}% of the mangoes’ value. A gift is delivered to each person’s own address, within the same delivery area.`) +
+    legalSec('If nobody is home', 'If nobody can take the box, the rider marks the delivery missed. We try again on the next delivery run, or call you to arrange a new time.')
+}
+
+// The canonical link follows the page. The HTML names the shop's origin once, in that link (the build writes it from SHOP_URL,
+// and each page in routes.js gets its own HTML in _routes/ with its own canonical); the path is the page's own.
+window.addEventListener('mm:route', () => {
+  const c = document.querySelector('link[rel="canonical"]')
+  if (c) c.href = new URL(location.pathname === '/index.html' ? '/' : location.pathname, c.dataset.origin ||= new URL(c.href).origin).href
+})
+window.addEventListener('mm:route', () => { if (document.body.dataset.page !== 'not-found') notFoundNoindex(false) })
+window.addEventListener('mm:route', () => { if (LEGAL_TITLES.includes(document.title) && !LEGAL_PAGES[document.body.dataset.page]) document.title = 'VMR Mangoes — A little taste of summer.' })
 
 // ---- Events.
 

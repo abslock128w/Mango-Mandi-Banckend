@@ -1,11 +1,13 @@
 /* Contact us (/contact) and Help (/help).
    Contact: the ways to reach the shop that are configured (WhatsApp, and a phone number and email when the build sets
-   them), and where bulk buyers and partners should go.
+   them; with none of them, the help request), our address with the FSSAI and GSTIN lines when the build sets them
+   (pages.js bizInfo()), and where bulk buyers and partners should go.
    Help: complaints and refunds. A signed-in customer sends a help request (the API's help centre: a topic, optionally
    one of their orders, and a message; the shop answers on the panel's Help desk and the customer is told on WhatsApp).
    When the help centre is off, or nobody is signed in, the page says how to reach us instead. It also states the
-   cancellation rule (app.js cancelHours(): the API's cancelWindowHours, 4 by default) and what the shop does with a customer's information, with the button that deletes
-   the account (the API's DELETE /v1/me).
+   cancelling rules in short (app.js cancelHours(): the API's cancelWindowHours, 4 by default; the full table is /refund,
+   pages.js) and, in short, what the shop does with a customer's information (the full text is /privacy), with the
+   button that deletes the account (the API's DELETE /v1/me).
    Loaded after pages.js (it adds to PAGES) and before app.js. Styles: style.css (.help-). */
 
 PAGES.push([/^\/contact\/?$/, () => contactView()], [/^\/help\/?$/, () => helpView()])
@@ -26,12 +28,19 @@ function contactWays() {
 
 function contactView() {
   document.title = CONTACT_TITLE
+  const b = bizInfo(), direct = Boolean(b.wa || b.phone || b.email)
+  const where = b.address ? `
+    <section class="page-card help-card help-address">
+      <h2 class="flow-head">Our address</h2>
+      <p>${b.legalName ? `${esc(b.legalName)}<br>` : ''}${esc(b.address)}</p>
+      ${b.fssai ? `<p>FSSAI Lic. No. ${esc(b.fssai)}</p>` : ''}${b.gstin ? `<p>GSTIN ${esc(b.gstin)}</p>` : ''}
+    </section>` : ''
   host().innerHTML = pageHead('Contact us') + `
     <section class="page-card help-card">
       <h2 class="flow-head">We’re here for you.</h2>
-      <p>Questions about mangoes, an order, or a delivery? Reach us any of these ways.</p>
+      <p>Questions about mangoes, an order, or a delivery? ${direct ? 'Reach us any of these ways.' : 'Send us a help request and we will reply on WhatsApp.'}</p>
       <div class="help-ways">${contactWays()}</div>
-    </section>
+    </section>${where}
     <section class="page-card help-card">
       <h2 class="flow-head">Looking for something else?</h2>
       <div class="help-ways">
@@ -47,9 +56,11 @@ function helpView() {
     <section class="page-card help-card" id="help-request"><h2 class="flow-head">Complaints and refunds</h2><div class="help-request-body" aria-busy="true"><p>One moment…</p></div></section>
     <section class="page-card help-card" id="your-requests" hidden><h2 class="flow-head">Your requests</h2><div class="req-body"></div></section>
     <section class="page-card help-card">
-      <h2 class="flow-head">Cancelling an order</h2>
-      <p>You can cancel an order yourself only within <strong>${hoursWord(cancelHours())} of placing it</strong>: open the order under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. A paid order cancelled in that time is refunded to the way you paid.</p>
-      <p>After ${hoursWord(cancelHours())}, cancelling is closed and the order can’t be cancelled or refunded: by then your box is being picked and packed. If something is wrong, send us a request above and we’ll help.</p>
+      <h2 class="flow-head">Cancelling and refunds</h2>
+      <p><strong>A normal order</strong> can be cancelled within <strong>${hoursWord(cancelHours())} of placing it</strong>, as long as it hasn’t been packed: open it under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. It is refunded in full to the way you paid. After that, cancelling is closed; if something is wrong, send us a request above and we’ll help.</p>
+      <p><strong>A pre-order</strong> can’t be cancelled once paid, unless we delay it; then you can cancel it for a full refund until it is packed.</p>
+      <p><strong>A paid bulk order</strong> can be cancelled within ${hoursWord(cancelHours())} of paying, until it is dispatched, for a full refund. On <strong>a gift order</strong>, each person’s delivery can be cancelled within ${hoursWord(cancelHours())} of placing it, as long as their box isn’t packed.</p>
+      <p>Full policy: <a href="/refund" data-route>Refund and cancellation policy</a></p>
     </section>
     <section class="page-card help-card">
       <h2 class="flow-head">If your mangoes arrive damaged, wrong or missing</h2>
@@ -57,9 +68,7 @@ function helpView() {
     </section>
     <section class="page-card help-card" id="your-information">
       <h2 class="flow-head">Your information</h2>
-      <p><strong>What we save.</strong> Your name and mobile number, the addresses you deliver to, your orders, and the messages you send us. We use them to deliver your mangoes, to tell you about your order on WhatsApp or SMS, and to answer you.</p>
-      <p><strong>Payments.</strong> You pay through Razorpay. Your card or UPI details go to Razorpay and are never stored by us; we keep only the payment’s reference and amount.</p>
-      <p><strong>Who sees it.</strong> Our own staff, and the rider who brings your order (your name, address and number for that delivery). We do not sell your information.</p>
+      <p>We keep your name, mobile number, addresses, orders and the messages you send us, to deliver your mangoes and answer you. Card and UPI details go to Razorpay, never to us, and we do not sell your information. Read the <a href="/privacy" data-route>Privacy policy</a> for what we keep, why, and who else sees it.</p>
       <p><strong>Deleting it.</strong> You can delete your account at any time once no order is on its way. Your name, number, email and addresses are removed and your bag is emptied. The amounts of past orders are kept, without your details, because our accounts need them.</p>
       <div class="help-delete"></div>
     </section>`

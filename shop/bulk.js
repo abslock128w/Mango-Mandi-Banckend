@@ -214,7 +214,7 @@ function bulkOrderDraw() {
         </dl>
         <p class="bulk-review-to">${icon('pin')}<span>${esc(d.name || '')}${d.business ? `, ${esc(d.business)}` : ''} · +91 ${esc(normPhone(d.phone))}<br>${esc(d.address || '')}, ${esc(d.city || '')} ${esc(d.pincode || '')}</span></p>
         <p class="bulk-pay-notice">${icon('info')}<span><strong>You pay the full amount now.</strong> Our team will call you on WhatsApp to arrange the delivery, usually within ${BULK_DAYS}.</span></p>
-        <div class="co-cancel cancel-note" role="note"><span class="co-cancel-icon" aria-hidden="true">${icon('clock')}</span><div><p class="co-cancel-lead">You can cancel within ${h} of paying for a full refund.</p><p class="co-cancel-more">Only until it is dispatched. After that it can’t be cancelled here: message us and our team will help.</p></div></div>
+        <div class="co-cancel cancel-note" role="note"><span class="co-cancel-icon" aria-hidden="true">${icon('clock')}</span><div><p class="co-cancel-lead">You can cancel within ${h} of paying for a full refund.</p><p class="co-cancel-more">Only until it is dispatched. After that it can’t be cancelled here: message us and our team will help.${policyLink()}</p></div></div>
         <button class="button primary full" type="button" data-bulk-pay ${bf.busy || !t.priced ? 'disabled' : ''}>${bf.busy ? 'Placing your order…' : `Pay ${currency(t.bulk + fee)} now`} ${bf.busy ? '' : icon('arrow')}</button>
         ${t.priced ? '' : `<p class="bulk-add-why">${icon('lock')}<span>Getting today’s bulk prices. Try again in a moment.</span></p>`}
         <div class="bulk-review-more"><button type="button" class="text-button" data-bulk-details>Change details</button><button type="button" class="text-button" data-bulk-edit>Change the list</button></div>
@@ -300,7 +300,8 @@ document.addEventListener('click', (e) => {
 
 const FARM_VISIT_MIN_KG = 100
 const FARM_VISIT_DRAFT = 'mm-farm-visit-draft'
-const fv = { key: null, busy: false, sent: null }
+// `captcha`, `captchaOn`, `widget`: the Turnstile check (AUTH-01, app.js formCaptcha), drawn afresh with the form.
+const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null }
 const fvToday = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
 
 async function bulkFarmTab() {
@@ -351,11 +352,14 @@ function bulkFarmDraw(errors = {}, top = '') {
         <label class="bulk-farm-flex"><input type="checkbox" name="flexible"${flexible ? ' checked' : ''}><span>I’m flexible about the date</span></label>
         <label class="field wide">Anything else? <small>(optional)</small><textarea name="notes" rows="3" maxlength="1000" placeholder="Who is coming, food needs, the week that suits you">${v('notes')}</textarea></label>
       </div>
+      <div class="pn-captcha" hidden></div>
       <button class="button primary full" type="submit" ${fv.busy ? 'disabled aria-describedby="fv-busy"' : ''}>${fv.busy ? 'Sending…' : `Send farm visit enquiry ${icon('arrow')}`}</button>
       ${fv.busy ? `<p class="bulk-add-why" id="fv-busy">${icon('clock')}<span>Sending your enquiry. One moment.</span></p>` : ''}
       <p class="form-footer">We use your details only to plan this visit.</p>
       <p class="bulk-farm-book" id="bulk-farm-book"></p>
     </form>`
+  // A token works once: while sending, the one taken is kept (fv.busy) and no new check is drawn.
+  if (!fv.busy) formCaptcha($('#farm-visit-form .pn-captcha', el), 'farm-visit', fv)
 }
 
 function bulkFarmKeep(form) {
@@ -376,6 +380,8 @@ async function bulkFarmSend(form) {
   if (!/^\d+$/.test(String(d.people).trim()) || Number(d.people) < 1) errors.people = 'At least one person is coming.'
   if (!d.flexible && d.visitDate && d.visitDate < fvToday()) errors.visitDate = 'That date has passed. Choose a later one, or tick “I’m flexible”.'
   if (Object.keys(errors).length) { bulkFarmDraw(errors); $(`#farm-visit-form [aria-invalid="true"]`)?.focus(); return }
+  if (fv.captchaOn && !fv.captcha) return bulkFarmDraw({}, CAPTCHA_ASK)
+  const captcha = fv.captcha
   fv.key ||= MM.idem()['Idempotency-Key']
   fv.busy = true
   bulkFarmDraw()
@@ -384,7 +390,7 @@ async function bulkFarmSend(form) {
     visitDate: d.flexible ? null : d.visitDate || null, flexible: Boolean(d.flexible) || !d.visitDate, notes: String(d.notes || '').trim() || null,
   }
   try {
-    const r = await MM.farmVisitEnquiry(body, fv.key)
+    const r = await MM.farmVisitEnquiry(body, fv.key, captcha)
     fv.sent = { ...r, phone: body.phone }
     fv.key = null
     try { localStorage.removeItem(FARM_VISIT_DRAFT) } catch {}

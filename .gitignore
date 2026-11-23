@@ -16,3 +16,6 @@ deploy/backup-config/
 .env.local
 # Next.js build cache (a dev server can write one at the repo root)
 .next/
+
+# The shop build writes these (shop/build-config.mjs): one HTML file per page, sitemap.xml and robots.txt
+shop/_routes/

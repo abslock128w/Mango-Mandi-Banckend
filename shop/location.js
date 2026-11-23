@@ -1,8 +1,10 @@
-/* Where to deliver, chosen up front: the "Deliver to" chip in the shop bar and its sheet.
+/* Where to deliver: the "Deliver to" chip in the shop bar and its sheet.
    The customer picks an area (current location, the map, a saved address or a pincode); the shop then
    shows that area's stock and delivery days. Only the area is asked here: the full address (flat,
    building) is asked at checkout, which starts from what was chosen (pincode, pin, saved address).
-   First-time visitors get the sheet once, offering their current location.
+   The sheet never opens by itself: the shop is browsable with no area. It is asked for when first needed:
+   the chip, the bag's "Where should we deliver?" card, and the pincode step that checkout and pre-order
+   (app.js startSteps with needPin) show when no serviceable pincode is set.
    Kept in `where` (app.js, localStorage mm-where) beside the pincode check: area, lat/lng, savedId, street.
    Loaded before app.js, so top-level code only declares and listens. */
 
@@ -16,7 +18,7 @@ const beforeSeason = () => typeof preSeason === 'function' && Boolean(preSeason(
 const bagUnfit = (x) => typeof cart !== 'undefined' && cart.length > 0 && typeof dayOk === 'function' && !dayOk(x)
 
 function whereLabel() {
-  if (!where.pincode) return 'Choose your location'
+  if (!where.pincode) return 'Choose your area' // under the chip's "Deliver to"
   // Before the season there is no delivery day to show: a pre-order is delivered in its harvest week.
   const day = where.deliveryDate && !beforeSeason() ? ` · ${fmtDate(where.deliveryDate)}` : ''
   return (where.area ? `${where.area} · ${where.pincode}` : `Pincode ${where.pincode}`) + day
@@ -42,7 +44,7 @@ async function setWhere(pin, { area = null, lat = null, lng = null, savedId = nu
   toast(`Delivering to ${area ? `${area}, ` : ''}${pin}`)
 }
 
-async function whereSheet({ first = false } = {}) {
+async function whereSheet() {
   const saved = MM.profile() ? await MM.addresses().catch(() => []) : []
   const d = $('#where-dialog')
   d.innerHTML = `${formHeader('Where should we deliver?')}
@@ -55,8 +57,7 @@ async function whereSheet({ first = false } = {}) {
     <div class="field">Or find it on the map</div>
     <div id="where-map-slot" class="map-slot"></div>
     <button class="button secondary full" data-where-map disabled>${icon('pin')}<span>Move the map to choose a spot</span></button>
-    <form id="where-pin" class="where-pin" novalidate><label class="field">Or enter your pincode<input name="pin" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6-digit pincode" value="${esc(where.pincode || '')}"></label><button class="button secondary" type="submit">Check</button></form>
-    ${first ? '<button class="text-button where-skip" data-close>Just browsing for now</button>' : ''}`
+    <form id="where-pin" class="where-pin" novalidate><label class="field">Or enter your pincode<input name="pin" inputmode="numeric" autocomplete="postal-code" maxlength="6" placeholder="6-digit pincode" value="${esc(where.pincode || '')}"></label><button class="button secondary" type="submit">Check</button></form>`
   if (!d.open) openDialog('#where-dialog')
   const center = where.lat ? { lat: where.lat, lng: where.lng } : null
   wherePick = null
@@ -154,20 +155,9 @@ document.addEventListener('submit', (e) => {
   whereDo(() => setWhere(pin))
 })
 
-// First visit: once, a moment after the page settles, offer the sheet (only on the home page).
+// Called once at start-up by app.js. It used to open the sheet a moment after a first visit (flag mm-where-asked),
+// which covered the home page before any mango was shown; now it only paints the chip. A leftover
+// mm-where-asked key in a returning browser is simply never read.
 function offerWhereOnce() {
   renderWhereChip()
-  let asked = false
-  try {
-    asked = localStorage.getItem('mm-where-asked') === '1'
-    localStorage.setItem('mm-where-asked', '1')
-  } catch {}
-  if (asked || where.pincode) return
-  // On a phone the home-screen sheet (install.js) comes first; the delivery question follows once it closes.
-  setTimeout(() => {
-    const ask = () => { if (!pageOpen() && !$('dialog[open]') && !where.pincode) whereSheet({ first: true }) }
-    const install = $('#install-dialog[open]')
-    if (install) install.addEventListener('close', () => setTimeout(ask, 500), { once: true })
-    else ask()
-  }, 1600)
 }

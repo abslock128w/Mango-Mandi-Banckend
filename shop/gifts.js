@@ -90,7 +90,7 @@ function giftFresh() {
  *  `when` is HTML (escaped by the caller). */
 function preNoticeHTML(when, paid = false) {
   return `<div class="pre-when pre-notice" role="note">${icon('calendar')}<p><strong>This is a pre-order.</strong> It will be delivered in <strong>${when}</strong>.</p></div>` +
-    `<div class="pre-warn pre-notice" role="note">${icon('info')}<p><strong>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full now. It can’t be cancelled once you pay, unless we delay it.'}</strong> If we can’t deliver, we refund you in full.</p></div>` + harvestNote()
+    `<div class="pre-warn pre-notice" role="note">${icon('info')}<p><strong>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full now. It can’t be cancelled once you pay, unless we delay it.'}</strong> If we can’t deliver, we refund you in full.${policyLink()}</p></div>` + harvestNote()
 }
 /** "the first week of March (week of 2 Mar)", escaped. */
 const preWeekText = (d) => `${esc(weekPhrase(d))} <span class="no-wrap">(week of ${esc(fmtWeek(d))})</span>`

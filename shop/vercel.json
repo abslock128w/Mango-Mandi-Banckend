@@ -89,103 +89,131 @@
       "destination": "https://mandi-api-staging.vercel.app/v1/:path*"
     },
     {
-      "source": "/login",
+      "source": "/robots.txt",
+      "destination": "/_routes/robots.txt"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/_routes/sitemap.xml"
+    },
+    {
+      "source": "/bulk{/}?",
+      "destination": "/_routes/bulk.html"
+    },
+    {
+      "source": "/gifts{/}?",
+      "destination": "/_routes/gifts.html"
+    },
+    {
+      "source": "/partner{/}?",
+      "destination": "/_routes/partner.html"
+    },
+    {
+      "source": "/legacy{/}?",
+      "destination": "/_routes/legacy.html"
+    },
+    {
+      "source": "/help{/}?",
+      "destination": "/_routes/help.html"
+    },
+    {
+      "source": "/contact{/}?",
+      "destination": "/_routes/contact.html"
+    },
+    {
+      "source": "/farm-experience{/}?",
+      "destination": "/_routes/farm-experience.html"
+    },
+    {
+      "source": "/privacy{/}?",
+      "destination": "/_routes/privacy.html"
+    },
+    {
+      "source": "/terms{/}?",
+      "destination": "/_routes/terms.html"
+    },
+    {
+      "source": "/refund{/}?",
+      "destination": "/_routes/refund.html"
+    },
+    {
+      "source": "/shipping{/}?",
+      "destination": "/_routes/shipping.html"
+    },
+    {
+      "source": "/login{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/account",
+      "source": "/account/:path*{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/orders",
+      "source": "/orders{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/cart",
+      "source": "/orders/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/checkout",
+      "source": "/order/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/preorders/:id",
+      "source": "/cart{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/order/:id",
+      "source": "/checkout{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/orders/:id",
+      "source": "/preorders/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/help/requests/:id",
+      "source": "/invite/:code{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/account/:path*",
+      "source": "/help/requests/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/invite/:code",
+      "source": "/bulk/:tab(enquiry|farm-visit){/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/bulk",
+      "source": "/bulk/orders/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/gifts",
+      "source": "/gifts/:id{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/gifts/:id",
+      "source": "/gifts/send/review{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/partner",
+      "source": "/partner/:page(apply|privacy){/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/partner/:path*",
+      "source": "/legacy/film{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/contact",
+      "source": "/farm-experience/book{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/help",
+      "source": "/farm-bookings{/}?",
       "destination": "/index.html"
     },
     {
-      "source": "/legacy",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/legacy/:path*",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/farm-experience",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/farm-experience/book",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/farm-bookings",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/farm-bookings/:id",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/((?!v1/|assets/)[^.]*)",
+      "source": "/farm-bookings/:id{/}?",
       "destination": "/index.html"
     }
   ]

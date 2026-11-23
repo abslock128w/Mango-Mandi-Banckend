@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- The server's not-found page: Vercel serves this file, with status 404, for any address that is not a file and not
+     rewritten in vercel.json (a mistyped or retired link). It says so in the shop's look and points back to the shop and
+     to help. Static on purpose: absolute paths (it is served at any depth), the shop's own stylesheets, theme.js for
+     the light or dark theme, no inline script (the CSP allows none). The shop's own in-app version is pages.js
+     notFoundView(). Styles: style.css (.page-view, .page-card, .empty-state.not-found) and two style attributes, dark: theme.css. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0e0d0a"><meta name="robots" content="noindex">
+<title>Page not found · VMR Mangoes</title>
+<link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+<link rel="stylesheet" href="/assets/fonts.css"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/theme.css"><script src="/theme.js"></script></head>
+<body data-page="not-found">
+<header class="header glass"><div class="brand-slot"><a class="brand" href="/" aria-label="VMR Mangoes home"><img class="brand-light" src="/assets/brand-original.jpeg" alt="VMR Mangoes"><img class="brand-dark" src="/assets/brand-dark.webp" alt="" aria-hidden="true"></a></div></header>
+<main class="page-view wrap">
+  <div class="page-head"><h1>That page isn’t here</h1></div>
+  <section class="page-card empty-state not-found">
+    <p>The link may be old, or the address may have a typo. The mangoes are all still here.</p>
+    <a class="button primary" href="/">Back to the mangoes <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></svg></a>
+    <p style="margin:22px auto 0">Looking for an order or something else? <a href="/help" style="text-decoration:underline">Get help</a> or <a href="/contact" style="text-decoration:underline">contact us</a>.</p>
+  </section>
+</main>
+</body></html>

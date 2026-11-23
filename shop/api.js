@@ -50,6 +50,9 @@ async function authBlob(path){if(!token&&profile)await refreshOnce();const go=()
 function sendFile(path,file,headers={},onProgress){return new Promise((ok,no)=>{const x=new XMLHttpRequest();x.open('POST',`${base()}/v1${path}`);x.setRequestHeader('Content-Type',file.type||'application/octet-stream');for(const[k,v]of Object.entries(headers))x.setRequestHeader(k,v);if(onProgress)x.upload.onprogress=e=>{if(e.lengthComputable)onProgress(e.loaded/e.total)};x.onerror=()=>no(fail(0,'NETWORK','You seem to be offline. Check your connection and try again.'));x.onload=()=>readAnswer(new Response(x.status===204?null:x.responseText,{status:x.status})).then(ok,no);x.send(file)})}
 window.MM={
   api,idem,toRupees,
+  // One Idempotency-Key per request (STOCK-01): `h` keeps it, so a retry of the same body sends the same key and the API
+  // answers the first try again instead of placing it twice; another body (a new quote, an edited address) gets a new key.
+  keyFor(h,body){const s=JSON.stringify(body);if(!h.key||h.keyBody!==s){h.keyBody=s;h.key=idem()['Idempotency-Key']}return h.key},
   profile:()=>profile,
   // After the profile changes here (the name, saved on the profile page).
   rememberProfile:p=>setProfile({...profile,...p}),
@@ -61,6 +64,10 @@ window.MM={
   authConfig:()=>raw('/auth/config'),
   policy:()=>raw('/policy'),
   products:()=>raw('/products'),
+  // Approved reviews of a box's variety, newest first, with the totals (mango-api review-routes.js; no sign-in):
+  // params { limit (1-20), cursor (the last page's nextCursor), stars, withPhotos, scope: 'variety'|'sku' } →
+  // { summary:{count,average,distribution,withPhotos}, items:[{rating,comment,displayName,photos,reply,createdAt,…}], nextCursor }.
+  productReviews:(sku,params={})=>raw(`/products/${enc(sku)}/reviews`+qs(params)),
   catalogue:(pincode,deliveryDate)=>raw('/catalogue'+qs({pincode,delivery_date:deliveryDate})),
   // `at`: the map pin, when the shop has one, so the delivery charge is for that spot (paise; mango-api delivery-fee.js).
   deliveryCheck:(pincode,at)=>raw('/delivery/check'+qs({pincode,...(at&&at.lat!=null&&at.lng!=null?{lat:at.lat,lng:at.lng}:{})})),
@@ -73,14 +80,15 @@ window.MM={
   partnerDocument:(reference,uploadToken,file,category,onProgress)=>sendFile(`/partner-network/enquiries/${enc(reference)}/documents`+qs({category,name:file.name}),file,{'X-Upload-Token':uploadToken},onProgress),
   partnerStatus:reference=>raw(`/partner-network/enquiries/${enc(reference)}`),
   // Bulk enquiries (mango-api README): sent signed in or not; quotes on the Account page. Extras' `amount` stays in paise (shown with /100).
-  bulkEnquiry:(body,key)=>maybeAuth('/bulk-enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
+  // `captchaToken`: the Turnstile check's token (AUTH-01), sent only when the shop has the check on.
+  bulkEnquiry:(body,key,captchaToken)=>maybeAuth('/bulk-enquiries',{method:'POST',body:{...body,...(captchaToken?{captchaToken}:{})},headers:{'Idempotency-Key':key}}),
   myBulkEnquiries:()=>auth('/me/bulk-enquiries'),
   bulkSeen:id=>auth(`/me/bulk-enquiries/${enc(id)}/seen`,'POST',{}),
   bulkRespond:(id,decision,message)=>auth(`/me/bulk-enquiries/${enc(id)}/respond`,'POST',{decision,...(message?{message}:{})}),
   // Bulk orders paid at once (mango-api bulk-orders.js) and bulk prices: money stays in paise (bulk.js shows it).
   bulkPrices:()=>raw('/bulk/prices',{paise:true}),
   // The Farm visit tab's enquiry (no sign-in needed; a signed-in sender's is linked to their account).
-  farmVisitEnquiry:(body,key)=>maybeAuth('/farm-visit-enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
+  farmVisitEnquiry:(body,key,captchaToken)=>maybeAuth('/farm-visit-enquiries',{method:'POST',body:{...body,...(captchaToken?{captchaToken}:{})},headers:{'Idempotency-Key':key}}),
   placeBulkOrder:(body,key)=>api('/me/bulk-orders',{method:'POST',body,headers:{'Idempotency-Key':key},auth:true,paise:true}),
   bulkOrder:id=>api(`/me/bulk-enquiries/${enc(id)}`,{auth:true,paise:true}),
   payBulkOrder:id=>api(`/me/bulk-orders/${enc(id)}/pay`,{method:'POST',body:{},auth:true,paise:true}),
@@ -103,7 +111,7 @@ window.MM={
   cart:()=>auth('/cart'),
   setCartItem:(sku,stage,qty)=>auth('/cart/items','POST',{sku,stage,qty}),
   quote:body=>auth('/checkout/quote','POST',body),
-  confirm:body=>auth('/checkout/confirm','POST',body,idem()),
+  confirm:(body,key)=>auth('/checkout/confirm','POST',body,{'Idempotency-Key':key}),
   verifyPayment:(id,reply)=>auth(`/orders/${enc(id)}/verify-payment`,'POST',{razorpay_payment_id:reply.razorpay_payment_id,razorpay_order_id:reply.razorpay_order_id,razorpay_signature:reply.razorpay_signature}),
   paymentStatus:id=>auth(`/orders/${enc(id)}/payment-status`),
   demoPay:(id,outcome)=>auth(`/orders/${enc(id)}/demo-pay`,'POST',{outcome}),
@@ -112,7 +120,7 @@ window.MM={
   order:id=>auth(`/orders/${enc(id)}`),
   cancelOrder:id=>auth(`/orders/${enc(id)}/cancel`,'POST'),
   preorderWeeks:sku=>raw('/preorders/weeks'+qs({sku})),
-  bookPreorder:body=>auth('/preorders','POST',body,idem()),
+  bookPreorder:(body,key)=>auth('/preorders','POST',body,{'Idempotency-Key':key}),
   preorders:()=>auth('/preorders'),
   preorder:id=>auth(`/preorders/${enc(id)}`),
   cancelPreorder:id=>auth(`/preorders/${enc(id)}/cancel`,'POST'),

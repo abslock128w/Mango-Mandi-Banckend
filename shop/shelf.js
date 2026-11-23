@@ -4,7 +4,8 @@
    app.js) once a pincode is known. Loaded before app.js: top-level code here only declares,
    so app.js globals (cart, favorites, filter, skus, stock, toast, …) are used at call time.
    Before the season (app.js preSeason()) the shelf is the pre-order shop: each card has a "Pre-order" badge and button
-   (no stock, sold-out or delivery-day words: there is no fruit yet), and the product sheet books a harvest week. */
+   (no stock, sold-out or delivery-day words: there is no fruit yet), and the product sheet books a harvest week.
+   The product sheet also shows "What buyers say" (approved reviews, fetched when the sheet opens; see showReviews). */
 
 // The ripeness stages, in the words of the glass design. `id` matches the filter rail. Ripe is kept only so old
 // bags and orders still read; the shop sells Raw and Semi-ripe (SOLD).
@@ -203,7 +204,8 @@ function preCardAction(v, s, st) {
   // The box's own week (its variety's room, migration 078): the API's per-box nextWeek, else the last week it is offered.
   const own = ((pre.boxes || []).find((b) => b.sku === s.sku) || {}).nextWeek
   const week = (own && own.weekStart) || (preWeeksOf(s.sku).map((w) => String(w.weekStart)).sort().at(-1)) || null
-  return `<button class="quick-add is-pre" data-pre-open="${esc(v.name)}" ${key} aria-label="Pre-order a ${what}${week ? `, delivered in the week of ${esc(fmtWeek(week))}` : ''}">${icon('sun')}<span>Pre-order${week ? ` · week of ${esc(fmtWeek(week))}` : ''}</span></button>`
+  // The button says only "Pre-order" (one line at 360px); the week is a caption under it, already in the button's label.
+  return `<button class="quick-add is-pre" data-pre-open="${esc(v.name)}" ${key} aria-label="Pre-order a ${what}${week ? `, delivered in the week of ${esc(fmtWeek(week))}` : ''}">${icon('sun')}<span>Pre-order</span></button>${week ? `<small class="card-pre-week" aria-hidden="true">${icon('calendar')}<span>Week of ${esc(fmtWeek(week))}</span></small>` : ''}`
 }
 
 /** Redraw the cards' Add/stepper controls from the bag (all, or one), keeping focus on the control that was used. */
@@ -232,7 +234,7 @@ function cardHTML(v) {
   const name = esc(v.name)
   // Before the season every card is a pre-order: the badge on the photo says so.
   const badge = preSeason() ? `<span class="product-tag pre-badge">${icon('sun')}Pre-order</span>` : tag ? `<span class="product-tag liquid${out ? ' is-stock' : ''}">${esc(tag)}</span>` : ''
-  return `<article class="product-card${out && !next && !later && !ahead ? ' sold-out' : ''}${preSeason() ? ' is-pre' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${badge}${typeof roCardHTML === 'function' ? roCardHTML(v) : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div><p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
+  return `<article class="product-card${out && !next && !later && !ahead ? ' sold-out' : ''}${preSeason() ? ' is-pre' : ''}" data-kind="${st.id}" data-variety="${name}"><div class="product-image">${photoButton(v, stage)}${badge}${typeof roCardHTML === 'function' ? roCardHTML(v) : ''}</div><div class="product-info"><div class="product-topline"><h3><button data-product="${name}">${name}</button></h3><button class="heart ${saved ? 'saved' : ''}" data-favorite="${name}" aria-label="Save ${name}" aria-pressed="${saved}">${icon('heart')}</button></div>${cardRating(v)}<p class="product-desc">${esc(v.c.flavour)}</p><div class="product-bottom"><div class="product-price">${priceHTML(s)}</div>${boxCards(v, stage, sku, 'card')}</div><div class="card-action" data-variety="${name}" data-sku="${esc(sku)}" data-stage="${esc(stage)}" data-out="${out ? 1 : 0}">${cardAction(v, sku, stage, out)}</div><div class="product-status">${icon('leaf')}<span>${v.c.region ? esc(v.c.region) + ' · ' : ''}${st.stage}</span></div></div></article>`
 }
 
 // ---- Which cards, in what order
@@ -422,6 +424,8 @@ function renderDetail(focus) {
   // Fully booked this week, with room in the plan: added, and a day is chosen at checkout.
   const ahead = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !sourced ? planOf(detail.sku) : null
   const never = stock !== null && maxOn(detail.sku, detail.stage) === 0 && !sourced && !ahead, later = !never && qtyOf(detail.sku, detail.stage) === 0 ? nextOf(detail.sku, detail.stage) : null
+  // When it would come, under the button rather than in it, so "Add to bag" stays one line at 360px.
+  const when = never ? '' : ahead ? `Delivered ${ahead.words}` : sourced ? `Delivered in ${boSpan()}` : later ? `Earliest delivery: ${fmtDate(later)}` : ''
   const main = detail.photo || (c.photos && c.photos[detail.stage])
   const gallery = [...new Set([c.photos && c.photos[detail.stage], ...(c.gallery || [])].filter(Boolean))].slice(0, 3)
   const sweet = c.sweetness ? `<span class="sweet-meter" role="img" aria-label="${c.sweetness} out of 5">${[1, 2, 3, 4, 5].map((n) => `<i class="${n <= c.sweetness ? 'on' : ''}"></i>`).join('')}</span>` : ''
@@ -434,9 +438,81 @@ function renderDetail(focus) {
   $('#product-dialog').innerHTML = `<div class="product-detail${preMode ? ' is-pre' : ''}"><div class="detail-media"><div class="detail-image${main ? ' photo' : ''}" ${main ? '' : `style="background-position:${st.pos} center"`} role="img" aria-label="${st.stage} ${esc(v.name)}">${main ? `<img id="detail-photo" src="${main}" alt="">` : ''}</div>${gallery.length > 1 ? `<div class="detail-thumbs">${gallery.map((src, i) => `<button data-detail-photo="${src}" aria-label="Photo ${i + 1} of ${gallery.length}" aria-current="${src === main}"><img src="${src}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}</div><div class="detail-info"><div class="detail-close"><button class="icon-button" data-close aria-label="Close product details">${icon('close')}</button></div>${c.origin ? `<span class="detail-origin">${icon('leaf')}${esc(c.origin)}</span>` : ''}<h2>${esc(v.name)}</h2>${typeof roDetailHTML === 'function' ? roDetailHTML(v) : ''}<p>${esc(c.flavour)}. ${esc(c.story)}</p>${facts.length ? `<dl class="detail-facts">${facts.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join('')}</dl>` : ''}${c.contents ? `<ul class="detail-contents">${c.contents.map((x) => `<li>${icon('check')}${esc(x.name)} <small>· ${esc(x.share)}</small></li>`).join('')}</ul>` : ''}${preMode ? `<section id="pre-box" class="detail-pre" aria-label="Pre-order ${esc(v.name)}"></section><p class="detail-care">${st.care}</p></div></div>` : `<div class="segmented glass detail-stages" role="group" aria-label="Choose ripeness" style="--i:${SOLD.findIndex((x) => x.apiStage === detail.stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
     const on = x.apiStage === detail.stage, out = stock && soldOut(v, x.apiStage) && !nextFor(v, x.apiStage) && !v.skus.some((s) => canSource(s.sku, x.apiStage) || planOf(s.sku))
     return `<button class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-detail-stage="${x.apiStage}" aria-pressed="${on}" ${out ? `aria-label="${x.stage}, sold out" title="Sold out for this day"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
-  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}${ahead ? `<div class="bag-moved co-moved is-plan" role="status"><span class="bag-moved-icon" aria-hidden="true">${icon('clock')}</span><p><strong>${esc(planFull(planBox(detail.sku, detail.stage)))}</strong> It can be delivered ${esc(ahead.words)}: choose a day at checkout.</p></div>` : ''}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}>${never ? `${icon('close')} Sold out for now` : ahead ? `${icon('bag')} Add · delivered ${esc(ahead.words)}` : sourced ? `${icon('bag')} Add · in ${esc(boSpan())}` : later ? `${icon('bag')} Add · earliest delivery ${esc(fmtDate(later))}` : `${icon('bag')} Add to bag`}</button><p class="detail-care">${st.care}</p></div></div>`}`
+  }).join('')}</div><p class="detail-stage-note">${esc(r.use || '')}. ${esc(r.eatBy || '')}.</p><div class="product-price" id="detail-price">${currency(s.price)}<small> / box</small></div><div class="field">Choose your box</div>${boxCards(v, detail.stage, detail.sku, 'detail')}${ahead ? `<div class="bag-moved co-moved is-plan" role="status"><span class="bag-moved-icon" aria-hidden="true">${icon('clock')}</span><p><strong>${esc(planFull(planBox(detail.sku, detail.stage)))}</strong> It can be delivered ${esc(ahead.words)}: choose a day at checkout.</p></div>` : ''}<button class="button primary full" data-detail-add ${never ? 'disabled' : ''}${when ? ' aria-describedby="detail-add-when"' : ''}>${never ? `${icon('close')} Sold out for now` : `${icon('bag')} Add to bag`}</button>${when ? `<p class="detail-add-when" id="detail-add-when">${icon('clock')}<span>${esc(when)}</span></p>` : ''}<p class="detail-care">${st.care}</p></div></div>`}`
+  showReviews(v)
   if (preMode) preDetail(v.name, detail.sku, detail.stage)
   if (focus) $(focus, $('#product-dialog'))?.focus()
+}
+
+// ---- What buyers say: approved reviews of the variety, in the product sheet (GET /v1/products/:sku/reviews, public,
+// mango-api review-routes.js; a variety's boxes share one list). Fetched once per variety, when its sheet first opens,
+// and kept for the visit (the sheet redraws on every ripeness or box change); shown only when there is at least one.
+// "Show more" fetches the next page by its cursor. Styles: style.css "What buyers say".
+const REVIEWS_FIRST = 3, REVIEWS_MORE = 6
+const reviewsOf = {} // variety → { summary, items, next, busy, failed } once asked
+const reviewer = (n) => (!n || n === 'Anonymous' || n === 'Verified buyer' ? 'A buyer' : n)
+const reviewDate = (d) => { const t = new Date(d); return isNaN(t) ? '' : t.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) }
+/** Five stars filled to `n` (0 to 5, decimals allowed); screen readers hear `label`. */
+const starsHTML = (n, label) => `<span class="stars" style="--fill:${Math.max(0, Math.min(5, Number(n) || 0)) * 20}%" role="img" aria-label="${esc(label)}">★★★★★</span>`
+const reviewPhoto = (url, w) => `${(window.MM_CONFIG || {}).apiUrl || ''}${url}?w=${w}`
+
+function reviewItemHTML(r) {
+  const name = esc(reviewer(r.displayName)), when = reviewDate(r.createdAt)
+  const photos = (r.photos || []).slice(0, 4).map((ph) => `<a href="${esc(reviewPhoto(ph.url, 960))}" target="_blank" rel="noopener"><img src="${esc(reviewPhoto(ph.url, 160))}" alt="Photo from ${name}" loading="lazy" width="64" height="64"></a>`).join('')
+  return `<li class="review-item"><div class="review-head">${starsHTML(r.rating, `${r.rating} out of 5 stars`)}<strong>${name}</strong>${when ? `<time datetime="${esc(String(r.createdAt).slice(0, 10))}">${esc(when)}</time>` : ''}</div>${r.comment ? `<p>${esc(r.comment)}</p>` : ''}${photos ? `<div class="review-photos">${photos}</div>` : ''}${r.reply && r.reply.body ? `<p class="review-reply"><strong>VMR Mangoes:</strong> ${esc(r.reply.body)}</p>` : ''}</li>`
+}
+
+function reviewsHTML(name) {
+  const r = reviewsOf[name], sum = r && r.summary
+  if (!sum || !(sum.count > 0) || !r.items.length) return ''
+  const avg = Number(sum.average).toFixed(1), count = `${sum.count} ${sum.count === 1 ? 'review' : 'reviews'}`
+  return `<section class="detail-reviews" id="detail-reviews" aria-labelledby="detail-reviews-h"><h3 id="detail-reviews-h">What buyers say</h3><p class="reviews-summary">${starsHTML(sum.average, `Rated ${avg} out of 5`)}<strong>${avg}</strong><span>from ${count}</span></p><ul class="review-list">${r.items.map(reviewItemHTML).join('')}</ul>${r.next ? `<button class="button secondary reviews-more" data-reviews-more ${r.busy ? 'disabled' : ''}>${r.busy ? 'Loading…' : 'Show more reviews'}</button>` : ''}</section>`
+}
+
+/** Draws the sheet's reviews from what is known, and asks for them the first time this variety's sheet opens. */
+function showReviews(v) {
+  const info = $('#product-dialog .detail-info')
+  if (!info) return
+  $('#detail-reviews')?.remove()
+  info.insertAdjacentHTML('beforeend', reviewsHTML(v.name))
+  const known = reviewsOf[v.name]
+  if ((known && !known.failed) || !v.skus.length || !window.MM || !MM.productReviews) return
+  const mine = reviewsOf[v.name] = { summary: null, items: [], next: null, busy: false, failed: false }
+  MM.productReviews(v.skus[0].sku, { limit: REVIEWS_FIRST }).then((r) => {
+    Object.assign(mine, { summary: r.summary || null, items: r.items || [], next: r.nextCursor || null })
+    if (detail && detail.name === v.name && $('#product-dialog').open) showReviews(v)
+  }, () => { mine.failed = true }) // no section on a failure; the next opening asks again
+}
+
+async function moreReviews() {
+  const v = detail && shelf.find((x) => x.name === detail.name), mine = v && reviewsOf[v.name]
+  if (!mine || !mine.next || mine.busy) return
+  mine.busy = true
+  showReviews(v)
+  const from = mine.items.length
+  try {
+    const r = await MM.productReviews(v.skus[0].sku, { cursor: mine.next, limit: REVIEWS_MORE })
+    mine.items = [...mine.items, ...(r.items || [])]
+    mine.next = r.nextCursor || null
+    if (r.summary) mine.summary = r.summary
+  } catch (e) {
+    toast(e.message)
+  }
+  mine.busy = false
+  if (detail.name !== v.name || !$('#product-dialog').open) return
+  showReviews(v)
+  // Keep the place: the first new review takes focus (the button again when nothing came).
+  const items = $$('#detail-reviews .review-item')
+  if (items[from]) { items[from].tabIndex = -1; items[from].focus() } else $('[data-reviews-more]')?.focus()
+}
+
+/** The card's "★ 4.6 (23)", only when GET /v1/products sends a rating summary on its boxes (`rating: { average, count }`,
+    the variety's). It does not today, so nothing shows; the card never asks for reviews itself. */
+function cardRating(v) {
+  const r = (v.skus.find((s) => s.rating && s.rating.count > 0) || {}).rating
+  if (!r) return ''
+  const avg = Number(r.average).toFixed(1)
+  return `<p class="card-rating" role="img" aria-label="Rated ${avg} out of 5 from ${r.count} ${r.count === 1 ? 'review' : 'reviews'}"><span aria-hidden="true">★</span> ${avg} <small>(${r.count})</small></p>`
 }
 
 // ---- Events (catalogue controls only; the rest is in app.js)
@@ -458,6 +534,7 @@ document.addEventListener('click', (e) => {
     }
   }
   else if (b.dataset.product) productDetail(b.dataset.product)
+  else if (b.hasAttribute('data-reviews-more')) moreReviews()
   else if (b.dataset.favorite) {
     const id = b.dataset.favorite
     favorites = favorites.includes(id) ? favorites.filter((x) => x !== id) : [...favorites, id]

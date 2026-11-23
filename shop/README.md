@@ -64,8 +64,9 @@ page stay.
 Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`), the
 profile (`/account`) and sign-in (`/login?next=…`) are full pages, not sheets. Signed out, the account
 pages send the customer to `/login`, which returns them to the page they wanted (only a path on this site). They replace the home page in place (History
-API, so back and forward work and the links can be reloaded or shared); `vercel.json` and
-`scripts/serve-shop.mjs` serve `index.html` for them. app.js's checkout and order flows draw
+API, so back and forward work and the links can be reloaded or shared); `vercel.json` serves
+`index.html` for them (a public page its own copy, see "Search and share" below) and `scripts/serve-shop.mjs`
+serves `index.html`. app.js's checkout and order flows draw
 wherever `view` points: the page, the product sheet's booking panel (`#pre-box`, before the
 season), or the form sheet for a booked pre-order and bulk enquiries.
 
@@ -185,12 +186,60 @@ it from the environment:
 | `API_URL` | mango-api's origin, e.g. `https://api.mandimangoes.in`: no path, no trailing slash. Required when `VERCEL_ENV=production`, where it must be `https://` and not localhost. Unset elsewhere: `http://localhost:3000` |
 | `API_VIA_SHOP` | `true` when the shop and the API are on different sites (two `*.vercel.app` addresses). The shop then calls `/v1` on its own address and `vercel.json` forwards it to `API_URL` (the build refuses a mismatch), so the sign-in cookie belongs to the shop and phones keep it between visits. Leave unset when both are under one domain |
 | `SUPPORT_WHATSAPP` | the help WhatsApp number, digits only with the country code (`919800000000`). Optional |
+| `SUPPORT_PHONE` | a phone number for the Contact page (digits, spaces, an optional `+`). Optional |
+| `SUPPORT_EMAIL` | an email address for the Contact page and the privacy policy. Optional |
+| `GOOGLE_MAPS_KEY` | a Google Maps browser key for the delivery map and address lookup; without it they use OpenStreetMap. Optional |
+| `BUSINESS_NAME` | the registered business name (footer, terms). Optional: the pages fall back to "VMR Mangoes" |
+| `BUSINESS_ADDRESS` | the postal address on one line, commas allowed (footer, "Our address" on Contact). Optional |
+| `FSSAI_NUMBER` | the 14-digit FSSAI licence number (footer, Contact). Optional |
+| `GSTIN` | the 15-character GSTIN, checked like the API checks it (footer, Contact). Optional |
+| `SHOP_URL` | the shop's own public origin, e.g. `https://mandimangoes.in` (no path, no trailing slash; `https://` on a production build). Optional: without it the build keeps the origin in `index.html`'s canonical link (today `https://mandi-shop.vercel.app`). Every page's canonical link, `og:url` and `og:image`, the sitemap and `robots.txt` use it |
+
+Each optional detail is written into `config.js` only when set, and the shop shows no line (never a placeholder)
+for one that is not. A production build (`VERCEL_ENV=production`) prints one warning for each of
+`SUPPORT_WHATSAPP`, `SUPPORT_PHONE`, `SUPPORT_EMAIL`, `BUSINESS_ADDRESS`, `FSSAI_NUMBER` and `GSTIN` that is
+missing, and still builds.
 
 A bad value stops the build with a message. After writing `config.js` it runs
 `scripts/scan-bundle.mjs` over this folder (secrets, `/v1/dev`, demo accounts, source maps, and
 on a production build any localhost address), so none of the shop's files may contain those
-literally. Running the build locally changes `config.js`: run `npm run shop:build` with no
-variables, or `git checkout shop/config.js`, to put the default back before committing.
+literally. A build with no variables writes `config.js` exactly as it is committed (single quotes), so it leaves
+the tree clean; with variables it changes `config.js` (and, with a new `SHOP_URL`, `index.html`): run
+`npm run shop:build` with no variables, or `git checkout shop/config.js shop/index.html`, before committing.
+
+## Search and share (`routes.js`, `seo.js`, `_routes/`, `404.html`)
+
+WhatsApp, Facebook and most crawlers read a page's HTML and run no JavaScript, so every public page has its own HTML:
+
+- **`routes.js`** is the table of public pages: path, title and description (`/`, `/bulk`, `/gifts`, `/partner`,
+  `/legacy`, `/help`, `/contact`, `/farm-experience`, `/privacy`, `/terms`, `/refund`, `/shipping`). The titles are the
+  ones the views set with `document.title`; `tests/unit/shop-routes.unit.ts` checks they agree. It is a browser script
+  (`window.MM_ROUTES`) that the build also imports.
+- **The build** (`build-config.mjs`, after `config.js`) writes `_routes/`: for each page but `/`, a copy of
+  `index.html` with that page's `<title>`, meta description, canonical link, `og:title`, `og:description` and `og:url`;
+  plus `sitemap.xml` (every page in `routes.js`) and `robots.txt` (everything allowed but the signed-in and one-person
+  pages, `/v1/` and `/_routes/`; it names the sitemap). `_routes/` is rebuilt on every build and never committed
+  (`.gitignore`). `index.html` itself stays the template and the home page; it is rewritten only when `SHOP_URL` names
+  another origin.
+- **`vercel.json`** rewrites each public page to its file (`/bulk` → `/_routes/bulk.html`), `/robots.txt` and
+  `/sitemap.xml` to theirs, and every other address the router knows (`/orders/:id`, `/gifts/:id`, `/bulk/enquiry`, …) to
+  `/index.html`. Each source ends in `{/}?` so `/bulk/` works too (Vercel matches sources strictly). There is no
+  catch-all: any other address gets **`404.html`** with a real 404 status (Vercel serves a root `404.html` for anything
+  that is not a file and not rewritten). It is a small static page in the shop's look with links to the shop and to
+  Help, `noindex`, and only this site's own files (it fits the CSP as it is).
+- **`seo.js`** (loaded last) follows the page on every `mm:route`: the meta description, the title a page left behind
+  (the home page always gets the home title), and on the home page the JSON-LD: Organization and WebSite, and an
+  ItemList of Products once the shelf is drawn (name, photo and words from `catalog.js`; each box an Offer in INR with
+  `PreOrder` before the season, `InStock` or `OutOfStock` once stock is known for a pincode). The in-app not-found
+  page (`pages.js` `notFoundView`) adds `<meta name="robots" content="noindex">` and the next page takes it away.
+
+A new public page: add it to `routes.js` (and its view's `document.title`), add `"/<path>{/}?"` →
+`"/_routes/<path>.html"` to `vercel.json`. A new address in the router (`PAGES`) needs a rewrite to `/index.html`, or
+it is a 404 on reload; the unit test lists the router's patterns and fails until it has one.
+
+**Moving the shop to its own domain** (e.g. `mandimangoes.in`): set `SHOP_URL` on the Vercel project and redeploy. The
+canonical links, share cards, sitemap and `robots.txt` all follow. Also: add the domain in Vercel, list it first in the
+API's `CUSTOMER_ORIGIN`, and submit `https://<domain>/sitemap.xml` in Google Search Console.
 
 ## Vercel (`mandi-shop`)
 
@@ -199,15 +248,19 @@ variables, or `git checkout shop/config.js`, to put the default back before comm
   on (the default): the build imports `../scripts/scan-bundle.mjs`. Node.js version does not
   matter.
 - **Environment**: `API_URL` (production `https://api.mandimangoes.in`, preview the API preview
-  URL) and `SUPPORT_WHATSAPP`. The old `NEXT_PUBLIC_*` variables do nothing here.
+  URL), `SUPPORT_WHATSAPP`, `SUPPORT_PHONE`, `SUPPORT_EMAIL`, and the business details `BUSINESS_NAME`,
+  `BUSINESS_ADDRESS`, `FSSAI_NUMBER` and `GSTIN` (the footer, Contact and the legal pages), and `SHOP_URL` once the shop
+  has its own domain. The old `NEXT_PUBLIC_*` variables do nothing here.
   See [deploy/VERCEL.md](../deploy/VERCEL.md#mandi-shop).
 - **Headers** on every path: CSP, `X-Frame-Options: DENY`, `nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, HSTS; `Cache-Control: no-cache` on
   `/sw.js` and `/config.js` so a new release and a new API address reach browsers at once.
 - **Rewrite** `/v1/:path*` to the API, used only with `API_VIA_SHOP=true`.
-- **Rewrites** to `/index.html`: `/preorders/:id`, `/order/:id`, `/orders/:id`,
-  `/help/requests/:id`, `/account/:path*`, `/invite/:code`. Vercel serves a file that exists
-  before it applies rewrites, so `assets/` and the other files are not shadowed.
+- **Rewrites**: each public page in `routes.js` to its own HTML in `_routes/`, `/robots.txt` and `/sitemap.xml` to
+  theirs, and every other address the router knows (`/preorders/:id`, `/order/:id`, `/orders/:id`,
+  `/help/requests/:id`, `/account/:path*`, `/invite/:code`, `/bulk/enquiry`, `/gifts/:id`, …) to `/index.html`. No
+  catch-all: an unknown address gets `404.html` with status 404 (see "Search and share"). Vercel serves a file that
+  exists before it applies rewrites, so `assets/` and the other files are not shadowed.
 - **Redirect** `/preorder` (the retired pre-order page) to `/` (temporary, 307). The shop's own
   router does the same for a cached page or the local server.
 - The output folder is this folder, so `build-config.mjs` and `vercel.json` are served too
