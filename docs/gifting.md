@@ -151,19 +151,29 @@ Staff routes (managers and operators, as for the order list; 404 while off):
 
 ## Shop
 
-- **Start:** the gift part of checkout links to **Send to many** (`/gifts/new`).
-- **Editor:** one card per recipient, laid out for phones. It has:
-  - "Download the template" and "Upload a CSV"
-  - one day and time for everyone
-  - the sender's name
-  - optional business details for the one bill
-  - a promo code
-- **Review:** "Review N recipients" opens a review of every recipient and the total, then **Pay**.
+The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `shop/style.css`) sends a gift in two screens (the browser audit of 23 Nov 2026).
+
+- **Screen 1, `/gifts`: "Send a box of the season".**
+  - One card per gift box (Mixed, Alphonso, Kesar…). Each is set to 3 kg and semi-ripe. **Change** opens the size and ripeness on the card.
+  - Each card has one button, **Send as a gift**. There is no quantity counter: each person gets one box, so the number of boxes is the number of people.
+  - Before the season the pre-order terms appear once, as a chip: "Pre-order · arrives week of 1 Mar · **Details**". Details opens the terms in place.
+  - While `MULTI_GIFT` is off, the card's one button is **Add to bag as a gift** instead: one person, checked out from the bag (`shop/gift-bag.js`).
+- **Screen 2, `/gifts/send`: "Who gets it?".**
+  - The box each person gets, with **Change**. A person can have a different box ("Give this person a different box").
+  - One open row per person: **Name** and **WhatsApp number** (with +91 beside it), then the address and pincode. The pincode is checked as it is typed, so the giver learns at once whether we deliver there.
+  - Before the season, when the API offers it (`GET /v1/policy` → `features.giftAddressAsk`), each row asks "Their address": **Ask them on WhatsApp** (the default) or **I’ll enter it**. With "Ask", only the name and number are needed. While the API does not offer it, the address is asked as before.
+  - Rows save themselves as they are typed (this tab's draft, `sessionStorage` `mm-gift-draft`, version 3). There is no "Save this person". Empty rows are left out at Pay. Older drafts are read too.
+  - Up front: the **gift note** for every box, **From**, and the line "The price is hidden". Nothing the recipient gets shows a price; there is no switch for it.
+  - In season: one day and time for everyone, and the optional GST details for the one bill.
+  - The **sticky bar** at the bottom: "2 boxes · Arrives week of 1 Mar" (in season, the day), the total, and **Pay ₹3,598**. Before the season it also holds the one tick box: paid in full now, can't be cancelled once paid unless we delay it.
+  - **Pay** checks every row (the first mistake is focused), the tick, then sign-in (it comes back to `/gifts/send`, ready to press Pay again). In season it makes the gift order (quote, confirm, the Razorpay payment, verify-payment, as before). Before the season it books the gift pre-order group (`POST /v1/preorders/groups`, `qty: 1` per person, `askAddress: true` for "Ask"), then the payment link and the done screen.
+  - `/gifts/send/review` is kept for old links and opens screen 2.
 - **Gift order page (`/gifts/:id`):**
   - the payment state and each recipient's delivery with its status
   - cancel for one recipient or for the whole order, while allowed
   - the bill
 - **Orders page:** lists gift orders, and marks each delivery "gift for <name>".
+- **Order again** on a gift opens screen 2 with the same box (one box per person).
 
 ## Panel
 
@@ -192,7 +202,8 @@ Staff routes (managers and operators, as for the order list; 404 while off):
   - the CSV template's formula guard
 - **Isolation:** `mango-api/test/security-readiness.test.js` lists the gift routes among the customer routes checked for cross-customer access.
 - **Shop:**
-  - `customer-app/tests/unit/gift-csv.unit.ts` tests the CSV reader.
+  - `tests/unit/gift-rows.unit.ts` tests the shop's gifting helpers (the draft in every shape, the WhatsApp number, the week words, the booking body).
+  - `customer-app/tests/unit/gift-csv.unit.ts` tested the CSV reader of the retired Next.js shop.
   - `customer-app/tests/gifting.spec.ts` is end to end against the real API, the shop and the panel.
 - **Panel:** `tests/gifting.spec.ts`, against the mock API.
 

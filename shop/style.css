@@ -2965,3 +2965,60 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 .pre-bag-rows .pre-group-line{margin:0 0 2px}
 .bag-ready.pb-week{display:inline-flex;align-items:center;gap:5px}
 .bag-ready.pb-week svg{width:13px;height:13px;stroke-width:2}
+
+/* ==== Gifting in two screens (gifts.js, the audit of 23 Nov 2026). Screen 1: each card shows its box as set ("3 kg ·
+   Semi-ripe", the price, Change) and one button; the pre-order terms are one chip with Details. Screen 2: every person is
+   an open row (name, WhatsApp number with +91, the address or "Ask them on WhatsApp"), saved as typed; the note and
+   "From" follow; the sticky bar carries the line, the pre-order tick and Pay. Colours are the theme's tokens, so the dark
+   theme needs nothing of its own. */
+.gift-pick{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:2px 0 10px;padding:10px 10px 10px 14px;border-radius:14px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--line)}
+.gift-pick p{display:flex;flex-direction:column;gap:2px;min-width:0;margin:0;font-size:14px;line-height:1.3;color:var(--muted)}
+.gift-pick p strong{font-size:18px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.gift-pick .gift-change,.gift-everyone .gift-change{flex:none;min-height:44px;padding:0 16px;border-radius:12px;font-size:15px;font-weight:700}
+.gift-pick-opts{margin:0 0 10px}
+.gift-pick-opts[hidden]{display:none}
+.gift-pick-opts .gift-card-label{margin:8px 0 6px}
+.gift-card .gift-acts{display:block}
+.gift-card .gift-acts .gift-act{width:100%}
+
+.gift-pre-chip-wrap{margin:0 0 14px}
+.gift-pre-chip{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;width:fit-content;max-width:100%;margin:0;padding:8px 8px 8px 14px;border-radius:999px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--line);font-size:15px;line-height:1.35;color:var(--ink)}
+.gift-pre-chip>svg{flex:none;width:18px;height:18px;color:var(--accent);stroke-width:2}
+.gift-pre-chip .gift-terms-btn{min-height:36px;padding:0 12px;border-radius:999px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.gift-terms{margin:8px 0 0;padding:12px 14px;border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);font-size:14px;line-height:1.5}
+.gift-terms[hidden]{display:none}
+.gift-terms>p{display:flex;gap:8px;align-items:flex-start;margin:0 0 8px}
+.gift-terms>p svg{flex:none;width:18px;height:18px;margin-top:1px;color:var(--accent);stroke-width:2}
+
+.gift-person-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 6px}
+.gift-person-top .gift-person-h{display:flex;align-items:center;gap:8px;margin:0;font:700 16px/1.3 'Figtree',sans-serif;color:var(--ink)}
+.gift-person-top .gift-person-h svg{flex:none;width:20px;height:20px;color:var(--accent);stroke-width:2}
+.gift-person-top .gift-person-h:focus{outline:none}
+.gift-remove{min-height:44px;padding:0 10px}
+.gift-tel{display:flex;align-items:stretch;margin-top:8px}
+.gift-tel-cc{display:grid;place-items:center;flex:none;min-width:52px;padding:0 10px;border-radius:12px 0 0 12px;background:var(--chip);box-shadow:inset 0 0 0 1px var(--control-line,var(--line));font-weight:700;color:var(--muted)}
+.gift-tel input{flex:1;min-width:0;margin-top:0!important;border-radius:0 12px 12px 0!important}
+.gift-addr-choice{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin:12px 0 0;padding:0;border:0}
+.gift-addr-choice legend{margin:0 0 8px;padding:0;font-size:15px;font-weight:700;color:var(--ink)}
+.gift-radio{display:flex;gap:10px;align-items:flex-start;min-height:56px;padding:12px 14px;border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);cursor:pointer}
+.gift-radio:has(input:checked){box-shadow:inset 0 0 0 2px var(--accent)}
+.gift-radio input{flex:none;width:20px;height:20px;margin:2px 0 0;accent-color:var(--accent)}
+.gift-radio span{display:flex;flex-direction:column;gap:2px;font-size:15px;line-height:1.3}
+.gift-radio small{font-size:13px;color:var(--muted)}
+.gift-addr{margin-top:10px}
+.gift-own-link{margin-top:6px}
+.gift-person-week{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;font-size:14px;line-height:1.45;color:var(--ink)}
+.gift-person-week svg{flex:none;width:18px;height:18px;margin-top:1px;color:var(--accent);stroke-width:2}
+.gift-person-week.is-off svg{color:var(--warn-line)}
+.gift-saved{display:flex;gap:6px;align-items:center;min-height:20px;margin:8px 0 0;font-size:13px;color:var(--muted)}
+.gift-saved svg{width:16px;height:16px;color:var(--accent);stroke-width:2.4}
+.gift-from h3{margin:0 0 10px;font:700 17px/1.3 'Figtree',sans-serif;color:var(--ink)}
+.gift-hidden-price{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;font-size:14px;line-height:1.45;color:var(--ink)}
+.gift-hidden-price svg{flex:none;width:18px;height:18px;margin-top:1px;color:var(--accent);stroke-width:2.4}
+
+.gift-bar{max-width:720px;margin:0 auto}
+.gift-bar-agree{display:flex;gap:10px;align-items:flex-start;margin:0 0 8px;font-size:14px;line-height:1.4;color:var(--ink);cursor:pointer}
+.gift-bar-agree input{flex:none;width:22px;height:22px;margin:0;accent-color:var(--accent)}
+.gift-bar .pay-bar-total small{font-size:13px;line-height:1.3;white-space:normal}
+html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
+@media (max-width:420px){.gift-bar .pay-bar-go{padding:0 16px;font-size:16px}.gift-bar .pay-bar-total strong{font-size:21px}}

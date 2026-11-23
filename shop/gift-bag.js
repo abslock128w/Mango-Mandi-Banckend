@@ -1,4 +1,5 @@
-/* A gift in the bag: boxes added from a gift card (/gifts, "Add to bag") are bag lines marked `gift: true`, in the one bag
+/* A gift in the bag: boxes added from a gift card while sending gifts is switched off (/gifts, "Add to bag as a gift"),
+   or kept in a bag from before the two-screen gifting flow, are bag lines marked `gift: true`, in the one bag
    with your own boxes (same bag icon, same count). The bag page shows them in two groups, "For you" and "Gift", each with
    its own subtotal and checkout; a line can be moved between them. The API's regular checkout makes one order to one
    address per confirm, so each group is its own order and payment, checked out one after the other:
@@ -101,7 +102,7 @@ function groupFoot(gift, lines, wd, both, stuck) {
   if (pre && !gift) note = `<p class="bag-group-note">${icon('sun')}<span>Pre-ordered together: one payment, each box delivered in its own week.</span></p>`
   const id = `bag-co-why-${gift ? 'gift' : 'self'}`
   const btn = both ? `<div class="bag-group-go"><p class="bag-group-sum"><span>Subtotal · ${boxWord(t.count)}</span><strong>${currency(t.price)}</strong></p><button type="button" class="button ${gift ? 'primary' : 'secondary'}" data-bag-checkout="${gift ? 'gift' : 'self'}"${off ? ` disabled aria-describedby="${id}"` : ''}>${off ? icon('lock') : ''}${gift ? 'Checkout the gift' : pre ? 'Pre-order my boxes' : 'Checkout my order'} ${off ? '' : icon('arrow')}</button>${off ? `<p class="pay-bar-why bag-group-why" id="${id}">${icon('info')}<span>${esc(off)}</span></p>` : ''}</div>` : ''
-  const several = gift ? `<p class="bag-group-note">${icon('gift')}<span>One bag, one person, one address${both || pre ? '' : ', with its own delivery charge if there is one'}. Sending to more people? <a href="/gifts" data-route>Send to several people</a></span></p>` : ''
+  const several = gift ? `<p class="bag-group-note">${icon('gift')}<span>One bag, one person, one address${both || pre ? '' : ', with its own delivery charge if there is one'}. Sending to several people? <a href="/gifts" data-route>Send it from Gifting</a>: one box each, one payment</span></p>` : ''
   return `<div class="bag-group-foot${gift ? ' is-gift' : ''}">${note}${btn}${several}</div>`
 }
 
