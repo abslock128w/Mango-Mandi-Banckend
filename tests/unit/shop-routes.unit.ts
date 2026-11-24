@@ -125,6 +125,8 @@ const PAGES_SAMPLES: Record<string, string[]> = {
   '^\\/gifts\\/send\\/review\\/?$': ['/gifts/send/review'],
   '^\\/gifts\\/done\\/?$': ['/gifts/done'],
   '^\\/gifts\\/([^/]+)\\/?$': ['/gifts/go_1'],
+  '^\\/gifts\\/pre\\/([^/]+)\\/?$': ['/gifts/pre/pg_1'],
+  '^\\/gift-address\\/([^/]+)\\/?$': ['/gift-address/tok_1'],
   '^\\/partner\\/?$': ['/partner'],
   '^\\/partner\\/apply\\/?$': ['/partner/apply'],
   '^\\/partner\\/privacy\\/?$': ['/partner/privacy'],
