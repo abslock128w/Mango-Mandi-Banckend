@@ -205,7 +205,7 @@ async function preBagPay() {
 /** The orders list's heading for a pre-order bag (app.js preRow draws its lines under it). */
 function preBagHead(g, lines) {
   const paid = lines.some((p) => p.paymentStatus === 'SUCCEEDED')
-  return `<p class="pre-group-line">${icon('bag')}<span>Pre-order ${esc(orderNo(g.number || ''))} · ${lines.length} ${lines.length === 1 ? 'box line' : 'box lines'} · ${paid ? 'paid' : 'one payment'} of ${currency(g.total || 0)}</span></p>`
+  return `<p class="pre-group-line">${icon('bag')}<span>Pre-order ${esc(orderNo(g.number || ''))} · ${lines.length} ${lines.length === 1 ? 'box line' : 'box lines'} · ${paid ? 'paid' : 'one payment of'} ${currency(g.total || 0)}</span></p>`
 }
 
 if (typeof document !== 'undefined') {
