@@ -22,9 +22,9 @@ beforeEach(async () => {
 })
 
 const BOX = 189_900
-const line = (qty = 1) => [{ sku: 'ALP-3', stage: 'RIPE', qty }]
+const line = (qty = 1) => [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }]
 const quote = async (token, promoCode, qty = 1) => {
-  await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty }, { token })
+  await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty }, { token })
   return api.post('/v1/checkout/quote', { pincode: '560034', promoCode }, { token })
 }
 const addPromo = (body) => api.post('/admin/v1/promos', { ...body, confirmCode: 'manager123' }, { token: admin })
@@ -42,7 +42,7 @@ describe('promo codes', () => {
     const cust = await customerToken(api)
     const t = cust.accessToken
     assert.equal((await quote(t, 'NOPE')).body.error.code, 'PROMO_INVALID')
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 2 }, { token: t })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }, { token: t })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: 'welcome10' }, { token: t })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     assert.equal(q.body.subtotal, 2 * BOX)
@@ -103,7 +103,7 @@ describe('gift orders', () => {
   test('the rider sees the recipient; the packer sees the note; the buyer still gets the updates', async () => {
     const cust = await customerToken(api)
     const t = cust.accessToken
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: t })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: t })
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: t })
     const gift = { recipientName: 'Meera Iyer', recipientPhone: '98450 12345', message: 'Happy birthday, Amma!' }
     const bad = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru', gift: { ...gift, recipientPhone: '123' } }, { token: t, headers: { 'Idempotency-Key': newId('k') } })

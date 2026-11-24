@@ -29,7 +29,7 @@ const hook = (event) => {
 test('a payment webhook that finds the pool busy answers 503 BUSY and is not recorded as a failed webhook', async () => {
   await makeBatch({ age: 6, lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api, '9876511111')
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   const event = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_load_1', order_id: c.body.razorpayOrderId, amount: c.body.total, currency: 'INR', method: 'upi' } } } }
 
@@ -60,7 +60,7 @@ test('a payment webhook that finds the pool busy answers 503 BUSY and is not rec
 test('a request that cannot get a row lock in time answers 503 BUSY, not 500', async () => {
   await makeBatch({ age: 6, lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api, '9876511112')
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   await forceOrderState(`UPDATE orders SET status = 'CONFIRMED' WHERE id = $1`, [c.body.orderId])
   const staff = await adminToken(api)

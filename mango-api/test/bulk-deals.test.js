@@ -36,7 +36,7 @@ const TIERS = [
 ]
 const DRAFT = {
   sku: 'ALP-3', title: 'Alphonso for offices', description: 'Hand-picked Ratnagiri Alphonso in 3 kg boxes, for offices and events.',
-  origin: 'Ratnagiri, Maharashtra', stages: ['RIPE', 'SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: TIERS,
+  origin: 'Ratnagiri, Maharashtra', stages: ['SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: TIERS,
 }
 const ADDRESS = '12, 4th Cross, Koramangala, Bengaluru'
 const MIN = 60_000
@@ -53,7 +53,7 @@ async function published(body = DRAFT) {
   return p.body
 }
 const stock = (qty = 60) => makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': qty } })
-const addBulk = (token, listingId, qty, stage = 'RIPE', extra = {}) => api.post('/v1/cart/bulk', { listingId, stage, qty, ...extra }, { token })
+const addBulk = (token, listingId, qty, stage = 'SEMI_RIPE', extra = {}) => api.post('/v1/cart/bulk', { listingId, stage, qty, ...extra }, { token })
 const quote = (token, body = {}) => api.post('/v1/checkout/quote', { pincode: '560034', ...body }, { token })
 const confirm = (token, quoteId, key = newId('idem')) => api.post('/v1/checkout/confirm', { quoteId, address: ADDRESS }, { token, headers: { 'Idempotency-Key': key } })
 const shopIds = async () => (await api.get('/v1/bulk-deals')).body.items.map((l) => l.id)
@@ -86,14 +86,14 @@ describe('the price engine', () => {
   })
 
   test('invalid, overlapping and ambiguous tiers are refused', () => {
-    const base = { minQty: 10, qtyStep: 1, maxQty: null, stages: ['RIPE'] }
+    const base = { minQty: 10, qtyStep: 1, maxQty: null, stages: ['SEMI_RIPE'] }
     assert.match(listingProblems({ ...base, tiers: [{ minQty: 5, unitPrice: 100 }] })[0], /first price tier must start at the minimum/)
     assert.match(listingProblems({ ...base, tiers: [{ minQty: 10, unitPrice: 100 }, { minQty: 10, unitPrice: 90 }] }).join(), /higher quantity each time/)
     assert.match(listingProblems({ ...base, tiers: [{ minQty: 10, unitPrice: 100 }, { minQty: 30, unitPrice: 20 }, { minQty: 20, unitPrice: 10 }] }).join(), /higher quantity/)
     assert.match(listingProblems({ ...base, tiers: [{ minQty: 10, unitPrice: 100 }, { minQty: 20, unitPrice: 100 }] }).join(), /must cost less per box/)
     assert.match(listingProblems({ ...base, qtyStep: 5, tiers: [{ minQty: 10, unitPrice: 100 }, { minQty: 22, unitPrice: 90 }] }).join(), /steps of 5/)
     assert.match(listingProblems({ ...base, maxQty: 20, tiers: [{ minQty: 10, unitPrice: 100 }, { minQty: 30, unitPrice: 90 }] }).join(), /above the most boxes/)
-    assert.match(listingProblems({ ...base, stages: ['RIPE', 'RIPE'], tiers: [{ minQty: 10, unitPrice: 100 }] }).join(), /listed twice/)
+    assert.match(listingProblems({ ...base, stages: ['SEMI_RIPE', 'SEMI_RIPE'], tiers: [{ minQty: 10, unitPrice: 100 }] }).join(), /listed twice/)
     assert.deepEqual(listingProblems({ ...base, tiers: TIERS }), [])
   })
 })
@@ -143,6 +143,8 @@ describe('managing listings', () => {
     assert.equal((await create({ ...DRAFT, tiers: [{ minQty: 10, unitPrice: 0 }] })).status, 400)
     assert.equal((await create({ ...DRAFT, tiers: [{ minQty: 10, unitPrice: 99.5 }] })).status, 400, 'paise are whole numbers')
     assert.equal((await create({ ...DRAFT, stages: [] })).status, 400)
+    // Nothing is sold ripe any more: a deal can't offer it.
+    assert.equal((await create({ ...DRAFT, stages: ['RIPE'] })).status, 400)
     assert.equal((await create({ ...DRAFT, status: 'PUBLISHED' })).status, 400, 'a listing is created as a draft')
     assert.equal((await create({ ...DRAFT, startsAt: '2026-11-02T00:00:00Z', endsAt: '2026-11-01T00:00:00Z' })).status, 400)
   })
@@ -240,9 +242,9 @@ describe('the shop catalogue', () => {
     assert.equal(one.serviceable, true)
     assert.ok(one.availability.length > 0)
     const day = one.availability[0]
-    const ripe = day.stages.find((s) => s.stage === 'RIPE')
-    assert.equal(ripe.available, 30)
-    assert.equal(ripe.enough, true)
+    const semi = day.stages.find((s) => s.stage === 'SEMI_RIPE')
+    assert.equal(semi.available, 30)
+    assert.equal(semi.enough, true)
     assert.equal((await api.get(`/v1/bulk-deals/${l.id}?pincode=110001`)).body.serviceable, false)
     assert.equal((await api.get(`/v1/bulk-deals/${l.id}/price?qty=25`)).body.total, 25 * 149_900)
     assert.equal((await api.get(`/v1/bulk-deals/${l.id}/price?qty=9`)).status, 400)
@@ -257,7 +259,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     assert.equal((await addBulk(t, l.id, 12)).body.error.code, 'BULK_QTY_INVALID')
     assert.equal((await addBulk(t, l.id, 45)).body.error.code, 'BULK_QTY_INVALID', 'above 40, the unpaid-box limit')
     assert.equal((await addBulk(t, l.id, 10, 'RAW')).body.error.code, 'BULK_STAGE_INVALID')
-    const tamper = await addBulk(t, l.id, 25, 'RIPE', { unitPrice: 1 })
+    const tamper = await addBulk(t, l.id, 25, 'SEMI_RIPE', { unitPrice: 1 })
     assert.equal(tamper.status, 400, 'a price field is not accepted')
     assert.equal((await addBulk(t, l.id, 25)).status, 204)
     const cart = (await api.get('/v1/cart', { token: t })).body
@@ -347,7 +349,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     assert.equal((await quote(t)).body.error.code, 'STOCK_INSUFFICIENT')
     await addBulk(t, l.id, 15)
     // The same box and ripeness as a regular line too.
-    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: t })
+    await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: t })
     assert.equal((await quote(t)).body.error.code, 'CART_CONFLICT')
     await api.del('/v1/cart/items/ALP-3', { token: t })
     // Promo codes are for regular boxes.
@@ -368,7 +370,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     const retailBuyers = await Promise.all([1, 2].map(() => customerToken(api).then((x) => x.accessToken)))
     await addBulk(bulkBuyer, l.id, 25)
     const bq = await quote(bulkBuyer)
-    for (const r of retailBuyers) await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 4 }, { token: r })
+    for (const r of retailBuyers) await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 4 }, { token: r })
     const rq = await Promise.all(retailBuyers.map((r) => quote(r)))
     const results = await Promise.all([confirm(bulkBuyer, bq.body.quoteId), ...retailBuyers.map((r, i) => confirm(r, rq[i].body.quoteId))])
     const ok = results.filter((r) => r.status === 201)
@@ -405,7 +407,7 @@ describe('bulk lines through the cart, checkout and orders', () => {
     await stock(30)
     await published()
     const t = (await customerToken(api)).accessToken
-    const r = await checkout(api, t, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const r = await checkout(api, t, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.equal(r.body.total, 2 * 189_900)
     const item = (await query('SELECT listing_id, pricing FROM order_items WHERE order_id = $1', [r.body.orderId])).rows[0]

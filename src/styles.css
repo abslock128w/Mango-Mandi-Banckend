@@ -9,5 +9,7 @@
 @import './styles/viz.css';
 @import './styles/pages.css';
 @import './styles/ops.css';
+@import './styles/partner.css'; /* Partner Network pages (src/pages/partner, docs/partner-network.md) */
+@import './styles/farm.css'; /* Farm Experience pages (src/pages/farm, docs/farm-experience.md) */
 @import './styles/theme.css';
 @import './styles/print.css';

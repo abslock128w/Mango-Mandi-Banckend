@@ -9,6 +9,7 @@ import { now, setNow } from '../src/clock.js'
 import { query, tx } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { assignNearest, km, POSITION_FRESH_MS } from '../src/nearest.js'
+import { orderSeqSql } from '../src/order-number.js'
 
 let srv
 let api
@@ -64,7 +65,7 @@ async function placeRider(riderId, pos, ageMs = 0, accuracy = null) {
 /** A paid order (CONFIRMED: assignable) for a customer at `pincode`, on the earliest delivery date unless given. */
 async function makeOrder({ pincode = '560034', slotId, deliveryDate } = {}) {
   const cust = await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { pincode, slotId, deliveryDate })
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { pincode, slotId, deliveryDate })
   assert.equal(o.status, 201, JSON.stringify(o.body))
   const pay = await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   assert.equal(pay.status, 200, JSON.stringify(pay.body))
@@ -110,7 +111,7 @@ async function expectedAssignment(date, orderIds = null) {
     `SELECT o.id, o.pickup_warehouse_id, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
       WHERE o.delivery_date = $1 AND o.rider_id IS NULL ${orderIds ? 'AND o.id = ANY($2)' : ''}
         AND o.status IN ('CONFIRMED', 'PROCESSING', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERY_FAILED')
-      ORDER BY o.slot_id NULLS LAST, o.number`,
+      ORDER BY o.slot_id NULLS LAST, ${orderSeqSql('o.number')}`,
     orderIds ? [date, orderIds] : [date],
   )
   const out = new Map()

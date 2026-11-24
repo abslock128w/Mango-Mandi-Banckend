@@ -1,6 +1,8 @@
 # MandiMangoes component inventory
 
-The shop (`customer-app/`) and the staff panel (`src/`) share one token file, [`tokens.css`](tokens.css).
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
+The staff panel (`src/`) uses one token file, [`tokens.css`](tokens.css) (the previous Next.js shop, `customer-app/`, shared it; the static shop in `shop/` has its own `style.css`).
 Run `node design/check-contrast.mjs` after changing a colour: every text pair must stay at 4.5:1 or more, light and dark.
 
 ## Tokens

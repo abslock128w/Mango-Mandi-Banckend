@@ -7,7 +7,8 @@
 // (checkHealth in maintenance.js, the hourly runAudit) and sends a Sentry warning
 // per problem, at most hourly each; Sentry's alert rule tells the on-call person.
 // The job stopping is caught from outside: Better Stack Uptime polls /ready, and
-// the Sentry Cron monitor `maintenance` expects a check-in every minute.
+// the Sentry Cron monitor `maintenance` expects a check-in on each scheduler
+// interval (MAINTENANCE_INTERVAL_S: every minute unless a slower pinger is set).
 //
 // ALERT_CHECKS names, for every rule in ops/alerts.yml, what stands in for it on
 // Vercel and who is told. test/alert-checks.test.js fails when a rule has no
@@ -16,6 +17,7 @@ import { now } from './clock.js'
 import { query } from './db.js'
 import { env } from './env.js'
 import { recentCounts } from './ops-counters.js'
+import { staleAfterS } from './readiness.js'
 
 /** Who hears about it on Vercel (deploy/VERCEL.md, "Watch it", has the setup). */
 export const NOTIFY = {
@@ -31,6 +33,14 @@ export const STEP_FAILS = 3
 /** A step that last failed longer ago than this is not run any more (a switch went off): no alert. */
 const STEP_STALE_MS = 25 * 60 * 60_000
 
+/** "4 minutes", "20 minutes", "300 s": a number of seconds as the alert text says it. */
+const inWords = (s) => (s % 60 === 0 ? `${s / 60} minute${s === 60 ? '' : 's'}` : `${s} s`)
+
+/** SRV-02: what counts as the job stopped, in words, for the scheduler's interval. */
+export const loopStoppedText = (intervalS = env.MAINTENANCE_INTERVAL_S) =>
+  `No maintenance run finished for ${inWords(staleAfterS(intervalS))} (four MAINTENANCE_INTERVAL_S): /ready answers 503 (readiness.js), ` +
+  `and the Sentry Cron monitor misses its check-in due every ${intervalS === 60 ? 'minute' : inWords(intervalS)}`
+
 /**
  * Per alerts.yml rule: `vercel` says what checks it there, `checks` names each
  * check (by: checkHealth and its problem key, runAudit, login-codes for sms.js
@@ -39,7 +49,7 @@ const STEP_STALE_MS = 25 * 60 * 60_000
  */
 export const ALERT_CHECKS = {
   MaintenanceLoopStopped: {
-    vercel: 'No maintenance run finished for 4 minutes: /ready answers 503 (readiness.js), and the Sentry Cron monitor misses its every-minute check-in',
+    vercel: loopStoppedText(),
     checks: [{ by: 'ready' }, { by: 'cron', key: 'maintenance' }],
     notifies: [NOTIFY.uptime, NOTIFY.cron],
     runbook: 'scheduler-stopped',

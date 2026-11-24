@@ -7,6 +7,7 @@ import express from 'express'
 import { z } from 'zod'
 import { billView } from '../bills.js'
 import { query } from '../db.js'
+import { normaliseOrderNumber } from '../order-number.js'
 import { asyncHandler, notFound, parse } from '../errors.js'
 import { giftStatus } from '../gifts.js'
 import { productName } from '../products.js'
@@ -55,7 +56,9 @@ router.get(
     const params = []
     let where = ''
     if (f.q) {
-      params.push(`${likeEscape(f.q)}%`, `%${likeEscape(f.q)}%`)
+      // G-743 406 080 typed any way finds the number as stored (order-number.js).
+      const q = normaliseOrderNumber(f.q)
+      params.push(`${likeEscape(q)}%`, `%${likeEscape(q)}%`)
       // The gift order's number, or any of its deliveries' numbers, buyer or recipient.
       where = `WHERE g.number ILIKE $1 OR EXISTS (SELECT 1 FROM orders o WHERE o.gift_order_id = g.id
                  AND (o.number ILIKE $1 OR o.customer_name ILIKE $2 OR o.gift_recipient_name ILIKE $2))`

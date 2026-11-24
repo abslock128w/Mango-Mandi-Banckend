@@ -110,9 +110,11 @@ describe('notifications drain in batches (OPS-30)', () => {
   async function dueMessages(n) {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(o.status, 201, JSON.stringify(o.body))
     await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
+    // The semi-ripe box's ripeness guide is due a minute later, not now: out of the count.
+    await query(`DELETE FROM notifications WHERE kind = 'RIPENESS_GUIDE'`)
     const { rows } = await query(`SELECT COUNT(*)::int AS n, MIN(phone) AS phone FROM notifications WHERE status = 'PENDING'`)
     for (let i = rows[0].n; i < n; i++) {
       await query(

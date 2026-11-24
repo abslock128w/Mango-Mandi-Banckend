@@ -24,7 +24,7 @@ beforeEach(async () => {
 async function paidOrder() {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })
   return c.body.orderId
 }

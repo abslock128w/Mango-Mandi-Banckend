@@ -9,6 +9,7 @@ import { rupees } from '../format'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { Product, ProductInput } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, QueryError, Spinner, useToast, scrollRegion, usePageTitle } from '../ui'
+import { BulkPrices } from './BulkPrices'
 
 export default function Products() {
   usePageTitle('Products')
@@ -122,6 +123,8 @@ export default function Products() {
           orders included.
         </p>
       </section>
+
+      <BulkPrices />
 
       {editing && (
         <ProductDialog product={editing === 'new' ? null : editing} varieties={varieties} onClose={() => setEditing(null)} onDone={refresh} />

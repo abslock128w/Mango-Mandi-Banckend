@@ -61,7 +61,10 @@ function metaError(res, body) {
 export function metaSender(opts, fetchImpl = fetch) {
   const url = `https://graph.facebook.com/${opts.apiVersion}/${encodeURIComponent(opts.phoneNumberId)}/messages`
   // urlParam: the variable of the template's URL button (index 0), for templates that have one.
-  return async function sendMeta({ phone, template, params, urlParam = null }) {
+  // urlParams: one variable per URL button, in the template's button order, for templates with
+  // more than one (the confirmation with "Track order" and "Download invoice").
+  return async function sendMeta({ phone, template, params, urlParam = null, urlParams = null }) {
+    const buttons = urlParams?.length ? urlParams : urlParam ? [urlParam] : []
     const res = await fetchImpl(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opts.token}` },
@@ -74,7 +77,7 @@ export function metaSender(opts, fetchImpl = fetch) {
           language: { code: opts.language },
           components: [
             { type: 'body', parameters: params.map((text) => ({ type: 'text', text: String(text) })) },
-            ...(urlParam ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: String(urlParam) }] }] : []),
+            ...buttons.map((text, i) => ({ type: 'button', sub_type: 'url', index: String(i), parameters: [{ type: 'text', text: String(text) }] })),
           ],
         },
       }),

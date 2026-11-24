@@ -31,7 +31,8 @@ import {
 const STATUSES: BulkStatus[] = ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED']
 const STATUS_LABEL: Record<BulkStatus, string> = { DRAFT: 'Draft', PUBLISHED: 'Published', UNPUBLISHED: 'Unpublished', ARCHIVED: 'Archived' }
 const STATUS_TONE: Record<BulkStatus, Tone> = { DRAFT: 'neutral', PUBLISHED: 'good', UNPUBLISHED: 'warn', ARCHIVED: 'neutral' }
-const STAGES: Ripeness[] = ['RIPE', 'SEMI_RIPE', 'RAW']
+// The stages sold (the API's SALE_STAGES): nothing is sold ripe.
+const STAGES: Ripeness[] = ['SEMI_RIPE', 'RAW']
 const MAX_TIERS = 8
 const MAX_PHOTOS = 8
 
@@ -193,7 +194,8 @@ const toForm = (l: BulkListing | null): Form => ({
   title: l?.title ?? '',
   description: l?.description ?? '',
   origin: l?.origin ?? '',
-  stages: l?.stages ?? ['RIPE'],
+  // A deal saved when Ripe was still sold offers Semi-ripe in its place.
+  stages: l ? STAGES.filter((s) => l.stages.includes(s) || (s === 'SEMI_RIPE' && l.stages.includes('RIPE'))) : ['SEMI_RIPE'],
   minQty: String(l?.minQty ?? 10),
   qtyStep: String(l?.qtyStep ?? 1),
   maxQty: l?.maxQty != null ? String(l.maxQty) : '',

@@ -1,5 +1,7 @@
 # QA report: MandiMangoes (API, shop, panel, rider app)
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation. `tests/cross-app.spec.ts` and `scripts/qa-journey.sh`, which drove that shop, were removed with it.
+
 Branch `claude/qa-fix-pass-3443b2`, cut from `claude/rider-app-07905d` with
 `origin/claude/mandimangoes-new-shop-and-panel` merged in (commit 75ad868).
 Nothing pushed or deployed; the live Vercel demo was not touched.

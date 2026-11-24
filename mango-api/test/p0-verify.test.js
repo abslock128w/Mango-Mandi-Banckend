@@ -1,6 +1,6 @@
 // P0 launch blockers, re-verified on 23 Oct (readiness round): the gaps found
 // while proving the six P0 items, each with the test that failed before its fix.
-import { adminToken, client, closeAll, customerToken, resetDb, signWebhook, startServer, T0, checkout, makeBatch } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, onePreorderWeek, resetDb, signWebhook, startServer, T0, checkout, makeBatch } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { addDays, setNow, todayIST } from '../src/clock.js'
@@ -78,7 +78,7 @@ function openWeek() {
 const book = (token, week, extra = {}) =>
   api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
     { token, headers: { 'Idempotency-Key': newId('idem') } },
   )
 const preStatus = async (id) => (await query('SELECT status FROM preorders WHERE id = $1', [id])).rows[0].status
@@ -130,7 +130,7 @@ describe('P0-3: Book ahead obeys the unpaid limit (INV-02), on the web and in Wh
     await say('hi')
     await say({ id: 'BOOK' })
     await say({ id: `week:${week}|ALP-3` })
-    await say({ id: 'prestage:RIPE' })
+    await say({ id: 'prestage:SEMI_RIPE' })
     await say({ id: 'qty:2' })
     await say('560034')
     await say('12, 4th Cross, Koramangala, Bengaluru')
@@ -143,8 +143,7 @@ describe('P0-3: Book ahead obeys the unpaid limit (INV-02), on the web and in Wh
 
 describe('P0-2: Book ahead frees an expired hold without the maintenance job', () => {
   test('a week filled by an unpaid booking whose hold ran out takes the next booking; a late payment still books', async () => {
-    const week = openWeek()
-    await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: admin })
+    const week = await onePreorderWeek(6) // one week of 6 kg: one 2 x 3 kg booking
     const a = await customerToken(api)
     const held = await book(a.accessToken, week)
     assert.equal(held.status, 201)
@@ -178,7 +177,7 @@ describe('P0-4: each webhook is logged with our request id and Razorpay’s ids'
   test('payment.captured, its duplicate and refund.processed each leave one line naming both sides', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const lines = []
     const info = logger.info

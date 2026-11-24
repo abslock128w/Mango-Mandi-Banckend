@@ -1,5 +1,7 @@
 # 24 Oct 2026 audit, part B: status register
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Covers every finding in `audit-2026-10-24/security.md`, `security-endpoints.md`,
 `integrations.md` and `platform.md`. Branch `wip/auditb`, from `61ac961`.
 What was built, the flags and the rollout order: [audit-b-fixes.md](audit-b-fixes.md).

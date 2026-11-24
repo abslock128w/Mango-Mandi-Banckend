@@ -10,6 +10,9 @@ import type { DayPlan } from '../src/ops/types'
 
 const WCAG = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
 async function scan(page: import('@playwright/test').Page) {
+  // Back to the top first: a control the page scrolled under the sticky header reads as "partially obscured" to the
+  // target-size rule (seen on the iPhone viewport after focusing a stop), which is scrolling, not a small target.
+  await page.evaluate(() => window.scrollTo(0, 0))
   const results = await new AxeBuilder({ page }).withTags(WCAG).analyze()
   expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
 }

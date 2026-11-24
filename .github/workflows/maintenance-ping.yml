@@ -1,0 +1,52 @@
+# Calls the API's background job (/internal/maintenance) every 5 minutes.
+#
+# Why: the job sends queued WhatsApp and SMS messages, releases unpaid holds, retries refunds and runs the
+# pre-order steps. On Vercel's Hobby plan the built-in cron may run only once a day (mango-api/vercel.json),
+# so this workflow is the frequent trigger until the project moves to Vercel Pro (then set the Vercel cron
+# to every minute and delete this file). See deploy/SCHEDULER.md.
+#
+# GitHub runs scheduled workflows on the default branch only, at best every 5 minutes, and can delay or
+# skip runs when it is busy: this is a stopgap, not a guarantee.
+#
+# Set two repository secrets (Settings → Secrets and variables → Actions):
+#   MAINTENANCE_URL  the full address, e.g. https://<the API host>/internal/maintenance
+#   CRON_SECRET      the same value as the API's CRON_SECRET setting
+# Without both the run fails (CRON-01: a green run must mean the job was called). A copy with no API
+# to call, or a project on Vercel Pro's every-minute cron, sets the repository variable
+# MAINTENANCE_PING_DISABLED=true to skip it on purpose.
+name: maintenance-ping
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: maintenance-ping
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the maintenance job
+        env:
+          MAINTENANCE_URL: ${{ secrets.MAINTENANCE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          MAINTENANCE_PING_DISABLED: ${{ vars.MAINTENANCE_PING_DISABLED }}
+        run: |
+          if [ "$MAINTENANCE_PING_DISABLED" = "true" ]; then
+            echo "::notice::The maintenance ping is turned off (repository variable MAINTENANCE_PING_DISABLED=true)."
+            exit 0
+          fi
+          if [ -z "$MAINTENANCE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::Nothing called: set the MAINTENANCE_URL and CRON_SECRET secrets, or set the repository variable MAINTENANCE_PING_DISABLED=true."
+            exit 1
+          fi
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 \
+            -H "Authorization: Bearer $CRON_SECRET" "$MAINTENANCE_URL")
+          echo "maintenance answered $code"
+          [ "$code" = "200" ]

@@ -6,10 +6,11 @@ import { RIPENESS_LABEL, date, istDate } from '../format'
 import { can, opsAllowed } from '../permissions'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
-import type { BulkMoveResult, CalendarDay, CoverageDay, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
+import type { BulkMoveResult, CalendarDay, CoverageDay, DeliveryFeeRules, DeliverySlot, ForecastProduct, Ripeness, Rules, StageWindow, StockForecast } from '../types'
 import { Badge, ConfirmDialog, Dialog, EmptyState, FormError, GatedButton, ManagerOnlyNote, QueryError, Spinner, scrollRegion, useToast, usePageTitle } from '../ui'
 
-const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE', 'RIPE']
+// The stages sold (the API's SALE_STAGES). Nothing is sold ripe; a QC reading may still say ripe.
+const STAGES: Ripeness[] = ['RAW', 'SEMI_RIPE']
 
 export default function Planning() {
   usePageTitle('Planning')
@@ -24,6 +25,7 @@ export default function Planning() {
       <Calendar />
       <Slots />
       <RulesCard />
+      <DeliveryFeeCard />
     </>
   )
 }
@@ -722,8 +724,12 @@ function SlotDialog({ slot, onClose, onDone }: { slot: DeliverySlot | null; onCl
 
 const RULE_FIELDS: { key: keyof Rules; label: string; hint: string }[] = [
   { key: 'cutoffHourIST', label: 'Order cutoff (hour, IST)', hint: 'Orders before this hour deliver the next day; later ones the day after.' },
-  { key: 'maxSellableAge', label: 'Oldest age sold (days)', hint: 'Checked on the delivery date. Day of pluck is age 0.' },
-  { key: 'retireAge', label: 'Retire batches at age (days)', hint: 'Must be more than the oldest age sold.' },
+  {
+    key: 'maxSellableAge',
+    label: 'Oldest age delivered (days)',
+    hint: 'Checked on the delivery date; day of pluck is age 0. Delivery is next day at the earliest, so a batch can be ordered until the day before it reaches this age.',
+  },
+  { key: 'retireAge', label: 'Retire batches at age (days)', hint: 'Must be more than the oldest age delivered.' },
   { key: 'maxDaysAhead', label: 'Days customers can book ahead', hint: 'Counted from the earliest delivery date.' },
   { key: 'holdMinutes', label: 'Checkout hold (minutes)', hint: 'Unpaid orders are cancelled after this.' },
   { key: 'maxUnpaidOrders', label: 'Unpaid orders per customer', hint: 'A customer must pay or cancel before placing another.' },
@@ -763,9 +769,25 @@ function RulesCard() {
             {RULE_FIELDS.map((f) => (
               <div key={f.key} className="contents">
                 <dt>{f.label}</dt>
-                <dd>{String(q.data.rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '—')}</dd>
+                <dd>
+                  {String(q.data.rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '—')}
+                </dd>
               </div>
             ))}
+            <div className="contents">
+              <dt>Pre-order kg per variety</dt>
+              <dd>
+                Set on the <Link to="/preorders">Pre-order plan</Link> page, which shows who moves before anything changes.
+              </dd>
+            </div>
+            <div className="contents">
+              <dt>Pre-orders open on</dt>
+              <dd>{q.data.rules.preorderOpensOn ? date(q.data.rules.preorderOpensOn) : 'Not set'}</dd>
+            </div>
+            <div className="contents">
+              <dt>Season starts on</dt>
+              <dd>{q.data.rules.seasonStartsOn ? date(q.data.rules.seasonStartsOn) : 'Not set'}</dd>
+            </div>
             <div className="contents">
               <dt>Season ends</dt>
               <dd>{q.data.rules.seasonEndsOn ? date(q.data.rules.seasonEndsOn) : 'Not set'}</dd>
@@ -815,8 +837,11 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
     Object.fromEntries(RULE_FIELDS.map((f) => [f.key, String(rules[f.key] ?? RULE_DEFAULTS[f.key] ?? '')])) as Record<string, string>,
   )
   const [seasonEndsOn, setSeasonEndsOn] = useState(rules.seasonEndsOn ?? '')
+  const [seasonStartsOn, setSeasonStartsOn] = useState(rules.seasonStartsOn ?? '')
+  const [preorderOpensOn, setPreorderOpensOn] = useState(rules.preorderOpensOn ?? '')
   const [windows, setWindows] = useState(() =>
-    rules.stageProfiles.default.map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
+    // An older rules version may still have a Ripe window; it can't be saved any more, so it isn't offered.
+    rules.stageProfiles.default.filter((w) => STAGES.includes(w.stage)).map((w) => ({ stage: w.stage, minAge: String(w.minAge), maxAge: String(w.maxAge) })),
   )
   const [formError, setFormError] = useState<string | null>(null)
 
@@ -837,10 +862,15 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
     setFormError(null)
     const all = [...Object.values(values), ...windows.flatMap((w) => [w.minAge, w.maxAge])]
     if (all.some((v) => !/^\d+$/.test(v))) return setFormError('Every value must be a whole number.')
+    // Same checks as the API (src/config.js): dates are YYYY-MM-DD, so they compare as text.
+    if (preorderOpensOn && seasonStartsOn && preorderOpensOn >= seasonStartsOn) return setFormError('Pre-orders must open before the season starts.')
+    if (seasonStartsOn && seasonEndsOn && seasonStartsOn >= seasonEndsOn) return setFormError('The season must start before it ends.')
     const next: Rules = {
       ...rules,
       ...Object.fromEntries(Object.entries(values).map(([k, v]) => [k, Number(v)])),
       seasonEndsOn: seasonEndsOn || null,
+      seasonStartsOn: seasonStartsOn || null,
+      preorderOpensOn: preorderOpensOn || null,
       stageProfiles: {
         ...rules.stageProfiles,
         default: windows.map((w) => ({ stage: w.stage, minAge: Number(w.minAge), maxAge: Number(w.maxAge) })),
@@ -879,9 +909,19 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
             </div>
           ))}
           <div className="field">
+            <label htmlFor="rule-preorderOpensOn">Pre-orders open on (optional)</label>
+            <input id="rule-preorderOpensOn" type="date" value={preorderOpensOn} onChange={(e) => setPreorderOpensOn(e.target.value)} />
+            <p className="hint">From this day until the season starts, the shop takes pre-orders. Leave empty to take them any time before the season.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="rule-seasonStartsOn">Season starts on (optional)</label>
+            <input id="rule-seasonStartsOn" type="date" value={seasonStartsOn} onChange={(e) => setSeasonStartsOn(e.target.value)} />
+            <p className="hint">Before this day the shop only takes pre-orders. Leave empty when the season is on.</p>
+          </div>
+          <div className="field">
             <label htmlFor="rule-seasonEndsOn">Season ends (optional)</label>
             <input id="rule-seasonEndsOn" type="date" value={seasonEndsOn} onChange={(e) => setSeasonEndsOn(e.target.value)} />
-            <p className="hint">Preorders booked for a week after this day wait for a manager to keep or refund them.</p>
+            <p className="hint">Pre-orders are offered for delivery weeks up to this day. Preorders moved to a week after it wait for a manager to keep or refund them.</p>
           </div>
           <fieldset>
             <legend>Ripeness by age, all varieties</legend>
@@ -911,6 +951,305 @@ function RulesDialog({ rules, onClose }: { rules: Rules; onClose: () => void }) 
             ))}
           </fieldset>
           <p className="hint">Saving re-checks every open order against the new rules. Orders that no longer fit are flagged at risk.</p>
+          <FormError error={formError ?? save.error} />
+        </form>
+      </Dialog>
+      {stepUp.dialog}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------- delivery charge (part of the selling rules)
+
+/** What the API starts with (src/config.js): off; on, charged by weight and distance, free within 2 km on orders of 5 kg or more. */
+const DELIVERY_FEE_DEFAULTS: DeliveryFeeRules = {
+  enabled: false,
+  freeFromKg: 5,
+  freeWithinKm: 2,
+  bands: [
+    { uptoKm: 2, fee: 0, feeSmall: 30 },
+    { uptoKm: 5, fee: 30, feeSmall: 50 },
+    { uptoKm: 8, fee: 50, feeSmall: 70 },
+    { uptoKm: 12, fee: 80, feeSmall: 100 },
+  ],
+  beyond: 'perKm',
+  perKmBeyond: { fee: 15, feeSmall: 20 },
+  unknownKm: 5,
+  origins: [],
+}
+const PER_KM_DEFAULT = { fee: 15, feeSmall: 20 }
+
+const feeWord = (rupeeAmount: number) => (rupeeAmount === 0 ? 'Free' : `₹${rupeeAmount}`)
+
+/** The two columns of the table, named by the weight line (`freeFromKg` 0: no line, one column applies to all). */
+const kgColumns = (kg: number | string) =>
+  Number(kg) > 0 ? { light: `Under ${kg} kg`, heavy: `${kg} kg and above` } : { light: 'Every order', heavy: 'Not used (no weight line)' }
+
+/** What a heavy order pays in a band starting at `fromKm`: free at or within the free distance, the band's charge past it. */
+const heavyWord = (b: { uptoKm: number; fee: number }, fromKm: number, freeWithinKm: number) =>
+  b.uptoKm <= freeWithinKm ? 'Free' : fromKm < freeWithinKm ? `Free up to ${freeWithinKm} km, then ${feeWord(b.fee)}` : feeWord(b.fee)
+
+/**
+ * The delivery charge on regular orders: by how far the address is from the nearest warehouse and
+ * what the order weighs. Saved with the selling rules, as a new version.
+ */
+function DeliveryFeeCard() {
+  const { me } = useSession()
+  const q = useQuery({ queryKey: ['rules'], queryFn: api.rules })
+  const [editing, setEditing] = useState(false)
+  const allowed = can(me?.role, 'editRules')
+  const fee = q.data?.rules.deliveryFee ?? DELIVERY_FEE_DEFAULTS
+
+  return (
+    <section className="card">
+      <div className="topbar section-head">
+        <h2>Delivery charge</h2>
+        {q.data && <Badge tone={fee.enabled ? 'good' : 'neutral'}>{fee.enabled ? 'On' : 'Off: delivery is free'}</Badge>}
+        <span className="spacer" />
+        <GatedButton allowed={allowed} className="btn" onClick={() => setEditing(true)}>
+          Edit delivery charge
+        </GatedButton>
+      </div>
+      {q.isPending ? (
+        <Spinner />
+      ) : q.isError ? (
+        <QueryError error={q.error} onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <p className="muted small">
+            Measured in a straight line from the nearest warehouse to the pin the customer drops on the map (or the centre of their pincode). One charge
+            per order, fixed when the customer sees the total.
+          </p>
+          <div {...scrollRegion('Delivery charge by distance')}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Distance</th>
+                  <th>{kgColumns(fee.freeFromKg).light}</th>
+                  <th>{kgColumns(fee.freeFromKg).heavy}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fee.bands.map((b, i) => (
+                  <tr key={b.uptoKm}>
+                    <td>{i === 0 ? `Up to ${b.uptoKm} km` : `${fee.bands[i - 1].uptoKm} to ${b.uptoKm} km`}</td>
+                    <td>{feeWord(b.feeSmall)}</td>
+                    <td>{fee.freeFromKg > 0 ? heavyWord(b, i === 0 ? 0 : fee.bands[i - 1].uptoKm, fee.freeWithinKm) : '–'}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>Beyond {fee.bands[fee.bands.length - 1].uptoKm} km</td>
+                  {fee.beyond === 'perKm' ? (
+                    <>
+                      <td>Last charge + ₹{(fee.perKmBeyond ?? PER_KM_DEFAULT).feeSmall} for each km</td>
+                      <td>Last charge + ₹{(fee.perKmBeyond ?? PER_KM_DEFAULT).fee} for each km</td>
+                    </>
+                  ) : (
+                    <td colSpan={2}>{fee.beyond === 'refuse' ? 'Not delivered' : 'The last charge above'}</td>
+                  )}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="muted small mt-3">
+            {fee.origins.length
+              ? `Measured from: ${fee.origins.map((o) => o.name).join(', ')}.`
+              : 'Measured from the warehouses’ saved positions. If none is saved, every order pays the charge for an assumed distance.'}{' '}
+            Unknown position: {fee.unknownKm} km assumed.
+            {fee.freeFromKg > 0 && ` Orders of ${fee.freeFromKg} kg or more are delivered free within ${fee.freeWithinKm} km; past that there is always a charge.`}
+          </p>
+          {!allowed && <ManagerOnlyNote what="Changing the delivery charge" />}
+        </>
+      )}
+      {editing && q.data && <DeliveryFeeDialog rules={q.data.rules} fee={fee} onClose={() => setEditing(false)} />}
+    </section>
+  )
+}
+
+function DeliveryFeeDialog({ rules, fee, onClose }: { rules: Rules; fee: DeliveryFeeRules; onClose: () => void }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const [enabled, setEnabled] = useState(fee.enabled)
+  const [freeFromKg, setFreeFromKg] = useState(String(fee.freeFromKg ?? DELIVERY_FEE_DEFAULTS.freeFromKg))
+  const [freeWithinKm, setFreeWithinKm] = useState(String(fee.freeWithinKm ?? DELIVERY_FEE_DEFAULTS.freeWithinKm))
+  const cols = kgColumns(freeFromKg || '…')
+  const [bands, setBands] = useState(() => fee.bands.map((b) => ({ uptoKm: String(b.uptoKm), fee: String(b.fee), feeSmall: String(b.feeSmall) })))
+  const [beyond, setBeyond] = useState(fee.beyond)
+  const [perKm, setPerKm] = useState(String((fee.perKmBeyond ?? PER_KM_DEFAULT).fee))
+  const [perKmSmall, setPerKmSmall] = useState(String((fee.perKmBeyond ?? PER_KM_DEFAULT).feeSmall))
+  const [unknownKm, setUnknownKm] = useState(String(fee.unknownKm))
+  const [origins, setOrigins] = useState(() => fee.origins.map((o) => ({ name: o.name, lat: String(o.lat), lng: String(o.lng) })))
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // The charge is added to every customer's total: saving asks the manager to confirm it is them.
+  const stepUp = useStepUp(MONEY_CHANGE_WHY)
+  const save = useMutation({
+    mutationFn: (next: Rules) => stepUp.run((code) => api.saveRules(next, code)),
+    onSuccess: (saved) => {
+      toast.success(`Delivery charge saved (rules version ${saved.version}).`)
+      queryClient.invalidateQueries({ queryKey: ['rules'] })
+      onClose()
+    },
+  })
+
+  const setBand = (i: number, key: 'uptoKm' | 'fee' | 'feeSmall', v: string) => setBands(bands.map((b, j) => (j === i ? { ...b, [key]: v.trim() } : b)))
+  const setOrigin = (i: number, key: 'name' | 'lat' | 'lng', v: string) => setOrigins(origins.map((o, j) => (j === i ? { ...o, [key]: key === 'name' ? v : v.trim() } : o)))
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    const whole = /^\d+$/, decimal = /^-?\d+(\.\d+)?$/
+    if (!/^\d+(\.\d+)?$/.test(freeFromKg) || Number(freeFromKg) > 1000) return setFormError('The weight must be a number of kg from 0 to 1000.')
+    if (!/^\d+(\.\d+)?$/.test(freeWithinKm) || Number(freeWithinKm) > 200) return setFormError('The free distance must be a number of km from 0 to 200.')
+    if (bands.some((b) => !decimal.test(b.uptoKm) || Number(b.uptoKm) <= 0)) return setFormError('Every distance must be a number of km above 0.')
+    if (bands.some((b) => !whole.test(b.fee) || !whole.test(b.feeSmall))) return setFormError('Every charge must be a whole number of rupees (0 for free).')
+    if (bands.some((b, i) => i > 0 && Number(b.uptoKm) <= Number(bands[i - 1].uptoKm))) return setFormError('Each distance must be more than the one before it.')
+    // The same check as the API (config.js): past the free distance there is always a charge.
+    const lastCharged = (i: number) => beyond !== 'refuse' && i === bands.length - 1
+    if (beyond === 'perKm' && (!whole.test(perKm) || !whole.test(perKmSmall) || Number(perKm) > 1000 || Number(perKmSmall) > 1000)) return setFormError('The charge for each extra km must be a whole number of rupees, up to 1000.')
+    if (bands.some((b, i) => (Number(b.uptoKm) > Number(freeWithinKm) || lastCharged(i)) && (Number(b.fee) <= 0 || Number(b.feeSmall) <= 0))) {
+      return setFormError(`Past ${freeWithinKm} km every row needs a charge above ₹0 in both columns: free delivery is only within ${freeWithinKm} km.`)
+    }
+    if (!decimal.test(unknownKm) || Number(unknownKm) < 0) return setFormError('The assumed distance must be a number of km.')
+    if (origins.some((o) => !o.name.trim())) return setFormError('Give every warehouse a name.')
+    if (origins.some((o) => !decimal.test(o.lat) || !decimal.test(o.lng) || Math.abs(Number(o.lat)) > 90 || Math.abs(Number(o.lng)) > 180)) {
+      return setFormError('A warehouse position is two numbers, such as 12.9279 and 77.6271 (latitude, then longitude).')
+    }
+    save.mutate({
+      ...rules,
+      deliveryFee: {
+        enabled,
+        freeFromKg: Number(freeFromKg),
+        freeWithinKm: Number(freeWithinKm),
+        bands: bands.map((b) => ({ uptoKm: Number(b.uptoKm), fee: Number(b.fee), feeSmall: Number(b.feeSmall) })),
+        beyond,
+        perKmBeyond: { fee: Number(perKm) || 0, feeSmall: Number(perKmSmall) || 0 },
+        unknownKm: Number(unknownKm),
+        origins: origins.map((o) => ({ name: o.name.trim(), lat: Number(o.lat), lng: Number(o.lng) })),
+      },
+    })
+  }
+
+  return (
+    <>
+      <Dialog
+        title="Edit delivery charge"
+        onClose={onClose}
+        footer={
+          <>
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" form="fee-form" className="btn btn-primary" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Save as new version'}
+            </button>
+          </>
+        }
+      >
+        <form id="fee-form" onSubmit={onSubmit} noValidate>
+          <div className="field">
+            <label>
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Charge for delivery
+            </label>
+            <p className="hint">Off: every order is delivered free, and the shop says so. On: the table below applies to new orders from now.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="fee-free-kg">Charge by weight: orders of this many kg and above pay the lower charge (kg)</label>
+            <input id="fee-free-kg" inputMode="decimal" value={freeFromKg} onChange={(e) => setFreeFromKg(e.target.value.trim())} />
+            <p className="hint">The weight of the boxes decides the column, not the order value. 0: no weight line, every order pays the first column and none is free.</p>
+          </div>
+          <div className="field">
+            <label htmlFor="fee-free-km">Free within (km) for those orders</label>
+            <input id="fee-free-km" inputMode="decimal" value={freeWithinKm} onChange={(e) => setFreeWithinKm(e.target.value.trim())} />
+            <p className="hint">Only orders of {freeFromKg || '…'} kg and above, only up to this distance; past it every row must charge something.</p>
+          </div>
+          <fieldset>
+            <legend>Charge by distance from the nearest warehouse</legend>
+            {bands.map((b, i) => (
+              <div className="btn-row align-end" key={i}>
+                <div className="field">
+                  <label htmlFor={`fee-km-${i}`}>Up to (km)</label>
+                  <input id={`fee-km-${i}`} inputMode="decimal" size={4} value={b.uptoKm} onChange={(e) => setBand(i, 'uptoKm', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-small-${i}`}>{cols.light} (₹)</label>
+                  <input id={`fee-small-${i}`} inputMode="numeric" size={4} value={b.feeSmall} onChange={(e) => setBand(i, 'feeSmall', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-big-${i}`}>{cols.heavy} (₹)</label>
+                  <input id={`fee-big-${i}`} inputMode="numeric" size={4} value={b.fee} onChange={(e) => setBand(i, 'fee', e.target.value)} />
+                </div>
+                {bands.length > 1 && (
+                  <button type="button" className="btn" onClick={() => setBands(bands.filter((_, j) => j !== i))} aria-label={`Remove the row up to ${b.uptoKm} km`}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+            {bands.length < 8 && (
+              <button type="button" className="btn" onClick={() => setBands([...bands, { uptoKm: '', fee: '', feeSmall: '' }])}>
+                Add a distance
+              </button>
+            )}
+            <p className="hint">Orders of {freeFromKg || '…'} kg and above are free within {freeWithinKm || '…'} km whatever their column says; past {freeWithinKm || '…'} km both columns need a charge above ₹0.</p>
+          </fieldset>
+          <div className="field">
+            <label htmlFor="fee-beyond">Further than the last distance</label>
+            <select id="fee-beyond" value={beyond} onChange={(e) => setBeyond(e.target.value as DeliveryFeeRules['beyond'])}>
+              <option value="refuse">Don’t deliver (the customer is told how far they are)</option>
+              <option value="perKm">Deliver, at the last row’s charge plus an amount for each extra km</option>
+              <option value="charge">Deliver, at the last row’s charge</option>
+            </select>
+          </div>
+          {beyond === 'perKm' && (
+            <div className="btn-row align-end">
+              <div className="field">
+                <label htmlFor="fee-perkm-small">{cols.light}: ₹ for each extra km</label>
+                <input id="fee-perkm-small" inputMode="numeric" size={6} value={perKmSmall} onChange={(e) => setPerKmSmall(e.target.value.trim())} />
+              </div>
+              <div className="field">
+                <label htmlFor="fee-perkm">{cols.heavy}: ₹ for each extra km</label>
+                <input id="fee-perkm" inputMode="numeric" size={6} value={perKm} onChange={(e) => setPerKm(e.target.value.trim())} />
+              </div>
+              <p className="hint">Added to the last row’s charge for every km past the last distance. A part km counts as a whole one.</p>
+            </div>
+          )}
+          <fieldset>
+            <legend>Warehouses to measure from</legend>
+            {origins.map((o, i) => (
+              <div className="btn-row align-end" key={i}>
+                <div className="field">
+                  <label htmlFor={`fee-wh-name-${i}`}>Name</label>
+                  <input id={`fee-wh-name-${i}`} maxLength={60} value={o.name} onChange={(e) => setOrigin(i, 'name', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-wh-lat-${i}`}>Latitude</label>
+                  <input id={`fee-wh-lat-${i}`} inputMode="decimal" size={9} value={o.lat} onChange={(e) => setOrigin(i, 'lat', e.target.value)} />
+                </div>
+                <div className="field">
+                  <label htmlFor={`fee-wh-lng-${i}`}>Longitude</label>
+                  <input id={`fee-wh-lng-${i}`} inputMode="decimal" size={9} value={o.lng} onChange={(e) => setOrigin(i, 'lng', e.target.value)} />
+                </div>
+                <button type="button" className="btn" onClick={() => setOrigins(origins.filter((_, j) => j !== i))} aria-label={`Remove ${o.name || 'this warehouse'}`}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            {origins.length < 20 && (
+              <button type="button" className="btn" onClick={() => setOrigins([...origins, { name: '', lat: '', lng: '' }])}>
+                Add a warehouse
+              </button>
+            )}
+            <p className="hint">
+              In Google Maps, press and hold on the warehouse: the two numbers shown are its latitude and longitude. With none listed here, the warehouses’
+              saved positions are used.
+            </p>
+          </fieldset>
+          <div className="field">
+            <label htmlFor="fee-unknown">Distance assumed when the position isn’t known (km)</label>
+            <input id="fee-unknown" inputMode="decimal" value={unknownKm} onChange={(e) => setUnknownKm(e.target.value.trim())} />
+            <p className="hint">Used when there is no pin, the pincode has no saved centre, or no warehouse position is set. Such an order is never refused.</p>
+          </div>
           <FormError error={formError ?? save.error} />
         </form>
       </Dialog>
@@ -951,7 +1290,7 @@ function ForecastBody({ f }: { f: StockForecast }) {
         A suggestion for {date(f.dates[0])} to {date(f.dates.at(-1))}; it changes no stock. Expected sales are the average sold on the same weekday
         over the last {r.historyWeeks} weeks, leaving out days with no stock at that ripeness and closed days (at least {r.minHistoryDays} days are
         needed). Paid orders and Book ahead bookings are added, current batches are used oldest first at the ripeness they will have on each day
-        (sold up to {r.maxSellableAge} days after picking), and expected waste comes from damage and replaced claims in the last {r.wasteWindowDays} days.
+        (delivered up to {r.maxSellableAge} days after picking), and expected waste comes from damage and replaced claims in the last {r.wasteWindowDays} days.
       </p>
       {f.varieties.length === 0 ? (
         <EmptyState>No products on sale.</EmptyState>

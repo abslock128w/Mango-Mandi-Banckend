@@ -46,7 +46,10 @@ anything else to a person on request.
 
 My orders lists recent orders and offers Cancel until packing. A paid order cancelled by the
 customer is refunded in full (the shop's one refund exception); the refund starts at Razorpay
-and `mandi_refunded` says it has been started. Damaged boxes are replaced, never refunded:
+and `mandi_refunded` says it has been started. Pre-orders (Book ahead) are non-refundable once
+paid: an unpaid or waitlisted booking can be cancelled, a paid one (or the order it became)
+gets no Cancel button, and the booking's confirmation step says so before Pay. A booking made
+before that rule keeps its refund. Damaged boxes are replaced, never refunded:
 customers report them in the app, or send a photo here, which goes to a person.
 
 ## Limits

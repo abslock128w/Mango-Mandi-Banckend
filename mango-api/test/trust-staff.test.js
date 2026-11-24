@@ -3,6 +3,7 @@
 // every search, view and reveal in staff_audit before anything is shown.
 // Exports: managers only, date range capped, cells made formula-safe,
 // streamed in pages, audited with the row count.
+import { formatOrderNumber } from '../src/order-number.js'
 import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -54,7 +55,7 @@ async function history(phone = '9876543210') {
   const token = cust.accessToken
   const id = await idOf(token)
   await query(`UPDATE customers SET name = 'Asha Rao', reminders_opt_in = TRUE WHERE id = $1`, [id])
-  const a = await checkout(api, token, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+  const a = await checkout(api, token, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
   assert.equal(a.status, 201, JSON.stringify(a.body))
   await pay(a.body.orderId)
   await markDelivered(a.body.orderId)
@@ -64,9 +65,9 @@ async function history(phone = '9876543210') {
   assert.equal(rv.status, 201, JSON.stringify(rv.body))
   const claim = await api.post('/v1/claims', { orderId: a.body.orderId, issueType: 'DAMAGED', description: '+SUM(A1:A9) two mangoes crushed', itemSkus: ['ALP-3'] }, { token })
   assert.equal(claim.status, 201, JSON.stringify(claim.body))
-  const b = await checkout(api, token, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const b = await checkout(api, token, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   await pay(b.body.orderId)
-  const unpaid = await checkout(api, token, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const unpaid = await checkout(api, token, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   return { token, id, paid: [a.body.orderId, b.body.orderId], unpaid: unpaid.body.orderId, claimId: claim.body.id, reviewId: rv.body.review?.id ?? rv.body.id }
 }
 
@@ -263,7 +264,7 @@ describe('CSV exports', () => {
   test('streamed a page at a time: rows across page edges come out once each, in order', async () => {
     for (let i = 0; i < 7; i++) {
       const cust = await customerToken(api)
-      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       assert.equal(c.status, 201, JSON.stringify(c.body))
       // Pages of 3 over 7 rows: the keyset (time, id) must carry on exactly where the last page ended.
       if (i % 2) setNow(new Date(now().getTime() + 60_000).toISOString())
@@ -280,7 +281,7 @@ describe('CSV exports', () => {
 
   test('a payment that lands days after the order was placed is in the export for the day it was paid', async () => {
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const placedDay = todayIST()
     // A late capture (or a replay after a restore), well over a week after the order was placed.
@@ -292,7 +293,8 @@ describe('CSV exports', () => {
     const r = await exportCsv('payments', `from=${payDay}&to=${payDay}`)
     assert.equal(r.status, 200, r.text)
     const head = r.rows[0]
-    const row = r.rows.find((x) => x[head.indexOf('reference')] === number)
+    // Exports show order numbers grouped, as people read them (order-number.js).
+    const row = r.rows.find((x) => x[head.indexOf('reference')] === formatOrderNumber(number))
     assert.ok(row, `the payment is listed on ${payDay}:\n${r.text}`)
     assert.match(row[head.indexOf('paid_at')], new RegExp(`^${payDay}T`))
     assert.match(row[head.indexOf('bill_number')], /^MM\/26-27\//)
@@ -302,7 +304,7 @@ describe('CSV exports', () => {
 
   test('orders by delivery date', async () => {
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const day = c.body.deliveryDate
     assert.equal((await exportCsv('orders', `from=${day}&to=${day}&by=delivery`)).rows.length, 2)
     assert.equal((await exportCsv('orders', `from=${addDays(day, 1)}&to=${addDays(day, 3)}&by=delivery`)).rows.length, 1, 'header only')

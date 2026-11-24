@@ -489,7 +489,7 @@ function ReviewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             )}
 
             <section aria-labelledby="reply-title" className="review-reply">
-              <h3 id="reply-title">Reply from MandiMangoes</h3>
+              <h3 id="reply-title">Reply from VMR Mangoes</h3>
               {reply == null ? (
                 r.reply ? (
                   <>

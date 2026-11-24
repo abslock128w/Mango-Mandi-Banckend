@@ -39,7 +39,7 @@ const photoWithExif = () =>
     .toBuffer()
 
 async function packedOrder(cust) {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   const id = o.body.orderId
@@ -152,7 +152,7 @@ describe('SEC-05: retention, export and erasure by request', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     const paid = async (key) => {
-      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { key })
+      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { key })
       assert.equal(o.status, 201, JSON.stringify(o.body))
       await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
       return o
@@ -198,7 +198,7 @@ describe('SEC-05: retention, export and erasure by request', () => {
       const cust = await customerToken(api)
       const placed = []
       for (const key of ['p1', 'p2', 'p3']) {
-        const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { key })
+        const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { key })
         assert.equal(o.status, 201, JSON.stringify(o.body))
         await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
         placed.push(o.body.orderId)
@@ -250,8 +250,8 @@ describe('SEC-05: retention, export and erasure by request', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const me = await customerToken(api)
     const other = await customerToken(api)
-    const mine = await checkout(api, me.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
-    await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const mine = await checkout(api, me.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
+    await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const r = await api.get('/v1/me/export', { token: me.accessToken })
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.equal(r.headers.get('cache-control'), 'no-store')
@@ -290,7 +290,7 @@ describe('SEC-06: signed-in answers are not cached', () => {
   test('no-store on /v1/me, staff order pages and sign-in answers', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal((await api.get('/v1/me', { token: cust.accessToken })).headers.get('cache-control'), 'no-store')
     assert.equal((await api.get(`/v1/orders/${o.body.orderId}`, { token: cust.accessToken })).headers.get('cache-control'), 'no-store')
     assert.equal((await api.get(`/admin/v1/orders/${o.body.orderId}`, { token: admin })).headers.get('cache-control'), 'no-store')

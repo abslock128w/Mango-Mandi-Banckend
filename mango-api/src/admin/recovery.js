@@ -25,8 +25,8 @@ import { auditLedger, ledger } from '../inventory.js'
 import { logger } from '../logger.js'
 import { addEvent } from '../orders.js'
 import { DISPUTE_DECIDED, holdingDispute, knownPayment, liveGatewayRefunds, REFUND_LEASE_MS, sendDueRefunds } from '../payments.js'
-import { promoteWaitlist } from '../preorders.js'
-import { CAPACITY_STATUSES, preordersNeedingDecision } from '../stock-watch.js'
+import { promoteWaitlist, roundKg, WEEK_LOAD_SQL } from '../preorders.js'
+import { ALL_BOXES, CAPACITY_STATUSES, preordersNeedingDecision } from '../stock-watch.js'
 import { stepUp } from './step-up.js'
 
 export const router = express.Router()
@@ -231,10 +231,49 @@ router.post(
   '/preorder-capacity/:weekStart/:sku/recount',
   requireManager,
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ reason, reserved: z.number().int().min(0), booked: z.number().int().min(0) }), req.body)
+    // Whole boxes per box; kg (to the gram) for sku ALL.
+    const b = parse(z.object({ reason, reserved: z.number().min(0), booked: z.number().min(0) }), req.body)
     const weekStart = parse(z.string().refine(isDate, 'weekStart must be YYYY-MM-DD'), req.params.weekStart)
     const { sku } = req.params
     const out = await tx(async (c) => {
+      // sku ALL:<variety>: that variety's kg counter for the week (preorder_variety_week_kg, migration 078).
+      if (sku.startsWith(`${ALL_BOXES}:`)) {
+        const variety = sku.slice(ALL_BOXES.length + 1)
+        if (new Date(`${weekStart}T00:00:00Z`).getUTCDay() !== 1) throw notFound('No pre-order week starts on that day')
+        await c.query('INSERT INTO preorder_variety_week_kg (week_start, variety, reserved_kg) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING', [weekStart, variety])
+        const row = { reserved: roundKg((await c.query('SELECT reserved_kg FROM preorder_variety_week_kg WHERE week_start = $1 AND variety = $2 FOR UPDATE', [weekStart, variety])).rows[0].reserved_kg) }
+        const booked = roundKg((await c.query(
+          `SELECT COALESCE(SUM(${WEEK_LOAD_SQL}), 0) AS n FROM preorders p JOIN products pr ON pr.sku = p.sku
+            WHERE p.week_start = $1 AND COALESCE(p.variety, pr.variety) = $2 AND p.status = ANY($3)`,
+          [weekStart, variety, CAPACITY_STATUSES],
+        )).rows[0].n)
+        const current = { reserved: row.reserved, booked }
+        if (row.reserved === booked) return noop(req, { sku, weekStart, recounted: false, ...current })
+        if (row.reserved !== roundKg(b.reserved) || booked !== roundKg(b.booked)) {
+          throw new HttpError(409, 'PREVIEW_CHANGED', 'The bookings for that week changed since you looked. Look at the new numbers and recount again.', current)
+        }
+        await c.query('UPDATE preorder_variety_week_kg SET reserved_kg = $3 WHERE week_start = $1 AND variety = $2', [weekStart, variety, booked])
+        await auditIn(c, req, `${weekStart}/${sku}`, { reason: b.reason, before: row.reserved, after: booked })
+        return { sku, weekStart, recounted: true, before: row.reserved, reserved: booked, booked }
+      }
+      // sku ALL: the week's one kg limit for every box (preorder_week_kg, migration 076), recounted the same way.
+      if (sku === ALL_BOXES) {
+        if (new Date(`${weekStart}T00:00:00Z`).getUTCDay() !== 1) throw notFound('No pre-order week starts on that day')
+        await c.query('INSERT INTO preorder_week_kg (week_start, reserved_kg) VALUES ($1, 0) ON CONFLICT DO NOTHING', [weekStart])
+        const row = { reserved: roundKg((await c.query('SELECT reserved_kg FROM preorder_week_kg WHERE week_start = $1 FOR UPDATE', [weekStart])).rows[0].reserved_kg) }
+        const booked = roundKg((await c.query(
+          `SELECT COALESCE(SUM(${WEEK_LOAD_SQL}), 0) AS n FROM preorders p JOIN products pr ON pr.sku = p.sku WHERE p.week_start = $1 AND p.status = ANY($2)`,
+          [weekStart, CAPACITY_STATUSES],
+        )).rows[0].n)
+        const current = { reserved: row.reserved, booked }
+        if (row.reserved === booked) return noop(req, { sku, weekStart, recounted: false, ...current })
+        if (row.reserved !== roundKg(b.reserved) || booked !== roundKg(b.booked)) {
+          throw new HttpError(409, 'PREVIEW_CHANGED', 'The bookings for that week changed since you looked. Look at the new numbers and recount again.', current)
+        }
+        await c.query('UPDATE preorder_week_kg SET reserved_kg = $2 WHERE week_start = $1', [weekStart, booked])
+        await auditIn(c, req, `${weekStart}/${sku}`, { reason: b.reason, before: row.reserved, after: booked })
+        return { sku, weekStart, recounted: true, before: row.reserved, reserved: booked, booked }
+      }
       const lockRow = async () =>
         (await c.query('SELECT reserved FROM preorder_capacity WHERE sku = $1 AND week_start = $2 FOR UPDATE', [sku, weekStart])).rows[0]
       let row = await lockRow()

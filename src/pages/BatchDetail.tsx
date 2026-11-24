@@ -200,7 +200,7 @@ function BatchTimeline({ batch }: { batch: Batch }) {
   const latest = [...batch.qc].sort((a, b) => b.loggedAt.localeCompare(a.loggedAt))[0]?.ripenessRating ?? null
   return (
     <section className="card" aria-label="Ripeness timeline">
-      <RipenessTimeline ageDays={batch.ageDays} maxSellableAge={maxAge} retireAge={r?.retireAge} windows={windows} latest={latest} />
+      <RipenessTimeline ageDays={batch.ageDays} maxSellableAge={maxAge} retireAge={r?.retireAge} windows={windows} latest={latest} sellWindow={batch} />
     </section>
   )
 }

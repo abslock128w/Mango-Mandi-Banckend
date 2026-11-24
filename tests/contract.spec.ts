@@ -93,7 +93,7 @@ test('the mock answers in the shapes the real API sends', async ({ request }) =>
     ['/pincodes', mock.pincodes],
     ['/coverage', mock.coverage],
     ['/preorders', mock.preorders],
-    ['/preorder-capacity', mock.preorderCapacity],
+    ['/preorder-weeks', mock.preorderWeeks],
     ['/slots', mock.slots],
     ['/calendar', mock.calendar],
     ['/config', mock.config],

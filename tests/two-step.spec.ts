@@ -46,7 +46,7 @@ test('a manager who must use two-step sets it up before seeing the panel', async
 
   await expect(page.getByRole('heading', { name: 'Save your recovery codes' })).toBeVisible()
   await expect(page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem')).toHaveCount(10)
-  await expect(page.getByRole('link', { name: 'Download codes' })).toHaveAttribute('download', 'mandimangoes-recovery-codes.txt')
+  await expect(page.getByRole('link', { name: 'Download codes' })).toHaveAttribute('download', 'vmr-mangoes-recovery-codes.txt')
   await noViolations(page)
   await page.getByRole('button', { name: "I've saved them" }).click()
   await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible()

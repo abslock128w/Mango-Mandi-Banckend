@@ -48,7 +48,7 @@ describe('delivery slots', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
     // No slots yet: checkout works without one.
-    const plain = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const plain = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(plain.status, 201)
     assert.equal(plain.body.slotId, null)
     // One unpaid order at a time (INV-02): this one is done with.
@@ -59,7 +59,7 @@ describe('delivery slots', () => {
     const check = await api.get('/v1/delivery/check?pincode=560034')
     assert.deepEqual(check.body.slots.map((s) => s.label), ['Morning', 'Evening'])
 
-    const none = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const none = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(none.body.error.code, 'SLOT_REQUIRED')
     const ok = await checkout(api, cust.accessToken, [], { slotId: morning.id })
     assert.equal(ok.status, 201)
@@ -69,7 +69,7 @@ describe('delivery slots', () => {
     assert.deepEqual(left.body.slots.map((s) => [s.label, s.remainingBoxes, s.available]), [['Morning', 2, true], ['Evening', null, true]])
 
     const other = await customerToken(api)
-    const full = await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 3 }], { slotId: morning.id })
+    const full = await checkout(api, other.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 3 }], { slotId: morning.id })
     assert.equal(full.body.error.code, 'SLOT_FULL')
     const evenings = await checkout(api, other.accessToken, [], { slotId: evening.id })
     assert.equal(evenings.status, 201)
@@ -126,12 +126,13 @@ describe('WhatsApp order updates', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const slot = await addSlot({ label: 'Morning', startsAt: '07:00', endsAt: '11:30' })
     const cust = await customerToken(api)
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: slot.id })
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { slotId: slot.id })
     const id = o.body.orderId
     assert.deepEqual(await notes(id), [])
     await pay(id)
     await pay(id) // a replayed payment queues nothing more
-    assert.deepEqual(await notes(id), ['ORDER_CONFIRMED:PENDING'])
+    // A semi-ripe box also gets the ripeness guide, due a minute after the confirmation.
+    assert.deepEqual(await notes(id), ['ORDER_CONFIRMED:PENDING', 'RIPENESS_GUIDE:PENDING'])
 
     const sent = []
     const sender = async (m) => {
@@ -148,29 +149,30 @@ describe('WhatsApp order updates', () => {
     await api.post(`/admin/v1/orders/${id}/allocate`, undefined, { token: admin })
     for (const s of ['PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED']) await move(id, s)
     // Out for delivery also queues the code in its own authentication message (rider app, 053).
-    assert.deepEqual((await notes(id)).sort(), ['DELIVERED:PENDING', 'DELIVERY_CODE:PENDING', 'ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING'])
+    assert.deepEqual((await notes(id)).sort(), ['DELIVERED:PENDING', 'DELIVERY_CODE:PENDING', 'ORDER_CONFIRMED:SENT', 'OUT_FOR_DELIVERY:PENDING', 'RIPENESS_GUIDE:PENDING'])
 
-    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: slot.id })
+    const unpaid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { slotId: slot.id })
     await api.post(`/v1/orders/${unpaid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
     assert.deepEqual(await notes(unpaid.body.orderId), [])
 
-    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { slotId: slot.id })
+    const paid = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { slotId: slot.id })
     await pay(paid.body.orderId)
     await api.post(`/v1/orders/${paid.body.orderId}/cancel`, undefined, { token: cust.accessToken })
-    assert.deepEqual((await notes(paid.body.orderId)).sort(), ['CANCELLED:PENDING', 'ORDER_CONFIRMED:PENDING', 'REFUNDED:PENDING'])
+    // The ripeness guide queued at payment stays queued; the sender skips it once the order has moved on.
+    assert.deepEqual((await notes(paid.body.orderId)).sort(), ['CANCELLED:PENDING', 'ORDER_CONFIRMED:PENDING', 'REFUNDED:PENDING', 'RIPENESS_GUIDE:PENDING'])
     const detail = (await api.get(`/admin/v1/orders/${paid.body.orderId}`, { token: admin })).body
-    assert.equal(detail.notifications.length, 3)
+    assert.equal(detail.notifications.length, 4)
   })
 
   test('a failed send is retried with backoff, then given up; old updates are skipped', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(o.body.orderId)
     const failing = async () => {
       throw new Error('WhatsApp 500: try later')
     }
-    const row = async () => (await query('SELECT status, attempts, next_attempt_at FROM notifications WHERE order_id = $1', [o.body.orderId])).rows[0]
+    const row = async () => (await query(`SELECT status, attempts, next_attempt_at FROM notifications WHERE order_id = $1 AND kind = 'ORDER_CONFIRMED'`, [o.body.orderId])).rows[0]
     // From the moment of the send: the test clock keeps ticking, and resetDb (migrations, seed) runs after it is set.
     const sentAt = now().getTime()
     assert.equal(await sendDueNotifications({ sender: failing }), 0)
@@ -187,11 +189,11 @@ describe('WhatsApp order updates', () => {
     }
     assert.deepEqual([(await row()).status, (await row()).attempts], ['FAILED', 6])
 
-    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(late.body.orderId)
     setNow(new Date(Date.now() + 25 * 3_600_000).toISOString())
     await sendDueNotifications({ sender: async () => 'never' })
-    assert.equal((await query('SELECT status FROM notifications WHERE order_id = $1', [late.body.orderId])).rows[0].status, 'SKIPPED')
+    assert.equal((await query(`SELECT status FROM notifications WHERE order_id = $1 AND kind = 'ORDER_CONFIRMED'`, [late.body.orderId])).rows[0].status, 'SKIPPED')
   })
 
   test('the Cloud API request names the template and fills its variables', async () => {

@@ -1,0 +1,135 @@
+/* Orchard decorations (deco.js): mango leaves and fruit drawn as one inline SVG sprite and placed
+   around the shop. Every piece is aria-hidden, ignores the pointer, sits in a layer that clips it to
+   its section (no sideways scroll, no layout shift) and stays out of text and controls.
+   Loaded after theme.css. Dark is the default theme, so the dark tones come first in spirit:
+   deeper greens and warmer, lower-contrast fruit that sit back on the near-black ground. */
+
+/* The sprite and its colours: gradient stops read these, so one sprite serves both themes. */
+.dk-sprite{position:absolute;width:0;height:0;overflow:hidden}
+.dk-l1{stop-color:var(--dk-l1)}.dk-l2{stop-color:var(--dk-l2)}.dk-l3{stop-color:var(--dk-l3)}.dk-l4{stop-color:var(--dk-l4)}.dk-l5{stop-color:var(--dk-l5)}
+.dk-y1{stop-color:var(--dk-y1)}.dk-y2{stop-color:var(--dk-y2)}.dk-y3{stop-color:var(--dk-y3)}.dk-y4{stop-color:var(--dk-y4)}
+.dk-a1{stop-color:var(--dk-a1)}.dk-a2{stop-color:var(--dk-a2)}.dk-a3{stop-color:var(--dk-a3)}.dk-a4{stop-color:var(--dk-a4)}
+.dk-t1{stop-color:var(--dk-t1)}.dk-t2{stop-color:var(--dk-t2)}.dk-t3{stop-color:var(--dk-t3)}
+.dk-k1{stop-color:var(--dk-k1)}.dk-k2{stop-color:var(--dk-k2)}.dk-k3{stop-color:var(--dk-k3)}.dk-b1{stop-color:var(--dk-b1)}
+.dk-w1{stop-color:var(--dk-w1)}.dk-w2{stop-color:var(--dk-w2)}
+.dk-st{stroke:var(--dk-stalk)}.dk-v{stroke:var(--dk-vein)}.dk-vy{stroke:var(--dk-veiny)}.dk-kn{fill:var(--dk-knob)}.dk-dot{fill:var(--dk-dot)}
+:root{
+  --dk-l1:#365f2a;--dk-l2:#5d8a3c;--dk-l3:#24461d;--dk-l4:#132a12;--dk-l5:#8aa85a;
+  --dk-y1:#7a3f22;--dk-y2:#a8673a;--dk-y3:#5c2c18;--dk-y4:#3e1c10;
+  --dk-a1:#ffe08a;--dk-a2:#f6b632;--dk-a3:#d9861b;--dk-a4:#9c5a12;
+  --dk-t1:#5f8a2c;--dk-t2:#b7b53a;--dk-t3:#e8b43a;
+  --dk-k1:#d6c64c;--dk-k2:#a5a83a;--dk-k3:#6c7a26;--dk-b1:#d0462a;
+  --dk-w1:#6b4a2c;--dk-w2:#3c2716;
+  --dk-stalk:#5a3d22;--dk-vein:#9bbb6e;--dk-veiny:#d9a070;--dk-knob:#4f6b28;--dk-dot:#fff3c0;
+  --dk-fade:1
+}
+[data-theme="dark"]{
+  --dk-l1:#284620;--dk-l2:#476c30;--dk-l3:#1a3216;--dk-l4:#0d1b0b;--dk-l5:#6a8746;
+  --dk-y1:#5a2e1b;--dk-y2:#80502e;--dk-y3:#432112;--dk-y4:#2a130a;
+  --dk-a1:#f2cc76;--dk-a2:#dfa02c;--dk-a3:#b46f18;--dk-a4:#6e3d0e;
+  --dk-t1:#476b23;--dk-t2:#969430;--dk-t3:#cc9a31;
+  --dk-k1:#b9ac42;--dk-k2:#868a30;--dk-k3:#505c1d;--dk-b1:#ad3a23;
+  --dk-w1:#52371e;--dk-w2:#2a1b0e;
+  --dk-stalk:#47301b;--dk-vein:#789455;--dk-veiny:#b08058;--dk-knob:#3a5120;--dk-dot:#ffe9a8;
+  --dk-fade:.9
+}
+
+/* A layer clips its pieces to the section it lives in (plus the page gutter, measured by deco.js). */
+.dk-host{position:relative;isolation:isolate}
+.dk-host-t{position:relative}
+.dk-layer{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;contain:layout paint style;opacity:var(--dk-fade)}
+.dk-layer,.dk-layer *{pointer-events:none!important;user-select:none;-webkit-user-select:none}
+.dk-p{position:absolute;display:block;margin:0;padding:0}
+/* The shop styles every svg as a 22px stroked icon: undo that here. */
+.dk-p>svg{display:block;width:100%;height:auto;overflow:visible;fill:none;stroke:none;stroke-width:1}
+.dk-flip{scale:-1 1}
+
+/* Sway: a few degrees about the stalk, each piece at its own pace. Runs only while on screen. */
+@keyframes dk-sway{from{rotate:calc(var(--dk-a,2deg) * -1)}to{rotate:var(--dk-a,2deg)}}
+.dk-sway>svg{transform-origin:var(--dk-o,50% 0);animation:dk-sway var(--dk-d,7s) ease-in-out infinite alternate;animation-play-state:paused;will-change:rotate}
+.dk-live .dk-sway>svg{animation-play-state:running}
+.dk-par{will-change:translate}
+
+/* Two leaves that drift down across the hero photo once, on the first visit of a session. */
+@keyframes dk-fall{
+  0%{translate:0 -80px;rotate:-20deg;opacity:0}
+  8%{opacity:.95}
+  30%{translate:-26px 160px;rotate:24deg}
+  55%{translate:18px 320px;rotate:-14deg}
+  80%{translate:-14px 470px;rotate:30deg;opacity:.9}
+  100%{translate:10px 620px;rotate:6deg;opacity:0}
+}
+.dk-fall{z-index:2;width:84px;top:0;opacity:0;animation:dk-fall var(--dk-d,9s) cubic-bezier(.45,.05,.55,.95) var(--dk-w,.6s) 1 both}
+.dk-fall>svg{animation:dk-sway 1.8s ease-in-out infinite alternate;--dk-a:18deg;transform-origin:50% 50%}
+.dk-fall.dk-lc{width:70px}
+
+@media (prefers-reduced-motion:reduce){
+  .dk-sway>svg,.dk-fall>svg{animation:none!important}
+  .dk-fall{display:none!important}
+  .dk-par{translate:none!important}
+}
+
+/* ---------- Home ---------- */
+/* Leaves tucked behind the hero banner's corners. */
+.dk-L-hero{top:-170px;bottom:-60px;left:calc(var(--dk-gut,0px) * -1);right:calc(var(--dk-gut,0px) * -1)}
+.dk-L-hero .dk-h1{width:190px;left:calc(var(--dk-gut,0px) - 128px);bottom:4px;rotate:-152deg}
+.dk-L-hero .dk-h2{width:150px;left:calc(var(--dk-gut,0px) - 70px);bottom:-4px;rotate:-122deg}
+/* The fruiting twig: its leaves and stalks start behind the sticky chrome, the fruit hangs in the gutter. */
+.dk-L-hero .dk-h4{width:300px;right:calc(var(--dk-gut,0px) - 200px);top:104px;--dk-a:1.4deg;--dk-d:8.6s;--dk-o:72% 8%}
+@media (max-width:1199px){.dk-L-hero .dk-h1,.dk-L-hero .dk-h2,.dk-L-hero .dk-h4{display:none}}
+@media (max-width:699px){.dk-L-hero{top:-8px;bottom:-30px}.dk-L-hero .dk-h1{display:block;width:84px;left:auto;right:calc(var(--dk-gut,0px) + 4px);bottom:2px;rotate:-18deg}}
+
+/* A hanging twig beside "Shop by variety" (deco.js sets --dk-x and --dk-w from the free space). */
+.dk-L-variety{top:var(--dk-t,-50px);bottom:auto;height:240px;left:0;right:0}
+.dk-L-variety .dk-cl{left:var(--dk-x,40%);width:var(--dk-w,128px);top:-12px;--dk-a:2.6deg;--dk-d:6.4s;--dk-o:30% 0}
+.dk-L-variety .dk-cl.dk-mask{-webkit-mask-image:linear-gradient(90deg,transparent,#000 22%);mask-image:linear-gradient(90deg,transparent,#000 22%)}
+
+/* A few leaves in the side margins of the long product grid (wide screens only). */
+.dk-L-grid{left:calc(var(--dk-gut,0px) * -1);right:calc(var(--dk-gut,0px) * -1);top:var(--dk-top,0px);bottom:auto;height:var(--dk-h,0px)}
+/* Leaves reach in from beyond the window edge, their tips tucked just behind the outer cards. */
+.dk-L-grid .dk-p{width:calc(var(--dk-gut,0px) * 1.7 + 30px);max-width:240px}
+.dk-L-grid .dk-g1{left:-14px;top:18%;rotate:6deg;--dk-a:1.6deg;--dk-d:8s;--dk-o:0 48%}
+.dk-L-grid .dk-g3{right:-14px;top:62%;rotate:-8deg;--dk-a:1.4deg;--dk-d:9.5s;--dk-o:0 48%}
+
+/* Corner on the green "Why VMR Mangoes?" band. */
+.dk-L-why .dk-w{right:-6px;top:-6px;width:var(--dk-w,170px);--dk-a:1.8deg;--dk-d:7.6s;--dk-o:100% 0}
+@media (max-width:699px){.dk-L-why .dk-w{right:-10px;top:-8px}}
+
+/* Bulk section: a mango resting on leaves in the bottom-right corner. */
+.dk-L-bulk{border-radius:inherit}
+.dk-L-bulk .dk-b{right:-40px;bottom:-44px;width:var(--dk-w,280px)}
+
+/* A quiet sprig above the footer. */
+.dk-L-foot{top:-96px;height:96px;bottom:auto}
+.dk-L-foot .dk-f{left:-8px;bottom:-8px;width:190px;rotate:-4deg}
+@media (max-width:699px){.dk-L-foot{top:0;height:110px}.dk-L-foot .dk-f{left:auto;right:-16px;top:10px;bottom:auto;width:132px;rotate:2deg}}
+
+/* ---------- Other pages ---------- */
+/* A corner piece at the right end of the page head (deco.js checks the heading leaves it room). */
+.dk-L-head{left:auto;right:calc(var(--dk-gut,0px) * -1);width:calc(var(--dk-w,210px) + var(--dk-gut,0px));top:-64px;bottom:-20px}
+.dk-L-head .dk-p{right:calc(var(--dk-gut,0px) - 34px);top:22px;width:var(--dk-w,210px);--dk-a:1.6deg;--dk-d:8s;--dk-o:80% 30%}
+/* The twig comes in from the right and fades out; the leaves reach toward the heading. */
+.dk-L-head .dk-hd{-webkit-mask-image:linear-gradient(270deg,transparent 0,#000 30%);mask-image:linear-gradient(270deg,transparent 0,#000 30%)}
+.dk-L-head .dk-sp{top:30px;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 34%);mask-image:linear-gradient(90deg,transparent 0,#000 34%)}
+body[data-page="checkout"] .dk-L-head{opacity:calc(var(--dk-fade) * .8)}
+
+/* Empty bag, no orders yet: a mango and leaves resting in the card's corner. */
+.dk-L-empty{border-radius:inherit}
+.dk-L-empty .dk-p{right:-16px;top:-12px;width:var(--dk-w,190px)}
+
+/* A slow, sparse fall of leaves and small mangoes down the home page (deco.js rain()). Above the content, under the
+   header (z 30), the dock and every sheet. */
+.dk-sky{position:absolute;top:0;left:0;right:0;height:var(--dk-h,100vh);z-index:20;pointer-events:none;overflow:hidden;contain:strict}
+@keyframes dk-rain{
+  0%{translate:0 -120px;rotate:calc(var(--dk-r,0deg) - 24deg);opacity:0}
+  7%{opacity:.92}
+  30%{translate:calc(var(--dk-x,0px) * -.5) calc(var(--dk-h,100vh) * .26);rotate:calc(var(--dk-r,0deg) + 26deg)}
+  55%{translate:calc(var(--dk-x,0px) * .7) calc(var(--dk-h,100vh) * .54);rotate:calc(var(--dk-r,0deg) - 16deg)}
+  85%{translate:calc(var(--dk-x,0px) * -.3) calc(var(--dk-h,100vh) * .84);rotate:calc(var(--dk-r,0deg) + 30deg);opacity:.85}
+  100%{translate:var(--dk-x,0px) calc(var(--dk-h,100vh) * 1.02);rotate:var(--dk-r,0deg);opacity:0}
+}
+.dk-rain{position:absolute;top:0;opacity:0;pointer-events:none;animation:dk-rain var(--dk-d,12s) cubic-bezier(.45,.05,.55,.95) 1 both;will-change:translate,rotate}
+.dk-rain>svg{display:block;width:100%;height:auto;animation:dk-sway 1.9s ease-in-out infinite alternate;--dk-a:16deg;transform-origin:50% 50%}
+.dk-rain-fruit{animation-timing-function:cubic-bezier(.5,.02,.7,.6)}
+.dk-rain-fruit>svg{--dk-a:7deg;animation-duration:2.6s}
+@media (prefers-reduced-motion:reduce){.dk-sky{display:none!important}}

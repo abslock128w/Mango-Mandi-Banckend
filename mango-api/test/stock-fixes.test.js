@@ -38,7 +38,7 @@ const noDrift = async () => assert.deepEqual(await tx((c) => auditLedger(c)), []
 /** A paid order on 10-16, as a customer. */
 async function paidOrder(qty = 2, cust = null) {
   cust ??= await customerToken(api)
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   assert.equal((await pay(o.body.orderId)).status, 200)
   return { id: o.body.orderId, cust }
@@ -110,7 +110,7 @@ describe('INV-2: hold sweeper', () => {
     const ids = []
     for (let i = 0; i < 3; i++) {
       const cust = await customerToken(api)
-      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       ids.push(o.body.orderId)
     }
     // Poison the first (oldest) order: its line no longer counts its hold, so releasing it breaks held >= 0.
@@ -132,8 +132,8 @@ describe('INV-2: hold sweeper', () => {
 
 describe('INV-3: short arrival', () => {
   test('the youngest order gives boxes back and moves to the next date with stock', async () => {
-    const x = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4 } }) // ripe on 10-16 and 10-17
-    await makeBatch({ age: 4, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } }) // ripe from 10-17
+    const x = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 4 } }) // semi-ripe on 10-16 and 10-17
+    await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 5 } }) // raw on 10-16 (age 3), semi-ripe from 10-17
     const a = await paidOrder(2)
     const b = await paidOrder(2)
     const l = await line(x, 'ALP-3')
@@ -189,7 +189,7 @@ describe('INV-5: a late payment respects the day capacity', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     assert.equal((await api.put('/admin/v1/calendar/2026-10-16', { isOpen: true, maxBoxes: 3 }, { token: admin })).status, 204)
     const cust = await customerToken(api)
-    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+    const late = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
     assert.equal(late.status, 201, JSON.stringify(late.body))
     await tx((c) => sweepExpiredHolds(c, new Date(Date.parse(T0) + 11 * 60_000)))
     await paidOrder(2) // takes the day's room while the first is cancelled
@@ -217,7 +217,7 @@ describe('INV-6: allocation racing a condemn', () => {
       // The allocation reads the batch as SELLING, then waits on the line lock.
       const got = tx(async (c) => {
         const { rows } = await c.query(`INSERT INTO orders (id, number, status, delivery_date, placed_at, subtotal, total) VALUES ($1, 'ORD-T1', 'CONFIRMED', '2026-10-16', NOW(), 0, 0) RETURNING id`, [newId('ord')])
-        return allocate(c, { orderId: rows[0].id, orderNumber: 'ORD-T1', deliveryDate: '2026-10-16', sku: 'ALP-3', stage: 'RIPE', qty: 2, state: 'committed', actor: SYSTEM })
+        return allocate(c, { orderId: rows[0].id, orderNumber: 'ORD-T1', deliveryDate: '2026-10-16', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, state: 'committed', actor: SYSTEM })
       })
       for (let i = 0; i < 100; i++) {
         const { rows } = await query(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)

@@ -77,8 +77,8 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_date_moved` | staff move the order to another date (one order, or a whole day), or a late payment lands on the next date with stock | name, order number, new date, slot |
 | `mandi_cancelled` | a confirmed order is cancelled (unpaid holds send nothing) | name, order number |
 | `mandi_login_code` | login code, only when SMS fails or the app asks for WhatsApp (authentication category) | code |
-| `mandi_refunded` | Razorpay accepts a refund we started (a customer cancel before packing, or a manager cancel of a paid order we can't deliver; order or preorder). It goes out when the refund is created, before the bank has paid it, so the approved wording must say the refund **has been started** and takes a few working days, never that the money has arrived (audit PAY-09) | name, order number, amount ("Rs 1,899") |
-| `mandi_preorder_booked` | a preorder is paid | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
+| `mandi_refunded` | Razorpay accepts a refund we started (a customer cancel of an order before packing, or a manager cancel of a paid order or preorder we can't deliver; a paid pre-order is never refunded on a customer cancel). It goes out when the refund is created, before the bank has paid it, so the approved wording must say the refund **has been started** and takes a few working days, never that the money has arrived (audit PAY-09) | name, order number, amount ("Rs 1,899") |
+| `mandi_preorder_booked` | a preorder is paid (says it can't be cancelled or refunded) | name, preorder number, boxes ("2 × Alphonso 3kg Box"), week ("the week of Mon, 1 Mar") |
 | `mandi_preorder_spot_open` | a waitlist spot opens | name, boxes, week, payment link |
 | `mandi_preorder_moved` | a week passed without stock, so the preorder moved a week | name, preorder number, boxes, new week |
 | `mandi_review_request` | about a day after delivery, once per order, if nothing on it is reviewed yet (marketing category). **Needs Meta approval; only sent once `WHATSAPP_REVIEW_REQUESTS=true`** | name, order number |
@@ -88,6 +88,10 @@ named `WHATSAPP_TEMPLATE_PREFIX` + kind (default prefix `mandi_`), in `WHATSAPP_
 | `mandi_claim_received` | a customer reports a problem with a delivered order (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number; "Open order" URL button |
 | `mandi_claim_rejected` | staff reject a claim; a replacement sends `mandi_replacement_confirmed` instead (utility). **New: needs Meta approval; only sent once `WHATSAPP_CLAIM_UPDATES=true`** | name, order number, the reason staff gave (shown to the customer); "Open order" URL button |
 | `mandi_help_reply` | staff reply to a help request (utility, docs/care.md). **New: needs Meta approval; only sent once `HELP_CENTRE=true` and `WHATSAPP_CARE_UPDATES=true`** | name, request number ("HLP-12"), link to the request |
+| `mandi_partner_enquiry_received` | someone sends a Partner With Us enquiry and agrees to be contacted (utility, docs/partner-network.md). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | name, enquiry reference ("MMP-7K2QXD9T"), partnership type |
+| `mandi_partner_team_alert` | to the numbers in `PARTNER_ALERT_PHONES`: a new enquiry or product proposal, one assigned, converted or rejected, a follow-up due or overdue (utility). **New: needs Meta approval; only sent once `WHATSAPP_PARTNER_UPDATES=true`** | what happened, enquiry reference, detail, panel link |
+| `mandi_bulk_enquiry_received` | someone sends a bulk enquiry (over 100 kg) from the shop (utility). **New: needs Meta approval; sent while `WHATSAPP_BULK_UPDATES=true` (the default)** | name, enquiry number ("BLK-0012"), quantity ("120 kg (40 boxes)") |
+| `mandi_bulk_quote` | staff send a quote for a bulk enquiry from the panel, again for each new quote (utility). **New: needs Meta approval; sent while `WHATSAPP_BULK_UPDATES=true`** | name, enquiry number, total ("Rs 52,500"), summary, link to the quote on the Account page |
 | `mandi_subscription_due` | a subscription's next box is set up and waits for payment, `SUBSCRIPTION_LEAD_DAYS` before it (utility). **New: needs Meta approval; only sent once `SUBSCRIPTIONS=true` and `WHATSAPP_CARE_UPDATES=true`** | name, box ("2 × Alphonso 3kg Box"), date ("Sat, 17 Oct"), link to the subscription |
 
 An order without a slot says "during the day" in place of the slot.
@@ -111,15 +115,26 @@ button (a button variable sent to a template without one is refused by Meta). Th
 recipient's copy of `mandi_out_for_delivery` carries the button too; the order page asks them to
 sign in as the buyer.
 
+**Confirmation with the invoice.** `mandi_order_confirmed_invoice` is one message with the
+confirmation and two dynamic URL buttons, in this order: "Track order",
+`https://<shop>/orders/{{1}}` (the order id), and "Download invoice",
+`https://<api>/v1/invoice/{{1}}` (a signed link, `src/bill-link.js`, that opens the bill's PDF
+without a sign-in for 180 days; the PDF is not attached to the message). It replaces
+`mandi_order_confirmed` for an order that has a bill (`BILLS_ENABLED`) once
+`WHATSAPP_ORDER_INVOICE=true`; set that only after Meta approves the template. Orders without
+a bill, and every order until then, get `mandi_order_confirmed` as before.
+
 Suggested wording for the two new templates (the owner words the final text in WhatsApp
 Manager): "Hi {{1}}, we have your report about order {{2}}. We will look at it and reply here
 within a day." and "Hi {{1}}, we looked into your report about order {{2}} and could not offer
 a replacement: {{3}}. Reply here if you would like to talk to us about it."
 
-Word `mandi_date_moved` so it also says the customer can cancel for a full refund until the
-order is packed, for example: "Hi {{1}}, order {{2}} will now arrive on {{3}}, {{4}}. If that
-date doesn't suit you, cancel it in the app before it is packed for a full refund." That is
-the opt-out for a late payment or a staff move to a date the customer didn't choose.
+Word `mandi_date_moved` so it also says when the customer can still cancel for a full refund
+(within 4 hours of placing the order, before it is packed), for example: "Hi {{1}}, order {{2}}
+will now arrive on {{3}}, {{4}}. If that date doesn't suit you and it is within 4 hours of
+placing the order, cancel it in the app for a full refund; otherwise reply here." That is the
+opt-out for a late payment or a staff move to a date the customer didn't choose; after the
+4 hours only staff can cancel it.
 
 Outside production the default `WHATSAPP_PROVIDER=log` logs each message and marks it
 sent. In production without a provider, messages are skipped with a warning.
@@ -142,21 +157,24 @@ Razorpay payment configuration name in WhatsApp Manager) the customer pays insid
 WhatsApp; otherwise they get a Razorpay payment link. Razorpay's `payment_link.paid`
 webhook, Meta's payment status update, or the reconcile loop confirms the order, and
 the usual WhatsApp updates follow. My orders lists recent orders and lets the customer
-cancel until packing, with the full refund for a paid order. WhatsApp verifies the
+cancel within 4 hours of placing an order (before packing), with the full refund for a paid
+order; an unpaid order can always be dropped. WhatsApp verifies the
 phone number, so the chat needs no OTP; only Indian numbers can order. Messages are
 deduplicated by id, so Meta's retries are safe.
 
 **Book ahead** in the chat makes a preorder with the same engine as `POST /v1/preorders`
 (`channel = 'whatsapp'`): pick an open week and box, the ripeness, how many, the pincode
 and address, then pay by Razorpay link. A full week offers the waitlist instead (no
-payment until a spot opens). Bookings show in My orders and can be cancelled there for a
-full refund until packing.
+payment until a spot opens). The confirmation step says "Pre-order · can't be cancelled or
+refunded once paid" above the Pay button. Unpaid and waitlisted bookings show in My orders
+with a Cancel button; a paid pre-order (and the order it became) has none. Before pre-orders
+open (`preorderOpensOn`), Book ahead says when they open instead.
 
 ## After the order: ripeness guide, alerts, reminders
 
 - **Ripeness guide.** A minute after the confirmation, an order with a raw or semi-ripe box gets
   `mandi_ripeness_guide`: the day each box will be ready to eat (raw +5 days, semi-ripe +2 from
-  the delivery date, the same days the eat-by date assumes) and how to keep them. Ripe-only orders skip it. The shop's order page shows
+  the delivery date, the same days the eat-by date assumes) and how to keep them. Orders that are all ripe (sold before ripe stopped being sold) skip it. The shop's order page shows
   the same "ready to eat around" date.
 - **Back in stock.** A box sold out on every open day shows "Tell me when it's back" in the shop
   (signed in). The alert lasts 14 days, at most 10 open per customer, one per box and ripeness.
@@ -181,6 +199,56 @@ total below ₹1.
 An order can be a gift: `gift { recipientName, recipientPhone, message }` at checkout. The
 pack list marks it (no price slip, the note goes in the box) and the rider sees the
 recipient's name and phone. Order updates and the delivery code still go to the buyer.
+A pre-order can be booked as a gift too: the same optional `gift` on `POST /v1/preorders`
+(migration 070), shown as `gift` on the booking, and the order the allocator makes from it
+carries the recipient. A gift's address is never saved to the buyer's address book.
+
+### Backorders
+
+With `BACKORDERS` on (the default), a regular box short of stock on the chosen day is still quoted
+and placed when a batch on its way (`ARRIVING` or `IN_TRANSIT`) can supply it that day: its truck is
+due before the day, the fruit has the chosen ripeness then, and the boxes fit in what the batch is
+expected to bring (its count × `forecastConfidence`, less what is held or committed on it and less what
+earlier backorders still wait for). The day must be at least `BACKORDER_LEAD_DAYS` (default 2) from
+today (IST); the shop promises delivery "in `BACKORDER_LEAD_DAYS`–`BACKORDER_WINDOW_DAYS` days"
+(default 2–3) and reads both numbers from `GET /v1/policy` (`backorders: { enabled, leadDays,
+windowDays }`). With no such batch the box is not sold as a backorder (see Earliest delivery date).
+
+- **Quote**: a short line comes back with `backorder: true`, and the quote with `backorder: true`
+  and `backorderEta: { from, to }` (never before the chosen day). A day earlier than today + lead
+  answers 409 `BACKORDER_DATE` with `{ earliest, sku }` when stock can't serve the bag on any day,
+  so the shop can move the date. With the switch off, a short line is 409 `STOCK_INSUFFICIENT`.
+- **Catalogue**: an item a batch on its way can still supply carries `backorder: { from, qty }`.
+- **Confirm**: the order is created without all-or-nothing; the boxes in stock are held as usual,
+  the rest are recorded as a shortfall (`at_risk`, so the hourly `rebalance-at-risk` fills them when
+  stock arrives), `orders.backorder` is set and the short lines get `order_items.backordered`.
+  Payment is unchanged; a paid backorder keeps its day and its confirmation goes out as usual
+  (a genuine no-stock order's is held).
+- **Customer views**: `/v1/orders` and `/v1/orders/:id` return `backorder: true` and, while boxes
+  are still being sourced, `backorderEta`; `findingStock` stays true until they are allocated; each
+  item has `backordered`.
+- **Staff**: the panel shows a Backorder badge ("awaiting stock" until allocated). Backorders waiting
+  for stock are not at-risk alarms: the ops queue lists them as a quiet item, and the
+  `mango_orders_at_risk` gauge leaves them out (maintenance reports them as `backordersAwaitingStock`).
+- Bulk deals and gift orders to many recipients stay all-or-nothing.
+
+### Earliest delivery date
+
+When the chosen day can't supply the bag, the API works out the first day that can (`src/earliest.js`):
+a day the customer may book (cut-off hour, `maxDaysAhead`, closed days) on which every line has enough
+sellable stock under the usual rules (QC'd stock, in-transit stock at `forecastConfidence` once its
+truck is due, the box's ripeness that day) and the day still has room for the whole bag (the day's
+`max_boxes` in the delivery calendar and, when slots are in use, one slot with room for every box).
+
+- **Quote and confirm**: 409 `STOCK_INSUFFICIENT` keeps `sku` and adds `requestedDate`, `earliestDate`
+  (the first such day in the window), `nextDate` (the first such day on or after the requested one),
+  `lines` (per line: `available` on the requested day, its own `earliestDate`, and `otherStages`:
+  the first day each other ripeness fits) and `neverFit` (lines no day can supply). The shop moves the
+  date and the customer presses Pay again; nothing is changed after Pay without telling them.
+- **Catalogue**: each item has `earliestDate` (null: no day in the window), and the answer lists
+  `fullDates` (days with no room for even one box).
+- **Packing**: boxes from a batch that is still `ARRIVING` or `IN_TRANSIT` can be held and committed
+  for later days but never packed, marked PACKED or dispatched: 409 `BATCH_NOT_ARRIVED` names the batch.
 
 ## Bulk Deals
 
@@ -215,27 +283,176 @@ over a product, not a second stock. Tables: migration `033_bulk_deals.sql`.
 
 ## Preorders (phase 2)
 
-Customers book a SKU, ripeness and quantity for a delivery **week** (Monday start) before
-the fruit exists, at the price of the day, and pay in full by Razorpay payment link.
+> **Since migrations 078 to 080: the pre-order plan per variety.** Each variety (`products.variety`; a Mixed Box is its
+> own line) has its own expected kg a day (`preorderVarietyDayKg`, others `preorderOtherVarietyDayKg`, 20 kg placeholder)
+> and a week takes 7 days of it, or the week's own kg for that variety (`preorder_variety_week_kg`). Managers change it on
+> the panel's Pre-order plan page: `POST /admin/v1/preorder-plan/preview` (dry run) then `/apply` (step-up for a daily-kg
+> change), which recalculates the open weeks oldest first (`src/preorder-plan.js`; weeks whose deliveries started are
+> frozen). A paid booking moved later is delayed: `PREORDER_DELAYED` is queued (it waits in the outbox until WhatsApp is
+> connected) and the customer may cancel it, or the order it became until it is packed, for a full refund. Moved earlier:
+> `PREORDER_EARLIER`. The allocator's week-without-fruit move and a manager's move take the same path. The text below
+> describes the earlier single-limit design where it differs.
 
-- **Capacity.** Managers set boxes per SKU per week (Preorders page, or
-  `PUT /admin/v1/preorder-capacity/:weekStart/:sku`). Booking takes capacity with a
-  conditional `UPDATE`, so a launch-day rush can't oversell. Only weeks after the
-  regular booking horizon are open.
-- **Waitlist.** A full week refuses with `PREORDER_FULL`, or with `waitlist: true` joins the
-  waitlist. Freed or added capacity goes to the waitlist in booking order; the promoted
-  customer gets a WhatsApp message with a payment link and 12 hours to pay.
-- **Holds and late payments.** An unpaid booking holds capacity for `holdMinutes`. A payment
-  after the hold still books it (over capacity if need be), as for orders.
+### Held for pre-orders (migration 082, `src/holdback.js`)
+
+A regular shopper never takes fruit owed to pre-orders. Every PAID booking not yet turned into a delivery order
+(`BOOKED`) whose week starts on or before the hold cut-off (today + `maxDaysAhead` + 1, never before the allocator's
+horizon) keeps its boxes, per box (SKU: variety and box size, the unit stock lines are kept in) and ripeness. For each
+day a shopper may choose, what is left for them is `min(sellable(stage) − held(stage), sellable(all stages) −
+held(all stages))` per box, never below 0 (a box raw on Monday is the same box semi-ripe on Thursday). Nothing is
+stored: the hold is one indexed `GROUP BY` over the BOOKED rows, so it follows cancels, delays and moves, and stock
+that is adjusted, QC-shifted or retired; the ledger audit has no new counter to check.
+
+- **Everywhere regular stock is read** (`inventory.js availability` / `availabilityByDate`, unless `{ raw: true }`):
+  catalogue, earliest date, quote, checkout, chat ordering, subscriptions, gifts, bulk, back-in-stock alerts and the
+  Planning coverage grid. Backorders (`backorders.js`) also take what the bookings still wait for beyond the shelf
+  off the fruit on its way.
+- **Every regular take** (`allocate` with `holdBack`, the default): checkout, rebalance fills and swaps, moves, late
+  payments, staff-made and replacement orders. It locks every sellable line of the box in `LINE_LOCK_ORDER`
+  (`lockSkuLines`; `lockOrderLines` and batch QC/condemn/retire lock the same superset first, so the DB-01 order holds)
+  and only then counts what is left, so two checkouts, or a checkout and the allocator, can't both take the same free
+  boxes. There is no manager override. Exempt: the allocator's own orders (`holdBack: false`), a converted pre-order's
+  order being refilled, and the re-pack for a missed delivery's retry.
+- **The allocator** takes the held boxes; one run at a time (an advisory lock). Besides the maintenance run it runs
+  right after a batch is received, marked arrived/ripening/selling, gets a QC reading that is not a reject, or a
+  count is raised (`allocateOnStock`).
+- **The panel**: the Pre-order plan shows "Held for pre-orders this week: N boxes (M kg)" per variety and ripeness
+  (`GET /admin/v1/preorder-weeks` → `held`).
+
+### Booked against the plan (migration 083, `src/plan-orders.js`)
+
+When no bookable day can take a bag, in season, the shop can book a day after the horizon against the plan. Each variety
+has **one weekly budget**: room for new pre-orders and new planned orders = expected kg − pre-order kg (`reserved_kg`) −
+planned kg (`planned_kg`, its own column); `assignWeek`, `/v1/preorders/weeks` and the Pre-order plan all subtract it.
+
+- **Answers**: the quote's and confirm's `409 STOCK_INSUFFICIENT` gain `reason: 'WEEK_BOOKED'`, `offer { weekStart, from,
+  words, dates: [{ date, slots }] }` (the first week, up to 4 ahead and within the season, with room for the whole bag) and
+  `boxes` (those that caused it); `earliestDate` etc. are unchanged. A catalogue item with no day has `weekBooked { reason,
+  weekStart, from, dates, words }`. Quoting an offered date answers `planned: true`, `plannedWeek`. Bulk deals are excluded.
+- **The order**: `orders.planned`, no stock taken, its kg in the week. Views add `planned`, `plannedWeek`, `waitingForFruit`.
+- **Fulfilment** (`fulfilPlannedOrders`, after the allocator, in maintenance and after stock changes): paid orders whose day
+  is within the hold cut-off, oldest first, all boxes or none, after that week's pre-orders. What they wait for is part of the hold.
+- **Short**: on the earliest delivery day without fruit the order moves to the next day with real stock, else a later week
+  with room; `ORDER_DELAYED` is queued and `delayed { fromDate, toDate }`, `canCancelDelayed`, `cancelUntil: 'PACKED'`
+  appear: a full refund until packed. All other orders keep the 4-hour rule.
+- **Recalculation**: pre-orders outrank planned orders. If a pre-order would be delayed, or a week is over its number,
+  planned orders without fruit move first, newest first. The preview counts them (`planned { orders, paid, kg }`).
+- **A delay is for good** (pre-orders and planned orders): `delayed_at` is never cleared, so the Delayed tag and the
+  cancel right (until packed) stay, and the booking or order is never moved to an earlier week or date again: not by a
+  recalculation (its current week is its floor; the preview's `delayedStay { bookings, kg, overtakenBy }` counts them), a
+  manager (`409 DELAYED_NOT_EARLIER`), a reschedule or the allocator. Never-delayed bookings may still move earlier.
+- WhatsApp chat ordering still books only regular days. Backorders are unchanged: this path reuses their "sold now, stock
+  later" shape and the rebalance's allocate, not their incoming-batch arithmetic, because the source here is the plan.
+
+Customers book a SKU, ripeness and quantity before the fruit exists, at the price of the
+day, and pay in full by Razorpay payment link. The delivery **week** (Monday start) is not
+chosen: the API gives the earliest week with room, and the shop shows it before paying.
+
+- **One weekly limit in kg, weeks by themselves (migrations 074, 076).** A delivery week takes
+  up to its expected kilograms of pre-orders across every box: the rule `preorderDayKg` ("Mangoes
+  expected per day for pre-orders (kg)" on the Planning page, default 1000: one batch a day) x 7,
+  so 7,000 kg by default, or the week's own expected kg (`preorder_week_kg.limit_kg`, set per week
+  on the Preorders page, `PUT /admin/v1/preorder-weeks/:weekStart { limitKg | null }`, managers)
+  when supply differs that week. A booking takes its weight: boxes x the box's kg (`weekLoad` in
+  `src/preorders.js`, fixed on the booking as `preorders.load_kg`; `WEEK_LOAD_SQL` and the shop's
+  `countsBy: 'kg'` count the same). A booking is never split: one that doesn't fit what is left of a
+  week goes to the next week with room, so a lighter booking made after it can still fit the earlier
+  week. One heavier than every week is refused (`409 PREORDER_TOO_BIG`). The weeks need no staff
+  setup (`deliveryWeeks`): Mondays from the first week after the regular booking horizon (before the
+  season: the week holding `seasonStartsOn`) week after week, to the week holding `seasonEndsOn`, or
+  26 weeks when no end is set. Each week's kg counter is `preorder_week_kg.reserved_kg`, taken by one
+  conditional `INSERT ... ON CONFLICT DO UPDATE ... WHERE reserved_kg + kg <= COALESCE(limit_kg,
+  default)`: bookings at once queue on the week's row and the second sees the first's count, so a
+  week never goes over. A booking tries the weeks in date order and takes the first with room
+  (`assignWeek`); a week that looks full first frees unpaid holds that ran out.
+- **A week lowered below what it holds** (the harvest came in short) is allowed: new pre-orders skip
+  it, the Preorders page shows "Over by N kg", and nothing moves by itself. A manager moves bookings
+  (`POST /admin/v1/preorders/:id/move { weekStart, reason }`, unpaid or paid, not yet an order) to a
+  week with room for their kg (else `409 PREORDER_FULL`); the kg moves with it, `moved_count` counts it,
+  and a paid booking's customer gets the moved message (`PREORDER_MOVED`). Raising a week makes room:
+  the waitlist first, then new pre-orders.
+- **The week the customer is told.** `POST /v1/preorders` (and each person of
+  `POST /v1/preorders/groups`) takes an optional `weekStart`: the week the shop showed. When it
+  is no longer the week the booking would get, nothing is booked and the answer is
+  `409 PREORDER_FULL` (it filled since) or `409 PREORDER_WEEK_CHANGED` (an earlier week has room
+  again, e.g. raised), with `weekStart` (the week it would get now) and `requested`; the shop reloads
+  the weeks, shows the new week and asks again. Without `weekStart` the API takes the earliest week
+  and the answer's `weekStart` says which. A week inside the regular booking horizon or past the
+  season's end answers `400 INVALID_WEEK`.
+- **`GET /v1/preorders/weeks`** answers, in kg: `limit` (the default week: daily x 7), `dayKg`,
+  `countsBy: 'kg'`, `deliveryWeeks` (every week with its own `limit` and `remaining`: the shop finds a
+  booking's week, the earliest with `remaining` >= its kg, person by person for a gift for several
+  people, exactly as the API books it), `nextWeek { weekStart, limit, remaining }` (the earliest week
+  with room for one box of the lightest box on sale; null when none has), `firstWeek`, and, as
+  before, `weeks`: one entry per box on sale and week with the box's name, variety, size and price,
+  the week's `capacity` (= its limit) and `remaining` (kg, shared by every box), from `firstWeek` to
+  the earliest week with room for one box of it. Managers see each week with booked / limit kg, its
+  own expected kg and how much it is over on the Preorders page (`GET /admin/v1/preorder-weeks`).
+- **The older tables.** `preorder_capacity` (per box, set by staff before 074) decides nothing: its
+  `reserved` is still counted per box and week (INV-06 per box). 074's `preorder_weeks` (one per
+  booking) decides nothing since 076 either; it is kept up to date so a rollback to the release that
+  booked by it finds it right. Migration 076 recorded every booking's kg and recounted each week in
+  kg; the INV-06 check compares each week's kg counter with its bookings (sku `ALL` on Needs
+  attention; `POST /admin/v1/preorder-capacity/:weekStart/ALL/recount`, kg to the gram).
+- **Deploying 076.** Expand-only: `preorderDayKg` is a new key (the previous release keeps reading
+  `preorderWeekLimit`, now ignored), the kg counter a new table and `load_kg` a new nullable column.
+  While the previous release still serves after 076 ran, it books by its own one-per-booking counter
+  and limit; those bookings are missing from the kg counter (and have no `load_kg`; their weight is
+  then read from their box). The INV-06 check shows such a week within the hour and a manager's
+  recount fixes it.
+- **Waitlist.** Only when every week to the season's end is full: then a booking is refused
+  with `PREORDER_FULL` (`weekStart: null`), or with `waitlist: true` joins the waitlist (held on
+  the season's last week until a spot opens). Freed room goes to the waitlist in booking order
+  (strictly: a later booking does not go ahead of an earlier one that doesn't fit yet), each
+  promoted booking taking the earliest week with room; the promoted customer gets a WhatsApp
+  message with a payment link at once and 12 hours to pay. When a waitlisted booking's week
+  reaches the regular booking horizon its waitlist closes: it is cancelled (nothing was paid)
+  and the customer gets the cancelled message (`mandi_cancelled`).
+- **Holds and late payments.** An unpaid booking holds its week's place for `holdMinutes`. A
+  payment after the hold still books it (over the limit if need be), as for orders.
 - **Allocator.** Every maintenance tick, each paid preorder whose week has reached one day
   past the regular booking horizon becomes a normal confirmed order on the first date in its
   week with stock. Preorders therefore claim stock before regular shoppers can book that
   date. The order carries the preorder's payment, and the usual WhatsApp updates follow.
   When a week passes with no stock, the preorder moves to the next week and the customer is
-  told (`moved_count`); nothing is cancelled.
-- **Cancel.** The customer can cancel any time before packing with a full refund, the
-  same rule as orders: before conversion through `POST /v1/preorders/:id/cancel`, after it
-  that call cancels the order.
+  told (`moved_count`); its place moves with it (over the limit if need be); nothing is cancelled.
+- **Gifts.** `POST /v1/preorders` takes the checkout's optional
+  `gift { recipientName, recipientPhone, message }`; the booking answers `gift` (or null), and
+  the order it becomes is a gift order (`orders.gift_*`, migration 070).
+- **A gift for several people** (MULTI_GIFT, migration 071, docs/gifting.md "Before the
+  season"): `POST /v1/preorders/groups` (`Idempotency-Key` required) takes
+  `{ name?, recipients: [{ sku, stage, qty, weekStart?, pincode, address, gift }] }` and books
+  one gift pre-order per person in one transaction (`preorder_groups`, `preorders.group_id`),
+  with one hold and ONE payment link for the group's total. Each person, in list order, gets
+  the earliest week with room, so a group can straddle two weeks (some people in week N, the
+  rest in N+1; one person's boxes are never split; the shop shows each person's week). A person
+  whose shown week changed, or no week with room, fails the whole group (`409 PREORDER_FULL` / `PREORDER_WEEK_CHANGED`,
+  message "Person N: …", `row`); a group never joins the waitlist. Paying the link (webhook, reconcile, `POST /v1/dev/pay-preorder` with any of
+  its bookings) books every booking; each records its own `paid_amount`, the payment id
+  stays on the group, and a staff refund of one booking refunds its own amount from it. A
+  hold that runs out cancels each booking and frees its week; a late payment still books
+  them all. An unpaid group is one unpaid booking (`UNPAID_PREORDER_EXISTS`); the buyer's
+  cancel before paying cancels the whole group; once paid, non-refundable as any pre-order.
+  `GET /v1/preorders/groups/:id` answers the group with its bookings; every booking's view
+  carries `group { id, number, people, total, position }` (null when alone).
+- **Season.** Two rules on the Planning page, `seasonStartsOn` and `preorderOpensOn`
+  (both optional, `src/season-phase.js`): before the season starts the shop's home page is
+  the pre-order shop (phase `PREORDER`), before pre-orders open nothing can be booked
+  (`BEFORE`: `POST /v1/preorders` and Book ahead refuse with `PREORDERS_NOT_OPEN`), and from
+  the start date the shop sells as usual (`OPEN`; booking ahead stays open on WhatsApp, as
+  before). `GET /v1/catalogue` and `GET /v1/preorders/weeks` carry
+  `season: { phase, startsOn, preorderOpensOn }`. Unset start date: always `OPEN`.
+  Migration 075 set the 2027 dates on a database whose live rules had no start date
+  (`seasonStartsOn` 2027-03-01, `preorderOpensOn` 2026-11-01, and a season end on or before the
+  start cleared); it does nothing when a start date is set or on a fresh database.
+- **Non-refundable.** Pre-orders can't be cancelled or refunded once paid
+  (`preorders.non_refundable`, set on every booking since migration 064). The customer can
+  still drop an unpaid or waitlisted booking (`POST /v1/preorders/:id/cancel`); a paid one,
+  or the order it became, answers `409 PREORDER_NON_REFUNDABLE`, and the order's
+  `canCancel` is false. Bookings made before migration 064 keep the old promise: cancel
+  before packing for a full refund. Unchanged: a manager's cancel (a week we can't fill)
+  refunds in full; a payment after the hold ran out or after a cancel is refunded
+  automatically; quality claims on the delivered order work as for any order.
 
 ## Season ops (phase 3)
 
@@ -297,6 +514,168 @@ if it has room, else take the first with room, and never fail because of a slot.
 Slots are switched off rather than deleted, so old orders keep theirs. The pack list
 is sorted by slot.
 
+## Delivery charge
+
+Regular orders can carry a delivery charge (`src/delivery-fee.js`). It is **off** until a manager turns it on in the
+panel (Planning → Delivery charge); off, every answer is as before and delivery is free. The settings are part of the
+versioned rules (`deliveryFee` in `app_config`), so every change is a new rules version with an audit row.
+
+- **How far.** A straight line from the nearest warehouse (the rules' `origins`, else the warehouses' saved
+  positions) to the pin the customer drops on the shop's map, with the centre of the pincode being ordered to as the
+  floor: the pin can raise the distance, but lower it by 1.5 km at most (`PIN_TOLERANCE_KM`, `src/delivery-fee.js`),
+  for the price and for the range check alike, so a pin dropped next to the warehouse buys nothing. With no pin the
+  centre is used. A pincode with no centre has no floor, so its pin is not believed and the rules' `unknownKm` is
+  assumed (the order is never refused then); staff set centres on the Pincodes page, which warns about any without.
+- **How much (by weight and distance).** The default table (rupees in the rules, paise everywhere else):
+
+  | Distance | Under 5 kg | 5 kg and above |
+  |---|---|---|
+  | Up to 2 km | ₹30 | Free |
+  | 2 to 5 km | ₹50 | ₹30 |
+  | 5 to 8 km | ₹70 | ₹50 |
+  | 8 to 12 km | ₹100 | ₹80 |
+  | Past 12 km | Not delivered | Not delivered |
+
+  The first band the distance fits in (`uptoKm`, inclusive) gives the row; the order's **weight** (boxes × the box
+  size, `3kg`, `5kg`) gives the column: `freeFromKg` (default 5, inclusive: one 5 kg box qualifies; the one comparison
+  is `heavyByWeight` in `delivery-fee.js`) or more pays the band's `fee`, lighter its `feeSmall`. What the order is
+  worth decides nothing. `freeFromKg` `0`: no weight line, every order pays `feeSmall` and none is free.
+- **Free delivery.** Only for orders of `freeFromKg` or more, and only at or within `freeWithinKm` (default 2 km):
+  there they pay 0 whatever the band's `fee` says. Past it there is always a charge: a save (`rulesSchema`) is refused
+  when a band reaching past `freeWithinKm` (or the last band, with `beyond: 'charge'`) has 0 in either column. Stored
+  versions are not checked, so an older one always loads. Past the last band the order is refused with `TOO_FAR`
+  (422), whatever it weighs, or pays the last band's charge (`beyond`).
+- **Older rules.** `freeAbove` (the order value that picked the column before 18 Nov) still parses and is still sent
+  to the shop as before, but decides nothing; the panel no longer shows it. Migration 072 moved a live `freeFromKg` of
+  6 (the old "free from 6 kg at any distance") to 5 with `freeWithinKm` 2; a version without the keys gets the
+  defaults on load.
+- **What the shop reads.** Policy (`deliveryFee`) and `delivery` answers carry `freeFromKg` and `freeWithinKm` (and
+  `freeAbove`, unused). `delivery.feeAtOrAbove` is what an order of `freeFromKg` or more pays at that distance (0
+  within `freeWithinKm`), `feeBelow` what a lighter one pays, and `fee` the charge for this order (the check has no
+  bag, so its `fee` is the lighter one's). A quote's `delivery` also has `weightKg`.
+- **Where it shows.** `GET /v1/delivery/check?pincode=&lat=&lng=` adds `delivery` (for the bag); `GET /v1/policy`
+  adds `deliveryFee` (the table); `POST /v1/checkout/quote` takes `location: { lat, lng }` and answers `deliveryFee`
+  and `delivery`, with the charge in `total`. The charge is fixed with the quote. Orders answer `deliveryFee` and
+  `deliveryKm`.
+- **How it is stored.** No column for the charge: an order's `total` is its goods less the promo plus the charge,
+  which is how the bill already reads a delivery charge (`bills.js`). `orders.delivery_km` (migration 068) keeps the
+  distance it was measured over.
+- **Not charged:** gift orders, pre-orders, subscriptions and staff-placed orders. Bulk orders keep their own 10%.
+
+## Partner Network
+
+The shop's Partner With Us form (`/v1/partner-network`, no sign-in) and the panel's Partner
+Network section (`/admin/v1/partner-network`, managers and operators). Behaviour, statuses and
+routes: [docs/partner-network.md](../docs/partner-network.md). Migrations 058 and 059.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PARTNER_NETWORK` | `true` | On unless `false`; managers can also turn it off on the panel's Settings page. Off: every partner route answers 404 and the shop hides its links. |
+| `WHATSAPP_PARTNER_UPDATES` | `false` | The applicant's receipt and the team alerts on WhatsApp (`mandi_partner_enquiry_received`, `mandi_partner_team_alert`). Turn on only after Meta approves both. |
+| `PARTNER_ALERT_PHONES` | empty | Comma-separated Indian mobile numbers for the team alerts. Empty: no team alerts (the panel's Overview shows the same). |
+
+## Bulk orders and enquiries
+
+The shop's `/bulk` page has three tabs (`shop/bulk.js`): **Bulk order** (`/bulk`, 100 kg and above, ordered and paid
+now), **Send enquiry** (`/bulk/enquiry`, 250 kg and above, a quote) and **Farm visit** (`/bulk/farm-visit`, 100 kg
+and above: a farm visit enquiry, below). All three kinds live in `bulk_enquiries` (`kind` ORDER, ENQUIRY, FARM_VISIT),
+are numbered `B…` (order-number.js; a farm visit enquiry is labelled "Farm visit" wherever it shows, so no new letter
+is needed) and show in the panel's Bulk orders section (managers and operators), in its own list each. Money is in paise; every
+total is worked out by the API. Migrations 060, 061, 067, 084 and 085.
+
+**Bulk prices** (`src/bulk-price.js`). A box's bulk price is a manager's own price for it (`products.bulk_price`) or
+the shop price less the default bulk discount (the rule `bulkDiscountPct`, 25: a ₹100 box is ₹75), rounded to whole
+rupees. Bulk boxes are 5 kg or 10 kg; the 10 kg bulk box is two of a variety's 5 kg box (`packKg: 10` on the 5 kg
+SKU), so it costs twice the 5 kg bulk price. Managers set both on the panel's Products page (Bulk prices, step-up).
+
+**A bulk order** (`kind: 'ORDER'`, `src/bulk-orders.js`) is placed signed in, from a list of 100 kg or more
+(`BULK_TOO_SMALL`) in 5 kg or 10 kg boxes (`BULK_BOX_SIZE`), at bulk prices, plus delivery at `BULK_DELIVERY_PCT`
+(10%) of the mangoes' value. Prices sent by the shop are ignored (a `total` is refused). It is paid in full by a
+Razorpay payment link, as a pre-order is: the link's own id or its notes tie a payment to it (PAY-B11), the amount and
+currency are checked, a replay changes nothing, a second payment is kept in `duplicate_payments.bulk_enquiry_id` and
+refunded, the reconcile loop finds a payment whose webhook was lost, and locally the shop's "Pay (test)" uses
+`POST /v1/dev/pay-bulk`. Statuses:
+
+| Status | Meaning |
+| --- | --- |
+| `PAYMENT_PENDING` | placed; `BULK_PAY_MINUTES` (30) to pay. The maintenance step `bulk-orders` then cancels it (`payment_status CANCELLED`, nobody cancelled it), and "Pay again" opens it once more at today's bulk prices with a new link (a payment on the old link still finds it, and is checked against today's total). A payment after the time ran out is honoured. |
+| `PAID` | paid in full: `BULK_ORDER_PAID` goes to the customer ("received and paid"; our team calls on WhatsApp to arrange the delivery, usually 5 to 7 days) and `bulk.enquiry` to the panel's live stream |
+| `CONFIRMED` | staff called the customer ("Called customer") |
+| `DISPATCHED`, `DELIVERED` | staff steps; from `DISPATCHED` the customer can no longer cancel |
+| `CANCELLED` | by the customer (unpaid; or paid, within `CUSTOMER_CANCEL_HOURS` (4) of paying and before dispatch: refunded in full), by a manager (any time; a paid one is refunded in full, step-up), or not paid in time |
+
+Refunds use the order refunds' lease, back-off, give-up and Razorpay checks (`claimRefund('bulk_enquiries')`,
+`processDueRefunds`, `reconcileRefunds`). A paid bulk order gets no numbered bill (bills belong to `orders`): the
+shop's order page `/bulk/orders/:id` is its payment receipt (amount, method, payment id, lines at the prices paid).
+Direct orders placed before payment came in (unpaid, status `NEW`) still list, and staff close them as before.
+
+**An enquiry** (`kind: 'ENQUIRY'`) asks for a price, from `BULK_ENQUIRY_MIN_KG` (250 kg; less: `400
+BULK_ENQUIRY_TOO_SMALL`, "Enquiries are for 250 kg and above. From 100 kg you can order and pay directly."). Nothing is
+paid. Staff quote it (lines starting from today's bulk prices; the quote can be lower; extras; delivery at 10% of the
+mangoes; a valid-until date): the quote goes on WhatsApp (`mandi_bulk_quote`) and to the shop's Account page, where
+the customer accepts or declines it. An order sent to the enquiry form is refused with `400 BULK_ORDER_PAY_ONLINE`.
+
+**A farm visit enquiry** (`kind: 'FARM_VISIT'`, migration 087) is the Farm visit tab's form: always open, signed in or
+not, no farm switch needed. Name, mobile, city, which mango (a variety we sell, or not sure yet), about how many kg
+(`FARM_VISIT_MIN_KG`, 100: the 250 kg enquiry rule does not apply), a preferred date (not in the past) or flexible, how
+many people, a note. The same Idempotency-Key rules, daily per-phone limit and connection limit as an enquiry. It
+queues `FARM_VISIT_ENQUIRY_RECEIVED` on WhatsApp and the live `bulk.enquiry` event (`kind: 'FARM_VISIT'`). Staff move it
+NEW → CONTACTED ("Called customer") → VISIT_PLANNED (the agreed date, `planned_visit_date`) → VISITED, or close it
+with a reason (`close_reason`, shown to the customer); every step is an event with who and when. Needs attention and
+Today list the new ones (`farmVisitEnquiries`), and the panel's Bulk orders menu item shows their count. The full
+Farm Experience booking (docs/farm-experience.md) stays for staff use later; the tab links to it only while it is on
+and bookings are open.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /v1/farm-visit-enquiries` | anyone (a signed-in customer's token links it) | `{name, phone, city, variety?, kg, visitDate?, flexible?, people, notes?}`; `201 {id, number, status: 'NEW', kind: 'FARM_VISIT'}`. Listed in `GET /v1/me/bulk-enquiries` with `farmVisit: {variety, kg, preferredDate, flexible, people, plannedDate, contactedAt, visitPlannedAt, visitedAt, closeReason}` |
+| `POST /admin/v1/bulk-enquiries/:id/farm-status` | managers, operators | `{to: 'CONTACTED' \| 'VISIT_PLANNED' \| 'VISITED', date?, note?}` (VISIT_PLANNED needs a date from today); closing is `/close` with `{reason}` (required for a farm visit) |
+| `GET /v1/bulk/prices` | anyone | `{discountPct, items: [{sku, variety, name, custom, packs: [{packKg: 5 \| 10, price, bulkPrice, savingPct}]}]}` (paise): every variety on sale with a 5 kg box |
+| `POST /v1/bulk-enquiries` | anyone (a signed-in customer's token links it to the account) | an enquiry: `{name, business?, email?, phone, city, notes?, lines: [{sku, stage, boxes, packKg?}] \| quantityKg, ripeness?}`, 250 kg or more; `Idempotency-Key` honoured for the same sender and body (another body: `422`); `BULK_ENQUIRY_DAILY_LIMIT` per phone a day, 10 an hour per connection. Answers `{id, number, status, kind}` |
+| `POST /v1/me/bulk-orders` | signed-in customer | a bulk order: `{name, business?, email?, phone, city, address, pincode, notes?, lines}`, `Idempotency-Key` required. `201` with the order as `GET /v1/me/bulk-enquiries/:id` shows it, its link made |
+| `POST /v1/me/bulk-orders/:id/pay` | signed-in customer | the payment link again, or "Pay again" after the time ran out (`409 NOT_PAYABLE` for a paid or cancelled one) |
+| `POST /v1/me/bulk-orders/:id/cancel` | signed-in customer | unpaid: cancelled; paid: within 4 hours of paying and before dispatch, refunded in full (`409 CANCEL_WINDOW_CLOSED`, `409 BULK_DISPATCHED`) |
+| `GET /v1/me/bulk-enquiries`, `GET /v1/me/bulk-enquiries/:id` | signed-in customer | their enquiries and orders (sent signed in, or from the number they signed in with); `unread` while a quote is unopened. An order paid online carries `order: {amountPaise, mangoesPaise, deliveryPaise, shopValuePaise, savingPaise, deliveryPct, address, pincode, paymentStatus, payBy, paymentUrl, payAgain, paidAt, paidPaise, receipt, cancelUntil, canCancel, cancelHours, cancelledAt, cancelledBy, refund, confirmedAt, dispatchedAt, deliveredAt}` and its lines `unitPaise`, `shopUnitPaise`, `linePaise` (paise, named so the shop's client never converts them) |
+| `POST /v1/me/bulk-enquiries/:id/seen`, `.../respond` | signed-in customer | opened the quote; `{decision: 'ACCEPT' \| 'DECLINE', message?}` on a QUOTED enquiry |
+| `GET /admin/v1/bulk-enquiries?status&kind&q` | managers, operators | the list (`kind` ORDER, ENQUIRY or FARM_VISIT), paid orders still to deliver first, with `counts` per status, `kinds` (per kind and status, for the panel's tabs and badges), what was paid and the refund state |
+| `GET /admin/v1/bulk-enquiries/:id` | managers, operators | one: lines with catalogue and bulk prices, the order's money and payment, the quote and its text, events, WhatsApp messages |
+| `POST /admin/v1/bulk-enquiries/:id/status` | managers, operators | `{to: 'CONFIRMED' \| 'DISPATCHED' \| 'DELIVERED', note?}` on a paid order |
+| `POST /admin/v1/bulk-enquiries/:id/cancel` | managers (step-up when it refunds) | `{reason}`: cancels a bulk order, refunding a paid one in full |
+| `POST /admin/v1/bulk-enquiries/:id/quote`, `/close`, `/note` | managers, operators | an enquiry's quote (not a paid order: `409 BULK_ORDER_NO_QUOTE`), closing it (a paid order is cancelled instead), a staff note |
+| `GET /admin/v1/bulk-prices` | managers, operators | the editor's list per variety (5 kg box, its own bulk price, the 5 kg and 10 kg prices customers pay) |
+| `PUT /admin/v1/bulk-prices` | managers, step-up | `{discountPct, prices: [{sku, bulkPrice: paise \| null}]}` (5 kg boxes only, whole rupees, never above the shop price); the discount is saved as a rules version |
+
+| Variable | Default | What it does |
+|---|---|---|
+| `BULK_ENQUIRIES` | `true` | On unless `false`; managers can also turn it off on the panel's Settings page. Off: every route above answers 404 and the panel hides the section (refunds already due still go out). |
+| `BULK_ENQUIRY_DAILY_LIMIT` | `5` | Bulk orders and enquiries one phone number may send in 24 hours. |
+| `WHATSAPP_BULK_UPDATES` | `true` | "We got your enquiry", "your quote is ready" and "bulk order received and paid" on WhatsApp. Until Meta approves the templates they fail or are skipped with the reason; the shop and panel show the same. |
+
+## Order numbers
+
+Since migration 077 (`src/order-number.js`) every new order, pre-order, gift and bulk order gets a letter and
+9 scrambled digits, stored as `S743406080` and shown to people as `S-743 406 080` (the letter set apart: S
+looks like 5 and B like 8). The letter is decided when the record is made and never changes:
+
+| Letter | What | Issued by |
+| --- | --- | --- |
+| S | a normal shop order | checkout, the WhatsApp chat, a subscription's order, a claim's replacement |
+| P | a pre-order for yourself | `bookPreorder`; the delivery order it becomes (`allocatePreorders`) keeps the same number |
+| G | anything sent as a gift | a gift from the bag, a gift order for several people and each delivery in it, a gift pre-order, a gift pre-order for several people and each booking in it |
+| B | a bulk order or enquiry | the shop's bulk page (`bulk-orders.js`, `bulk-enquiries.js`) |
+
+The digits are the letter's sequence value x `FACTOR9` mod 1e9, zero-padded: unique, not counting orders out loud,
+and reversible (`INVERSE9`), so `orderSeqSql` still sorts by the order things were placed in and `restore.js`
+moves each sequence past every number already stored. S, P and B each have their own sequence; **G has one
+sequence shared by orders, gift_orders, preorders and preorder_groups**, so one G number never names two things
+(a booking and the delivery order it became share theirs on purpose). Older numbers (`7434060801`, shown
+`#7434060801`; `ORD-1024`, `PRE-1035`, `PGR-1001`, `GFT-12`, `BLK-0007`) are kept as they are and still found,
+sorted and printed. Searches (panel orders, gift orders, bulk, help desk; WhatsApp chat lookups) take a number
+typed with or without the hyphen, spaces, lowercase or a leading `#` (`normaliseOrderNumber`). Bill numbers
+are their own series; the bill prints the order number beside it. The one formatter per app: `orderNo` /
+`formatOrderNumber` here, `orderNo` in `shop/app.js`, `src/orderNumber.ts` in the panel, `orderNo` in
+`rider-app/lib/format.ts`.
+
 ## The rules it enforces
 
 The two specs split the work: the technical plan fixes the API contract, and the
@@ -306,7 +685,7 @@ below override both.
 - **No refunds for problems with delivered fruit, only replacements.** A claim resolves
   as `REPLACEMENT_APPROVED` (a free replacement order on the earliest date with stock) or
   `REJECTED`. Money goes back in full in two cases only: a customer cancels a paid order
-  before packing, or a **manager** cancels a paid order or booking that we can't deliver
+  within 4 hours of placing it and before packing, or a **manager** cancels a paid order or booking that we can't deliver
   (a short truck, a third missed delivery, an at-risk order, a crop failure for a
   booking). The panel asks the manager to confirm the refund; operators can't do it.
 - **Claim limits.** A customer can raise 3 claims in 30 days from the app (then they are
@@ -314,13 +693,20 @@ below override both.
   replacement needs a manager when the customer had 2 or more in 90 days, or when they
   say "not delivered" on an order their own delivery code confirmed.
 - **Ripeness comes from age on the delivery date.** Day of pluck is age 0. By default
-  a batch sells as raw at age 3, semi-ripe at 4–5 and ripe at 6–7. The latest QC reading
-  shifts a batch by up to a day (QC'd ripe while the profile expected semi-ripe = a fast
-  ripener). Nothing older than 7 days on its delivery date is sold (fewer when the
-  product has a shorter `shelf_life_days`), and batches retire at age 8. Physical stock needs an intake QC before it is sold; stock still in transit
-  sells only for dates after its arrival, at 85% of its count.
+  a batch reaches the warehouse at age 1 (`transitDays`), sells as raw at ages 1–3 and
+  semi-ripe at 4–7, and is spoilt, never sold, from age 8 (batches retire then). Nothing is
+  sold as ripe: QC may still record a ripe reading, which shifts a batch by up to a day
+  (QC'd ripe while the profile expected semi-ripe = a fast ripener; past the last window
+  inside the cap it stays semi-ripe), and orders sold as ripe before this rule stay
+  honoured by boxes that are semi-ripe on the day. Nothing older than 7 days on its
+  delivery date is sold (fewer when the product has a shorter `shelf_life_days`).
+  Physical stock needs an intake QC before it is sold; stock still in transit sells only
+  for dates after its arrival, at 85% of its count. With next-day delivery a batch that
+  arrives at age 1 is in practice delivered raw at ages 2 and 3 only, and the last day it
+  can be ordered is the day before its last delivery day (`sellWindow`, delivery.js).
+  Migration 063 moved existing databases to these rules.
 - **Delivery dates.** Order before 18:00 IST for next-day delivery, after it for the day
-  after. Closed days and per-day box limits come from the delivery calendar. Customers
+  after. There is no same-day delivery. Closed days and per-day box limits come from the delivery calendar. Customers
   can book up to 5 days ahead.
 - **Holds and FEFO.** Checkout holds stock for 10 minutes, oldest batch first, with a
   conditional `UPDATE` so two buyers can never take the same box. A database `CHECK`
@@ -347,8 +733,13 @@ below override both.
   its own").
   Payment links expire 16 minutes after they are made, and the shop's payment window
   closes when the hold ends.
-- **Customer cancels** are allowed until the order is packed. A paid order is refunded
-  in full: the refund is requested in the cancel transaction, sent to Razorpay right
+- **Customer cancels** of a paid order are allowed only within 4 hours of placing it
+  (`CUSTOMER_CANCEL_HOURS` in `src/orders.js`, told to the shop as `cancelWindowHours` in
+  `GET /v1/policy`) and only while it is not yet packed; after that the API answers
+  `409 CANCEL_WINDOW_CLOSED` (or `NOT_CANCELLABLE` once packed). The same rule covers the
+  app, gift deliveries and the WhatsApp chat; an unpaid order can always be dropped, and
+  staff and manager cancels are not bound by it. Orders carry `canCancel` and `cancelUntil`.
+  A paid order cancelled in time is refunded in full: the refund is requested in the cancel transaction, sent to Razorpay right
   after, and retried by the maintenance loop with a growing wait (2 minutes up to an
   hour, 8 attempts, then a manager settles it; it checks for an existing refund first,
   so retries never pay twice). Every state and money path: docs/order-states.md. A payment that arrives after the customer
@@ -364,6 +755,9 @@ below override both.
   order, and Analytics shows the average and lists 1 and 2 star orders to call back.
 - **Sold-out choices** in the catalogue carry `nextAvailableDate`, the next bookable day
   with stock for that box and ripeness, so the shop can offer that day instead.
+  Every item also carries `availability`, `[{date, qty}]` for the chosen day and each later
+  bookable day (0 included). The shop uses it to let a box that is only ready later go in the
+  bag, and moves the order to the earliest day on which everything in the bag is in stock.
 
 All the numbers above live in the versioned `app_config` table (`GET/PUT
 /admin/v1/config`). Each order records the version it was placed under.
@@ -387,14 +781,16 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Pincodes | `GET/POST /pincodes`, `PATCH/DELETE /pincodes/:pincode` |
 | Rules | `GET/PUT /config`, `GET/PUT/DELETE /calendar/:date`, `GET /coverage` (sellable boxes per SKU and stage, and boxes booked per slot, for each bookable date) |
 | Slots | `GET/POST /slots`, `PATCH /slots/:id` (managers only for changes) |
-| Preorders | `GET /preorders?status&week`, `GET /preorder-capacity`, `PUT /preorder-capacity/:weekStart/:sku` (managers) |
+| Preorders | `GET /preorders?status&week`, `GET /preorder-weeks`, `PUT /preorder-weeks/:weekStart` (managers: a week's expected kg), `POST /preorders/:id/move` (managers), `POST /preorders/:id/cancel` (managers), `GET /preorder-capacity`, `PUT /preorder-capacity/:weekStart/:sku` (managers; decides nothing since 074) |
 | Customer auth | `POST /v1/auth/otp/request`, `/otp/verify`, `/token/refresh`, `/logout` |
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Customer bulk deals | `GET /v1/bulk-deals?pincode&page`, `GET /v1/bulk-deals/:id?pincode` (stock per open day and ripeness), `GET /v1/bulk-deals/:id/price?qty=`, `GET /v1/bulk-deals/:id/photos/:photoId` (public); `POST /v1/cart/bulk`, `DELETE /v1/cart/bulk/:listingId?stage=` (signed in) |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
-| Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel` |
+| Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel`, `POST /v1/preorders/groups` (MULTI_GIFT; requires `Idempotency-Key`), `GET /v1/preorders/groups/:id` |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status` (asks Razorpay when an order is still unpaid a minute after checkout, at most every 30 s), `POST /v1/orders/:id/verify-payment` (Checkout's `razorpay_payment_id`, `razorpay_order_id`, `razorpay_signature`: the signature is checked with the key secret, then the payment is fetched from Razorpay and applied), `POST /v1/orders/:id/cancel`, `POST /v1/orders/:id/reschedule` (confirmed orders, before packing), `PUT /v1/orders/:id/rating` (delivered orders), `GET/POST /v1/claims` |
 | Saved addresses | `GET /v1/me/addresses`, `DELETE /v1/me/addresses/:id` (an order saves its address; at most five, gifts are not saved) |
+| Ordered before | `GET /v1/me/ordered-products` → `[{ variety, sku, stage, times, lastDeliveredOn }]`: per variety, the signed-in customer's DELIVERED orders (an order made from a pre-order counts once delivered; placed, cancelled or failed ones do not), the last one's box and ripeness, and its day (IST). The shop's "Ordered before" tag and the card's "Order again" |
+| Payment failed | Unpaid orders, pre-orders, gift pre-order groups and gift orders say `paymentFailed` (the last payment attempt failed, migration 086 `payment_failed_at`; it can still be paid on the same order until its hold ends: the shop's "Try payment again") and `paymentClosed` (closed unpaid by us when the hold ran out or the payment failed, not cancelled by the customer or the shop: the shop offers Order again) in `GET /v1/orders`, `/orders/:id`, `/preorders`, `/preorders/:id`, `/preorders/groups/:id`, `/gifts` and `/gifts/:id` |
 | Payments | `POST /webhooks/razorpay` (HMAC-SHA256 over the raw body, deduplicated; `payment.authorized`, `payment.captured`, `payment.failed`, `payment_link.paid`, `refund.processed`, `refund.failed`, `payment.dispute.*` recorded for Needs attention; `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` is also accepted while set) |
 | WhatsApp | `GET /webhooks/whatsapp` (Meta's verify handshake), `POST /webhooks/whatsapp` (signed messages and payment updates) |
 | Dev only | `POST /v1/dev/pay`, `/v1/dev/mark-paid-at-gateway`, `/v1/dev/reconcile` (mounted only with `ENABLE_DEV_ROUTES=true`, outside production, with no Razorpay keys set) |

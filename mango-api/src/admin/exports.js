@@ -15,10 +15,15 @@ import { diffDays, isDate } from '../clock.js'
 import { query } from '../db.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
 import { logger } from '../logger.js'
+import { feeOf } from '../delivery-fee.js'
 import { productName } from '../products.js'
 import { auditNow } from '../staff-audit.js'
 import { trust } from '../trust-config.js'
 import { csvCell } from '../warehouse/reports.js'
+import { formatOrderNumber } from '../order-number.js'
+
+/** An order, pre-order or gift number as people read it (S-743 406 080; older ones as they are); empty stays empty. */
+const no = (n) => (n == null ? n : formatOrderNumber(n))
 
 export const router = express.Router()
 
@@ -60,11 +65,11 @@ const EXPORTS = {
                     LEFT JOIN bills b ON b.order_id = o.id
                    WHERE ${by === 'delivery' ? DELIVERY : PLACED}`,
     header: ['order', 'placed_at', 'delivery_date', 'status', 'channel', 'customer_id', 'pincode', 'boxes', 'bulk_deal', 'goods_inr', 'discount_inr', 'promo_code',
-      'total_inr', 'payment_status', 'payment_method', 'payment_id', 'refund_requested_at', 'refunded_at', 'replacement_for', 'preorder', 'at_risk',
+      'delivery_inr', 'total_inr', 'payment_status', 'payment_method', 'payment_id', 'refund_requested_at', 'refunded_at', 'replacement_for', 'preorder', 'at_risk',
       'bill_number', 'bill_cancelled', 'business_name', 'business_gstin'],
-    row: (r) => [r.number, istStamp(r.placed_at), r.delivery_date, r.status, r.channel, r.customer_id, r.pincode, r.boxes, r.bulk ? 'yes' : 'no', rs(r.subtotal),
-      rs(r.discount), r.promo_code, rs(r.total), r.payment_status, r.payment_method, r.payment_id, istStamp(r.refund_requested_at), istStamp(r.refunded_at),
-      r.replacement_for, r.preorder, r.at_risk ? 'yes' : 'no', r.bill_number, r.bill_number ? (r.bill_cancelled_at ? 'yes' : 'no') : null,
+    row: (r) => [no(r.number), istStamp(r.placed_at), r.delivery_date, r.status, r.channel, r.customer_id, r.pincode, r.boxes, r.bulk ? 'yes' : 'no', rs(r.subtotal),
+      rs(r.discount), r.promo_code, rs(feeOf(r)), rs(r.total), r.payment_status, r.payment_method, r.payment_id, istStamp(r.refund_requested_at), istStamp(r.refunded_at),
+      no(r.replacement_for), no(r.preorder), r.at_risk ? 'yes' : 'no', r.bill_number, r.bill_number ? (r.bill_cancelled_at ? 'yes' : 'no') : null,
       r.buyer_business_name, r.buyer_gstin],
   },
   'order-lines': {
@@ -75,7 +80,7 @@ const EXPORTS = {
                    WHERE ${by === 'delivery' ? DELIVERY : PLACED}`,
     header: ['order', 'placed_at', 'delivery_date', 'order_status', 'sku', 'product', 'ripeness', 'qty', 'unit_price_inr', 'line_total_inr', 'bulk_listing_id', 'bulk_deal',
       'bulk_tier_from_qty'],
-    row: (r) => [r.number, istStamp(r.placed_at), r.delivery_date, r.status, r.sku, productName(r.sku), STAGE[r.stage] ?? r.stage, r.quantity, rs(r.unit_price),
+    row: (r) => [no(r.number), istStamp(r.placed_at), r.delivery_date, r.status, r.sku, productName(r.sku), STAGE[r.stage] ?? r.stage, r.quantity, rs(r.unit_price),
       rs(r.line_price), r.listing_id, r.pricing?.kind === 'bulk' ? r.pricing.title : null, r.pricing?.tier?.minQty ?? null],
   },
   'bulk-orders': {
@@ -86,7 +91,7 @@ const EXPORTS = {
                    WHERE i.listing_id IS NOT NULL AND ${by === 'delivery' ? DELIVERY : PLACED}`,
     header: ['order', 'placed_at', 'delivery_date', 'status', 'customer_id', 'bulk_listing_id', 'bulk_deal', 'listing_version', 'tier_from_qty', 'sku', 'product',
       'ripeness', 'qty', 'unit_price_inr', 'line_total_inr', 'order_total_inr', 'payment_status', 'bill_number', 'business_name', 'business_gstin'],
-    row: (r) => [r.number, istStamp(r.placed_at), r.delivery_date, r.status, r.customer_id, r.listing_id, r.pricing?.title ?? null, r.pricing?.listingVersion ?? null,
+    row: (r) => [no(r.number), istStamp(r.placed_at), r.delivery_date, r.status, r.customer_id, r.listing_id, r.pricing?.title ?? null, r.pricing?.listingVersion ?? null,
       r.pricing?.tier?.minQty ?? null, r.sku, productName(r.sku), STAGE[r.stage] ?? r.stage, r.quantity, rs(r.unit_price), rs(r.line_price), rs(r.total),
       r.payment_status, r.bill_number, r.buyer_business_name, r.buyer_gstin],
   },
@@ -97,8 +102,8 @@ const EXPORTS = {
                  WHERE ${inRange('x.created_at')}`,
     header: ['claim', 'order', 'customer_id', 'created_at', 'issue', 'items', 'description', 'status', 'resolution', 'rejection_reason', 'replacement_order',
       'resolved_by', 'resolved_at'],
-    row: (r) => [r.id, r.number, r.customer_id, istStamp(r.created_at), r.issue_type, (r.affected_items ?? []).join(' '), r.description, r.status, r.resolution,
-      r.resolution_note, r.replacement_number, r.resolved_by, istStamp(r.resolved_at)],
+    row: (r) => [r.id, no(r.number), r.customer_id, istStamp(r.created_at), r.issue_type, (r.affected_items ?? []).join(' '), r.description, r.status, r.resolution,
+      r.resolution_note, no(r.replacement_number), r.resolved_by, istStamp(r.resolved_at)],
   },
   reviews: {
     sql: () => `SELECT v.created_at AS sort_at, v.id AS sort_id, v.id, o.number, v.customer_id, v.created_at, v.sku, v.variety, v.stage, v.rating, v.taste,
@@ -107,7 +112,7 @@ const EXPORTS = {
                  WHERE v.status <> 'DELETED' AND ${inRange('v.created_at')}`,
     header: ['review', 'order', 'customer_id', 'created_at', 'sku', 'product', 'variety', 'ripeness', 'stars', 'taste', 'ripeness_as_promised', 'packaging', 'delivery',
       'status', 'flagged', 'anonymous', 'shown_as', 'comment', 'moderated_by', 'moderated_at'],
-    row: (r) => [r.id, r.number, r.customer_id, istStamp(r.created_at), r.sku, productName(r.sku), r.variety, STAGE[r.stage] ?? r.stage, r.rating, r.taste,
+    row: (r) => [r.id, no(r.number), r.customer_id, istStamp(r.created_at), r.sku, productName(r.sku), r.variety, STAGE[r.stage] ?? r.stage, r.rating, r.taste,
       r.ripeness_accuracy, r.packaging, r.delivery, r.status, r.flagged ? 'yes' : 'no', r.anonymous ? 'yes' : 'no', r.display_name, r.comment, r.moderated_by,
       istStamp(r.moderated_at)],
   },
@@ -135,7 +140,7 @@ const EXPORTS = {
                     FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
                 ) q WHERE ${inRange('q.sort_at')}`,
     header: ['paid_at', 'kind', 'reference', 'customer_id', 'amount_inr', 'method', 'payment_id', 'status', 'bill_number'],
-    row: (r) => [istStamp(r.sort_at), r.kind, r.reference, r.customer_id, rs(r.amount), r.method, r.payment_id, r.status, r.bill_number],
+    row: (r) => [istStamp(r.sort_at), r.kind, no(r.reference), r.customer_id, rs(r.amount), r.method, r.payment_id, r.status, r.bill_number],
   },
   refunds: {
     sql: () => `SELECT * FROM (
@@ -157,7 +162,7 @@ const EXPORTS = {
                     FROM duplicate_payments d LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
                 ) q WHERE ${inRange('q.sort_at')}`,
     header: ['requested_at', 'kind', 'reference', 'customer_id', 'amount_inr', 'payment_id', 'reason', 'refund_id', 'gateway_status', 'refunded_at', 'bill_number'],
-    row: (r) => [istStamp(r.sort_at), r.kind, r.reference, r.customer_id, rs(r.amount), r.payment_id, r.reason, r.refund_id, r.refund_status,
+    row: (r) => [istStamp(r.sort_at), r.kind, no(r.reference), r.customer_id, rs(r.amount), r.payment_id, r.reason, r.refund_id, r.refund_status,
       istStamp(r.refunded_at), r.bill_number],
   },
 }

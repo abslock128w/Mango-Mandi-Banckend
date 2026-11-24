@@ -55,7 +55,7 @@ describe('log correlation', () => {
   test('a line logged deep inside a request carries its request id and the order it locked', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const { accessToken } = await customerToken(api)
-    const co = await checkout(api, accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const co = await checkout(api, accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(co.status, 201)
     // Every order event insert now takes 60 ms, so the slow-query log (db.js) writes a line from
     // inside the payment's transaction, after lockOrder, without being handed either id.
@@ -240,7 +240,7 @@ describe('outbox', () => {
   test('a rolled-back change leaves no message behind', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const { accessToken } = await customerToken(api)
-    const co = await checkout(api, accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const co = await checkout(api, accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     const eventId = newId('evt')
     await assert.rejects(
       tx(async (c) => {

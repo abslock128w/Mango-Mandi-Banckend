@@ -11,7 +11,7 @@ import { getConfig } from './config.js'
 import { conflict, HttpError, notFound } from './errors.js'
 import { newId } from './ids.js'
 import { findProduct } from './products.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 
 export const LISTING_STATUSES = ['DRAFT', 'PUBLISHED', 'UNPUBLISHED', 'ARCHIVED']
 /** A listing photo's link on the shop: each photo has its own id, so a link never changes what it shows. */
@@ -33,7 +33,7 @@ export const listingFields = {
   title: z.string().trim().min(3, 'Give the listing a name of 3 characters or more').max(80),
   description: z.string().trim().max(2000),
   origin: z.string().trim().max(120),
-  stages: z.array(z.enum(STAGES)).min(1, 'Offer at least one ripeness').max(3),
+  stages: z.array(z.enum(SALE_STAGES, { message: 'A deal offers raw or semi-ripe' })).min(1, 'Offer at least one ripeness').max(SALE_STAGES.length),
   minQty: z.number().int().min(1, 'The minimum is 1 box or more').max(BULK_QTY_CEILING),
   qtyStep: z.number().int().min(1, 'Boxes go up by 1 or more').max(1000),
   maxQty: z.number().int().min(1).max(BULK_QTY_CEILING).nullable(),

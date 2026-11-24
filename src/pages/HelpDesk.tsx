@@ -91,7 +91,7 @@ function Inbox() {
         <form className="field" onSubmit={onSearch} role="search">
           <label htmlFor={searchId}>Request or order number</label>
           <div className="help-search">
-            <input id={searchId} value={search} maxLength={40} placeholder="HLP-12 or MM-1042" onChange={(e) => setSearch(e.target.value)} />
+            <input id={searchId} value={search} maxLength={40} placeholder="HLP-12 or S-743 406 080" onChange={(e) => setSearch(e.target.value)} />
             <button type="submit" className="btn">
               Find
             </button>
@@ -256,7 +256,7 @@ function Thread({ r }: { r: HelpRequestDetail }) {
         {r.messages.map((m) => (
           <li key={m.id} className={`card help-message ${m.from === 'STAFF' ? 'help-message-staff' : ''}`}>
             <p className="small muted mb-0">
-              {m.from === 'STAFF' ? `MandiMangoes (${m.staffEmail ?? 'staff'})` : (r.customer.name ?? 'Customer')} · {dateTime(m.at)}
+              {m.from === 'STAFF' ? `VMR Mangoes (${m.staffEmail ?? 'staff'})` : (r.customer.name ?? 'Customer')} · {dateTime(m.at)}
             </p>
             <p className="pre-wrap mb-0">{m.body}</p>
           </li>

@@ -4,6 +4,7 @@
 // toast, with a chime and a flash when the person turned that on. When the stream will not stay
 // up (three failed connects in a row) the panel polls every 15 s instead and keeps trying the
 // stream every minute; the Live dot in the top bar says which it is doing.
+import { formatOrderNumber } from '../orderNumber'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Pause, RefreshCw, Radio } from 'lucide-react'
@@ -101,13 +102,13 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         void queryClient.invalidateQueries({ queryKey: ['order', e.data.id] })
         const loud = getPref<boolean>(CHIME_KEY, false)
         if (e.data.status === 'CONFIRMED') {
-          toastRef.current.info(`New paid order ${e.data.number}`)
+          toastRef.current.info(`New paid order ${formatOrderNumber(e.data.number)}`)
           if (loud) {
             chime()
             flash()
           }
         } else if (e.data.status === 'DELIVERY_FAILED') {
-          toastRef.current.error(`Delivery missed: ${e.data.number}`)
+          toastRef.current.error(`Delivery missed: ${formatOrderNumber(e.data.number)}`)
           if (loud) {
             chime()
             flash()
@@ -123,6 +124,12 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         }
       } else if (e.type === 'attention.changed') {
         invalidate(['attention'])
+      } else if (e.type === 'bulk.enquiry') {
+        // Bulk enquiries (mango-api README): a new one, a quote, the customer's answer, a close.
+        invalidate(['bulk-enquiries'])
+        void queryClient.invalidateQueries({ queryKey: ['bulk-enquiry', e.data.id] })
+        if (e.data.change === 'created') toastRef.current.info(`${e.data.kind === 'FARM_VISIT' ? 'New farm visit enquiry' : e.data.kind === 'ORDER' ? 'New bulk order' : 'New bulk enquiry'} ${formatOrderNumber(e.data.number)}`)
+        else if (e.data.change === 'responded') toastRef.current.info(`${formatOrderNumber(e.data.number)}: the customer ${e.data.status === 'ACCEPTED' ? 'accepted' : 'declined'} the quote`)
       }
     }
 

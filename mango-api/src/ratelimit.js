@@ -73,7 +73,7 @@ export const limitsOnInTests = () => limitsInTests
  * database can't be reached the request goes through (it would fail on the
  * database anyway) rather than locking everyone out.
  */
-export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many attempts. Try again later.', keyGenerator }) {
+export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many attempts. Try again later.', keyGenerator, countOnly }) {
   return rateLimit({
     windowMs,
     limit,
@@ -82,6 +82,8 @@ export function sharedLimiter(prefix, { windowMs, limit, message = 'Too many att
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     ...(keyGenerator ? { keyGenerator } : {}),
+    // countOnly(req, res): only requests it says yes to stay counted (the others are taken off once answered).
+    ...(countOnly ? { skipFailedRequests: true, requestWasSuccessful: countOnly } : {}),
     skip: () => env.NODE_ENV === 'test' && !limitsInTests,
     handler: (req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message, requestId: req.id } }),
   })

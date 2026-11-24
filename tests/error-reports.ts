@@ -1,5 +1,5 @@
-// Helpers for the error report specs (tests/error-reports.spec.ts for the panel,
-// customer-app/tests/error-reports.spec.ts for the shop). Each builds its app for
+// Helpers for the panel's error report spec (tests/error-reports.spec.ts; the
+// retired Next.js shop had one too). It builds the panel for
 // production with a made-up DSN, serves the build from a temporary folder, and
 // answers the SDK's requests itself: nothing is ever sent to Sentry.
 import { execFile } from 'node:child_process'

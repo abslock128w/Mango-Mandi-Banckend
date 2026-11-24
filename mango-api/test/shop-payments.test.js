@@ -45,7 +45,7 @@ describe('reopening checkout (FE-1)', () => {
     withGateway(() => json({ id: 'order_rzp_1' }))
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
 
     const o = await api.get(`/v1/orders/${c.body.orderId}`, { token: cust.accessToken })
@@ -70,7 +70,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     const b = await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
 
-    const failed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key: 'k-1' })
+    const failed = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key: 'k-1' })
     assert.equal(failed.status, 502)
     assert.equal(failed.body.error.code, 'PAYMENT_GATEWAY_ERROR')
     assert.equal((await line(b, 'ALP-3')).held, 0)
@@ -88,7 +88,7 @@ describe('gateway failure at checkout (FE-2)', () => {
 
     // The shop starts over: new quote, new key.
     up = true
-    const retry = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key: 'k-2' })
+    const retry = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key: 'k-2' })
     assert.equal(retry.status, 201, JSON.stringify(retry.body))
     assert.equal(retry.body.status, 'PAYMENT_PENDING')
     assert.equal(retry.body.razorpayOrderId, 'order_rzp_ok')
@@ -106,7 +106,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     const book = () =>
       api.post(
         '/v1/preorders',
-        { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+        { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
         { token: cust.accessToken, headers: { 'Idempotency-Key': key } },
       )
     const failed = await book()
@@ -127,7 +127,7 @@ describe('gateway failure at checkout (FE-2)', () => {
     })
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token: cust.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })).status, 204)
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     assert.equal(q.status, 200, JSON.stringify(q.body))
     const confirm = () =>
@@ -151,5 +151,34 @@ describe('gateway failure at checkout (FE-2)', () => {
     assert.equal(replay.status, 200)
     assert.equal(replay.body.razorpayOrderId, 'order_rzp_slow')
     assert.equal(replay.body.orderId, done.body.orderId)
+  })
+})
+
+describe('one Idempotency-Key per quote (STOCK-01)', () => {
+  test('a confirm sent again with the same key replays the order; with another body it is refused', async () => {
+    withGateway(() => json({ id: 'order_rzp_once' }))
+    await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+    const cust = await customerToken(api)
+    assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token: cust.accessToken })).status, 204)
+    const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
+    assert.equal(q.status, 200, JSON.stringify(q.body))
+    const body = { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }
+    const confirm = (b) => api.post('/v1/checkout/confirm', b, { token: cust.accessToken, headers: { 'Idempotency-Key': 'one-per-quote' } })
+
+    const first = await confirm(body)
+    assert.equal(first.status, 201, JSON.stringify(first.body))
+
+    // The reply was lost and the shop retries the same quote with the same key: the first order, not QUOTE_EXPIRED.
+    const again = await confirm(body)
+    assert.equal(again.status, 200, JSON.stringify(again.body))
+    assert.equal(again.body.orderId, first.body.orderId)
+    assert.equal(again.body.razorpayOrderId, 'order_rzp_once')
+
+    const other = await confirm({ ...body, address: '99, 1st Main, Indiranagar, Bengaluru' })
+    assert.equal(other.status, 422)
+    assert.equal(other.body.error.code, 'IDEMPOTENCY_KEY_REUSED')
+
+    const { rows } = await query('SELECT id FROM orders WHERE customer_id = $1', [cust.customer.id])
+    assert.deepEqual(rows.map((r) => r.id), [first.body.orderId])
   })
 })

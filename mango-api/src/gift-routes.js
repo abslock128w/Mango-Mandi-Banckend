@@ -25,12 +25,12 @@ import { cancelGiftOrder, cancelGiftRecipient, createGiftOrder, giftChildren, GI
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
-import { checkUnpaidLimit, eatByFor, HOLD_EXPIRED_REASON, SYSTEM } from './orders.js'
+import { cancelClosesAt, checkUnpaidLimit, eatByFor, HOLD_EXPIRED_REASON, SYSTEM, withinCancelWindow } from './orders.js'
 import { createGatewayOrder, reconcileGiftNow, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
 import { applyPromo, recordRedemption } from './promos.js'
 import { hit } from './ratelimit.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 import { csvCell } from './warehouse/reports.js'
 import { isOn } from './feature-switches.js'
 // Function declarations and lazily read constants only: customer.js imports this file.
@@ -55,7 +55,7 @@ export function recipientsTemplate(products = shopProducts()) {
   const p = products[0]
   const rows = [
     TEMPLATE_COLUMNS,
-    ['Asha Rao', '9876543210', 'Flat 4B, Lake View Apartments, 2nd Main, Indiranagar, Bengaluru', '560038', p?.sku ?? 'ALP-3', 'RIPE', 1, 'Happy Diwali from all of us!'],
+    ['Asha Rao', '9876543210', 'Flat 4B, Lake View Apartments, 2nd Main, Indiranagar, Bengaluru', '560038', p?.sku ?? 'ALP-3', 'SEMI_RIPE', 1, 'Happy Diwali from all of us!'],
   ]
   return rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n'
 }
@@ -75,7 +75,7 @@ const recipientSchema = () =>
       address: z.string().trim().min(10, 'Enter the full delivery address').max(500, 'The address can be up to 500 characters'),
       pincode: z.string().trim().regex(/^\d{6}$/, 'The pincode must be 6 digits'),
       sku: z.string().trim().min(1, 'Choose a box').max(40),
-      stage: z.enum(STAGES, { message: 'Ripeness must be RAW, SEMI_RIPE or RIPE' }),
+      stage: z.enum(SALE_STAGES, { message: 'Ripeness must be RAW or SEMI_RIPE' }),
       qty: z.number({ message: 'Enter how many boxes' }).int('Enter a whole number of boxes').min(1, 'At least 1 box'),
       note: z.string().trim().max(200, 'The note can be up to 200 characters').optional().nullable(),
     })
@@ -259,6 +259,15 @@ async function ownGift(c, req) {
 }
 
 /** What the buyer sees of a gift order: its payment, its one bill and each recipient's delivery. */
+/**
+ * Migration 086: paymentFailed, the last payment attempt failed and the gift can still be paid; paymentClosed, it was
+ * closed unpaid by us (the hold ran out and every delivery was released, or the payment failed), not dropped by the buyer.
+ */
+const giftPaymentState = (g, status) => ({
+  paymentFailed: status === 'PAYMENT_PENDING' && Boolean(g.payment_failed_at),
+  paymentClosed: status === 'CANCELLED' && g.payment_status !== 'SUCCEEDED' && (g.status === 'PAYMENT_PENDING' || g.payment_status === 'FAILED'),
+})
+
 async function giftView(c, g) {
   const kids = await giftChildren(c, g.id)
   const [items, bill, expired] = await Promise.all([
@@ -276,9 +285,13 @@ async function giftView(c, g) {
     razorpayOrderId: g.razorpay_order_id,
     razorpayKeyId: g.status === 'PAYMENT_PENDING' && g.razorpay_order_id && status !== 'CANCELLED' ? env.RAZORPAY_KEY_ID || null : null,
     holdExpiresAt: g.hold_expires_at,
+    ...giftPaymentState(g, status),
     cancelReason: status !== 'CANCELLED' ? null : expired.rowCount && g.payment_status !== 'SUCCEEDED' ? 'HOLD_EXPIRED' : 'OTHER',
-    // The whole order can be cancelled while no delivery is packed yet (the owner's rule).
-    cancellable: status !== 'CANCELLED' && kids.some((k) => k.status !== 'CANCELLED') && kids.every((k) => k.status === 'CANCELLED' || GIFT_CANCELLABLE.includes(k.status)),
+    // The whole order can be cancelled while no delivery is packed yet and, once paid, within the
+    // customer's cancel window (orders.js CUSTOMER_CANCEL_HOURS; the owner's rule).
+    cancellable: status !== 'CANCELLED' && kids.some((k) => k.status !== 'CANCELLED') && kids.every((k) => k.status === 'CANCELLED' || (GIFT_CANCELLABLE.includes(k.status) && withinCancelWindow(k))),
+    // When the buyer's own cancel closes (null while unpaid: an unpaid order can always be dropped).
+    cancelUntil: (() => { const k = kids.find((x) => x.status !== 'CANCELLED' && GIFT_CANCELLABLE.includes(x.status)); return k ? (cancelClosesAt(k)?.toISOString() ?? null) : null })(),
     bill: billView(bill.rows[0] ?? null),
     recipients: kids.map((k) => {
       const i = items.rows.find((x) => x.order_id === k.id)
@@ -287,8 +300,9 @@ async function giftView(c, g) {
         name: k.gift_recipient_name, phone: k.gift_recipient_phone, note: k.gift_message, address: k.delivery_address, pincode: k.pincode,
         sku: i?.sku ?? null, boxName: i ? findProduct(i.sku)?.name ?? i.sku : null, stage: i?.stage ?? null, qty: i?.quantity ?? 0,
         linePrice: i?.line_price ?? 0, discount: k.discount, total: k.total,
-        // One recipient can be cancelled on their own once the order is paid, before packing; refunded their own amount.
-        cancellable: g.payment_status === 'SUCCEEDED' && ['CONFIRMED', 'PROCESSING'].includes(k.status),
+        // One recipient can be cancelled on their own once the order is paid, before packing and within the
+        // cancel window (orders.js CUSTOMER_CANCEL_HOURS); refunded their own amount.
+        cancellable: g.payment_status === 'SUCCEEDED' && ['CONFIRMED', 'PROCESSING'].includes(k.status) && withinCancelWindow(k),
         refundStatus: k.refunded_at ? 'REFUNDED' : k.refund_requested_at ? 'PENDING' : null,
       }
     }),
@@ -305,6 +319,9 @@ customerGifts.get(
     res.json(rows.map((g) => ({
       id: g.id, number: g.number, status: giftStatus(g, kids.filter((k) => k.gift_order_id === g.id)), deliveryDate: g.delivery_date,
       recipientCount: g.recipient_count, total: g.total, placedAt: g.placed_at,
+      // While unpaid: how long it is held, so Your orders can say it and offer Pay now / Try payment again.
+      holdExpiresAt: g.status === 'PAYMENT_PENDING' ? g.hold_expires_at : null,
+      ...giftPaymentState(g, giftStatus(g, kids.filter((k) => k.gift_order_id === g.id))),
     })))
   }),
 )

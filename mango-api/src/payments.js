@@ -2,6 +2,7 @@
 // Without API keys (development and tests) an in-memory dev gateway stands in.
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { background } from './background.js'
+import { formatOrderNumber } from './order-number.js'
 import { canStartCall } from './budget.js'
 import { now } from './clock.js'
 import { getConfig } from './config.js'
@@ -15,6 +16,9 @@ import { enqueue } from './notify.js'
 import { addEvent, processPayment, SYSTEM } from './orders.js'
 import { findPreorderId, processPreorderPayment, refundPreorder } from './preorders.js'
 import { processGiftPayment } from './gifts.js'
+import { processFarmPayment } from './farm/bookings.js'
+import { applyFarmRefundOutcome, processDueFarmRefunds } from './farm/refunds.js'
+import { findBulkOrderId, processBulkPayment, refundBulkOrder } from './bulk-orders.js'
 
 const hasKeys = () => Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET)
 const RAZORPAY = 'https://api.razorpay.com/v1'
@@ -86,15 +90,17 @@ const shopOrigin = () => env.CUSTOMER_ORIGIN.split(',')[0]?.trim().replace(/\/$/
  */
 export const linkExpiresAt = (at = now()) => Math.floor(at.getTime() / 1000) + Math.max(16 * 60, getConfig().holdMinutes * 60 + 6 * 60)
 
-export async function createPaymentLink({ amount, number, orderId, preorderId, name, phone, description, holdUntil = null }) {
+export async function createPaymentLink({ amount, number, orderId, preorderId, bulkOrderId = null, name, phone, description, holdUntil = null }) {
   if (hasKeys()) {
     // PAY-01: a link must stay open as long as the hold it pays for (a waitlist spot is held for hours).
     const expireBy = Math.max(linkExpiresAt(), holdUntil ? Math.floor(new Date(holdUntil).getTime() / 1000) + 6 * 60 : 0)
     const link = await razorpay('POST', '/payment_links', {
-      amount, currency: 'INR', accept_partial: false, reference_id: number, expire_by: expireBy, description: description ?? `MandiMangoes order ${number}`,
+      amount, currency: 'INR', accept_partial: false, reference_id: number, expire_by: expireBy, description: description ?? `MandiMangoes order ${formatOrderNumber(number)}`,
       customer: { name: name ?? undefined, contact: phone }, notify: { sms: false, email: false }, reminder_enable: false,
-      notes: preorderId ? { preorderId } : { orderId },
+      notes: bulkOrderId ? { bulkOrderId } : preorderId ? { preorderId } : { orderId },
       ...(preorderId && shopOrigin() ? { callback_url: `${shopOrigin()}/preorders/${preorderId}`, callback_method: 'get' } : {}),
+      // A bulk order (bulk-orders.js) comes back to its page in the shop.
+      ...(bulkOrderId && shopOrigin() ? { callback_url: `${shopOrigin()}/bulk/orders/${bulkOrderId}`, callback_method: 'get' } : {}),
     })
     if (typeof link?.short_url !== 'string' || !/^https:\/\//.test(link.short_url)) throw new Error('Razorpay payment link reply has no https short_url')
     return { id: gatewayId(link, 'plink_', 'payment link'), url: link.short_url }
@@ -196,6 +202,35 @@ async function findOrderId(c, entity, link = null) {
 }
 
 /**
+ * The receipt-worthy facts of a Razorpay payment entity, kept on the order (payment_details) and
+ * printed on its bill: method, payment id, the UPI reference number (the RRN customers see in their
+ * UPI app), the UPI ID masked, card network and last four, bank or wallet, and when it was paid.
+ */
+export function paymentDetails(p) {
+  if (!p || typeof p !== 'object') return null
+  const a = p.acquirer_data && typeof p.acquirer_data === 'object' ? p.acquirer_data : {}
+  const card = p.card && typeof p.card === 'object' ? p.card : {}
+  const maskVpa = (v) => {
+    const [user, host] = String(v).split('@')
+    return host ? `${user.slice(0, 2)}${'*'.repeat(Math.max(2, user.length - 2))}@${host}` : null
+  }
+  const out = {
+    gateway: 'Razorpay',
+    paymentId: p.id,
+    method: p.method,
+    upiRef: a.rrn ?? a.upi_transaction_id,
+    bankRef: a.bank_transaction_id,
+    authCode: a.auth_code,
+    vpa: p.vpa ? maskVpa(p.vpa) : null,
+    card: card.last4 ? `${card.network || 'Card'} ending ${card.last4}` : null,
+    bank: p.bank,
+    wallet: p.wallet,
+    paidAt: typeof p.created_at === 'number' ? new Date(p.created_at * 1000).toISOString() : null,
+  }
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => typeof v === 'string' && v !== ''))
+}
+
+/**
  * MULTI_GIFT: the gift order a payment is for. Only our own Razorpay order id
  * is trusted (a gift order is paid in Checkout, never by a link).
  */
@@ -219,7 +254,13 @@ export async function applyCapture(c, table, id, p) {
   if (table === 'preorders') {
     return processPreorderPayment(c, { preorderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })
   }
-  return (await processPayment(c, { orderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+  if (table === 'farm_booking_payments') {
+    return (await processFarmPayment(c, { farmPaymentId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method })).result
+  }
+  if (table === 'bulk_enquiries') {
+    return processBulkPayment(c, { bulkOrderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method, details: paymentDetails(p) })
+  }
+  return (await processPayment(c, { orderId: id, outcome: 'captured', paymentId: p.id, amount: p.amount, method: p.method, details: paymentDetails(p) })).result
 }
 
 /**
@@ -230,8 +271,15 @@ export async function applyCapture(c, table, id, p) {
  * (it bought nothing). Returns null when the payment is fine, else a reason.
  */
 export async function checkCapture(c, { table, id, paymentId, amount, currency }) {
-  const from = table === 'preorders' ? 'preorders' : table === 'gift_orders' ? 'gift_orders' : 'orders'
-  const { rows } = await c.query(`SELECT total, payment_id FROM ${from} WHERE id = $1`, [id])
+  const from = ['preorders', 'gift_orders', 'farm_booking_payments', 'bulk_enquiries'].includes(table) ? table : 'orders'
+  // A farm payment (docs/farm-experience.md) is one row per Razorpay order, with its own amount.
+  // A booking in a gift group (migration 071) is paid by the group's one payment, for the group's total.
+  const { rows } = await c.query(
+    from === 'preorders'
+      ? 'SELECT COALESCE(g.total, p.total) AS total, COALESCE(g.payment_id, p.payment_id) AS payment_id FROM preorders p LEFT JOIN preorder_groups g ON g.id = p.group_id WHERE p.id = $1'
+      : `SELECT ${from === 'farm_booking_payments' ? 'amount AS total' : 'total'}, payment_id FROM ${from} WHERE id = $1`,
+    [id],
+  )
   const total = rows[0]?.total
   let reason = null
   if (!paymentId) reason = 'captured payment has no payment id'
@@ -246,12 +294,12 @@ export async function checkCapture(c, { table, id, paymentId, amount, currency }
   if (paymentId && paymentId !== rows[0]?.payment_id) {
     // A gift order's refundable payment is recorded against its first delivery (duplicate_payments points at orders).
     const orderId =
-      table === 'preorders' ? null
+      table === 'preorders' || table === 'farm_booking_payments' || table === 'bulk_enquiries' ? null
         : table === 'gift_orders' ? ((await c.query('SELECT id FROM orders WHERE gift_order_id = $1 ORDER BY gift_position, id LIMIT 1', [id])).rows[0]?.id ?? null)
           : id
     await c.query(
-      `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-      [paymentId, orderId, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now()],
+      `INSERT INTO duplicate_payments (payment_id, order_id, preorder_id, amount, found_at, bulk_enquiry_id) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING`,
+      [paymentId, orderId, table === 'preorders' ? id : null, typeof amount === 'number' ? amount : null, now(), table === 'bulk_enquiries' ? id : null],
     )
   }
   return reason
@@ -340,7 +388,35 @@ async function routeWebhook(event, eventId, mark) {
       })
       return { result: r.result, giftOrderId, refundOrderIds: r.refundOrderIds }
     }
+    // Farm Experience: a booking's payment, found by our own Razorpay order id only.
+    const farmPaymentId = orderId || link || !entity.order_id ? null
+      : ((await c.query('SELECT id FROM farm_booking_payments WHERE razorpay_order_id = $1', [entity.order_id])).rows[0]?.id ?? null)
+    if (farmPaymentId) {
+      if (kind !== 'payment.failed') {
+        const bad = await checkCapture(c, { table: 'farm_booking_payments', id: farmPaymentId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+        if (bad) return { result: 'rejected', farmPaymentId, reason: bad }
+      }
+      const r = await processFarmPayment(c, {
+        farmPaymentId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
+        amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
+      })
+      return { result: r.result, farmBookingId: r.bookingId }
+    }
     if (!orderId) {
+      // A bulk order paid at once (bulk-orders.js): found by its payment link only, as a pre-order is.
+      const bulkOrderId = await findBulkOrderId(c, entity, link)
+      if (bulkOrderId) {
+        if (kind !== 'payment.failed') {
+          const bad = await checkCapture(c, { table: 'bulk_enquiries', id: bulkOrderId, paymentId: entity.id, amount: entity.amount, currency: entity.currency })
+          if (bad) return { result: 'rejected', bulkOrderId, reason: bad }
+        }
+        const r = await processBulkPayment(c, {
+          bulkOrderId, outcome: kind === 'payment.failed' ? 'failed' : 'captured', paymentId: entity.id ?? null,
+          amount: typeof entity.amount === 'number' ? entity.amount : null, method: entity.method ?? null,
+          details: kind === 'payment.failed' ? null : paymentDetails(entity),
+        })
+        return { result: r, bulkOrderId }
+      }
       const preorderId = await findPreorderId(c, entity, link)
       if (preorderId) {
         if (kind !== 'payment.failed') {
@@ -360,6 +436,10 @@ async function routeWebhook(event, eventId, mark) {
       if (!link && noted && (await c.query('SELECT 1 FROM preorders WHERE id = $1 AND payment_link_id IS NOT NULL', [noted])).rowCount) {
         return { ignored: true, awaiting: 'payment_link.paid' }
       }
+      const bulkNoted = typeof entity.notes?.bulkOrderId === 'string' ? entity.notes.bulkOrderId : null
+      if (!link && bulkNoted && (await c.query('SELECT 1 FROM bulk_enquiries WHERE id = $1 AND payment_link_id IS NOT NULL', [bulkNoted])).rowCount) {
+        return { ignored: true, awaiting: 'payment_link.paid' }
+      }
       logger.warn({ razorpayOrderId: entity.order_id }, 'webhook for an unknown order')
       // The payment id is kept for a captured payment, so a manager can refund it from Needs attention.
       const captured = kind !== 'payment.failed' ? entity.id : null
@@ -376,6 +456,7 @@ async function routeWebhook(event, eventId, mark) {
       paymentId: entity.id ?? null,
       amount: typeof entity.amount === 'number' ? entity.amount : null,
       method: entity.method ?? null,
+      details: kind === 'payment.failed' ? null : paymentDetails(entity),
     })
     return { result: r.result, orderId }
   }).then((out) => {
@@ -394,6 +475,10 @@ export function refundsFor(out) {
     preorderId: due ? (out.preorderId ?? null) : null,
     // A gift order (MULTI_GIFT): the deliveries the buyer cancelled before its payment landed.
     orderIds: out?.refundOrderIds ?? [],
+    // Farm Experience: a booking paid after it was cancelled.
+    farmBookingId: due ? (out.farmBookingId ?? null) : null,
+    // A bulk order paid after it was cancelled (bulk-orders.js).
+    bulkOrderId: due ? (out.bulkOrderId ?? null) : null,
     duplicates: out?.result === 'duplicate_payment' || out?.result === 'rejected',
   }
 }
@@ -405,12 +490,14 @@ export function refundsFor(out) {
  * and the maintenance loop can't pay twice, and anything that fails here is
  * retried by maintenance (processDueRefunds, refundDuplicatePayments). Never throws.
  */
-export async function sendDueRefunds({ orderId = null, preorderId = null, orderIds = [], duplicates = false } = {}) {
+export async function sendDueRefunds({ orderId = null, preorderId = null, orderIds = [], duplicates = false, farmBookingId = null, bulkOrderId = null } = {}) {
   const log = (what) => (err) => logger.error({ err, orderId, preorderId }, `${what} refund failed; maintenance will retry`)
   if (orderId) await refundOrder(orderId).catch(log('order'))
   for (const id of orderIds) await refundOrder(id).catch(log('gift delivery'))
   if (preorderId) await refundPreorder(preorderId).catch(log('preorder'))
   if (duplicates) await refundDuplicatePayments().catch(log('duplicate payment'))
+  if (farmBookingId) await processDueFarmRefunds(now(), { bookingId: farmBookingId }).catch(log('farm booking'))
+  if (bulkOrderId) await refundBulkOrder(bulkOrderId).catch(log('bulk order'))
 }
 
 const DISPUTE_DONE = ['won', 'lost', 'closed']
@@ -476,7 +563,8 @@ async function handleDisputeEvent(event, eventId, mark) {
 async function captureAuthorized(entity) {
   if (!entity.id || !entity.order_id) return { ignored: true }
   const { rows } = await query(
-    'SELECT id, total FROM orders WHERE razorpay_order_id = $1 UNION ALL SELECT id, total FROM gift_orders WHERE razorpay_order_id = $1',
+    `SELECT id, total FROM orders WHERE razorpay_order_id = $1 UNION ALL SELECT id, total FROM gift_orders WHERE razorpay_order_id = $1
+      UNION ALL SELECT id, amount FROM farm_booking_payments WHERE razorpay_order_id = $1`,
     [entity.order_id],
   )
   const o = rows[0]
@@ -529,8 +617,8 @@ async function handleRefundEvent(event, eventId, mark) {
  * 'failed' for a manager instead. Returns how many rows matched.
  */
 async function applyRefundOutcome(c, refundId, failed) {
-  let hit = 0
-  for (const table of ['orders', 'preorders']) {
+  let hit = await applyFarmRefundOutcome(c, refundId, failed)
+  for (const table of ['orders', 'preorders', 'bulk_enquiries']) {
     const { rows } = await c.query(`SELECT id, status, refund_attempts FROM ${table} WHERE refund_id = $1 FOR UPDATE`, [refundId])
     for (const row of rows) {
       hit++
@@ -582,8 +670,14 @@ export async function reconcileRefunds(at = now()) {
      SELECT 'preorders', id::text, payment_id, refund_id FROM preorders
       WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
      UNION ALL
+     SELECT 'bulk_enquiries', id, payment_id, refund_id FROM bulk_enquiries
+      WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
+     UNION ALL
      SELECT 'duplicate_payments', payment_id, payment_id, refund_id FROM duplicate_payments
       WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
+     UNION ALL
+     SELECT 'farm_refunds', id, payment_id, refund_id FROM farm_refunds
+      WHERE refund_status = 'pending' AND refund_id IS NOT NULL AND refund_id NOT LIKE 'manual:%' AND refunded_at < $1 AND (refund_checked_at IS NULL OR refund_checked_at < $2)
      LIMIT 20`,
     [new Date(at.getTime() - REFUND_SETTLE_MS), new Date(at.getTime() - REFUND_RECHECK_MS)],
   )
@@ -655,7 +749,56 @@ export async function reconcilePendingPayments({ minAgeSeconds = 120 } = {}) {
       logger.error({ err, giftOrderId: g.id }, 'payment reconciliation failed for gift order')
     }
   }
+  // Farm Experience payments still unpaid, for a day after they were started (a payment can land after the hold).
+  const farm = await query(
+    `SELECT id, razorpay_order_id FROM farm_booking_payments
+      WHERE razorpay_order_id IS NOT NULL AND status IN ('INITIATED', 'CANCELLED') AND created_at < $1 AND created_at > $2
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $3)
+      ORDER BY (status = 'INITIATED') DESC, reconcile_checked_at NULLS FIRST, created_at DESC LIMIT 50`,
+    [new Date(at.getTime() - minAgeSeconds * 1000), new Date(at.getTime() - 86_400_000), new Date(at.getTime() - 50_000)],
+  )
+  for (const p of farm.rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) break
+    try {
+      await query('UPDATE farm_booking_payments SET reconcile_checked_at = $2 WHERE id = $1', [p.id, now()])
+      const r = await reconcileFarmPayment(p)
+      if (r && r !== 'rejected') n++
+    } catch (err) {
+      logger.error({ err, farmPaymentId: p.id }, 'payment reconciliation failed for farm booking')
+    }
+  }
   return n
+}
+
+/** Farm Experience: reconcileOrder for one farm payment's Razorpay order. */
+async function reconcileFarmPayment(p) {
+  const payments = await fetchPayments(p.razorpay_order_id)
+  const captured = payments.find((x) => x.status === 'captured')
+  if (captured) return tx((c) => applyCapture(c, 'farm_booking_payments', p.id, captured))
+  const authorized = payments.find((x) => x.status === 'authorized')
+  if (authorized) await captureAuthorized({ id: authorized.id, order_id: p.razorpay_order_id, amount: authorized.amount, currency: authorized.currency })
+  return null
+}
+
+/**
+ * Farm Experience: the customer is back from Checkout, or the booking page asks:
+ * at most one gateway check every `throttleMs` per payment. Returns the result, 'skipped' or null.
+ */
+export async function reconcileFarmNow(farmPaymentId, { minAgeMs = 0, throttleMs = 10_000 } = {}) {
+  if (!hasKeys() && isProd) return null
+  const at = now()
+  const { rows } = await query(
+    `UPDATE farm_booking_payments SET reconcile_checked_at = $2
+      WHERE id = $1 AND razorpay_order_id IS NOT NULL AND created_at <= $3 AND status IN ('INITIATED', 'CANCELLED')
+        AND (reconcile_checked_at IS NULL OR reconcile_checked_at < $4)
+      RETURNING id, razorpay_order_id, booking_id`,
+    [farmPaymentId, at, new Date(at.getTime() - minAgeMs), new Date(at.getTime() - throttleMs)],
+  )
+  if (!rows.length) return 'skipped'
+  const r = await reconcileFarmPayment(rows[0])
+  if (r === 'refund_due') background(sendDueRefunds({ farmBookingId: rows[0].booking_id }))
+  if (r === 'duplicate_payment' || r === 'rejected') background(sendDueRefunds({ duplicates: true }))
+  return r
 }
 
 /** MULTI_GIFT: reconcileOrder for a gift order's Razorpay order. */
@@ -758,7 +901,7 @@ const backoffSql = (col) => `LEAST(power(2, GREATEST(${col}, 1)), 60) * interval
  * and the maintenance loop (on any instance) can't send the same refund twice.
  */
 export async function claimRefund(table, id, at = now()) {
-  if (table !== 'orders' && table !== 'preorders') throw new Error(`no refunds on ${table}`)
+  if (!['orders', 'preorders', 'bulk_enquiries'].includes(table)) throw new Error(`no refunds on ${table}`)
   const { rows } = await query(
     `UPDATE ${table} SET refund_attempted_at = $2, refund_attempts = refund_attempts + 1,
             refund_next_attempt_at = $2::timestamptz + ${backoffSql('refund_attempts + 1')}
@@ -772,7 +915,7 @@ export async function claimRefund(table, id, at = now()) {
   return rows[0] ?? null
 }
 
-const REFUND_KEY = { orders: 'id', preorders: 'id', duplicate_payments: 'payment_id' }
+const REFUND_KEY = { orders: 'id', preorders: 'id', bulk_enquiries: 'id', duplicate_payments: 'payment_id' }
 
 /**
  * A refund attempt failed at Razorpay (an error before any refund was made).
@@ -815,6 +958,12 @@ function giveUpRefund(table, key, attempts, why, c = null) {
         newId('pev'), preorderId, p[0].status, note, SYSTEM.id, now(),
       ])
     }
+    const bulkId = table === 'bulk_enquiries' ? r.id : table === 'duplicate_payments' ? r.bulk_enquiry_id : null
+    if (bulkId) {
+      await c.query('INSERT INTO bulk_enquiry_events (id, enquiry_id, type, actor_type, actor_id, detail, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [
+        newId('bev'), bulkId, 'REFUND_GAVE_UP', 'system', null, JSON.stringify({ note }), now(),
+      ])
+    }
     logger.error({ table, key, attempts, why }, 'refund given up after its retries; a manager settles it')
     return true
   }
@@ -826,7 +975,7 @@ function giveUpRefund(table, key, attempts, why, c = null) {
  * and that have used up their attempts: given up on like a failed last attempt.
  */
 async function giveUpSpentRefunds(at = now()) {
-  for (const table of ['orders', 'preorders', 'duplicate_payments']) {
+  for (const table of ['orders', 'preorders', 'bulk_enquiries', 'duplicate_payments']) {
     const requested = table === 'duplicate_payments' ? 'found_at' : 'refund_requested_at'
     const { rows } = await query(
       `SELECT ${REFUND_KEY[table]} AS key, refund_attempts FROM ${table}
@@ -900,7 +1049,10 @@ export async function gatewayRefund({ paymentId, amount, receipt, notes, shared 
     // parts, one per delivery: only the refunds made for this delivery (by its
     // orderId note) count toward it.
     const all = gatewayItems(await razorpay('GET', `/payments/${pid}/refunds`), 'rfnd_', 'refund list').filter((r) => r.status !== 'failed')
-    const live = shared ? all.filter((r) => r.notes?.orderId === notes?.orderId) : all
+    // A farm refund (docs/farm-experience.md) is tagged with its own id instead, and a booking of a
+    // gift pre-order group (migration 071, paid by the group's one payment) with its preorderId.
+    const tag = (n) => n?.farmRefundId ?? n?.orderId ?? n?.preorderId
+    const live = shared ? all.filter((r) => tag(r.notes) === tag(notes)) : all
     const done = live.reduce((sum, r) => sum + (r.amount ?? 0), 0)
     const owed = amount == null ? null : amount - done
     if (live.length && (owed == null || owed <= 0)) return live[0].id
@@ -987,6 +1139,22 @@ export async function processDueRefunds(at = now()) {
       logger.error({ err, orderId: o.id }, 'refund failed; will retry')
     }
   }
+  // Bulk orders paid at once (bulk-orders.js): cancelled within the window, by a manager, or paid after a cancel.
+  const bulk = await query(
+    `SELECT id FROM bulk_enquiries WHERE refund_requested_at IS NOT NULL AND refunded_at IS NULL AND ${due} AND NOT ($1 AND ${disputeHolds('bulk_enquiries.payment_id')})
+      ORDER BY refund_requested_at LIMIT 50`,
+    [safety, at],
+  )
+  for (const b of bulk.rows) {
+    if (!canStartCall(GATEWAY_CALL_MS)) return n
+    try {
+      if (await refundBulkOrder(b.id)) n++
+    } catch (err) {
+      logger.error({ err, bulkOrderId: b.id }, 'bulk order refund failed; will retry')
+    }
+  }
+  // Farm Experience refunds (farm/refunds.js), the same lease and back-off.
+  n += await processDueFarmRefunds(at)
   return n
 }
 
@@ -1017,7 +1185,7 @@ export async function refundDuplicatePayments(at = now()) {
       try {
         refundId = await gatewayRefund({
           paymentId: d.payment_id, amount: d.amount ?? undefined, receipt: refundReceipt(`dup-${d.payment_id}`, d.refund_attempts),
-          notes: { reason: 'duplicate payment', ...(d.order_id ? { orderId: d.order_id } : { preorderId: d.preorder_id }) },
+          notes: { reason: 'duplicate payment', ...(d.order_id ? { orderId: d.order_id } : d.bulk_enquiry_id ? { bulkOrderId: d.bulk_enquiry_id } : { preorderId: d.preorder_id }) },
         })
       } catch (err) {
         await refundAttemptFailed('duplicate_payments', d.payment_id, d.refund_attempts, err)
@@ -1056,7 +1224,8 @@ async function listGatewayPayments(from, to) {
     if (ref.startsWith('order_')) out.push({ ...p, order_id: ref })
     else if (ref.startsWith('plink_')) {
       const { rows } = await query(
-        `SELECT 'orderId' AS k, id FROM orders WHERE payment_link_id = $1 UNION ALL SELECT 'preorderId', id FROM preorders WHERE payment_link_id = $1`,
+        `SELECT 'orderId' AS k, id FROM orders WHERE payment_link_id = $1 UNION ALL SELECT 'preorderId', id FROM preorders WHERE payment_link_id = $1
+          UNION ALL SELECT 'bulkOrderId', id FROM bulk_enquiries WHERE payment_link_id = $1`,
         [ref],
       )
       out.push({ ...p, notes: rows.length ? { [rows[0].k]: rows[0].id } : {} })
@@ -1094,6 +1263,7 @@ async function flagGatewayRefunds(from, to) {
     const { rows } = await query(
       `SELECT 'order' AS type, number, payment_status, refund_id FROM orders WHERE payment_id = $1
        UNION ALL SELECT 'preorder', number, payment_status, refund_id FROM preorders WHERE payment_id = $1
+       UNION ALL SELECT 'bulk order', number, payment_status, refund_id FROM bulk_enquiries WHERE payment_id = $1
        UNION ALL SELECT 'second payment', COALESCE(o.number, p.number), 'SUCCEEDED', d.refund_id FROM duplicate_payments d
          LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id WHERE d.payment_id = $1`,
       [r.payment_id],
@@ -1200,6 +1370,13 @@ async function reconcileOne(p, out) {
     await sendDueRefunds(refundsFor({ result: r, orderId, preorderId }))
     return
   }
+  const bulkOrderId = orderId ? null : await linkListsBulkPayment(p)
+  if (bulkOrderId) {
+    const r = await tx((c) => applyCapture(c, 'bulk_enquiries', bulkOrderId, p))
+    if (r !== 'rejected') out.applied++
+    await sendDueRefunds(refundsFor({ result: r, bulkOrderId }))
+    return
+  }
   const key = `recon:${p.id}`
   if ((await query('SELECT 1 FROM webhook_failures WHERE event_key = $1', [key])).rowCount) return
   out.flagged++
@@ -1223,11 +1400,24 @@ async function linkListsPayment(p) {
   return listed.some((x) => x.id === p.id && x.status === 'captured') ? rows[0].id : null
 }
 
+/** linkListsPayment for a bulk order's link (notes bulkOrderId), trusted only when that link lists the payment. */
+async function linkListsBulkPayment(p) {
+  const noted = typeof p.notes?.bulkOrderId === 'string' ? p.notes.bulkOrderId : null
+  if (!noted) return null
+  const { rows } = await query('SELECT id, payment_link_id FROM bulk_enquiries WHERE id = $1 AND payment_link_id IS NOT NULL', [noted])
+  if (!rows.length) return null
+  const listed = await fetchLinkPayments(rows[0].payment_link_id)
+  return listed.some((x) => x.id === p.id && x.status === 'captured') ? rows[0].id : null
+}
+
 export async function knownPayment(id, c = { query }) {
   const { rows } = await c.query(
     `SELECT 1 FROM orders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM preorders WHERE payment_id = $1
       UNION ALL SELECT 1 FROM gift_orders WHERE payment_id = $1
+      UNION ALL SELECT 1 FROM preorder_groups WHERE payment_id = $1
+      UNION ALL SELECT 1 FROM farm_booking_payments WHERE payment_id = $1
+      UNION ALL SELECT 1 FROM bulk_enquiries WHERE payment_id = $1
       UNION ALL SELECT 1 FROM duplicate_payments WHERE payment_id = $1 LIMIT 1`,
     [id],
   )
@@ -1273,6 +1463,19 @@ export async function replayCapturedPayments({ from, to = now(), refundMissing =
     for (const pay of (await fetchLinkPayments(p.payment_link_id)).filter((x) => x.status === 'captured' && x.id !== p.payment_id)) {
       if (await knownPayment(pay.id)) continue
       if ((await tx((c) => applyCapture(c, 'preorders', p.id, pay))) !== 'rejected') out.applied++
+    }
+  }
+
+  // Bulk orders paid at once (bulk-orders.js), by their links.
+  const bulk = await query(
+    `SELECT id, payment_link_id, payment_id FROM bulk_enquiries WHERE payment_link_id IS NOT NULL AND payment_started_at BETWEEN $1 AND $2`,
+    [since, to],
+  )
+  for (const b of bulk.rows) {
+    out.checked++
+    for (const pay of (await fetchLinkPayments(b.payment_link_id)).filter((x) => x.status === 'captured' && x.id !== b.payment_id)) {
+      if (await knownPayment(pay.id)) continue
+      if ((await tx((c) => applyCapture(c, 'bulk_enquiries', b.id, pay))) !== 'rejected') out.applied++
     }
   }
 

@@ -20,31 +20,28 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
-            customer-app/package-lock.json
             rider-app/package-lock.json
       - run: npm ci
-      # The shop (customer-app/) is a Next.js app with its own packages.
-      - run: npm ci
-        working-directory: customer-app
       # The rider app (rider-app/) too; `npm run lint` lints it.
       - run: npm ci
         working-directory: rider-app
-      # SEC-12: no high or critical advisory in what the shop, panel and rider app ship.
+      # SEC-12: no high or critical advisory in what the panel and rider app ship (the shop, shop/, has no packages).
       - name: Dependency audit (shipped packages)
-        run: npm audit --omit=dev --audit-level=high && npm --prefix customer-app audit --omit=dev --audit-level=high && npm --prefix rider-app audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=high && npm --prefix rider-app audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm --prefix rider-app run typecheck
-      - name: Lint (panel and API with eslint.config.mjs; the shop with its own)
+      - name: Lint (panel and API with eslint.config.mjs; the rider app with its own)
         run: npm run lint
-      - name: Unit tests (the panel, the scripts and the shop)
+      - name: Unit tests (the panel, the scripts and the shop's syntax check)
         run: npm run test:unit && npm run shop:test
       - run: npm run build
-      - name: Build the previous Next.js shop (customer-app/, kept until retired)
-        run: npm --prefix customer-app run build
+      # The shop (shop/): writes shop/config.js and scans the folder, as the mandi-shop Vercel build does.
+      - name: Build the shop
+        run: npm run shop:build
         env:
-          NEXT_PUBLIC_API_URL: https://api.example.in
+          API_URL: https://api.example.in
           # A made-up number for the build check only; production sets the shop's real one.
-          NEXT_PUBLIC_SUPPORT_WHATSAPP: '910000000000'
+          SUPPORT_WHATSAPP: '910000000000'
       - name: Build the rider app
         run: npm --prefix rider-app run build
         env:
@@ -197,12 +194,9 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             mango-api/package-lock.json
-            customer-app/package-lock.json
       - run: npm ci
       - run: npm ci
         working-directory: mango-api
-      - run: npm ci
-        working-directory: customer-app
       - name: Start mango-api with demo data
         working-directory: mango-api
         run: |
@@ -215,7 +209,7 @@ jobs:
             if curl -sf http://localhost:3000/ready; then
               # Every spec books from the same few days, so the demo's 40 boxes per delivery time run out partway
               # through the suite; give this throwaway database room. A full time (SLOT_FULL) is covered by the
-              # API tests, and customer-app/tests/checkout.ts still handles one if it happens.
+              # API tests.
               psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE delivery_slots SET max_boxes = 1000 WHERE max_boxes IS NOT NULL'
               exit 0
             fi
@@ -227,7 +221,7 @@ jobs:
           COOKIE_SECURE: 'false'
           ENABLE_DEV_ROUTES: 'true'
           LOG_LEVEL: warn
-          # App feel (docs/app-feel.md), on so customer-app/tests/app-feel.spec.ts runs; every other spec runs with them on too.
+          # App feel (docs/app-feel.md): the API runs with the shop's feature flags on, as in production.
           WEB_PUSH: 'true'
           WEB_PUSH_PROVIDER: log
           VAPID_SUBJECT: mailto:ops@mandimangoes.test
@@ -235,10 +229,10 @@ jobs:
           FAVOURITES: 'true'
           SHOP_INSTALL: 'true'
           SHOP_SORT_FILTER: 'true'
-          # Customer care (docs/care.md), on so customer-app/tests/care.spec.ts runs.
+          # Customer care (docs/care.md).
           HELP_CENTRE: 'true'
           SUBSCRIPTIONS: 'true'
-          # Growth (docs/growth.md) and gifting to many (docs/gifting.md), on so growth.spec.ts and gifting.spec.ts run.
+          # Growth (docs/growth.md) and gifting to many (docs/gifting.md).
           REFERRALS: 'true'
           FUNNEL_ANALYTICS: 'true'
           MULTI_GIFT: 'true'
@@ -249,7 +243,7 @@ jobs:
           # Specs reuse a customer across quick quote and confirm retries; the default (20 a minute) is checked in
           # mango-api/test/security-readiness.test.js.
           CUSTOMER_ACTION_LIMIT: '600'
-          # The shop in Hindi and Kannada (docs/languages.md), on so customer-app/tests/languages.spec.ts runs.
+          # The shop in Hindi and Kannada (docs/languages.md).
           SHOP_LANGUAGES: 'true'
       - run: npx playwright install --with-deps chromium
       - name: PDF text tool for the bill checks
@@ -261,29 +255,6 @@ jobs:
           VITE_API_URL: http://localhost:3000
           E2E_EMAIL: manager@mandimangoes.test
           E2E_PASSWORD: manager123
-      - name: Customer app journey against the real API
-        working-directory: customer-app
-        run: npx playwright test
-        env:
-          CI: 'true'
-          NEXT_PUBLIC_API_URL: http://localhost:3000
-      # NFR-15: the whole shop again on Safari on an iPhone (WebKit), after the Chromium run so the
-      # specs' one-per-project customers and boxes never meet a run going side by side.
-      - run: npx playwright install --with-deps webkit
-      # The Chromium run has used up much of the demo stock for the next few days; top it up on this
-      # throwaway database so the iPhone run books the same boxes. Running short (STOCK_INSUFFICIENT) is
-      # covered by the API tests.
-      - run: psql postgres://mango:mango@localhost:5432/mango -qc 'UPDATE batch_lines SET on_hand = on_hand + 500'
-      - name: Customer app journey on an iPhone (WebKit) against the real API
-        working-directory: customer-app
-        run: npx playwright test --project=iphone
-        env:
-          CI: 'true'
-          PW_WEBKIT: '1'
-          NEXT_PUBLIC_API_URL: http://localhost:3000
-      # What each failing page showed (its accessibility snapshot), since this job keeps no report.
-      - if: failure()
-        run: for f in $(find test-results-shop -name error-context.md 2>/dev/null); do echo "== $f"; head -80 "$f"; done
       - if: failure()
         run: cat api.log
 
@@ -313,4 +284,4 @@ jobs:
           -e SHOP_DOMAIN -e ADMIN_DOMAIN -e API_DOMAIN -e ACME_EMAIL
           caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
       - name: Build the API and web images
-        run: docker compose -f compose.yml build api shop web
+        run: docker compose -f compose.yml build api web

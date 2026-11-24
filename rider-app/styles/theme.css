@@ -1,5 +1,5 @@
 /*
- * Rider app tokens: the shop's "Orchard" palette (customer-app/styles/theme.css),
+ * Rider app tokens: the "Orchard" palette of the previous (Next.js) shop,
  * so riders and customers see the same brand. Text sizes use Tailwind's scale,
  * one step larger than the shop: riders read it at arm's length, outdoors.
  * Every text pairing is 4.5:1 or better.

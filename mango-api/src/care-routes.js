@@ -14,7 +14,7 @@ import { env } from './env.js'
 import { isOn } from './feature-switches.js'
 import { asyncHandler, notFound, parse } from './errors.js'
 import { customerReply, FIRST_MESSAGE_MIN, HELP_TOPICS, listOwnTickets, MESSAGE_MAX, openTicket, ownTicket } from './help.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 import {
   createSubscription, customerCancelSubscription, customerPause, customerResume, listOwn, ownSubscription, PERIOD_DAYS, seasonEnd, skipCycle, subscriptionsOpen,
 } from './subscriptions.js'
@@ -76,7 +76,7 @@ care.post(
     const b = parse(
       z
         .object({
-          sku: z.string().min(1).max(40), stage: z.enum(STAGES), qty: z.number().int().min(1).max(20),
+          sku: z.string().min(1).max(40), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
           frequency: z.enum(Object.keys(PERIOD_DAYS)), weekday: z.number().int().min(1).max(7),
           slotId: z.string().max(64).optional().nullable(), addressId: ID, endDate: z.string().max(10),
         })

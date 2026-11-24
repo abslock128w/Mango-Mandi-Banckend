@@ -5,12 +5,14 @@ import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig } from '../config.js'
+import { sellWindow } from '../delivery.js'
 import { env } from '../env.js'
 import { query, tx } from '../db.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
-import { ADJUST_REASONS, ledger } from '../inventory.js'
+import { ADJUST_REASONS, ledger, lockBatchSkuLines } from '../inventory.js'
 import { lockBatchOrders, rebalanceBatchOrders, recordShortArrival, takeBatchOutOfService } from '../orders.js'
+import { allocateOnStock } from '../preorders.js'
 import { findProduct, productName } from '../products.js'
 import { STAGES } from '../stage.js'
 import { batchesCarryingFruitOf, holdFruitOfBatch } from '../warehouse/repack.js'
@@ -56,7 +58,7 @@ router.get(
     const today = todayIST()
     res.json(
       rows.map((b) => ({
-        id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(today, b.plucked_on), farm: b.farm,
+        id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(today, b.plucked_on), ...sellWindow(b.plucked_on), farm: b.farm,
         status: b.status, latestRating: b.ripeness_rating ?? null, latestCondition: b.condition ?? null,
         onHand: b.on_hand, held: b.held, committed: b.committed, available: b.available,
       })),
@@ -79,7 +81,7 @@ async function batchDetail(c, batchId) {
     c.query('SELECT * FROM batch_qc WHERE batch_id = $1 ORDER BY logged_at DESC', [batchId]),
   ])
   return {
-    id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(todayIST(), b.plucked_on), farm: b.farm,
+    id: b.id, variety: b.variety, pluckedOn: b.plucked_on, ageDays: diffDays(todayIST(), b.plucked_on), ...sellWindow(b.plucked_on), farm: b.farm,
     status: b.status, etaDate: b.eta_date, arrivedAt: b.arrived_at, createdAt: b.created_at,
     // The QR printed on each box opens this page in the shop.
     lines: lines.rows.map((l) => ({
@@ -154,6 +156,7 @@ router.post(
       const { replayed: _, ...first } = detail
       return res.status(200).json(first)
     }
+    await allocateOnStock('batch received')
     res.status(201).json(detail)
   }),
 )
@@ -205,6 +208,7 @@ router.patch(
       return { rebalancedOrders: touched.filter((r) => r.changed && !r.atRisk).map((r) => r.number), atRiskOrders: touched.filter((r) => r.atRisk).map((r) => r.number) }
     })
     if (status === 'CONDEMNED') return res.json(result)
+    if (status !== 'EXHAUSTED') await allocateOnStock(`batch ${status}`)
     res.status(204).end()
   }),
 )
@@ -227,7 +231,8 @@ router.post(
       if (['EXHAUSTED', 'CONDEMNED'].includes(rows[0].status)) throw badRequest(`This batch is ${rows[0].status}`, 'INVALID_TRANSITION')
       // Lock the lines before the reading lands: an allocation in flight either
       // finishes first (and is rebalanced below) or re-checks the stage after us (INV-6).
-      await c.query('SELECT id FROM batch_lines WHERE batch_id = $1 ORDER BY sku COLLATE "C", id FOR UPDATE', [req.params.id])
+      // With them every sellable line of the same boxes, in line order (DB-01): the rebalance below may take from them.
+      await lockBatchSkuLines(c, req.params.id)
       const today = todayIST()
       const dup = await c.query(
         `SELECT 1 FROM batch_qc WHERE batch_id = $1 AND logged_by = $2 AND (logged_at AT TIME ZONE 'Asia/Kolkata')::date = $3 LIMIT 1`,
@@ -247,6 +252,7 @@ router.post(
         atRiskOrders: touched.filter((r) => r.atRisk).map((r) => r.number),
       }
     })
+    if (body.condition !== 'REJECT') await allocateOnStock('QC reading')
     res.status(201).json(out)
   }),
 )
@@ -309,7 +315,7 @@ router.patch(
         .refine((b) => b.onHand !== undefined || b.reserveBuffer !== undefined, 'Change onHand or reserveBuffer'),
       req.body,
     )
-    await tx(async (c) => {
+    const freed = await tx(async (c) => {
       const { rows } = await c.query(
         `SELECT l.*, b.status FROM batch_lines l JOIN batches b ON b.id = l.batch_id WHERE l.id = $1 AND l.batch_id = $2 FOR UPDATE OF l`,
         [req.params.lineId, req.params.id],
@@ -339,7 +345,10 @@ router.patch(
       if (buffer !== l.reserve_buffer) {
         await ledger(c, { batchId: l.batch_id, eventType: 'ADJUST_BUFFER', sku: l.sku, delta: buffer - l.reserve_buffer, actorId: req.admin.id, reason: body.reason, reasonCode: code })
       }
+      return onHand - buffer > l.on_hand - l.reserve_buffer
     })
+    // More boxes free to sell: bookings waiting for this fruit are served first (holdback.js).
+    if (freed) await allocateOnStock('stock count raised')
     res.status(204).end()
   }),
 )

@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path'
 import { after, before, beforeEach, describe, test } from 'node:test'
 import { setNow } from '../src/clock.js'
 import { query } from '../src/db.js'
-import { env } from '../src/env.js'
+import { backupDefault, env } from '../src/env.js'
 import { BACKUP_STALE_MS, checkHealth } from '../src/maintenance.js'
 import { onProblemForTests } from '../src/sentry.js'
 
@@ -212,6 +212,19 @@ describe('a missed backup shows in Needs attention', () => {
     env.BACKUP_HEARTBEAT_EXPECTED = true
     assert.deepEqual((await attention()).backup, { lastOkAt: null, stale: true })
     assert.ok((await checkHealth({})).includes('backup'))
+  })
+
+  test('BKP-02: in production, with the flag unset and no backup recorded, the backup alert fires', async () => {
+    // As env.js reads a production deploy that never wrote BACKUP_HEARTBEAT_EXPECTED.
+    env.BACKUP_HEARTBEAT_EXPECTED = undefined
+    backupDefault(env, 'production')
+    assert.equal(env.BACKUP_HEARTBEAT_EXPECTED, true)
+    assert.deepEqual((await attention()).backup, { lastOkAt: null, stale: true })
+    assert.ok((await checkHealth({})).includes('backup'))
+    // A preview records no backups: no alarm there.
+    env.BACKUP_HEARTBEAT_EXPECTED = undefined
+    backupDefault(env, 'preview')
+    assert.equal((await attention()).backup, null)
   })
 
   test('a recent backup is fine; one older than 26 hours is a warning', async () => {

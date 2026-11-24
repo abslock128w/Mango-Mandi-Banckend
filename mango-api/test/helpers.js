@@ -3,11 +3,12 @@ import { createHmac } from 'node:crypto'
 import { createApp } from '../src/app.js'
 import { drainBackground } from '../src/background.js'
 import { addDays, now, setNow, todayIST } from '../src/clock.js'
-import { loadConfig } from '../src/config.js'
+import { currentConfig, loadConfig, saveConfig } from '../src/config.js'
 import { pool, query, tx } from '../src/db.js'
 import { env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 import { runMigrations } from '../src/migrate.js'
+import { deliveryWeeks } from '../src/preorders.js'
 import { loadProducts } from '../src/products.js'
 import { seed } from '../src/seed.js'
 
@@ -98,7 +99,7 @@ export async function makeBatch({ variety = 'Alphonso', age, status = 'SELLING',
   const id = newId('bat')
   const pluckedOn = addDays(todayIST(), -age)
   await query('INSERT INTO batches (id, variety, plucked_on, status, eta_date, arrived_at) VALUES ($1, $2, $3, $4, $5, $6)', [
-    id, variety, pluckedOn, status, addDays(pluckedOn, 2), status === 'IN_TRANSIT' ? null : new Date(),
+    id, variety, pluckedOn, status, addDays(pluckedOn, 1), status === 'IN_TRANSIT' ? null : new Date(),
   ])
   for (const [sku, qty] of Object.entries(lines)) {
     await query('INSERT INTO batch_lines (id, batch_id, sku, on_hand) VALUES ($1, $2, $3, $4)', [newId('bl'), id, sku, qty])
@@ -173,4 +174,22 @@ export async function doorProof(api, token, orderId) {
 export async function allowLeaveAtDoor(api, managerToken, orderId, reason = 'Customer asked on the phone') {
   const r = await api.post(`/admin/v1/orders/${orderId}/handover-override`, { reason }, { token: managerToken })
   if (r.status !== 204) throw new Error(`handover override: ${r.status} ${JSON.stringify(r.body)}`)
+}
+
+/**
+ * Pre-orders (migrations 074, 076): every box shares one weekly limit in kg and the weeks exist by themselves, so
+ * a waitlist needs every week full. This leaves ONE delivery week taking `kg` kilograms (the daily amount kg / 7,
+ * so the week is kg; a 2 x 3 kg booking takes 6) and returns it: the first after the booking horizon, or `week`
+ * (a later Monday, made the season's first and only week: seasonStartsOn = week, seasonEndsOn 3 days after).
+ */
+export async function onePreorderWeek(kg, week = null) {
+  const rules = { ...currentConfig().rules, preorderDayKg: kg / 7, preorderVarietyDayKg: {}, preorderOtherVarietyDayKg: kg / 7 }
+  if (week) {
+    await saveConfig({ ...rules, seasonStartsOn: week, preorderOpensOn: null, seasonEndsOn: addDays(week, 3) }, 'test')
+    return week
+  }
+  await saveConfig({ ...rules, seasonEndsOn: null }, 'test')
+  const first = (await tx((c) => deliveryWeeks(c)))[0]
+  await saveConfig({ ...currentConfig().rules, seasonEndsOn: addDays(first, 3) }, 'test')
+  return first
 }

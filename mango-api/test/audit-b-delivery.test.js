@@ -43,7 +43,7 @@ const reschedule = (id, deliveryDate) => api.post(`/admin/v1/orders/${id}/resche
 
 /** A paid order, packed, with no rider yet. */
 async function packedOrder(cust, qty = 1) {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
   const id = o.body.orderId

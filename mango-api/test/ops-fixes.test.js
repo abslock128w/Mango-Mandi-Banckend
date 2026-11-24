@@ -12,7 +12,7 @@ import { pool, query } from '../src/db.js'
 import { newId } from '../src/ids.js'
 import { availability, availabilityByDate } from '../src/inventory.js'
 import { migrate } from '../src/migrate.js'
-import { maintenanceReady } from '../src/readiness.js'
+import { MAINTENANCE_STALE_S, maintenanceReady, staleAfterS } from '../src/readiness.js'
 import { pruneNotifications } from '../src/retention.js'
 
 let srv
@@ -76,13 +76,25 @@ describe('/ready and the maintenance loop', () => {
     assert.equal(maintenanceReady(null, { env: 'test' }), true)
     assert.equal(maintenanceReady(301, { env: 'preview' }), false)
   })
+
+  test('SRV-02: the stale limit follows MAINTENANCE_INTERVAL_S; a pinger every 5 minutes is not taken for a stop', () => {
+    // The every-minute default keeps the 4 minutes the monitors and scripts/smoke.mjs expect.
+    assert.equal(staleAfterS(60), 240)
+    assert.equal(MAINTENANCE_STALE_S, 240)
+    const staleS = staleAfterS(300)
+    assert.equal(staleS, 1200)
+    for (const minutes of [4, 6, 16, 20]) assert.equal(maintenanceReady(minutes * 60, { env: 'production', staleS }), true, `${minutes} minutes`)
+    assert.equal(maintenanceReady(21 * 60, { env: 'production', staleS }), false)
+    // At the every-minute limit, 6 minutes is already a stop.
+    assert.equal(maintenanceReady(6 * 60, { env: 'production' }), false)
+  })
 })
 
 describe('notification retention', () => {
   test('finished messages older than 180 days are pruned; pending and recent ones stay', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 5 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const old = new Date(now().getTime() - 200 * 86_400_000)
     const add = async (status, at) => {
@@ -142,7 +154,7 @@ describe('admin lists', () => {
     const cust = await customerToken(api)
     const orders = []
     for (let i = 0; i < 4; i++) {
-      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+      const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
       assert.equal(c.status, 201, JSON.stringify(c.body))
       await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id = $1`, [c.body.orderId])
       orders.push(c.body.orderId)

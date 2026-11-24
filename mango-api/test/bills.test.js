@@ -6,7 +6,9 @@
 // buyer's name and address kept on the bill for BILL_RETENTION_MONTHS whatever
 // the order's 12-month retention or an account deletion removes.
 // Every PDF is read back with pdftotext (poppler-utils, installed in CI).
+import { formatOrderNumber } from '../src/order-number.js'
 import { adminToken, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { paymentDetails } from '../src/payments.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -67,7 +69,7 @@ async function download(path, token) {
 
 async function placed(qty = 1, extra = {}) {
   const cust = extra.cust ?? (await customerToken(api))
-  for (const it of [{ sku: 'ALP-3', stage: 'RIPE', qty }]) assert.equal((await api.post('/v1/cart/items', it, { token: cust.accessToken })).status, 204)
+  for (const it of [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty }]) assert.equal((await api.post('/v1/cart/items', it, { token: cust.accessToken })).status, 204)
   const q = await api.post('/v1/checkout/quote', { pincode: '560034', promoCode: extra.promoCode }, { token: cust.accessToken })
   assert.equal(q.status, 200, JSON.stringify(q.body))
   const o = await api.post(
@@ -132,7 +134,7 @@ describe('GSTIN and numbering rules', () => {
 
   test('the document follows the seller and the goods: Receipt, Bill of Supply, never a Tax Invoice without tax', () => {
     const o = { number: 'MM-1', subtotal: 2 * BOX, discount: 0, total: 2 * BOX, pincode: '560034', placed_at: new Date(), delivery_date: '2026-10-16' }
-    const items = [{ sku: 'ALP-3', product_name: 'Alphonso 3 kg', stage: 'RIPE', quantity: 2, unit_price: BOX, line_price: 2 * BOX, hsn_code: '08045020', gst_rate: 0 }]
+    const items = [{ sku: 'ALP-3', product_name: 'Alphonso 3 kg', stage: 'SEMI_RIPE', quantity: 2, unit_price: BOX, line_price: 2 * BOX, hsn_code: '08045020', gst_rate: 0 }]
     const cfg = (env) => readTrustConfig({ NODE_ENV: 'test', ...env })
     assert.equal(composeBill(o, items, cfg(UNREGISTERED)).kind, 'RECEIPT')
     const bos = composeBill(o, items, cfg(REGISTERED))
@@ -180,7 +182,7 @@ describe('issuing bills', () => {
     const pdf = await download(`/v1/orders/${id}/bill`, cust.accessToken)
     assert.equal(pdf.status, 200)
     assert.equal(pdf.type, 'application/pdf')
-    assert.match(pdf.disposition, /attachment; filename="MandiMangoes-bill-MM-26-27-000001\.pdf"/)
+    assert.match(pdf.disposition, /attachment; filename="VMR-Mangoes-bill-MM-26-27-000001\.pdf"/)
     const text = pdfText(pdf.body)
     for (const want of ['BILL OF SUPPLY', 'MM/26-27/000001', 'Mandi Fresh Fruits LLP', `GSTIN: ${SELLER_GSTIN}`, 'Karnataka (code 29)', '08045020', 'Rs. 1,899.00', 'Rs. 3,798.00', 'Ravi Kumar', 'Koramangala', 'Notification 2/2017', 'Page 1 of 1']) {
       assert.ok(text.includes(want), `the PDF says ${want}:\n${text}`)
@@ -411,7 +413,7 @@ describe('issuing bills', () => {
       '/admin/v1/bulk-listings',
       {
         sku: 'ALP-3', title: 'Alphonso for offices', description: 'Hand-picked Ratnagiri Alphonso in 3 kg boxes, for offices and events.',
-        origin: 'Ratnagiri, Maharashtra', stages: ['RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
+        origin: 'Ratnagiri, Maharashtra', stages: ['SEMI_RIPE'], minQty: 10, qtyStep: 1, maxQty: null, tiers: [{ minQty: 10, unitPrice: 159_900 }],
         confirmCode: 'manager123',
       },
       { token: manager },
@@ -422,7 +424,7 @@ describe('issuing bills', () => {
     assert.equal((await api.raw('POST', `/admin/v1/bulk-listings/${c.body.id}/photos`, { raw: jpeg, token: manager, headers: { 'Content-Type': 'image/jpeg' } })).status, 201)
     assert.equal((await api.post(`/admin/v1/bulk-listings/${c.body.id}/publish`, {}, { token: manager })).status, 200)
     const cust = await customerToken(api)
-    assert.equal((await api.post('/v1/cart/bulk', { listingId: c.body.id, stage: 'RIPE', qty: 10 }, { token: cust.accessToken })).status, 204)
+    assert.equal((await api.post('/v1/cart/bulk', { listingId: c.body.id, stage: 'SEMI_RIPE', qty: 10 }, { token: cust.accessToken })).status, 204)
     const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
     const o = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: ADDRESS }, { token: cust.accessToken, headers: { 'Idempotency-Key': newId('k') } })
     assert.equal(o.status, 201, JSON.stringify(o.body))
@@ -507,7 +509,7 @@ describe('issuing bills', () => {
     const cust = await customerToken(api)
     const booked = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
       { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(booked.status, 201, JSON.stringify(booked.body))
@@ -521,7 +523,7 @@ describe('issuing bills', () => {
     })
     assert.equal((await api.raw('POST', '/webhooks/razorpay', { raw, headers: { 'Content-Type': 'application/json', 'X-Razorpay-Signature': signature } })).status, 200)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM bills')).rows[0].n, 0, 'a booking is not an order: no bill yet')
-    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // ripe (age 6) on Monday
+    await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } }) // semi-ripe (age 6) on Monday
     // The maintenance run converts it and then bills the new order, in the same run.
     const out = await runMaintenance({ forceAll: true })
     assert.equal(out.preorders?.converted, 1, JSON.stringify(out))
@@ -531,7 +533,9 @@ describe('issuing bills', () => {
     assert.equal(b?.number, 'MM/26-27/000001')
     assert.equal(b.total, p.total)
     const text = pdfText((await download(`/v1/orders/${o.id}/bill`, cust.accessToken)).body)
-    assert.ok(text.includes(o.number), text)
+    // The bill keeps its own number series and prints the order's (the booking's P number) grouped beside it.
+    assert.match(o.number, /^P\d{9}$/)
+    assert.ok(text.includes(formatOrderNumber(o.number)), text)
     assert.equal((await runPreorderJobs()).converted, 0)
     assert.equal(await issueMissingBills(), 0, 'billed once')
   })
@@ -613,6 +617,29 @@ test('a long bill breaks across pages', () => {
   assert.match(text, /box 60/)
   assert.match(text, /Rs\. 1,13,940\.00/)
   assert.match(text, /could not be printed/, 'a name the font cannot print is called out')
+})
+
+// The Razorpay payment's details: kept from the payment entity (UPI ID masked), printed on the bill.
+test('a bill prints how it was paid: method, UPI reference, Razorpay payment id, the #order number', () => {
+  const details = paymentDetails({
+    id: 'pay_QX12ab34CD', method: 'upi', vpa: 'asha.rao@okicici', amount: BOX, currency: 'INR', created_at: 1793800000,
+    acquirer_data: { rrn: '431298765432', upi_transaction_id: 'ICI12345' }, card: null, bank: null, wallet: null,
+  })
+  assert.deepEqual(details, { gateway: 'Razorpay', paymentId: 'pay_QX12ab34CD', method: 'upi', upiRef: '431298765432', vpa: 'as******@okicici', paidAt: '2026-11-04T13:46:40.000Z' })
+  assert.equal(paymentDetails({ id: 'pay_C', method: 'card', card: { network: 'Visa', last4: '4242' } }).card, 'Visa ending 4242')
+  assert.equal(paymentDetails(null), null)
+  const snapshot = {
+    kind: 'RECEIPT', title: 'Receipt', seller: { legalName: 'MandiMangoes', addressLines: ['Bengaluru'], stateCode: '29', stateName: 'Karnataka', gstin: null },
+    buyer: {}, placeOfSupply: { stateCode: '29', stateName: 'Karnataka' }, order: { number: '7434060801', placedAt: '2026-11-04T10:12:00Z' },
+    lines: [{ sku: 'ALP-3', description: 'Alphonso 3 kg, ripe', hsn: '08045020', qty: 1, unitPrice: BOX, amount: BOX, gstRate: 0 }],
+    subtotal: BOX, discount: 0, deliveryFee: 0, tax: null, total: BOX, paid: BOX, notes: [], payment: details,
+  }
+  const text = pdfText(billPdf({ number: 'MM/26-27/000043', kind: 'RECEIPT', bill_date: '2026-11-04', snapshot }))
+  assert.match(text, /#7434060801/)
+  assert.match(text, /Paid by\s+UPI, as\*+@okicici/)
+  assert.match(text, /UPI reference \(RRN\)\s+431298765432/)
+  assert.match(text, /Razorpay payment ID\s+pay_QX12ab34CD/)
+  assert.match(text, /Paid on\s+4 Nov 2026/)
 })
 
 // Keep setNow untouched for other files.

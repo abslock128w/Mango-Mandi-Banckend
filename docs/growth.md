@@ -1,5 +1,7 @@
 # Growth (roadmap: C4, funnel analytics, S7)
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 Three parts, each behind its own switch, each **off by default**:
 
 - **Refer a friend** (`REFERRALS`): every signed-in customer has a code and an

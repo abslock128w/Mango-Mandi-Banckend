@@ -20,7 +20,7 @@ import { ACCESS_TTL_S } from '../src/auth.js'
 import { addDays, todayIST } from '../src/clock.js'
 import { router as customerRouter } from '../src/customer.js'
 import { query } from '../src/db.js'
-import { env } from '../src/env.js'
+import { deployEnv, env } from '../src/env.js'
 import { newId } from '../src/ids.js'
 
 let srv
@@ -160,6 +160,16 @@ describe('staff route × role matrix', () => {
     assert.deepEqual(currentPolicy(), POLICY, 'who may call which staff route changed: if on purpose, run with UPDATE_ROLE_POLICY=1 and commit the reviewed diff')
   })
 
+  test('the shop-wide summary: managers and operators get all of it, QC only the sell-by limit, riders and packers nothing', async () => {
+    const full = await api.get('/admin/v1/summary', { token: tokens.OPERATOR })
+    assert.equal(full.status, 200, JSON.stringify(full.body))
+    for (const k of ['orders', 'atRiskOrders', 'batchesNearLimit', 'lowStock', 'overdueOrders', 'maxSellableAge']) assert.ok(k in full.body, k)
+    const qc = await api.get('/admin/v1/summary', { token: tokens.QC })
+    assert.equal(qc.status, 200, JSON.stringify(qc.body))
+    assert.deepEqual(qc.body, { maxSellableAge: full.body.maxSellableAge })
+    for (const role of ['PACKER', 'RIDER']) assert.equal((await api.get('/admin/v1/summary', { token: tokens[role] })).status, 403, role)
+  })
+
   test('docs/authorization-matrix.md is up to date with the policy and the step-up list', () => {
     assert.equal(readFileSync(DOC_FILE, 'utf8'), renderMatrix(POLICY), 'the authorization matrix doc is out of date: run node scripts/auth-matrix-doc.js and commit it')
   })
@@ -280,7 +290,7 @@ describe('customer routes', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    const c = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     const id = c.body.orderId
     await api.post('/v1/dev/pay', { orderId: id, outcome: 'captured' })
@@ -311,7 +321,7 @@ describe('customer routes', () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const a = await customerToken(api)
     const b = await customerToken(api)
-    assert.equal((await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])).status, 201)
+    assert.equal((await checkout(api, a.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])).status, 201)
     const mine = await api.get('/v1/me/addresses', { token: a.accessToken })
     assert.equal(mine.body.length, 1)
     const addressId = mine.body[0].id
@@ -336,7 +346,7 @@ describe('customer routes', () => {
     const b = await customerToken(api)
     const p = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
       { token: a.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(p.status, 201, JSON.stringify(p.body))
@@ -363,6 +373,49 @@ describe('customer routes', () => {
       const res = await call(r.method, `/v1${concrete(r.path)}`, { token: cust.accessToken })
       assert.equal(res.status, 401, `${r.method} ${r.path} -> ${res.status}`)
     }
+  })
+})
+
+// ---------------------------------------------------------------- the environment a token is for
+
+// AUTH-02: a token names the environment that signed it, so one from a preview (where anyone may
+// sign in with a demo code) is refused here even if both share a JWT_SECRET.
+describe('tokens are bound to the environment that signed them (AUTH-02)', () => {
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  /** The token's claims signed again with aud `aud`, or with none (as before AUTH-02). */
+  const resign = (token, aud) => {
+    const { aud: _aud, ...claims } = decode(token)
+    return jwt.sign(claims, env.JWT_SECRET, { algorithm: 'HS256', expiresIn: 600, ...(aud ? { audience: aud } : {}) })
+  }
+
+  test("a token for a preview is refused (401) on a customer and a staff route; one with no aud, or this environment's, works", async () => {
+    assert.equal(deployEnv, 'test')
+    const customer = (await customerToken(api)).accessToken
+    const staff = await adminToken(api)
+    for (const [label, token, path] of [['customer', customer, '/v1/me'], ['staff', staff, '/admin/v1/orders']]) {
+      assert.equal(jwt.decode(token).aud, deployEnv, `${label}: a new token names this environment`)
+      const preview = await api.get(path, { token: resign(token, 'preview') })
+      assert.equal(preview.status, 401, `${label}: ${JSON.stringify(preview.body)}`)
+      assert.equal(preview.body.error.code, 'INVALID_TOKEN')
+      assert.equal((await api.get(path, { token: resign(token, 'production') })).status, 401, `${label}: production is another environment too`)
+      assert.equal((await api.get(path, { token: resign(token, null) })).status, 200, `${label}: a token from before AUTH-02 (no aud) still works`)
+      assert.equal((await api.get(path, { token: resign(token, deployEnv) })).status, 200, `${label}: this environment's aud`)
+    }
+  })
+
+  test('a refresh token for a preview is refused; one with no aud still rotates, into one that names this environment', async () => {
+    const { refreshToken } = await customerToken(api)
+    assert.equal(jwt.decode(refreshToken).aud, deployEnv)
+    const refresh = (token) => api.post('/v1/auth/token/refresh', { refreshToken: token })
+    const preview = await refresh(resign(refreshToken, 'preview'))
+    assert.equal(preview.status, 401, JSON.stringify(preview.body))
+    const old = await refresh(resign(refreshToken, null))
+    assert.equal(old.status, 200, JSON.stringify(old.body))
+    assert.equal(jwt.decode(old.body.refreshToken).aud, deployEnv)
+    assert.equal(jwt.decode(old.body.accessToken).aud, deployEnv)
   })
 })
 
@@ -420,7 +473,7 @@ describe('webhooks and the cron', () => {
   test('a Razorpay webhook without a valid signature is refused and changes nothing', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201)
     const event = { event: 'payment.captured', payload: { payment: { entity: { id: 'pay_forged', order_id: c.body.razorpayOrderId, amount: c.body.total, method: 'upi' } } } }
     const raw = JSON.stringify(event)

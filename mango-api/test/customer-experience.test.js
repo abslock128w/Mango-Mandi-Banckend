@@ -28,7 +28,7 @@ const confirmWith = async (token, address, { gift } = {}) => {
   for (const o of (await api.get('/v1/orders', { token })).body) {
     if (o.status === 'PAYMENT_PENDING') assert.equal((await api.post(`/v1/orders/${o.id}/cancel`, undefined, { token })).status, 204)
   }
-  await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 1 }, { token })
+  await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { token })
   const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token })
   assert.equal(q.status, 200, JSON.stringify(q.body))
   const c = await api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address, name: 'Asha', gift }, { token, headers: { 'Idempotency-Key': `k-${Math.random()}` } })
@@ -38,8 +38,9 @@ const confirmWith = async (token, address, { gift } = {}) => {
 
 describe('catalogue', () => {
   test('each product has its description, and a sold-out choice says the next day it is back', async () => {
+    // QC'd ripe at 6 (a fast ripener): semi-ripe on 10-16 (age 7), too old after that.
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 5 } })
-    // Fruit still on the truck: sells only after it arrives, as raw a few days on.
+    // Fruit still on the truck (due 10-16): sells only for days after it arrives, as raw.
     await makeBatch({ age: 0, status: 'IN_TRANSIT', rating: null, lines: { 'ALP-3': 20 } })
     const cat = await api.get('/v1/catalogue?pincode=560034')
     assert.equal(cat.status, 200)
@@ -49,11 +50,18 @@ describe('catalogue', () => {
     assert.ok(raw.nextAvailableDate > cat.body.deliveryDate, JSON.stringify(raw))
     const later = await api.get(`/v1/catalogue?pincode=560034&delivery_date=${raw.nextAvailableDate}`)
     assert.ok(later.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'RAW').qty > 0)
-    const ripe = cat.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'RIPE')
-    assert.ok(ripe.qty > 0)
-    assert.equal(ripe.nextAvailableDate, null)
+    assert.equal(raw.nextAvailableDate, '2026-10-17')
+    const semi = cat.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'SEMI_RIPE')
+    assert.equal(semi.qty, 5)
+    assert.equal(semi.nextAvailableDate, null)
+    assert.equal(cat.body.items.find((i) => i.sku === 'ALP-3' && i.stage === 'RIPE'), undefined, 'nothing is offered ripe')
+    // Every bookable day from the chosen one on, with its count (0 included), in date order.
+    assert.deepEqual(raw.availability.map((a) => a.date), cat.body.deliveryDates.filter((d) => d >= cat.body.deliveryDate))
+    assert.equal(raw.availability[0].qty, 0)
+    assert.ok(raw.availability.find((a) => a.date === raw.nextAvailableDate).qty > 0)
+    assert.equal(semi.availability[0].qty, semi.qty)
     // Nothing anywhere: no date to promise.
-    assert.equal(cat.body.items.find((i) => i.sku === 'BAD-5' && i.stage === 'RIPE').nextAvailableDate, null)
+    assert.equal(cat.body.items.find((i) => i.sku === 'BAD-5' && i.stage === 'SEMI_RIPE').nextAvailableDate, null)
   })
 })
 
@@ -100,7 +108,7 @@ describe('changing the delivery day', () => {
   test('a confirmed order moves to another open day with stock; not once packing starts, and not anyone else’s', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     await pay(c.body.orderId)
     const dates = (await api.get('/v1/delivery/check?pincode=560034')).body.deliveryDates
@@ -127,7 +135,7 @@ describe('changing the delivery day', () => {
   test('a day without enough stock is refused and the order stays as it was', async () => {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 3 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(c.body.orderId)
     const dates = (await api.get('/v1/delivery/check?pincode=560034')).body.deliveryDates
     // Ripe today, too old to sell a few days on.
@@ -142,12 +150,12 @@ describe('ratings', () => {
   test('a delivered order can be rated and re-rated; staff see it, and analytics averages it and lists the unhappy ones', async () => {
     await makeBatch({ age: 6, rating: 'RIPE', lines: { 'ALP-3': 10 } })
     const cust = await customerToken(api)
-    const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     await pay(a.body.orderId)
     const put = (id, body) => api.put(`/v1/orders/${id}/rating`, body, { token: cust.accessToken })
     assert.equal((await put(a.body.orderId, { stars: 5 })).body.error.code, 'NOT_DELIVERED')
 
-    const b = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }], { key: 'second' })
+    const b = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }], { key: 'second' })
     await pay(b.body.orderId)
     await forceOrderState(`UPDATE orders SET status = 'DELIVERED' WHERE id IN ($1, $2)`, [a.body.orderId, b.body.orderId])
     assert.equal((await put(a.body.orderId, { stars: 6 })).status, 400)
@@ -159,6 +167,18 @@ describe('ratings', () => {
     assert.deepEqual([mine.rating.stars, mine.rating.comment], [1, 'Two were bruised'])
     const staff = (await api.get(`/admin/v1/orders/${b.body.orderId}`, { token: admin })).body
     assert.equal(staff.rating.stars, 1)
+
+    // The shop's review pop-up: packaging, condition and sweetness; stars are their average when left out.
+    assert.equal((await put(a.body.orderId, {})).status, 400)
+    assert.equal((await put(a.body.orderId, { packaging: 0, condition: 5, sweetness: 5 })).status, 400)
+    assert.equal((await put(a.body.orderId, { packaging: 5, condition: 4, sweetness: 5, comment: 'Sweet, one soft spot' })).status, 204)
+    const aspects = (await api.get(`/v1/orders/${a.body.orderId}`, { token: cust.accessToken })).body.rating
+    assert.deepEqual([aspects.stars, aspects.packaging, aspects.condition, aspects.sweetness, aspects.comment], [5, 5, 4, 5, 'Sweet, one soft spot'])
+    const staffA = (await api.get(`/admin/v1/orders/${a.body.orderId}`, { token: admin })).body.rating
+    assert.deepEqual([staffA.packaging, staffA.condition, staffA.sweetness], [5, 4, 5])
+    // The orders list says which delivered orders are rated, so the pop-up asks once.
+    const list = (await api.get('/v1/orders', { token: cust.accessToken })).body
+    assert.deepEqual(list.map((o) => [o.status, o.rated]), [['DELIVERED', true], ['DELIVERED', true]])
 
     const day = a.body.deliveryDate
     const stats = (await api.get(`/admin/v1/analytics?from=${day}&to=${day}`, { token: admin })).body

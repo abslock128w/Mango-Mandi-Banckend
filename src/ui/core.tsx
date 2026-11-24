@@ -44,6 +44,19 @@ export function OrderBadge({ status }: { status: OrderStatus }) {
   return <Badge tone={orderTone(status)}>{ORDER_STATUS_LABEL[status] ?? status}</Badge>
 }
 
+/**
+ * Backorders: some boxes were sold before stock arrived. Amber ("warn") while it still waits for
+ * stock (`awaiting`: the API's atRisk), plain once every box is allocated. Expected, not a problem.
+ */
+export function BackorderBadge({ awaiting }: { awaiting?: boolean }) {
+  return <Badge tone={awaiting ? 'warn' : 'neutral'}>{awaiting ? 'Backorder · awaiting stock' : 'Backorder'}</Badge>
+}
+
+/** A regular order booked against the plan: delivered from a later harvest, after that week's pre-orders. */
+export function PlannedBadge({ waiting, delayed }: { waiting?: boolean; delayed?: boolean }) {
+  return <Badge tone={delayed ? 'warn' : 'info'}>{delayed ? 'Booked ahead · delayed' : waiting === false ? 'Booked ahead · fruit set aside' : 'Booked ahead'}</Badge>
+}
+
 export function BatchBadge({ status }: { status: BatchStatus }) {
   return <Badge tone={batchTone(status)}>{BATCH_STATUS_LABEL[status] ?? status}</Badge>
 }
@@ -540,6 +553,7 @@ export function ReasonDialog({
   busy,
   error,
   tone = 'danger',
+  confirmDisabled = false,
   onSubmit,
   onClose,
 }: {
@@ -550,6 +564,8 @@ export function ReasonDialog({
   hint?: string
   minLength?: number
   maxLength?: number
+  /** Nothing can be confirmed yet (say why in the dialog). */
+  confirmDisabled?: boolean
   confirmLabel: string
   cancelLabel?: string
   busyLabel?: string
@@ -576,7 +592,7 @@ export function ReasonDialog({
           <button type="button" className="btn" onClick={onClose}>
             {cancelLabel}
           </button>
-          <button type="submit" form={`${id}-form`} className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} disabled={!valid || busy}>
+          <button type="submit" form={`${id}-form`} className={`btn ${tone === 'danger' ? 'btn-danger' : 'btn-primary'}`} disabled={!valid || busy || confirmDisabled}>
             {busy ? busyLabel : confirmLabel}
           </button>
         </>

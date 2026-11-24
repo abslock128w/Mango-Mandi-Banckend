@@ -10,7 +10,7 @@ import { HttpError } from './errors.js'
 import { logger } from './logger.js'
 
 const VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-/** The action the shop's widget is rendered with (customer-app/src/auth-ui.tsx). */
+/** The action the shop's widget is rendered with (shop/app.js, mountCaptcha). */
 export const TURNSTILE_ACTION = 'otp'
 
 /** The shop's hostnames (CUSTOMER_ORIGIN): a token solved on any other site is refused (SEC-04). */
@@ -23,9 +23,10 @@ const shopHosts = () =>
     }
   }).filter(Boolean)
 
-export async function requireHuman(token, ip, { known = false } = {}) {
+/** `action`: the widget's action, 'otp' for login codes, 'partner' for a Partner With Us enquiry. */
+export async function requireHuman(token, ip, { known = false, action = TURNSTILE_ACTION } = {}) {
   if (!env.TURNSTILE_SECRET_KEY) return
-  if (typeof token !== 'string' || !token || token.length > 2048) throw new HttpError(400, 'CAPTCHA_REQUIRED', 'Please complete the check, then ask for a code again.')
+  if (typeof token !== 'string' || !token || token.length > 2048) throw new HttpError(400, 'CAPTCHA_REQUIRED', action === TURNSTILE_ACTION ? 'Please complete the check, then ask for a code again.' : 'Please complete the check, then send again.')
   let ok = false
   try {
     const res = await fetch(VERIFY, {
@@ -36,7 +37,7 @@ export async function requireHuman(token, ip, { known = false } = {}) {
     })
     const r = await res.json()
     // Cloudflare: also check the hostname the widget ran on and its action, not only success.
-    ok = Boolean(r.success) && shopHosts().includes(r.hostname) && r.action === TURNSTILE_ACTION
+    ok = Boolean(r.success) && shopHosts().includes(r.hostname) && r.action === action
     if (r.success && !ok) logger.warn({ hostname: r.hostname, action: r.action }, 'Turnstile token from another site or action refused')
   } catch (err) {
     if (known) {

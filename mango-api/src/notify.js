@@ -7,13 +7,16 @@ import { now } from './clock.js'
 import { query } from './db.js'
 import { env, isProd } from './env.js'
 import { newId } from './ids.js'
+import { formatOrderNumber } from './order-number.js'
 import { logger, maskPhone } from './logger.js'
 import { metrics } from './metrics.js'
 import { productName } from './products.js'
 import { enqueueLinkPush, enqueueOrderPush } from './push.js'
-import { eatByFor, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
+import { eatByFor, OLDEST_PLUCK_SQL, readyOnFor, STAGE_WORDS, storageTip } from './ripeness.js'
 import { otpMessageFailed } from './sms.js'
 import { deliveryCodeFor } from './delivery-code.js'
+import { billLink } from './bill-link.js'
+import { isOn } from './feature-switches.js'
 import { sendOutcome, templateName, whatsappSender } from './whatsapp.js'
 import { refusal } from './wa/consent.js'
 import { jitter, recordTemplateSent } from './wa/conversations.js'
@@ -89,6 +92,52 @@ export async function enqueuePreorder(c, preorderId, kind) {
 }
 
 /**
+ * The plan moved bookings (src/preorders.js recalculatePreorders, the allocator, a manager's move): one message per
+ * moved PAID booking, PREORDER_DELAYED (later: the customer may now cancel for a full refund until it is packed) or
+ * PREORDER_EARLIER (good news, no cancel right). `items`: [{ id, number, name, phone, movedCount, kind, from, to }].
+ * The variables are fixed now (params): later moves must not rewrite which week this one was about. The event is the
+ * move itself (moved_count after it), so a step run twice adds no second message, and a plan applied again with no
+ * change moves nothing and sends nothing. Queued in one statement, for a recalculation of thousands of bookings.
+ */
+export async function enqueuePreorderMoves(c, items) {
+  const rows = items.filter((m) => m.phone)
+  if (!rows.length) return 0
+  const at = now()
+  const link = (id) => `${shopUrl()}/preorders/${encodeURIComponent(id)}`
+  const params = rows.map((m) => {
+    const name = m.name?.trim() || 'there'
+    return m.kind === 'PREORDER_DELAYED'
+      ? [name, formatOrderNumber(m.number), weekWords(m.from), weekWords(m.to), link(m.id)]
+      : [name, formatOrderNumber(m.number), weekWords(m.to), weekWords(m.from), link(m.id)]
+  })
+  const r = await c.query(
+    `INSERT INTO notifications (id, preorder_id, event_id, kind, phone, params, next_attempt_at, created_at)
+     SELECT x.id, x.preorder_id, x.event_id, x.kind, x.phone, x.params, $2, $2
+       FROM jsonb_to_recordset($1::jsonb) AS x(id text, preorder_id text, event_id text, kind text, phone text, params jsonb)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [JSON.stringify(rows.map((m, i) => ({ id: newId('ntf'), preorder_id: m.id, event_id: `${m.id}:moved:${m.movedCount}`, kind: m.kind, phone: m.phone, params: params[i] }))), at],
+  )
+  return r.rowCount
+}
+
+/**
+ * We moved a paid order booked against the plan to a later date (plan-orders.js): one ORDER_DELAYED per move (`count`:
+ * its delay_count after the move). The variables are fixed now; the customer may cancel for a full refund until packed.
+ */
+export async function enqueueOrderDelayed(c, { id, number, name, phone, count, from, to }) {
+  if (!phone) return
+  const at = now()
+  await c.query(
+    `INSERT INTO notifications (id, order_id, event_id, kind, phone, params, next_attempt_at, created_at) VALUES ($1, $2, $3, 'ORDER_DELAYED', $4, $5, $6, $6)
+     ON CONFLICT (event_id, kind) DO NOTHING`,
+    [newId('ntf'), id, `${id}:delayed:${count}`, phone, JSON.stringify([name?.trim() || 'there', formatOrderNumber(number), dateWords(from), dateWords(to), `${shopUrl()}/orders/${encodeURIComponent(id)}`]), at],
+  )
+}
+
+/** Messages that wait for WhatsApp to be connected instead of being dropped (the owner: "queue it so it sends once the key is connected"). */
+export const WAITS_FOR_WHATSAPP = new Set(['PREORDER_DELAYED', 'PREORDER_EARLIER', 'ORDER_DELAYED'])
+
+/**
  * Customer care (docs/care.md): "we replied to your help request". The browser notification
  * goes whenever the customer has them on; WhatsApp only once Meta has approved
  * mandi_help_reply (WHATSAPP_CARE_UPDATES). `messageId` (the staff reply) makes a repeat a no-op.
@@ -158,9 +207,9 @@ export function readyWords(items, date) {
   for (const i of items ?? []) if (i.stage) seen.set(`${i.sku}|${i.stage}`, i)
   return [...seen.values()]
     .map((i) => {
-      const ready = readyOnFor(i.stage, date)
+      const ready = readyOnFor(i.stage, date, i.pluckedOn)
       const when = ready === date ? `ready on arrival, ${dateWords(date)}` : `ready around ${dateWords(ready)}`
-      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date))}`
+      return `${productName(i.sku)} (${STAGE_WORDS[i.stage]}): ${when}, best by ${dateWords(eatByFor(i.stage, date, i.pluckedOn))}`
     })
     .join('; ')
 }
@@ -187,6 +236,8 @@ const codeFor = (n) => (n.order_id ? deliveryCodeFor({ id: n.order_id, delivery_
 
 /** Template body variables, in order, for each kind of update. */
 export function paramsFor(n) {
+  // S743406080 reads S-743 406 080 in a message; older numbers as they are (order-number.js).
+  if (n.number != null) n = { ...n, number: formatOrderNumber(n.number) }
   const name = n.customer_name?.trim() || 'there'
   switch (n.kind) {
     case 'ORDER_CONFIRMED':
@@ -218,10 +269,29 @@ export function paramsFor(n) {
       return [name, n.number, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start)]
     case 'PREORDER_SPOT_OPEN':
       return [name, `${n.pre_qty} × ${productName(n.pre_sku)}`, weekWords(n.week_start), n.payment_link_url ?? '']
+    // Fixed when queued (enqueuePreorderMoves): the weeks this move was from and to.
+    case 'PREORDER_DELAYED':
+    case 'PREORDER_EARLIER':
+    case 'ORDER_DELAYED':
+      return (n.params ?? []).map(String)
     case 'REFERRAL_REWARD':
       // "{{2}} off your next order of {{5}} or more: code {{3}}, until {{4}}" (docs/growth.md).
       // {{2}} is "10%" for a percent code, "Rs 100" for a flat one.
       return [name, n.reward_kind === 'PERCENT' ? `${n.reward_amount ?? 0}%` : rupees(n.reward_amount ?? 0), n.reward_code ?? '', n.reward_ends_on ? dateWords(n.reward_ends_on) : 'soon', rupees(n.reward_min ?? 0)]
+    case 'FARM_BOOKING_UPDATE':
+    case 'FARM_TEAM_ALERT':
+      // Fixed when queued (farm/notify.js), so a late retry still says what happened then.
+      return (n.farm_params ?? []).map(String)
+    case 'PARTNER_ENQUIRY_RECEIVED':
+    case 'PARTNER_TEAM_ALERT':
+      // Fixed when queued (partner/alerts.js), so a late retry still says what happened then.
+      return (n.partner_params ?? []).map(String)
+    case 'BULK_ENQUIRY_RECEIVED':
+    case 'BULK_QUOTE':
+    case 'BULK_ORDER_PAID':
+    case 'FARM_VISIT_ENQUIRY_RECEIVED':
+      // Fixed when queued (bulk-enquiries.js): a quote's total and link are as they were sent.
+      return (n.bulk_params ?? []).map(String)
     case 'MANAGER_DAILY_SUMMARY':
       // Made when the summary was taken (manager-summary.js), so a late retry still says what the day was.
       return (n.summary_params ?? []).map(String)
@@ -259,6 +329,37 @@ export function orderLinkFor(n) {
   if (ORDER_LINK_NEW.has(n.kind)) return n.order_id
   if (ORDER_LINK_ALWAYS.has(n.kind) || (env.WHATSAPP_ORDER_LINKS && ORDER_LINK_WITH_FLAG.has(n.kind))) return n.order_id
   return null
+}
+
+/**
+ * The order confirmation that carries the invoice: <prefix>order_confirmed_invoice, the same
+ * four body variables as the plain confirmation and two URL buttons, "Track order"
+ * (https://<shop>/orders/{{1}}, the order id) and "Download invoice"
+ * (https://<api>/v1/invoice/{{1}}, the signed link of bill-link.js; a link to the PDF, not the file).
+ * Used in place of the plain confirmation when the order has a bill (BILLS_ENABLED), once Meta has
+ * approved the template (WHATSAPP_ORDER_INVOICE=true). An order without a bill (bills off, a free
+ * replacement, a bill not issued yet) and a template Meta has not approved get the plain confirmation.
+ */
+export const INVOICE_TEMPLATE = 'ORDER_CONFIRMED_INVOICE'
+export function sendsInvoice(n) {
+  if (n.kind !== 'ORDER_CONFIRMED' || !n.order_id || !n.has_bill) return false
+  if (!env.WHATSAPP_ORDER_INVOICE || !isOn('BILLS_ENABLED')) return false
+  // After a template sync: only when Meta has this template, approved and with its buttons.
+  if (n.templates?.size) {
+    const t = n.templates.get(templateName(INVOICE_TEMPLATE))
+    if (!t || t.status !== 'APPROVED' || t.url_button === false) return false
+  }
+  return true
+}
+
+/** The Meta template one queued message goes out with. */
+export const templateOf = (n) => (sendsInvoice(n) ? templateName(INVOICE_TEMPLATE) : templateFor(n.kind))
+
+/** The URL button variables of a message, in the template's button order (none: an empty list). */
+export function buttonsFor(n) {
+  if (sendsInvoice(n)) return [n.order_id, billLink(n.order_id)]
+  const link = orderLinkFor(n)
+  return link ? [link] : []
 }
 
 async function mark(id, fields) {
@@ -333,7 +434,7 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
     `SELECT n.*, COALESCE(o.number, p.number) AS number, o.status AS order_status,
             o.delivery_date, o.delivery_code, o.delivery_code_nonce, o.gift_recipient_name, rd.display_name AS rider_name, rd.email AS rider_email, COALESCE(o.total, p.total) AS total, COALESCE(o.payment_amount, p.paid_amount) AS payment_amount,
             s.starts_at, s.ends_at, p.week_start, p.sku AS pre_sku, p.qty AS pre_qty, p.payment_link_url, p.status AS preorder_status,
-            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
+            (SELECT json_agg(json_build_object('sku', i.sku, 'stage', i.stage, 'pluckedOn', ${OLDEST_PLUCK_SQL}) ORDER BY i.sku) FROM order_items i WHERE i.order_id = o.id) AS items,
             (SELECT i.sku FROM order_items i WHERE i.order_id = o.id ORDER BY i.line_price DESC LIMIT 1) AS last_product,
             a.sku AS alert_sku, a.stage AS alert_stage, a.available_on AS alert_date, a.cancelled_at AS alert_cancelled_at,
             COALESCE(o.customer_name, p.customer_name, ac.name, rc.name, cc.name) AS customer_name,
@@ -345,7 +446,8 @@ async function sendBatch(sender, limit, at, onlyIds = null) {
             sb.status AS subscription_status,
             COALESCE(o.customer_id, p.customer_id) AS target_customer_id,
             (SELECT cu.reminders_opt_in FROM customers cu WHERE cu.id = o.customer_id) AS reminders_opt_in,
-            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled
+            wc.updates AS consent_updates, wc.marketing AS consent_marketing, wau.enabled AS automation_enabled,
+            EXISTS (SELECT 1 FROM bills b WHERE b.order_id = o.id AND b.cancelled_at IS NULL) AS has_bill
        FROM notifications n LEFT JOIN orders o ON o.id = n.order_id LEFT JOIN preorders p ON p.id = n.preorder_id
        LEFT JOIN wa_consent wc ON wc.phone = n.phone LEFT JOIN wa_automations wau ON wau.kind = n.kind
        LEFT JOIN delivery_slots s ON s.id = o.slot_id LEFT JOIN admin_users rd ON rd.id = o.rider_id
@@ -398,8 +500,20 @@ function staleReason(n) {
   }
   // A "pay for this box" reminder once the box is paid for, skipped or the subscription stopped is no longer true.
   if (n.kind === 'SUBSCRIPTION_DUE' && (n.cycle_status !== 'DUE' || n.subscription_status !== 'ACTIVE')) return `cycle is ${n.cycle_status ?? 'gone'} now`
+  // A delayed or earlier message is about one move: once the booking moved again (a newer message is queued), was
+  // cancelled or delivered, it is no longer true.
+  if (n.kind === 'PREORDER_DELAYED' || n.kind === 'PREORDER_EARLIER') {
+    if (n.preorder_status === 'CANCELLED') return 'booking cancelled since'
+    const target = n.params?.[n.kind === 'PREORDER_DELAYED' ? 3 : 2]
+    if (target && n.week_start && weekWords(n.week_start) !== target) return 'booking moved again since'
+  }
   const s = n.order_status
   if (!s) return null
+  // One move's message: no longer true once the order was cancelled, delivered or moved again.
+  if (n.kind === 'ORDER_DELAYED') {
+    if (s === 'CANCELLED' || s === 'DELIVERED') return `order is ${s} now`
+    if (n.params?.[3] && n.delivery_date && dateWords(n.delivery_date) !== n.params[3]) return 'order moved again since'
+  }
   if ((n.kind === 'ORDER_CONFIRMED' || n.kind === 'REPLACEMENT_CONFIRMED' || n.kind === 'DATE_MOVED') && s === 'CANCELLED') return 'order cancelled since'
   if (['OUT_FOR_DELIVERY', 'GIFT_OUT_FOR_DELIVERY', 'DELIVERY_CODE', 'GIFT_DELIVERY_CODE'].includes(n.kind) && s !== 'OUT_FOR_DELIVERY') return `order is ${s} now`
   if (n.kind === 'DELIVERY_FAILED' && (s === 'DELIVERED' || s === 'CANCELLED')) return `order is ${s} now`
@@ -426,7 +540,7 @@ function staleSince(n) {
 
 /** Sends one claimed message and records the outcome. Returns true when sent. */
 async function sendOne(n, sender, at) {
-  if (at - n.created_at > MAX_AGE_MS) {
+  if (at - n.created_at > MAX_AGE_MS && !WAITS_FOR_WHATSAPP.has(n.kind)) {
     // OPS_ALERTS: next_attempt_at records when it was given up, for checkHealth (INT-06).
     await mark(n.id, { status: 'SKIPPED', last_error: 'older than a day', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
     return false
@@ -445,38 +559,46 @@ async function sendOne(n, sender, at) {
     return false
   }
   const params = paramsFor(n)
-  const known = n.templates?.get(templateFor(n.kind))
+  const template = templateOf(n)
+  const buttons = buttonsFor(n)
+  const known = n.templates?.get(template)
   if (known && known.status !== 'APPROVED') {
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} is ${known.status} at Meta, not approved` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} is ${known.status} at Meta, not approved` })
     return false
   }
   if (known && ORDER_LINK_NEW.has(n.kind) && known.url_button === false) {
     // Still Meta's older version (with the code, no Track order button): its wording would be wrong.
-    await mark(n.id, { status: 'SKIPPED', last_error: `template ${templateFor(n.kind)} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
+    await mark(n.id, { status: 'SKIPPED', last_error: `template ${template} at Meta is the older version without the Track order button: update it (docs/whatsapp/TEMPLATES.md)` })
     return false
   }
   if (known && known.body_params != null && known.body_params !== params.length) {
     // Meta would refuse it (wrong number of variables): stop before calling, with the reason.
-    await mark(n.id, { status: 'FAILED', last_error: `template ${templateFor(n.kind)} takes ${known.body_params} variables, this message has ${params.length}` })
+    await mark(n.id, { status: 'FAILED', last_error: `template ${template} takes ${known.body_params} variables, this message has ${params.length}` })
     metrics.notificationsFailed.inc({ kind: n.kind })
     return false
   }
   if (!sender) {
+    if (isProd && WAITS_FOR_WHATSAPP.has(n.kind)) {
+      // Kept in the outbox and tried again every 6 hours: it goes out once WhatsApp is connected (staleReason drops it
+      // if the booking moved again or was cancelled in the meantime).
+      await mark(n.id, { last_error: 'waiting for WhatsApp to be connected', next_attempt_at: new Date(at.getTime() + 6 * 3_600_000) })
+      return false
+    }
     if (isProd) {
       logger.warn({ orderId: n.order_id, kind: n.kind }, 'no WhatsApp provider configured; update not sent')
       await mark(n.id, { status: 'SKIPPED', last_error: 'no WhatsApp provider configured', ...(env.OPS_ALERTS ? { next_attempt_at: at } : {}) })
       return false
     }
     // The delivery code is a secret: never in the log (the shop page shows it).
-    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: orderLinkFor(n) }
-    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${templateFor(n.kind)}`)
+    const shown = CODE_KINDS.has(n.kind) ? { params: ['****'] } : { params, orderLink: buttons[0] ?? null, ...(buttons.length > 1 ? { invoiceLink: buttons[1] } : {}) }
+    logger.info({ phone: maskPhone(n.phone), kind: n.kind, ...shown }, `WhatsApp ${template}`)
     await mark(n.id, { status: 'SENT', sent_at: at, provider_id: 'log' })
-    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: null, notificationId: n.id })
+    await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template, summary: updateSummary(n), providerId: null, notificationId: n.id })
     return true
   }
   let providerId
   try {
-    providerId = await sender({ phone: n.phone, template: templateFor(n.kind), params, urlParam: orderLinkFor(n) })
+    providerId = await sender({ phone: n.phone, template, params, urlParam: buttons[0] ?? null, ...(buttons.length > 1 ? { urlParams: buttons } : {}) })
   } catch (err) {
     const attempts = n.attempts + 1
     const outcome = sendOutcome(err)
@@ -504,12 +626,12 @@ async function sendOne(n, sender, at) {
   const fields = { status: 'SENT', sent_at: at, provider_id: providerId ?? null, attempts: n.attempts + 1, last_error: null }
   await mark(n.id, fields).catch(() => mark(n.id, fields)).catch((err) => logger.error({ err, id: n.id }, 'message sent but not recorded'))
   metrics.notificationsSent.inc({ kind: n.kind })
-  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateFor(n.kind), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
+  await recordTemplateSent({ phone: n.phone, customerId: n.target_customer_id, template: templateOf(n), summary: updateSummary(n), providerId: providerId ?? null, notificationId: n.id })
   return true
 }
 
 /** How an order update reads in its conversation (no delivery code: staff never need it there). */
-const updateSummary = (n) => `Update sent: ${n.kind.toLowerCase().replaceAll('_', ' ')}${n.number ? ` (${n.number})` : ''}`
+const updateSummary = (n) => `Update sent: ${n.kind.toLowerCase().replaceAll('_', ' ')}${n.number ? ` (${formatOrderNumber(n.number)})` : ''}`
 
 /** Why a queued message may not go now (switch, consent), or null. */
 function sendGate(n) {

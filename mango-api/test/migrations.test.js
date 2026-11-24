@@ -212,6 +212,25 @@ describe('the migration runner', () => {
     }
   })
 
+  test('AREA1-01: a version applied by another branch (no file here) stops the run, naming it, before anything is applied', async () => {
+    // Upstream's 052 has the same number as this fork's 052_demo_seed_runs.sql but another name.
+    await query(`INSERT INTO schema_migrations (version) VALUES ('052_partner_network.sql')`)
+    const tmp = await mkdtemp(path.join(tmpdir(), 'mig-'))
+    try {
+      await assert.rejects(runMigrations(), /Migration 052_partner_network\.sql is recorded in schema_migrations but has no file in migrations\/: refusing to start\. It was applied by another branch/)
+      // A run over another folder still knows the app's own files, and still refuses the stranger.
+      await writeFile(path.join(tmp, '903_orphan_probe.sql'), 'CREATE TABLE orphan_probe (id INT);')
+      await assert.rejects(migrate(pool, { dir: tmp }), /052_partner_network\.sql/)
+      assert.equal((await query(`SELECT to_regclass('public.orphan_probe') AS t`)).rows[0].t, null)
+      assert.equal((await recorded()).has('903_orphan_probe.sql'), false)
+    } finally {
+      await rm(tmp, { recursive: true })
+      await query(`DELETE FROM schema_migrations WHERE version = '052_partner_network.sql'`)
+    }
+    // Resolved by hand: the next run goes ahead.
+    await runMigrations()
+  })
+
   test('a file whose second statement fails leaves nothing of its first', async () => {
     const tmp = await mkdtemp(path.join(tmpdir(), 'mig-'))
     try {

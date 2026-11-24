@@ -3,11 +3,147 @@
 The customer storefront at `mandimangoes.in`: the "glass" design from the owner's
 `mango-house` repository (its `dist/` folder, which stays the design source), wired to
 mango-api's `/v1` storefront API. It is a static site with no build tool and no packages:
-`index.html`, `style.css`, `dock.css`, `app.js`, `dock.js`, `api.js`, `sw.js`,
-`manifest.webmanifest`, `config.js` and `assets/` (GSAP and the fonts are served from here).
+`index.html`, `style.css`, `dock.css`, `catalog.js`, `shelf.js`, `app.js`, `dock.js`, `api.js`,
+`sw.js`, `manifest.webmanifest`, `config.js` and `assets/` (GSAP, the fonts and the mango
+photos are served from here).
 
-It replaces the Next.js shop in [`customer-app/`](../customer-app/README.md), which stays in
-the repo until it is retired (see the checklist at the end).
+It replaces the Next.js shop that lived in `customer-app/`, retired on 4 Nov 2026 (see the
+checklist at the end).
+
+## The catalogue
+
+The shelf has one card per variety the API sells (`GET /v1/products`, grouped by `variety`).
+The words and photos come from the MangoKart catalogue, kept in `catalog.js`: for each of the
+15 varieties and the Mixed Box, its region, origin, flavour, story, season, sweetness,
+"best for" line, search words and occasions, plus a photo per stage in `assets/mangoes/`
+(Unsplash, see [`CREDITS.md`](CREDITS.md)). Prices, boxes and stock always come from the API;
+a variety in `catalog.js` that the API does not sell is not shown, and an API variety missing
+from `catalog.js` gets a plain card with the design's stage photo. A photo uploaded on the
+panel (`photoUrl`) replaces the illustrative one.
+
+`shelf.js` draws the shelf: the ripeness rail, the occasion pills, the sort, the stage dots on
+each card, search (with MangoKart's synonyms, e.g. "pickle" → raw Totapuri, "hapus" →
+Alphonso), and the product sheet. `app.js` keeps the bag, checkout, orders, pre-orders and
+bulk enquiries. The three are classic scripts sharing globals, loaded in that order. Why it
+was built this way: [`REBUILD-PLAN.md`](REBUILD-PLAN.md).
+
+Box size is two cards (3 kg / 5 kg, each with its price) instead of a dropdown, so picking a box
+is one tap, on the shelf and in the product sheet.
+
+## Before the season: the home page is the pre-order shop
+
+There is no pre-order page any more (`/preorder` and `/#preorder` land on `/`). The API's
+`season` (`GET /v1/preorders/weeks`, loaded with the page, and `GET /v1/catalogue`; rules
+`seasonStartsOn` and `preorderOpensOn` on the panel's Planning page) decides what the home page is:
+
+- **PREORDER** (before the season starts, once pre-orders open): a notice band above the product
+  grid ("You're pre-ordering. The season starts …" / "Pre-orders can't be cancelled or refunded"),
+  the announcement bar says "Pre-orders are open · season starts …" and scrolls to the shop, and
+  every card has a "Pre-order" badge and button (no stock, sold-out or delivery-day words: there
+  is no fruit yet). A box with no harvest week open is disabled with the reason. The product sheet
+  books instead of adding to the bag: ripeness, box, quantity, then the delivery week the API
+  gives (no week to choose: every box shares one weekly limit in kg and a pre-order goes in the earliest
+  week with room for its kg, worked out from `deliveryWeeks` as the API does (`preDayFor`); "This is a pre-order. It will be delivered in the first week of
+  March (week of 1 Mar)", or "The first week of March is fully booked. Your order will be delivered
+  in the second week of March …"), a boxed warning that
+  the pre-order can't be cancelled or refunded once paid, a required tick, then
+  "Pre-order · pay ₹…" (`app.js` `preDetail` / `renderPreorder`; sign-in and address reuse the
+  checkout steps). The bag isn't used: its button hides while empty, and a bag from before shows a
+  notice and can't be checked out.
+- **BEFORE** (before pre-orders open): the band and the cards say when pre-orders open.
+- **OPEN**: the usual shop; nothing in the shop starts a pre-order.
+
+Paid pre-orders show a "Pre-order" chip, "Non-refundable · delivered in the week of …" and no
+Cancel button (a line says to message us instead); unpaid and waitlisted ones can still be
+cancelled. An order made from one says "Pre-order · non-refundable" and offers no cancel (the
+API's `canCancel`). `/preorders/<id>` (the Razorpay return) and "My pre-orders" on the account
+page stay.
+
+## Pages (`pages.js`)
+
+Checkout (`/checkout`), My orders (`/orders`, `/orders/:id`, and the API's `/order/:id`), the
+profile (`/account`) and sign-in (`/login?next=…`) are full pages, not sheets. Signed out, the account
+pages send the customer to `/login`, which returns them to the page they wanted (only a path on this site). They replace the home page in place (History
+API, so back and forward work and the links can be reloaded or shared); `vercel.json` serves
+`index.html` for them (a public page its own copy, see "Search and share" below) and `scripts/serve-shop.mjs`
+serves `index.html`. app.js's checkout and order flows draw
+wherever `view` points: the page, the product sheet's booking panel (`#pre-box`, before the
+season), or the form sheet for a booked pre-order and bulk enquiries.
+
+Checkout has a step bar (Area · Sign in · Delivery · Payment · Done), delivery dates and slots as
+cards, the customer's saved addresses (`GET /v1/me/addresses`) as cards, and "Use my current
+location": the browser's position, turned into an address and pincode by OpenStreetMap's
+Nominatim (allowed in the CSP `connect-src`). The profile shows the name and phone, saved
+addresses (remove), favourites, the WhatsApp reminder switch (`PATCH /v1/me`), pre-orders and
+sign out, with a Profile / My orders tab bar.
+
+### Deliver to (location.js)
+
+The shop bar starts with a "Deliver to" chip. Its sheet sets the area up front, by current location,
+the map (with building search), a saved address or a pincode; the shop then shows that area's stock
+and delivery days. First-time visitors get the sheet once, offering their current location. Only the
+area is asked here: checkout starts from it (pincode, map pin, saved address, street from the
+location) and asks for the flat and building. The profile page sets the customer's name
+(`PATCH /v1/me {name}`; on an API without it, the name is kept on the device).
+
+### Delivery map and order tracking
+
+`map-picker.js` adds a map to the checkout's delivery step: Leaflet 1.9.4 (served from
+`assets/leaflet/`, BSD-2) with OpenStreetMap tiles. The pin stays in the middle and the customer
+moves the map onto their door; the spot becomes an address and pincode through Nominatim
+(the pincode switches if it differs). Search finds a building, society or street on Enter or
+the Search button only, as Nominatim's usage policy requires (no search-as-you-type, at most one
+request a second). A typed or saved address is never overwritten by the map; the map offers its
+address instead. The API stores the address as text only, so the pin travels in the text as a
+` · Location: lat,lng` suffix (the bill leaves it out): riders and staff see the exact spot, saved addresses bring the pin back,
+and the order page reads it to show its map.
+
+`/orders/:id` is the tracking page: a status headline (with the rider's first name and the rough
+arrival time from live tracking while out for delivery), a five-step tracker with times from the
+order's history, the delivery code, the delivery photo once delivered, the address with its map,
+the boxes with their best-by dates, and pay, cancel and WhatsApp help. It refreshes every 30 s
+(5 s while awaiting payment) and only redraws when the order changed.
+
+On phones and touch screens the sheets are solid and nothing is blurred behind them, and the
+glass skips edge refraction: blur over blur redrawn while a sheet animated in made phones flicker.
+
+### Order numbers and invoices
+
+New orders are numbered with 10 digits and shown as `#7434060801` (mango-api `orders.js`: the
+order sequence scrambled by a factor coprime with 9e9, so numbers are unique and gapless underneath
+but don't reveal order volume; `restore.js` turns them back into the sequence). Older orders keep
+`ORD-1024`. The shop and the panel add the `#`; the panel and chat search accept it.
+
+The invoice is the API's numbered bill (`GET /v1/orders/:id/bill`, PDF; feature switch
+`BILLS_ENABLED`). The shop offers "Download invoice" on the payment-success step and on the order
+page; managers and operators download it from the order in the panel (Bill card). Since migration
+`056_payment_details` the order keeps the Razorpay payment's details (`payment_details`: method,
+payment ID, UPI reference number (RRN), masked UPI ID, card network and last four, bank or wallet,
+time), the bill prints them under the total, and the order page shows them.
+
+## Theme and type
+
+`theme.js` (in `<head>`, so there is no flash) sets light or dark from the device setting until
+the viewer uses the header toggle, then remembers it (`mm-theme`). `theme.css` holds the dark
+colours: a warm near-black with a brighter mango yellow (#ffc93c) for accents and buying actions.
+The light theme keeps the original mango-house palette (forest green, cream) with no yellow accents.
+Headings are Young Serif (a warm, sign-painter serif), text is Figtree; both SIL OFL, served
+from `assets/fonts/` (see `assets/fonts.css`).
+
+## Liquid glass (`liquid.js`)
+
+The control layer (header, search, bag, rails, chips, tags and quick add on photos, close
+buttons, steppers, sheets, the dock) uses one glass material in `style.css`: a thin bright
+tint, heavy blur and saturation, a specular rim, and a light that follows the pointer.
+`liquid.js` adds spring physics: controls squash when pressed and wobble back, lean toward a
+mouse, and the ripeness pill, the sheet's ripeness lens and the box lens slide like a drop
+(stretching with speed, wobbling as they land). The bag button, dock bag bar, toast and
+dialogs jiggle when they change. Elements with `data-refract` also bend what is behind their
+edges (an SVG displacement map in `backdrop-filter`, Chromium only; elsewhere they keep the
+blur). Reduced motion turns the physics off; reduced transparency makes the glass opaque.
+
+To add a variety: add it on the panel's Products page (that is what the shop sells), then add
+a row to `ROWS` in `catalog.js` with the same name, and its photos to `assets/mangoes/`.
 
 ## How it talks to the API
 
@@ -48,13 +184,62 @@ it from the environment:
 | Variable | Meaning |
 |----------|---------|
 | `API_URL` | mango-api's origin, e.g. `https://api.mandimangoes.in`: no path, no trailing slash. Required when `VERCEL_ENV=production`, where it must be `https://` and not localhost. Unset elsewhere: `http://localhost:3000` |
+| `API_VIA_SHOP` | `true` when the shop and the API are on different sites (two `*.vercel.app` addresses). The shop then calls `/v1` on its own address and `vercel.json` forwards it to `API_URL` (the build refuses a mismatch), so the sign-in cookie belongs to the shop and phones keep it between visits. Leave unset when both are under one domain |
 | `SUPPORT_WHATSAPP` | the help WhatsApp number, digits only with the country code (`919800000000`). Optional |
+| `SUPPORT_PHONE` | a phone number for the Contact page (digits, spaces, an optional `+`). Optional |
+| `SUPPORT_EMAIL` | an email address for the Contact page and the privacy policy. Optional |
+| `GOOGLE_MAPS_KEY` | a Google Maps browser key for the delivery map and address lookup; without it they use OpenStreetMap. Optional |
+| `BUSINESS_NAME` | the registered business name (footer, terms). Optional: the pages fall back to "VMR Mangoes" |
+| `BUSINESS_ADDRESS` | the postal address on one line, commas allowed (footer, "Our address" on Contact). Optional |
+| `FSSAI_NUMBER` | the 14-digit FSSAI licence number (footer, Contact). Optional |
+| `GSTIN` | the 15-character GSTIN, checked like the API checks it (footer, Contact). Optional |
+| `SHOP_URL` | the shop's own public origin, e.g. `https://mandimangoes.in` (no path, no trailing slash; `https://` on a production build). Optional: without it the build keeps the origin in `index.html`'s canonical link (today `https://mandi-shop.vercel.app`). Every page's canonical link, `og:url` and `og:image`, the sitemap and `robots.txt` use it |
+
+Each optional detail is written into `config.js` only when set, and the shop shows no line (never a placeholder)
+for one that is not. A production build (`VERCEL_ENV=production`) prints one warning for each of
+`SUPPORT_WHATSAPP`, `SUPPORT_PHONE`, `SUPPORT_EMAIL`, `BUSINESS_ADDRESS`, `FSSAI_NUMBER` and `GSTIN` that is
+missing, and still builds.
 
 A bad value stops the build with a message. After writing `config.js` it runs
 `scripts/scan-bundle.mjs` over this folder (secrets, `/v1/dev`, demo accounts, source maps, and
 on a production build any localhost address), so none of the shop's files may contain those
-literally. Running the build locally changes `config.js`: run `npm run shop:build` with no
-variables, or `git checkout shop/config.js`, to put the default back before committing.
+literally. A build with no variables writes `config.js` exactly as it is committed (single quotes), so it leaves
+the tree clean; with variables it changes `config.js` (and, with a new `SHOP_URL`, `index.html`): run
+`npm run shop:build` with no variables, or `git checkout shop/config.js shop/index.html`, before committing.
+
+## Search and share (`routes.js`, `seo.js`, `_routes/`, `404.html`)
+
+WhatsApp, Facebook and most crawlers read a page's HTML and run no JavaScript, so every public page has its own HTML:
+
+- **`routes.js`** is the table of public pages: path, title and description (`/`, `/bulk`, `/gifts`, `/partner`,
+  `/legacy`, `/help`, `/contact`, `/farm-experience`, `/privacy`, `/terms`, `/refund`, `/shipping`). The titles are the
+  ones the views set with `document.title`; `tests/unit/shop-routes.unit.ts` checks they agree. It is a browser script
+  (`window.MM_ROUTES`) that the build also imports.
+- **The build** (`build-config.mjs`, after `config.js`) writes `_routes/`: for each page but `/`, a copy of
+  `index.html` with that page's `<title>`, meta description, canonical link, `og:title`, `og:description` and `og:url`;
+  plus `sitemap.xml` (every page in `routes.js`) and `robots.txt` (everything allowed but the signed-in and one-person
+  pages, `/v1/` and `/_routes/`; it names the sitemap). `_routes/` is rebuilt on every build and never committed
+  (`.gitignore`). `index.html` itself stays the template and the home page; it is rewritten only when `SHOP_URL` names
+  another origin.
+- **`vercel.json`** rewrites each public page to its file (`/bulk` → `/_routes/bulk.html`), `/robots.txt` and
+  `/sitemap.xml` to theirs, and every other address the router knows (`/orders/:id`, `/gifts/:id`, `/bulk/enquiry`, …) to
+  `/index.html`. Each source ends in `{/}?` so `/bulk/` works too (Vercel matches sources strictly). There is no
+  catch-all: any other address gets **`404.html`** with a real 404 status (Vercel serves a root `404.html` for anything
+  that is not a file and not rewritten). It is a small static page in the shop's look with links to the shop and to
+  Help, `noindex`, and only this site's own files (it fits the CSP as it is).
+- **`seo.js`** (loaded last) follows the page on every `mm:route`: the meta description, the title a page left behind
+  (the home page always gets the home title), and on the home page the JSON-LD: Organization and WebSite, and an
+  ItemList of Products once the shelf is drawn (name, photo and words from `catalog.js`; each box an Offer in INR with
+  `PreOrder` before the season, `InStock` or `OutOfStock` once stock is known for a pincode). The in-app not-found
+  page (`pages.js` `notFoundView`) adds `<meta name="robots" content="noindex">` and the next page takes it away.
+
+A new public page: add it to `routes.js` (and its view's `document.title`), add `"/<path>{/}?"` →
+`"/_routes/<path>.html"` to `vercel.json`. A new address in the router (`PAGES`) needs a rewrite to `/index.html`, or
+it is a 404 on reload; the unit test lists the router's patterns and fails until it has one.
+
+**Moving the shop to its own domain** (e.g. `mandimangoes.in`): set `SHOP_URL` on the Vercel project and redeploy. The
+canonical links, share cards, sitemap and `robots.txt` all follow. Also: add the domain in Vercel, list it first in the
+API's `CUSTOMER_ORIGIN`, and submit `https://<domain>/sitemap.xml` in Google Search Console.
 
 ## Vercel (`mandi-shop`)
 
@@ -63,14 +248,21 @@ variables, or `git checkout shop/config.js`, to put the default back before comm
   on (the default): the build imports `../scripts/scan-bundle.mjs`. Node.js version does not
   matter.
 - **Environment**: `API_URL` (production `https://api.mandimangoes.in`, preview the API preview
-  URL) and `SUPPORT_WHATSAPP`. The old `NEXT_PUBLIC_*` variables do nothing here.
+  URL), `SUPPORT_WHATSAPP`, `SUPPORT_PHONE`, `SUPPORT_EMAIL`, and the business details `BUSINESS_NAME`,
+  `BUSINESS_ADDRESS`, `FSSAI_NUMBER` and `GSTIN` (the footer, Contact and the legal pages), and `SHOP_URL` once the shop
+  has its own domain. The old `NEXT_PUBLIC_*` variables do nothing here.
   See [deploy/VERCEL.md](../deploy/VERCEL.md#mandi-shop).
 - **Headers** on every path: CSP, `X-Frame-Options: DENY`, `nosniff`,
   `Referrer-Policy: strict-origin-when-cross-origin`, HSTS; `Cache-Control: no-cache` on
   `/sw.js` and `/config.js` so a new release and a new API address reach browsers at once.
-- **Rewrites** to `/index.html`: `/preorders/:id`, `/order/:id`, `/orders/:id`,
-  `/help/requests/:id`, `/account/:path*`, `/invite/:code`. Vercel serves a file that exists
-  before it applies rewrites, so `assets/` and the other files are not shadowed.
+- **Rewrite** `/v1/:path*` to the API, used only with `API_VIA_SHOP=true`.
+- **Rewrites**: each public page in `routes.js` to its own HTML in `_routes/`, `/robots.txt` and `/sitemap.xml` to
+  theirs, and every other address the router knows (`/preorders/:id`, `/order/:id`, `/orders/:id`,
+  `/help/requests/:id`, `/account/:path*`, `/invite/:code`, `/bulk/enquiry`, `/gifts/:id`, …) to `/index.html`. No
+  catch-all: an unknown address gets `404.html` with status 404 (see "Search and share"). Vercel serves a file that
+  exists before it applies rewrites, so `assets/` and the other files are not shadowed.
+- **Redirect** `/preorder` (the retired pre-order page) to `/` (temporary, 307). The shop's own
+  router does the same for a cached page or the local server.
 - The output folder is this folder, so `build-config.mjs` and `vercel.json` are served too
   (nothing secret is in them); `README.md` is kept out by `.vercelignore`.
 
@@ -95,19 +287,21 @@ variables). If `API_URL` is anything other than `https://api.mandimangoes.in`, f
 preview API on `*.vercel.app`, edit `connect-src` (and keep it in step with `API_URL`), or
 every API call is blocked by the browser.
 
-## Retiring `customer-app/` (follow-ups)
+## Retiring `customer-app/` (done, 4 Nov 2026)
 
-`customer-app/` stays until these move to `shop/` or are removed:
+Kept as a record. Each item was moved to `shop/` or removed, then `customer-app/` was deleted:
 
-- [ ] CI (`.github/workflows/ci.yml`): `npm ci`, audit, lint and the unit step in
+- [x] CI (`.github/workflows/ci.yml`): `npm ci`, audit, lint and the unit step in
       `customer-app`; the "Build the customer app" step (it ran `npm run shop:build`, which now
       builds this folder; point it at `npm --prefix customer-app run build` until retired) and
       `npm run shop:test`; the e2e jobs (Chromium and WebKit) that run `customer-app/tests`.
-- [ ] `npm run scan:bundle` scans `customer-app/.next/static`: scan `shop` instead.
-- [ ] Root `typecheck` and `lint` run customer-app's.
-- [ ] `tests/csp.spec.ts` imports `customer-app/lib/csp`: test `shop/vercel.json`'s CSP instead.
-- [ ] Docker: `deploy/shop.Dockerfile`, the `shop` service in `deploy/compose.yml` and
+- [x] `npm run scan:bundle` scans `customer-app/.next/static`: scan `shop` instead.
+- [x] Root `typecheck` and `lint` run customer-app's.
+- [x] `tests/csp.spec.ts` imports `customer-app/lib/csp`: test `shop/vercel.json`'s CSP instead.
+- [x] Docker: `deploy/shop.Dockerfile`, the `shop` service in `deploy/compose.yml` and
       `reverse_proxy shop:3001` in `deploy/Caddyfile` still build and serve the Next.js shop;
-      serve this folder as static files instead (with the same headers and rewrites).
-- [ ] `scripts/qa-journey.sh` builds and starts the Next.js shop.
-- [ ] Then delete `customer-app/` and its mentions in the docs.
+      serve this folder as static files instead (with the same headers and rewrites). Done:
+      `deploy/web.Dockerfile` copies `shop/` into the Caddy image and writes its `config.js`.
+- [x] `scripts/qa-journey.sh` builds and starts the Next.js shop. Removed, with
+      `tests/cross-app.spec.ts`, which drove the old shop's UI.
+- [x] Then delete `customer-app/` and its mentions in the docs.

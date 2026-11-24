@@ -1,5 +1,7 @@
 # Shop languages: English, Hindi and Kannada
 
+> **Note (4 Nov 2026):** the Next.js shop in `customer-app/` was retired in favour of the static shop in [`shop/`](../shop/README.md). The shop-side parts below that name `customer-app/` describe that previous implementation.
+
 One feature for MandiMangoes, behind its own switch:
 
 | Feature | What it does | Who | Switch |
@@ -22,7 +24,7 @@ The switch is **off unless set**. While it is off:
 | --- | --- | --- |
 | `SHOP_LANGUAGES` | empty (off) | `true` turns it on. Empty lets a manager turn it on from the panel (**Settings → Features → Shop languages**, with `PANEL_FEATURE_SWITCHES` on). `false` is a kill switch the panel cannot override. |
 
-It is listed in `mango-api/.env.example`. `scripts/start-local.mjs` turns it on for local runs, and CI's end-to-end job runs with it on so `customer-app/tests/languages.spec.ts` runs.
+It is listed in `mango-api/.env.example`. `scripts/start-local.mjs` turns it on for local runs, and CI's end-to-end job starts the API with it on.
 
 ## What the customer sees
 

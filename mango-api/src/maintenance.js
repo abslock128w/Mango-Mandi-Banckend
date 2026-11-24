@@ -25,7 +25,7 @@ import { logger } from './logger.js'
 import { expireIdleOperations } from './warehouse/ops.js'
 import { boxCheck } from './warehouse/reports.js'
 import { metrics } from './metrics.js'
-import { allocatePreorders, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
+import { allocatePreorders, closeWaitlistAtHorizon, expirePreorderHolds, promoteWaitlist, reconcilePreorderPayments, retryMissingLinks } from './preorders.js'
 import { lockBatchOrders, OPEN_STATUSES, rebalanceOrder, SYSTEM, sweepExpiredHoldsEach, takeBatchOutOfService } from './orders.js'
 import { sendDueMessages } from './wa/conversations.js'
 import { pruneWhatsApp } from './wa/retention.js'
@@ -38,14 +38,19 @@ import { disputeHolds, processDueRefunds, reconcilePendingPayments, reconcileRec
 import { cronCheckIn, reportError, reportProblem } from './sentry.js'
 import { cleanupReviewPhotos, enqueueReviewRequests } from './review-jobs.js'
 import { anonymiseOldOrders, monthsBefore, pruneNotifications, purgeOldDeliveryPhotos, removeOldBillBuyers } from './retention.js'
+import { eraseEndedApplications } from './partner/erase.js'
 import { auditReviewStats } from './reviews.js'
 import { now } from './clock.js'
-import { overdueOrders, preorderCapacityDrift } from './stock-watch.js'
+import { overdueOrders, plannedKgDrift, preorderCapacityDrift } from './stock-watch.js'
+import { fulfilPlannedOrders } from './plan-orders.js'
 import { issueMissingBills, reconcileBills } from './bills.js'
 import { settleReferrals } from './referrals.js'
 import { sendManagerSummaries } from './manager-summary.js'
 import { rollupAndPruneFunnel } from './funnel.js'
 import { isOn, refreshSwitches } from './feature-switches.js'
+import { queueFollowupAlerts } from './partner/alerts.js'
+import { runFarmJobs } from './farm/jobs.js'
+import { runBulkOrderJobs } from './bulk-orders.js'
 import { runSubscriptionJobs } from './subscriptions.js'
 import { pruneWebhookEvents, replayWebhookEvents } from './webhook-events.js'
 import { counterProblems, stepProblems } from './alert-checks.js'
@@ -263,6 +268,16 @@ export async function runAudit(at = now()) {
       await markRun('alert-preorder-capacity')
     }
   }
+  // The planned-order kg of each week against the orders holding it (migration 083).
+  const planned = await plannedKgDrift({ query })
+  if (planned.length) {
+    logger.error({ weeks: planned.slice(0, 20) }, 'plan audit: planned kg disagrees with the orders')
+    const last = (await lastRuns())['alert-planned-kg'] ?? 0
+    if (at.getTime() - last >= HOURLY_MS) {
+      reportProblem('Planned-order kg disagrees with the orders: check the weeks before taking more', { weeks: planned.length, sample: planned.slice(0, 5) })
+      await markRun('alert-planned-kg')
+    }
+  }
   // Labelled boxes against the counters, per active warehouse (warehouse/reports.js boxCheck, docs/warehouse/STOCK.md).
   const boxes = env.WAREHOUSE_V2 ? await tx((c) => boxCheck(c)) : []
   if (boxes.length) {
@@ -276,16 +291,20 @@ export async function runAudit(at = now()) {
   return drift
 }
 
-/** Preorder upkeep: missed payments, expired holds, waitlist, links, then the allocator. */
+/** Preorder upkeep: missed payments, expired holds, waitlist (promoted, then closed at the horizon), links, then the allocator. */
 export async function runPreorderJobs() {
   const reconciled = await reconcilePreorderPayments()
   const expired = await tx((c) => expirePreorderHolds(c))
   if (outOfTime(STEP_MIN_MS)) return { partial: true, reconciled, expired }
   const promoted = await promoteWaitlist()
   await retryMissingLinks()
-  if (outOfTime(STEP_MIN_MS)) return { partial: true, reconciled, expired, promoted }
+  // Weeks that reached the booking horizon: their waitlist can no longer get a spot, so it closes.
+  const waitlistClosed = await closeWaitlistAtHorizon()
+  if (outOfTime(STEP_MIN_MS)) return { partial: true, reconciled, expired, promoted, waitlistClosed }
   const { converted, moved } = await allocatePreorders()
-  return { reconciled, expired, promoted, converted, moved }
+  // After the pre-orders: orders booked against the plan get what is left, oldest first; short ones move on.
+  const planned = await fulfilPlannedOrders()
+  return { reconciled, expired, promoted, waitlistClosed, converted, moved, planned }
 }
 
 /**
@@ -403,6 +422,15 @@ async function steps(forceAll) {
   if (isOn('MANAGER_DAILY_SUMMARY')) out.managerSummaries = await step('manager-summary', () => sendManagerSummaries())
   // Subscriptions (docs/care.md): each due delivery is set up once and its "pay for this box" reminder queued, before the messages go out.
   if (isOn('SUBSCRIPTIONS')) out.subscriptions = await step('subscriptions', () => runSubscriptionJobs())
+  // Partner Network follow-ups due within the hour or overdue: one team alert each (WHATSAPP_PARTNER_UPDATES, docs/partner-network.md).
+  if (isOn('PARTNER_NETWORK') && env.WHATSAPP_PARTNER_UPDATES && env.PARTNER_ALERT_PHONES.length) out.partnerFollowups = await step('partner-followups', () => queueFollowupAlerts())
+  // Farm Experience (docs/farm-experience.md): visit reminders are queued before the send step.
+  if (isOn('FARM_EXPERIENCE')) out.farm = await step('farm', () => runFarmJobs())
+  // Preorders first: a waitlist spot that opens (or a waitlist that closes) queues a message, which this same run sends.
+  out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
+  // Bulk orders paid at once (bulk-orders.js): missed payments found, unpaid ones closed after their time to pay.
+  // Their refunds go out in the refunds step above, whatever the switch says.
+  if (isOn('BULK_ENQUIRIES')) out.bulkOrders = await step('bulk-orders', () => runBulkOrderJobs())
   out.notified = await step('notifications', () => sendDueNotifications(), { sliceMs: SLICE.notifications })
   // Chat and staff replies decided but not sent (an instance died, or a retry is due): docs/whatsapp/RELIABILITY.md.
   out.chatSent = await step('whatsapp-messages', () => sendDueMessages(chatMessenger), { sliceMs: SLICE.notifications })
@@ -412,7 +440,6 @@ async function steps(forceAll) {
   }
   // Browser notifications for the same order steps (WEB_PUSH, push.js).
   if (env.WEB_PUSH) out.pushed = await step('push', () => sendDuePush(), { sliceMs: SLICE.push })
-  out.preorders = await step('preorders', runPreorderJobs, { sliceMs: SLICE.preorders })
   // Bills for preorders that just became orders, and for any payment whose bill failed (BILLS_ENABLED);
   // first, bills caught up with cancels and privacy removals another release made without them.
   // A manager may have switched bills on or off on the panel (PANEL_FEATURE_SWITCHES): read the latest first.
@@ -437,6 +464,12 @@ async function steps(forceAll) {
     // FUNNEL_ANALYTICS: finished days rolled up, events past 90 days deleted (runs even with the switch off, so old events still go).
     out.funnel = await step('funnel-retention', () => rollupAndPruneFunnel())
   }
+  // Grow with us (docs/partner-network.md): applications that ended PARTNER_RETENTION_DAYS ago lose their
+  // details. Hourly, not daily, so the "we delete it within N days" the form promises holds to the hour.
+  // Runs with PARTNER_NETWORK off too, so applications sent before it was turned off still go.
+  if (forceAll || t - (last['partner-retention'] ?? 0) > HOURLY_MS) {
+    out.partnerApplicationsErased = await step('partner-retention', () => eraseEndedApplications())
+  }
   const lastFull = last['rebalance-all'] ?? 0
   if (forceAll || (last['rebalance-requested'] ?? 0) > lastFull || t - lastFull > DAILY_MS) {
     out.rebalanced = await step('rebalance-all', () => rebalanceAllOpen())
@@ -444,8 +477,14 @@ async function steps(forceAll) {
     out.rebalanced = await step('rebalance-at-risk', () => rebalanceAllOpen({ atRiskOnly: true }))
   }
   await step('health', () => checkHealth(out), { minMs: 0 })
-  const risk = await query(`SELECT COUNT(*)::int AS n FROM orders WHERE at_risk AND status = ANY($1)`, [OPEN_STATUSES])
+  // Backorders waiting for stock are expected, not a problem: counted apart from the at-risk alarm.
+  const risk = await query(
+    `SELECT COUNT(*) FILTER (WHERE NOT backorder)::int AS n, COUNT(*) FILTER (WHERE backorder)::int AS backorders
+       FROM orders WHERE at_risk AND status = ANY($1)`,
+    [OPEN_STATUSES],
+  )
   out.atRisk = risk.rows[0].n
+  out.backordersAwaitingStock = risk.rows[0].backorders
   metrics.ordersAtRisk.set(out.atRisk)
   metrics.maintenanceLastRun.set(Date.now() / 1000)
   // The run counts as a tick even if some work was put off: /ready and the

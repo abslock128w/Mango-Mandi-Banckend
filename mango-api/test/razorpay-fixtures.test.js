@@ -68,7 +68,7 @@ describe('recorded Razorpay webhooks', () => {
         // Point the recorded payment at an order of ours with the same total, then replay it.
         await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
         const cust = await customerToken(api)
-        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+        const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
         await query('UPDATE orders SET razorpay_order_id = $2, total = $3 WHERE id = $1', [c.body.orderId, p.order_id, p.amount])
         const out = await handleWebhook(body, `fixture:${file}`)
         if (body.event === 'payment.captured') assert.equal(out.result, 'confirmed', JSON.stringify(out))

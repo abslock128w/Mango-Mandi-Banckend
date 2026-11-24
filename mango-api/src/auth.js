@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import jwt from 'jsonwebtoken'
 import { now } from './clock.js'
 import { query, tx } from './db.js'
-import { env } from './env.js'
+import { deployEnv, env } from './env.js'
 import { forbidden, HttpError, unauthorized } from './errors.js'
 import { logger } from './logger.js'
 import { sharedLimiter } from './ratelimit.js'
@@ -23,7 +23,22 @@ const REFRESH_TTL_S = { admin: 7 * 86_400, customer: 30 * 86_400 }
 /** The longest one sign-in lasts, refreshes included, in seconds. */
 export const sessionMaxS = (userType) => Math.round((userType === 'admin' ? env.STAFF_SESSION_MAX_DAYS : env.CUSTOMER_SESSION_MAX_DAYS) * 86_400)
 
-export const signAccess = (claims) => jwt.sign(claims, env.JWT_SECRET, { expiresIn: ACCESS_TTL_S, algorithm: 'HS256' })
+// AUTH-02: access and refresh tokens name the environment that signed them (aud: 'production',
+// 'preview', 'development' or 'test', as deployEnv), so a token signed on a preview is refused on
+// production even if both were given the same JWT_SECRET (a preview lets anyone sign in with a demo code).
+export const signAccess = (claims) => jwt.sign(claims, env.JWT_SECRET, { expiresIn: ACCESS_TTL_S, algorithm: 'HS256', audience: deployEnv })
+
+/**
+ * jwt.verify for access and refresh tokens: a token naming another environment is refused.
+ * A token with no aud is still accepted: those are the ones signed before AUTH-02 (access tokens
+ * lapse in 15 minutes, refresh tokens are replaced with ones that carry aud as they rotate). The
+ * no-aud acceptance can be removed one refresh lifetime (30 days) after this is deployed.
+ */
+function verifyToken(token) {
+  const claims = jwt.verify(token ?? '', env.JWT_SECRET, { algorithms: ['HS256'] })
+  if (claims.aud !== undefined && claims.aud !== deployEnv) throw new Error('token for another environment')
+  return claims
+}
 
 /**
  * A new refresh token. `startedAt` (seconds): when the sign-in began, carried
@@ -44,6 +59,7 @@ export async function issueRefresh(userId, userType, c = { query }, { startedAt 
     jwtid: jti,
     expiresIn: ttl,
     algorithm: 'HS256',
+    audience: deployEnv,
   })
   return { token, jti, expiresAt }
 }
@@ -57,7 +73,7 @@ const invalid = () => unauthorized('Session expired. Please sign in again.', 'IN
 export async function rotateRefresh(token, userType) {
   let claims
   try {
-    claims = jwt.verify(token ?? '', env.JWT_SECRET, { algorithms: ['HS256'] })
+    claims = verifyToken(token)
   } catch {
     throw invalid()
   }
@@ -103,7 +119,7 @@ export function refreshLimiter(userType, cookieName, { perUser = 60, perAddress 
     if (req.refreshKey) return req.refreshKey
     let key = `ip:${req.ip}`
     try {
-      const c = jwt.verify(req.body?.refreshToken || req.cookies?.[cookieName] || '', env.JWT_SECRET, { algorithms: ['HS256'] })
+      const c = verifyToken(req.body?.refreshToken || req.cookies?.[cookieName] || '')
       if (c.typ === `${userType}_refresh` && c.sub) key = `user:${c.sub}`
     } catch {
       // Not a valid refresh token: counted per address.
@@ -121,7 +137,7 @@ export function refreshLimiter(userType, cookieName, { perUser = 60, perAddress 
 
 export async function revokeRefresh(token) {
   try {
-    const claims = jwt.verify(token ?? '', env.JWT_SECRET, { algorithms: ['HS256'] })
+    const claims = verifyToken(token)
     await query('UPDATE refresh_sessions SET revoked_at = $2 WHERE jti = $1 AND revoked_at IS NULL', [claims.jti, now()])
   } catch {
     // Already invalid: nothing to revoke.
@@ -132,7 +148,7 @@ function bearer(req, typ) {
   const h = req.headers.authorization ?? ''
   if (!h.startsWith('Bearer ')) throw unauthorized()
   try {
-    const claims = jwt.verify(h.slice(7), env.JWT_SECRET, { algorithms: ['HS256'] })
+    const claims = verifyToken(h.slice(7))
     if (claims.typ !== typ) throw new Error('wrong token type')
     return claims
   } catch {
@@ -225,6 +241,26 @@ export async function requireCustomer(req, res, next) {
   } catch (err) {
     next(err)
   }
+}
+
+/**
+ * A public route that also knows a signed-in customer (POST /v1/bulk-enquiries): with a valid
+ * customer token req.customer is set as requireCustomer sets it; without one, or with a stale
+ * one, the request goes on anonymous rather than failing.
+ */
+export async function optionalCustomer(req, _res, next) {
+  try {
+    if (!(req.headers.authorization ?? '').startsWith('Bearer ')) return next()
+    const c = bearer(req, 'customer')
+    const sv = await customerLive(c.sub)
+    if (sv !== null && (c.sv ?? 0) === sv) {
+      req.customer = { id: c.sub, phone: c.phone }
+      req.actor = { type: 'customer', id: c.sub, label: 'customer' }
+    }
+  } catch {
+    // An expired or foreign token: anonymous.
+  }
+  next()
 }
 
 const allowedOrigins = () =>

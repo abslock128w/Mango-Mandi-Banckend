@@ -88,7 +88,7 @@ export function ExportPanel({ kinds }: { kinds: ExportKind[] }) {
             </div>
           </>
         ) : (
-          <DownloadButton getUrl={() => api.exportUrl(kind, params)} filename={`mandimangoes-${kind}-${from}-to-${to}.csv`}>
+          <DownloadButton getUrl={() => api.exportUrl(kind, params)} filename={`vmr-mangoes-${kind}-${from}-to-${to}.csv`}>
             Download {EXPORT_LABEL[kind]} CSV
           </DownloadButton>
         )}

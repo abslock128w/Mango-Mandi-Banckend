@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useState, type ReactNode } from "react";
 import { MAX_CODE_TRIES, OPS_PHONE } from "@/lib/config";
 import { db, stepKey, type Job } from "@/lib/db";
-import { firstName, telHref } from "@/lib/format";
+import { firstName, orderNo, telHref } from "@/lib/format";
 import { enqueue, newClientId, queueCheck, queuePhoto, whenSettled } from "@/lib/queue";
 import { useRun, type RunOrder } from "@/lib/run-context";
 import type { CheckResult } from "@/lib/types";
@@ -85,7 +85,7 @@ function StopFlow({ o }: { o: RunOrder }) {
 
   return (
     <>
-      <BackBar title={`${firstName(o.customerName)} · ${o.number}`} />
+      <BackBar title={`${firstName(o.customerName)} · ${orderNo(o.number)}`} />
       <ol className="flex flex-col gap-3 p-4" aria-label="Delivery steps">
         <StepCard n={1} state={s1} title="Photo of the box at the door">
           <CameraCapture label="Photo of the box at the door" preview={door?.preview} testId="door-photo" onPhoto={async (b, w) => void (await queuePhoto(id, "door", b, w))} />
@@ -271,12 +271,12 @@ function CodeStep({ o, last }: { o: RunOrder; last: Job | null }) {
 function DeliveredView({ o, next }: { o: RunOrder; next: RunOrder | null }) {
   return (
     <>
-      <BackBar title={o.number} />
+      <BackBar title={orderNo(o.number)} />
       <div className="flex flex-col items-center gap-4 px-6 pt-12 pb-10 text-center" aria-live="polite">
         <DeliveredTick />
         <h2 className="text-3xl font-extrabold">Delivered</h2>
         <p className="text-lg text-muted">
-          {o.number} handed to {firstName(o.customerName)}. The customer gets a WhatsApp message.
+          {orderNo(o.number)} handed to {firstName(o.customerName)}. The customer gets a WhatsApp message.
         </p>
         {next ? (
           <LinkButton href={next.state === "out" ? `/stop?id=${encodeURIComponent(next.id)}` : `/pickup?id=${encodeURIComponent(next.id)}`} className="mt-4 w-full text-lg">

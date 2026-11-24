@@ -124,6 +124,11 @@ export function createShopServer({ api = null } = {}) {
       // Shared: the shop calls its own address, and this server passes /v1 on.
       return send(res, 200, "window.MM_CONFIG = { apiUrl: '', supportWhatsapp: '' };\n", TYPES['.js'])
     }
+    // A folder with its own page (/one-mango/): its index.html, as Vercel serves it.
+    if (pathname.endsWith('/') && pathname !== '/') {
+      const own = fileFor(`${pathname}index.html`)
+      if (own) return serveFile(req, res, own)
+    }
     if (!path.posix.extname(pathname)) {
       const index = fileFor('/index.html')
       return index ? serveFile(req, res, index) : send(res, 404, 'shop/index.html is missing\n')

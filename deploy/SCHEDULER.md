@@ -16,11 +16,18 @@ Hobby plan is for personal, non-commercial use, and a free pinger promises nothi
 about staying up, so neither is acceptable for the live shop. Hobby with a pinger is
 fine for a staging copy or a demo.
 
-| Hosting | Every-minute trigger | Use it for |
-|---------|----------------------|------------|
-| Vercel **Pro** | Vercel Cron. After upgrading, change `mango-api/vercel.json` `crons[0].schedule` from `30 21 * * *` to `* * * * *` and deploy. | production |
-| Docker / one server (`deploy/README.md`) or the local launcher | Built in: the API runs the job itself every minute. Nothing to set up. | the alternative to Vercel; local demo |
-| Vercel **Hobby** | An external pinger (below). `vercel.json` keeps a once-a-day Vercel Cron (03:00 IST) as a backstop, which Hobby allows. | staging, demos |
+| Hosting | Every-minute trigger | `MAINTENANCE_SCHEDULER` | Use it for |
+|---------|----------------------|-------------------------|------------|
+| Vercel **Pro** | Vercel Cron. After upgrading, change `mango-api/vercel.json` `crons[0].schedule` from `30 21 * * *` to `* * * * *` and deploy. | `vercel` | production |
+| Docker / one server (`deploy/README.md`) or the local launcher | Built in: the API runs the job itself every minute. Nothing to set up. | not read | the alternative to Vercel; local demo |
+| Vercel **Hobby** | An external pinger (below). `vercel.json` keeps a once-a-day Vercel Cron (03:00 IST) as a backstop, which Hobby allows. | `external` | staging, demos |
+
+A production deploy on Vercel refuses to start until `MAINTENANCE_SCHEDULER` says which
+one is in place (CRON-01). With a pinger slower than every minute (the GitHub workflow
+`maintenance-ping.yml` runs every 5), set `MAINTENANCE_INTERVAL_S` to its interval in
+seconds (`300`): `/ready` and the Sentry monitor then allow four intervals, not 4 minutes.
+That workflow fails while its secrets are missing; the repository variable
+`MAINTENANCE_PING_DISABLED=true` turns it off on purpose.
 
 Hobby refuses to deploy a project whose cron runs more than once a day, which is
 why `vercel.json` ships with the daily schedule until the Pro upgrade. Vercel Pro

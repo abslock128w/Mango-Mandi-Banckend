@@ -48,7 +48,7 @@ const packerToken = () => adminToken(api, 'packer@mandimangoes.test', 'packer123
 
 let orderSeq = 0
 /** A paid order inserted directly, for history and margins. */
-async function insertOrder({ date, sku, stage = 'RIPE', qty, status = 'DELIVERED', unitPrice = 189_900, discount = 0, replacementFor = null, stock = null }) {
+async function insertOrder({ date, sku, stage = 'SEMI_RIPE', qty, status = 'DELIVERED', unitPrice = 189_900, discount = 0, replacementFor = null, stock = null }) {
   const id = newId('ord')
   const subtotal = unitPrice * qty
   await forceOrderState(
@@ -102,7 +102,7 @@ describe('stock forecast (STOCK_FORECAST)', () => {
     assert.deepEqual(fridays, ['2026-10-09', '2026-10-02', '2026-09-25', '2026-09-18'])
     await insertOrder({ date: '2026-10-09', sku: 'ALP-3', qty: 6 })
     await insertOrder({ date: '2026-10-02', sku: 'ALP-3', qty: 4 })
-    // 25 Sep sold nothing, but a batch was ripe then: a real zero, counted.
+    // 25 Sep sold nothing, but a batch was semi-ripe then (age 6): a real zero, counted.
     await pastBatch({ pluckedOn: '2026-09-19' })
     // 18 Sep was closed: left out.
     await query(`INSERT INTO delivery_calendar (date, is_open, note) VALUES ('2026-09-18', FALSE, 'Festival')`)
@@ -114,9 +114,10 @@ describe('stock forecast (STOCK_FORECAST)', () => {
                  VALUES ($1, $2, 'ADJUST', 'ALP-3', -2, 'admin', 'test', 'crushed', 'DAMAGED', $3)`, [newId('led'), old, new Date('2026-10-10T05:00:00Z')])
     await query(`UPDATE batches SET status = 'EXHAUSTED' WHERE id = $1`, [old])
 
-    // Stock now: plucked 3 days ago, QC raw today: ripe on 18 and 19 Oct, past the cap from 20 Oct.
-    const batchId = await makeBatch({ age: 3, rating: 'RAW', lines: { 'ALP-3': 10 } })
-    // Paid orders already booked for Friday (their boxes are set aside), and a Book ahead booking for the week of 19 Oct.
+    // Stock now: plucked 2 days ago, QC raw today: raw on 16 Oct (3), semi-ripe 17 to 20 Oct (4-7), past the cap from 21 Oct.
+    const batchId = await makeBatch({ age: 2, rating: 'RAW', lines: { 'ALP-3': 10 } })
+    // Paid orders already booked for Friday (their boxes are set aside), and a Book ahead booking for the week of 19 Oct,
+    // made as ripe before ripe stopped being sold: it counts as semi-ripe, what fills it now.
     await insertOrder({ date: '2026-10-16', sku: 'ALP-3', qty: 2, status: 'CONFIRMED' })
     const cust = newId('cus')
     await query(`INSERT INTO customers (id, phone, name) VALUES ($1, '9876500001', 'Test')`, [cust])
@@ -136,8 +137,9 @@ describe('stock forecast (STOCK_FORECAST)', () => {
     assert.equal(r.body.dates.at(-1), '2026-10-29')
     const alp = r.body.varieties.find((v) => v.variety === 'Alphonso')
     const p = alp.products.find((x) => x.sku === 'ALP-3')
-    const ripe = p.stages.find((s) => s.stage === 'RIPE')
-    const fri = ripe.days.find((d) => d.date === '2026-10-16')
+    assert.deepEqual(p.stages.map((s) => s.stage), ['RAW', 'SEMI_RIPE'])
+    const semi = p.stages.find((s) => s.stage === 'SEMI_RIPE')
+    const fri = semi.days.find((d) => d.date === '2026-10-16')
     assert.deepEqual(
       fri.history.samples.map((s) => [s.date, s.sold, s.counted, s.reason]),
       [
@@ -150,36 +152,43 @@ describe('stock forecast (STOCK_FORECAST)', () => {
     assert.equal(fri.history.average, 3.3)
     assert.equal(fri.booked, 2)
     assert.equal(fri.expected, 3.3)
-    // Still to sell 1.3 → 2 boxes; the batch is semi-ripe on Friday, so none from stock.
+    // Still to sell 1.3 → 2 boxes; the batch is raw on Friday, so none from stock.
     assert.equal(fri.fromStock, 0)
     assert.equal(fri.short, 2)
     // Waste: 2 damaged against 11 sold (6 + 4 + the replaced order's 1; the free replacement is not a sale): 2 / 13.
     assert.deepEqual({ ...p.waste }, { days: 28, damagedBoxes: 2, claimBoxes: 0, soldBoxes: 11, rate: 0.154, capped: false })
-    // The Book ahead booking is on Monday 19 Oct, and the ripe batch covers it (after expected waste).
-    const mon = ripe.days.find((d) => d.date === '2026-10-19')
+    // The Book ahead booking is on Monday 19 Oct, and the batch, semi-ripe then, covers it (after expected waste).
+    const mon = semi.days.find((d) => d.date === '2026-10-19')
     assert.equal(mon.bookAhead, 3)
     assert.equal(mon.fromStock, 3)
     assert.equal(mon.short, 0)
     // The next Friday (23 Oct) has the same history, and the batch is past the 7-day cap by then.
-    const fri2 = ripe.days.find((d) => d.date === '2026-10-23')
+    const fri2 = semi.days.find((d) => d.date === '2026-10-23')
     assert.equal(fri2.history.average, 3.3)
     assert.equal(fri2.short, 4)
     const b = p.batches.find((x) => x.batchId === batchId)
-    assert.equal(b.ageToday, 3)
-    assert.equal(b.sellableUntil, '2026-10-19')
-    assert.equal(b.stages.find((s) => s.date === '2026-10-16').stage, 'SEMI_RIPE')
-    assert.equal(b.stages.find((s) => s.date === '2026-10-18').stage, 'RIPE')
-    assert.equal(b.stages.find((s) => s.date === '2026-10-20').stage, null)
+    assert.equal(b.ageToday, 2)
+    assert.equal(b.sellableUntil, '2026-10-20')
+    assert.equal(b.stages.find((s) => s.date === '2026-10-16').stage, 'RAW')
+    assert.equal(b.stages.find((s) => s.date === '2026-10-18').stage, 'SEMI_RIPE')
+    assert.equal(b.stages.find((s) => s.date === '2026-10-20').stage, 'SEMI_RIPE')
+    assert.equal(b.stages.find((s) => s.date === '2026-10-21').stage, null)
     assert.equal(b.usedByForecast, 3)
     // floor(10 × (1 − 0.154)) = 8 usable, 3 used: 5 pass the cap unsold.
     assert.equal(b.unsoldPastCap, 5)
-    // Short 2 + 4 = 6, grossed up for waste: ceil(6 / 0.846) = 8.
-    assert.equal(p.shortBoxes, 6)
-    assert.equal(p.suggestedBoxes, 8)
+    // Thursdays (22 and 29 Oct): 8 Oct sold the 1 replaced box, and 24 Sep had the 19 Sep batch semi-ripe (age 5)
+    // and sold none: (1 + 0) / 2 = 0.5, so 1 box short each, with the batch past the cap by then.
+    const thu = semi.days.find((d) => d.date === '2026-10-22')
+    assert.deepEqual([thu.history.average, thu.fromStock, thu.short], [0.5, 0, 1])
+    // Short 2 + 1 + 4 + 1 = 8, grossed up for waste: ceil(8 / 0.846) = 10.
+    assert.equal(p.shortBoxes, 8)
+    assert.equal(p.suggestedBoxes, 10)
     assert.equal(p.enoughHistory, true)
-    // Ripe on 16 Oct means plucked by 10 Oct (ripe from age 6): the earliest short day sets the date.
-    assert.equal(p.buyBy, '2026-10-10')
-    assert.deepEqual(p.shortDays.map((d) => [d.date, d.pluckBy]), [['2026-10-16', '2026-10-10'], ['2026-10-23', '2026-10-17']])
+    // Semi-ripe on 16 Oct means plucked by 12 Oct (semi-ripe from age 4): the earliest short day sets the date.
+    assert.equal(p.buyBy, '2026-10-12')
+    assert.deepEqual(p.shortDays.map((d) => [d.date, d.stage, d.pluckBy]), [
+      ['2026-10-16', 'SEMI_RIPE', '2026-10-12'], ['2026-10-22', 'SEMI_RIPE', '2026-10-18'], ['2026-10-23', 'SEMI_RIPE', '2026-10-19'], ['2026-10-29', 'SEMI_RIPE', '2026-10-25'],
+    ])
     // Read only: no stock moved, no ledger row written.
     assert.deepEqual((await query('SELECT on_hand, held, committed FROM batch_lines WHERE batch_id = $1', [batchId])).rows[0], stockBefore)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM batch_ledger')).rows[0].n, ledgerBefore)

@@ -7,31 +7,49 @@ import { addDays, isDate, now, todayIST } from '../clock.js'
 import { currentConfig, rulesSchema, saveConfig } from '../config.js'
 import { query, tx } from '../db.js'
 import { orderableDates, slotsForDate, slotView } from '../delivery.js'
-import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
+import { asyncHandler, badRequest, conflict, notFound, parse } from '../errors.js'
 import { newId } from '../ids.js'
 import { availability } from '../inventory.js'
 import { triggerRebalanceAll } from '../maintenance.js'
 import { shopProducts } from '../products.js'
-import { STAGES } from '../stage.js'
-import { stepUp, withoutConfirm } from './step-up.js'
+import { SALE_STAGES } from '../stage.js'
+import { stepUp } from './step-up.js'
 
 export const router = express.Router()
 
 // ---------------------------------------------------------------- pincodes
 
-const pincodeDto = (p) => ({ pincode: p.pincode, city: p.city, zone: p.zone, active: p.active })
+const coord = (v) => (v === null || v === undefined ? null : Number(v))
+const pincodeDto = (p) => ({ pincode: p.pincode, city: p.city, zone: p.zone, active: p.active, lat: coord(p.lat), lng: coord(p.lng) })
 const PIN = z.string().regex(/^\d{6}$/, 'pincode must be 6 digits')
+
+/**
+ * The pincode's centre: what the delivery charge measures from (delivery-fee.js: the floor a
+ * customer's pin can't go below) and the nearest-rider assignment uses. Both or neither, and
+ * inside India, which also catches latitude and longitude typed the wrong way round.
+ */
+const LAT = z.number({ error: 'Latitude must be a number' }).min(6, 'Latitude must be between 6 and 37.5 (India)').max(37.5, 'Latitude must be between 6 and 37.5 (India)')
+const LNG = z.number({ error: 'Longitude must be a number' }).min(68, 'Longitude must be between 68 and 97.5 (India)').max(97.5, 'Longitude must be between 68 and 97.5 (India)')
+const bothOrNeither = (b) => (b.lat === undefined) === (b.lng === undefined)
+const PAIR = { message: 'Give both the latitude and the longitude of the centre, or neither', path: ['lat'] }
 
 router.get('/pincodes', asyncHandler(async (_req, res) => res.json((await query('SELECT * FROM pincodes ORDER BY pincode')).rows.map(pincodeDto))))
 
 router.post(
   '/pincodes',
   asyncHandler(async (req, res) => {
-    const b = parse(z.object({ pincode: PIN, city: z.string().trim().min(1, 'city is required').max(80), zone: z.string().trim().max(80).optional().nullable() }), req.body)
+    const b = parse(
+      z
+        .object({ pincode: PIN, city: z.string().trim().min(1, 'city is required').max(80), zone: z.string().trim().max(80).optional().nullable(), lat: LAT.optional(), lng: LNG.optional() })
+        .refine(bothOrNeither, PAIR),
+      req.body,
+    )
+    // Adding a pincode again updates it; a centre left out keeps the one it had.
     const { rows } = await query(
-      `INSERT INTO pincodes (pincode, city, zone, active) VALUES ($1, $2, $3, TRUE)
-       ON CONFLICT (pincode) DO UPDATE SET city = EXCLUDED.city, zone = EXCLUDED.zone, active = TRUE RETURNING *`,
-      [b.pincode, b.city, b.zone || null],
+      `INSERT INTO pincodes (pincode, city, zone, active, lat, lng) VALUES ($1, $2, $3, TRUE, $4, $5)
+       ON CONFLICT (pincode) DO UPDATE SET city = EXCLUDED.city, zone = EXCLUDED.zone, active = TRUE,
+              lat = COALESCE(EXCLUDED.lat, pincodes.lat), lng = COALESCE(EXCLUDED.lng, pincodes.lng) RETURNING *`,
+      [b.pincode, b.city, b.zone || null, b.lat ?? null, b.lng ?? null],
     )
     res.status(201).json(pincodeDto(rows[0]))
   }),
@@ -43,9 +61,9 @@ router.patch(
     const b = parse(
       z.object({
         city: z.string().trim().min(1).max(80).optional(), zone: z.string().trim().max(80).nullable().optional(), active: z.boolean().optional(),
-        // The area's centre, for the nearest-rider assignment (nearest.js).
-        lat: z.number().min(-90).max(90).optional(), lng: z.number().min(-180).max(180).optional(),
-      }),
+        // The area's centre, for the delivery charge (delivery-fee.js) and the nearest-rider assignment (nearest.js).
+        lat: LAT.optional(), lng: LNG.optional(),
+      }).refine(bothOrNeither, PAIR),
       req.body,
     )
     const row = await tx(async (c) => {
@@ -76,6 +94,10 @@ router.delete(
 
 // ---------------------------------------------------------------- rules, calendar, coverage
 
+/** The same rules, whatever order their keys are in. */
+const stable = (v) => (Array.isArray(v) ? v.map(stable) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, stable(v[k])])) : v)
+export const sameRules = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b))
+
 router.get('/config', (_req, res) => {
   const { version, rules } = currentConfig()
   res.json({ version, rules })
@@ -85,7 +107,12 @@ router.put(
   '/config',
   requireManager,
   asyncHandler(async (req, res) => {
-    const rules = parse(rulesSchema, req.body?.rules ?? withoutConfirm(req.body))
+    // The panel sends { rules, confirmCode? }. A body without rules is refused: parsed alone it would save the defaults.
+    const sent = req.body?.rules
+    if (!sent || typeof sent !== 'object' || Array.isArray(sent)) throw badRequest('Send the rules to save, as { "rules": { … } }', 'RULES_REQUIRED')
+    const rules = parse(rulesSchema, sent)
+    const live = currentConfig()
+    if (sameRules(rules, live.rules)) throw conflict(`Nothing changed: these are the rules already in use (version ${live.version}).`, 'NOTHING_CHANGED')
     await stepUp(req, { always: true }) // fees, windows and limits for every customer (STEP_UP_ROUTES)
     const saved = await saveConfig(rules, req.admin.email, {
       // The audit row keeps only the rules that changed, before and after, with the new version.
@@ -201,7 +228,7 @@ router.get(
         grid.push({
           date,
           slots: (await slotsForDate(c, date)).map(({ id, label, booked, maxBoxes }) => ({ id, label, booked, maxBoxes })),
-          stock: shopProducts().flatMap((p) => STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
+          stock: shopProducts().flatMap((p) => SALE_STAGES.map((stage) => ({ sku: p.sku, stage, qty: pool.get(`${p.sku}|${stage}`) ?? 0 }))),
         })
       }
       return grid

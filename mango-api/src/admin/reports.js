@@ -1,11 +1,14 @@
 // The dashboard summary, analytics, needs attention, and the staff audit trail.
+import { orderSeqSql } from '../order-number.js'
 import express from 'express'
 import { z } from 'zod'
 import { requireManager } from '../auth.js'
 import { addDays, diffDays, isDate, now, todayIST } from '../clock.js'
 import { analytics, mondayOf } from '../analytics.js'
 import { currentConfig } from '../config.js'
+import { sellWindow } from '../delivery.js'
 import { photoReviews } from '../delivery-proof.js'
+import { newFarmVisits } from '../bulk-enquiries.js'
 import { query } from '../db.js'
 import { env } from '../env.js'
 import { asyncHandler, badRequest, notFound, parse } from '../errors.js'
@@ -15,7 +18,7 @@ import { MAX_DELIVERY_ATTEMPTS, RETRY_NEEDS_DAY } from '../orders.js'
 import { disputeHolds } from '../payments.js'
 import { productName, shopProducts } from '../products.js'
 import { pushOn } from '../push.js'
-import { lateArrivals, overdueOrders, preorderCapacityDrift, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
+import { lateArrivals, overdueOrders, preorderCapacityDrift, preorderPlanIssues, preordersNeedingDecision, returnedStockPending } from '../stock-watch.js'
 import { boxCheck } from '../warehouse/reports.js'
 
 export const router = express.Router()
@@ -47,8 +50,8 @@ router.get(
         [SELLABLE_STATUSES],
       ),
       query(
-        `SELECT id, number, delivery_date, at_risk_reason FROM orders
-          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, number`,
+        `SELECT id, number, delivery_date, at_risk_reason, backorder FROM orders
+          WHERE at_risk AND status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') ORDER BY delivery_date, ${orderSeqSql('number')}`,
       ),
       // INV-G: paid orders past their date, or out for delivery too long.
       overdueOrders({ query }),
@@ -57,11 +60,13 @@ router.get(
     res.json({
       orders: Object.fromEntries(counts.rows.map((r) => [r.status, r.n])),
       openClaims: claims.rows[0].n,
-      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), available: b.available })),
+      // lastDeliveryDay / lastOrderDay: delivery is next day at the earliest, so a batch stops being orderable a day before its last delivery day.
+      batchesNearLimit: batches.rows.map((b) => ({ id: b.id, variety: b.variety, ageDays: diffDays(today, b.plucked_on), ...sellWindow(b.plucked_on, cfg), available: b.available })),
       lowStock: shopProducts()
         .map((p) => ({ sku: p.sku, productName: p.name, available: bySku.get(p.sku) ?? 0 }))
         .filter((p) => p.available <= cfg.lowStockThreshold),
-      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason })),
+      // backorder: sold before stock arrived; the panel shows it as awaiting stock, not as an at-risk alarm.
+      atRiskOrders: risky.rows.map((o) => ({ id: o.id, number: o.number, deliveryDate: o.delivery_date, reason: o.at_risk_reason, backorder: o.backorder })),
       overdueOrders: overdue,
       // FE-3: the panel marks stock past this age from the live rule, not a constant.
       maxSellableAge: cfg.maxSellableAge,
@@ -115,6 +120,7 @@ export function attentionCount(a) {
   const lists = [
     a.loop.failingSteps, a.overdueOrders, a.retryDecisions, a.failedDeliveries, a.stuckRefunds, a.ledgerDrift, a.boxMismatches, a.preorderCapacityDrift,
     a.lateArrivals, a.returnedStock, a.preorderDecisions, a.photoDeliveries, a.failedMessages, a.failedPushes, a.disputes, a.webhookFailures,
+    a.preorderDelayedOften, a.preorderWeeksOver, a.delayRefunds,
   ]
   return (a.loop.stale ? 1 : 0) + (a.backup?.stale ? 1 : 0) + (a.lowRatings.length ? 1 : 0) + lists.reduce((n, l) => n + (Array.isArray(l) ? l.length : 0), 0)
 }
@@ -201,7 +207,7 @@ export async function attentionReport(at = now()) {
       `SELECT o.id, o.number, o.delivery_date, o.at_risk, COALESCE(o.at_risk_reason, n.last_error) AS at_risk_reason FROM orders o
          LEFT JOIN LATERAL (SELECT last_error FROM notifications WHERE order_id = o.id AND kind = 'DELIVERY_FAILED' ORDER BY created_at DESC LIMIT 1) n ON $2
         WHERE o.status = 'DELIVERY_FAILED' AND o.delivery_failures < $1 AND (o.at_risk OR ($2 AND n.last_error LIKE $3))
-        ORDER BY o.delivery_date, o.number LIMIT 50`,
+        ORDER BY o.delivery_date, ${orderSeqSql('o.number')} LIMIT 50`,
       [MAX_DELIVERY_ATTEMPTS, env.DELIVERY_CHECKS, `${RETRY_NEEDS_DAY}:%`],
     ),
     // PAY-B12: chargebacks still open at Razorpay (answered in the Razorpay dashboard).
@@ -224,8 +230,15 @@ export async function attentionReport(at = now()) {
       [week, new Date(at.getTime() - 15 * 60_000), pushOn()],
     ),
   ])
+  // The pre-order plan (migration 079): bookings delayed more than twice, weeks over a variety's limit, refunds owed after delay-cancels.
+  const plan = await preorderPlanIssues({ query })
   const tick = runs.rows.find((r) => r.step === 'tick')
   return {
+    // Farm visit enquiries waiting for a call (bulk-enquiries.js): work to do, not a fault, so attentionCount leaves them out.
+    farmVisitEnquiries: await newFarmVisits({ query }),
+    preorderDelayedOften: plan.delayedOften,
+    preorderWeeksOver: plan.weeksOver,
+    delayRefunds: plan.delayRefunds,
     loop: {
       lastRunAt: tick?.last_ok_at ?? null,
       stale: !tick?.last_ok_at || at - tick.last_ok_at > LOOP_STALE_MS,

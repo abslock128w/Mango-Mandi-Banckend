@@ -1,7 +1,7 @@
 // 24 Oct 2026 audit, payments leftovers (docs/audit-2026-10-24-status-A.md).
 // Each test failed on the code before its fix. Razorpay is never called: a
 // fetch stub stands in for its API and records every call.
-import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, checkout, client, closeAll, customerToken, forceOrderState, makeBatch, onePreorderWeek, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { drainBackground } from '../src/background.js'
@@ -77,7 +77,7 @@ function stubRazorpay(handler) {
 async function paidOrder() {
   await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
   const cust = await customerToken(api)
-  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+  const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
   assert.equal(c.status, 201, JSON.stringify(c.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: c.body.orderId, outcome: 'captured' })).body.result, 'confirmed')
   return { cust, order: c.body }
@@ -103,7 +103,7 @@ describe('PAY-03: two quick "Pay" taps in WhatsApp', () => {
       await say('hi')
       await say({ id: 'ORDER' })
       await say('560034')
-      await say({ id: 'item:ALP-3|RIPE' })
+      await say({ id: 'item:ALP-3|SEMI_RIPE' })
       await say({ id: 'qty:1' })
       await say({ id: 'CHECKOUT' })
       await say('12, 4th Cross, Koramangala, Bengaluru')
@@ -300,7 +300,7 @@ describe('PAY-08: the daily check of payments Razorpay captured', () => {
   test('a checkout order paid 25 hours after it was placed, webhook lost, is confirmed as a late payment', async () => {
     await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 20 } })
     const cust = await customerToken(api)
-    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 1 }])
+    const c = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }])
     assert.equal(c.status, 201, JSON.stringify(c.body))
     later(11 * MIN)
     await tx((cl) => sweepExpiredHolds(cl))
@@ -315,12 +315,11 @@ describe('PAY-08: the daily check of payments Razorpay captured', () => {
   })
 
   test('a booking paid on its link 4 days after its payment window opened is booked', async () => {
-    const week = farWeek()
-    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 4 }, { token: manager })).status, 200)
+    const week = await onePreorderWeek(24, farWeek())
     const cust = await customerToken(api)
     const b = await api.post(
       '/v1/preorders',
-      { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+      { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
       { token: cust.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.equal(b.status, 201, JSON.stringify(b.body))

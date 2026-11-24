@@ -9,7 +9,7 @@ import { newId } from './ids.js'
 import { availabilityByDate } from './inventory.js'
 import { enqueue, enqueueAlert } from './notify.js'
 import { findProduct, sellable } from './products.js'
-import { STAGES } from './stage.js'
+import { SALE_STAGES } from './stage.js'
 
 export const MAX_OPEN_ALERTS = 10
 export const ALERT_DAYS = 14
@@ -34,7 +34,7 @@ export async function listAlerts(c, customerId) {
 /** "Tell me when it's back": one per box and ripeness; asking again keeps the one already open. */
 export async function createAlert(c, customerId, { sku, stage, pincode }) {
   if (!sellable(sku)) throw badRequest(`${sku} is not sold`, 'INVALID_SKU')
-  if (!STAGES.includes(stage)) throw badRequest('Choose a ripeness', 'INVALID_STAGE')
+  if (!SALE_STAGES.includes(stage)) throw badRequest('Choose a ripeness', 'INVALID_STAGE')
   const open = await c.query(
     `SELECT * FROM stock_alerts WHERE customer_id = $1 AND notified_at IS NULL AND cancelled_at IS NULL FOR UPDATE`,
     [customerId],

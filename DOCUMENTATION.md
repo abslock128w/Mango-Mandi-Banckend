@@ -199,7 +199,8 @@ PAYMENT_PENDING ─(payment)─▶ CONFIRMED ─▶ PROCESSING ⇄ PACKED ─▶
                                                                                      │
                                                       RETURNED(RTO) ◀─ DELIVERY_FAILED ◀┘ (or Retry)
 ```
-- The customer can cancel until the order is packed (a paid order is refunded in full).
+- The customer can cancel until the order is packed (a paid order is refunded in full),
+  except an order made from a paid pre-order: pre-orders are non-refundable once paid.
 - A manager can cancel a paid order until it is delivered, with a full refund; that
   includes failed and returned deliveries. Staff can cancel an unpaid order up to out for delivery.
 - PACKED goes back to PROCESSING only when the warehouse takes a box off the order.

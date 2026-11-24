@@ -10,6 +10,8 @@ let bySku = new Map()
 const view = (r) => ({
   sku: r.sku, name: r.name, variety: r.variety, boxSize: r.box_size, price: r.price, gstRate: Number(r.gst_rate), hsnCode: r.hsn_code,
   description: r.description, active: r.active, sortOrder: r.sort_order,
+  // A manager's own bulk price for the box (paise, migration 084); null: the shop price less the default bulk discount (bulk-price.js).
+  bulkPrice: r.bulk_price ?? null,
   // What is in the box (optional): about how many mangoes, and about how heavy each one is.
   fruitsPerBox: r.fruits_per_box ?? null, fruitWeightG: r.fruit_weight_g ?? null,
   // Warehouse rules (docs/warehouse/): labelled boxes instead of counted stock, once switched on.
@@ -23,7 +25,8 @@ const view = (r) => ({
 export async function loadProducts() {
   const { rows } = await query(
     `SELECT p.sku, p.name, p.variety, p.box_size, p.price, p.gst_rate, p.hsn_code, p.description, p.active, p.sort_order, p.fruits_per_box, p.fruit_weight_g, ph.version AS photo_version,
-            p.box_tracking_enabled, p.nominal_weight_g, p.weight_tolerance_pct, p.requires_qc, p.restockable_returns, p.shelf_life_days, p.qc_checklist
+            p.box_tracking_enabled, p.nominal_weight_g, p.weight_tolerance_pct, p.requires_qc, p.restockable_returns, p.shelf_life_days, p.qc_checklist,
+            p.bulk_price
        FROM products p LEFT JOIN product_photos ph ON ph.sku = p.sku ORDER BY p.sort_order, p.name, p.sku`,
   )
   bySku = new Map(rows.map((r) => [r.sku, view(r)]))
@@ -31,6 +34,8 @@ export async function loadProducts() {
 
 /** Any product, hidden or not: for names on past orders, batches and reports. */
 export const findProduct = (sku) => bySku.get(sku) ?? null
+/** A box's weight in kg from its size ("3kg" → 3), 0 when unknown. */
+export const boxKg = (sku) => parseFloat(findProduct(sku)?.boxSize ?? '') || 0
 /** Every product, in display order, hidden ones included. */
 export const allProducts = () => [...bySku.values()]
 /** Products on sale: shown in the shop and WhatsApp, and allowed on new batches and preorders. */

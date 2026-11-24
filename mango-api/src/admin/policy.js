@@ -21,10 +21,18 @@ export const STEP_UP_ROUTES = [
   { route: 'PATCH /promos/:code', always: true, when: 'Changing a promo code (on or off, end date, limit, note)' },
   { route: 'POST /bulk-listings', always: true, when: 'Adding a bulk deal with its price tiers' },
   { route: 'PATCH /bulk-listings/:id', always: true, when: 'Changing a bulk deal\'s tiers or quantities' },
+  { route: 'POST /bulk-enquiries/:id/cancel', always: true, when: 'Cancelling a paid bulk order, which refunds it in full' },
+  { route: 'PUT /bulk-prices', always: true, when: 'Changing bulk prices (the default discount or a box\'s own bulk price)' },
   { route: 'PUT /config', always: true, when: 'Changing the shop rules (fees, windows, limits)' },
+  { route: 'POST /preorder-plan/apply', always: true, when: 'Changing the kg a day expected per variety (a rules change), which can delay pre-orders and message customers' },
   { route: 'POST /batches/:id/purchases', always: true, when: 'Recording what a batch cost' },
   { route: 'PATCH /batches/:id/purchases/:purchaseId', always: true, when: 'Changing what a batch cost' },
   { route: 'PUT /settings/switches/:key', always: true, when: 'Turning a feature on or off' },
+  { route: 'POST /farm/bookings/:id/record-payment', always: true, when: 'Recording a farm bill paid at the farm (UPI, card, cash, bank)' },
+  { route: 'POST /farm/refunds/:id/settle', always: true, when: 'Recording a farm refund paid outside Razorpay' },
+  { route: 'POST /farm/varieties', always: true, when: 'Adding a farm variety with its price per kg' },
+  { route: 'PATCH /farm/varieties/:id', always: true, when: 'Changing a farm variety\'s price or tiers' },
+  { route: 'PUT /farm/settings', always: true, when: 'Changing Farm Experience settings, policies or opening bookings' },
   { route: 'PUT /whatsapp/automations/:kind', always: false, when: 'Turning an automated WhatsApp message on or off' },
   { route: 'POST /staff', always: false, when: 'Adding staff' },
   { route: 'PATCH /staff/:id', always: false, when: 'Changing a role or password' },
@@ -43,5 +51,9 @@ export const STEP_UP_ROUTES = [
 export const READ_AUDITED_ROUTES = [
   'GET /orders/:id', 'GET /manifest', 'GET /claims', 'GET /orders/:id/delivery-photos/:photoId', 'GET /claims/:id/photos/:photoId',
   'GET /whatsapp/conversations/:id', 'GET /whatsapp/media/:id',
+  'GET /partner-network/enquiries/:id', 'GET /partner-network/enquiries/:id/documents/:documentId', 'GET /partner-network/product-proposals/:id',
+  'GET /farm/bookings/:id', 'GET /farm/check-in/:code',
+  // Gift orders to many recipients (docs/gifting.md): the list and a gift order carry every recipient's name, phone and address.
+  'GET /gift-orders', 'GET /gift-orders/:id',
 ]
 export const ALWAYS_AUDITED_READS = ['GET /customers/:id', 'GET /orders/:id/bill', 'GET /exports/:kind']

@@ -40,7 +40,7 @@ const held = (orderId) => count('SELECT coalesce(sum(quantity), 0)::int AS n FRO
 const onHand = () => count("SELECT sum(on_hand)::int AS n FROM batch_lines WHERE sku = 'ALP-3'")
 
 async function paidOrder() {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
   assert.equal(o.status, 201, JSON.stringify(o.body))
   assert.equal((await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })).status, 200)
   return o.body
@@ -48,7 +48,7 @@ async function paidOrder() {
 
 test('checkout sent twice with one Idempotency-Key: one order, one hold', async () => {
   const key = newId('idem')
-  assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'RIPE', qty: 2 }, { token: cust.accessToken })).status, 204)
+  assert.equal((await api.post('/v1/cart/items', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }, { token: cust.accessToken })).status, 204)
   const q = await api.post('/v1/checkout/quote', { pincode: '560034' }, { token: cust.accessToken })
   const confirm = () =>
     api.post('/v1/checkout/confirm', { quoteId: q.body.quoteId, address: '12, 4th Cross, Koramangala, Bengaluru' }, { token: cust.accessToken, headers: { 'Idempotency-Key': key } })
@@ -63,8 +63,8 @@ test('checkout sent twice with one Idempotency-Key: one order, one hold', async 
 
 test('the same key with a different basket is refused, not a second order', async () => {
   const key = newId('idem')
-  const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }], { key })
-  const b = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 3 }], { key })
+  const a = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }], { key })
+  const b = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 3 }], { key })
   assert.equal(a.status, 201)
   assert.equal(b.status, 422)
   assert.equal(b.body.error.code, 'IDEMPOTENCY_KEY_REUSED')
@@ -72,7 +72,7 @@ test('the same key with a different basket is refused, not a second order', asyn
 })
 
 test('a second payment for a paid order confirms nothing again: one confirmation, the extra one refunded', async () => {
-  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'RIPE', qty: 2 }])
+  const o = await checkout(api, cust.accessToken, [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }])
   const one = await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   const two = await api.post('/v1/dev/pay', { orderId: o.body.orderId, outcome: 'captured' })
   assert.equal(one.status, 200)
@@ -143,7 +143,7 @@ test('a preorder booked twice with one key is one booking', async () => {
   while (new Date(`${week}T00:00:00Z`).getUTCDay() !== 1) week = addDays(week, 1)
   assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 5 }, { token: manager })).status, 200)
   const key = newId('idem')
-  const body = { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }
+  const body = { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' }
   const a = await api.post('/v1/preorders', body, { token: cust.accessToken, headers: { 'Idempotency-Key': key } })
   const b = await api.post('/v1/preorders', body, { token: cust.accessToken, headers: { 'Idempotency-Key': key } })
   assert.equal(a.status, 201, JSON.stringify(a.body))

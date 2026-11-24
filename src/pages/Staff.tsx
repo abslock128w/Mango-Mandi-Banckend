@@ -561,6 +561,8 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'auth.login': 'Signed in',
   'auth.two_step_failed': 'Entered a wrong two-step code',
   'auth.setup_code_failed': 'Entered a wrong two-step setup code',
+  // A phone bound to a rider with the number's login code (rider-auth.js).
+  'auth.rider_device_bound': (d) => (d.samePhoneAgain ? 'Set up the rider app again on the same phone' : `Set up the rider app on a new phone${typeof d.otherPhones === 'number' && d.otherPhones > 0 ? ` (${d.otherPhones} other still signed in)` : ''}`),
   'POST /batches': 'Received a batch',
   'PATCH /batches/:id/status': (d) => `Moved batch to ${BATCH_STATUS_LABEL[d.status as BatchStatus] ?? d.status}`,
   'POST /batches/:id/qc': 'Logged QC',
@@ -587,6 +589,8 @@ const ACTION_LABEL: Record<string, string | ((d: Record<string, unknown>) => str
   'POST /slots': 'Added a delivery slot',
   'PATCH /slots/:id': 'Changed a delivery slot',
   'PUT /preorder-capacity/:weekStart/:sku': 'Set preorder capacity',
+  'PUT /preorder-weeks/:weekStart': 'Set a delivery week’s expected kg',
+  'POST /preorders/:id/move': 'Move a preorder to another week',
   // ADM-2: the row holds the values before the change (`before`) and an optional reason.
   'PATCH /products/:sku': (d) => {
     const was = (d.before ?? {}) as Record<string, unknown>

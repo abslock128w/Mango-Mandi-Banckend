@@ -62,7 +62,8 @@ Create each in WhatsApp Manager > Message templates, in the language set in
 - [ ] Optional, each with its switch: `mandi_reorder_reminder` (marketing),
       `mandi_review_request` (`WHATSAPP_REVIEW_REQUESTS`), `mandi_claim_received` and
       `mandi_claim_rejected` (`WHATSAPP_CLAIM_UPDATES`), `mandi_help_reply` and
-      `mandi_subscription_due` (`WHATSAPP_CARE_UPDATES`), `mandi_referral_reward`,
+      `mandi_subscription_due` (`WHATSAPP_CARE_UPDATES`), `mandi_partner_enquiry_received` and
+      `mandi_partner_team_alert` (`WHATSAPP_PARTNER_UPDATES`), `mandi_referral_reward`,
       `mandimangoes_daily_summary`.
 - [ ] All show **Approved**; the panel's "Read templates from Meta" shows them Ready.
 

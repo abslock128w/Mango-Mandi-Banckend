@@ -37,6 +37,12 @@ import type {
   Promo,
   NewPromo,
   HelpInbox,
+  BulkEnquiryDetail,
+  BulkEnquiryList,
+  BulkEnquiryStatus,
+  BulkKind,
+  BulkPriceList,
+  BulkQuoteInput,
   WaConversationDetail,
   WaFailures,
   WaInbox,
@@ -65,7 +71,10 @@ import type {
   FailReason,
   DeliverySlot,
   Preorder,
-  PreorderCapacity,
+  PreorderWeeks,
+  BookingFilter,
+  PlanChange,
+  PlanResult,
   PreorderStatus,
   Review,
   ReviewDetail,
@@ -557,6 +566,22 @@ export const api = {
   replyHelpRequest: (requestId: string, message: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reply`, { message }),
   resolveHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/resolve`),
   reopenHelpRequest: (requestId: string) => request<HelpRequestDetail>('POST', `/help/requests/${id(requestId)}/reopen`),
+  // Bulk enquiries (mango-api README, Bulk enquiries): managers and operators. Money in paise.
+  bulkEnquiries: (f: { status?: BulkEnquiryStatus | null; q?: string | null; kind?: BulkKind | null } = {}) =>
+    request<BulkEnquiryList>('GET', `/bulk-enquiries${qs({ status: f.status ?? undefined, kind: f.kind ?? undefined, q: f.q || undefined })}`),
+  moveFarmVisit: (enquiryId: string, to: 'CONTACTED' | 'VISIT_PLANNED' | 'VISITED', date?: string | null) =>
+    request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/farm-status`, { to, ...(date ? { date } : {}) }),
+  bulkEnquiry: (enquiryId: string) => request<BulkEnquiryDetail>('GET', `/bulk-enquiries/${id(enquiryId)}`),
+  quoteBulkEnquiry: (enquiryId: string, quote: BulkQuoteInput) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/quote`, quote),
+  closeBulkEnquiry: (enquiryId: string, reason?: string) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/close`, reason ? { reason } : {}),
+  noteBulkEnquiry: (enquiryId: string, text: string) => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/note`, { text }),
+  // Bulk orders paid at once: "Called customer", dispatched, delivered; a manager's cancel refunds a paid one (step-up).
+  moveBulkOrder: (enquiryId: string, to: 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED') => request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/status`, { to }),
+  cancelBulkOrder: (enquiryId: string, reason: string, confirmCode?: string) =>
+    request<BulkEnquiryDetail>('POST', `/bulk-enquiries/${id(enquiryId)}/cancel`, { reason, ...(confirmCode ? { confirmCode } : {}) }),
+  bulkPrices: () => request<BulkPriceList>('GET', '/bulk-prices'),
+  saveBulkPrices: (body: { discountPct: number; prices: { sku: string; bulkPrice: number | null }[] }, confirmCode?: string) =>
+    request<BulkPriceList>('PUT', '/bulk-prices', { ...body, ...(confirmCode ? { confirmCode } : {}) }),
   // WhatsApp (docs/whatsapp/OPERATIONS.md): the inbox for managers and operators; set-up and health for managers.
   waInbox: (view: WaInboxView = 'waiting', page = 1) => request<WaInbox>('GET', `/whatsapp/conversations${qs({ view, page: page > 1 ? page : undefined })}`),
   waConversation: (conversationId: string) => request<WaConversationDetail>('GET', `/whatsapp/conversations/${id(conversationId)}`),
@@ -606,9 +631,9 @@ export const api = {
     request<AuditPage>('GET', `/audit${qs({ ...f, reads: f.reads ? 'true' : undefined })}`),
 
   pincodes: () => request<Pincode[]>('GET', '/pincodes'),
-  addPincode: (input: { pincode: string; city: string; zone?: string }) =>
+  addPincode: (input: { pincode: string; city: string; zone?: string; lat?: number; lng?: number }) =>
     request<Pincode>('POST', '/pincodes', input),
-  updatePincode: (pincode: string, patch: Partial<Pick<Pincode, 'city' | 'zone' | 'active'>>) =>
+  updatePincode: (pincode: string, patch: Partial<Pick<Pincode, 'city' | 'zone' | 'active'> & { lat: number; lng: number }>) =>
     request<Pincode | undefined>('PATCH', `/pincodes/${id(pincode)}`, patch),
   deletePincode: (pincode: string) => request<void>('DELETE', `/pincodes/${id(pincode)}`),
 
@@ -632,13 +657,23 @@ export const api = {
   setCalendarDay: (day: CalendarDay) =>
     request<void>('PUT', `/calendar/${id(day.date)}`, { isOpen: day.isOpen, maxBoxes: day.maxBoxes, note: day.note }),
   clearCalendarDay: (date: string) => request<void>('DELETE', `/calendar/${id(date)}`),
-  preorders: (status?: PreorderStatus | null) => request<Preorder[]>('GET', `/preorders${qs({ status })}`),
-  preorderCapacity: () => request<PreorderCapacity[]>('GET', '/preorder-capacity'),
+  preorders: (status?: PreorderStatus | null, more: { filter?: BookingFilter | null; q?: string | null; week?: string | null } = {}) =>
+    request<Preorder[]>('GET', `/preorders${qs({ status, filter: more.filter, q: more.q, week: more.week })}`),
+  /** Manager only: what a change to the pre-order plan would do (nothing is written). */
+  previewPlan: (change: PlanChange) => request<PlanResult>('POST', '/preorder-plan/preview', change),
+  /** Manager only: saves the change and recalculates the weeks; customers moved get a message. A daily-kg change asks for the password. */
+  applyPlan: (change: PlanChange, confirmCode?: string) => request<PlanResult>('POST', '/preorder-plan/apply', { ...change, ...confirmBody(confirmCode) }),
+  /** The delivery weeks, each with its one pre-order limit for every box (booked / limit). */
+  preorderWeeks: () => request<PreorderWeeks>('GET', '/preorder-weeks'),
+  /** Manager only: a week's own expected kg (null: back to the default, daily x 7). */
+  setPreorderWeekLimit: (weekStart: string, limitKg: number | null, variety?: string) =>
+    request<{ weekStart: string; limit: number; own: number | null; booked: number; remaining: number; over: number }>('PUT', `/preorder-weeks/${id(weekStart)}`, { limitKg, ...(variety ? { variety } : {}) }),
+  /** Manager only: moves a booking (unpaid or paid, not yet an order) to another delivery week with room. */
+  movePreorder: (preorderId: string, weekStart: string, reason: string) =>
+    request<Preorder>('POST', `/preorders/${id(preorderId)}/move`, { weekStart, reason }),
   /** Manager only: cancels a booking we can't fill; a paid one is refunded in full. */
   cancelPreorder: (preorderId: string, reason: string, confirmCode?: string) =>
     request<{ refunded: boolean }>('POST', `/preorders/${id(preorderId)}/cancel`, { reason, ...confirmBody(confirmCode) }),
-  setPreorderCapacity: (weekStart: string, sku: string, capacity: number) =>
-    request<unknown>('PUT', `/preorder-capacity/${id(weekStart)}/${id(sku)}`, { capacity }),
   slots: () => request<DeliverySlot[]>('GET', '/slots'),
   addSlot: (input: Omit<DeliverySlot, 'id' | 'active' | 'sort'> & { sort?: number }) =>
     request<DeliverySlot>('POST', '/slots', input),

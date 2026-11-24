@@ -117,7 +117,7 @@ Managers may turn some switches on or off on the panel's **Settings** page
 `FAVOURITES`, `SHOP_SORT_FILTER`, `SHOP_INSTALL`, `LIVE_TRACKING`,
 `BILLS_ENABLED`, `REFERRALS`, `FUNNEL_ANALYTICS`, `MANAGER_DAILY_SUMMARY`,
 `STOCK_FORECAST`, `PURCHASE_RECORDS`, `HELP_CENTRE`, `SUBSCRIPTIONS`,
-`MULTI_GIFT`, `SHOP_LANGUAGES`.
+`MULTI_GIFT`, `SHOP_LANGUAGES`, `PARTNER_NETWORK`.
 
 The page lists only the ones this build reads (a switch from a feature not yet
 merged is not offered). To add one: add an entry to `PANEL_SWITCHES` and read

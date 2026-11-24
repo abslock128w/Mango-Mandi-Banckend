@@ -87,19 +87,32 @@ export function reportProblem(message, context = {}) {
   Sentry.captureMessage(message, { level: 'warning', extra: context })
 }
 
+// SRV-02: the Sentry monitor's schedule follows how often the scheduler calls the job
+// (MAINTENANCE_INTERVAL_S), or a 5-minute pinger would count as missing four check-ins in
+// five and the alert would be muted. A whole number of minutes that divides the hour is a
+// crontab (every minute, or every N minutes from the hour, as a pinger runs); anything else
+// an interval in minutes. The margin is about three intervals, like the every-minute
+// monitor's 3 minutes.
+export function cronMonitorConfig(intervalS = env.MAINTENANCE_INTERVAL_S) {
+  const minutes = Math.max(1, Math.ceil(intervalS / 60))
+  const crontab = intervalS % 60 === 0 && minutes < 60 && 60 % minutes === 0
+  const schedule = !crontab
+    ? { type: 'interval', value: minutes, unit: 'minute' }
+    : { type: 'crontab', value: minutes === 1 ? '* * * * *' : `*/${minutes} * * * *` }
+  return { schedule, checkinMargin: Math.ceil((3 * intervalS) / 60), maxRuntime: 2, timezone: 'Etc/UTC' }
+}
+
 /**
  * Sentry cron monitor for the maintenance job: a dead-man's switch. Sentry
- * expects a check-in every minute and alerts when one is missed or a run
- * errors, even if nobody is looking at the panel. Returns the check-in id.
+ * expects a check-in on the scheduler's interval (cronMonitorConfig) and alerts
+ * when one is missed or a run errors, even if nobody is looking at the panel.
+ * Returns the check-in id.
  */
 export function cronCheckIn(status, checkInId = null) {
   if (!on) return null
   try {
     if (checkInId) return Sentry.captureCheckIn({ checkInId, monitorSlug: 'maintenance', status })
-    return Sentry.captureCheckIn(
-      { monitorSlug: 'maintenance', status },
-      { schedule: { type: 'crontab', value: '* * * * *' }, checkinMargin: 3, maxRuntime: 2, timezone: 'Etc/UTC' },
-    )
+    return Sentry.captureCheckIn({ monitorSlug: 'maintenance', status }, cronMonitorConfig())
   } catch {
     return null
   }

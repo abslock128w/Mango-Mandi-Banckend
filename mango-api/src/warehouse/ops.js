@@ -10,6 +10,7 @@
 // Every scan carries a client-made scan_id. Sending the same scan_id again
 // (a retry after a dropped connection) returns the stored result and changes
 // nothing. Scans of one operation are serialised by locking the operation row.
+import { formatOrderNumber } from '../order-number.js'
 import { now } from '../clock.js'
 import { getConfig } from '../config.js'
 import { tx } from '../db.js'
@@ -18,6 +19,7 @@ import { HttpError } from '../errors.js'
 import { newId } from '../ids.js'
 import { ledger, lineInfo, lockLines, pack, release, sellableAs } from '../inventory.js'
 import { logger } from '../logger.js'
+import { keepsPromise } from '../stage.js'
 import { addEvent, assertTransition, lockOrder, rebalanceOrder, setOrderStatus } from '../orders.js'
 import { hit } from '../ratelimit.js'
 import { formatBoxCode, parseScan } from './codes.js'
@@ -163,14 +165,14 @@ export async function startOperation(c, { type, context = {} }, who) {
     op.order_id = o.id
     const reason = String(context.reason ?? '').trim().slice(0, 300)
     if (type === 'pick') {
-      if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}; only confirmed orders are picked`)
-      if (!paidOrReplacement(o)) throw whError('PAYMENT_NOT_CAPTURED', `Order ${o.number} is not paid yet`)
+      if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}; only confirmed orders are picked`)
+      if (!paidOrReplacement(o)) throw whError('PAYMENT_NOT_CAPTURED', `Order ${formatOrderNumber(o.number)} is not paid yet`)
     } else if (type === 'unpick') {
       if (!reason) throw whError('VALIDATION_ERROR', 'Say why the boxes are coming off the order', 400)
     } else if (type === 'pack') {
-      if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
+      if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
     } else if (type === 'dispatch') {
-      if (o.status !== 'PACKED') throw whError('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}; only packed orders are dispatched`)
+      if (o.status !== 'PACKED') throw whError('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}; only packed orders are dispatched`)
     } else if (type === 'return') {
       const loc = context.locationId
         ? await locationIn(c, context.locationId, who.warehouseId)
@@ -186,7 +188,7 @@ export async function startOperation(c, { type, context = {} }, who) {
         const fresh = await expireIfIdle(c, open)
         if (fresh.status !== 'open') continue
         if (fresh.owner_id === who.actor.id) return opView(fresh, { resumed: true })
-        throw whError('OPERATION_LOCKED', `Someone else is already ${type === 'pack' ? 'packing' : 'dispatching'} order ${o.number}.`)
+        throw whError('OPERATION_LOCKED', `Someone else is already ${type === 'pack' ? 'packing' : 'dispatching'} order ${formatOrderNumber(o.number)}.`)
       }
     }
   }
@@ -423,27 +425,34 @@ const HANDLERS = {
 
   async pick(c, op, box0, s, who) {
     const o = await lockOrder(c, op.order_id)
-    if (!PICKABLE_ORDER.includes(o.status)) reject('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}; picking has stopped.`)
-    if (!paidOrReplacement(o)) reject('PAYMENT_NOT_CAPTURED', `Order ${o.number} is not paid.`)
+    if (!PICKABLE_ORDER.includes(o.status)) reject('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}; picking has stopped.`)
+    if (!paidOrReplacement(o)) reject('PAYMENT_NOT_CAPTURED', `Order ${formatOrderNumber(o.number)} is not paid.`)
     const box = await lockBox(c, box0.id)
     if (box.order_id === o.id) reject('ALREADY_PICKED', `${formatBoxCode(box.code)} is already on this order.`)
     const tracking = await trackedLine(c, box.line_id)
     const p = pickProblem(box, { trackingOn: tracking })
     if (p) reject(...p)
     const items = (await c.query('SELECT * FROM order_items WHERE order_id = $1 ORDER BY id', [o.id])).rows.filter((i) => i.sku === box.sku)
-    if (!items.length) reject('WRONG_VARIANT', `Order ${o.number} has no ${box.sku_name}.`)
+    if (!items.length) reject('WRONG_VARIANT', `Order ${formatOrderNumber(o.number)} has no ${box.sku_name}.`)
     const info = await lineInfo(c, box.line_id)
     const st = sellableAs(info, o.delivery_date, getConfig(), { existing: true })
     if (!st || box.best_before < o.delivery_date) reject('EXPIRED', `${formatBoxCode(box.code)} is too old for delivery on ${o.delivery_date}. Pick a younger box.`)
-    const item = items.find((i) => i.stage === st.stage)
-    if (!item) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
+    // The same ripeness first; a line bought as RIPE (no longer sold) takes a box that is SEMI_RIPE on the day.
+    const matching = items.filter((i) => keepsPromise(i.stage, st.stage)).sort((a, b) => (b.stage === st.stage) - (a.stage === st.stage))
+    if (!matching.length) reject('WRONG_VARIANT', `${formatBoxCode(box.code)} will be ${st.stage.toLowerCase()} on ${o.delivery_date}; this order wants ${items.map((i) => i.stage.toLowerCase()).join(' or ')}.`)
     // The order's reserved units for this product and ripeness, oldest batch first (FEFO).
-    const rows = (await c.query(
-      `SELECT s.*, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
-        WHERE s.order_id = $1 AND s.sku = $2 AND s.stage = $3 AND s.state = 'committed' ORDER BY b.plucked_on, s.id`,
-      [o.id, box.sku, st.stage],
-    )).rows
-    if (!rows.length) reject('LINE_ALREADY_FULFILLED', `Order ${o.number} already has all its ${box.sku_name} (${st.stage.toLowerCase()}).`)
+    let item = matching[0]
+    let rows = []
+    for (const i of matching) {
+      rows = (await c.query(
+        `SELECT s.*, b.plucked_on FROM order_stock s JOIN batches b ON b.id = s.batch_id
+          WHERE s.order_id = $1 AND s.sku = $2 AND s.stage = $3 AND s.state = 'committed' ORDER BY b.plucked_on, s.id`,
+        [o.id, box.sku, i.stage],
+      )).rows
+      item = i
+      if (rows.length) break
+    }
+    if (!rows.length) reject('LINE_ALREADY_FULFILLED', `Order ${formatOrderNumber(o.number)} already has all its ${box.sku_name} (${st.stage.toLowerCase()}).`)
     let row = rows.find((r) => r.line_id === box.line_id)
     let warning = null
     if (!row) {
@@ -464,15 +473,15 @@ const HANDLERS = {
       const id = newId('ost')
       await c.query(
         `INSERT INTO order_stock (id, order_id, batch_id, line_id, sku, stage, quantity, state) VALUES ($1, $2, $3, $4, $5, $6, 1, 'committed')`,
-        [id, o.id, box.batch_id, box.line_id, box.sku, st.stage],
+        [id, o.id, box.batch_id, box.line_id, box.sku, item.stage],
       )
-      await ledger(c, { batchId: box.batch_id, eventType: 'COMMIT', sku: box.sku, delta: 1, actorType: who.actor.type, actorId: who.actor.id, reason: `${o.number}: picked out of order (${reason})` })
-      await release(c, expected, who.actor, `${o.number}: another batch picked instead (${reason})`, 1)
+      await ledger(c, { batchId: box.batch_id, eventType: 'COMMIT', sku: box.sku, delta: 1, actorType: who.actor.type, actorId: who.actor.id, reason: `${formatOrderNumber(o.number)}: picked out of order (${reason})` })
+      await release(c, expected, who.actor, `${formatOrderNumber(o.number)}: another batch picked instead (${reason})`, 1)
       row = (await c.query('SELECT * FROM order_stock WHERE id = $1', [id])).rows[0]
       warning = { code: 'NON_FEFO', reason }
     }
     const staging = await stagingPlace(c, box.warehouse_id)
-    await pickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} picked`)
+    await pickUnit(c, row, who.actor, `${formatOrderNumber(o.number)}: box ${formatBoxCode(box.code)} picked`)
     await changeBox(
       c, box, { lifecycle: 'picked', order_id: o.id, order_item_id: item.id, location_id: staging?.id ?? box.location_id },
       ev(op, s, who, 'PICKED', { orderId: o.id, reasonCode: warning ? 'non_fefo' : null, reason: warning?.reason ?? null }),
@@ -486,7 +495,7 @@ const HANDLERS = {
     const left = (await c.query(`SELECT coalesce(sum(quantity), 0)::int AS n FROM order_stock WHERE order_id = $1 AND state IN ('held', 'committed')`, [o.id])).rows[0].n
     const detail = { orderId: o.id, left }
     if (warning) return { result: 'warning', code: 'NON_FEFO', message: `${formatBoxCode(box.code)} picked from another batch (${warning.reason}). ${left} left.`, detail }
-    return { message: `${formatBoxCode(box.code)} picked for ${o.number}. ${left ? `${left} left to pick.` : 'All picked.'}`, detail }
+    return { message: `${formatBoxCode(box.code)} picked for ${formatOrderNumber(o.number)}. ${left ? `${left} left to pick.` : 'All picked.'}`, detail }
   },
 
   async unpick(c, op, box0, s, who) {
@@ -494,7 +503,7 @@ const HANDLERS = {
     if (op.order_id && box0.order_id !== op.order_id) reject('NOT_FROM_THIS_ORDER', `${box0.code} is on another order.`)
     const o = await lockOrder(c, box0.order_id)
     const r = await unpickBox(c, o, box0.id, who, op.context.reason ?? 'Taken off the order', ev(op, s, who, 'UNPICKED', { reasonCode: 'unpick', reason: op.context.reason }))
-    return { message: `${r.code} taken off ${o.number}. Put it back in storage.`, detail: { orderId: o.id, atRisk: r.atRisk } }
+    return { message: `${r.code} taken off ${formatOrderNumber(o.number)}. Put it back in storage.`, detail: { orderId: o.id, atRisk: r.atRisk } }
   },
 
   pack(c, op, box0, s) {
@@ -531,13 +540,13 @@ const HANDLERS = {
     if (box.order_id !== o.id || box.lifecycle !== 'dispatched') reject('CONFLICT_RETRY_EXHAUSTED', 'This box just changed. Scan it again.')
     const wrongOrder = box.order_id !== op.order_id
     const row = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND line_id = $2 AND state = 'packed' ORDER BY id LIMIT 1`, [o.id, box.line_id])).rows[0]
-    if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} returned`)
+    if (row) await unpickUnit(c, row, who.actor, `${formatOrderNumber(o.number)}: box ${formatBoxCode(box.code)} returned`)
     const moved = await changeBox(c, box, { lifecycle: 'returned', order_id: null, order_item_id: null, location_id: op.location_id }, ev(op, s, who, 'RETURNED', { orderId: o.id, reason: op.context.reason ?? null }), deltas)
     // D7: returned mangoes are not resold unless the product allows it and QC passes them again.
-    await addHold(c, moved, 'return_hold', `Returned from ${o.number}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
+    await addHold(c, moved, 'return_hold', `Returned from ${formatOrderNumber(o.number)}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
     if (wrongOrder) {
-      await addHold(c, moved, 'investigation_hold', `Came back with order ${op.context.orderNumber} but left on ${o.number}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
-      return { result: 'warning', code: 'NOT_FROM_THIS_ORDER', message: `${formatBoxCode(box.code)} left on ${o.number}, not this order. Booked as returned and held for a supervisor.`, detail: { orderId: o.id } }
+      await addHold(c, moved, 'investigation_hold', `Came back with order ${formatOrderNumber(op.context.orderNumber)} but left on ${formatOrderNumber(o.number)}`, ev(op, s, who, 'HOLD_ADDED'), deltas)
+      return { result: 'warning', code: 'NOT_FROM_THIS_ORDER', message: `${formatBoxCode(box.code)} left on ${formatOrderNumber(o.number)}, not this order. Booked as returned and held for a supervisor.`, detail: { orderId: o.id } }
     }
     return { message: `${formatBoxCode(box.code)} returned. It stays in Returns.` }
   },
@@ -545,7 +554,7 @@ const HANDLERS = {
 
 /** Takes a picked or packed box off its locked order `o` (unpick, and undo of a pick). */
 async function unpickBox(c, o, boxId, who, why, event) {
-  if (!UNPICKABLE_ORDER.includes(o.status)) reject('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}; its boxes can no longer come off.`)
+  if (!UNPICKABLE_ORDER.includes(o.status)) reject('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}; its boxes can no longer come off.`)
   const box = await lockBox(c, boxId)
   if (box.order_id !== o.id || !['picked', 'packed'].includes(box.lifecycle)) reject('CONFLICT_RETRY_EXHAUSTED', 'This box just changed. Scan it again.')
   if (o.status === 'PACKED') {
@@ -555,7 +564,7 @@ async function unpickBox(c, o, boxId, who, why, event) {
     await addEvent(c, o.id, 'PACKED', 'PROCESSING', who.actor, `Reopened in the warehouse: box ${formatBoxCode(box.code)} taken off (${why})`)
   }
   const row = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND line_id = $2 AND state = 'packed' ORDER BY id LIMIT 1`, [o.id, box.line_id])).rows[0]
-  if (row) await unpickUnit(c, row, who.actor, `${o.number}: box ${formatBoxCode(box.code)} taken off (${why})`)
+  if (row) await unpickUnit(c, row, who.actor, `${formatOrderNumber(o.number)}: box ${formatBoxCode(box.code)} taken off (${why})`)
   await c.query('DELETE FROM wh_staged WHERE box_id = $1', [box.id])
   const staging = await stagingPlace(c, box.warehouse_id)
   await changeBox(c, box, { lifecycle: 'in_stock', order_id: null, order_item_id: null, location_id: staging?.id ?? box.location_id }, { ...event, orderId: o.id }, newDeltas(), { skipStock: true })
@@ -643,15 +652,15 @@ export async function finalizeOperation(c, opId, who, body = {}) {
   if (missing.length) throw whError('INCOMPLETE_SET', `${missing.length} ${missing.length === 1 ? 'box is' : 'boxes are'} not scanned yet: ${missing.slice(0, 10).join(', ')}.`, 409, { missing })
   const deltas = newDeltas()
   if (op.type === 'pack') {
-    if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
+    if (!PICKABLE_ORDER.includes(o.status)) throw whError('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
     const committed = (await c.query(`SELECT * FROM order_stock WHERE order_id = $1 AND state IN ('held', 'committed') ORDER BY id`, [o.id])).rows
     let left = 0
     for (const row of committed) {
       if (await trackedLine(c, row.line_id)) left += row.quantity
     }
-    if (left) throw whError('INCOMPLETE_SET', `${left} ${left === 1 ? 'box is' : 'boxes are'} still to pick for ${o.number}.`, 409, { toPick: left })
+    if (left) throw whError('INCOMPLETE_SET', `${left} ${left === 1 ? 'box is' : 'boxes are'} still to pick for ${formatOrderNumber(o.number)}.`, 409, { toPick: left })
     // Products without box labels in the same order are packed the existing way.
-    for (const row of committed) await pack(c, row, who.actor, `${o.number} (packed with its labelled boxes)`)
+    for (const row of committed) await pack(c, row, who.actor, `${formatOrderNumber(o.number)} (packed with its labelled boxes)`)
     const packing = (await c.query(`SELECT id FROM wh_locations WHERE warehouse_id = $1 AND type = 'packing' AND active ORDER BY created_at, id LIMIT 1`, [op.warehouse_id])).rows[0]
     for (const b of needed) {
       await changeBox(c, b, { lifecycle: 'packed', location_id: packing?.id ?? b.location_id }, { type: 'PACKED', actor: who.actor, operationId: op.id, orderId: o.id }, deltas, { skipStock: true })
@@ -663,7 +672,7 @@ export async function finalizeOperation(c, opId, who, body = {}) {
     }
     await setOrderStatus(c, o.id, 'PACKED', who.actor)
   } else {
-    if (o.status !== 'PACKED') throw whError('INVALID_TRANSITION', `Order ${o.number} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
+    if (o.status !== 'PACKED') throw whError('INVALID_TRANSITION', `Order ${formatOrderNumber(o.number)} is ${o.status.toLowerCase().replace(/_/g, ' ')}`)
     for (const b of needed) {
       await changeBox(c, b, { lifecycle: 'dispatched', location_id: null }, { type: 'DISPATCHED', actor: who.actor, operationId: op.id, orderId: o.id }, deltas, { skipStock: true })
     }

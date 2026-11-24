@@ -15,6 +15,7 @@ export default function Pincodes() {
   const [adding, setAdding] = useState(false)
   const [deactivating, setDeactivating] = useState<Pincode | null>(null)
   const [deleting, setDeleting] = useState<Pincode | null>(null)
+  const [centring, setCentring] = useState<Pincode | null>(null)
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['pincodes'] })
 
@@ -37,6 +38,8 @@ export default function Pincodes() {
   })
 
   const canDelete = can(me?.role, 'deletePincode')
+  // Without a centre the delivery charge can't check a customer's pin, so it charges the assumed distance.
+  const noCentre = (q.data ?? []).filter((p) => !hasCentre(p))
 
   return (
     <>
@@ -47,6 +50,14 @@ export default function Pincodes() {
           Add pincode
         </button>
       </div>
+
+      {noCentre.length > 0 && (
+        <p className="notice notice-warn" role="status">
+          {noCentre.length === 1 ? `${noCentre[0].pincode} has` : `${noCentre.length} pincodes have`} no centre ({noCentre.map((p) => p.pincode).join(', ')}).
+          The delivery charge there can't be worked out from the customer's map pin: the assumed distance is charged. Set
+          the centre's latitude and longitude.
+        </p>
+      )}
 
       {q.isPending ? (
         <Spinner />
@@ -62,6 +73,7 @@ export default function Pincodes() {
                 <th>Pincode</th>
                 <th>City</th>
                 <th>Zone</th>
+                <th>Centre</th>
                 <th>Status</th>
                 <th>
                   <span className="sr-only">Actions</span>
@@ -76,11 +88,15 @@ export default function Pincodes() {
                   </td>
                   <td>{p.city}</td>
                   <td>{p.zone ?? '—'}</td>
+                  <td>{hasCentre(p) ? `${p.lat!.toFixed(5)}, ${p.lng!.toFixed(5)}` : <Badge tone="warn">Not set</Badge>}</td>
                   <td>
                     <Badge tone={p.active ? 'good' : 'neutral'}>{p.active ? 'Active' : 'Inactive'}</Badge>
                   </td>
                   <td>
                     <div className="btn-row">
+                      <button type="button" className="btn btn-small" onClick={() => setCentring(p)}>
+                        {hasCentre(p) ? 'Edit centre' : 'Set centre'}<span className="sr-only"> of {p.pincode}</span>
+                      </button>
                       {p.active ? (
                         <button type="button" className="btn btn-small" onClick={() => setDeactivating(p)}>
                           Deactivate<span className="sr-only"> {p.pincode}</span>
@@ -109,6 +125,7 @@ export default function Pincodes() {
       {!canDelete && q.data && q.data.length > 0 && <ManagerOnlyNote what="Deleting a pincode" />}
 
       {adding && <AddDialog onClose={() => setAdding(false)} onDone={refresh} />}
+      {centring && <CentreDialog pincode={centring} onClose={() => setCentring(null)} onDone={refresh} />}
 
       {deactivating && (
         <ConfirmDialog
@@ -152,10 +169,12 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: () => voi
   const [pincode, setPincode] = useState('')
   const [city, setCity] = useState('')
   const [zone, setZone] = useState('')
+  const [lat, setLat] = useState('')
+  const [lng, setLng] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
 
   const add = useMutation({
-    mutationFn: () => api.addPincode({ pincode, city: city.trim(), zone: zone.trim() || undefined }),
+    mutationFn: (centre: Centre | null) => api.addPincode({ pincode, city: city.trim(), zone: zone.trim() || undefined, ...(centre ?? {}) }),
     onSuccess: () => {
       toast.success(`${pincode} saved`)
       onDone()
@@ -168,7 +187,9 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: () => voi
     setFormError(null)
     if (!/^\d{6}$/.test(pincode)) return setFormError('Pincode must be exactly 6 digits.')
     if (!city.trim()) return setFormError('City is required.')
-    add.mutate()
+    const centre = readCentre(lat, lng, true)
+    if (typeof centre === 'string') return setFormError(centre)
+    add.mutate(centre)
   }
 
   return (
@@ -206,7 +227,90 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: () => voi
           <label htmlFor="pin-zone">Zone (optional)</label>
           <input id="pin-zone" value={zone} onChange={(e) => setZone(e.target.value)} />
         </div>
+        <CentreFields lat={lat} lng={lng} setLat={setLat} setLng={setLng} optional />
         <FormError error={formError ?? add.error} />
+      </form>
+    </Dialog>
+  )
+}
+
+type Centre = { lat: number; lng: number }
+
+const hasCentre = (p: Pincode) => p.lat != null && p.lng != null
+
+/**
+ * The centre typed on the page, checked as the API checks it: both or neither (when optional), numbers,
+ * and inside India, which also catches latitude and longitude swapped. Null: none given. A string: what's wrong.
+ */
+function readCentre(latText: string, lngText: string, optional: boolean): Centre | null | string {
+  const a = latText.trim()
+  const b = lngText.trim()
+  if (!a && !b) return optional ? null : 'Enter the latitude and longitude of the centre.'
+  if (!a || !b) return 'Enter both the latitude and the longitude, or neither.'
+  const lat = Number(a)
+  const lng = Number(b)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'Latitude and longitude are numbers, like 12.9279 and 77.6271.'
+  if (lat < 6 || lat > 37.5) return 'Latitude must be between 6 and 37.5 (India). Check it isn’t swapped with the longitude.'
+  if (lng < 68 || lng > 97.5) return 'Longitude must be between 68 and 97.5 (India). Check it isn’t swapped with the latitude.'
+  return { lat, lng }
+}
+
+function CentreFields({ lat, lng, setLat, setLng, optional = false }: { lat: string; lng: string; setLat: (v: string) => void; setLng: (v: string) => void; optional?: boolean }) {
+  return (
+    <>
+      <div className="field">
+        <label htmlFor="pin-lat">Centre latitude{optional ? ' (optional)' : ''}</label>
+        <input id="pin-lat" inputMode="decimal" placeholder="12.9279" value={lat} onChange={(e) => setLat(e.target.value)} />
+      </div>
+      <div className="field">
+        <label htmlFor="pin-lng">Centre longitude{optional ? ' (optional)' : ''}</label>
+        <input id="pin-lng" inputMode="decimal" placeholder="77.6271" value={lng} onChange={(e) => setLng(e.target.value)} />
+        <p className="hint">The middle of the area, from Google Maps (right-click, the first line). The delivery charge never goes below this point's distance, less 1.5 km.</p>
+      </div>
+    </>
+  )
+}
+
+function CentreDialog({ pincode, onClose, onDone }: { pincode: Pincode; onClose: () => void; onDone: () => void }) {
+  const toast = useToast()
+  const [lat, setLat] = useState(pincode.lat != null ? String(pincode.lat) : '')
+  const [lng, setLng] = useState(pincode.lng != null ? String(pincode.lng) : '')
+  const [formError, setFormError] = useState<string | null>(null)
+  const save = useMutation({
+    mutationFn: (centre: Centre) => api.updatePincode(pincode.pincode, centre),
+    onSuccess: () => {
+      toast.success(`Centre of ${pincode.pincode} saved`)
+      onDone()
+      onClose()
+    },
+  })
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    setFormError(null)
+    const centre = readCentre(lat, lng, false)
+    if (typeof centre === 'string' || centre === null) return setFormError(typeof centre === 'string' ? centre : 'Enter the centre.')
+    save.mutate(centre)
+  }
+
+  return (
+    <Dialog
+      title={`Centre of ${pincode.pincode}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="pin-centre-form" className="btn btn-primary" disabled={save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <form id="pin-centre-form" onSubmit={onSubmit} noValidate>
+        <CentreFields lat={lat} lng={lng} setLat={setLat} setLng={setLng} />
+        <FormError error={formError ?? save.error} />
       </form>
     </Dialog>
   )

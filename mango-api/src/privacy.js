@@ -5,6 +5,8 @@ import { now } from './clock.js'
 import { conflict, notFound } from './errors.js'
 import { scrubCustomerReviews } from './reviews.js'
 import { ORDER_AUDIT_PERSONAL_KEYS } from './access.js'
+import { regularHorizon } from './preorders.js'
+import { eraseApplicantApplications } from './partner/erase.js'
 
 /**
  * SEC-R3: the staff audit rows of these orders lose the delivery details they
@@ -23,7 +25,9 @@ export async function scrubOrderAudit(c, orders, params) {
  * Anything still in progress for the customer: an open order or booking, or
  * money still owed back to them (a refund or a second payment not yet
  * refunded). The account can't be deleted until these finish, because we'd
- * lose the phone number we need to reach them.
+ * lose the phone number we need to reach them. A waitlisted booking whose week
+ * has reached the booking horizon can never get a spot (the maintenance run
+ * cancels it), so it no longer counts.
  */
 export async function hasOpenBusiness(c, customerId) {
   const { rowCount } = await c.query(
@@ -31,20 +35,22 @@ export async function hasOpenBusiness(c, customerId) {
         AND (status NOT IN ('DELIVERED', 'CANCELLED', 'RTO') OR (refund_requested_at IS NOT NULL AND refunded_at IS NULL))
      UNION ALL
      SELECT 1 FROM preorders WHERE customer_id = $1
-        AND (status IN ('PAYMENT_PENDING', 'BOOKED', 'WAITLISTED') OR (refund_requested_at IS NOT NULL AND refunded_at IS NULL))
+        AND (status IN ('PAYMENT_PENDING', 'BOOKED') OR (status = 'WAITLISTED' AND week_start > $2)
+             OR (refund_requested_at IS NOT NULL AND refunded_at IS NULL))
      UNION ALL
      SELECT 1 FROM duplicate_payments d
        LEFT JOIN orders o ON o.id = d.order_id LEFT JOIN preorders p ON p.id = d.preorder_id
       WHERE d.refunded_at IS NULL AND (o.customer_id = $1 OR p.customer_id = $1)
      LIMIT 1`,
-    [customerId],
+    [customerId, await regularHorizon(c)],
   )
   return rowCount > 0
 }
 
 /**
  * Removes the customer's name, phone, email, addresses, notes and photos from
- * the account, its orders, bookings and claims. Orders keep their amounts,
+ * the account, its orders, bookings and claims, and any Grow with us
+ * application sent from its number. Orders keep their amounts,
  * payment and refund ids for the books. Bills are not touched: tax law needs
  * them kept as issued, with the buyer's name and address, for
  * BILL_RETENTION_MONTHS after the bill date (retention.js removeOldBillBuyers
@@ -80,7 +86,8 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
       WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL`,
     [me.id, now()],
   )
-  await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '' WHERE customer_id = $1`, [me.id])
+  await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '',
+            gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL WHERE customer_id = $1`, [me.id])
   // INT-05 (24 Oct audit): booking messages too, or they go to the deleted number and keep it for 180 days.
   await c.query(
     `UPDATE notifications SET phone = '', status = CASE WHEN status = 'PENDING' THEN 'SKIPPED' ELSE status END
@@ -146,6 +153,9 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
          OR subscription_cycle_id IN (SELECT y.id FROM subscription_cycles y JOIN subscriptions s ON s.id = y.subscription_id WHERE s.customer_id = $1)`,
     [me.id],
   )
+  // Grow with us (docs/partner-network.md): applications sent from the account's number lose everything,
+  // contact details included; an open one is closed first.
+  const partnerDocs = await eraseApplicantApplications(c, { phone: me.phone }, deletedAt)
   if (me.phone) {
     await c.query('DELETE FROM otps WHERE phone = $1', [me.phone])
     await c.query('DELETE FROM wa_inbound WHERE phone = $1', [me.phone])
@@ -153,5 +163,5 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   }
   await c.query("UPDATE refresh_sessions SET revoked_at = $2 WHERE user_id = $1 AND user_type = 'customer' AND revoked_at IS NULL", [me.id, now()])
   await c.query('UPDATE customers SET phone = NULL, name = NULL, email = NULL, google_sub = NULL, reminders_opt_in = FALSE, language = NULL, deleted_at = $2 WHERE id = $1', [me.id, deletedAt])
-  return [...pics.rows, ...deliveryPics.rows, ...reviewPics]
+  return [...pics.rows, ...deliveryPics.rows, ...reviewPics, ...partnerDocs]
 }

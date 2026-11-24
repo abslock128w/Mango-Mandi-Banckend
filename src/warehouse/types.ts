@@ -297,6 +297,8 @@ export interface PickQueueRow {
   status: string
   deliveryDate: string | null
   atRisk: boolean
+  /** Backorders: sold before stock arrived (absent from older servers). */
+  backorder?: boolean
   toPick: number
   picked: number
 }

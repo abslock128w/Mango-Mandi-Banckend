@@ -45,6 +45,8 @@ const TEXT = {
   // Customer care (docs/care.md): not about an order, so they carry their own link.
   HELP_REPLY: 'MandiMangoes replied to your help request',
   SUBSCRIPTION_DUE: 'Your MandiMangoes box is ready to pay for',
+  // Bulk enquiries (mango-api/README.md, Bulk enquiries): the quote itself is on the Account page.
+  BULK_QUOTE: 'Your MandiMangoes bulk quote is ready',
 }
 
 /** Push is on: the flag, and keys when it really sends. */
@@ -173,7 +175,7 @@ export async function enqueueCustomerPush(c, customerId, eventId, kind) {
 }
 
 /** Care messages that are pushed, each with the shop page it opens. */
-export const LINK_PUSH_KINDS = new Set(['HELP_REPLY', 'SUBSCRIPTION_DUE'])
+export const LINK_PUSH_KINDS = new Set(['HELP_REPLY', 'SUBSCRIPTION_DUE', 'BULK_QUOTE'])
 
 /**
  * A browser notification that is not about an order (docs/care.md): queued in the caller's

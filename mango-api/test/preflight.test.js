@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { env, STRICT_SWITCHES, strictDefaults } from '../src/env.js'
+import { backupDefault, env, STRICT_SWITCHES, strictDefaults } from '../src/env.js'
 import { AUDIT_FIXES_OFF, checkProduction, DEV_JWT } from '../src/preflight.js'
 
 const good = {
@@ -32,6 +32,8 @@ const good = {
   PRODUCTION_DB_HOST: 'ep-x.ap-southeast-1.aws.neon.tech',
   TURNSTILE_SITE_KEY: '0x4AAA',
   TURNSTILE_SECRET_KEY: '0x4BBB',
+  BACKUP_HEARTBEAT_EXPECTED: true,
+  MAINTENANCE_SCHEDULER: 'vercel',
 }
 // A preview on the Neon staging branch.
 const staging = {
@@ -82,11 +84,50 @@ describe('production preflight', () => {
     assert.ok(prod.errors.some((e) => e.startsWith('DEMO_OTP_ON_SCREEN')))
   })
 
-  it('warns about test keys and features left off', () => {
-    const { errors, warnings } = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', WHATSAPP_APP_SECRET: '', TRUST_PROXY: 0 })
+  it('warns about test keys (when allowed) and features left off', () => {
+    const { errors, warnings } = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', ALLOW_TEST_PAYMENTS_IN_PRODUCTION: true, WHATSAPP_APP_SECRET: '', TRUST_PROXY: 0 })
     assert.deepEqual(errors, [])
     assert.equal(warnings.length, 3)
     assert.match(warnings[0], /test key/)
+  })
+
+  it('AREA7-02: a Razorpay test key in production is refused unless ALLOW_TEST_PAYMENTS_IN_PRODUCTION is on', () => {
+    const refused = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x' })
+    assert.equal(refused.errors.length, 1)
+    assert.match(refused.errors[0], /^RAZORPAY_KEY_ID is a test key in production: .*ALLOW_TEST_PAYMENTS_IN_PRODUCTION=true/)
+    assert.deepEqual(refused.warnings, [])
+    const allowed = checkProduction({ ...good, RAZORPAY_KEY_ID: 'rzp_test_x', ALLOW_TEST_PAYMENTS_IN_PRODUCTION: true })
+    assert.deepEqual(allowed, { errors: [], warnings: ['RAZORPAY_KEY_ID is a test key: payments are not real money'] })
+    // A preview runs on test keys with no override.
+    assert.deepEqual(checkProduction(staging, { vercel: true, target: 'preview' }).errors, [])
+  })
+
+  it('BKP-02: production refuses the backup heartbeat off or unset; a preview does not need it', () => {
+    for (const v of [false, undefined]) {
+      const { errors, warnings } = checkProduction({ ...good, BACKUP_HEARTBEAT_EXPECTED: v })
+      assert.equal(errors.length, 1, String(v))
+      assert.ok(errors[0].startsWith('BACKUP_HEARTBEAT_EXPECTED is off in production'), errors[0])
+      assert.ok(errors[0].includes('deploy/VERCEL.md, Backups'))
+      assert.deepEqual(warnings, [])
+    }
+    assert.deepEqual(checkProduction({ ...staging, BACKUP_HEARTBEAT_EXPECTED: false }, { vercel: true, target: 'preview' }).errors, [])
+    // env.js: on for a production deploy unless written false, off for a preview or development.
+    assert.equal(backupDefault({}, 'production').BACKUP_HEARTBEAT_EXPECTED, true)
+    assert.equal(backupDefault({ BACKUP_HEARTBEAT_EXPECTED: false }, 'production').BACKUP_HEARTBEAT_EXPECTED, false)
+    for (const where of ['preview', 'development', 'test']) assert.equal(backupDefault({}, where).BACKUP_HEARTBEAT_EXPECTED, false, where)
+    assert.equal(backupDefault({ BACKUP_HEARTBEAT_EXPECTED: true }, 'preview').BACKUP_HEARTBEAT_EXPECTED, true)
+  })
+
+  it('CRON-01: production on Vercel must say what calls the maintenance job every minute; previews and Docker need not', () => {
+    const unset = checkProduction({ ...good, MAINTENANCE_SCHEDULER: '' }, { vercel: true })
+    assert.equal(unset.errors.length, 1)
+    assert.match(unset.errors[0], /^MAINTENANCE_SCHEDULER is unset: say 'vercel' .* or 'external' .*; see deploy\/SCHEDULER\.md$/)
+    for (const scheduler of ['vercel', 'external']) {
+      assert.deepEqual(checkProduction({ ...good, MAINTENANCE_SCHEDULER: scheduler }, { vercel: true }), { errors: [], warnings: [] }, scheduler)
+    }
+    assert.deepEqual(checkProduction({ ...staging, MAINTENANCE_SCHEDULER: '' }, { vercel: true, target: 'preview' }).errors, [])
+    // On Docker the API runs the job itself every minute.
+    assert.deepEqual(checkProduction({ ...good, MAINTENANCE_SCHEDULER: '' }, { vercel: false }).errors, [])
   })
 
   it('on Vercel, needs the cron secret and Neon\'s direct connection', () => {
@@ -170,6 +211,19 @@ describe('production preflight', () => {
     assert.deepEqual(await read({ NODE_ENV: 'development' }), Array(n).fill(false))
     const ons = Object.fromEntries(STRICT_SWITCHES.map((k) => [k, 'true']))
     assert.deepEqual(await read({ NODE_ENV: 'development', ...ons }), Array(n).fill(true))
+  })
+
+  it('env.js BKP-02: the backup heartbeat is expected on a production deploy unless written false, not on a preview', async () => {
+    const heartbeat = (vars) =>
+      promisify(execFile)(process.execPath, ['--input-type=module', '-e', "const { env } = await import('./src/env.js'); console.log(JSON.stringify(env.BACKUP_HEARTBEAT_EXPECTED))"], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        env: { PATH: process.env.PATH, DATABASE_URL: 'postgres://nobody@localhost:5432/none_test', ...vars },
+      }).then((r) => JSON.parse(r.stdout))
+    assert.equal(await heartbeat({ NODE_ENV: 'production', PREFLIGHT: '1' }), true)
+    assert.equal(await heartbeat({ NODE_ENV: 'production', PREFLIGHT: '1', BACKUP_HEARTBEAT_EXPECTED: 'false' }), false)
+    assert.equal(await heartbeat({ NODE_ENV: 'production', PREFLIGHT: '1', VERCEL_ENV: 'preview' }), false)
+    assert.equal(await heartbeat({ NODE_ENV: 'development' }), false)
+    assert.equal(env.BACKUP_HEARTBEAT_EXPECTED, false, 'the tests run with it off')
   })
 
   it('the tests run with them off unless a test turns one on', () => {

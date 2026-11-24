@@ -18,7 +18,7 @@ import { addDays, diffDays, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { saleLimitDays, sellableAs, sellableQty, sellableRows } from './inventory.js'
 import { allProducts, shopProducts } from './products.js'
-import { STAGES, stageFor } from './stage.js'
+import { SALE_STAGES, saleStage, stageFor } from './stage.js'
 
 export const HORIZON_DAYS = 14
 export const HISTORY_WEEKS = 4
@@ -76,6 +76,8 @@ async function stockedDays(c, from, to, cfg) {
     const arrives = r.eta_date ?? addDays(r.plucked_on, cfg.transitDays)
     const closedOn = closed.get(r.id) ?? null
     for (let d = from; d <= to; d = addDays(d, 1)) {
+      // Nothing is delivered from a batch on its arrival day: delivery is next day at the earliest and
+      // stock still in transit is never promised for the day it lands (inventory.js sellableAs).
       if (d <= arrives || (closedOn && d > closedOn)) continue
       const stage = stageFor(cfg, { variety: r.variety, pluckedOn: r.plucked_on }, d, null)
       if (stage) out.add(key3(r.sku, stage, d))
@@ -165,15 +167,19 @@ export async function stockForecast(c, today = todayIST()) {
     stockedDays(c, historyFrom, historyTo, cfg),
     wasteBySku(c, today),
   ])
-  const soldOn = new Map(sales.rows.map((r) => [key3(r.sku, r.stage, r.date), r.boxes]))
-  const bookedOn = new Map(booked.rows.map((r) => [key3(r.sku, r.stage, r.date), r.boxes]))
-  const aheadOn = new Map()
-  for (const r of preorders.rows) {
-    // On the first day of the week (or the first forecast day, for a week already started): the earliest it may be needed.
-    const d = r.week_start < dates[0] ? dates[0] : r.week_start
-    const k = key3(r.sku, r.stage, d)
-    aheadOn.set(k, (aheadOn.get(k) ?? 0) + r.boxes)
+  // Boxes sold or booked as RIPE (no longer sold) count as semi-ripe: that is what fills them now (stage.js saleStage).
+  const sumBy = (rows, dateOf) => {
+    const m = new Map()
+    for (const r of rows) {
+      const k = key3(r.sku, saleStage(r.stage), dateOf(r))
+      m.set(k, (m.get(k) ?? 0) + r.boxes)
+    }
+    return m
   }
+  const soldOn = sumBy(sales.rows, (r) => r.date)
+  const bookedOn = sumBy(booked.rows, (r) => r.date)
+  // On the first day of the week (or the first forecast day, for a week already started): the earliest it may be needed.
+  const aheadOn = sumBy(preorders.rows, (r) => (r.week_start < dates[0] ? dates[0] : r.week_start))
   const closed = new Set(closedDays.rows.map((r) => r.date))
 
   /** The weekday average for (sku, stage, date), with every day it looked at. */
@@ -211,7 +217,7 @@ export async function stockForecast(c, today = todayIST()) {
       const at = l.byDate.get(d)
       return at ? Math.max(0, Math.floor(at.free * (1 - w.rate)) - l.used) : 0
     }
-    const stages = STAGES.map((stage) => ({ stage, days: [], short: 0, history: false }))
+    const stages = SALE_STAGES.map((stage) => ({ stage, days: [], short: 0, history: false }))
     const shortDays = []
     for (const d of dates) {
       for (const s of stages) {

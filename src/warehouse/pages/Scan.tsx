@@ -6,6 +6,7 @@
 // Where the warehouse has camera scanning on, the camera feeds the same queue.
 // Stocktake and repack are staged like pack: nothing changes until Finish.
 
+import { formatOrderNumber, normaliseOrderNumber, sameOrderNumber } from '../../orderNumber'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -61,19 +62,19 @@ function Setup() {
   const settings = useQuery({ queryKey: ['wh', 'settings'], queryFn: wh.settings, enabled: type === 'repack' })
 
   /**
-   * The order as typed: a number like ORD-1042 (from the pick queue, or the orders
-   * search for roles that may open Orders) or the order's id.
+   * The order as typed: a number like S-743 406 080, s743406080, #7434060801 or ORD-1042 (from the pick
+   * queue, or the orders search for roles that may open Orders) or the order's id.
    */
   async function resolveOrder(input: string): Promise<string> {
     const t = input.trim()
-    const same = (n: string) => n.toLowerCase() === t.toLowerCase()
+    const same = (n: string) => sameOrderNumber(n, t)
     const queued = queue.data?.find((o) => same(o.number) || o.orderId === t)
     if (queued) return queued.orderId
     if (canSee(me?.role, 'orders')) {
       const found = await api.orders({ q: t })
       const hit = found.items.find((o) => same(o.number))
       if (hit) return hit.id
-      if (/^[A-Z]+-\d+$/i.test(t)) throw new Error(`No order ${t.toUpperCase()}.`)
+      if (/^[A-Z]+-\d+$/i.test(t) || /^#?\s*[SPGB][\s-]*\d{3}\s?\d{3}\s?\d{3}$/i.test(t)) throw new Error(`No order ${formatOrderNumber(normaliseOrderNumber(t).toUpperCase())}.`)
     }
     return t
   }
@@ -228,7 +229,7 @@ function Setup() {
               ))}
             </datalist>
             <p className="hint" id="scan-order-hint">
-              For example ORD-1042, or choose from the orders waiting to be picked.
+              For example S-743 406 080, or choose from the orders waiting to be picked.
             </p>
           </div>
         )}

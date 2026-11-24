@@ -60,3 +60,19 @@ export function clientErrorOf(err) {
   if (badPath) return { status: 400, code: 'VALIDATION_ERROR', message: 'The address is not valid' }
   return { status, code: 'VALIDATION_ERROR', message: 'The request could not be read' }
 }
+
+/**
+ * A NUL anywhere in the path or query, raw or %-encoded. Postgres text can't hold one, so such a
+ * request could only end in a database error: it is refused up front (400) instead.
+ */
+export const hasNul = (rawUrl) => /%00|\u0000/i.test(String(rawUrl ?? ''))
+
+/**
+ * Postgres refusing a value the request sent: a NUL in text (22021, character_not_in_repertoire)
+ * or text that is not a number, date or id of the column's type (22P02, invalid_text_representation).
+ * The client's input, so 400, not a reported 500. Null for anything else.
+ */
+export function dbInputErrorOf(err) {
+  if (err?.code === '22021' || err?.code === '22P02') return { status: 400, code: 'VALIDATION_ERROR', message: 'A value in the request is not valid' }
+  return null
+}

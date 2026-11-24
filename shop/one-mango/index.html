@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1f15">
+  <title>One Mango · VMR Mangoes</title>
+  <meta name="description" content="One Mango: a short film by VMR Mangoes. From a seed in the dark to a bowl on your counter, picked by hand before it falls.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="One Mango · VMR Mangoes">
+  <meta property="og:description" content="A short film: one mango, from a seed in the dark to a bowl on your counter. Picked by hand before it falls.">
+  <!-- the sharing image; some services need its full address, which is set once the film has one -->
+  <meta property="og:image" content="/one-mango/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" href="/one-mango/fonts/young-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/one-mango/fonts/figtree-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M30 14c14-2 24 8 24 22 0 12-8 22-20 22-10 0-16-6-18-14-2-6-6-8-6-14 0-9 8-15 20-16z' fill='%23ffb81f'/%3E%3Cpath d='M30 14c2-6 8-9 14-8-2 6-7 9-14 8z' fill='%23174631'/%3E%3C/svg%3E">
+  <script type="module" crossorigin src="/one-mango/assets/index-DaKF60lA.js"></script>
+  <link rel="stylesheet" crossorigin href="/one-mango/assets/index-BwtNjgyu.css">
+</head>
+<body>
+  <a class="skip" href="#end" data-skip>Skip to the end</a>
+  <canvas id="gl" aria-hidden="true"></canvas>
+
+  <!-- The opening card. A mango gathers itself out of gold dust as the film loads (public/pre.js draws it on the canvas);
+       the title behind it is drawn in outline and fills from left to right with the load; then one button.
+       Styles: src/style.css "Preloader". main.js drives --p (0 to 1), the number, the word, and the classes is-gate
+       (ready: the button shows), is-crack (begun: the fruit bursts, the title parts) and is-done (faded away). -->
+  <div class="pre" id="pre" aria-hidden="true">
+    <canvas class="pre-cv" data-pre-canvas aria-hidden="true"></canvas>
+    <div class="pre-head">
+      <img class="pre-mark" src="/one-mango/brand-dark.webp" alt="" width="586" height="448">
+      <p class="pre-kick"><span>A short film</span><span>Thirteen chapters</span></p>
+    </div>
+    <p class="pre-title" role="heading" aria-level="1" aria-label="One Mango">
+      <span class="pre-line is-a" aria-hidden="true"><span class="pre-out">One</span><span class="pre-fill">One</span></span>
+      <span class="pre-line is-b" aria-hidden="true"><em class="pre-out">Mango</em><em class="pre-fill">Mango</em></span>
+    </p>
+    <div class="pre-foot">
+      <p class="pre-word"><small>Now</small><span data-pre-word>Planting the seed</span></p>
+      <div class="pre-mid">
+        <button class="pre-go" type="button" data-begin aria-label="Begin the film (plays quiet music)"><span>Begin the film</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <p class="pre-note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.500h3.500L12 6v12l-4.500-3.500H4zM15.500 9a4 4 0 0 1 0 6M18 6.500a7.500 7.500 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="1.600" stroke-linecap="round" stroke-linejoin="round"/></svg>Plays quiet music, and plays by itself: two minutes.</p>
+      </div>
+      <p class="pre-num"><b><span data-pre-num>0</span><i>%</i></b></p>
+    </div>
+    <i class="pre-bar" aria-hidden="true"></i>
+  </div>
+
+  <header class="bar">
+    <a class="bar-mark" href="/" aria-label="VMR Mangoes shop"><img src="/one-mango/brand-dark.webp" alt="VMR Mangoes" width="586" height="448"></a>
+    <div class="bar-right">
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Chapters"><ol data-rail></ol><p class="rail-name" data-rail-name></p></nav>
+  <div class="count" aria-hidden="true"><span data-count>00</span><i>/</i><span>12</span></div>
+  <div class="day" data-day aria-hidden="true"><small>Day</small><span class="day-num" data-day-num>0</span><small class="day-sub" data-day-sub>Plucked</small></div>
+
+  <main class="film" id="film" data-film></main>
+
+  <!-- The film plays by itself; these are its controls (src/controls.js; styles: src/style.css "Controls"). -->
+  <div class="ctl" data-ctl hidden>
+    <div class="ctl-row">
+      <button type="button" class="ctl-b" data-ctl-play data-mode="pause" aria-label="Pause (Space)"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-pause" d="M8 5v14M16 5v14"/><path class="i-play" d="M7 4.500v15l12.500-7.500z"/><path class="i-again" d="M4.500 12a7.500 7.500 0 1 0 2.200-5.300M4.500 4v4.500H9"/></svg></button>
+      <button type="button" class="ctl-b" data-ctl-prev aria-label="Previous chapter (Left arrow)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 6l-7 6 7 6M7 6v12"/></svg></button>
+      <button type="button" class="ctl-b" data-ctl-next aria-label="Next chapter (Right arrow)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6l7 6-7 6M17 6v12"/></svg></button>
+      <div class="ctl-track" data-ctl-track role="slider" tabindex="0" aria-label="Where you are in the film" aria-valuemin="0" aria-valuemax="180" aria-valuenow="0"><span class="ctl-rail"><i class="ctl-fill" data-ctl-fill></i></span><span class="ctl-ticks" data-ctl-ticks></span><b class="ctl-tip" data-ctl-tip aria-hidden="true"></b></div>
+      <span class="ctl-time" data-ctl-time aria-hidden="true">0:00</span>
+      <button type="button" class="ctl-b" data-ctl-sound data-on="false" aria-pressed="false" aria-label="Sound (M)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.500h3.500L12 6v12l-4.500-3.500H4z"/><path class="i-on" d="M15.500 9a4 4 0 0 1 0 6M18 6.500a7.500 7.500 0 0 1 0 11"/><path class="i-off" d="M16 9.500l5 5M21 9.500l-5 5"/></svg></button>
+      <a class="ctl-b ctl-out" href="/" data-cursor="shop"><span>Skip to shop</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+    </div>
+  </div>
+  <p class="ctl-hint" data-ctl-hint role="status" aria-live="polite"></p>
+  <button type="button" class="snd-pill" data-snd-pill hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.500h3.500L12 6v12l-4.500-3.500H4zM16 9.500l5 5M21 9.500l-5 5"/></svg><span>Sound off · tap to turn on</span></button>
+
+  <div id="end" class="end-anchor" tabindex="-1"></div>
+
+  <div class="cursor" data-cursor aria-hidden="true"><i class="cursor-dot"></i><i class="cursor-ring"><b data-cursor-word>pause</b></i></div>
+
+  <!-- The long-form version: reduced motion, no WebGL, or anything failing. -->
+  <section class="still" data-still hidden>
+    <header class="still-head">
+      <h1>One Mango</h1>
+      <p>From a seed in the dark to a bowl on your counter. VMR Mangoes, since 1976.</p>
+    </header>
+    <ol class="still-list" data-still-list></ol>
+  </section>
+
+  <!-- async, not defer: a deferred script would wait its turn behind the film's module -->
+  <script src="/one-mango/pre.js" async></script>
+</body>
+</html>

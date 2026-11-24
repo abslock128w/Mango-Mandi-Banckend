@@ -25,19 +25,18 @@ const noHistory = (date: string): ForecastDay => ({
 const FORECAST: StockForecast = {
   today: '2026-10-15',
   dates: DATES,
-  rules: { horizonDays: 14, historyWeeks: 4, minHistoryDays: 2, wasteWindowDays: 28, maxWasteRate: 0.5, maxSellableAge: 7, transitDays: 2, forecastConfidence: 0.85 },
+  rules: { horizonDays: 14, historyWeeks: 4, minHistoryDays: 2, wasteWindowDays: 28, maxWasteRate: 0.5, maxSellableAge: 7, transitDays: 1, forecastConfidence: 0.85 },
   varieties: [
     {
-      variety: 'Alphonso', enoughHistory: true, suggestedBoxes: 8, note: null, shortForBookings: 0, buyBy: '2026-10-10',
+      variety: 'Alphonso', enoughHistory: true, suggestedBoxes: 8, note: null, shortForBookings: 0, buyBy: '2026-10-12',
       products: [{
-        sku: 'ALP-3', name: 'Alphonso 3kg Box', boxSize: '3kg', enoughHistory: true, note: null, suggestedBoxes: 8, shortForBookings: 0, shortBoxes: 6, buyBy: '2026-10-10',
+        sku: 'ALP-3', name: 'Alphonso 3kg Box', boxSize: '3kg', enoughHistory: true, note: null, suggestedBoxes: 8, shortForBookings: 0, shortBoxes: 6, buyBy: '2026-10-12',
         waste: { days: 28, damagedBoxes: 2, claimBoxes: 0, soldBoxes: 11, rate: 0.154, capped: false },
-        shortDays: [{ date: '2026-10-16', stage: 'RIPE', boxes: 2, pluckBy: '2026-10-10', fromHistory: true }],
+        shortDays: [{ date: '2026-10-16', stage: 'SEMI_RIPE', boxes: 2, pluckBy: '2026-10-12', fromHistory: true }],
         batches: [{ batchId: 'b1', pluckedOn: '2026-10-12', ageToday: 3, status: 'SELLING', onHand: 10, waitingQc: false, freeBoxes: 10, sellableUntil: '2026-10-19', usedByForecast: 3, unsoldPastCap: 5, stages: DATES.map((date) => ({ date, stage: null })) }],
         stages: [
           { stage: 'RAW', enoughHistory: false, short: 0, days: DATES.map(noHistory) },
-          { stage: 'SEMI_RIPE', enoughHistory: false, short: 0, days: DATES.map(noHistory) },
-          { stage: 'RIPE', enoughHistory: true, short: 6, days: DATES.map((d) => day(d, { short: d === '2026-10-16' ? 2 : d === '2026-10-23' ? 4 : 0, booked: d === '2026-10-16' ? 2 : 0 })) },
+          { stage: 'SEMI_RIPE', enoughHistory: true, short: 6, days: DATES.map((d) => day(d, { short: d === '2026-10-16' ? 2 : d === '2026-10-23' ? 4 : 0, booked: d === '2026-10-16' ? 2 : 0 })) },
         ],
       }],
     },
@@ -46,7 +45,7 @@ const FORECAST: StockForecast = {
       products: [{
         sku: 'BAD-3', name: 'Badami 3kg Box', boxSize: '3kg', enoughHistory: false, note: 'not enough history', suggestedBoxes: null, shortForBookings: 0, shortBoxes: 0, buyBy: null,
         waste: { days: 28, damagedBoxes: 0, claimBoxes: 0, soldBoxes: 0, rate: 0, capped: false }, shortDays: [], batches: [],
-        stages: (['RAW', 'SEMI_RIPE', 'RIPE'] as const).map((stage) => ({ stage, enoughHistory: false, short: 0, days: DATES.map(noHistory) })),
+        stages: (['RAW', 'SEMI_RIPE'] as const).map((stage) => ({ stage, enoughHistory: false, short: 0, days: DATES.map(noHistory) })),
       }],
     },
   ],
@@ -156,13 +155,13 @@ test('managers see boxes to buy on Planning, with the working; "not enough histo
   await page.goto('/planning')
   const card = page.getByRole('region', { name: 'Boxes to buy' })
   await expect(card.getByText('Buy about 8 boxes')).toBeVisible()
-  await expect(card.getByText('picked by 10 Oct 2026').first()).toBeVisible()
+  await expect(card.getByText('picked by 12 Oct 2026').first()).toBeVisible()
   await expect(card.getByText('Not enough history', { exact: true }).first()).toBeVisible()
   await expect(card.getByText('Buy about 0 boxes')).toHaveCount(0)
   await card.getByText('How this was worked out for Alphonso 3kg Box').click()
   await expect(card.getByText('2 boxes damaged or condemned and 0 replaced after a damage claim, against 11 sold in the last 28 days: 15.4%')).toBeVisible()
-  const ripe = card.getByRole('region', { name: 'Alphonso 3kg Box, Ripe, day by day' })
-  await expect(ripe.getByRole('row').nth(1)).toContainText(/9 Oct 2026: 6 · 2 Oct 2026: 4 · 25 Sept? 2026: 0 · 18 Sept? 2026: closed/)
+  const semi = card.getByRole('region', { name: 'Alphonso 3kg Box, Semi-ripe, day by day' })
+  await expect(semi.getByRole('row').nth(1)).toContainText(/9 Oct 2026: 6 · 2 Oct 2026: 4 · 25 Sept? 2026: 0 · 18 Sept? 2026: closed/)
   await scan(page, 'planning with forecast')
 })
 

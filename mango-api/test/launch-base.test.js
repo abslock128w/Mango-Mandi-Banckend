@@ -1,7 +1,7 @@
 // Launch base: the urgent findings of the 24 Oct 2026 backend audit
 // (PAY-01, DB-04 with PAY-04, SEC-03, PLT-01, INT-02). Razorpay is never called:
 // the dev gateway stands in.
-import { adminToken, client, closeAll, customerToken, resetDb, signWebhook, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, onePreorderWeek, resetDb, signWebhook, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { gzipSync } from 'node:zlib'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
@@ -44,7 +44,7 @@ function farWeek(extraWeeks = 2) {
 const book = (token, week, extra = {}) =>
   api.post(
     '/v1/preorders',
-    { sku: 'ALP-3', stage: 'RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
+    { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', ...extra },
     { token, headers: { 'Idempotency-Key': newId('idem') } },
   )
 const hook = (event) => {
@@ -57,8 +57,7 @@ const hook = (event) => {
 
 describe('PAY-01: a waitlist spot paid with the webhook lost', () => {
   test('a booking promoted days after it was made is still found by the payment check', async () => {
-    const week = farWeek()
-    assert.equal((await api.put(`/admin/v1/preorder-capacity/${week}/ALP-3`, { capacity: 2 }, { token: manager })).status, 200)
+    const week = await onePreorderWeek(6, farWeek()) // one week of 6 kg, one 2 x 3 kg booking: the next one waits
     const a = await customerToken(api)
     const held = (await book(a.accessToken, week)).body
     const b = await customerToken(api)

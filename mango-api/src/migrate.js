@@ -85,6 +85,23 @@ export const migrationChecksum = (sql) => createHash('sha256').update(sql.replac
 const hasChecksumColumn = async (client) =>
   (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'schema_migrations' AND column_name = 'checksum'`)).rowCount > 0
 
+/**
+ * AREA1-01: throws when schema_migrations records a version with no file here. Upstream's
+ * 052_partner_network.sql and 053_validate_partner_checks.sql share numbers with this fork's
+ * 052/053 but not names, so a database upstream code migrated would be skipped past silently,
+ * then fail at 058 ("relation already exists") on every build. `known` is every file name the
+ * run may take.
+ */
+function checkOrphans(applied, known) {
+  const orphans = [...applied.keys()].filter((version) => !known.has(version)).sort()
+  if (!orphans.length) return
+  throw new Error(
+    `Migration ${orphans.join(', ')} is recorded in schema_migrations but has no file in migrations/: refusing to start. ` +
+      "It was applied by another branch (upstream's 052_partner_network.sql, say), so this code does not know what it changed. " +
+      "Resolve it by hand: compare that branch's file with this database, undo or match what it did, then delete its row from schema_migrations.",
+  )
+}
+
 /** Throws when a file in `dir` was applied with other content than it has now. */
 function checkApplied(applied, sums) {
   const changed = [...sums].filter(([file, sum]) => applied.get(file) && applied.get(file) !== sum).map(([file]) => file)
@@ -110,6 +127,9 @@ export async function migrate(pool, { dir = DIR, lockTimeout = MIGRATION_LOCK_TI
     const texts = new Map()
     for (const file of files) texts.set(file, await readFile(path.join(dir, file), 'utf8'))
     const sums = new Map(files.map((f) => [f, migrationChecksum(texts.get(f))]))
+    // A run over another folder (the tests' probe files) also knows the app's own migrations.
+    const own = dir === DIR ? [] : (await readdir(DIR)).filter((f) => f.endsWith('.sql'))
+    checkOrphans(applied, new Set([...files, ...own]))
     checkApplied(applied, sums)
     for (const file of files) {
       if (applied.has(file)) continue

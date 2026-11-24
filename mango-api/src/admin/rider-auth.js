@@ -13,6 +13,12 @@
 // phone from Staff (admin/staff.js), which also ends its access tokens.
 // A refresh without the PIN works only within 12 hours of the last PIN unlock
 // (a shift), so a phone left unlocked overnight asks for the PIN again.
+//
+// Binding a phone takes only the number's login code, so it is fenced: at most
+// CODES_PER_HOUR and CODES_PER_DAY codes per number, the PIN setup ticket works
+// once, and every newly bound phone is written to the staff audit
+// (auth.rider_device_bound, on Staff's activity log) with how many other phones
+// the rider still has signed in.
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import express from 'express'
@@ -20,7 +26,7 @@ import jwt from 'jsonwebtoken'
 import { z } from 'zod'
 import { audit } from '../access.js'
 import { ACCESS_TTL_S, signAccess } from '../auth.js'
-import { now } from '../clock.js'
+import { now, todayIST } from '../clock.js'
 import { phoneSchema } from '../customer.js'
 import { query, tx } from '../db.js'
 import { env, isProd } from '../env.js'
@@ -35,6 +41,8 @@ export const router = express.Router()
 const CODE_TTL_MS = 5 * 60_000
 const CODE_MAX_TRIES = 3
 const CODES_PER_HOUR = 5
+/** Login codes one number may ask for in an IST day, from every address. */
+export const CODES_PER_DAY = 10
 const SETUP_TTL_S = 10 * 60
 const PIN_MAX_FAILURES = 5
 /** A refresh without the PIN works this long after the last PIN unlock. */
@@ -76,6 +84,8 @@ router.post(
     const { phone } = parse(z.object({ phone: phoneSchema }), req.body)
     const hour = await hit(`rider-otp:${phone}`, 3_600_000)
     if (hour.hits > CODES_PER_HOUR) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes requested. Try again in an hour.')
+    const day = await hit(`rider-otp-day:${phone}:${todayIST()}`, 86_400_000)
+    if (day.hits > CODES_PER_DAY) throw new HttpError(429, 'OTP_LIMIT', 'Too many codes asked for this number today. Try again tomorrow, or call ops.')
     const rider = await riderByPhone(phone)
     if (!rider) {
       logger.info({ phone: maskPhone(phone) }, 'rider code asked for a number that is no rider')
@@ -121,7 +131,8 @@ router.post(
     if (result.error) throw result.error
     const rider = await riderByPhone(b.phone)
     if (!rider) throw unauthorized('This number is not a rider any more. Call ops.', 'NOT_A_RIDER')
-    const setupToken = jwt.sign({ sub: rider.id, typ: 'rider_pin_setup', dev: b.deviceId, iat: Math.floor(now().getTime() / 1000) }, env.JWT_SECRET, {
+    // jti: the ticket works once (POST /rider/pin/set records it as used).
+    const setupToken = jwt.sign({ sub: rider.id, typ: 'rider_pin_setup', dev: b.deviceId, jti: randomBytes(16).toString('hex'), iat: Math.floor(now().getTime() / 1000) }, env.JWT_SECRET, {
       expiresIn: SETUP_TTL_S, algorithm: 'HS256',
     })
     res.json({ setupToken, expiresIn: SETUP_TTL_S, rider: riderView(rider) })
@@ -154,20 +165,34 @@ router.post(
     let t
     try {
       t = jwt.verify(b.setupToken, env.JWT_SECRET, { algorithms: ['HS256'], clockTimestamp: Math.floor(now().getTime() / 1000) })
-      if (t.typ !== 'rider_pin_setup' || t.dev !== b.deviceId) throw new Error('wrong ticket')
+      if (t.typ !== 'rider_pin_setup' || t.dev !== b.deviceId || typeof t.jti !== 'string') throw new Error('wrong ticket')
     } catch {
       throw unauthorized('That took too long. Ask for a new code.', 'TICKET_EXPIRED')
     }
     if (WEAK_PINS.has(b.pin)) throw new HttpError(422, 'WEAK_PIN', 'Pick a PIN that is harder to guess')
     const pinHash = await bcrypt.hash(b.pin, 10)
     const out = await tx(async (c) => {
+      // One use per ticket: the first PIN set records it until the ticket would have expired anyway.
+      const used = await c.query('INSERT INTO rate_limits (key, hits, reset_at) VALUES ($1, 1, $2) ON CONFLICT (key) DO NOTHING', [
+        `rider-setup-used:${t.jti}`, new Date((t.exp ?? Math.floor(now().getTime() / 1000) + SETUP_TTL_S) * 1000),
+      ])
+      if (!used.rowCount) throw unauthorized('This sign-in was already used. Ask for a new code.', 'TICKET_USED')
       const u = await riderById(c, t.sub)
       if (!u) throw unauthorized('This number is not a rider any more. Call ops.', 'NOT_A_RIDER')
-      await c.query('UPDATE rider_devices SET revoked_at = $3, revoked_by = $4 WHERE rider_id = $1 AND device_id = $2 AND revoked_at IS NULL', [u.id, b.deviceId, now(), 'replaced'])
+      const at = now()
+      const replaced = await c.query('UPDATE rider_devices SET revoked_at = $3, revoked_by = $4 WHERE rider_id = $1 AND device_id = $2 AND revoked_at IS NULL', [u.id, b.deviceId, at, 'replaced'])
       const id = newId('dev')
+      const label = b.label ?? req.get('user-agent')?.slice(0, 120) ?? null
       await c.query('INSERT INTO rider_devices (id, rider_id, device_id, label, pin_hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
-        id, u.id, b.deviceId, b.label ?? req.get('user-agent')?.slice(0, 120) ?? null, pinHash, now(),
+        id, u.id, b.deviceId, label, pinHash, at,
       ])
+      const others = await c.query('SELECT COUNT(*)::int AS n FROM rider_devices WHERE rider_id = $1 AND id <> $2 AND revoked_at IS NULL', [u.id, id])
+      // Staff see it on the activity log: a phone bound with only a login code is worth a look.
+      await c.query(
+        `INSERT INTO staff_audit (id, admin_id, email, role, action, target, detail, request_id, created_at)
+         VALUES ($1, $2, $3, $4, 'auth.rider_device_bound', $5, $6, $7, $8)`,
+        [newId('aud'), u.id, u.email, u.role, id, { device: b.deviceId, label, samePhoneAgain: replaced.rowCount > 0, otherPhones: others.rows[0].n }, req.id ?? null, at],
+      )
       return { u, token: await newDeviceSession(c, id) }
     })
     await audit(out.u, 'auth.login', { detail: { method: 'rider_phone', device: b.deviceId }, requestId: req.id })

@@ -93,6 +93,26 @@ export function istDate(days = 0): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: IST }).format(now)
 }
 
+/** A batch's last delivery and order days, as the API works them out (delivery.js sellWindow). */
+export interface SellWindow {
+  lastDeliveryDay?: string
+  lastOrderDay?: string
+}
+
+/**
+ * What a batch can still do, from the API's sell window: "Can be delivered up to 22 Oct · last order day 21 Oct".
+ * Delivery is next day at the earliest, so a batch stops being orderable the day before its last delivery day.
+ * Null when the API sent no window.
+ */
+export function sellWindowText(w: SellWindow, today = istDate()): string | null {
+  if (!w.lastDeliveryDay || !w.lastOrderDay) return null
+  if (today > w.lastDeliveryDay) return 'Too old to deliver'
+  const deliver = w.lastDeliveryDay === today ? 'Last delivery day today' : `Can be delivered up to ${date(w.lastDeliveryDay)}`
+  const order =
+    today > w.lastOrderDay ? 'no longer orderable' : w.lastOrderDay === today ? 'last order day today, before the cutoff' : `last order day ${date(w.lastOrderDay)}`
+  return `${deliver} · ${order}`
+}
+
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   PAYMENT_PENDING: 'Payment pending',
   CONFIRMED: 'Confirmed',

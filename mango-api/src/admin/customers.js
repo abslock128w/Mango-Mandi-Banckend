@@ -99,7 +99,7 @@ async function profile(id) {
       [id],
     ),
     query(
-      `SELECT t.order_id, o.number AS order_number, t.stars, t.comment, t.updated_at
+      `SELECT t.order_id, o.number AS order_number, t.stars, t.comment, t.packaging, t.condition, t.sweetness, t.updated_at
          FROM order_ratings t JOIN orders o ON o.id = t.order_id WHERE t.customer_id = $1 ORDER BY t.updated_at DESC`,
       [id],
     ),
@@ -176,7 +176,7 @@ async function profile(id) {
       comment: v.comment,
       createdAt: v.created_at,
     })),
-    ratings: ratings.rows.map((t) => ({ orderId: t.order_id, orderNumber: t.order_number, stars: t.stars, comment: t.comment, at: t.updated_at })),
+    ratings: ratings.rows.map((t) => ({ orderId: t.order_id, orderNumber: t.order_number, stars: t.stars, comment: t.comment, packaging: t.packaging, condition: t.condition, sweetness: t.sweetness, at: t.updated_at })),
     addresses: addresses.rows.map((a) => ({ id: a.id, name: a.name, address: a.address, pincode: a.pincode, lastUsedAt: a.last_used_at })),
   }
 }

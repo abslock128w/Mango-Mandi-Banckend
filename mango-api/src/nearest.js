@@ -11,6 +11,7 @@
 // A rider with no recent position is only used when no rider has one; then the
 // stop goes to the rider with the fewest stops that day. Stops a rider already
 // has are left alone.
+import { orderSeqSql } from './order-number.js'
 import { now } from './clock.js'
 import { addEvent } from './orders.js'
 
@@ -83,7 +84,7 @@ export async function assignNearest(c, date, actor, { orderIds = null } = {}) {
   const { rows: stops } = await c.query(
     `SELECT o.id, o.number, o.status, o.pincode, p.lat, p.lng FROM orders o LEFT JOIN pincodes p ON p.pincode = o.pincode
       WHERE o.delivery_date = $1 AND o.rider_id IS NULL AND o.status = ANY($2) ${orderIds ? 'AND o.id = ANY($3)' : ''}
-      ORDER BY o.slot_id NULLS LAST, o.number FOR UPDATE OF o`,
+      ORDER BY o.slot_id NULLS LAST, ${orderSeqSql('o.number')} FOR UPDATE OF o`,
     orderIds ? [date, ASSIGNABLE, orderIds] : [date, ASSIGNABLE],
   )
   if (!stops.length) return { assigned: [], riders: (await c.query("SELECT COUNT(*)::int AS n FROM admin_users WHERE role = 'RIDER'")).rows[0].n }

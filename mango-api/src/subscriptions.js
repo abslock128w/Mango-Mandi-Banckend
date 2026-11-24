@@ -18,6 +18,7 @@
 // scheduler inserts it with ON CONFLICT DO NOTHING and sends the reminder only
 // when its insert made the row, so a retried or overlapping run creates and
 // reminds exactly once.
+import { formatOrderNumber } from './order-number.js'
 import { addDays, diffDays, isDate, now, todayIST } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
@@ -279,7 +280,7 @@ export async function skipCycle(c, customerId, id, scheduledFor, actor, at = now
   if (y.status === 'ORDERED') {
     if (y.order_status === 'PAYMENT_PENDING') await customerCancel(c, y.order_id, customerId, actor)
     else if (y.order_status !== 'CANCELLED') {
-      throw conflict(`This delivery is paid for (order ${y.order_number}). Cancel that order from its page for a full refund.`, 'ALREADY_PAID')
+      throw conflict(`This delivery is paid for (order ${formatOrderNumber(y.order_number)}). Cancel that order from its page for a full refund.`, 'ALREADY_PAID')
     }
   } else if (y.status !== 'DUE') throw conflict(`This delivery is already ${y.status.toLowerCase()}`, 'NOT_DUE')
   await c.query(`UPDATE subscription_cycles SET status = 'SKIPPED', note = 'Skipped by the customer', updated_at = $2 WHERE id = $1`, [y.id, at])
@@ -315,7 +316,7 @@ export async function orderCycle(c, { customerId, subscriptionId, cycleId }, act
     if (y.order_status === 'PAYMENT_PENDING' && y.order_hold_expires_at > at) {
       return { order: (await c.query('SELECT * FROM orders WHERE id = $1', [y.order_id])).rows[0], existing: true }
     }
-    if (y.order_status !== 'CANCELLED' || y.order_payment_status === 'SUCCEEDED') throw conflict(`This delivery is already paid for (order ${y.order_number})`, 'ALREADY_PAID')
+    if (y.order_status !== 'CANCELLED' || y.order_payment_status === 'SUCCEEDED') throw conflict(`This delivery is already paid for (order ${formatOrderNumber(y.order_number)})`, 'ALREADY_PAID')
   } else if (y.status !== 'DUE') throw conflict(`This delivery is ${y.status.toLowerCase()}`, 'NOT_DUE')
   const product = sellable(s.sku)
   if (!product) throw conflict(`${findProduct(s.sku)?.name ?? s.sku} is no longer sold`, 'PRODUCT_UNAVAILABLE')
@@ -347,7 +348,7 @@ export async function orderCycle(c, { customerId, subscriptionId, cycleId }, act
                   note = CASE WHEN $6 THEN $7 ELSE note END WHERE id = $1`,
           [y.id, order.id, date, slotId, at, moved, `Moved to ${date}: the day before was full or out of stock`],
         )
-        await event(c, s.id, 'ORDER_STARTED', actor, { cycleId: y.id, reason: `${order.number} for ${date}` })
+        await event(c, s.id, 'ORDER_STARTED', actor, { cycleId: y.id, reason: `${formatOrderNumber(order.number)} for ${date}` })
         return { order: (await c.query('SELECT * FROM orders WHERE id = $1', [order.id])).rows[0], existing: false }
       } catch (err) {
         await c.query('ROLLBACK TO SAVEPOINT cycle_day')

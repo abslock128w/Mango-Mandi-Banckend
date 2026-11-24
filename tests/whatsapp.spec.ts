@@ -144,7 +144,10 @@ test('an operator answers a customer waiting on WhatsApp: inbox, photo, reply, h
   await expect(send).toBeDisabled()
   await page.getByLabel('Reply on WhatsApp').fill('Sorry Asha, we will send a new box tomorrow.')
   await send.click()
-  await expect(page.getByText('Sorry Asha, we will send a new box tomorrow.')).toBeVisible()
+  // The sent reply shows in the conversation and the box empties. Until it empties the same words are in both,
+  // which WebKit can catch between renders, so the check looks in the conversation only.
+  await expect(page.getByRole('list', { name: 'Messages' }).getByText('Sorry Asha, we will send a new box tomorrow.')).toBeVisible()
+  await expect(page.getByLabel('Reply on WhatsApp')).toHaveValue('')
   expect(wa.calls.find((c) => c.path.endsWith('/reply'))?.body).toEqual({ text: 'Sorry Asha, we will send a new box tomorrow.' })
 
   // Send again on the message WhatsApp gave no answer for.
