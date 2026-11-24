@@ -2959,3 +2959,9 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 .product-card .heart{min-width:44px;min-height:44px}
 .sun-slide.sun-fifty .sf-go{min-height:44px;border:4px solid transparent;border-left:0;border-right:0;background-clip:padding-box}
 }
+/* The pre-order bag (pre-bag.js): "Add to bag" under the pay button, a bag's lines together in Your orders. */
+.pre-add{margin-top:10px}
+.pre-bag-rows{display:grid;gap:6px;padding:10px 0;border-bottom:1px solid var(--line,rgba(0,0,0,.08))}
+.pre-bag-rows .pre-group-line{margin:0 0 2px}
+.bag-ready.pb-week{display:inline-flex;align-items:center;gap:5px}
+.bag-ready.pb-week svg{width:13px;height:13px;stroke-width:2}

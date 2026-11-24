@@ -127,6 +127,9 @@ window.MM={
   // A gift for several people as pre-orders (before the season; MULTI_GIFT): one booking per person, paid once.
   bookPreorderGroup:(body,key)=>auth('/preorders/groups','POST',body,{'Idempotency-Key':key}),
   preorderGroup:id=>auth(`/preorders/groups/${enc(id)}`),
+  // The pre-order bag (migration 089): each line's week without booking (public), then the whole bag booked and paid once.
+  preorderQuote:lines=>raw('/preorders/quote',{method:'POST',body:{lines}}),
+  confirmPreorders:(body,key)=>auth('/preorders/confirm','POST',body,{'Idempotency-Key':key}),
   helpInfo:()=>auth('/me/help'),
   helpRequest:body=>auth('/me/help/requests','POST',body),
   // Help requests and their threads (HELP_CENTRE; 404 while it is off): help-requests.js.

@@ -3878,6 +3878,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/preorders/confirm": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "POST /v1/preorders/groups": {
   "anonymous": "signin",
   "customer": "signin",
@@ -3886,6 +3895,15 @@
   "QC": "signin",
   "OPERATOR": "signin",
   "MANAGER": "signin"
+ },
+ "POST /v1/preorders/quote": {
+  "anonymous": "refused",
+  "customer": "refused",
+  "RIDER": "refused",
+  "PACKER": "refused",
+  "QC": "refused",
+  "OPERATOR": "refused",
+  "MANAGER": "refused"
  },
  "POST /v1/reviews": {
   "anonymous": "signin",
