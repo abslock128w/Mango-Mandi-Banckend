@@ -56,6 +56,8 @@ export async function queuePartnerMessages(c, { kind, enquiryId, proposal = fals
   const e = rows[0]
   if (!e) return 0
   let queued = 0
+  // Form v2 asks the city only (no state), and an erased row has neither.
+  const place = [e.city, e.state].filter(Boolean).join(', ') || 'place not given'
   if (kind === 'SUBMITTED' && e.consent_at) {
     await add(c, { enquiryId, kind: 'PARTNER_ENQUIRY_RECEIVED', eventId: `${enquiryId}:received`, phone: e.mobile_number, params: [line(e.applicant_name, 60) || 'there', e.reference, line(e.category, 80)] })
     queued++
@@ -64,10 +66,10 @@ export async function queuePartnerMessages(c, { kind, enquiryId, proposal = fals
   const team = (what, words) => env.PARTNER_ALERT_PHONES.map((phone) => ({ phone, params: [WHAT[what], e.reference, line(words), link] }))
   const events = []
   if (kind === 'SUBMITTED') {
-    events.push(['SUBMITTED', `${e.category}, ${e.city}, ${e.state}`])
-    if (proposal && e.product_name) events.push(['PROPOSAL', `${e.product_name} (${e.city}, ${e.state})`])
+    events.push(['SUBMITTED', `${e.category}, ${place}`])
+    if (proposal && e.product_name) events.push(['PROPOSAL', `${e.product_name} (${place})`])
   } else {
-    events.push([kind, detail ?? `${e.category}, ${e.city}, ${e.state}`])
+    events.push([kind, detail ?? `${e.category}, ${place}`])
   }
   for (const [what, words] of events) {
     for (const m of team(what, words)) {

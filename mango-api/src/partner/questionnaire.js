@@ -214,10 +214,49 @@ const STEPS_1 = [
   { key: 'final', title: 'Final details', description: 'Almost done.', sections: [{ key: 'final', title: 'Final details', questions: ['startWhen', 'callbackTime', 'additionalComments', 'documents', 'consent'] }] },
 ]
 
+/**
+ * Version 2026-11-v2: the short form (three steps). Contact details without state,
+ * PIN code, country or a contact preference; the ways to partner, whether there is
+ * a business, and one free-text idea; then timing, files and consent. No main
+ * interest question (the first ticked category is stored as the primary one) and
+ * no per-category sections, so a v2 enquiry never makes a product proposal.
+ * Answers the version does not ask are stored as null on the enquiry row
+ * (migration 093 lets state, country, preferred_contact_method and business_type be null).
+ */
+const Q2 = {
+  fullName: { ...Q1.fullName },
+  mobile: { ...Q1.mobile },
+  email: { ...Q1.email },
+  city: { ...Q1.city },
+  categories: { ...Q1.categories },
+  representsBusiness: { ...Q1.representsBusiness },
+  businessName: { ...Q1.businessName },
+  proposal: { label: 'Tell us your idea', type: 'TEXTAREA', required: true, column: false, ...LONG, description: 'What you bring, and what you would like from us.' },
+  startWhen: { ...Q1.startWhen },
+  documents: { ...Q1.documents },
+  consent: { ...Q1.consent },
+}
+
+const STEPS_2 = [
+  { key: 'contact', title: 'About you', description: 'So we know who to get back to.', sections: [{ key: 'personal', title: 'About you', questions: ['fullName', 'mobile', 'email', 'city'] }] },
+  { key: 'proposal', title: 'What you have in mind', description: 'No registration is needed to apply. Individuals are welcome.', sections: [{ key: 'proposal', title: 'What you have in mind', questions: ['categories', 'representsBusiness', 'businessName', 'proposal'] }] },
+  { key: 'final', title: 'Last bit', description: 'Almost done.', sections: [{ key: 'final', title: 'Last bit', questions: ['startWhen', 'documents', 'consent'] }] },
+]
+
 export const QUESTIONNAIRES = {
   '2026-11-v1': { version: '2026-11-v1', questions: Q1, steps: STEPS_1 },
+  '2026-11-v2': { version: '2026-11-v2', questions: Q2, steps: STEPS_2 },
 }
-export const CURRENT_VERSION = '2026-11-v1'
+export const CURRENT_VERSION = '2026-11-v2'
+/**
+ * Versions a submission may still name. The shop always draws CURRENT_VERSION; an
+ * older one stays here so a form opened before the switch can still be sent (and
+ * so v1's product sections still make proposals). Take a version out to retire
+ * it: a submission naming it then gets 409 QUESTIONNAIRE_CHANGED and the shop
+ * reloads the form, keeping the answers that fit. Stored enquiries of every
+ * version keep reading correctly either way (answers carry their own labels).
+ */
+export const ACCEPTED_VERSIONS = [CURRENT_VERSION, '2026-11-v1']
 
 for (const q of Object.values(QUESTIONNAIRES)) {
   for (const [key, def] of Object.entries(q.questions)) {
@@ -369,9 +408,10 @@ export function validateSubmission(version, input, activeCategories) {
   if (unknown.length) return { errors: Object.fromEntries(unknown.slice(0, 5).map((k) => [k, 'Not a question on this form'])) }
 
   const clean = {}
-  // Categories first: they decide which sections apply.
+  // Categories first: they decide which sections apply. (From v2 there is no main-interest question.)
   for (const key of ['categories', 'primaryCategory']) {
     const def = q.questions[key]
+    if (!def) continue
     if (isBlank(input[key])) {
       errors[key] = key === 'categories' ? 'Choose at least one type of partnership' : 'Choose your main interest'
       continue

@@ -11,7 +11,7 @@ import { gstinProblem, normaliseGstin } from '../gstin.js'
 import { newId } from '../ids.js'
 import { checkPhoto, storePhoto } from '../photos.js'
 import { queuePartnerMessages } from './alerts.js'
-import { CURRENT_VERSION, DOCUMENT_CATEGORIES, displayValue, QUESTIONNAIRES, publicQuestionnaire, validateSubmission } from './questionnaire.js'
+import { ACCEPTED_VERSIONS, CURRENT_VERSION, DOCUMENT_CATEGORIES, displayValue, QUESTIONNAIRES, publicQuestionnaire, validateSubmission } from './questionnaire.js'
 
 export const MAX_DOCUMENTS = 10
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
@@ -80,7 +80,7 @@ const issueUploadToken = () => {
  * fresh upload token); the same answers under another key within a day is 409.
  */
 export async function submitEnquiry(c, { version, answers: input, idempotencyKey }) {
-  if (version !== CURRENT_VERSION) throw conflict('The form has changed since it was opened. Please check your answers and send again.', 'QUESTIONNAIRE_CHANGED')
+  if (!ACCEPTED_VERSIONS.includes(version)) throw conflict('The form has changed since it was opened. Please check your answers and send again.', 'QUESTIONNAIRE_CHANGED')
 
   // Same key: the same enquiry (a retry after a lost answer). Checked first, under a lock, so two at once make one.
   await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`partner-idem:${idempotencyKey}`])
@@ -115,6 +115,8 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
   const id = newId('pen')
   const t = issueUploadToken()
   const q = QUESTIONNAIRES[version]
+  // v1 asks for the main interest; from v2 the first ticked category is the primary one.
+  const primary = a.primaryCategory ?? a.categories[0]
   let reference
   for (let i = 0; ; i++) {
     reference = newReference()
@@ -128,9 +130,11 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
            consent_text, consent_at, idempotency_key, content_hash, upload_token_hash, upload_token_expires_at,
            submitted_at, updated_at, status_changed_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$29,$29)`,
-        [id, reference, a.fullName, a.mobile, a.email, a.city, a.state, a.pincode, a.country ?? 'India', a.preferredContact,
-          a.representsBusiness, a.businessName ?? null, a.businessType, a.website ?? null, a.yearsOperating ?? null, a.gstin ?? null,
-          a.businessAddress ?? null, a.primaryCategory, a.startWhen, a.callbackTime ?? null, a.additionalComments ?? null, version,
+        // A question the version does not ask is stored as null (v2 asks no state, PIN code, country, contact
+        // preference or organisation type; migration 093). v1 always answers them, so its rows are as before.
+        [id, reference, a.fullName, a.mobile, a.email, a.city, a.state ?? null, a.pincode ?? null, q.questions.country ? (a.country ?? 'India') : null,
+          a.preferredContact ?? null, a.representsBusiness, a.businessName ?? null, a.businessType ?? null, a.website ?? null, a.yearsOperating ?? null,
+          a.gstin ?? null, a.businessAddress ?? null, primary, a.startWhen, a.callbackTime ?? null, a.additionalComments ?? null, version,
           q.questions.consent.label, at, idempotencyKey, hash, t.hash, t.expiresAt, at],
       )
       await c.query('RELEASE SAVEPOINT partner_ref')
@@ -142,7 +146,7 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
   }
 
   for (const code of a.categories) {
-    await c.query('INSERT INTO partner_enquiry_categories (enquiry_id, category_code, is_primary) VALUES ($1, $2, $3)', [id, code, code === a.primaryCategory])
+    await c.query('INSERT INTO partner_enquiry_categories (enquiry_id, category_code, is_primary) VALUES ($1, $2, $3)', [id, code, code === primary])
   }
 
   // Every shown question, answered or not, with its label as it is now (so later form changes don't rewrite history).
@@ -165,7 +169,8 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
   }
 
   let proposalId = null
-  if (a.categories.includes('PRODUCT_DEVELOPMENT')) {
+  // Only a version with the product section (v1) makes a proposal: v2 has no product name to give it.
+  if (a.categories.includes('PRODUCT_DEVELOPMENT') && q.questions.pd_productName) {
     proposalId = newId('ppr')
     await c.query(
       `INSERT INTO partner_product_proposals (id, reference, enquiry_id, product_name, product_category, description, product_stage,
@@ -182,7 +187,7 @@ export async function submitEnquiry(c, { version, answers: input, idempotencyKey
   await c.query(
     `INSERT INTO partner_enquiry_activities (id, enquiry_id, activity_type, new_value, metadata, created_at)
      VALUES ($1, $2, 'SUBMITTED', 'NEW', $3, $4)`,
-    [newId('pac'), id, JSON.stringify({ categories: a.categories, primary: a.primaryCategory, proposal: proposalId ? `${reference}-P` : null }), at],
+    [newId('pac'), id, JSON.stringify({ categories: a.categories, primary, proposal: proposalId ? `${reference}-P` : null }), at],
   )
   await queuePartnerMessages(c, { kind: 'SUBMITTED', enquiryId: id, proposal: Boolean(proposalId) })
   return { status: 201, body: { reference, submittedAt: at, uploadToken: t.token, uploadExpiresAt: t.expiresAt } }

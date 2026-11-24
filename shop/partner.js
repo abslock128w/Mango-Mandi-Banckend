@@ -385,7 +385,7 @@ async function partnerView(seq = ++sheetSeq) {
       <h2>Grow mangoes with us. <em>Sell mangoes with us.</em></h2>
       <p>We have grown mangoes since 1976: on sun, soil and rain, ripened the slow way. We’re looking for mango farmers who grow the same way, and for people who can take good mangoes further: distributors in new cities, and shops that want naturally ripened fruit on their shelves.</p>
       <div class="pn-hero-actions"><a class="button cream" href="/partner/apply" data-route>Start my application ${icon('arrow')}</a><button class="button pn-check" type="button" data-pn-check>${icon('search')} Check my application status</button></div>
-      <small>No registration needed · individuals welcome · about 10 minutes</small>
+      <small>No registration needed · individuals welcome · three short steps</small>
     </section>
     <section class="page-card pn-status is-key" id="pn-status">
       <h3>${icon('search')} Check your application status</h3>
@@ -400,7 +400,8 @@ async function partnerView(seq = ++sheetSeq) {
       <h3>Ways to grow with us</h3>
       <div class="pn-ways">${net.categories.map((c) => {
         const [ic, line] = pnFlavour(c.code)
-        return `<a class="pn-way" href="/partner/apply?category=${encodeURIComponent(c.code)}" data-route><span class="pn-icon">${icon(ic)}</span><span class="pn-way-text"><strong>${esc(c.name)}</strong>${line ? `<em>${esc(line)}</em>` : ''}<small>${esc(pnBrand(c.description))}</small></span><span class="pn-way-go" aria-hidden="true">${icon('arrow')}</span></a>`
+        // A compact row: the title opens the tagline and description; the arrow beside it (not inside the summary, which would toggle) starts an application.
+        return `<div class="pn-way"><details><summary><span class="pn-icon">${icon(ic)}</span><strong>${esc(c.name)}</strong><span class="pn-way-chev" aria-hidden="true">${icon('chevron')}</span></summary><span class="pn-way-text">${line ? `<em>${esc(line)}</em>` : ''}<small>${esc(pnBrand(c.description))}</small></span></details><a class="pn-way-go" href="/partner/apply?category=${encodeURIComponent(c.code)}" data-route aria-label="Apply: ${esc(c.name)}">${icon('arrow')}</a></div>`
       }).join('')}</div>
     </section>
     <section class="page-card">

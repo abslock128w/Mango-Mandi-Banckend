@@ -51,7 +51,16 @@ afterEach(() => Object.assign(env, saved))
 
 let seq = 0
 const LONG = 'We run a fruit distribution business across north Karnataka and know the market well.'
+const V1 = '2026-11-v1'
+/** The current (short) form's answers. */
 function answers(n, categories = ['FARMERS_SUPPLIERS', 'PRODUCT_DEVELOPMENT']) {
+  return {
+    fullName: `Ravi Kumar ${n}`, mobile: `98450 1${String(n).padStart(4, '0')}`, email: `ravi${n}@example.com`, city: 'Ratnagiri',
+    categories, representsBusiness: 'YES', businessName: `Kumar Orchards ${n}`, proposal: LONG, startWhen: 'MONTH', consent: true,
+  }
+}
+/** The long form 2026-11-v1, still accepted: the only one whose product section makes a product proposal. */
+function answersV1(n, categories = ['FARMERS_SUPPLIERS', 'PRODUCT_DEVELOPMENT']) {
   const a = {
     fullName: `Ravi Kumar ${n}`, mobile: `98450 1${String(n).padStart(4, '0')}`, email: `ravi${n}@example.com`, city: 'Ratnagiri', state: 'Maharashtra', pincode: '415612', country: 'India',
     preferredContact: 'WHATSAPP', representsBusiness: 'YES', businessName: `Kumar Orchards ${n}`, businessType: 'FARMER', yearsOperating: 12, website: 'kumarorchards.in',
@@ -67,10 +76,10 @@ function answers(n, categories = ['FARMERS_SUPPLIERS', 'PRODUCT_DEVELOPMENT']) {
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n')
 const A = (p) => `/admin/v1/partner-network${p}`
 
-/** Sends an application with a document, a note and a follow-up; returns its id and reference. */
-async function apply() {
+/** Sends an application (the current form unless `version` says v1) with a document, a note and a follow-up; returns its id and reference. */
+async function apply({ version = CURRENT_VERSION } = {}) {
   const n = ++seq
-  const r = await api.post('/v1/partner-network/enquiries', { questionnaireVersion: CURRENT_VERSION, answers: answers(n) }, { headers: { 'Idempotency-Key': `erase-key-${Date.now()}-${n}` } })
+  const r = await api.post('/v1/partner-network/enquiries', { questionnaireVersion: version, answers: version === V1 ? answersV1(n) : answers(n) }, { headers: { 'Idempotency-Key': `erase-key-${Date.now()}-${n}` } })
   assert.equal(r.status, 201, JSON.stringify(r.body))
   const up = await api.raw('POST', `/v1/partner-network/enquiries/${r.body.reference}/documents?category=BUSINESS_PROFILE&name=ravi-profile.pdf`, {
     raw: PDF, headers: { 'Content-Type': 'application/pdf', 'X-Upload-Token': r.body.uploadToken },
@@ -97,8 +106,8 @@ async function end(id, how, daysAgo) {
 const row = async (id) => (await query('SELECT * FROM partner_enquiries WHERE id = $1', [id])).rows[0]
 const count = async (table, id) => (await query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE enquiry_id = $1`, [id])).rows[0].n
 
-/** Everything the application said is gone; what is needed for counts and audit stays. */
-async function assertFullyErased(id, reference) {
+/** Everything the application said is gone; what is needed for counts and audit stays. `proposal`: a v1 one that made a product proposal. */
+async function assertFullyErased(id, reference, { proposal = false } = {}) {
   const e = await row(id)
   for (const k of ['applicant_name', 'mobile_number', 'email', 'city', 'pincode', 'business_name', 'business_address', 'website', 'gstin', 'additional_comments', 'content_hash', 'upload_token_hash']) {
     assert.equal(e[k], null, k)
@@ -110,7 +119,8 @@ async function assertFullyErased(id, reference) {
   assert.equal(await count('partner_enquiry_categories', id), 2, 'categories stay for the counts')
   for (const t of ['partner_enquiry_answers', 'partner_enquiry_documents', 'partner_enquiry_notes', 'partner_enquiry_followups', 'partner_opportunities']) assert.equal(await count(t, id), 0, t)
   const p = (await query('SELECT * FROM partner_product_proposals WHERE enquiry_id = $1', [id])).rows[0]
-  for (const k of ['product_name', 'product_category', 'description', 'source_location', 'procurement_price', 'suggested_selling_price', 'monthly_supply_capacity']) assert.equal(p[k], null, `proposal ${k}`)
+  assert.equal(Boolean(p), proposal, 'a product proposal only from the v1 product section')
+  if (p) for (const k of ['product_name', 'product_category', 'description', 'source_location', 'procurement_price', 'suggested_selling_price', 'monthly_supply_capacity']) assert.equal(p[k], null, `proposal ${k}`)
   const written = await query(
     `SELECT 1 FROM partner_enquiry_activities WHERE enquiry_id = $1 AND (metadata ?| $2::text[] OR (activity_type = 'DOCUMENT_ADDED' AND new_value IS NOT NULL))`,
     [id, ['reason', 'title', 'note', 'message']],
@@ -122,7 +132,8 @@ async function assertFullyErased(id, reference) {
 describe('the deletion rule', () => {
   test('only ended applications past the grace period lose their details; open and recent ones are untouched', async () => {
     const open = await apply()
-    const rejected = await apply()
+    // A long-form (v1) one, with its product proposal: erased the same way.
+    const rejected = await apply({ version: V1 })
     const recent = await apply()
     const converted = await apply()
     await query('UPDATE partner_enquiries SET submitted_at = $2, status_changed_at = $2 WHERE id = $1', [open.id, new Date(now().getTime() - 400 * DAY)])
@@ -138,11 +149,11 @@ describe('the deletion rule', () => {
       const e = await row(a.id)
       assert.equal(e.erased_at, null)
       assert.match(e.applicant_name, /^Ravi Kumar/)
-      assert.ok((await count('partner_enquiry_answers', a.id)) > 10)
+      assert.ok((await count('partner_enquiry_answers', a.id)) >= 10)
       assert.equal(await count('partner_enquiry_documents', a.id), 1)
       assert.equal(await count('partner_enquiry_notes', a.id), 1)
     }
-    await assertFullyErased(rejected.id, rejected.reference)
+    await assertFullyErased(rejected.id, rejected.reference, { proposal: true })
 
     // Converted: a partner now, so the contact details stay; the application material goes.
     const c = await row(converted.id)
@@ -249,7 +260,7 @@ describe('in the panel', () => {
 
   test('a converted application deleted now keeps the contact details; lists, overview, proposals and export cope with erased rows', async () => {
     const a = await apply()
-    const b = await apply()
+    const b = await apply({ version: V1 })
     await end(a.id, 'CONVERTED', 1)
     await end(b.id, 'CLOSED', 1)
     let d = await api.post(A(`/enquiries/${a.id}/erase`), {}, { token: manager })

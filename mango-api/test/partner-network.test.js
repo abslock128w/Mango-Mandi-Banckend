@@ -52,8 +52,19 @@ let keySeq = 0
 const key = () => `test-key-${Date.now()}-${++keySeq}`
 const LONG = 'We run a fruit distribution business across north Karnataka and know the market well.'
 
-/** A complete, valid set of answers for the given categories. */
+const V1 = '2026-11-v1'
+
+/** A complete, valid set of answers to the current form (2026-11-v2, three short steps). */
 function answers(categories = ['FARMERS_SUPPLIERS'], over = {}) {
+  return {
+    fullName: 'Ravi Kumar', mobile: '98450 12345', email: 'Ravi@Example.com', city: 'Ratnagiri',
+    categories, representsBusiness: 'YES', businessName: 'Kumar Orchards', proposal: LONG,
+    startWhen: 'MONTH', consent: true, ...over,
+  }
+}
+
+/** A complete, valid set of answers to the long form 2026-11-v1, still accepted and still read. */
+function answersV1(categories = ['FARMERS_SUPPLIERS'], over = {}) {
   const a = {
     fullName: 'Ravi Kumar', mobile: '98450 12345', email: 'Ravi@Example.com', city: 'Ratnagiri', state: 'Maharashtra', pincode: '415612', country: 'India',
     preferredContact: 'WHATSAPP', representsBusiness: 'YES', businessName: 'Kumar Orchards', businessType: 'FARMER', yearsOperating: 12,
@@ -91,27 +102,51 @@ describe('questionnaire', () => {
     assert.equal(r.status, 200)
     assert.equal(r.body.version, CURRENT_VERSION)
     assert.equal(r.body.categories.length, 9)
-    assert.deepEqual(r.body.steps.map((s) => s.key), ['contact', 'business', 'proposal', 'specifics', 'final'])
-    const cats = r.body.steps[2].sections[0].questions.find((q) => q.key === 'categories')
+    assert.deepEqual(r.body.steps.map((s) => s.key), ['contact', 'proposal', 'final'])
+    assert.deepEqual(r.body.steps.map((s) => s.sections.flatMap((sec) => sec.questions.map((q) => q.key))), [
+      ['fullName', 'mobile', 'email', 'city'],
+      ['categories', 'representsBusiness', 'businessName', 'proposal'],
+      ['startWhen', 'documents', 'consent'],
+    ])
+    const cats = r.body.steps[1].sections[0].questions.find((q) => q.key === 'categories')
     assert.equal(cats.options.length, 9)
+    const idea = r.body.steps[1].sections[0].questions.find((q) => q.key === 'proposal')
+    assert.deepEqual(idea, { key: 'proposal', label: 'Tell us your idea', type: 'TEXTAREA', required: true, description: 'What you bring, and what you would like from us.', min: 20, max: 3000 })
     assert.equal(r.body.uploads.maxFiles, 10)
     assert.deepEqual(r.body.captcha, { siteKeyRequired: false, siteKey: null, action: 'partner' })
     // Every text question carries the limit the check applies, so the shop never guesses it.
     const all = r.body.steps.flatMap((st) => st.sections.flatMap((sec) => sec.questions))
     for (const q of all.filter((x) => ['TEXT', 'TEXTAREA', 'EMAIL'].includes(x.type))) assert.ok(Number.isInteger(q.max) && q.max > 0, q.key)
+    // No per-category sections any more: every category gets the same three steps.
     const one = await api.get('/v1/partner-network/questionnaires/LOGISTICS')
-    assert.deepEqual(one.body.steps.find((s) => s.key === 'specifics').sections.map((s) => s.key), ['logistics'])
+    assert.deepEqual(one.body.steps.map((s) => s.key), ['contact', 'proposal', 'final'])
     assert.equal((await api.get('/v1/partner-network/questionnaires/NOPE')).status, 404)
   })
 
-  test('a question in two applicable sections is asked once; hidden questions are dropped', () => {
-    const s = applicableSections(CURRENT_VERSION, ['SALES_DISTRIBUTION', 'RETAIL_RESELLER'])
+  test('v1 still checks as before: a question in two applicable sections is asked once; hidden questions are dropped', () => {
+    const s = applicableSections(V1, ['SALES_DISTRIBUTION', 'RETAIL_RESELLER'])
     const keys = s.flatMap((x) => x.keys)
     assert.equal(keys.filter((k) => k === 'monthlyVolume').length, 1)
     assert.ok(!keys.includes('fs_products'))
-    const r = validateSubmission(CURRENT_VERSION, answers(['FARMERS_SUPPLIERS'], { priorExperience: 'should vanish because priorCollab is false' }), ['FARMERS_SUPPLIERS'])
+    const r = validateSubmission(V1, answersV1(['FARMERS_SUPPLIERS'], { priorExperience: 'should vanish because priorCollab is false' }), ['FARMERS_SUPPLIERS'])
     assert.ok(!r.errors, JSON.stringify(r.errors))
     assert.equal(r.answers.priorExperience, undefined)
+    assert.equal(r.answers.country, 'India', 'the default still fills an unanswered country')
+    // v1 keys are not questions on the short form, and the short form's idea is not one on v1.
+    const onShort = validateSubmission(CURRENT_VERSION, answersV1(), ['FARMERS_SUPPLIERS']).errors
+    assert.equal(onShort.state, 'Not a question on this form')
+    assert.ok(validateSubmission(V1, answers(), ['FARMERS_SUPPLIERS']).errors.proposal)
+  })
+
+  test('the short form: a business name only when there is (or will be) a business; no main-interest question', () => {
+    const ok = validateSubmission(CURRENT_VERSION, answers(['OTHER', 'FARMERS_SUPPLIERS'], { representsBusiness: 'NO', businessName: 'dropped, the question is hidden' }), ['FARMERS_SUPPLIERS', 'OTHER'])
+    assert.ok(!ok.errors, JSON.stringify(ok.errors))
+    assert.equal(ok.answers.businessName, undefined)
+    assert.deepEqual(ok.answers.categories, ['OTHER', 'FARMERS_SUPPLIERS'], 'the order ticked is kept: the first is the primary')
+    const planning = validateSubmission(CURRENT_VERSION, answers(['OTHER'], { representsBusiness: 'PLANNING', businessName: '' }), ['OTHER'])
+    assert.ok(planning.errors.businessName)
+    const short = validateSubmission(CURRENT_VERSION, answers(['OTHER'], { proposal: 'Too short' }), ['OTHER'])
+    assert.match(short.errors.proposal, /at least 20/)
   })
 
   test('the switch off hides every route', async () => {
@@ -127,7 +162,7 @@ describe('questionnaire', () => {
 
 describe('submitting an enquiry', () => {
   test('a valid enquiry is saved with its answers, categories and a reference; no OTP needed', async () => {
-    const r = await submit(answers(['FARMERS_SUPPLIERS', 'SALES_DISTRIBUTION']))
+    const r = await submit(answers(['SALES_DISTRIBUTION', 'FARMERS_SUPPLIERS']))
     assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.match(r.body.reference, REFERENCE_RE)
     assert.ok(r.body.uploadToken.length >= 20)
@@ -137,8 +172,43 @@ describe('submitting an enquiry', () => {
     assert.equal(e.priority, 'NORMAL')
     assert.equal(e.mobile_number, '+919845012345')
     assert.equal(e.email, 'ravi@example.com')
-    assert.equal(e.primary_category, 'FARMERS_SUPPLIERS')
+    assert.equal(e.city, 'Ratnagiri')
+    assert.equal(e.questionnaire_version, CURRENT_VERSION)
+    // No main-interest question: the first category ticked is the primary one.
+    assert.equal(e.primary_category, 'SALES_DISTRIBUTION')
+    assert.equal(e.represents_business, 'YES')
+    assert.equal(e.business_name, 'Kumar Orchards')
+    assert.equal(e.start_timeline, 'MONTH')
+    // What the short form does not ask is stored as nothing, not as a guess.
+    for (const k of ['state', 'pincode', 'country', 'preferred_contact_method', 'business_type', 'callback_time', 'additional_comments']) assert.equal(e[k], null, k)
     assert.ok(e.consent_at)
+    const cats = (await query('SELECT category_code, is_primary FROM partner_enquiry_categories WHERE enquiry_id = $1 ORDER BY category_code', [e.id])).rows
+    assert.deepEqual(cats, [{ category_code: 'FARMERS_SUPPLIERS', is_primary: false }, { category_code: 'SALES_DISTRIBUTION', is_primary: true }])
+    const ans = (await query('SELECT section_key, question_key, question_label, display_value FROM partner_enquiry_answers WHERE enquiry_id = $1 ORDER BY position', [e.id])).rows
+    assert.deepEqual(ans.map((x) => x.question_key), ['fullName', 'mobile', 'email', 'city', 'categories', 'representsBusiness', 'businessName', 'proposal', 'startWhen', 'consent'])
+    const by = Object.fromEntries(ans.map((x) => [x.question_key, x]))
+    assert.equal(by.proposal.question_label, 'Tell us your idea')
+    assert.equal(by.proposal.display_value, LONG)
+    assert.equal(by.proposal.section_key, 'proposal')
+    assert.equal(by.startWhen.display_value, 'Within a month')
+    // The public acknowledgement says nothing but that it was received.
+    const ack = await api.get(`/v1/partner-network/enquiries/${r.body.reference}`)
+    assert.deepEqual(ack.body, { reference: r.body.reference, received: true })
+    assert.equal((await api.get('/v1/partner-network/enquiries/MMP-AAAAAAAA')).status, 404)
+  })
+
+  test('a 2026-11-v1 enquiry (the long form) is still accepted and stored as before', async () => {
+    const r = await submit(answersV1(['FARMERS_SUPPLIERS', 'SALES_DISTRIBUTION']), { version: V1 })
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    const e = (await query('SELECT * FROM partner_enquiries WHERE reference = $1', [r.body.reference])).rows[0]
+    assert.equal(e.questionnaire_version, V1)
+    assert.equal(e.primary_category, 'FARMERS_SUPPLIERS')
+    assert.equal(e.state, 'Maharashtra')
+    assert.equal(e.pincode, '415612')
+    assert.equal(e.country, 'India')
+    assert.equal(e.preferred_contact_method, 'WHATSAPP')
+    assert.equal(e.business_type, 'FARMER')
+    assert.equal(e.years_operating, 12)
     const cats = (await query('SELECT category_code, is_primary FROM partner_enquiry_categories WHERE enquiry_id = $1 ORDER BY category_code', [e.id])).rows
     assert.deepEqual(cats, [{ category_code: 'FARMERS_SUPPLIERS', is_primary: true }, { category_code: 'SALES_DISTRIBUTION', is_primary: false }])
     const ans = (await query('SELECT question_key, question_label, display_value FROM partner_enquiry_answers WHERE enquiry_id = $1', [e.id])).rows
@@ -149,71 +219,85 @@ describe('submitting an enquiry', () => {
     // Optional questions that were shown are kept, unanswered.
     assert.ok('fs_certifications' in by)
     assert.equal(by.fs_certifications.display_value, null)
-    // The public acknowledgement says nothing but that it was received.
-    const ack = await api.get(`/v1/partner-network/enquiries/${r.body.reference}`)
-    assert.deepEqual(ack.body, { reference: r.body.reference, received: true })
-    assert.equal((await api.get('/v1/partner-network/enquiries/MMP-AAAAAAAA')).status, 404)
+    // The panel reads it with v1's sections.
+    const d = (await api.get(A(`/enquiries/${e.id}`), { token: manager })).body
+    assert.deepEqual(d.sections.map((s) => s.key), ['personal', 'business', 'proposal', 'sales', 'supply', 'final'])
+    assert.equal(d.questionnaireVersion, V1)
   })
 
   test('missing and malformed fields are all reported at once, by question', async () => {
-    const r = await submit(answers(['FARMERS_SUPPLIERS'], { fullName: '', email: 'not-an-email', mobile: '12345', pincode: '0123', fs_role: 'BOSS', consent: false }))
+    const r = await submit(answers(['FARMERS_SUPPLIERS'], { fullName: '', email: 'not-an-email', mobile: '12345', representsBusiness: 'MAYBE', proposal: 'Too short', startWhen: undefined, consent: false }))
     assert.equal(r.status, 400)
     assert.equal(r.body.error.code, 'VALIDATION_ERROR')
-    for (const k of ['fullName', 'email', 'mobile', 'pincode', 'fs_role', 'consent']) assert.ok(r.body.error.fields[k], `${k} reported`)
+    for (const k of ['fullName', 'email', 'mobile', 'representsBusiness', 'proposal', 'startWhen', 'consent']) assert.ok(r.body.error.fields[k], `${k} reported`)
+    const v1 = await submit(answersV1(['FARMERS_SUPPLIERS'], { pincode: '0123', fs_role: 'BOSS' }), { version: V1 })
+    for (const k of ['pincode', 'fs_role']) assert.ok(v1.body.error.fields[k], `v1 ${k} reported`)
     assert.equal((await query('SELECT COUNT(*)::int AS n FROM partner_enquiries')).rows[0].n, 0)
   })
 
-  test('a PIN code outside India is not held to the 6-digit format', async () => {
-    const r = await submit(answers(['FARMERS_SUPPLIERS'], { country: 'Nepal', state: 'Outside India', pincode: '44600' }))
+  test('v1: a PIN code outside India is not held to the 6-digit format', async () => {
+    const r = await submit(answersV1(['FARMERS_SUPPLIERS'], { country: 'Nepal', state: 'Outside India', pincode: '44600' }), { version: V1 })
     assert.equal(r.status, 201, JSON.stringify(r.body))
   })
 
   test('conditional questions: required only when shown', async () => {
-    const r = await submit(answers(['FARMERS_SUPPLIERS'], { priorCollab: true }))
+    const r = await submit(answers(['FARMERS_SUPPLIERS'], { businessName: undefined }))
     assert.equal(r.status, 400)
-    assert.ok(r.body.error.fields.priorExperience)
-    const ok = await submit(answers(['FARMERS_SUPPLIERS'], { priorCollab: true, priorExperience: LONG }))
-    assert.equal(ok.status, 201)
-    const noBiz = await submit(answers(['FARMERS_SUPPLIERS'], { representsBusiness: 'NO', businessName: undefined, whyUs: `${LONG} Different.` }))
+    assert.ok(r.body.error.fields.businessName)
+    const planning = await submit(answers(['FARMERS_SUPPLIERS'], { representsBusiness: 'PLANNING', businessName: 'Kumar Fruit Co' }))
+    assert.equal(planning.status, 201, JSON.stringify(planning.body))
+    const noBiz = await submit(answers(['FARMERS_SUPPLIERS'], { representsBusiness: 'NO', businessName: 'Typed, then hidden' }))
     assert.equal(noBiz.status, 201, JSON.stringify(noBiz.body))
+    const e = (await query('SELECT represents_business, business_name FROM partner_enquiries WHERE reference = $1', [noBiz.body.reference])).rows[0]
+    assert.deepEqual(e, { represents_business: 'NO', business_name: null })
+    // v1's own conditional question still works the same way.
+    const v1 = await submit(answersV1(['FARMERS_SUPPLIERS'], { priorCollab: true }), { version: V1 })
+    assert.ok(v1.body.error.fields.priorExperience)
   })
 
-  test('category sections are required only for ticked categories, and the primary must be ticked', async () => {
-    const missing = answers(['PRODUCT_DEVELOPMENT'])
+  test('v1: category sections are required only for ticked categories, and the primary must be ticked', async () => {
+    const missing = answersV1(['PRODUCT_DEVELOPMENT'])
     delete missing.pd_productName
-    const r = await submit(missing)
+    const r = await submit(missing, { version: V1 })
     assert.ok(r.body.error.fields.pd_productName)
-    const wrongPrimary = await submit(answers(['FARMERS_SUPPLIERS'], { primaryCategory: 'LOGISTICS' }))
+    const wrongPrimary = await submit(answersV1(['FARMERS_SUPPLIERS'], { primaryCategory: 'LOGISTICS' }), { version: V1 })
     assert.ok(wrongPrimary.body.error.fields.primaryCategory)
+  })
+
+  test('a category switched off can not be chosen', async () => {
     const inactive = await query(`UPDATE partnership_categories SET is_active = FALSE WHERE code = 'LOGISTICS'`)
     assert.equal(inactive.rowCount, 1)
-    const r2 = await submit(answers(['LOGISTICS']))
-    assert.ok(r2.body.error.fields.categories)
+    const r = await submit(answers(['LOGISTICS']))
+    assert.ok(r.body.error.fields.categories)
   })
 
   test('unknown questions, status or ids can not be smuggled in', async () => {
     const r = await submit({ ...answers(), status: 'CONVERTED' })
     assert.equal(r.status, 400)
     assert.ok(r.body.error.fields.status)
+    // The long form's questions are not on the short one.
+    const old = await submit(answers(['FARMERS_SUPPLIERS'], { state: 'Goa', primaryCategory: 'FARMERS_SUPPLIERS' }))
+    assert.equal(old.status, 400)
+    assert.ok(old.body.error.fields.state && old.body.error.fields.primaryCategory)
     const r2 = await submit(answers(), { extra: { priority: 'URGENT' } })
     assert.equal(r2.status, 400)
   })
 
   test('large text: over a question\'s limit is a field error; an oversized body is 413', async () => {
-    const r = await submit(answers(['FARMERS_SUPPLIERS'], { whyUs: 'x'.repeat(3001) }))
+    const r = await submit(answers(['FARMERS_SUPPLIERS'], { proposal: 'x'.repeat(3001) }))
     assert.equal(r.status, 400)
-    assert.match(r.body.error.fields.whyUs, /under 3000/)
-    const huge = await submit(answers(['FARMERS_SUPPLIERS'], { additionalComments: 'y'.repeat(200_000) }))
+    assert.match(r.body.error.fields.proposal, /under 3000/)
+    const huge = await submit(answers(['FARMERS_SUPPLIERS'], { proposal: 'y'.repeat(200_000) }))
     assert.equal(huge.status, 413)
   })
 
   test('script in an answer is stored as text, not run (the panel escapes it)', async () => {
     const payload = '<script>alert(1)</script> We would like to sell your mangoes across the city.'
-    const r = await submit(answers(['FARMERS_SUPPLIERS'], { whyUs: payload }))
+    const r = await submit(answers(['FARMERS_SUPPLIERS'], { proposal: payload }))
     assert.equal(r.status, 201)
     const d = await api.get(A(`/enquiries/${await enquiryId(r.body.reference)}`), { token: manager })
-    const whyUs = d.body.sections.flatMap((s) => s.answers).find((x) => x.key === 'whyUs')
-    assert.equal(whyUs.value, payload)
+    const idea = d.body.sections.flatMap((s) => s.answers).find((x) => x.key === 'proposal')
+    assert.equal(idea.value, payload)
   })
 
   test('the same Idempotency-Key returns the same enquiry; the same answers under a new key are a duplicate', async () => {
@@ -317,11 +401,20 @@ describe('documents', () => {
 describe('messages', () => {
   test('with the switch on: the applicant receipt and the team alerts go through the outbox', async () => {
     Object.assign(env, { WHATSAPP_PARTNER_UPDATES: true, PARTNER_ALERT_PHONES: ['+919900000001'] })
-    const r = await submit(answers(['PRODUCT_DEVELOPMENT']))
-    const rows = (await query('SELECT kind, phone, partner_params FROM notifications ORDER BY kind, event_id')).rows
+    // The short form makes no product proposal, so no proposal alert; the place is the city alone (no state asked).
+    const short = await submit(answers(['PRODUCT_DEVELOPMENT']))
+    let rows = (await query('SELECT kind, phone, partner_params FROM notifications ORDER BY kind, event_id')).rows
+    assert.deepEqual(rows.map((x) => x.kind), ['PARTNER_ENQUIRY_RECEIVED', 'PARTNER_TEAM_ALERT'])
+    assert.deepEqual(rows[0].partner_params, ['Ravi Kumar', short.body.reference, 'Product Development & Expansion'])
+    assert.equal(rows[1].partner_params[2], 'Product Development & Expansion, Ratnagiri')
+    await query('DELETE FROM notifications')
+    // A v1 enquiry with the product section still alerts the team about the proposal.
+    const r = await submit(answersV1(['PRODUCT_DEVELOPMENT']), { version: V1 })
+    rows = (await query('SELECT kind, phone, partner_params FROM notifications ORDER BY kind, event_id')).rows
     assert.deepEqual(rows.map((x) => x.kind), ['PARTNER_ENQUIRY_RECEIVED', 'PARTNER_TEAM_ALERT', 'PARTNER_TEAM_ALERT'])
     assert.deepEqual(rows[0].partner_params, ['Ravi Kumar', r.body.reference, 'Product Development & Expansion'])
     assert.ok(rows.slice(1).some((x) => x.partner_params[0] === 'New product proposal'))
+    assert.ok(rows.slice(1).some((x) => x.partner_params[2] === 'Product Development & Expansion, Ratnagiri, Maharashtra'))
     const sent = []
     const n = await sendDueNotifications({ sender: async (m) => (sent.push(m), `wamid.${sent.length}`) })
     assert.equal(n, 3)
@@ -360,8 +453,9 @@ describe('staff', () => {
   })
 
   test('list: search by name, phone, email and reference; filters; sort; pagination', async () => {
-    await submit(answers(['SALES_DISTRIBUTION'], { fullName: 'Meera Shah', mobile: '9123456780', email: 'meera@shop.in', city: 'Pune', state: 'Maharashtra' }))
-    await submit(answers(['SALES_DISTRIBUTION'], { fullName: 'Arun Das', mobile: '9000000001', email: 'arun@x.in', city: 'Kochi', state: 'Kerala', whyUs: `${LONG} Kerala.` }))
+    // Two from the long form (which asked the state) beside the short-form one (which did not).
+    await submit(answersV1(['SALES_DISTRIBUTION'], { fullName: 'Meera Shah', mobile: '9123456780', email: 'meera@shop.in', city: 'Pune', state: 'Maharashtra' }), { version: V1 })
+    await submit(answersV1(['SALES_DISTRIBUTION'], { fullName: 'Arun Das', mobile: '9000000001', email: 'arun@x.in', city: 'Kochi', state: 'Kerala', whyUs: `${LONG} Kerala.` }), { version: V1 })
     const q = async (s) => (await api.get(A(`/enquiries?${s}`), { token: operator })).body
     assert.equal((await q('q=meera')).total, 1)
     assert.equal((await q('q=91234 56780')).total, 1)
@@ -369,6 +463,7 @@ describe('staff', () => {
     assert.equal((await q('q=MEERA@shop.in')).total, 1)
     assert.equal((await q(`q=${ref.toLowerCase()}`)).items[0].reference, ref)
     assert.equal((await q('state=Kerala')).total, 1)
+    assert.deepEqual((await q('')).states, ['Kerala', 'Maharashtra'], 'no empty state offered for short-form enquiries')
     assert.equal((await q('category=SALES_DISTRIBUTION')).total, 2)
     assert.equal((await q('category=PRODUCT_DEVELOPMENT')).total, 1)
     assert.equal((await q('status=NEW')).total, 3)
@@ -388,16 +483,19 @@ describe('staff', () => {
   test('detail shows every shown question with its answer, documents, notes and links', async () => {
     const d = (await api.get(A(`/enquiries/${id}`), { token: operator })).body
     assert.equal(d.reference, ref)
-    assert.deepEqual(d.sections.map((s) => s.key), ['personal', 'business', 'proposal', 'supply', 'product', 'final'])
+    assert.deepEqual(d.sections.map((s) => s.key), ['personal', 'proposal', 'final'])
     const all = d.sections.flatMap((s) => s.answers)
-    assert.ok(all.some((x) => x.key === 'pd_relationships' && x.value === null), 'unanswered optional question kept')
-    assert.equal(all.find((x) => x.key === 'pd_cost').value, 'Rs 180')
+    assert.equal(all.find((x) => x.key === 'proposal').value, LONG)
+    assert.equal(all.find((x) => x.key === 'categories').value, 'Farmers & Suppliers, Product Development & Expansion')
+    assert.equal(d.questionnaireVersion, CURRENT_VERSION)
+    assert.equal(d.preferredContact, null)
+    assert.equal(d.state, null)
     assert.equal(d.contact.tel, 'tel:+919845012345')
     assert.equal(d.contact.whatsapp, 'https://wa.me/919845012345')
     assert.match(d.contact.mailto, /^mailto:ravi@example\.com\?subject=/)
     assert.deepEqual(d.allowedStatuses, ['UNDER_REVIEW', 'CONTACTED'])
     assert.equal(d.actions.approve, false, 'operators can not approve')
-    assert.equal(d.proposal.reference, `${ref}-P`)
+    assert.equal(d.proposal, null, 'the short form makes no product proposal')
     assert.ok(d.staff.some((x) => x.role === 'OPERATOR') && !d.staff.some((x) => x.role === 'PACKER'))
     assert.equal((await api.get(A(`/enquiries/${id}`), { token: manager })).body.actions.approve, true)
   })
@@ -525,9 +623,13 @@ describe('staff', () => {
     assert.equal(ov.counts.total, 1)
     assert.equal(ov.counts.CONTACTED, 1)
     assert.equal(ov.counts.pendingReview, 0)
-    assert.equal(ov.counts.proposalsAwaiting, 1)
+    assert.equal(ov.counts.proposalsAwaiting, 0)
     assert.equal(ov.byCategory.find((c) => c.code === 'PRODUCT_DEVELOPMENT').count, 1)
-    assert.deepEqual(ov.byState, [{ state: 'Maharashtra', count: 1 }])
+    assert.deepEqual(ov.byState, [], 'a short-form enquiry has no state to count')
+    await submit(answersV1(['PRODUCT_DEVELOPMENT']), { version: V1 })
+    const ov2 = (await api.get(A('/overview'), { token: manager })).body
+    assert.equal(ov2.counts.proposalsAwaiting, 1)
+    assert.deepEqual(ov2.byState, [{ state: 'Maharashtra', count: 1 }])
     assert.equal(ov.latest[0].reference, ref)
   })
 
@@ -543,8 +645,8 @@ describe('staff', () => {
 // ---------------------------------------------------------------- product proposals
 
 describe('product proposals', () => {
-  test('created from the product section; reviewed, sampled and approved without touching the catalogue', async () => {
-    const r = await submit(answers(['PRODUCT_DEVELOPMENT']))
+  test('v1: created from the product section; reviewed, sampled and approved without touching the catalogue', async () => {
+    const r = await submit(answersV1(['PRODUCT_DEVELOPMENT']), { version: V1 })
     const list = (await api.get(A('/product-proposals'), { token: operator })).body
     assert.equal(list.total, 1)
     assert.equal((await api.get(A('/product-proposals?status=open'), { token: operator })).body.total, 1)
@@ -582,7 +684,13 @@ describe('product proposals', () => {
   })
 
   test('no proposal without the product category', async () => {
-    await submit(answers(['FARMERS_SUPPLIERS']))
+    await submit(answersV1(['FARMERS_SUPPLIERS']), { version: V1 })
+    assert.equal((await api.get(A('/product-proposals'), { token: manager })).body.total, 0)
+  })
+
+  test('no proposal from the short form, even with the product category (it asks no product)', async () => {
+    const r = await submit(answers(['PRODUCT_DEVELOPMENT']))
+    assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.equal((await api.get(A('/product-proposals'), { token: manager })).body.total, 0)
   })
 })

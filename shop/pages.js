@@ -485,11 +485,6 @@ function bulkPage(tab = 'order') {
   bulkTab = tab
   document.title = `${BULK_TABS.find((x) => x.id === tab).name} · VMR Mangoes`
   host().innerHTML = pageHead('Bulk orders') + bulkTabsHTML(tab) + `<div class="bulk-panel" id="bulk-panel" role="tabpanel" aria-labelledby="bulk-tab-${tab}" tabindex="-1">${bulkKeyHTML(tab)}${tab === 'farm-visit' ? '<section class="bulk-farm" id="bulk-farm" aria-busy="true"><p>Loading the farm visit…</p></section>' : `
-    <section class="door-hero bulk">
-      ${tab === 'enquiry'
-        ? `<div><h2>Buying big? <br><em>Let’s talk price.</em></h2><p>For ${BULK_ENQUIRY_MIN_KG} kg and more: build your list, send it, and we send you a quote on WhatsApp. It can be lower than the bulk price. Accept it on your account.</p></div><div class="bulk-type" aria-hidden="true">${BULK_ENQUIRY_MIN_KG}<span>+</span><small>KILOGRAMS, A PRICE FOR YOU</small></div>`
-        : `<div><h2>Big on mangoes? <br><em>So are we.</em></h2><p>For shops, restaurant kitchens, functions and gifting. Order ${BULK_MIN_KG} kg or more at bulk prices, about ${bulkDiscountWords()} below the shop, and pay right here. Our team calls you on WhatsApp to arrange the delivery.</p></div><div class="bulk-type" aria-hidden="true">${BULK_MIN_KG}<span>+</span><small>KILOGRAMS OF POSSIBILITY</small></div>`}
-    </section>
     <section class="door-cards bulk-build" id="bulk-grid" aria-label="Build your bulk list"></section>
     <section class="page-card door-flow" id="bulk-box" aria-label="${tab === 'enquiry' ? 'Your enquiry' : 'Your bulk order'}" hidden></section>`}</div>`
   bulkTabsSlide(was)

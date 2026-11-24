@@ -171,7 +171,8 @@ export async function listEnquiries(c, f, admin) {
   const total = (await c.query(`SELECT COUNT(*)::int AS n FROM partner_enquiries e ${sql}`, vals)).rows[0].n
   const { rows } = await c.query(`${ROW_SELECT} ${sql} ORDER BY ${order} LIMIT ${f.pageSize} OFFSET ${(f.page - 1) * f.pageSize}`, vals)
   const staff = await assignableStaff(c)
-  const states = (await c.query('SELECT DISTINCT state FROM partner_enquiries ORDER BY state')).rows.map((r) => r.state)
+  // From form v2 the state is not asked (null): only states someone named are offered as a filter.
+  const states = (await c.query('SELECT DISTINCT state FROM partner_enquiries WHERE state IS NOT NULL ORDER BY state')).rows.map((r) => r.state)
   return { items: rows.map(enquiryRow), total, page: f.page, pageSize: f.pageSize, staff, states }
 }
 
@@ -472,7 +473,7 @@ export async function overview(c) {
     `SELECT pc.code, pc.name, COUNT(ec.enquiry_id)::int AS count FROM partnership_categories pc
        LEFT JOIN partner_enquiry_categories ec ON ec.category_code = pc.code GROUP BY pc.code, pc.name, pc.display_order ORDER BY pc.display_order`,
   )).rows
-  const byState = (await c.query('SELECT state, COUNT(*)::int AS count FROM partner_enquiries GROUP BY state ORDER BY count DESC, state LIMIT 40')).rows
+  const byState = (await c.query('SELECT state, COUNT(*)::int AS count FROM partner_enquiries WHERE state IS NOT NULL GROUP BY state ORDER BY count DESC, state LIMIT 40')).rows
   const at = now()
   const fsel = `SELECT f.*, a.email AS assignee_email, e.reference, e.applicant_name FROM partner_enquiry_followups f
     JOIN partner_enquiries e ON e.id = f.enquiry_id LEFT JOIN admin_users a ON a.id = f.assigned_admin_id WHERE f.status = 'PENDING'`

@@ -64,6 +64,26 @@ const SECTIONS = [
 ]
 const ALL_ANSWERS = SECTIONS.flatMap((s) => s.answers)
 
+/** The same applicant on the short form (2026-11-v2): three parts, and no state, PIN code, contact preference or organisation type asked. */
+const SECTIONS_V2 = [
+  { key: 'personal', title: 'About you', answers: [
+    { key: 'fullName', label: 'Full name', type: 'TEXT', value: 'Ravi Patil' },
+    { key: 'mobile', label: 'Mobile number', type: 'PHONE', value: '+919876543210' },
+    { key: 'email', label: 'Email address', type: 'EMAIL', value: 'ravi@patilagro.example' },
+    { key: 'city', label: 'City', type: 'TEXT', value: 'Ratnagiri' },
+  ] },
+  { key: 'proposal', title: 'What you have in mind', answers: [
+    { key: 'categories', label: 'What type of partnership are you interested in?', type: 'MULTI_SELECT', value: 'Farmers & Suppliers, Product Development' },
+    { key: 'representsBusiness', label: 'Are you representing an existing business?', type: 'RADIO', value: 'Yes' },
+    { key: 'businessName', label: 'Business or organisation name', type: 'TEXT', value: 'Patil Agro Traders' },
+    { key: 'proposal', label: 'Tell us your idea', type: 'TEXTAREA', value: 'We grow Alphonso on 40 acres and want a steady buyer. We would like help with packing.' },
+  ] },
+  { key: 'final', title: 'Last bit', answers: [
+    { key: 'startWhen', label: 'When would you like to start?', type: 'RADIO', value: 'Within a month' },
+    { key: 'consent', label: 'I agree that MandiMangoes may contact me about this enquiry.', type: 'CHECKBOX', value: 'Yes' },
+  ] },
+]
+
 function pnState(role: Role) {
   const manager = role === 'MANAGER'
   return {
@@ -344,7 +364,7 @@ test('operators have no CSV export', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Export CSV' })).toHaveCount(0)
 })
 
-test('an enquiry shows every answer, its documents, notes and history', async ({ page }) => {
+test('a long-form (2026-11-v1) enquiry shows every answer, its documents, notes and history', async ({ page }) => {
   const pn = await signedIn(page, 'MANAGER')
   await page.goto('/partner-network/enquiries/enq_1')
   await expect(page.getByRole('heading', { name: 'Ravi Patil', level: 1 })).toBeVisible()
@@ -395,6 +415,40 @@ test('an enquiry shows every answer, its documents, notes and history', async ({
   await page.getByRole('tab', { name: 'Activity history' }).click()
   await expect(panel.getByText('Enquiry submitted')).toBeVisible()
   await expect(panel.getByText('Status changed: New → Under review')).toBeVisible()
+})
+
+test('a short-form (2026-11-v2) enquiry shows its three parts; what it did not ask reads as a dash', async ({ page }) => {
+  const pn = await signedIn(page, 'MANAGER')
+  Object.assign(pn.s.detail, { state: null, pincode: null, country: null, preferredContact: null, callbackTime: null, questionnaireVersion: '2026-11-v2', sections: SECTIONS_V2, proposal: null })
+  await page.goto('/partner-network/enquiries/enq_1')
+  await expect(page.getByRole('heading', { name: 'Ravi Patil', level: 1 })).toBeVisible()
+  await expect(page.getByRole('link', { name: /Open product proposal/ })).toHaveCount(0)
+
+  const panel = page.getByRole('tabpanel')
+  const kv = (label: string) => panel.getByRole('term').filter({ hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
+  await expect(kv('Location')).toHaveText('Ratnagiri')
+  await expect(kv('Prefers')).toHaveText('—')
+  await expect(kv('Wants to start')).toHaveText('Within a month')
+  await expect(kv('Form version')).toHaveText('2026-11-v2')
+  await expect(panel.getByRole('heading', { name: 'Last bit' })).toBeVisible()
+  await scan(page)
+
+  const all = SECTIONS_V2.flatMap((s) => s.answers)
+  const seen = new Set<string>()
+  for (const tab of ['Overview', 'Personal information', 'Partnership proposal']) {
+    await page.getByRole('tab', { name: tab, exact: true }).click()
+    for (const a of all) {
+      const term = panel.getByRole('term').filter({ hasText: a.label })
+      if ((await term.count()) === 0) continue
+      seen.add(a.key)
+      await expect(term.locator('xpath=following-sibling::dd[1]')).toHaveText(a.value)
+    }
+  }
+  expect([...seen].sort()).toEqual(all.map((a) => a.key).sort())
+  for (const tab of ['Business information', 'Category-specific answers']) {
+    await page.getByRole('tab', { name: tab, exact: true }).click()
+    await expect(panel.getByText('The applicant was not asked these questions.')).toBeVisible()
+  }
 })
 
 test('follow-ups: one request per click, a clash at the same moment, then mark done', async ({ page }) => {

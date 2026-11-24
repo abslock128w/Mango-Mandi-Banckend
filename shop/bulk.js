@@ -75,9 +75,9 @@ document.addEventListener('keydown', (e) => {
   go(BULK_TABS[n].href)
 })
 
-/** "How it works" for the tab. */
+/** "How it works" for the tab: each card shows its title; a tap (or Enter/Space) opens its detail line. */
 function bulkKeyHTML(tab) {
-  const li = (ic, title, text) => `<li>${icon(ic)}<div><strong>${title}</strong><span>${text}</span></div></li>`
+  const li = (ic, title, text) => `<li><details><summary>${icon(ic)}<strong>${title}</strong>${icon('chevron')}</summary><span>${text}</span></details></li>`
   const items = tab === 'enquiry' ? [
     li('scale', `${BULK_ENQUIRY_MIN_KG} kg minimum`, `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg and more. From ${BULK_MIN_KG} kg you can also order and pay at the bulk price straight away.`),
     li('tag', 'A price for you', 'We start from the bulk price and quote you on WhatsApp. Your quote can be lower.'),

@@ -5,7 +5,7 @@ Partner With Us lets entrepreneurs, farmers, suppliers, distributors, retailers,
 This release covers enquiries only. There are no partner accounts, logins, dashboards, commissions or payouts. An approved product proposal never creates a shop product by itself.
 
 - Switch: `PARTNER_NETWORK`. It is on unless the environment sets it to `false`, and managers can turn it off on the Settings page. While it is off, every route below answers 404 and the shop hides its links.
-- Database: migrations `058_partner_network.sql` and `059_validate_partner_checks.sql`.
+- Database: migrations `058_partner_network.sql` and `059_validate_partner_checks.sql`; `069_partner_erasure.sql` (deleting ended applications); `093_partner_short_form.sql` (the short form leaves state, country, contact preference and organisation type empty).
 - Code:
   - `mango-api/src/partner/`: the questionnaire, enquiries, staff actions and alerts.
   - `shop/partner.js`: the shop pages.
@@ -101,9 +101,25 @@ N is `PARTNER_RETENTION_DAYS` (default 30, at least 1), sent to the shop as `ret
 
 `mango-api/src/partner/questionnaire.js` is the only definition of the form. The shop draws the form from `GET /v1/partner-network`, and the API checks submissions against the same definition.
 
-- Every answer is stored with the label and type it had when it was submitted.
-- Changing the form means adding a new version, never editing a live one.
-- A submission made against an older version is refused with 409 `QUESTIONNAIRE_CHANGED`. The shop then reloads the form and keeps the answers it can.
+- Every answer is stored with the label and type it had when it was submitted, so an enquiry of any version reads correctly in the panel.
+- Changing the form means adding a new version, never editing a live one, and pointing `CURRENT_VERSION` at it.
+- `ACCEPTED_VERSIONS` lists the versions a submission may name: the current one, and older ones kept so a form opened before a switch can still be sent. A submission naming any other version is refused with 409 `QUESTIONNAIRE_CHANGED`. The shop then reloads the form and keeps the answers it can.
+
+### Versions
+
+**`2026-11-v2` (current): the short form.** Three steps:
+
+| Step | Title | Questions |
+|---|---|---|
+| `contact` | About you | `fullName`, `mobile`, `email`, `city` (all required) |
+| `proposal` | What you have in mind | `categories` (MULTI_SELECT, required), `representsBusiness` (Yes / No / Planning to start one, required), `businessName` (shown and required only for Yes or Planning), `proposal` ("Tell us your idea", TEXTAREA, 20 to 3000 characters, required) |
+| `final` | Last bit | `startWhen` (RADIO, required), `documents` (optional upload, after the enquiry is saved), `consent` (required) |
+
+- There is no main-interest question: the first ticked category is stored as the enquiry's `primary_category` (and `is_primary` on its category row).
+- There are no per-category sections, so `GET /questionnaires/:category` returns the same three steps for every category, and a v2 enquiry never creates a product proposal, even with Product Development ticked. The idea is in the `proposal` answer.
+- What v2 does not ask is stored as NULL on the enquiry row: `state`, `pincode`, `country`, `preferred_contact_method`, `business_type`, `callback_time`, `additional_comments`, `website`, `years_operating`, `gstin` and `business_address` (migration 093 dropped NOT NULL on the four that had it; their CHECKs still hold for any value present). No contact preference is assumed: the panel shows "—" for "Prefers" and staff choose the channel. The overview's "Enquiries by state" and the list's state filter count only enquiries that named a state.
+
+**`2026-11-v1`: the long form.** Five steps (about you with state, PIN code, country and contact preference; your business; your proposal with a main interest and five long answers; a section per ticked category; final details). It is still accepted (`ACCEPTED_VERSIONS`) and still checked and stored exactly as before, including the product proposal its Product Development section creates. Its enquiries keep reading as they were. Take it out of `ACCEPTED_VERSIONS` to retire it; stored v1 enquiries are unaffected.
 
 Question types are TEXT, TEXTAREA, EMAIL, PHONE, NUMBER, SELECT, MULTI_SELECT, RADIO, CHECKBOX, BOOLEAN, DATE, FILE_UPLOAD and CURRENCY.
 
@@ -120,7 +136,7 @@ Sections and categories:
 
 - A section with `categories` applies only when one of those categories is ticked.
 - A question key that appears in more than one applying section is asked once, in the first one.
-- The `categories` (MULTI_SELECT) and `primaryCategory` (RADIO) questions take their options from the active categories. `primaryCategory` must be one of the ticked categories.
+- The `categories` (MULTI_SELECT) and, in v1, `primaryCategory` (RADIO) questions take their options from the active categories. `primaryCategory` must be one of the ticked categories.
 
 ## Customer API (`/v1/partner-network`, no sign-in)
 
@@ -130,7 +146,7 @@ Returns everything the form needs:
 
 ```json
 {
-  "version": "2026-11-v1",
+  "version": "2026-11-v2",
   "categories": [{ "code": "SALES_DISTRIBUTION", "name": "Sales & Distribution Partners", "description": "..." }],
   "steps": [{ "key": "contact", "title": "About you", "description": "...",
               "sections": [{ "key": "personal", "title": "...", "categories": null,
@@ -153,8 +169,8 @@ The two endpoints the brief named also exist:
 Sending a submission:
 
 - **Header:** `Idempotency-Key` is required: 8 to 100 characters of letters, digits, `_` and `-`, made once per form fill.
-- **Body:** `{ "questionnaireVersion": "2026-11-v1", "answers": { "<key>": value, ... }, "captchaToken"?: "..." }`.
-- **Answers:** `categories` is an array of codes. `primaryCategory` is a code. BOOLEAN answers are `true` or `false`. NUMBER and CURRENCY answers are numbers. `consent` must be `true`.
+- **Body:** `{ "questionnaireVersion": "2026-11-v2", "answers": { "<key>": value, ... }, "captchaToken"?: "..." }`.
+- **Answers:** `categories` is an array of codes; in v2 the first is the primary one. `primaryCategory` (v1 only) is a code. BOOLEAN answers are `true` or `false`. NUMBER and CURRENCY answers are numbers. `consent` must be `true`.
 
 Responses:
 
@@ -162,7 +178,7 @@ Responses:
 - **200** with the same body when the same `Idempotency-Key` is sent again. The upload token is a fresh one.
 - **400** `VALIDATION_ERROR` with `fields: { "<key>": "message", ... }`, which lists every problem at once.
 - **409** `DUPLICATE_ENQUIRY` when the same answers arrived in the last 24 hours under another key. The body has `reference` (the earlier one).
-- **409** `QUESTIONNAIRE_CHANGED`.
+- **409** `QUESTIONNAIRE_CHANGED` when `questionnaireVersion` is not in `ACCEPTED_VERSIONS`.
 - **429** `RATE_LIMITED`, when one address sends more than 5 submissions an hour.
 
 If Cloudflare Turnstile is configured (`TURNSTILE_SECRET_KEY`), `captchaToken` is required and is checked with action `partner`.
