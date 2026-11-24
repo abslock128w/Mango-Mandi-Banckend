@@ -21,7 +21,7 @@ export const config = {
   matcher: [
     {
       // Pages and the service worker; not built files, icons or link prefetches.
-      source: "/((?!_next/static|_next/image|favicon|icon-|apple-touch-icon|lottie/|vendor/).*)",
+      source: "/((?!_next/static|_next/image|favicon|icons/|apple-touch-icon|lottie/|vendor/).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

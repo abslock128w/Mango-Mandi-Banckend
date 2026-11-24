@@ -56,7 +56,7 @@ export function demoOrders(): MockOrder[] {
     },
     {
       id: "ord_b2",
-      number: "ORD-1094",
+      number: "S743406081",
       status: "PACKED",
       customerName: "Ravi Kumar",
       deliveryAddress: "88, 12th Main, HAL 2nd Stage",

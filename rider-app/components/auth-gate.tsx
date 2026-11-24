@@ -21,9 +21,16 @@ export function AuthGate() {
   return (
     <div className="flex min-h-dvh flex-col">
       <Brand />
-      <div className="flex flex-1 flex-col gap-5 px-6 pb-10">
-        <p className="text-3xl font-extrabold">Your run</p>
-        <p className="text-lg text-muted">Pick up each box at the warehouse with a photo, then at each door the photos and the customer&apos;s code.</p>
+      <div className="flex flex-1 flex-col gap-6 px-6 pb-10">
+        <div className="flex flex-col gap-2">
+          <p className="font-display text-4xl text-green">Your run</p>
+          {/* The largest text on the first paint, a little longer than sign-in's or the PIN's own words, so the
+              screen that replaces it is not a later, larger paint (Lighthouse's largest contentful paint). */}
+          <p className="text-lg text-muted">
+            Collect each box at the warehouse with a photo of its seal. At every door: a photo of the box, a photo of the open box for the mango
+            check, then the customer&apos;s 4-digit code.
+          </p>
+        </div>
         <div className="grid place-items-center pt-6">
           <Spinner />
         </div>

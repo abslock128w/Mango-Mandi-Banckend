@@ -11,7 +11,7 @@ export function DeliveredTick() {
   return (
     <div className="grid size-32 place-items-center" data-testid="delivered-tick">
       {reduce ? (
-        <span className="grid size-24 place-items-center rounded-full bg-action text-white">
+        <span className="grid size-24 place-items-center rounded-full bg-green text-white">
           <Check aria-hidden size={52} strokeWidth={3} />
         </span>
       ) : (

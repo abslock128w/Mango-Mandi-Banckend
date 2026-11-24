@@ -44,7 +44,7 @@ if (step !== "door") {
   await page.getByRole("button", { name: "Send code" }).click();
   await page.getByTestId("otp").waitFor();
   const text = await page.locator("body").innerText();
-  const code = /(\d{6})/.exec(text.slice(text.indexOf("Test code")))?.[1];
+  const code = /(\d{6})/.exec(text.slice(text.indexOf("Demo code")))?.[1];
   if (!code) throw new Error("no test code on screen");
   await shot("02-code");
   await page.getByTestId("otp").fill(code);

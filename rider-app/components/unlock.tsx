@@ -3,7 +3,7 @@ import { useState } from "react";
 import { ApiError, api } from "@/lib/api";
 import { signOut, startSession } from "@/lib/session";
 import { Brand } from "./brand";
-import { CodeBoxes } from "./code-boxes";
+import { CodeBoxes, PinPad } from "./code-boxes";
 import { Button, ErrorText } from "./ui";
 
 /** A bound phone opens with the rider's PIN. */
@@ -25,27 +25,23 @@ export function Unlock({ name }: { name: string | null }) {
     }
   }
 
+  const onPin = (v: string) => {
+    setPin(v);
+    if (v.length === 4) void unlock(v);
+  };
+
   return (
     <div className="flex min-h-dvh flex-col">
       <Brand />
-      <div className="flex flex-col gap-5 px-6 pb-10">
-        <h1 className="text-3xl font-extrabold">{name ? `Hi ${name.split(" ")[0]}` : "Welcome back"}</h1>
-        <p className="text-lg text-muted">Enter your PIN.</p>
-        <CodeBoxes
-          length={4}
-          value={pin}
-          label="Your 4-digit PIN"
-          mask
-          autoFocus
-          disabled={busy}
-          testId="pin"
-          invalid={Boolean(error)}
-          onChange={(v) => {
-            setPin(v);
-            if (v.length === 4) void unlock(v);
-          }}
-        />
+      <div className="flex flex-col gap-6 px-6 pb-10">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-display text-4xl text-green">{name ? `Hi ${name.split(" ")[0]}` : "Welcome back"}</h1>
+          <p className="text-lg text-muted">Enter your PIN to open today&apos;s run.</p>
+        </div>
+        <CodeBoxes length={4} value={pin} label="Your 4-digit PIN" mask keypad size="lg" autoFocus disabled={busy} testId="pin" invalid={Boolean(error)} onChange={onPin} />
         <ErrorText>{error}</ErrorText>
+        {busy && <p className="text-center text-lg text-muted">Opening…</p>}
+        <PinPad value={pin} length={4} onChange={onPin} disabled={busy} />
         <Button variant="quiet" onClick={() => void signOut()}>
           Not you? Sign in with your number
         </Button>

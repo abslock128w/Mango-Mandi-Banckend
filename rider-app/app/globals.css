@@ -11,11 +11,21 @@
   body {
     @apply bg-canvas text-ink font-sans antialiased;
   }
-  /* With a light halo, so the ring shows on teal buttons and photos too. */
+  /* Deep green with a paper halo, so the ring shows on green and yellow buttons and on photos. */
   :focus-visible {
-    outline: 3px solid var(--color-action);
+    outline: 3px solid var(--color-green);
     outline-offset: 2px;
-    box-shadow: 0 0 0 2px var(--color-surface);
+    box-shadow: 0 0 0 2px var(--color-paper);
+  }
+  ::selection {
+    background: var(--color-mango);
+    color: var(--color-ink);
+  }
+  /* Young Serif's default figures are old-style (3, 4, 5, 7 and 9 drop below the line): codes,
+     PINs and counts read faster with its lining figures. */
+  .font-display {
+    font-feature-settings: "lnum" 1;
+    letter-spacing: -0.01em;
   }
   button {
     cursor: pointer;
@@ -26,7 +36,9 @@
 }
 
 @utility press {
-  transition: transform 120ms ease-out;
+  transition:
+    transform 120ms ease-out,
+    background-color 150ms ease-out;
   &:active:not(:disabled) {
     transform: scale(0.97);
   }

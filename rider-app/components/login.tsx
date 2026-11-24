@@ -1,10 +1,11 @@
 "use client";
+import { KeyRound, MessageCircle } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { ApiError, api } from "@/lib/api";
 import { startSession } from "@/lib/session";
 import { Brand } from "./brand";
-import { CodeBoxes } from "./code-boxes";
-import { Button, ErrorText } from "./ui";
+import { CodeBoxes, PinPad } from "./code-boxes";
+import { Button, ErrorText, Notice } from "./ui";
 
 type Stage = { at: "phone" } | { at: "otp"; phone: string; devCode?: string } | { at: "pin"; setupToken: string; name: string; first?: string };
 
@@ -105,20 +106,27 @@ export function Login() {
     void act(async () => startSession(await api.pinSet(stage.setupToken, value)));
   }
 
+  const onPin = (v: string) => {
+    setPin(v);
+    if (v.length === 4) savePin(v);
+  };
+
   return (
     <div className="flex min-h-dvh flex-col">
       <Brand />
-      <div className="flex flex-1 flex-col gap-5 px-6 pb-10">
+      <div className="flex flex-1 flex-col gap-6 px-6 pb-10">
         {stage.at === "phone" && (
-          <form onSubmit={sendCode} className="flex flex-col gap-5">
-            <h1 className="text-3xl font-extrabold">Sign in</h1>
-            <p className="text-lg text-muted">Use the mobile number ops registered for you. We send a code on WhatsApp or SMS.</p>
+          <form onSubmit={sendCode} className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <h1 className="font-display text-4xl text-green">Sign in</h1>
+              <p className="text-lg text-muted">Use the mobile number ops registered for you. We send a code on WhatsApp or SMS.</p>
+            </div>
             <label className="flex flex-col gap-2">
-              <span className="text-base font-semibold">Mobile number</span>
-              <span className="flex min-h-14 items-center rounded-2xl border-2 border-line bg-surface px-4 focus-within:border-action">
-                <span className="pr-2 text-lg text-muted">+91</span>
+              <span className="text-lg font-semibold">Mobile number</span>
+              <span className="flex min-h-18 items-center overflow-hidden rounded-2xl border-2 border-line bg-paper shadow-card focus-within:border-green">
+                <span className="grid h-18 place-items-center self-stretch border-r-2 border-line bg-chip px-4 text-2xl font-semibold text-muted">+91</span>
                 <input
-                  className="h-14 flex-1 bg-transparent text-xl tracking-wider outline-none"
+                  className="h-18 min-w-0 flex-1 bg-transparent px-4 text-3xl font-semibold tracking-wider tabular-nums outline-none placeholder:text-muted"
                   inputMode="tel"
                   autoComplete="tel-national"
                   name="phone"
@@ -131,16 +139,29 @@ export function Login() {
               </span>
             </label>
             <ErrorText>{error}</ErrorText>
-            <Button type="submit" disabled={busy} className="w-full text-lg">
-              {busy ? "Sending…" : "Send code"}
+            <Button type="submit" size="xl" disabled={busy} className="w-full">
+              <MessageCircle aria-hidden size={22} /> {busy ? "Sending…" : "Send code"}
             </Button>
           </form>
         )}
 
         {stage.at === "otp" && (
-          <div className="flex flex-col gap-5">
-            <h1 className="text-3xl font-extrabold">Enter the code</h1>
-            <p className="text-lg text-muted">Sent to {stage.phone.replace(/^\+91/, "+91 ")}.</p>
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <h1 className="font-display text-4xl text-green">Enter the code</h1>
+              <p className="text-lg text-muted">Sent to {stage.phone.replace(/^\+91/, "+91 ")}.</p>
+            </div>
+            {stage.devCode && (
+              <div className="flex items-center gap-3 rounded-2xl border-2 border-dashed border-green bg-green-soft px-4 py-3" data-testid="demo-code">
+                <KeyRound aria-hidden size={24} className="shrink-0 text-green" />
+                <p className="text-base text-ink">
+                  Demo mode: no WhatsApp or SMS is sent, so the code shows here.{" "}
+                  <span className="block pt-1">
+                    Demo code <strong className="font-display text-2xl tracking-widest text-green">{stage.devCode}</strong>
+                  </span>
+                </p>
+              </div>
+            )}
             <CodeBoxes
               length={6}
               value={code}
@@ -154,45 +175,48 @@ export function Login() {
                 if (v.length === 6) verify(v);
               }}
             />
-            {stage.devCode && <p className="text-center text-sm text-muted">Test code: {stage.devCode}</p>}
             {notice && !error && (
-              <p role="status" className="text-center text-base text-muted">
+              <Notice tone="plain" className="text-center">
                 {notice}
-              </p>
+              </Notice>
             )}
             <ErrorText>{error}</ErrorText>
-            <Button disabled={busy || code.length !== 6} onClick={() => verify()} className="w-full text-lg">
+            <Button size="xl" disabled={busy || code.length !== 6} onClick={() => verify()} className="w-full">
               {busy ? "Checking…" : "Continue"}
             </Button>
-            <Button variant="secondary" disabled={busy || resendIn > 0} onClick={resend} data-testid="resend-code">
-              {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
-            </Button>
-            <Button variant="quiet" onClick={() => setStage({ at: "phone" })}>
-              Change number
-            </Button>
+            <div className="flex flex-col gap-3">
+              <Button variant="secondary" size="lg" disabled={busy || resendIn > 0} onClick={resend} data-testid="resend-code">
+                {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
+              </Button>
+              <Button variant="quiet" size="lg" onClick={() => setStage({ at: "phone" })}>
+                Change number
+              </Button>
+            </div>
           </div>
         )}
 
         {stage.at === "pin" && (
-          <div className="flex flex-col gap-5">
-            <h1 className="text-3xl font-extrabold">{stage.first ? "Enter it again" : `Hi ${stage.name.split(" ")[0]}, set a PIN`}</h1>
-            <p className="text-lg text-muted">{stage.first ? "Type the same 4 digits to confirm." : "4 digits. You'll use it to open the app on this phone."}</p>
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <h1 className="font-display text-4xl text-green">{stage.first ? "Enter it again" : `Hi ${stage.name.split(" ")[0]}, set a PIN`}</h1>
+              <p className="text-lg text-muted">{stage.first ? "Type the same 4 digits to confirm." : "4 digits. You will use it to open the app on this phone."}</p>
+            </div>
             <CodeBoxes
               key={stage.first ? "confirm" : "first"}
               length={4}
               value={pin}
               label={stage.first ? "Confirm your 4-digit PIN" : "New 4-digit PIN"}
               mask
+              keypad
+              size="lg"
               autoFocus
               disabled={busy}
               testId="pin"
-              onChange={(v) => {
-                setPin(v);
-                if (v.length === 4) savePin(v);
-              }}
+              onChange={onPin}
             />
             <ErrorText>{error}</ErrorText>
-            {busy && <p className="text-center text-muted">Saving…</p>}
+            {busy && <p className="text-center text-lg text-muted">Saving…</p>}
+            <PinPad value={pin} length={4} onChange={onPin} disabled={busy} />
             {/* The step after the code lasts 10 minutes: past that (or on a typo in the number), start again. */}
             <Button variant="quiet" disabled={busy} onClick={() => (setError(null), setStage({ at: "phone" }))}>
               Start again

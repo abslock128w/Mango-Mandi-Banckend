@@ -11,6 +11,19 @@ export function useBlobUrl(blob: Blob | null | undefined) {
   return url;
 }
 
+/** Four corner marks, like a camera's viewfinder: where the box should sit. */
+function Viewfinder() {
+  const corner = "absolute size-9 border-green";
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-5">
+      <span className={`${corner} top-0 left-0 rounded-tl-xl border-t-4 border-l-4`} />
+      <span className={`${corner} top-0 right-0 rounded-tr-xl border-t-4 border-r-4`} />
+      <span className={`${corner} bottom-0 left-0 rounded-bl-xl border-b-4 border-l-4`} />
+      <span className={`${corner} right-0 bottom-0 rounded-br-xl border-r-4 border-b-4`} />
+    </span>
+  );
+}
+
 /**
  * The phone's camera through a file input (capture="environment": the back
  * camera opens straight away), then a preview with Retake.
@@ -63,14 +76,20 @@ export function CameraCapture({
       onChange={(e) => void onChange(e)}
     />
   );
+  const off = disabled ? "pointer-events-none" : "";
 
   if (url) {
     return (
-      <div className="flex flex-col gap-2">
-        {/* eslint-disable-next-line @next/next/no-img-element -- a local photo, not an optimisable asset */}
-        <img src={url} alt={`Photo: ${label}`} className="aspect-[4/3] w-full rounded-2xl bg-chip object-cover" />
-        <label htmlFor={id} className={`press inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-chip px-4 font-semibold ${disabled ? "pointer-events-none opacity-60" : ""}`}>
-          <RotateCcw aria-hidden size={20} /> {busy ? "Preparing…" : "Retake"}
+      <div className="flex flex-col gap-3">
+        <div className="relative overflow-hidden rounded-2xl border border-line bg-chip">
+          {/* eslint-disable-next-line @next/next/no-img-element -- a local photo, not an optimisable asset */}
+          <img src={url} alt={`Photo: ${label}`} className="aspect-[4/3] w-full object-cover" />
+        </div>
+        <label
+          htmlFor={id}
+          className={`press inline-flex min-h-14 items-center justify-center gap-2 rounded-2xl border-2 border-green bg-paper px-4 text-lg font-semibold text-green ${disabled ? `${off} border-disabled text-disabled-ink` : ""}`}
+        >
+          <RotateCcw aria-hidden size={22} /> {busy ? "Preparing…" : "Retake"}
         </label>
         {input}
         <ErrorText>{error}</ErrorText>
@@ -82,17 +101,15 @@ export function CameraCapture({
     <div className="flex flex-col gap-2">
       <label
         htmlFor={id}
-        className={`press relative grid aspect-[4/3] w-full place-items-center overflow-hidden rounded-2xl border-2 border-dashed border-action bg-tint text-action ${disabled ? "pointer-events-none opacity-60" : ""}`}
+        className={`press relative grid aspect-[4/3] w-full place-items-center rounded-2xl border-2 border-dashed border-green bg-green-soft py-10 text-green ${off}`}
       >
-        {guide && (
-          <span aria-hidden className="pointer-events-none absolute inset-5 rounded-xl border-4 border-brand/80">
-            <span className="absolute inset-x-0 -bottom-1 translate-y-full text-center text-xs" />
+        <Viewfinder />
+        <span className="relative flex flex-col items-center gap-3 px-8 text-center">
+          <span className="grid size-16 place-items-center rounded-full bg-green text-white shadow-card">
+            <Camera aria-hidden size={30} />
           </span>
-        )}
-        <span className="relative flex flex-col items-center gap-2 px-6 text-center">
-          <Camera aria-hidden size={44} />
-          <span className="text-lg font-bold">{busy ? "Preparing photo…" : label}</span>
-          {guide && <span className="text-sm font-semibold text-deep">{guide}</span>}
+          <span className="text-xl font-bold">{busy ? "Preparing photo…" : label}</span>
+          {guide && <span className="text-base font-medium text-ink">{guide}</span>}
         </span>
       </label>
       {input}
