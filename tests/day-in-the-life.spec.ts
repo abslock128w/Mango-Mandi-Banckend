@@ -107,7 +107,8 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   await page.getByRole('button', { name: 'Resolved', exact: true }).click()
   // Both viewports run at once against one API, so pick this run's claim card.
   const card = page.locator('article').filter({ has: page.getByRole('heading', { name: shown, exact: true }) })
-  const replacement = card.locator('dd').getByRole('link', { name: /^ORD-/ })
+  // A replacement is a shop order of its own: S-xxx xxx xxx (an ORD- number before migration 077).
+  const replacement = card.locator('dd').getByRole('link', { name: /^(S-\d{3} \d{3} \d{3}|ORD-\d+)$/ })
   await expect(replacement).toBeVisible()
   await replacement.click()
   await expect(page.getByText(`Free replacement for order ${shown}`)).toBeVisible()
