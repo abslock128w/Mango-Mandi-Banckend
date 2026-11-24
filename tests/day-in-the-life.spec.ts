@@ -1,4 +1,5 @@
 import { expect, openNavTo, test } from './fixtures'
+import { formatOrderNumber } from '../src/orderNumber'
 
 // The §10 acceptance script against a real, seeded mango-api.
 // Skips unless E2E_EMAIL / E2E_PASSWORD are set. CI runs it against mango-api.
@@ -75,10 +76,12 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
     { 'Idempotency-Key': `e2e-${phone}` },
   )
   await call('POST', '/v1/dev/pay', { orderId: placed.orderId, outcome: 'captured' })
+  // The panel shows every number the API sends as S-618 033 989 (src/apiAnswer.ts).
+  const shown = formatOrderNumber(placed.number)
 
   // 7–9. Ops process, allocate, pack, ship and deliver it in the panel.
   await page.goto(`/orders/${placed.orderId}`)
-  await expect(page.getByRole('heading', { name: `Order ${placed.number}` })).toBeVisible()
+  await expect(page.getByRole('heading', { name: `Order ${shown}` })).toBeVisible()
   await page.getByRole('button', { name: 'Start processing' }).click()
   await page.getByRole('button', { name: 'Allocate stock' }).click()
   await expect(page.getByText('Stock allocated. Pick list is ready.')).toBeVisible()
@@ -88,7 +91,7 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   }
   // Without the customer's code or a photo, only a manager marks it delivered, saying why.
   await page.getByRole('button', { name: 'Mark delivered', exact: true }).click()
-  const proof = page.getByRole('dialog', { name: `Mark ${placed.number} delivered without proof?` })
+  const proof = page.getByRole('dialog', { name: `Mark ${shown} delivered without proof?` })
   await proof.getByLabel('Reason').fill('Customer confirmed on a call')
   await proof.getByRole('button', { name: 'Mark delivered' }).click()
   await expect(page.getByRole('button', { name: 'Mark delivered', exact: true })).toHaveCount(0)
@@ -97,17 +100,17 @@ test('a day in the life of the warehouse', async ({ page }, testInfo) => {
   // 10–12. The customer claims damage; ops approve a free replacement (MandiMangoes never refunds).
   await call('POST', '/v1/claims', { orderId: placed.orderId, issueType: 'DAMAGED', description: 'Box arrived crushed', itemSkus: [pick.sku] }, cust)
   await (await openNavTo(page, 'Claims')).click()
-  await page.getByRole('button', { name: `Start review for ${placed.number}` }).click()
-  await page.getByRole('button', { name: `Resolve ${placed.number}` }).click()
+  await page.getByRole('button', { name: `Start review for ${shown}` }).click()
+  await page.getByRole('button', { name: `Resolve ${shown}` }).click()
   await page.getByRole('dialog').getByLabel(/Replacement/).check()
   await page.getByRole('dialog').getByRole('button', { name: 'Approve replacement' }).click()
   await page.getByRole('button', { name: 'Resolved', exact: true }).click()
   // Both viewports run at once against one API, so pick this run's claim card.
-  const card = page.locator('article').filter({ has: page.getByRole('heading', { name: placed.number, exact: true }) })
+  const card = page.locator('article').filter({ has: page.getByRole('heading', { name: shown, exact: true }) })
   const replacement = card.locator('dd').getByRole('link', { name: /^ORD-/ })
   await expect(replacement).toBeVisible()
   await replacement.click()
-  await expect(page.getByText(`Free replacement for order ${placed.number}`)).toBeVisible()
+  await expect(page.getByText(`Free replacement for order ${shown}`)).toBeVisible()
 
   // 13. Planning reads live coverage, the calendar and the selling rules.
   await (await openNavTo(page, 'Planning')).click()
