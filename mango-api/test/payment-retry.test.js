@@ -134,3 +134,103 @@ test('a gift order: a failed attempt says so in the list and on its page; paid, 
   assert.equal(paid.paymentFailed, false)
   assert.equal(paid.paymentClosed, false)
 })
+
+// ---------------------------------------------------------------- the demo deploy's "Pay (test)" (DEMO_PAYMENTS)
+// The demo runs with NODE_ENV=production, so /v1/dev is not there: a pre-order (one booking, a bag or a gift for several
+// people), a gift order and a bulk order are paid through the customer's own demo-pay route, as POST /v1/orders/:id/demo-pay
+// pays an order. Off (no DEMO_PAYMENTS and no dev routes) each answers 404; someone else's answers 404.
+
+/** Runs `fn` as the demo deploy runs: dev routes off, DEMO_PAYMENTS on (or off with `demo: false`). */
+async function asDemo(fn, { demo = true } = {}) {
+  const saved = { ENABLE_DEV_ROUTES: env.ENABLE_DEV_ROUTES, DEMO_PAYMENTS: env.DEMO_PAYMENTS }
+  Object.assign(env, { ENABLE_DEV_ROUTES: false, DEMO_PAYMENTS: demo })
+  try { return await fn() } finally { Object.assign(env, saved) }
+}
+
+test('demo payments: a pre-order bag is paid with the test button and every line is booked; off, or not yours, is 404', async () => {
+  const week = await preWeek()
+  const { accessToken: token } = await customerToken(api)
+  const lines = (await api.post('/v1/preorders/quote', { lines: [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }, { sku: 'BAD-3', stage: 'RAW', qty: 1 }] })).body.lines
+    .map(({ sku, stage, qty, weekStart }) => ({ sku, stage, qty, weekStart }))
+  assert.ok(lines.every((l) => l.weekStart >= week), JSON.stringify(lines))
+  const g = await api.post('/v1/preorders/confirm', { lines, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru', nonRefundable: true },
+    { token, headers: { 'Idempotency-Key': newId('idem') } })
+  assert.equal(g.status, 201, JSON.stringify(g.body))
+  const pay = (outcome, t = token) => api.post(`/v1/preorders/${g.body.leadId}/demo-pay`, { outcome }, { token: t })
+  assert.equal((await asDemo(() => pay('captured'), { demo: false })).status, 404)
+  const other = await customerToken(api)
+  assert.equal((await asDemo(() => pay('captured', other.accessToken))).status, 404)
+  assert.equal((await api.post(`/v1/preorders/${g.body.leadId}/demo-pay`, { outcome: 'captured' })).status, 401)
+
+  const failed = await asDemo(() => pay('failed'))
+  assert.deepEqual([failed.status, failed.body.result], [200, 'ignored'], JSON.stringify(failed.body))
+  assert.equal((await api.get(`/v1/preorders/groups/${g.body.id}`, { token })).body.paymentFailed, true)
+  const paid = await asDemo(() => pay('captured'))
+  assert.deepEqual([paid.status, paid.body.result], [200, 'booked'], JSON.stringify(paid.body))
+  const view = (await api.get(`/v1/preorders/groups/${g.body.id}`, { token })).body
+  assert.equal(view.paymentStatus, 'SUCCEEDED')
+  assert.deepEqual(view.preorders.map((p) => p.status), ['BOOKED', 'BOOKED'])
+  const group = (await query('SELECT payment_method, payment_id FROM preorder_groups WHERE id = $1', [g.body.id])).rows[0]
+  assert.equal(group.payment_method, 'demo')
+  assert.match(group.payment_id, /^pay_demo_/)
+})
+
+test('demo payments: one pre-order is paid with the test button', async () => {
+  const week = await preWeek()
+  const { accessToken: token } = await customerToken(api)
+  const p = await api.post('/v1/preorders', { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1, weekStart: week, pincode: '560034', address: '12, 4th Cross, Koramangala, Bengaluru' },
+    { token, headers: { 'Idempotency-Key': newId('idem') } })
+  assert.equal(p.status, 201, JSON.stringify(p.body))
+  const r = await asDemo(() => api.post(`/v1/preorders/${p.body.id}/demo-pay`, { outcome: 'captured' }, { token }))
+  assert.deepEqual([r.status, r.body.result], [200, 'booked'], JSON.stringify(r.body))
+  assert.equal((await api.get(`/v1/preorders/${p.body.id}`, { token })).body.status, 'BOOKED')
+})
+
+test('demo payments: a gift order is paid with the test button and every delivery confirmed; off, or not yours, is 404', async () => {
+  env.MULTI_GIFT = true
+  await makeBatch({ age: 5, rating: 'SEMI_RIPE', lines: { 'ALP-3': 10 } })
+  const { accessToken: token } = await customerToken(api)
+  const recipients = [1, 2].map((i) => ({ name: `R ${i}`, phone: `900000000${i}`, address: `${i}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 }))
+  const q = await api.post('/v1/gifts/quote', { recipients }, { token })
+  assert.equal(q.status, 200, JSON.stringify(q.body))
+  const c = await api.post('/v1/gifts/confirm', { quoteId: q.body.quoteId }, { token, headers: { 'Idempotency-Key': newId('k') } })
+  assert.equal(c.status, 201, JSON.stringify(c.body))
+  const id = c.body.giftOrderId
+  const pay = (outcome, t = token) => api.post(`/v1/gifts/${id}/demo-pay`, { outcome }, { token: t })
+  assert.equal((await asDemo(() => pay('captured'), { demo: false })).status, 404)
+  const other = await customerToken(api)
+  assert.equal((await asDemo(() => pay('captured', other.accessToken))).status, 404)
+
+  assert.deepEqual((await asDemo(() => pay('failed'))).body, { result: 'attempt_failed' })
+  assert.equal((await api.get(`/v1/gifts/${id}`, { token })).body.paymentFailed, true)
+  const paid = await asDemo(() => pay('captured'))
+  assert.deepEqual([paid.status, paid.body.result], [200, 'confirmed'], JSON.stringify(paid.body))
+  assert.equal((await api.get(`/v1/gifts/${id}`, { token })).body.status, 'PAID')
+  const kids = (await query('SELECT status FROM orders WHERE gift_order_id = $1', [id])).rows
+  assert.deepEqual(kids.map((k) => k.status), ['CONFIRMED', 'CONFIRMED'])
+  assert.equal((await query('SELECT payment_method FROM gift_orders WHERE id = $1', [id])).rows[0].payment_method, 'demo')
+})
+
+test('demo payments: a bulk order is paid with the test button; off, or not yours, is 404', async () => {
+  const saved = env.BULK_ENQUIRIES
+  env.BULK_ENQUIRIES = true
+  try {
+    const { accessToken: token } = await customerToken(api)
+    const o = await api.post('/v1/me/bulk-orders', {
+      name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', address: '12, 4th Cross, Koramangala', pincode: '560034', lines: [{ sku: 'ALP-5', stage: 'SEMI_RIPE', boxes: 20 }],
+    }, { token, headers: { 'Idempotency-Key': newId('idem') } })
+    assert.equal(o.status, 201, JSON.stringify(o.body))
+    const pay = (outcome, t = token) => api.post(`/v1/me/bulk-orders/${o.body.id}/demo-pay`, { outcome }, { token: t })
+    assert.equal((await asDemo(() => pay('captured'), { demo: false })).status, 404)
+    const other = await customerToken(api)
+    assert.equal((await asDemo(() => pay('captured', other.accessToken))).status, 404)
+
+    assert.deepEqual((await asDemo(() => pay('failed'))).body, { result: 'ignored' })
+    const paid = await asDemo(() => pay('captured'))
+    assert.deepEqual([paid.status, paid.body.result], [200, 'paid'], JSON.stringify(paid.body))
+    const row = (await query('SELECT status, payment_status, payment_method FROM bulk_enquiries WHERE id = $1', [o.body.id])).rows[0]
+    assert.deepEqual([row.status, row.payment_status, row.payment_method], ['PAID', 'SUCCEEDED', 'demo'])
+  } finally {
+    env.BULK_ENQUIRIES = saved
+  }
+})

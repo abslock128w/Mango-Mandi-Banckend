@@ -22,7 +22,7 @@
 
   function open(order, rating = null) {
     const r = rating || {}
-    dialog.innerHTML = `<div class="sheet-head"><div><span class="sheet-kicker">Order ${esc(orderNo(order.number))}${order.deliveredAt ? ` · delivered ${esc(fmtDate(String(order.deliveredAt).slice(0, 10)))}` : ''}</span><h2>How were your mangoes?</h2></div><button class="icon-button" data-review-skip aria-label="Not now">${icon('close')}</button></div>
+    dialog.innerHTML = `<div class="sheet-head"><div><span class="sheet-kicker">Order ${esc(orderNo(order.number))}${order.deliveredAt ? ` · delivered ${esc(fmtDate(istDateOf(order.deliveredAt)))}` : ''}</span><h2>How were your mangoes?</h2></div><button class="icon-button" data-review-skip aria-label="Not now">${icon('close')}</button></div>
       <form id="review-form" novalidate>
         ${ASPECTS.map((a) => stars(a, r[a[0]] || 0)).join('')}
         <label class="field wide">Anything you’d like to tell us? (optional)<textarea name="comment" rows="3" maxlength="500" placeholder="What was great, or what we should fix">${esc(r.comment || '')}</textarea></label>

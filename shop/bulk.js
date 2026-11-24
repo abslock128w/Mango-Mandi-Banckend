@@ -504,7 +504,7 @@ async function bulkOrderView(id, seq = ++sheetSeq, polls = 0) {
       <dl class="bulk-receipt-facts">
         <div><dt>Order</dt><dd>${esc(orderNo(x.number))}</dd></div>
         <div><dt>Placed</dt><dd>${when(x.createdAt)}</dd></div>
-        ${rc ? `<div><dt>Paid</dt><dd>${when(rc.paidAt)}</dd></div><div><dt>Paid by</dt><dd>${esc([rc.method === 'dev' ? 'test payment' : rc.method, rc.card, rc.upiRef ? `UPI ref ${rc.upiRef}` : ''].filter(Boolean).join(' · ') || 'online')}</dd></div><div><dt>Payment ID</dt><dd class="no-wrap">${esc(rc.paymentId || '')}</dd></div>` : ''}
+        ${rc ? `<div><dt>Paid</dt><dd>${when(rc.paidAt)}</dd></div><div><dt>Paid by</dt><dd>${esc([rc.method === 'dev' || rc.method === 'demo' ? 'test payment' : rc.method, rc.card, rc.upiRef ? `UPI ref ${rc.upiRef}` : ''].filter(Boolean).join(' · ') || 'online')}</dd></div><div><dt>Payment ID</dt><dd class="no-wrap">${esc(rc.paymentId || '')}</dd></div>` : ''}
         <div><dt>Deliver to</dt><dd>${esc(o.address || '')}${o.pincode ? `, ${esc(o.pincode)}` : ''} · ${esc(x.city || '')}</dd></div>
       </dl>
       <ul class="bulk-review-lines">${lines}</ul>
@@ -524,7 +524,7 @@ async function bulkOrderView(id, seq = ++sheetSeq, polls = 0) {
 async function bulkTestPay(id, outcome) {
   $$('[data-bulk-order-pay-test]').forEach((b) => { b.disabled = true })
   try {
-    const r = await MM.api('/' + ['dev', 'pay-bulk'].join('/'), { method: 'POST', body: { bulkOrderId: id, outcome } })
+    const r = await MM.demoPayBulk(id, outcome)
     if (outcome === 'failed' || (r && r.result === 'ignored')) toast('Payment didn’t go through. Please try again.')
   } catch (e) { toast(e.message) }
   bulkOrderView(id, sheetSeq, 1)

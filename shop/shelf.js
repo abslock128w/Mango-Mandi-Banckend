@@ -459,7 +459,7 @@ const reviewPhoto = (url, w) => `${(window.MM_CONFIG || {}).apiUrl || ''}${url}?
 function reviewItemHTML(r) {
   const name = esc(reviewer(r.displayName)), when = reviewDate(r.createdAt)
   const photos = (r.photos || []).slice(0, 4).map((ph) => `<a href="${esc(reviewPhoto(ph.url, 960))}" target="_blank" rel="noopener"><img src="${esc(reviewPhoto(ph.url, 160))}" alt="Photo from ${name}" loading="lazy" width="64" height="64"></a>`).join('')
-  return `<li class="review-item"><div class="review-head">${starsHTML(r.rating, `${r.rating} out of 5 stars`)}<strong>${name}</strong>${when ? `<time datetime="${esc(String(r.createdAt).slice(0, 10))}">${esc(when)}</time>` : ''}</div>${r.comment ? `<p>${esc(r.comment)}</p>` : ''}${photos ? `<div class="review-photos">${photos}</div>` : ''}${r.reply && r.reply.body ? `<p class="review-reply"><strong>VMR Mangoes:</strong> ${esc(r.reply.body)}</p>` : ''}</li>`
+  return `<li class="review-item"><div class="review-head">${starsHTML(r.rating, `${r.rating} out of 5 stars`)}<strong>${name}</strong>${when ? `<time datetime="${esc(istDateOf(r.createdAt))}">${esc(when)}</time>` : ''}</div>${r.comment ? `<p>${esc(r.comment)}</p>` : ''}${photos ? `<div class="review-photos">${photos}</div>` : ''}${r.reply && r.reply.body ? `<p class="review-reply"><strong>VMR Mangoes:</strong> ${esc(r.reply.body)}</p>` : ''}</li>`
 }
 
 function reviewsHTML(name) {

@@ -15,7 +15,7 @@ globalThis.MM_ROUTES = [
   { path: '/gifts', title: 'Gifting · VMR Mangoes', description: 'Send a box of naturally grown mangoes as a gift, to one person or to many, each delivered to their own address.' },
   { path: '/partner', title: 'Grow with us · VMR Mangoes', description: 'Distributors, corporate buyers, product, marketing and logistics partners: grow with VMR Mangoes. See the ways to partner with us and apply online.' },
   { path: '/legacy', title: 'Our legacy · VMR Mangoes', description: '50 years of growing mangoes: the story of VMR Mangoes and its orchards, in a short film.' },
-  { path: '/help', title: 'Help · VMR Mangoes', description: 'Help with an order: complaints, damaged boxes, cancelling and refunds. Send us a help request and we reply on WhatsApp.' },
+  { path: '/help', title: 'Help · VMR Mangoes', description: 'Help with an order: complaints, damaged boxes, cancelling and refunds, and how to reach us.' },
   { path: '/contact', title: 'Contact us · VMR Mangoes', description: 'Questions about mangoes, an order or a delivery? Here is how to reach VMR Mangoes.' },
   { path: '/farm-experience', title: 'Farm Experience · VMR Mangoes', description: 'Visit our mango farm in the season, pick your own mangoes with our team and stay at the farmhouse at no charge.' },
   { path: '/privacy', title: 'Privacy policy · VMR Mangoes', description: 'How VMR Mangoes collects, uses and protects your details when you shop with us.' },

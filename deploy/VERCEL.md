@@ -191,6 +191,21 @@ The shop calls the API from the browser with its sign-in cookie, so the API's
 | `VITE_SENTRY_ENVIRONMENT` | leave unset (`production`) | leave unset (`preview`) | the environment tag; Vercel's own environment when unset. Reports are also tagged with the git commit being built (`VERCEL_GIT_COMMIT_SHA`, which Vercel provides while "Automatically expose System Environment Variables" is on, the default) |
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | optional: an organization auth token (Sentry → Settings → Developer Settings → Organization Tokens; mark it **Sensitive** in Vercel), the organization slug, and `mandimangoes-shop` or `mandimangoes-panel` | the same, or leave unset | readable stack traces. With all three, the build uploads its source maps to that project and deletes them before the site is served. Unset, nothing changes. A failed upload only warns; the deploy goes on |
 
+**The panel reaching the API on its own address (the demo).** The `mandi-admin` project has a
+project-level route (Vercel dashboard → **Routes**, id `6541a6fa-b06e-4ccf-9d4a-24a6a31f3314`,
+"API on this address") that forwards `^/admin/v1/(.*)$` to
+`https://mandimangoes-demo-api.vercel.app/admin/v1/$1`. It applies to every deployment of the
+project, whatever `vercel.json` says, so the panel talks to whichever build that alias points at.
+After every API deploy, move **both** aliases to the new build:
+
+```
+vercel alias set <deployment-url> mandi-api-staging.vercel.app
+vercel alias set <deployment-url> mandimangoes-demo-api.vercel.app
+```
+
+Move only the first and the shop gets the new API while the panel keeps talking to the old one.
+This happened on 24-25 Nov 2026: the panel was still on a 9 Nov build.
+
 ### Check before the first real deploy
 
 From a terminal with the production values in `mango-api/.env`:

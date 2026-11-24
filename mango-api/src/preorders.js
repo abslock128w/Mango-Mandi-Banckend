@@ -193,15 +193,58 @@ const roomOf = (weekStart, variety, r, rules) => {
  * bookings left). `own` is the week's own expected kg for that variety (null: daily x 7). A week lowered below what it
  * holds (the harvest came in short) has `over` > 0 and no room. `rules`: the live rules, or a manager's preview.
  */
-export async function varietyRoom(c, weeks = null, varieties = null, rules = getConfig()) {
+export async function varietyRoom(c, weeks = null, varieties = null, rules = getConfig(), { lapsed = false } = {}) {
   weeks ??= await deliveryWeeks(c)
   const { rows } = await c.query(
     'SELECT week_start, variety, reserved_kg, planned_kg, limit_kg FROM preorder_variety_week_kg WHERE week_start = ANY($1::date[])',
     [weeks],
   )
-  const by = new Map(rows.map((r) => [`${r.week_start}|${r.variety}`, r]))
+  // `lapsed`: what a customer is shown (openWeeks, quotePreorderBag) counts the week as a booking finds it, without the
+  // unpaid holds that ran out and that the booking's own lazy sweep gives back first (lapsedHoldKg). The counters
+  // themselves are unchanged: the plan, the panel and the checks read them as they are.
+  const gone = lapsed ? await lapsedHoldKg(c, weeks) : null
+  const less = (r, k) => {
+    const x = gone?.get(k)
+    if (!x) return r
+    return { ...r, reserved_kg: Math.max(Number(r.reserved_kg ?? 0) - x.reserved, 0), planned_kg: Math.max(Number(r.planned_kg ?? 0) - x.planned, 0) }
+  }
+  const by = new Map(rows.map((r) => [`${r.week_start}|${r.variety}`, less(r, `${r.week_start}|${r.variety}`)]))
   const names = varieties ?? [...new Set([...planVarieties(), ...rows.map((r) => r.variety)])]
   return new Map(names.map((v) => [v, weeks.map((w) => roomOf(w, v, by.get(`${w}|${v}`), rules))]))
+}
+
+/**
+ * The kg in `weeks` held by unpaid holds that ran out and that a booking's lazy sweep (assignWeek: expireWeekHolds for
+ * pre-orders, sweepExpiredPlanned for regular orders booked against the plan) would give back now, by the same rule
+ * (PAY-B5: left alone until Razorpay was asked about it after its hold, or for 2 minutes after the hold). Read only:
+ * Map `week|variety` -> { reserved, planned }. Without it a quote counted an expired hold that the confirm's sweep then
+ * freed, so confirm found an earlier week, refused with 409 PREORDER_WEEK_CHANGED and rolled the sweep back with it:
+ * the next quote said the same later week again, for ever (until the maintenance sweep ran).
+ */
+async function lapsedHoldKg(c, weeks, at = now()) {
+  const grace = new Date(at.getTime() - LAZY_SWEEP_GATEWAY_GRACE_MS)
+  const out = new Map()
+  const add = (k, field, kg) => {
+    const x = out.get(k) ?? { reserved: 0, planned: 0 }
+    x[field] = roundKg(x[field] + kg)
+    out.set(k, x)
+  }
+  const { rows: pre } = await c.query(
+    `SELECT week_start, variety, sku, qty, load_kg FROM preorders
+      WHERE status = 'PAYMENT_PENDING' AND week_start = ANY($1::date[]) AND hold_expires_at < $2
+        AND (reconcile_checked_at >= hold_expires_at OR hold_expires_at < $3)`,
+    [weeks, at, grace],
+  )
+  for (const p of pre) add(`${p.week_start}|${bookingVariety(p)}`, 'reserved', weekLoad(p))
+  const { rows: planned } = await c.query(
+    `SELECT o.plan_week AS week_start, i.plan_variety AS variety, SUM(i.plan_kg) AS kg FROM orders o JOIN order_items i ON i.order_id = o.id
+      WHERE o.planned AND o.status = 'PAYMENT_PENDING' AND o.plan_week = ANY($1::date[]) AND o.hold_expires_at < $2 AND i.plan_kg IS NOT NULL
+        AND ((o.razorpay_order_id IS NULL AND o.payment_link_id IS NULL AND o.gift_order_id IS NULL) OR o.reconcile_checked_at >= o.hold_expires_at OR o.hold_expires_at < $3)
+      GROUP BY 1, 2`,
+    [weeks, at, grace],
+  )
+  for (const r of planned) add(`${r.week_start}|${r.variety}`, 'planned', roundKg(r.kg))
+  return out
 }
 
 /** One variety's weeks with their limit and what is left, in kg, in order (varietyRoom). */
@@ -354,7 +397,8 @@ async function lock(c, id) {
  * one entry per box on sale and week, `capacity` the week's limit and `remaining` what is left of it, in kg, for
  * the box's VARIETY (all its boxes together, migration 078). For each box, from the first week to the earliest week
  * with room for one box of it, so an older shop that picks the first week with room picks the week the API gives one
- * box; when no week has room for it, only the first week (the shop then offers the waitlist). Also returns:
+ * box; when no week has room for it, only the first week (the shop then offers the waitlist). Room is counted
+ * without the unpaid holds that ran out (lapsedHoldKg), as a booking finds it after its own sweep. Also returns:
  *   rooms  Map variety -> its weeks (varietyRoom); room: every variety of a week added up (weekTotals), or with `sku`
  *          that box's variety alone;
  *   boxes  [{ sku, variety, next }]: the earliest week with room for one box of each box (null: none to the season's end);
@@ -363,7 +407,7 @@ async function lock(c, id) {
 export async function openWeeks(c, sku = null) {
   const weeksList = await deliveryWeeks(c)
   const boxes = sku ? [sellable(sku)].filter(Boolean) : shopProducts()
-  const rooms = await varietyRoom(c, weeksList, sku ? [...new Set(boxes.map((p) => p.variety))] : null)
+  const rooms = await varietyRoom(c, weeksList, sku ? [...new Set(boxes.map((p) => p.variety))] : null, undefined, { lapsed: true })
   const perBox = boxes.map((p) => {
     const room = rooms.get(p.variety) ?? []
     return { sku: p.sku, variety: p.variety, room, next: weekFor(room, weekLoad({ sku: p.sku, qty: 1 })) }
@@ -1228,8 +1272,9 @@ async function bookGroup(c, { kind, customerId, name, phone, entries }, actor) {
 /**
  * What a pre-order bag would book now, without booking it (POST /v1/preorders/quote): each line's price and the
  * week it would get, found as bookPreorderBag books them: lines in order, each the earliest week with room for its
- * kg in its variety, counting the kg of the lines before it. Nothing is reserved, so a week can still fill before
- * Pay; confirm then answers 409 with the line's new week. A line no week can take says why: `tooBig` (heavier than
+ * kg in its variety, counting the kg of the lines before it, and without the unpaid holds that ran out (lapsedHoldKg:
+ * confirm's own sweep frees them, so the quote shows the week confirm will give). Nothing is reserved, so a week can
+ * still fill before Pay; confirm then answers 409 with the line's new week. A line no week can take says why: `tooBig` (heavier than
  * any whole week of its variety) or `full` (every week to the season's end is full); the bag can't be paid then.
  * Throws INVALID_SKU (400, extra.row) for a box not on sale.
  */
@@ -1240,7 +1285,7 @@ export async function quotePreorderBag(c, lines) {
     if (!p) throw new HttpError(400, 'INVALID_SKU', `${lineName(i, l.sku)}: this box is not on sale`, { row: i + 1, sku: l.sku })
     return p
   })
-  const rooms = weeks.length ? await varietyRoom(c, weeks, [...new Set(products.map((p) => p.variety))]) : new Map()
+  const rooms = weeks.length ? await varietyRoom(c, weeks, [...new Set(products.map((p) => p.variety))], undefined, { lapsed: true }) : new Map()
   const left = new Map([...rooms].map(([v, room]) => [v, room.map((w) => ({ ...w }))]))
   const out = lines.map((l, i) => {
     const p = products[i]

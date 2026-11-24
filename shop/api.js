@@ -115,6 +115,11 @@ window.MM={
   verifyPayment:(id,reply)=>auth(`/orders/${enc(id)}/verify-payment`,'POST',{razorpay_payment_id:reply.razorpay_payment_id,razorpay_order_id:reply.razorpay_order_id,razorpay_signature:reply.razorpay_signature}),
   paymentStatus:id=>auth(`/orders/${enc(id)}/payment-status`),
   demoPay:(id,outcome)=>auth(`/orders/${enc(id)}/demo-pay`,'POST',{outcome}),
+  // The same test payment for a pre-order (any booking of a bag or a gift for several people pays the whole group), a gift
+  // order and a bulk order: the API answers 404 unless DEMO_PAYMENTS is on (or it runs on a developer's machine).
+  demoPayPreorder:(id,outcome)=>auth(`/preorders/${enc(id)}/demo-pay`,'POST',{outcome}),
+  demoPayGift:(id,outcome)=>auth(`/gifts/${enc(id)}/demo-pay`,'POST',{outcome}),
+  demoPayBulk:(id,outcome)=>auth(`/me/bulk-orders/${enc(id)}/demo-pay`,'POST',{outcome}),
   orders:()=>auth('/orders'),
   rateOrder:(id,body)=>auth(`/orders/${enc(id)}/rating`,'PUT',body),
   order:id=>auth(`/orders/${enc(id)}`),

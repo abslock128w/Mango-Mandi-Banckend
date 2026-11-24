@@ -11,6 +11,7 @@
 //   POST /gifts/:id/cancel                      the whole order, while nothing is packed
 //   POST /gifts/:id/recipients/:orderId/cancel  one recipient, before packing (refunded its own amount)
 //   GET  /gifts/:id/bill                        the one bill for the whole order (BILLS_ENABLED)
+//   POST /gifts/:id/demo-pay                    the test payment (DEMO_PAYMENTS, or a developer's machine; else 404)
 import express from 'express'
 import { z } from 'zod'
 import { billFileName, billView } from './bills.js'
@@ -19,7 +20,7 @@ import { now } from './clock.js'
 import { getConfig } from './config.js'
 import { query, tx } from './db.js'
 import { checkCapacity, slotView } from './delivery.js'
-import { env } from './env.js'
+import { devRoutesOn, env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError } from './errors.js'
 import { cancelGiftOrder, cancelGiftRecipient, createGiftOrder, giftChildren, GIFT_CANCELLABLE, giftStatus, perRecipientMax, processGiftPayment } from './gifts.js'
 import { newId } from './ids.js'
@@ -381,6 +382,23 @@ customerGifts.post(
     const refund = await tx((c) => cancelGiftRecipient(c, g.id, req.params.orderId, req.customer.id, req.actor))
     if (refund) await sendDueRefunds({ orderId: req.params.orderId })
     res.status(204).end()
+  }),
+)
+
+/**
+ * The checkout's "Pay (test)" and "Fail payment (test)" for the buyer's own gift order while no payment service is set
+ * up (DEMO_PAYMENTS on a demo deploy, or a developer's machine), as the Razorpay webhook applies a payment: every
+ * delivery is confirmed (or the attempt marked failed) and its messages queued (processGiftPayment). 404 otherwise.
+ */
+customerGifts.post(
+  '/gifts/:id/demo-pay',
+  asyncHandler(async (req, res) => {
+    if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
+    const g = await ownGift({ query }, req)
+    const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
+    const r = await tx((c) => processGiftPayment(c, { giftOrderId: g.id, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, amount: g.total, method: 'demo' }))
+    await sendDueRefunds(refundsFor(r))
+    res.json({ result: r.result })
   }),
 )
 

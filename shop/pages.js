@@ -886,7 +886,7 @@ function bulkItem(x) {
   const q = x.quote, what = `${x.quantityKg} kg${x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''}`
   const open = x.status === 'QUOTED' && q
   return `<li class="bq-item${x.unread ? ' is-new' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}">
-    <div class="bq-head"><div><strong>${esc(orderNo(x.number))}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : x.kind === 'FARM_VISIT' ? 'Farm visit enquiry' : 'Enquiry'} · ${x.kind === 'FARM_VISIT' ? 'sent ' : ''}${fmtDate(String(x.createdAt).slice(0, 10))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.kind === 'FARM_VISIT' ? (FARM_VISIT_STATUS[x.status] || esc(x.status)) : x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>
+    <div class="bq-head"><div><strong>${esc(orderNo(x.number))}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : x.kind === 'FARM_VISIT' ? 'Farm visit enquiry' : 'Enquiry'} · ${x.kind === 'FARM_VISIT' ? 'sent ' : ''}${fmtDate(istDateOf(x.createdAt))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.kind === 'FARM_VISIT' ? (FARM_VISIT_STATUS[x.status] || esc(x.status)) : x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>
     ${x.farmVisit ? `<p class="bq-done">${icon('leaf')}<span>${x.farmVisit.variety ? esc(x.farmVisit.variety) : 'Mango not chosen yet'} · ${x.farmVisit.people} ${x.farmVisit.people === 1 ? 'person' : 'people'} · ${x.farmVisit.plannedDate ? `visit on <strong>${fmtDate(x.farmVisit.plannedDate)}</strong>` : x.farmVisit.preferredDate ? `you asked for ${fmtDate(x.farmVisit.preferredDate)}` : 'dates flexible'}${x.status === 'CLOSED' && x.farmVisit.closeReason ? ` · closed: ${esc(x.farmVisit.closeReason)}` : ''}</span></p>` : ''}
     ${x.order ? `<p class="bq-done"><span>${x.order.amountPaise != null ? `${paise(x.order.amountPaise)} · ` : ''}${x.order.refund ? (x.order.refund.refundedAt ? 'refunded in full' : 'refund on its way') : x.status === 'PAYMENT_PENDING' ? 'not paid yet' : x.status === 'CANCELLED' ? 'cancelled' : 'paid in full'}</span> <a class="text-button inline-link" href="/bulk/orders/${encodeURIComponent(x.id)}" data-route>View order ${icon('arrow')}</a></p>` : ''}
     ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(orderNo(x.number))}">
@@ -1057,10 +1057,17 @@ function legalView(key) {
 
 const legalSec = (title, ...paras) => `<section class="page-card help-card legal-card"><h2 class="flow-head">${title}</h2>${paras.filter(Boolean).map((p) => p.startsWith('<') ? p : `<p>${p}</p>`).join('')}</section>`
 const legalOthers = (key) => 'Our other policies: ' + Object.entries(LEGAL_PAGES).filter(([k]) => k !== key).map(([k, t]) => `<a href="/${k}" data-route>${t}</a>`).join(', ') + '.'
-/** How to reach us about this page, as a sentence: the email when there is one, the help form, and WhatsApp when there is one. */
+/** How to reach us about this page, as a sentence: the email and phone when set, the help form only while the help centre
+ *  is on (the policy's care.helpCentre), WhatsApp when set; with none of them, our address, else the Contact page. */
 function legalAsk() {
-  const b = bizInfo()
-  const ways = [b.email && `email <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`, `send us a request from <a href="/help" data-route>Help</a>`, b.wa && `message us on <a href="https://wa.me/${b.wa}" target="_blank" rel="noopener">WhatsApp</a>`].filter(Boolean)
+  const b = bizInfo(), p = legalPol(), form = Boolean(p && p.care && p.care.helpCentre)
+  const ways = [
+    b.email && `email <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`,
+    b.phone && `call <a href="tel:${esc(b.phone.replace(/[^\d+]/g, ''))}">${esc(b.phone)}</a>`,
+    form && `send us a request from <a href="/help" data-route>Help</a>`,
+    b.wa && `message us on <a href="https://wa.me/${b.wa}" target="_blank" rel="noopener">WhatsApp</a>`,
+  ].filter(Boolean)
+  if (!ways.length) return b.address ? `Write to us at ${esc(b.name)}, ${esc(b.address)}` : 'See <a href="/contact" data-route>Contact us</a>'
   const s = ways.length > 2 ? `${ways.slice(0, -1).join(', ')} or ${ways[ways.length - 1]}` : ways.join(' or ')
   return s[0].toUpperCase() + s.slice(1)
 }

@@ -195,6 +195,41 @@ describe('the pre-order bag', () => {
     assert.deepEqual(await preorderCapacityDrift({ query }), [])
   })
 
+  test('a hold that ran out is not counted by the quote or the weeks, so confirm books the week they showed, with no 409', async () => {
+    const week = setup()
+    await setLimit(6)
+    // Another customer's unpaid Alphonso fills the first week, and nobody pays it.
+    const a = await customerToken(api)
+    const held1 = await api.post(
+      '/v1/preorders',
+      { sku: 'ALP-3', stage: 'RAW', qty: 2, weekStart: week, pincode: '560034', address: ADDRESS },
+      { token: a.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
+    )
+    assert.deepEqual([held1.status, held1.body.weekStart], [201, week], JSON.stringify(held1.body))
+    const bag = [{ sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 }]
+    const nextWeekOf = async () => (await api.get('/v1/preorders/weeks?sku=ALP-3')).body.boxes[0].nextWeek?.weekStart ?? null
+    // A minute after its hold (the 2 minutes a late webhook gets): booking would leave it alone, and so do the quote and the weeks.
+    setNow(new Date(now().getTime() + 11 * 60_000).toISOString())
+    assert.equal((await withWeeks(bag))[0].weekStart, addDays(week, 7))
+    assert.equal(await nextWeekOf(), addDays(week, 7))
+    // Past that: the quote and the weeks show the first week again, before anything swept it.
+    setNow(new Date(now().getTime() + 2 * 60_000).toISOString())
+    const lines = await withWeeks(bag)
+    assert.equal(lines[0].weekStart, week)
+    assert.equal(await nextWeekOf(), week)
+    assert.equal(await held(week, 'Alphonso'), 6, 'the quote only reads: the expired hold is still on the counter')
+    // Confirm agrees: its own sweep frees the expired hold, and the bag books the week it was shown.
+    const b = await customerToken(api)
+    const r = await confirm(b.accessToken, lines)
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    assert.equal(r.body.preorders[0].weekStart, week)
+    assert.equal((await query('SELECT status FROM preorders WHERE id = $1', [held1.body.id])).rows[0].status, 'CANCELLED')
+    assert.equal(await held(week, 'Alphonso'), 6)
+    assert.deepEqual(await preorderCapacityDrift({ query }), [])
+    // The first week is full again (a live hold): the next quote says the week after.
+    assert.equal((await withWeeks(bag))[0].weekStart, addDays(week, 7))
+  })
+
   test('the maintenance sweep releases the whole bag once, and a payment after it still books every line', async () => {
     const week = setup()
     await setLimit(6)

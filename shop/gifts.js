@@ -1050,9 +1050,9 @@ async function giftRazorpay(p = gift.pay, after) {
   rz.open()
 }
 
-/** Test mode only: a failed payment attempt (the API's dev pay-gift route with outcome failed, as Razorpay's payment.failed would). */
+/** Test mode only: a failed payment attempt (the API's gift demo-pay route with outcome failed, as Razorpay's payment.failed would). */
 async function giftTestFail(id, after) {
-  try { await MM.api('/' + ['dev', 'pay-gift'].join('/'), { method: 'POST', body: { giftOrderId: id, outcome: 'failed' } }) } catch (e) { toast(e.message); return }
+  try { await MM.demoPayGift(id, 'failed') } catch (e) { toast(e.message); return }
   if (after) { giftOrderView(id, true); return }
   if (gift.pay) gift.pay.failed = true
   gift.busy = false
@@ -1060,11 +1060,11 @@ async function giftTestFail(id, after) {
   renderGiftSend()
 }
 
-/** The test payment (development only: the API's dev pay-gift route, as the Razorpay webhook would). */
+/** The test payment (DEMO_PAYMENTS or a developer's machine: the API's gift demo-pay route, as the Razorpay webhook would). */
 async function giftTestPay(id, after) {
   gift.busy = true
   if (!after) renderGiftSend()
-  try { await MM.api('/' + ['dev', 'pay-gift'].join('/'), { method: 'POST', body: { giftOrderId: id, outcome: 'captured' } }) } catch (e) { gift.busy = false; gift.error = e.message; if (!after) renderGiftSend(); else toast(e.message); return }
+  try { await MM.demoPayGift(id, 'captured') } catch (e) { gift.busy = false; gift.error = e.message; if (!after) renderGiftSend(); else toast(e.message); return }
   await giftSettle(id)
 }
 
@@ -1196,6 +1196,7 @@ async function giftGroupBook() {
   }
   gift.busy = false
   gift.key = null
+  gift.error = ''
   gift.group = g
   for (const p of g.preorders || []) rememberGift(p.id)
   gift.step = 'pre-pay'
@@ -1219,7 +1220,7 @@ function giftPrePayHTML() {
     <button type="button" class="text-button" data-gift-pre-cancel ${gift.busy ? 'disabled' : ''}>Cancel this gift pre-order</button></div>`
 }
 
-/** The test payment (development only: the API's dev pay-preorder route, as the Razorpay webhook would): any booking of
+/** The test payment (DEMO_PAYMENTS or a developer's machine: the API's pre-order demo-pay route, as the Razorpay webhook would): any booking of
  *  the group pays the whole group. */
 async function giftPreTestPay() {
   const g = gift.group
@@ -1227,7 +1228,7 @@ async function giftPreTestPay() {
   gift.busy = true
   gift.error = ''
   renderGiftSend()
-  try { await MM.api('/' + ['dev', 'pay-preorder'].join('/'), { method: 'POST', body: { preorderId: g.leadId, outcome: 'captured' } }) } catch (e) { gift.busy = false; gift.error = e.message; renderGiftSend(); return }
+  try { await MM.demoPayPreorder(g.leadId, 'captured') } catch (e) { gift.busy = false; gift.error = e.message; renderGiftSend(); return }
   let paid = null
   for (let i = 0; i < 10; i++) {
     try { paid = await MM.preorderGroup(g.id) } catch { paid = null }
@@ -1250,12 +1251,14 @@ async function giftPreTestPay() {
   $('#gift-send')?.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
 }
 
-/** Test mode only: a failed attempt on the group's one payment (dev pay-preorder, outcome failed); the step then says so. */
+/** Test mode only: a failed attempt on the group's one payment (pre-order demo-pay, outcome failed); the step then says so. */
 async function giftPreTestFail() {
   const g = gift.group
   if (!g || gift.busy) return
-  try { await MM.api('/' + ['dev', 'pay-preorder'].join('/'), { method: 'POST', body: { preorderId: g.leadId, outcome: 'failed' } }) } catch (e) { toast(e.message); return }
+  try { await MM.demoPayPreorder(g.leadId, 'failed') } catch (e) { toast(e.message); return }
   try { gift.group = await MM.preorderGroup(g.id) } catch {}
+  // The step now says the attempt failed: an older error (one from before this attempt) would only confuse it.
+  gift.error = ''
   if (giftPage()) renderGiftSend()
 }
 
@@ -1266,6 +1269,9 @@ async function giftPreCancel(b) {
   try { await MM.cancelPreorder(g.leadId); toast(`Gift pre-order ${giftNo(g.number)} cancelled`) } catch (e) { toast(e.message); b.disabled = false; return }
   gift.group = null
   gift.step = 'form'
+  // The booking is gone: an error about paying for it (a failed or refused test payment) no longer applies.
+  gift.error = ''
+  gift.busy = false
   saveDraft()
   renderGiftSend()
 }

@@ -3626,6 +3626,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/gifts/:id/demo-pay": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "POST /v1/gifts/:id/recipients/:orderId/cancel": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -3690,6 +3699,15 @@
   "MANAGER": "signin"
  },
  "POST /v1/me/bulk-orders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/me/bulk-orders/:id/demo-pay": {
   "anonymous": "signin",
   "customer": "notfound",
   "RIDER": "signin",
@@ -3888,6 +3906,15 @@
   "MANAGER": "signin"
  },
  "POST /v1/preorders/:id/cancel": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
+ "POST /v1/preorders/:id/demo-pay": {
   "anonymous": "signin",
   "customer": "signin",
   "RIDER": "signin",

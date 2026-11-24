@@ -12,6 +12,7 @@
 //                                            (Idempotency-Key required): 201 { ...the order as GET shows it }
 //   POST /me/bulk-orders/:id/pay             the payment link again, or "Pay again" after the time to pay ran out
 //   POST /me/bulk-orders/:id/cancel          cancel: unpaid, or paid within 4 hours of paying (refunded in full)
+//   POST /me/bulk-orders/:id/demo-pay        the test payment (DEMO_PAYMENTS, or a developer's machine; else 404)
 //   GET  /me/bulk-enquiries[/:id]            the caller's own, enquiries and orders (sent signed in, or from their number)
 //   POST /me/bulk-enquiries/:id/seen         they opened the quote
 //   POST /me/bulk-enquiries/:id/respond      accept or decline it
@@ -25,6 +26,8 @@ import {
 } from './bulk-enquiries.js'
 import { createBulkOrder, customerCancelBulk, dropLink, ensureBulkPaymentLink, processBulkPayment, refundBulkOrder, reopenBulkOrder } from './bulk-orders.js'
 import { bulkPriceList } from './bulk-price.js'
+import { now } from './clock.js'
+import { devRoutesOn, env } from './env.js'
 import { newId } from './ids.js'
 import { refundsFor, sendDueRefunds } from './payments.js'
 import { query, tx } from './db.js'
@@ -216,6 +219,27 @@ bulkEnquiryMe.post(
     if (r.refund) await refundBulkOrder(req.params.id).catch((err) => logger.error({ err, bulkOrderId: req.params.id }, 'bulk refund failed; maintenance will retry'))
     else if (r.link) await dropLink(r.link)
     res.json(await ownEnquiry({ query }, req.customer.id, req.params.id))
+  }),
+)
+
+/**
+ * The order page's "Pay (test)" and "Fail payment (test)" for the caller's own bulk order while no payment service is
+ * set up (DEMO_PAYMENTS on a demo deploy, or a developer's machine), as the Razorpay webhook applies a payment: PAID and
+ * "bulk order received and paid" queued (processBulkPayment). 404 otherwise.
+ */
+bulkEnquiryMe.post(
+  '/me/bulk-orders/:id/demo-pay',
+  asyncHandler(async (req, res) => {
+    if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
+    await ownEnquiry({ query }, req.customer.id, req.params.id)
+    const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
+    const bulkOrderId = req.params.id
+    const r = await tx((c) => processBulkPayment(c, {
+      bulkOrderId, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo',
+      details: b.outcome === 'captured' ? { gateway: 'Test mode', method: 'demo', paidAt: now().toISOString() } : null,
+    }))
+    await sendDueRefunds(refundsFor({ result: r, bulkOrderId }))
+    res.json({ result: r })
   }),
 )
 

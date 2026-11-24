@@ -2133,6 +2133,26 @@ router.post(
   }),
 )
 
+/**
+ * The same test payment for the caller's own pre-order: one booking, or any booking of a pre-order bag or a gift
+ * pre-order for several people (the group's one payment, as its payment link would: every line is booked and the
+ * customer's messages are queued, processPreorderPayment). Gift orders and bulk orders have theirs in gift-routes.js
+ * and bulk-enquiry-routes.js. 404 unless DEMO_PAYMENTS (or a developer's machine).
+ */
+router.post(
+  '/preorders/:id/demo-pay',
+  asyncHandler(async (req, res) => {
+    if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
+    const { rows } = await query('SELECT id FROM preorders WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
+    if (!rows.length) throw notFound('Preorder not found')
+    const b = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
+    const preorderId = rows[0].id
+    const r = await tx((c) => processPreorderPayment(c, { preorderId, outcome: b.outcome, paymentId: `pay_demo_${newId('p').slice(2)}`, method: 'demo' }))
+    await sendDueRefunds(refundsFor({ result: r, preorderId }))
+    res.json({ result: r })
+  }),
+)
+
 export const devRouter = express.Router()
 
 devRouter.post(

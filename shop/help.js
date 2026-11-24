@@ -1,10 +1,11 @@
 /* Contact us (/contact) and Help (/help).
    Contact: the ways to reach the shop that are configured (WhatsApp, and a phone number and email when the build sets
-   them; with none of them, the help request), our address with the FSSAI and GSTIN lines when the build sets them
+   them; with none of them, the help request while the help centre is on, else just the address), our address with the FSSAI and GSTIN lines when the build sets them
    (pages.js bizInfo()), and where bulk buyers and partners should go.
    Help: complaints and refunds. A signed-in customer sends a help request (the API's help centre: a topic, optionally
    one of their orders, and a message; the shop answers on the panel's Help desk and the customer is told on WhatsApp).
-   When the help centre is off, or nobody is signed in, the page says how to reach us instead. It also states the
+   When the help centre is off, or nobody is signed in, the page says how to reach us instead: only the ways that are
+   set (WhatsApp, phone, email), else our address, else Your orders; it never mentions a form that isn't there. It also states the
    cancelling rules in short (app.js cancelHours(): the API's cancelWindowHours, 4 by default; the full table is /refund,
    pages.js) and, in short, what the shop does with a customer's information (the full text is /privacy), with the
    button that deletes the account (the API's DELETE /v1/me).
@@ -22,7 +23,7 @@ function contactWays() {
   if (wa) ways.push(`<a class="help-way" href="https://wa.me/${wa}?text=${encodeURIComponent('Hi VMR Mangoes')}" target="_blank" rel="noopener">${icon('chat')}<span><strong>WhatsApp</strong><small>The quickest way to reach us.</small></span>${icon('arrow')}</a>`)
   if (phone) ways.push(`<a class="help-way" href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${icon('phone')}<span><strong>Call us</strong><small>${esc(phone)}</small></span>${icon('arrow')}</a>`)
   if (email) ways.push(`<a class="help-way" href="mailto:${esc(email)}">${icon('mail')}<span><strong>Email</strong><small>${esc(email)}</small></span>${icon('arrow')}</a>`)
-  ways.push(`<a class="help-way" href="/help" data-route>${icon('info')}<span><strong>Help, complaints and refunds</strong><small>Tell us what went wrong with an order.</small></span>${icon('arrow')}</a>`)
+  ways.push(`<a class="help-way" href="/help" data-route>${icon('info')}<span><strong>Help, complaints and refunds</strong><small>Cancelling, refunds and damaged boxes.</small></span>${icon('arrow')}</a>`)
   return ways.join('')
 }
 
@@ -38,7 +39,7 @@ function contactView() {
   host().innerHTML = pageHead('Contact us') + `
     <section class="page-card help-card">
       <h2 class="flow-head">We’re here for you.</h2>
-      <p>Questions about mangoes, an order, or a delivery? ${direct ? 'Reach us any of these ways.' : 'Send us a help request and we will reply on WhatsApp.'}</p>
+      <p>Questions about mangoes, an order, or a delivery?<span data-contact-lead>${direct ? ' Reach us any of these ways.' : ''}</span></p>
       <div class="help-ways">${contactWays()}</div>
     </section>${where}
     <section class="page-card help-card">
@@ -48,6 +49,13 @@ function contactView() {
         <a class="help-way" href="/partner" data-route data-partner-link>${icon('leaf')}<span><strong>Grow with us</strong><small>Mango farmers, sellers and shops.</small></span>${icon('arrow')}</a>
       </div>
     </section>`
+  // No WhatsApp, phone or email set: the help request, only while the help centre is on; else the address, if there is one.
+  if (!direct) {
+    helpCentreOn().then((on) => {
+      const el = $('[data-contact-lead]')
+      if (el) el.textContent = on ? ' Send us a help request and we will reply on WhatsApp.' : b.address ? ' Write to us at the address below.' : ''
+    })
+  }
 }
 
 function helpView() {
@@ -57,7 +65,7 @@ function helpView() {
     <section class="page-card help-card" id="your-requests" hidden><h2 class="flow-head">Your requests</h2><div class="req-body"></div></section>
     <section class="page-card help-card">
       <h2 class="flow-head">Cancelling and refunds</h2>
-      <p><strong>A normal order</strong> can be cancelled within <strong>${hoursWord(cancelHours())} of placing it</strong>, as long as it hasn’t been packed: open it under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. It is refunded in full to the way you paid. After that, cancelling is closed; if something is wrong, send us a request above and we’ll help.</p>
+      <p><strong>A normal order</strong> can be cancelled within <strong>${hoursWord(cancelHours())} of placing it</strong>, as long as it hasn’t been packed: open it under <a href="/orders" data-route>Your orders</a> and choose “Cancel order”. It is refunded in full to the way you paid. After that, cancelling is closed.<span data-help-reach>${helpReachKnown()}</span></p>
       <p><strong>A pre-order</strong> can’t be cancelled once paid, unless we delay it; then you can cancel it for a full refund until it is packed.</p>
       <p><strong>A paid bulk order</strong> can be cancelled within ${hoursWord(cancelHours())} of paying, until it is dispatched, for a full refund. On <strong>a gift order</strong>, each person’s delivery can be cancelled within ${hoursWord(cancelHours())} of placing it, as long as their box isn’t packed.</p>
       <p>Full policy: <a href="/refund" data-route>Refund and cancellation policy</a></p>
@@ -73,7 +81,12 @@ function helpView() {
       <div class="help-delete"></div>
     </section>`
   // the claim window once the policy has loaded, if it hadn't yet
-  helpCentreOn().then(() => { const el = $('[data-claim-hours]'); if (el) el.textContent = claimHoursText() })
+  helpCentreOn().then((on) => {
+    const el = $('[data-claim-hours]')
+    if (el) el.textContent = claimHoursText()
+    const reach = $('[data-help-reach]')
+    if (reach) reach.innerHTML = helpReachSentence(on)
+  })
   MM.restore().then(() => { if (document.body.dataset.page === 'help') { helpRequestBox(); helpDeleteBox(); if (typeof helpRequestsBox === 'function') helpRequestsBox() } })
 }
 
@@ -82,6 +95,38 @@ function claimHoursText() {
   const p = (typeof policy !== 'undefined' && policy) || helpPolicy
   const h = Number(p && p.claimWindowHours)
   return Number.isFinite(h) && h > 0 ? ` within ${hoursWord(h)} of delivery` : ' soon after delivery'
+}
+
+/** The ways to reach us that the build sets (WhatsApp, phone, email), as words for a sentence (HTML); '' when none is. */
+function helpReachWords() {
+  const wa = helpWa(), b = bizInfo(), ways = []
+  if (wa) ways.push(`<a href="https://wa.me/${wa}?text=${encodeURIComponent('Hi VMR Mangoes, I need help with an order')}" target="_blank" rel="noopener">message us on WhatsApp</a>`)
+  if (b.phone) ways.push(`call us on <a href="tel:${esc(b.phone.replace(/[^\d+]/g, ''))}">${esc(b.phone)}</a>`)
+  if (b.email) ways.push(`email <a href="mailto:${esc(b.email)}">${esc(b.email)}</a>`)
+  return ways.length > 1 ? `${ways.slice(0, -1).join(', ')} or ${ways.at(-1)}` : ways[0] || ''
+}
+
+/** The end of the cancelling paragraph: the request form above only while the help centre is on, else the ways that exist, else nothing. */
+function helpReachSentence(on) {
+  if (on) return ' If something is wrong, send us a request above and we’ll help.'
+  const w = helpReachWords()
+  return w ? ` If something is wrong, ${w} and we’ll help.` : ''
+}
+/** The same, when the policy has already loaded; '' until it has (helpView fills it in). */
+function helpReachKnown() {
+  const p = (typeof policy !== 'undefined' && policy) || helpPolicy
+  return p ? helpReachSentence(Boolean(p.care && p.care.helpCentre)) : ''
+}
+
+/** The help centre is off: the ways to reach us that exist, else our address, else Your orders (cancel and report a problem there). */
+function helpOffHTML(waLink) {
+  const b = bizInfo(), btns = [waLink]
+  if (b.phone) btns.push(`<a class="button secondary" href="tel:${esc(b.phone.replace(/[^\d+]/g, ''))}">Call ${esc(b.phone)} ${icon('phone')}</a>`)
+  if (b.email) btns.push(`<a class="button secondary" href="mailto:${esc(b.email)}">Email us ${icon('mail')}</a>`)
+  const ways = btns.filter(Boolean).join('')
+  if (ways) return `<p>Something wrong with an order, a delivery or a payment? Tell us and we’ll put it right.</p><div class="help-actions">${ways}</div>`
+  if (b.address) return `<p>Something wrong with an order, a delivery or a payment? Write to us and we’ll put it right:</p><p>${esc(b.legalName || b.name)}<br>${esc(b.address)}</p>`
+  return `<p>Something wrong with an order? Open it under Your orders: you can cancel it there while it can still be cancelled, or report a problem with a delivered box.</p><div class="help-actions"><a class="button primary" href="/orders" data-route>Your orders ${icon('arrow')}</a></div>`
 }
 
 /** The help centre is switched on (the policy's care.helpCentre): only then are replies shown on the account. */
@@ -103,7 +148,7 @@ async function helpRequestBox() {
     if (!box.isConnected) return
     box.innerHTML = on
       ? `<p>Something wrong with an order, a delivery or a payment? Sign in and tell us: we answer every request, and you’ll see our reply on this page under “Your requests” and on WhatsApp.</p><div class="help-actions"><a class="button primary" href="/login?next=%2Fhelp" data-route>Sign in to send a request ${icon('arrow')}</a>${waLink}</div>`
-      : `<p>Something wrong with an order, a delivery or a payment? Tell us and we’ll put it right.</p><div class="help-actions">${waLink || `<a class="button primary" href="/contact" data-route>Contact us ${icon('arrow')}</a>`}</div>`
+      : helpOffHTML(waLink)
     return
   }
   let info = null, orders = []
@@ -112,7 +157,7 @@ async function helpRequestBox() {
   if (document.body.dataset.page !== 'help' || !box.isConnected) return
   if (!info || !Array.isArray(info.topics)) {
     // the help centre is switched off on this shop: point to the other ways
-    box.innerHTML = `<p>Something wrong with an order, a delivery or a payment? Tell us and we’ll put it right.</p><div class="help-actions">${waLink || `<a class="button primary" href="/contact" data-route>Contact us ${icon('arrow')}</a>`}</div>`
+    box.innerHTML = helpOffHTML(waLink)
     return
   }
   try { orders = await MM.orders() } catch { orders = [] }

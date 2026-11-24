@@ -102,6 +102,8 @@ const ISOLATION_CASES = [
   'GET /v1/orders/:id', 'GET /v1/orders/:id/bill', 'GET /v1/orders/:id/delivery-photo', 'GET /v1/orders/:id/payment-status', 'POST /v1/orders/:id/verify-payment',
   'POST /v1/orders/:id/cancel', 'POST /v1/orders/:id/reschedule', 'PUT /v1/orders/:id/rating', 'POST /v1/orders/:id/demo-pay',
   'GET /v1/preorders/:id', 'POST /v1/preorders/:id/cancel',
+  // The demo deploy's "Pay (test)" (DEMO_PAYMENTS) for a pre-order, a gift order and a bulk order, as for an order.
+  'POST /v1/preorders/:id/demo-pay', 'POST /v1/gifts/:id/demo-pay', 'POST /v1/me/bulk-orders/:id/demo-pay',
   // A gift for several people as pre-orders (MULTI_GIFT, migration 071, test/preorders.test.js).
   'GET /v1/preorders/groups/:id',
   // Sending a recipient the address link again (GIFT_ADDRESS_LINKS, test/gift-address.test.js): the giver's own group only.
@@ -368,6 +370,7 @@ describe('customer to customer', () => {
       ['PUT /v1/orders/:id/rating', () => api.put(`/v1/orders/${done.orderId}/rating`, { stars: 1 }, B), () => api.put('/v1/orders/ord_none/rating', { stars: 1 }, B)],
       ['GET /v1/preorders/:id', () => api.get(`/v1/preorders/${pre.body.id}`, B), () => api.get('/v1/preorders/pre_none', B)],
       ['POST /v1/preorders/:id/cancel', () => api.post(`/v1/preorders/${pre.body.id}/cancel`, {}, B), () => api.post('/v1/preorders/pre_none/cancel', {}, B)],
+      ['POST /v1/preorders/:id/demo-pay', () => api.post(`/v1/preorders/${pre.body.id}/demo-pay`, { outcome: 'captured' }, B), () => api.post('/v1/preorders/pre_none/demo-pay', { outcome: 'captured' }, B)],
       ['GET /v1/preorders/groups/:id', () => api.get('/v1/preorders/groups/pgr_iso', B), () => api.get('/v1/preorders/groups/pgr_none', B)],
       ['POST /v1/preorders/groups/:id/preorders/:preorderId/send-link', () => api.post(`/v1/preorders/groups/pgr_iso/preorders/${pre.body.id}/send-link`, {}, B), () => api.post('/v1/preorders/groups/pgr_none/preorders/pre_none/send-link', {}, B)],
       ['DELETE /v1/me/addresses/:id', () => api.del(`/v1/me/addresses/${address}`, B), () => api.del('/v1/me/addresses/adr_none', B)],
@@ -385,6 +388,7 @@ describe('customer to customer', () => {
       ['POST /v1/gifts/:id/verify-payment', () => api.post(`/v1/gifts/${gift.giftOrderId}/verify-payment`, { razorpay_payment_id: 'pay_b', razorpay_order_id: gift.razorpayOrderId, razorpay_signature: sig(gift.razorpayOrderId, 'pay_b') }, B),
         () => api.post('/v1/gifts/gft_none/verify-payment', { razorpay_payment_id: 'pay_b', razorpay_order_id: gift.razorpayOrderId, razorpay_signature: sig(gift.razorpayOrderId, 'pay_b') }, B)],
       ['POST /v1/gifts/:id/cancel', () => api.post(`/v1/gifts/${gift.giftOrderId}/cancel`, {}, B), () => api.post('/v1/gifts/gft_none/cancel', {}, B)],
+      ['POST /v1/gifts/:id/demo-pay', () => api.post(`/v1/gifts/${gift.giftOrderId}/demo-pay`, { outcome: 'captured' }, B), () => api.post('/v1/gifts/gft_none/demo-pay', { outcome: 'captured' }, B)],
       ['POST /v1/gifts/:id/recipients/:orderId/cancel', () => api.post(`/v1/gifts/${gift.giftOrderId}/recipients/${giftKid}/cancel`, {}, B), () => api.post(`/v1/gifts/gft_none/recipients/${giftKid}/cancel`, {}, B)],
       ['GET /v1/me/help/requests/:id', () => api.get(`/v1/me/help/requests/${help.body.id}`, B), () => api.get('/v1/me/help/requests/hlp_none', B)],
       ['POST /v1/me/help/requests/:id/messages', () => api.post(`/v1/me/help/requests/${help.body.id}/messages`, { message: 'mine now' }, B), () => api.post('/v1/me/help/requests/hlp_none/messages', { message: 'mine now' }, B)],
@@ -399,6 +403,7 @@ describe('customer to customer', () => {
       ['POST /v1/me/bulk-enquiries/:id/respond', () => api.post(`/v1/me/bulk-enquiries/${bulk.id}/respond`, { decision: 'ACCEPT' }, B), () => api.post('/v1/me/bulk-enquiries/benq_none/respond', { decision: 'ACCEPT' }, B)],
       ['POST /v1/me/bulk-orders/:id/pay', () => api.post(`/v1/me/bulk-orders/${bulkOrder.id}/pay`, {}, B), () => api.post('/v1/me/bulk-orders/benq_none/pay', {}, B)],
       ['POST /v1/me/bulk-orders/:id/cancel', () => api.post(`/v1/me/bulk-orders/${bulkOrder.id}/cancel`, {}, B), () => api.post('/v1/me/bulk-orders/benq_none/cancel', {}, B)],
+      ['POST /v1/me/bulk-orders/:id/demo-pay', () => api.post(`/v1/me/bulk-orders/${bulkOrder.id}/demo-pay`, { outcome: 'captured' }, B), () => api.post('/v1/me/bulk-orders/benq_none/demo-pay', { outcome: 'captured' }, B)],
       ['GET /v1/farm-bookings/:id', () => api.get(`/v1/farm-bookings/${farmBooking.id}`, B), () => api.get('/v1/farm-bookings/fbk_none', B)],
       ['GET /v1/farm-bookings/:id/qr.svg', () => api.get(`/v1/farm-bookings/${farmBooking.id}/qr.svg`, B), () => api.get('/v1/farm-bookings/fbk_none/qr.svg', B)],
       ['POST /v1/farm-bookings/:id/verify-payment', () => api.post(`/v1/farm-bookings/${farmBooking.id}/verify-payment`, { razorpay_payment_id: 'pay_b', razorpay_order_id: farmBooking.rzp, razorpay_signature: sig(farmBooking.rzp, 'pay_b') }, B),
