@@ -448,6 +448,25 @@ chosen: the API gives the earliest week with room, and the shop shows it before 
   refuses the whole bag naming the line ("Line N (box): …"), one payment books every line, an unpaid
   bag is one unpaid pre-order, and cancel and delay work per line as for any pre-order. It does not
   need MULTI_GIFT. `GET /v1/preorders` keeps a bag's lines together.
+- **Ask the recipient for the address** (GIFT_ADDRESS_LINKS with MULTI_GIFT, migrations 091/092,
+  `src/gift-address.js`): a person in a group may have `askAddress: true` and no `pincode` or
+  `address` (refused with `400 ASK_ADDRESS_OFF` while either switch is off). The booking takes
+  its week by kg as usual with `addressState: 'ADDRESS_PENDING'`. Once the group is paid the
+  recipient gets `GIFT_ADDRESS_REQUEST` with a button to `<shop>/gift-address/<token>` (once,
+  however often the payment arrives). Public: `GET /v1/gift-address/:token` (`state`,
+  `recipientName`, `fromName`, `box`, `weekStart`, `message`, `expiresAt`) and
+  `POST /v1/gift-address/:token { address, pincode }` (once: `409 ADDRESS_GIVEN`; a pincode we do
+  not serve `400 NOT_SERVICEABLE`; `410 LINK_EXPIRED` from the start of the day before the week,
+  IST; `410 GIFT_CANCELLED`; `404 LINK_NOT_FOUND`). The giver sees `addressState`,
+  `addressLink { sentAt, sendCount, expiresAt, canResend, resendAfter }` and `addressMessage` on
+  each booking of `GET /v1/preorders/groups/:id` (a recipient's address is not shown back, only
+  its pincode) and sends the same link again with
+  `POST /v1/preorders/groups/:id/preorders/:preorderId/send-link` (every 10 minutes at most, 5
+  times: `429 RESEND_TOO_SOON` with `retryAfter`, `409 RESEND_LIMIT`, `409 NOT_PAID`,
+  `409 ADDRESS_GIVEN`, `409 NOT_ASKED`, `410 LINK_EXPIRED`). Five days before the week the
+  maintenance step `gift-address-reminders` sends `GIFT_ADDRESS_REMINDER` to the recipient and
+  `GIFT_ADDRESS_MISSING` to the giver, once each. The allocator leaves a booking without an
+  address BOOKED (it keeps its kg) and converts it on the first run after the address is given.
 - **Season.** Two rules on the Planning page, `seasonStartsOn` and `preorderOpensOn`
   (both optional, `src/season-phase.js`): before the season starts the shop's home page is
   the pre-order shop (phase `PREORDER`), before pre-orders open nothing can be booked
@@ -799,7 +818,7 @@ All the numbers above live in the versioned `app_config` table (`GET/PUT
 | Storefront | `GET /v1/delivery/check?pincode=`, `GET /v1/delivery/slots?pincode=&delivery_date=`, `GET /v1/catalogue?pincode=&delivery_date=`, `GET/POST /v1/cart`, `DELETE /v1/cart/items/:sku` |
 | Customer bulk deals | `GET /v1/bulk-deals?pincode&page`, `GET /v1/bulk-deals/:id?pincode` (stock per open day and ripeness), `GET /v1/bulk-deals/:id/price?qty=`, `GET /v1/bulk-deals/:id/photos/:photoId` (public); `POST /v1/cart/bulk`, `DELETE /v1/cart/bulk/:listingId?stage=` (signed in) |
 | Checkout | `POST /v1/checkout/quote`, `POST /v1/checkout/confirm` (requires `Idempotency-Key`) |
-| Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel`, `POST /v1/preorders/groups` (MULTI_GIFT; requires `Idempotency-Key`), `GET /v1/preorders/groups/:id` |
+| Customer preorders | `GET /v1/preorders/weeks?sku=`, `POST /v1/preorders` (requires `Idempotency-Key`), `GET /v1/preorders`, `GET /v1/preorders/:id`, `POST /v1/preorders/:id/cancel`, `POST /v1/preorders/groups` (MULTI_GIFT; requires `Idempotency-Key`), `GET /v1/preorders/groups/:id`, `POST /v1/preorders/groups/:id/preorders/:preorderId/send-link` (GIFT_ADDRESS_LINKS); public `GET`/`POST /v1/gift-address/:token` |
 | Orders and claims | `GET /v1/orders`, `GET /v1/orders/:id`, `/payment-status` (asks Razorpay when an order is still unpaid a minute after checkout, at most every 30 s), `POST /v1/orders/:id/verify-payment` (Checkout's `razorpay_payment_id`, `razorpay_order_id`, `razorpay_signature`: the signature is checked with the key secret, then the payment is fetched from Razorpay and applied), `POST /v1/orders/:id/cancel`, `POST /v1/orders/:id/reschedule` (confirmed orders, before packing), `PUT /v1/orders/:id/rating` (delivered orders), `GET/POST /v1/claims` |
 | Saved addresses | `GET /v1/me/addresses`, `DELETE /v1/me/addresses/:id` (an order saves its address; at most five, gifts are not saved) |
 | Ordered before | `GET /v1/me/ordered-products` → `[{ variety, sku, stage, times, lastDeliveredOn }]`: per variety, the signed-in customer's DELIVERED orders (an order made from a pre-order counts once delivered; placed, cancelled or failed ones do not), the last one's box and ripeness, and its day (IST). The shop's "Ordered before" tag and the card's "Order again" |

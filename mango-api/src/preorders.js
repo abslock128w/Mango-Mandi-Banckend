@@ -39,6 +39,7 @@ import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLin
 import { boxKg, findProduct, sellable, shopProducts } from './products.js'
 import { seasonPhase } from './season-phase.js'
 import { mondayOf } from './plan-kg.js'
+import { giverFields, openLinks, PENDING } from './gift-address.js'
 
 /** A waitlisted customer whose spot opens has this long to pay. */
 export const SPOT_HOLD_HOURS = 12
@@ -380,6 +381,9 @@ export function preorderView(p) {
   return {
     id: p.id, number: p.number, status: p.status, sku: p.sku, productName: findProduct(p.sku)?.name ?? p.sku, variety: bookingVariety(p), stage: p.stage,
     qty: p.qty, unitPrice: p.unit_price, total: p.total, weekStart: p.week_start, pincode: p.pincode, address: p.delivery_address, slotId: p.slot_id,
+    // Migration 091 (GIFT_ADDRESS_LINKS): null (address given at booking), ADDRESS_PENDING (no pincode or address yet:
+    // the recipient was asked on WhatsApp) or ADDRESS_GIVEN (by the recipient).
+    addressState: p.address_state ?? null,
     customerName: p.customer_name, phone: p.phone, channel: p.channel,
     paymentStatus: p.payment_status, paymentUrl: p.status === 'PAYMENT_PENDING' ? p.payment_link_url : null, holdExpiresAt: p.hold_expires_at,
     // Migration 086: the last payment attempt failed and it can still be paid; or it was closed unpaid (the hold ran out).
@@ -517,8 +521,14 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
   const weeks = await deliveryWeeks(c)
   if (!weeks.length) throw badRequest('Pre-orders are closed: no delivery week is left this season', 'INVALID_WEEK')
   if (b.weekStart != null && !weeks.includes(b.weekStart)) throw badRequest('Preorders are not open for that week', 'INVALID_WEEK')
-  const { rows: pin } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [b.pincode])
-  if (!pin.length) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
+  // A gift in a group may leave the address to the recipient (askAddress, GIFT_ADDRESS_LINKS: gift-address.js): no
+  // pincode yet. Its week does not depend on the pincode; the recipient's pincode is checked when they give it.
+  const ask = Boolean(group && b.askAddress)
+  if (ask && !b.gift?.recipientPhone) throw badRequest('Asking for the address needs the recipient\u2019s mobile number', 'VALIDATION_ERROR')
+  if (!ask) {
+    const { rows: pin } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [b.pincode])
+    if (!pin.length) throw badRequest('We do not deliver to this pincode yet', 'NOT_SERVICEABLE')
+  }
   if (b.slotId) {
     const { rows } = await c.query('SELECT 1 FROM delivery_slots WHERE id = $1 AND active', [b.slotId])
     if (!rows.length) throw badRequest('That delivery slot is not available', 'SLOT_INVALID')
@@ -551,21 +561,21 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
   await c.query(
     `INSERT INTO preorders (id, number, customer_id, customer_name, phone, sku, stage, qty, unit_price, total, week_start, pincode,
                             delivery_address, slot_id, channel, status, hold_expires_at, payment_status, created_at, non_refundable,
-                            gift_recipient_name, gift_recipient_phone, gift_message, group_id, group_position, load_kg, variety)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, true, $20, $21, $22, $23, $24, $25, $26)`,
+                            gift_recipient_name, gift_recipient_phone, gift_message, group_id, group_position, load_kg, variety, address_state)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, true, $20, $21, $22, $23, $24, $25, $26, $27)`,
     [
-      id, number, b.customerId, b.name ?? null, b.phone, b.sku, b.stage, b.qty, p.price, p.price * b.qty, week, b.pincode,
-      b.address, b.slotId ?? null, b.channel ?? 'app', status,
+      id, number, b.customerId, b.name ?? null, b.phone, b.sku, b.stage, b.qty, p.price, p.price * b.qty, week, ask ? null : b.pincode,
+      ask ? null : b.address, b.slotId ?? null, b.channel ?? 'app', status,
       got ? (group?.holdExpiresAt ?? new Date(now().getTime() + getConfig().holdMinutes * 60_000)) : null, got ? 'INITIATED' : null, now(),
       b.gift?.recipientName ?? null, b.gift?.recipientPhone ?? null, b.gift ? b.gift.message || null : null,
-      group?.id ?? null, group?.position ?? null, load, p.variety,
+      group?.id ?? null, group?.position ?? null, load, p.variety, ask ? PENDING : null,
     ],
   )
   const moved = got && got !== weeks[0] ? `Earlier weeks full: booked for ${weekWords(got)}` : null
   const part = !group ? null
     : group.kind === 'BAG' ? `Pre-order bag ${formatOrderNumber(group.number)}, line ${group.position} of ${group.size}`
       : `Gift for several people: ${formatOrderNumber(group.number)}, person ${group.position}`
-  const why = got ? [part, moved].filter(Boolean).join('. ') || null : 'Every week full: joined the waitlist'
+  const why = got ? [part, ask ? 'Address to be given by the recipient' : null, moved].filter(Boolean).join('. ') || null : 'Every week full: joined the waitlist'
   await event(c, id, status, actor, why)
   return (await c.query('SELECT * FROM preorders WHERE id = $1', [id])).rows[0]
 }
@@ -978,8 +988,16 @@ export async function allocatePreorders() {
     if (!run.ok) return { converted: 0, moved: 0, busy: true }
     const horizon = await allocationHorizon(c)
     const earliest = await earliestDeliveryDate(c)
+    // A gift whose recipient has not given their address yet (GIFT_ADDRESS_LINKS) stays BOOKED, keeping its week's kg:
+    // it is turned into a delivery on the first run after the address is given.
+    const { rows: waiting } = await c.query(
+      `SELECT id, number, week_start FROM preorders WHERE status = 'BOOKED' AND week_start <= $1 AND address_state = 'ADDRESS_PENDING' ORDER BY week_start, id LIMIT 50`,
+      [horizon],
+    )
+    if (waiting.length) logger.warn({ count: waiting.length, preorders: waiting.map((p) => formatOrderNumber(p.number)) }, 'pre-orders waiting for the recipient\u2019s address were not turned into deliveries')
     const { rows } = await c.query(
-      `SELECT * FROM preorders WHERE status = 'BOOKED' AND week_start <= $1 ORDER BY booked_at, created_at, id FOR UPDATE SKIP LOCKED LIMIT 200`,
+      `SELECT * FROM preorders WHERE status = 'BOOKED' AND week_start <= $1 AND address_state IS DISTINCT FROM 'ADDRESS_PENDING'
+        ORDER BY booked_at, created_at, id FOR UPDATE SKIP LOCKED LIMIT 200`,
       [horizon],
     )
     let converted = 0
@@ -1085,8 +1103,19 @@ export function groupStatus(g, members) {
   return g.status
 }
 
-export function groupView(g, members) {
+/**
+ * One booking as its giver sees it (the shop): an address the RECIPIENT gave is not shown back to the giver, only its
+ * pincode (docs/gifting.md). Staff views use preorderView.
+ */
+export function giverPreorderView(p) {
+  const v = preorderView(p)
+  return p.address_state === 'ADDRESS_GIVEN' ? { ...v, address: null } : v
+}
+
+/** `links`: Map preorder id -> its live gift address link (gift-address.js linksFor), for the giver's fields. */
+export function groupView(g, members, links = new Map()) {
   const status = groupStatus(g, members)
+  const paid = g.payment_status === 'SUCCEEDED'
   return {
     id: g.id, number: g.number, kind: g.kind ?? 'GIFT', status, paymentStatus: g.payment_status, total: g.total, recipientCount: g.recipient_count,
     lineCount: g.recipient_count, boxes: g.boxes,
@@ -1097,7 +1126,11 @@ export function groupView(g, members) {
     canCancel: status === 'PAYMENT_PENDING' && g.payment_status !== 'SUCCEEDED',
     // Migration 086 (marked on the bookings): the last payment attempt failed; the link can be paid again while held.
     paymentFailed: status === 'PAYMENT_PENDING' && g.payment_status !== 'SUCCEEDED' && members.some((p) => p.status === 'PAYMENT_PENDING' && p.payment_failed_at),
-    preorders: members.map((p) => preorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind })),
+    preorders: members.map((p) => ({
+      ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind }),
+      // GIFT_ADDRESS_LINKS: addressLink (sentAt, sendCount, expiresAt, canResend, resendAfter) and addressMessage.
+      ...giverFields(p, links.get(p.id) ?? null, paid),
+    })),
   }
 }
 
@@ -1276,6 +1309,8 @@ async function processGroupPayment(c, groupId, { outcome, paymentId, amount, met
   )
   const results = []
   for (const p of members) results.push(await applyPaid(c, p, [null, method, p.total, now()], actor))
+  // Recipients asked for their address (GIFT_ADDRESS_LINKS): one link and one WhatsApp message each, now it is paid.
+  if (members.some((p) => p.address_state === PENDING)) await openLinks(c, await groupMembers(c, g.id))
   if (results.length && results.every((r) => r === 'refund_due')) return 'refund_due'
   return results.includes('booked') ? 'booked' : 'ignored'
 }

@@ -40,6 +40,7 @@ export const PANEL_SWITCHES = [
   { key: 'HELP_CENTRE', label: 'Help centre', description: 'Customers ask for help from an order or the Help page; staff answer on the Help desk.' },
   { key: 'SUBSCRIPTIONS', label: 'Subscriptions', description: 'A box every week or fortnight in the season, each one paid for as a normal order (no auto-debit).' },
   { key: 'MULTI_GIFT', label: 'Gifts to many addresses', description: 'One order can send gift boxes to several addresses.' },
+  { key: 'GIFT_ADDRESS_LINKS', label: 'Ask the recipient for the address', description: 'A gift pre-order for several people can ask a recipient for their address on WhatsApp instead of the giver typing it (needs Gifts to many addresses on).' },
   { key: 'SHOP_LANGUAGES', label: 'Shop languages', description: 'Customers can read the shop in another language.' },
   { key: 'BULK_ENQUIRIES', label: 'Bulk enquiries', description: 'The shop’s bulk enquiry form sends to the panel’s Bulk enquiries section; customers see quotes on their Account page.' },
   { key: 'FARM_EXPERIENCE', label: 'Farm Experience', description: 'Farm visits with 100 kg or more of mangoes (the Farm visit tab on the shop’s Bulk page), and the panel’s farm pages. Customers can book only once Farm Settings opens bookings.' },

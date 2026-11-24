@@ -12,8 +12,12 @@
    Reuses app.js and pages.js: prices and stock from the shop's catalogue (skus, MM.catalogue), the field errors
    (fieldError), the sign-in page (/login?next=), the payment script (loadScript(RAZORPAY)) and the page frame.
    Loaded after pages.js (it adds to PAGES) and before app.js, so top-level code only declares and listens.
-   Each card also has "Add to bag": the box goes into the regular bag as a gift line, checked out on its own to one
-   person at one address through the regular checkout (gift-bag.js; delivery charge as for any order).
+   Two screens (the audit of 23 Nov 2026): /gifts shows one card per gift box, set to 3 kg and semi-ripe ("Change" picks
+   the size and ripeness) with one button, "Send as a gift"; /gifts/send asks who gets it, one row per person (name,
+   WhatsApp number, and the address or, before the season when the API offers it, "Ask them on WhatsApp"), saved as it is
+   typed, with the note, "From" and one sticky bar that pays. Each person gets one box. While the gifting switch is off
+   the card's one button puts the box in the bag as a gift for one person instead (gift-bag.js). Pure helpers (the draft,
+   the WhatsApp number, the week words, the booking body) are in gift-rows.js.
    Styles: style.css (the "Gifting" block, .gift-), dark: theme.css. */
 
 // ---- THE GIFT PACKS (the owner's list; edit here).
@@ -43,8 +47,10 @@ const GIFT_PACKS = [
 PAGES.push(
   [/^\/gifts\/?$/, () => giftsPage('packs')],
   [/^\/gifts\/send\/?$/, () => giftsPage('form')],
-  [/^\/gifts\/send\/review\/?$/, () => giftsPage('review')],
+  [/^\/gifts\/send\/review\/?$/, () => giftsPage('form')], // an older link: screen 2 now pays
   [/^\/gifts\/done\/?$/, () => giftsPage('done')],
+  // A gift pre-order for several people, where the giver follows each person's address (from Your orders).
+  [/^\/gifts\/pre\/([^/]+)\/?$/, (m) => signedInThen('Your gift pre-order', () => giftGroupView(decodeURIComponent(m[1])))],
   [/^\/gifts\/([^/]+)\/?$/, (m) => signedInThen('Your gift order', () => giftOrderView(decodeURIComponent(m[1])))],
 )
 const GIFT_PATHS = { packs: '/gifts', form: '/gifts/send', review: '/gifts/send/review', done: '/gifts/done' }
@@ -73,14 +79,14 @@ let giftSeq = 0, giftRid = 0
 const giftEnv = { ready: false, policy: null, catPin: null, dates: [], days: null, cutoff: '', slots: [], slotsFor: '', pins: {}, stage: {} }
 let gift = giftFresh()
 
-/** The send flow, made simple for everyone (the owner, 18 Nov 2026: "for older people it's hard to use"): three steps
- *  with a step line (1 Choose the box, 2 Who gets it, 3 Pay). The box is chosen once, on the card (`box`: pack,
- *  ripeness and boxes for each person); people are added one at a time in one short form (`editing`: the one open form,
- *  never more than one), then shown as a one-line row. One note goes with every box (`note`); a person can still have
- *  their own box (`own`) or note (`ownNote`) behind a quiet link. While the flow is open (`flow`) the gift cards step
- *  aside, so the page shows only the step the buyer is on. */
+/** The send flow in two screens (the audit of 23 Nov 2026): 1 the gift boxes, one "Send as a gift" per box with its
+ *  size and ripeness set (3 kg, semi-ripe unless changed); 2 who gets it: one row per person, always open and saved as it
+ *  is typed (this tab's draft), with the note, "From", the day (in season) and one sticky bar that pays. Each person gets
+ *  one box, so the boxes are the people. The box chosen on the card is everyone's (`box`); a person can have their own
+ *  (`own`). Before the season a person's address can be asked of them on WhatsApp (`ask`, when the API offers it: policy
+ *  features.giftAddressAsk). While the flow is open (`flow`) the cards step aside. */
 function giftFresh() {
-  return { recipients: [], box: null, note: '', editing: null, snap: null, boxOpen: false, removed: null, flow: false, wantReview: false, date: null, slotId: null, sender: '', business: false, bizName: '', gstin: '', errors: {}, step: 'form', pay: null, busy: false, error: '', unpaid: null, key: null, agree: false, group: null }
+  return { recipients: [], box: null, note: '', boxOpen: false, removed: null, flow: false, wantPay: false, date: null, slotId: null, sender: '', business: false, bizName: '', gstin: '', errors: {}, step: 'form', pay: null, busy: false, error: '', unpaid: null, key: null, agree: false, group: null, terms: false, barHint: '' }
 }
 
 // ---- Before the season: the gift is pre-ordered (one booking per person, paid once).
@@ -91,6 +97,19 @@ function giftFresh() {
 function preNoticeHTML(when, paid = false) {
   return `<div class="pre-when pre-notice" role="note">${icon('calendar')}<p><strong>This is a pre-order.</strong> It will be delivered in <strong>${when}</strong>.</p></div>` +
     `<div class="pre-warn pre-notice" role="note">${icon('info')}<p><strong>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full now. It can’t be cancelled once you pay, unless we delay it.'}</strong> If we can’t deliver, we refund you in full.${policyLink()}</p></div>` + harvestNote()
+}
+/** The pre-order terms, said once on a screen: a chip with the week and "Details", which opens the terms. `when` is HTML
+ *  (escaped by the caller). */
+function preChipHTML(when, paid = false) {
+  const open = !!gift.terms
+  return `<div class="gift-pre-chip-wrap"><p class="gift-pre-chip">${icon('sun')}<span><strong>Pre-order</strong> · ${paid ? 'delivered' : 'arrives'} ${when}</span><button type="button" class="text-button gift-terms-btn" data-gift-terms aria-expanded="${open}" aria-controls="gift-terms">Details</button></p><div class="gift-terms" id="gift-terms"${open ? '' : ' hidden'}><p>${icon('info')}<span>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full when you pay. It can’t be cancelled once paid, unless we delay it.'} If we can’t deliver, we refund you in full.</span></p>${harvestNote()}</div></div>`
+}
+/** "week of 1 Mar" (or "weeks of 1 Mar – 8 Mar" when people's weeks differ; else the first open week). Plain text. */
+function giftWhen(weeks) {
+  const span = giftWeekSpan(weeks, fmtWeek)
+  if (span) return span
+  const f = firstPreWeek()
+  return f ? `week of ${fmtWeek(f)}` : 'in the first open delivery week'
 }
 /** "the first week of March (week of 2 Mar)", escaped. */
 const preWeekText = (d) => `${esc(weekPhrase(d))} <span class="no-wrap">(week of ${esc(fmtWeek(d))})</span>`
@@ -110,13 +129,6 @@ function giftPreWeeks() {
     if (week) used[key(week, r.sku)] = (used[key(week, r.sku)] || 0) + need
     return { r, first: all[0] || null, week, big: !!r.sku && preTooBig(r.qty, r.sku), moved: !!(week && all[0] && week.weekStart !== all[0].weekStart) }
   })
-}
-/** The notice's week: one week for everyone, or the first and last when people's weeks differ. */
-function giftPreWhen(weeks) {
-  const ws = [...new Set(weeks.filter(Boolean).map(String))].sort()
-  if (!ws.length) { const f = firstPreWeek(); return f ? preWeekText(f) : 'the first open delivery week' }
-  if (ws.length === 1) return preWeekText(ws[0])
-  return `${esc(weekPhrase(ws[0]))} or ${esc(weekPhrase(ws[ws.length - 1]))} (each person’s week is shown)`
 }
 const giftPreWeekList = (list) => list.map((x) => x.week && x.week.weekStart)
 
@@ -188,75 +200,47 @@ function cardStageFor(p) {
   return 'SEMI_RIPE'
 }
 
-// ---- The draft: kept for this tab only (other people's addresses), so a reload or the sign-in page keeps it, the
-// half-typed person too. Shape 2 (the simple flow): { v: 2, box, note, editing (an index), recipients, ... }. A draft
-// from before (each person with their own box and note) is read into the new shape: the first person's box is
-// everyone's, a person whose box or note differs keeps their own.
+// ---- The draft: kept for this tab only (other people's addresses), so a reload or the sign-in page keeps it. Every
+// change is saved a moment after it is made, with no Save button (gift-rows.js reads and writes its shape).
 let draftTimer = 0
 function saveDraft() {
   clearTimeout(draftTimer)
   draftTimer = setTimeout(() => {
     try {
-      if (!gift.recipients.length) sessionStorage.removeItem(GIFT_DRAFT)
-      else sessionStorage.setItem(GIFT_DRAFT, JSON.stringify({ v: 2, box: gift.box, note: gift.note, editing: gift.recipients.findIndex((r) => r.id === gift.editing), recipients: gift.recipients, date: gift.date, slotId: gift.slotId, sender: gift.sender, business: gift.business, bizName: gift.bizName, gstin: gift.gstin }))
+      if (!gift.recipients.length || gift.recipients.every(giftBlank)) sessionStorage.removeItem(GIFT_DRAFT)
+      else sessionStorage.setItem(GIFT_DRAFT, giftDraftJSON(gift))
+      const s = $('#gift-saved')
+      if (s && gift.recipients.some((r) => !giftBlank(r))) s.innerHTML = `${icon('check')}<span>Saved on this device</span>`
     } catch {}
-  }, 250)
+  }, 400)
 }
-const cleanBox = (b) => (b && typeof b === 'object' ? { sku: String(b.sku || ''), stage: SOLD_API.includes(b.stage) ? b.stage : 'SEMI_RIPE', qty: Math.min(GIFT_BOX_MAX, Math.max(1, Math.round(Number(b.qty)) || 1)) } : null)
 function readDraft() {
-  try {
-    const d = JSON.parse(sessionStorage.getItem(GIFT_DRAFT))
-    if (!d || !Array.isArray(d.recipients) || !d.recipients.length) return
-    const raw = d.recipients.slice(0, 100).filter((r) => r && typeof r === 'object')
-    let people, box, note = '', open = null
-    if (d.v === 2) {
-      people = raw.map((r) => newPerson(r))
-      box = cleanBox(d.box)
-      note = String(d.note || '').slice(0, GIFT_NOTE_MAX)
-      const i = Number.isInteger(d.editing) ? d.editing : -1
-      open = people[i] && !people[i].saved ? people[i].id : null
-    } else {
-      // The old shape: every person had a box and a note of their own.
-      people = raw.map((r) => newPerson({ ...r, saved: true })).filter((r) => !blankPerson(r))
-      const first = people.find((r) => packOf(r.sku)) || people[0]
-      box = first ? cleanBox(first) : null
-      const notes = people.map((r) => r.note.trim())
-      if (notes.length && notes.every((x) => x && x === notes[0])) note = notes[0]
-      for (const r of people) {
-        r.own = !!(box && (r.sku !== box.sku || r.stage !== box.stage || r.qty !== box.qty))
-        r.ownNote = !note && !!r.note.trim()
-      }
-    }
-    if (!people.length) return
-    gift.recipients = people
-    gift.box = box || { sku: '', stage: 'SEMI_RIPE', qty: 1 }
-    gift.note = note
-    gift.editing = open
-    gift.snap = null
-    gift.date = d.date || null
-    gift.slotId = d.slotId || null
-    gift.sender = String(d.sender || '')
-    gift.business = !!d.business
-    gift.bizName = String(d.bizName || '')
-    gift.gstin = String(d.gstin || '')
-  } catch {}
+  let d = null
+  try { d = readGiftDraft(sessionStorage.getItem(GIFT_DRAFT)) } catch {}
+  if (!d) return
+  gift.recipients = d.people.map((r) => newPerson(r))
+  gift.box = d.box || { sku: '', stage: 'SEMI_RIPE' }
+  Object.assign(gift, { note: d.note, date: d.date, slotId: d.slotId, sender: d.sender, business: d.business, bizName: d.bizName, gstin: d.gstin, wantPay: d.wantPay })
 }
 function dropDraft() { clearTimeout(draftTimer); try { sessionStorage.removeItem(GIFT_DRAFT) } catch {} }
 
 function newPerson(r = {}) {
-  return { id: `r${++giftRid}`, name: String(r.name || ''), phone: String(r.phone || ''), address: String(r.address || ''), pincode: String(r.pincode || ''), sku: String(r.sku || ''), stage: SOLD_API.includes(r.stage) ? r.stage : 'SEMI_RIPE', qty: Math.min(GIFT_BOX_MAX, Math.max(1, Number(r.qty) || 1)), note: String(r.note || '').slice(0, GIFT_NOTE_MAX), own: !!r.own, ownNote: !!r.ownNote, saved: !!r.saved }
+  return { ...giftPersonFrom(r), id: `r${++giftRid}`, qty: 1 }
 }
-const blankPerson = (r) => !r.name.trim() && !r.phone.trim() && !r.address.trim() && !r.pincode.trim() && !(r.ownNote && r.note.trim())
-/** The note that goes with this person's box: their own when they have one, else the one for everyone. */
-const noteOf = (r) => (r.ownNote ? r.note : gift.note).trim()
-/** Everyone without a box of their own gets the box chosen on the card. */
+const blankPerson = giftBlank
+/** Whether the address can be asked of the person on WhatsApp: before the season, when the API offers it. */
+const askOn = () => !!(preSeason() && giftEnv.policy && giftEnv.policy.features && giftEnv.policy.features.giftAddressAsk)
+/** Whether we ask this person: where asking is open, unless the giver chose to type the address. */
+const askOf = (r) => askOn() && r.ask !== false
+/** The note that goes with every box. */
+const noteOf = () => gift.note.trim()
+/** Everyone without a box of their own gets the box chosen on the card; everyone gets one box. */
 function syncPeople() {
   const b = gift.box
-  if (!b) return
-  for (const r of gift.recipients) if (!r.own) { r.sku = b.sku; r.stage = b.stage; r.qty = b.qty }
+  for (const r of gift.recipients) { r.qty = 1; if (b && !r.own) { r.sku = b.sku; r.stage = b.stage } }
 }
-/** "2 × Alphonso gift box · 3 kg · Semi-ripe" */
-const boxLine = (sku, stage, qty) => { const p = packOf(sku); return p ? `${qty} × ${p.name} · ${p.kg} · ${stageOf(stage).stage}` : '' }
+/** "Alphonso gift box · 3 kg · Semi-ripe" */
+const boxLine = (sku, stage) => { const p = packOf(sku); return p ? `${p.name} · ${p.kg} · ${stageOf(stage).stage}` : '' }
 const whoOf = (r) => r.name.trim() || `Person ${gift.recipients.indexOf(r) + 1}`
 
 // ---- GSTIN: the same checks as the API (mango-api gstin.js): the shape, the state code and the check character.
@@ -279,22 +263,21 @@ function gstinWhy(raw) {
 function giftsPage(want = 'packs') {
   document.title = GIFT_TITLE
   const seq = ++giftSeq, pres = !!preSeason()
+  if (want === 'review') want = 'form'
   if (want === 'done' && gift.step !== 'pre-done') want = 'packs'
   if (want !== 'done' && gift.step === 'pre-done') gift = giftFresh()
-  if (want === 'form' || want === 'review') {
-    // The gift being made (in memory, or this tab's draft); none (an old link, a paid gift): the packs.
+  if (want === 'form') {
+    // The gift being made (in memory, or this tab's draft); none (an old link, a paid gift): the boxes.
     if (!gift.recipients.length) readDraft()
     if (!gift.recipients.length) {
-      // Back into a flow that was paid (or cleared): the packs. When the entry before is the packs, step back to it
+      // Back into a flow that was paid (or cleared): the boxes. When the entry before is the boxes, step back to it
       // rather than show them twice in a row.
       if (history.state && history.state.giftBack === GIFT_PATHS.packs) { history.back(); return }
       want = 'packs'
     } else {
       gift.flow = true
-      gift.box ??= { sku: '', stage: 'SEMI_RIPE', qty: 1 }
-      if (want === 'form' && gift.step !== 'form') { gift.step = 'form'; gift.editing = null; gift.error = ''; gift.key = null }
-      // Check and pay: the review is drawn again after the usual checks (giftLoad → giftToReview), never trusted from the address.
-      if (want === 'review' && gift.step === 'form') gift.wantReview = true
+      gift.box ??= { sku: '', stage: 'SEMI_RIPE' }
+      if (gift.step !== 'form') { gift.step = 'form'; gift.error = ''; gift.key = null }
     }
   }
   if (want === 'packs') gift.flow = false
@@ -302,22 +285,16 @@ function giftsPage(want = 'packs') {
   host().innerHTML = pageHead('Gifting') + `
     <div id="gift-notice"></div>
     <div id="gift-shop"${gift.flow ? ' hidden' : ''}>
-    <p class="gift-ways">${icon('info')}<span><strong>Add to bag:</strong> for one person, checked out from your bag. <strong>Send as a gift:</strong> for several people at once.${pres ? ' Before the season both are pre-orders.' : ''}</span></p>
     <section class="gift-hero" aria-labelledby="gift-hero-h">
       <div class="gift-hero-copy">
         <p class="gift-kicker">${icon('gift')}<span>VMR Mangoes gifting</span></p>
         <h2 id="gift-hero-h">Send a box of <span class="why-u">the season<svg class="sun-swash" viewBox="0 0 120 16" preserveAspectRatio="none" aria-hidden="true"><path d="M3 11C28 5 66 2 117 6"/></svg></span></h2>
-        <p>${pres ? 'Choose a gift box, tell us who gets it and add a note. You pay once, and we deliver to each person in their delivery week when the season starts.' : 'Choose a gift box, tell us who gets it and add a note. You pay once, and we deliver to each person on the day you pick.'}</p>
+        <p>${pres ? 'Pick a box and press Send as a gift. Then add each person’s name and WhatsApp number. You pay once, and each person gets their box in their delivery week.' : 'Pick a box and press Send as a gift. Then add each person and where they live. You pay once, and everyone gets their box on the day you pick.'}</p>
       </div>
-      <ol class="gift-steps">
-        <li>${icon('gift')}<span><strong>Choose the box</strong>Any gift pack, raw or semi-ripe</span></li>
-        <li>${icon('user')}<span><strong>Tell us who</strong>One person or many, each with a note</span></li>
-        <li>${icon('lock')}<span><strong>Pay once</strong>One payment for every box</span></li>
-        <li>${icon('truck')}<span><strong>We deliver</strong>${pres ? 'To each person, in their delivery week' : 'To each person, the same day'}</span></li>
-      </ol>
+      ${stepLineHTML(1)}
     </section>
     <section class="gift-packs" aria-labelledby="gift-packs-h">
-      <div class="gift-packs-head"><h2 id="gift-packs-h" tabindex="-1">Gift packs</h2><p>Our boxes, packed to give, at the shop price. Prices include GST.</p></div>
+      <div class="gift-packs-head"><h2 id="gift-packs-h" tabindex="-1">Gift boxes</h2><p>One box for each person, at the shop price. Prices include GST.</p></div>
       <div class="gift-grid" id="gift-grid" aria-busy="true">${Array.from({ length: 4 }, () => '<div class="gift-card is-skeleton" aria-hidden="true"><div class="gift-card-photo"></div><div class="gift-card-body"><span class="sk-block"></span><span class="sk-block"></span></div></div>').join('')}</div>
     </section>
     </div>
@@ -349,8 +326,14 @@ async function giftLoad(seq) {
     setFlow(true)
     renderGiftSend()
     giftSlots()
-    // Back from the sign-in page that "That's everyone" opened: straight on to the review.
-    if (gift.wantReview && MM.profile() && gift.step === 'form') giftToReview()
+    // Back from the sign-in page that Pay opened: the details again, with Pay ready (nothing is paid without a press).
+    if (gift.wantPay && MM.profile() && gift.step === 'form') {
+      gift.wantPay = false
+      gift.barHint = 'You’re signed in. Check the details and press Pay.'
+      saveDraft()
+      giftBar()
+      focusSel('#pay-bar [data-gift-pay]')
+    }
   } else if (gift.flow) setFlow(false)
 }
 
@@ -360,13 +343,13 @@ function setFlow(on) {
   const shop = $('#gift-shop'), send = $('#gift-send')
   if (shop) shop.hidden = gift.flow
   if (send) { send.hidden = !gift.flow; if (!gift.flow) send.innerHTML = '' }
-  if (!gift.flow && giftPage()) setBar('')
+  giftBar()
   renderGiftNotice()
 }
 /** Opens the flow where it was left and brings the buyer to it. */
 function openFlow(focusSel) {
   if (giftGate() || !gift.recipients.length) return
-  gift.box ??= { sku: '', stage: 'SEMI_RIPE', qty: 1 }
+  gift.box ??= { sku: '', stage: 'SEMI_RIPE' }
   setFlow(true)
   giftUrl('form')
   renderGiftSend()
@@ -413,7 +396,7 @@ function renderGiftNotice() {
   const g = giftGate(), d = !g && (gift.recipients.length ? { recipients: gift.recipients } : savedDraft())
   const named = d ? d.recipients.filter((r) => r && String(r.name || '').trim()).length : 0
   const draft = d ? `<div class="gift-draft">${icon('gift')}<p>You started a gift${named ? ` for ${plural(named, 'person', 'people')}` : ''}. It is kept here for you.</p><div class="gift-draft-acts"><button type="button" class="button primary gift-big" data-gift-draft="go">Continue the gift you started ${icon('arrow')}</button><button type="button" class="text-button gift-quiet" data-gift-draft="clear" aria-label="Clear the gift you started">Clear it</button></div></div>` : ''
-  if (!g && preSeason()) { box.innerHTML = draft + `<div class="gift-pre-top">${preNoticeHTML(giftPreWhen([]))}</div>`; return }
+  if (!g && preSeason()) { box.innerHTML = draft + `<div class="gift-pre-top">${preChipHTML(esc(giftWhen([])))}</div>`; return }
   if (!g || g.kind === 'loading') { box.innerHTML = draft; return }
   const head = g.kind === 'off' ? 'Gifting is opening soon.' : `Gifting opens ${season && season.startsOn ? longDate(season.startsOn) : 'with the season'}.`
   const more = g.kind === 'off'
@@ -434,8 +417,7 @@ function renderGiftGrid(focus) {
   // One card per variety: its sizes (3 kg, 5 kg) are a switch on the card, not separate cards.
   const groups = new Map()
   for (const p of packs) { const k = p.s.variety; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p) }
-  giftEnv.size = giftEnv.size || {}
-  grid.innerHTML = [...groups.values()].map((sibs) => giftCard(sibs.find((x) => x.sku === giftEnv.size[sibs[0].s.variety]) || sibs[0], sibs)).join('')
+  grid.innerHTML = [...groups.values()].map((sibs) => giftCard(cardPack(sibs), sibs)).join('')
   refocus(grid, focus)
 }
 
@@ -450,58 +432,57 @@ function slideSwitch(btn, then) {
   setTimeout(then, 260)
 }
 
-/** How many boxes the card is set to (0, the start, to the per-line limit): what "Add to bag" adds and what fills the first
- *  person's count when sending. */
-const cardQty = (sku) => Math.min(GIFT_BOX_MAX, Math.max(0, Number((giftEnv.qty || {})[sku]) || 0))
 /** The gift boxes of this box and ripeness already in the bag. */
 const inBag = (sku, stage) => cart.concat(typeof cartAside === 'undefined' ? [] : cartAside).filter((x) => x.gift && x.sku === sku && x.stage === stage).reduce((n, x) => n + x.qty, 0)
+/** The size a card shows: the one picked, else 3 kg (the default), else the first. */
+const cardPack = (sibs) => sibs.find((x) => x.sku === (giftEnv.size || {})[sibs[0].s.variety]) || sibs.find((x) => x.kg === '3 kg') || sibs[0]
 
 /** Before the season a gift goes in the bag as a pre-order (gift-bag.js): open when a delivery week for this box has room. */
 const preOpenFor = (sku) => pre.weeks.some((w) => w.sku === sku && w.remaining >= preNeed(1, sku))
 /** "1 March": the day the season starts, from the season data. */
 const seasonDay = () => (season && season.startsOn ? new Date(`${String(season.startsOn).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' }) : '')
 
-/** One gift card. Every card has the same rows, so neighbouring cards line up: photo, name and price, a two-line
- *  description, then (anchored to the bottom) Ripeness, Box size (a plain chip for a one-size variety), Quantity,
- *  the two buttons and one short reason line. The quantity starts at 0: nothing can be added or sent until it is set. */
+/** One gift card: photo, name, a two-line description, then the box as it is set ("3 kg · Semi-ripe" and its price, with
+ *  Change to pick the size and ripeness), one button and one short reason line. "Send as a gift" opens screen 2 with this
+ *  box for each person. While gifting is switched off the one button puts the box in the bag as a gift for one person
+ *  (gift-bag.js), checked out through the regular checkout. */
 function giftCard(p, sibs = [p]) {
-  const stage = cardStageFor(p), src = packPhoto(p, stage), id = `gift-why-${p.sku}`
-  const label = `${p.name}, ${p.kg}`, pres = !!preSeason(), n = cardQty(p.sku), have = inBag(p.sku, stage)
-  // Why the box can't be had at all (said once: a badge on the photo and the reason line); else why each button waits.
+  const stage = cardStageFor(p), src = packPhoto(p, stage), id = `gift-why-${p.sku}`, v = p.s.variety
+  const label = `${p.name}, ${p.kg}`, pres = !!preSeason(), have = inBag(p.sku, stage), open = !!(giftEnv.open || {})[v]
   const stockOff = pres ? (preOpenFor(p.sku) ? null : { kind: 'stock', icon: 'close', short: 'Fully booked', long: 'Fully booked for now' }) : stockWhy(p, stage)
-  // Before the season sending is a gift pre-order for several people (the owner, 18 Nov 2026): only the gifting switch applies.
-  const sendOff = giftGate()
-  const zero = !stockOff && n === 0
-  const reason = stockOff ? stockOff : zero ? { kind: 'qty', icon: 'info', long: 'Choose how many boxes' } : sendOff && sendOff.kind !== 'loading' ? sendOff : null
+  const gate = giftGate(), toBag = !!gate && gate.kind === 'off', bagOff = toBag ? bagWhy(p, stage) : null
+  const reason = toBag ? bagOff || { kind: 'off', icon: 'lock', long: 'Sending to several people at once opens soon' } : stockOff || (gate && gate.kind !== 'loading' ? gate : null)
   const stages = `<div class="segmented glass detail-stages gift-stages" role="group" aria-label="Ripeness for the ${esc(label)}" style="--i:${SOLD.findIndex((x) => x.apiStage === stage)};--n:${SOLD.length}"><span class="detail-lens" aria-hidden="true"></span>${SOLD.map((x) => {
     const on = x.apiStage === stage, out = !pres && stockKnown() && !anyQty(p.sku, x.apiStage)
     return `<button type="button" class="${on ? 'selected' : ''}${out ? ' out' : ''}" data-gift-stage="${x.apiStage}" data-sku="${esc(p.sku)}" aria-pressed="${on}"${out ? ` aria-label="${x.stage}, sold out"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
   }).join('')}</div>`
   const sizes = sibs.length > 1
-    ? `<div class="segmented glass detail-stages gift-sizes" role="group" aria-label="Box size for the ${esc(p.name)}" style="--i:${sibs.findIndex((x) => x.sku === p.sku)};--n:${sibs.length}"><span class="detail-lens" aria-hidden="true"></span>${sibs.map((x) => `<button type="button" class="${x.sku === p.sku ? 'selected' : ''}" data-gift-size="${esc(x.sku)}" data-variety="${esc(x.s.variety)}" aria-pressed="${x.sku === p.sku}">${esc(x.kg)} · ${currency(x.s.price)}</button>`).join('')}</div>`
+    ? `<div class="segmented glass detail-stages gift-sizes" role="group" aria-label="Box size for the ${esc(p.name)}" style="--i:${sibs.findIndex((x) => x.sku === p.sku)};--n:${sibs.length}"><span class="detail-lens" aria-hidden="true"></span>${sibs.map((x) => `<button type="button" class="${x.sku === p.sku ? 'selected' : ''}" data-gift-size="${esc(x.sku)}" data-variety="${esc(v)}" aria-pressed="${x.sku === p.sku}">${esc(x.kg)} · ${currency(x.s.price)}</button>`).join('')}</div>`
     : `<p class="gift-size-one"><span>${esc(p.kg)} · ${currency(p.s.price)}</span><small>One size</small></p>`
-  const qty = `<div class="gift-qty" role="group" aria-label="How many ${esc(label)} boxes"><span class="gift-qty-label">Quantity</span><div class="gift-qty-step"><button type="button" data-gift-qty="-1" data-sku="${esc(p.sku)}" aria-label="One box fewer"${n <= 0 ? ' disabled' : ''}>−</button><output aria-live="polite">${n}</output><button type="button" data-gift-qty="1" data-sku="${esc(p.sku)}" aria-label="One box more"${n >= GIFT_BOX_MAX || stockOff ? ' disabled' : ''}>+</button></div><span class="gift-qty-sum">${n > 0 && p.s.price ? currency(p.s.price * n) : ''}</span></div>`
-  const why = reason ? ` disabled aria-describedby="${id}"` : ''
-  const addOff = stockOff || zero, addWhy = addOff ? ` disabled aria-describedby="${id}"` : ''
-  const sendDis = stockOff || zero || sendOff
-  const add = `<button type="button" class="button secondary gift-act gift-bag-add"${addOff ? addWhy : ` data-gift-bag="${esc(p.sku)}" aria-label="${pres ? 'Pre-order' : 'Add'} ${n} of the ${esc(label)} to your bag as a gift, for one person"`}>${icon(addOff ? (stockOff ? stockOff.icon : 'info') : 'bag')}<span class="gift-act-copy"><b>${n > 0 ? `Add ${n} to bag` : 'Add to bag'}</b><small>${pres ? 'Pre-order · one person' : 'For one person'}</small></span></button>`
-  // In the several-people flow the card's quantity is the boxes each person gets.
-  const send = `<button type="button" class="button primary gift-act gift-go"${sendDis ? why || ` disabled aria-describedby="${id}"` : ` data-gift-send="${esc(p.sku)}" aria-label="Send the ${esc(label)} as a gift to several people, ${plural(n, 'box', 'boxes')} each"`}>${icon(sendDis ? (sendOff && !stockOff && !zero ? sendOff.icon : stockOff ? stockOff.icon : 'info') : 'gift')}<span class="gift-act-copy"><b>Send as a gift</b><small>${n > 0 ? `${plural(n, 'box', 'boxes')} each · several people` : pres ? 'Pre-order · several people' : 'To several people'}</small></span></button>`
+  const optsId = `gift-opts-${p.sku}`
+  const pick = `<div class="gift-pick"><p><span>${esc(p.kg)} · ${stageOf(stage).stage}</span><strong>${currency(p.s.price)}</strong></p><button type="button" class="button secondary gift-change" data-gift-change="${esc(v)}" aria-expanded="${open}" aria-controls="${esc(optsId)}" aria-label="${open ? 'Done changing' : 'Change'} the size or ripeness of the ${esc(p.name)}">${open ? 'Done' : 'Change'}</button></div>`
+  const opts = `<div class="gift-pick-opts" id="${esc(optsId)}"${open ? '' : ' hidden'}><p class="gift-card-label">Box size</p>${sizes}<p class="gift-card-label">Ripeness</p>${stages}</div>`
+  const dis = toBag ? !!bagOff : !!(stockOff || gate)
+  const why = ` disabled aria-describedby="${id}"`
+  const btn = toBag
+    ? `<button type="button" class="button primary gift-act gift-go"${dis ? why : ` data-gift-bag="${esc(p.sku)}" aria-label="Add the ${esc(label)}, ${stageOf(stage).stage}, to your bag as a gift for one person"`}>${icon(dis ? bagOff.icon : 'bag')}<span class="gift-act-copy"><b>Add to bag as a gift</b><small>For one person, from your bag</small></span></button>`
+    : `<button type="button" class="button primary gift-act gift-go"${dis ? why : ` data-gift-send="${esc(p.sku)}" aria-label="Send the ${esc(label)}, ${stageOf(stage).stage}, as a gift"`}>${icon(dis ? (stockOff || gate).icon : 'gift')}<span class="gift-act-copy"><b>Send as a gift</b><small>${pres ? 'Pre-order · one box per person' : 'One box per person'}</small></span></button>`
   const line = `<p class="gift-why${reason ? ` is-${reason.kind}` : ''}" id="${id}">${reason ? `${icon(reason.icon)}<span>${esc(reason.long)}</span>` : ''}</p>`
   const badge = stockOff && stockOff.kind !== 'stage' && stockOff.kind !== 'loading' ? `<span class="gift-badge is-${stockOff.kind}">${icon(stockOff.icon)}${esc(stockOff.short)}</span>` : `<span class="gift-badge">${icon(pres ? 'sun' : 'gift')}${pres ? 'Gift · Pre-order' : 'Gift'}</span>`
   const bagged = have ? `<a class="gift-in-bag" href="/cart" data-route>${icon('check')}<span>${have} in your bag</span></a>` : ''
-  return `<article class="gift-card${stockOff && stockOff.kind !== 'stage' ? ' is-off' : ''}" data-sku="${esc(p.sku)}"><div class="gift-card-photo${src ? ' photo' : ''}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}${badge}${bagged}</div><div class="gift-card-body"><div class="gift-card-top"><h3>${esc(p.name)}</h3><p class="gift-card-meta"><span>${esc(p.s.variety)}</span><strong>${currency(p.s.price)}</strong></p><p class="gift-card-line">${esc(p.line)}</p></div><div class="gift-card-controls"><p class="gift-card-label" aria-hidden="true">Ripeness</p>${stages}<p class="gift-card-label" aria-hidden="true">Box size</p>${sizes}${qty}<div class="gift-acts">${add}${send}</div>${line}</div></div></article>`
+  return `<article class="gift-card${stockOff && stockOff.kind !== 'stage' ? ' is-off' : ''}" data-sku="${esc(p.sku)}"><div class="gift-card-photo${src ? ' photo' : ''}">${src ? `<img src="${src}" alt="" loading="lazy" decoding="async" width="720" height="720">` : ''}${badge}${bagged}</div><div class="gift-card-body"><div class="gift-card-top"><h3>${esc(p.name)}</h3><p class="gift-card-meta"><span>${esc(v)}</span></p><p class="gift-card-line">${esc(p.line)}</p></div><div class="gift-card-controls">${pick}${opts}<div class="gift-acts">${btn}</div>${line}</div></div></article>`
 }
 
-// ---- The send flow: 1 Choose the box (on the card), 2 Who gets it (one person at a time), 3 Pay.
+// ---- Screen 2, "Who gets it?": one row per person, always open and saved as it is typed; the sticky bar pays.
 
 const fname = (r, f) => `g-${r.id}-${f}`
 
-/** The step line at the top of the flow: "1 Choose the box · 2 Who gets it · 3 Pay", the current step marked. */
+/** The step line: "1 Choose the box · 2 Who gets it", the current step marked. */
 function stepLineHTML(now) {
-  return `<ol class="gift-stepline" aria-label="Steps">${['Choose the box', 'Who gets it', 'Pay'].map((s, i) => {
+  const steps = ['Choose the box', 'Who gets it']
+  return `<ol class="gift-stepline" aria-label="Steps">${steps.map((s, i) => {
     const n = i + 1, done = n < now, cur = n === now
-    return `<li class="${done ? 'is-done' : cur ? 'is-now' : ''}"${cur ? ' aria-current="step"' : ''}><span class="gift-stepline-n" aria-hidden="true">${done ? icon('check') : n}</span><span class="gift-stepline-t"><span class="sr-only">Step ${n} of 3: </span>${s}${done ? '<span class="sr-only"> (done)</span>' : ''}</span></li>`
+    return `<li class="${done ? 'is-done' : cur ? 'is-now' : ''}"${cur ? ' aria-current="step"' : ''}><span class="gift-stepline-n" aria-hidden="true">${done ? icon('check') : n}</span><span class="gift-stepline-t"><span class="sr-only">Step ${n} of ${steps.length}: </span>${s}${done ? '<span class="sr-only"> (done)</span>' : ''}</span></li>`
   }).join('')}</ol>`
 }
 
@@ -509,26 +490,35 @@ function renderGiftSend(focus) {
   const box = $('#gift-send')
   if (!box) return
   syncPeople()
-  if (gift.step === 'pay') { box.innerHTML = stepLineHTML(3) + giftPayHTML(); giftBar(); refocus(box, focus); return }
-  if (gift.step === 'review' || gift.step === 'pre-pay' || gift.step === 'pre-done') {
-    box.innerHTML = gift.step === 'review' ? stepLineHTML(3) + giftReviewHTML() : gift.step === 'pre-pay' ? stepLineHTML(3) + giftPrePayHTML() : giftPreDoneHTML()
+  if (gift.step === 'pay' || gift.step === 'pre-pay' || gift.step === 'pre-done') {
+    box.innerHTML = gift.step === 'pay' ? stepLineHTML(2) + giftPayHTML() : gift.step === 'pre-pay' ? giftPrePayHTML() : giftPreDoneHTML()
     giftBar()
     refocus(box, focus)
     return
   }
-  const pres = !!preSeason(), open = gift.recipients.find((r) => r.id === gift.editing) || null
-  const anySaved = gift.recipients.some((r) => r.saved)
-  // Before the season the pre-order notice is on this step too, under the people (the form comes first on a phone).
-  const preTag = pres ? `<div id="gift-pre-notice">${preNoticeHTML(giftPreWhen(giftPreWeekList(giftPreWeeks())))}</div>` : ''
-  const people = gift.recipients.map((r, i) => (r === open ? personFormHTML(r, i) : personRowHTML(r, i))).join('')
+  const pres = !!preSeason(), max = giftMax(), full = gift.recipients.length >= max, any = gift.recipients.some((r) => !blankPerson(r))
   const removed = gift.removed ? `<div class="gift-removed" role="status">${icon('close')}<p>${esc(gift.removed.r.name.trim() || 'That person')} is removed.</p><button type="button" class="button secondary gift-undo" data-gift-undo>Undo</button></div>` : ''
   box.innerHTML = `${stepLineHTML(2)}
-    <div class="gift-send-head"><h2 id="gift-send-h" tabindex="-1">Who gets it?</h2><p>${anySaved ? 'Add each person, one at a time.' : 'Fill in the first person. You can add more after.'}</p></div>
+    <div class="gift-send-head"><h2 id="gift-send-h" tabindex="-1">Who gets it?</h2><p>${askOn() ? 'Add each person’s name and WhatsApp number. We can ask them for their address.' : 'Add each person’s name, WhatsApp number and address.'} One box each.</p></div>
     <form id="gift-form" novalidate>
       ${everyoneHTML()}
-      ${gift.recipients.length ? `<ol class="gift-people" aria-label="The people">${people}</ol>` : ''}
+      <ol class="gift-people" aria-label="The people">${gift.recipients.map(personRowHTML).join('')}</ol>
       ${removed}
-      ${open ? `<div id="gift-alert">${alertHTML()}</div>${preTag}` : afterPeopleHTML(preTag)}
+      <div class="gift-more">
+        <button type="button" class="button secondary gift-big gift-add" data-gift-add${full ? ' disabled aria-describedby="gift-add-why"' : ''}>${icon(full ? 'lock' : 'user')}<span>Add another person</span></button>
+        ${full ? `<p class="gift-why" id="gift-add-why">${icon('info')}<span>${max} people is the most one gift can have. Send the rest as a second gift.</span></p>` : ''}
+        <p class="gift-saved" id="gift-saved">${any ? `${icon('check')}<span>Saved on this device</span>` : ''}</p>
+      </div>
+      <section class="gift-sec gift-from" aria-labelledby="gift-from-h">
+        <h3 id="gift-from-h">With every box</h3>
+        <label class="field gift-note">Gift note<textarea name="gift-note" rows="3" maxlength="${GIFT_NOTE_MAX}" placeholder="Happy summer! Enjoy the first mangoes of the season." aria-describedby="gift-note-count">${esc(gift.note)}</textarea><small class="gift-count" id="gift-note-count">Optional · ${noteCount(gift.note)}</small></label>
+        <label class="field">From<input name="gift-sender" maxlength="80" autocomplete="name" placeholder="Your name, as they know you" value="${esc(gift.sender)}"></label>
+        <p class="gift-hidden-price">${icon('check')}<span><strong>The price is hidden.</strong> Nothing they get shows what you paid.</span></p>
+      </section>
+      ${pres ? '' : `<section class="gift-sec" aria-labelledby="gift-when-h"><h3 id="gift-when-h">When should it arrive?</h3><div id="gift-when">${whenHTML()}</div></section>`}
+      ${giftBills() && !pres ? bizHTML() : ''}
+      <div id="gift-alert">${alertHTML()}</div>
+      ${MM.profile() ? '' : `<p class="gift-muted gift-signin">${icon('user')}<span>You’ll sign in with your mobile number when you pay.</span></p>`}
     </form>
     <button type="button" class="text-button gift-quiet gift-to-boxes" data-gift-boxes>${icon('back')}<span>Back to the gift boxes</span></button>`
   applyErrors()
@@ -536,22 +526,21 @@ function renderGiftSend(focus) {
   refocus(box, focus)
 }
 
-/** "Everyone gets: 2 × Alphonso gift box · 3 kg · Semi-ripe [Change]", or the box picker while it is being changed. */
+/** "Each person gets: Alphonso gift box · 3 kg · Semi-ripe [Change]", or the box picker while it is being changed. */
 function everyoneHTML() {
-  const b = gift.box || { sku: '', stage: 'SEMI_RIPE', qty: 1 }, p = packOf(b.sku), err = gift.errors['#gift-everyone']
+  const b = gift.box || { sku: '', stage: 'SEMI_RIPE' }, p = packOf(b.sku), err = gift.errors['#gift-everyone']
   const errLine = err ? `<p class="gift-why is-error" role="alert">${icon('info')}<span>${esc(err)}</span></p>` : ''
   if (gift.boxOpen || !p) {
-    return `<section class="gift-everyone is-open" id="gift-everyone" aria-labelledby="gift-every-h" tabindex="-1"><h3 id="gift-every-h">The box everyone gets</h3>${errLine}${boxPickerHTML(null)}<button type="button" class="button primary gift-big" data-gift-box-done>${icon('check')}<span>Done</span></button></section>`
+    return `<section class="gift-everyone is-open" id="gift-everyone" aria-labelledby="gift-every-h" tabindex="-1"><h3 id="gift-every-h">The box each person gets</h3>${errLine}${boxPickerHTML(null)}<button type="button" class="button primary gift-big" data-gift-box-done>${icon('check')}<span>Done</span></button></section>`
   }
-  return `<section class="gift-everyone" id="gift-everyone" aria-labelledby="gift-every-h" tabindex="-1">${thumb(p.sku, b.stage, p.s.name)}<div class="gift-everyone-copy"><h3 id="gift-every-h">Everyone gets</h3><p class="gift-everyone-box">${esc(boxLine(b.sku, b.stage, b.qty))}</p><p class="gift-everyone-price">${currency(p.s.price * b.qty)} for each person</p>${errLine}</div><button type="button" class="button secondary gift-change" data-gift-box-change aria-label="Change the box everyone gets">Change</button></section>`
+  return `<section class="gift-everyone" id="gift-everyone" aria-labelledby="gift-every-h" tabindex="-1">${thumb(p.sku, b.stage, p.s.name)}<div class="gift-everyone-copy"><h3 id="gift-every-h">Each person gets</h3><p class="gift-everyone-box">${esc(boxLine(b.sku, b.stage))}</p><p class="gift-everyone-price">${currency(p.s.price)} a box</p>${errLine}</div><button type="button" class="button secondary gift-change" data-gift-box-change aria-label="Change the box each person gets">Change</button></section>`
 }
 
-/** The box picker: the gift box, its ripeness and how many. `r`: that person's own box; null: the box for everyone. */
+/** The box picker: the gift box and its ripeness. `r`: that person's own box; null: the box for everyone. */
 function boxPickerHTML(r) {
-  const b = r || gift.box || { sku: '', stage: 'SEMI_RIPE', qty: 1 }, p = packOf(b.sku), packs = giftPacks()
-  const id = r ? fname(r, 'box') : 'gift-box', selName = r ? fname(r, 'sku') : 'gift-box-sku', qtyName = r ? fname(r, 'qty') : 'gift-box-qty'
+  const b = r || gift.box || { sku: '', stage: 'SEMI_RIPE' }, p = packOf(b.sku), packs = giftPacks()
+  const id = r ? fname(r, 'box') : 'gift-box', selName = r ? fname(r, 'sku') : 'gift-box-sku'
   const stageAt = (x) => (r ? `data-gift-rstage="${x}" data-rid="${esc(r.id)}"` : `data-gift-bstage="${x}"`)
-  const stepAt = (n) => (r ? `data-gift-step="${n}" data-rid="${esc(r.id)}"` : `data-gift-bstep="${n}"`)
   const opts = `${p ? '' : '<option value="" selected>Choose a gift box…</option>'}${packs.map((x) => {
     const why = packWhy(x)
     return `<option value="${esc(x.sku)}"${x.sku === b.sku ? ' selected' : ''}${why && x.sku !== b.sku ? ' disabled' : ''}>${esc(x.name)} · ${esc(x.kg)} · ${currency(x.s.price)}${why ? ` (${esc(why.short.toLowerCase())})` : ''}</option>`
@@ -563,74 +552,44 @@ function boxPickerHTML(r) {
         const on = x.apiStage === b.stage, out = p && stockKnown() && !anyQty(p.sku, x.apiStage)
         return `<button type="button" class="${on ? 'selected' : ''}${out ? ' out' : ''}" ${stageAt(x.apiStage)} aria-pressed="${on}"${out ? ` aria-label="${x.stage}, out of stock"` : ''}><span class="dot ${x.id}"></span>${x.stage}</button>`
       }).join('')}</div></div>
-      <div class="field gift-boxes"><span class="gift-lab" id="${id}-qty-l">${r ? 'Boxes for this person' : 'Boxes for each person'}</span><div class="card-stepper gift-stepper" role="group" aria-labelledby="${id}-qty-l"><button type="button" ${stepAt(-1)} aria-label="One box fewer"${b.qty <= 1 ? ' aria-disabled="true"' : ''}>−</button><input name="${qtyName}" type="number" inputmode="numeric" min="1" max="${GIFT_BOX_MAX}" step="1" value="${b.qty}" aria-labelledby="${id}-qty-l"><button type="button" ${stepAt(1)} aria-label="One box more"${b.qty >= GIFT_BOX_MAX ? ' aria-disabled="true"' : ''}>+</button></div>${left !== null && left > 0 && left < 10 ? `<small class="field-hint">${left} left on ${esc(fmtDate(gift.date))}</small>` : ''}</div>
+      ${left !== null && left > 0 && left < 10 ? `<small class="field-hint">${left} left on ${esc(fmtDate(gift.date))}</small>` : ''}
     </div>`
 }
 
-/** The one open form: who the person is and where they live; their own box or note only behind a quiet link. */
-function personFormHTML(r, i) {
-  const k = (f) => fname(r, f), pin = r.pincode.trim(), served = giftEnv.pins[pin], name = r.name.trim()
+/** One person: name and WhatsApp number; then their address, or (before the season, when the API offers it) "Ask them on
+ *  WhatsApp", the default; their own box behind a quiet link; their week when it differs from the first. */
+function personRowHTML(r, i) {
+  const k = (f) => fname(r, f), pin = r.pincode.trim(), served = giftEnv.pins[pin], ask = askOf(r), who = r.name.trim()
   const pinHint = served === true ? `<small class="field-hint gift-pin is-ok">${icon('check')}<span>We deliver to ${esc(pin)}</span></small>` : served === 'checking' ? `<small class="field-hint gift-pin">${icon('clock')}<span>Checking ${esc(pin)}…</span></small>` : ''
-  const others = gift.recipients.some((x) => x !== r && x.saved)
-  const cancel = r.saved ? 'Cancel the changes' : others ? 'Don’t add this person' : ''
-  return `<li class="gift-person is-open" data-person="${esc(r.id)}" aria-labelledby="${k('h')}">
-    <h3 class="gift-person-h" id="${k('h')}" tabindex="-1">${icon('user')}<span>${r.saved && name ? `Change ${esc(name)}` : `Person ${i + 1}`}</span></h3>
+  const canRemove = gift.recipients.length > 1 || !blankPerson(r)
+  const choice = askOn() ? `<fieldset class="gift-addr-choice"><legend>Their address</legend><label class="gift-radio"><input type="radio" name="${k('ask')}" value="ask"${ask ? ' checked' : ''}><span><strong>Ask them on WhatsApp</strong><small>We send them a link to add it</small></span></label><label class="gift-radio"><input type="radio" name="${k('ask')}" value="enter"${ask ? '' : ' checked'}><span><strong>I’ll enter it</strong><small>You know where they live</small></span></label></fieldset>` : ''
+  const addr = ask ? '' : `<div class="gift-fields gift-addr"><label class="field wide">Their address<textarea name="${k('address')}" rows="2" maxlength="500" autocomplete="off" placeholder="House, street, area, landmark">${esc(r.address)}</textarea></label><label class="field gift-pin-field">Pincode<input name="${k('pincode')}" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="6 digits" value="${esc(r.pincode)}">${pinHint}</label></div>`
+  const own = r.own
+    ? `<div class="gift-own"><p class="gift-own-h">${icon('gift')}<span>A different box for ${esc(who || 'this person')}</span></p>${boxPickerHTML(r)}<button type="button" class="text-button gift-quiet" data-gift-own="off" data-rid="${esc(r.id)}">${icon('close')}<span>Give them the same box as everyone</span></button></div>`
+    : `<button type="button" class="text-button gift-quiet gift-own-link" data-gift-own="on" data-rid="${esc(r.id)}">${icon('gift')}<span>Give this person a different box</span></button>`
+  return `<li class="gift-person" data-person="${esc(r.id)}" aria-labelledby="${k('h')}">
+    <div class="gift-person-top"><h3 class="gift-person-h" id="${k('h')}" tabindex="-1">${icon('user')}<span>Person ${i + 1}</span></h3>${canRemove ? `<button type="button" class="text-button gift-quiet gift-remove" data-gift-remove="${esc(r.id)}" aria-label="Remove person ${i + 1}${who ? `, ${esc(who)}` : ''}">${icon('close')}<span>Remove</span></button>` : ''}</div>
     <div class="gift-fields">
-      <label class="field">Their name<input name="${k('name')}" maxlength="80" autocomplete="off" value="${esc(r.name)}"></label>
-      <label class="field">Their mobile number<input name="${k('phone')}" type="tel" inputmode="tel" maxlength="16" autocomplete="off" placeholder="10-digit number" value="${esc(r.phone)}" aria-describedby="${k('phone-hint')}"><small class="field-hint" id="${k('phone-hint')}">Only for the delivery person</small></label>
-      <label class="field wide">Their address<textarea name="${k('address')}" rows="3" maxlength="500" autocomplete="off" placeholder="House, street, area, landmark">${esc(r.address)}</textarea></label>
-      <label class="field gift-pin-field">Pincode<input name="${k('pincode')}" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" placeholder="6 digits" value="${esc(r.pincode)}">${pinHint}</label>
+      <label class="field">Name<input name="${k('name')}" maxlength="80" autocomplete="off" value="${esc(r.name)}"></label>
+      <label class="field">WhatsApp number<span class="gift-tel"><span class="gift-tel-cc" aria-hidden="true">+91</span><input name="${k('phone')}" type="tel" inputmode="numeric" maxlength="16" autocomplete="off" placeholder="10-digit number" value="${esc(r.phone)}" aria-describedby="${k('phone-hint')}"></span><small class="field-hint" id="${k('phone-hint')}">${ask ? 'We message them here to ask for their address' : 'Only for the delivery person'}</small></label>
     </div>
-    <div class="gift-extra">
-      ${r.own
-        ? `<div class="gift-own"><p class="gift-own-h">${icon('gift')}<span>A different box for ${esc(name || 'this person')}</span></p>${boxPickerHTML(r)}<button type="button" class="text-button gift-quiet" data-gift-own="off" data-rid="${esc(r.id)}">${icon('close')}<span>Give them the same box as everyone</span></button></div>`
-        : `<button type="button" class="text-button gift-quiet" data-gift-own="on" data-rid="${esc(r.id)}">${icon('gift')}<span>Give this person a different box</span></button>`}
-      ${r.ownNote
-        ? `<div class="gift-own"><label class="field gift-note">A note just for ${esc(name || 'this person')}<textarea name="${k('note')}" rows="3" maxlength="${GIFT_NOTE_MAX}" placeholder="Happy summer!" aria-describedby="${k('count')}">${esc(r.note)}</textarea><small class="gift-count" id="${k('count')}">${noteCount(r.note)}</small></label><button type="button" class="text-button gift-quiet" data-gift-ownnote="off" data-rid="${esc(r.id)}">${icon('close')}<span>Use the note for everyone</span></button></div>`
-        : `<button type="button" class="text-button gift-quiet" data-gift-ownnote="on" data-rid="${esc(r.id)}">${icon('mail')}<span>Write a different note for this person</span></button>`}
-    </div>
-    <div class="gift-person-go"><button type="button" class="button primary gift-big" data-gift-save="${esc(r.id)}">${icon('check')}<span>Save this person</span></button>${cancel ? `<button type="button" class="text-button gift-quiet" data-gift-discard="${esc(r.id)}">${cancel}</button>` : ''}</div>
+    ${choice}${addr}${own}${preSeason() ? personWeekHTML(r) : ''}
   </li>`
 }
 const noteCount = (s) => `${s.length} / ${GIFT_NOTE_MAX}${s.length >= GIFT_NOTE_MAX ? ' · that’s the most a note can hold' : ''}`
 
-/** A saved person, in one line: "✓ Meera Rao · 2 boxes · 560001   [Edit] [Remove]". */
-function personRowHTML(r, i) {
-  const p = packOf(r.sku), name = r.name.trim() || `Person ${i + 1}`
-  const bits = [plural(r.qty, 'box', 'boxes'), r.pincode.trim()].filter(Boolean).join(' · ')
-  const extra = [r.own && p ? `Own box: ${p.name} · ${p.kg} · ${stageOf(r.stage).stage}` : '', r.ownNote && r.note.trim() ? 'Own note' : ''].filter(Boolean).join(' · ')
-  return `<li class="gift-row${r.saved ? '' : ' is-unfinished'}" data-row="${esc(r.id)}"><span class="gift-row-mark" aria-hidden="true">${icon(r.saved ? 'check' : 'info')}</span><div class="gift-row-main" id="gift-row-${esc(r.id)}" tabindex="-1"><p><strong>${esc(name)}</strong> <span>· ${esc(bits)}</span></p>${extra ? `<small>${esc(extra)}</small>` : ''}${r.saved ? '' : '<small class="gift-row-todo">Not finished yet: press Edit</small>'}</div><div class="gift-row-acts"><button type="button" class="button secondary gift-row-btn" data-gift-edit="${esc(r.id)}" aria-label="Edit ${esc(name)}">Edit</button><button type="button" class="button secondary gift-row-btn" data-gift-remove="${esc(r.id)}" aria-label="Remove ${esc(name)}">Remove</button></div></li>`
-}
-
-/** Below the people (no form open): add another, the note for everyone, the day (in season), GST, the total, go on. */
-function afterPeopleHTML(preTag = '') {
-  const pres = !!preSeason(), max = giftMax(), full = gift.recipients.length >= max, signed = !!MM.profile()
-  return `<div class="gift-more">
-      <button type="button" class="button secondary gift-big gift-add" data-gift-add${full ? ' disabled aria-describedby="gift-add-why"' : ''}>${icon(full ? 'lock' : 'user')}<span>Add another person</span></button>
-      ${full ? `<p class="gift-why" id="gift-add-why">${icon('info')}<span>${max} people is the most one gift can have. Send the rest as a second gift.</span></p>` : ''}
-    </div>
-    <section class="gift-sec" aria-label="Gift note">
-      <label class="field gift-note">Gift note (goes with every box)<textarea name="gift-note" rows="3" maxlength="${GIFT_NOTE_MAX}" placeholder="Happy summer! Enjoy the first mangoes of the season." aria-describedby="gift-note-count">${esc(gift.note)}</textarea><small class="gift-count" id="gift-note-count">Optional · ${noteCount(gift.note)}</small></label>
-      <label class="field">Your name on the note (optional)<input name="gift-sender" maxlength="80" autocomplete="name" value="${esc(gift.sender)}"></label>
-    </section>
-    ${pres ? '' : `<section class="gift-sec" aria-labelledby="gift-when-h"><h3 id="gift-when-h">When should it arrive?</h3><div id="gift-when">${whenHTML()}</div></section>`}
-    ${giftBills() && !pres ? bizHTML() : ''}
-    ${preTag}
-    <div class="gift-total" id="gift-total">${totalHTML()}</div>
-    <div id="gift-alert">${alertHTML()}</div>
-    <button type="button" class="button primary gift-big gift-continue" data-gift-review><span>That’s everyone: review and pay</span>${icon('arrow')}</button>
-    ${signed ? '' : `<p class="gift-muted gift-signin">${icon('user')}<span>You’ll sign in with your mobile number first.</span></p>`}`
+/** Before the season, a person's week, said only when it is not the first open week (or there is none). */
+function personWeekHTML(r) {
+  const x = giftPreWeeks().find((w) => w.r === r)
+  if (!x || !packOf(r.sku)) return ''
+  if (!x.week) return `<p class="gift-person-week is-off">${icon('close')}<span>${esc(x.big ? preTooBigWords(r.sku) : 'No delivery week has room for this box. Choose another box.')}</span></p>`
+  return x.moved ? `<p class="gift-person-week">${icon('calendar')}<span>Arrives week of ${esc(fmtWeek(x.week.weekStart))}. ${esc(preFullLine(x.first.weekStart, x.week.weekStart))}</span></p>` : ''
 }
 
 /** Business name and GSTIN for the one bill (in season), tucked behind a link. */
 function bizHTML() {
   if (!gift.business) return `<button type="button" class="text-button gift-quiet gift-biz-link" data-gift-biz="on">${icon('store')}<span>Buying for a business? Add GST details</span></button>`
   return `<section class="gift-sec" aria-labelledby="gift-biz-h"><h3 id="gift-biz-h">GST details for the bill</h3><p class="gift-muted">${icon('info')}<span>They go on the one bill for the whole gift.</span></p><div class="gift-fields gift-biz"><label class="field">Business name<input name="gift-biz-name" maxlength="100" autocomplete="organization" placeholder="As on the GST certificate" value="${esc(gift.bizName)}"></label><label class="field">GSTIN<input name="gift-gstin" maxlength="20" autocapitalize="characters" spellcheck="false" placeholder="15 characters" value="${esc(gift.gstin)}"></label></div><button type="button" class="text-button gift-quiet" data-gift-biz="off">${icon('close')}<span>Remove the GST details</span></button></section>`
-}
-
-function totalHTML() {
-  const t = giftTotals()
-  return `<p class="gift-total-row"><span>Total, paid once<small>${plural(t.people, 'person', 'people')} · ${plural(t.boxes, 'box', 'boxes')} · delivery included</small></span><strong>${currency(t.total)}</strong></p>`
 }
 
 /** Days the boxes chosen so far are in stock on (all recipients together); unknown stock counts as fitting. */
@@ -646,7 +605,7 @@ function dayFits(d) {
 }
 
 function whenHTML() {
-  if (preSeason()) return preWhenHTML()
+  if (preSeason()) return ''
   if (!giftEnv.dates.length) return `<p class="gift-muted">${icon('pin')}<span>Add a pincode we deliver to and the delivery days show here.</span></p>`
   const cut = esc(giftEnv.cutoff || (policy && policy.cutoffTime) || '18:00 IST')
   const cards = giftEnv.dates.map((x) => {
@@ -658,22 +617,6 @@ function whenHTML() {
     return `<button type="button" class="slot-card" data-gift-slot="${esc(s.id)}" aria-pressed="${on}" ${off ? 'disabled' : ''}><strong>${esc(s.label)}</strong><small>${esc(s.startsAt)}–${esc(s.endsAt)}${off ? ' · Full' : ''}</small>${on ? icon('check') : ''}</button>`
   }).join('')}</div>` : ''
   return `<p class="gift-muted">${icon('calendar')}<span>One day and time for everyone. Order by ${cut} for the next day.</span></p><p class="gift-label" id="gift-date-l">Day</p><div class="date-cards" id="gift-dates" role="group" aria-labelledby="gift-date-l" tabindex="-1">${cards}</div>${slots}`
-}
-
-/** Before the season: each person's delivery week (a pre-order has a week, not a day or a time). */
-function preWhenHTML() {
-  const list = giftPreWeeks()
-  if (!list.length) return ''
-  const ws = new Set(list.filter((x) => x.week).map((x) => String(x.week.weekStart)))
-  const rows = list.map(({ r, week, first, moved, big }, i) => {
-    const who = esc(r.name.trim() || `Person ${i + 1}`)
-    const what = !packOf(r.sku) ? 'Choose a gift pack to see the week'
-      : big ? esc(preTooBigWords(r.sku))
-      : week ? `Delivered in ${preWeekText(week.weekStart)}${moved ? `<small class="pre-moved">${esc(preFullLine(first.weekStart, week.weekStart))}</small>` : ''}`
-        : `No delivery week has room for ${plural(r.qty, 'box', 'boxes')} of this pack. Choose fewer boxes or another pack.`
-    return `<li class="${week || !packOf(r.sku) ? '' : 'is-off'}">${icon(week ? 'calendar' : packOf(r.sku) ? 'close' : 'info')}<span><strong>${who}</strong> · ${what}</span></li>`
-  }).join('')
-  return `<ul class="gift-pre-weeks">${rows}</ul>${ws.size > 1 ? `<p class="pre-why is-block">${icon('info')}<span>Not everyone gets their gift in the same week: each person’s week is shown above.</span></p>` : ''}`
 }
 
 function giftTotals() {
@@ -699,33 +642,33 @@ function alertHTML() {
   return gift.error ? `<div class="prototype-tag gift-alert" role="alert">${icon('info')}<span>${esc(gift.error)}</span></div>` : ''
 }
 
-/** One person's problems (their own fields only), in form order: [{ name, msg, pending }]. Their box is checked here
- *  only when it is their own (else it is everyone's box, checked once). `strict`: a pincode that could not be checked
- *  is an error to act on, not a wait. */
+/** One person's problems (their own fields only), in form order: [{ name, msg, pending }]. Their box is checked here only
+ *  when it is their own (else it is everyone's box, checked once). The address only when the giver types it. `strict`: a
+ *  pincode that could not be checked is an error to act on, not a wait. */
 function personProblems(r, strict) {
   const out = [], add = (name, msg, pending) => out.push({ name, msg, pending: !!pending })
-  const k = (f) => fname(r, f), name = r.name.trim(), ph = normPhone(r.phone), a = r.address.trim(), pin = r.pincode.trim()
-  if (preSeason() && r.own && packOf(r.sku) && preTooBig(r.qty, r.sku)) add(k('qty'), preTooBigWords(r.sku))
+  const k = (f) => fname(r, f), name = r.name.trim(), a = r.address.trim(), pin = r.pincode.trim()
   if (!name) add(k('name'), 'Enter their name')
   else if (name.length > 80) add(k('name'), 'Keep the name to 80 letters')
-  if (!ph) add(k('phone'), 'Enter their mobile number')
-  else if (!/^[6-9]\d{9}$/.test(ph)) add(k('phone'), 'Enter a 10-digit mobile number')
-  if (!a) add(k('address'), 'Enter their address')
-  else if (a.length < 10) add(k('address'), 'Enter the full address: house, street and area')
-  if (!pin) add(k('pincode'), 'Enter the pincode')
-  else if (!/^[1-9]\d{5}$/.test(pin)) add(k('pincode'), 'Enter a 6-digit pincode')
-  else if (giftEnv.pins[pin] === false) add(k('pincode'), `We don’t deliver to ${pin} yet`)
-  else if (giftEnv.pins[pin] !== true) {
-    if (strict && giftEnv.pins[pin] !== 'checking') add(k('pincode'), 'We couldn’t check this pincode just now. Check your connection and try again.')
-    else add(k('pincode'), `Checking the pincode ${pin}…`, true)
+  const ph = giftPhoneWhy(r.phone)
+  if (ph) add(k('phone'), ph)
+  if (!askOf(r)) {
+    if (!a) add(k('address'), 'Enter their address')
+    else if (a.length < 10) add(k('address'), 'Enter the full address: house, street and area')
+    if (!pin) add(k('pincode'), 'Enter the pincode')
+    else if (!/^[1-9]\d{5}$/.test(pin)) add(k('pincode'), 'Enter a 6-digit pincode')
+    else if (giftEnv.pins[pin] === false) add(k('pincode'), `We don’t deliver to ${pin} yet`)
+    else if (giftEnv.pins[pin] !== true) {
+      if (strict && giftEnv.pins[pin] !== 'checking') add(k('pincode'), 'We couldn’t check this pincode just now. Check your connection and try again.')
+      else add(k('pincode'), `Checking the pincode ${pin}…`, true)
+    }
   }
   if (r.own) {
     const p = packOf(r.sku)
     if (!p) add(k('sku'), 'Choose a gift box')
-    else if (stockKnown() && !anyQty(p.sku, r.stage)) add(k('qty'), `${stageOf(r.stage).stage} ${p.name.toLowerCase()} is out of stock: choose the other ripeness`)
-    if (!(Number.isInteger(r.qty) && r.qty >= 1 && r.qty <= GIFT_BOX_MAX)) add(k('qty'), `Choose 1 to ${GIFT_BOX_MAX} boxes`)
+    else if (preSeason() && preTooBig(1, r.sku)) add(k('sku'), preTooBigWords(r.sku))
+    else if (stockKnown() && !anyQty(p.sku, r.stage)) add(k('sku'), `${stageOf(r.stage).stage} ${p.name.toLowerCase()} is out of stock: choose the other ripeness`)
   }
-  if (r.ownNote && r.note.length > GIFT_NOTE_MAX) add(k('note'), `Keep the note to ${GIFT_NOTE_MAX} letters`)
   return out
 }
 
@@ -747,12 +690,12 @@ function giftProblems(strict) {
       const [sku, stage] = key.split('|'), left = dayQty(sku, stage, gift.date)
       if (left >= qty || !anyQty(sku, stage)) continue
       const p = packOf(sku), who = gift.recipients.filter((r) => r.sku === sku && r.stage === stage)
-      const msg = `Only ${left} ${stageOf(stage).stage.toLowerCase()} ${p.kg} ${p.s.variety} ${left === 1 ? 'box is' : 'boxes are'} left on ${fmtDate(gift.date)}${who.length > 1 ? ' for everyone together' : ''}: choose fewer boxes or another day`
-      who.forEach((r) => add(r.own ? fname(r, 'qty') : '#gift-everyone', msg))
+      const msg = `Only ${left} ${stageOf(stage).stage.toLowerCase()} ${p.kg} ${p.s.variety} ${left === 1 ? 'box is' : 'boxes are'} left on ${fmtDate(gift.date)}${who.length > 1 ? ' for everyone together' : ''}: choose another day or another box`
+      who.forEach((r) => add(r.own ? fname(r, 'sku') : '#gift-everyone', msg))
     }
   }
   if (preSeason()) {
-    for (const { r, week, big } of giftPreWeeks()) if (packOf(r.sku) && !week) add(r.own ? fname(r, 'qty') : '#gift-everyone', big ? `${whoOf(r)}: ${preTooBigWords(r.sku)}` : `No delivery week has room for ${whoOf(r)}’s ${plural(r.qty, 'box', 'boxes')}: choose fewer boxes or another box`)
+    for (const { r, week, big } of giftPreWeeks()) if (packOf(r.sku) && !week) add(r.own ? fname(r, 'sku') : '#gift-everyone', big ? `${whoOf(r)}: ${preTooBigWords(r.sku)}` : `No delivery week has room for ${whoOf(r)}’s box: choose another box`)
   } else if (gift.recipients.length) {
     if (!giftEnv.dates.length) add('#gift-when', 'Add a pincode we deliver to, to choose the day', true)
     else if (!gift.date) add('#gift-dates', 'Choose the delivery day')
@@ -795,16 +738,28 @@ function checkField(name, announce) {
   if (p && announce) { const live = $('#gift-live'); if (live) live.textContent = problemText(p) }
 }
 
-/** The flow has its own big buttons in the page, so the sticky pay bar stays empty on the Gifting page. */
-function giftBar() { if (giftPage()) setBar('') }
+/** The sticky bar on screen 2: "2 boxes · Arrives week of 1 Mar", the total, the pre-order tick (before the season) and
+ *  Pay. Redrawn only when it changes, keeping the focus on the control in use; empty on every other step. */
+let lastBar = ''
+function giftBar() {
+  if (!giftPage()) return
+  const bar = $('#pay-bar'), mine = !!(bar && bar.querySelector('.gift-bar'))
+  if (!(gift.flow && gift.step === 'form' && $('#gift-form'))) { lastBar = ''; if (mine) setBar(''); return }
+  const t = giftTotals(), pres = !!preSeason()
+  const when = pres ? giftWhen(giftPreWeekList(giftPreWeeks())) : gift.date ? `on ${fmtDate(gift.date)}` : ''
+  const agree = pres ? `<label class="gift-bar-agree"><input type="checkbox" name="gift-pre-agree-all"${gift.agree ? ' checked' : ''}${gift.busy ? ' disabled' : ''}><span>I understand it’s paid in full now and can’t be cancelled once paid, unless you delay it.</span></label>` : ''
+  const hint = gift.barHint ? `<p class="pay-bar-hint" role="status">${esc(gift.barHint)}</p>` : ''
+  const html = `${hint}<div class="gift-bar">${agree}<div class="pay-bar-row"><div class="pay-bar-total"><small>${esc(giftBarLine(t.boxes, when))}</small><strong>${currency(t.total)}</strong></div><button type="button" class="button primary pay-bar-go" data-gift-pay${gift.busy ? ' disabled' : ''}>${icon(gift.busy ? 'clock' : 'lock')}<span>${gift.busy ? (pres ? 'Booking…' : 'Placing…') : `Pay ${currency(t.total)}`}</span></button></div></div>`
+  if (html === lastBar && mine && !bar.hidden) return
+  const a = document.activeElement, keep = a && bar && bar.contains(a) ? (a.name ? { name: a.name } : { 'data-gift-pay': '' }) : null
+  lastBar = html
+  setBar(html)
+  if (keep && bar) refocus(bar, keep)
+}
 
 /** Redraws the parts that follow from the form's numbers (not the fields being typed in). */
 function giftRefresh() {
   syncPeople()
-  const note = $('#gift-pre-notice')
-  if (note && preSeason()) note.innerHTML = preNoticeHTML(giftPreWhen(giftPreWeekList(giftPreWeeks())))
-  const tot = $('#gift-total')
-  if (tot) tot.innerHTML = totalHTML()
   const when = $('#gift-when')
   if (when) {
     const a = document.activeElement, sel = a && when.contains(a) && (a.dataset.giftDate ? { 'data-gift-date': a.dataset.giftDate } : a.dataset.giftSlot ? { 'data-gift-slot': a.dataset.giftSlot } : null)
@@ -831,16 +786,16 @@ function focusSel(sel, block = 'center') {
   el.focus({ preventScroll: true })
 }
 
-/** "Send as a gift" on a card: its box (pack, ripeness, and the card's quantity as the boxes each person gets) is the
- *  box everyone gets, and the flow opens on step 2 with the first person's form (or where it was left). */
-function openSend(sku, stage, qty = 1) {
-  if (giftGate() || qty < 1) return
-  const changed = gift.recipients.some((r) => r.saved && !r.own) && gift.box && (gift.box.sku !== sku || gift.box.stage !== stage || gift.box.qty !== qty)
-  gift.box = { sku, stage, qty: Math.min(GIFT_BOX_MAX, qty) }
+/** "Send as a gift" on a card: that box is the box each person gets, and screen 2 opens at the first row without a name.
+ *  (The bag's "order again" passes a number of boxes; a gift is now one box per person, so it is not used.) */
+function openSend(sku, stage) {
+  if (giftGate()) return
+  const changed = gift.recipients.some((r) => !r.own && !blankPerson(r)) && gift.box && (gift.box.sku !== sku || gift.box.stage !== stage)
+  gift.box = { sku, stage }
   gift.boxOpen = false
   delete gift.errors['#gift-everyone']
-  if (gift.step === 'review') gift.step = 'form'
-  if (!gift.recipients.length) { const r = newPerson({}); gift.recipients.push(r); gift.editing = r.id; gift.snap = null }
+  if (gift.step !== 'form') gift.step = 'form'
+  if (!gift.recipients.length) gift.recipients.push(newPerson({}))
   syncPeople()
   if (!preSeason() && (!gift.date || !dayFits(gift.date))) gift.date = giftEnv.dates.find((d) => dayFits(d)) || gift.date
   setFlow(true)
@@ -848,90 +803,22 @@ function openSend(sku, stage, qty = 1) {
   renderGiftSend()
   giftSlots()
   saveDraft()
-  const open = gift.recipients.find((r) => r.id === gift.editing)
-  giftTop(open ? `[name="${fname(open, 'name')}"]` : null)
-  say(changed ? `Everyone now gets ${boxLine(sku, stage, gift.box.qty)}.` : `${boxLine(sku, stage, gift.box.qty)} for each person. Now tell us who gets it.`)
+  const empty = gift.recipients.find((r) => !r.name.trim())
+  giftTop(empty ? `[name="${fname(empty, 'name')}"]` : null)
+  say(changed ? `Everyone now gets the ${boxLine(sku, stage)}.` : `The ${boxLine(sku, stage)}, one for each person. Now tell us who gets it.`)
 }
 
-// ---- One person at a time: save, edit, remove, add another.
+// ---- People: add, remove (with Undo). Every change is saved as it is made (saveDraft), so there is no Save button.
 
-function showPersonErrors(r, probs) {
-  for (const x of probs) gift.errors[x.name] = x.msg
-  renderGiftSend()
-  focusField(probs[0].name)
-  say(`${probs.length === 1 ? 'One thing to fix' : `${probs.length} things to fix`}. ${problemText(probs[0])}`)
-}
-/** Closes the open form before another one opens: saved when it is complete, dropped when it is still empty. When it
- *  has a mistake it stays open with the mistakes shown, and false is returned. */
-function closeOpen() {
-  const r = gift.recipients.find((x) => x.id === gift.editing)
-  if (!r) { gift.editing = null; gift.snap = null; return true }
-  if (!r.saved && blankPerson(r)) { gift.recipients.splice(gift.recipients.indexOf(r), 1); gift.editing = null; gift.snap = null; return true }
-  const probs = personProblems(r).filter((x) => !x.pending)
-  if (probs.length) { showPersonErrors(r, probs); return false }
-  r.saved = true
-  gift.editing = null
-  gift.snap = null
-  return true
-}
-async function savePerson(id) {
-  const r = gift.recipients.find((x) => x.id === id)
-  if (!r || gift.editing !== id) return
-  const pin = r.pincode.trim()
-  if (/^[1-9]\d{5}$/.test(pin) && giftEnv.pins[pin] !== true && giftEnv.pins[pin] !== false) {
-    const b = $(`[data-gift-save="${CSS.escape(id)}"]`)
-    if (b) { b.disabled = true; b.querySelector('span').textContent = 'Checking the pincode…' }
-    await checkPin(pin)
-    if (!giftPage() || gift.editing !== id) return
-  }
-  const probs = personProblems(r, true)
-  if (probs.length) { if (!$('#gift-form')) return; showPersonErrors(r, probs); return }
-  r.saved = true
-  gift.editing = null
-  gift.snap = null
-  gift.removed = null
-  renderGiftSend()
-  saveDraft()
-  focusSel(`#gift-row-${CSS.escape(r.id)}`)
-  const n = gift.recipients.filter((x) => x.saved).length
-  say(`${r.name.trim()} is saved. ${plural(n, 'person', 'people')} so far.`)
-}
-function editPerson(id) {
-  const r = gift.recipients.find((x) => x.id === id)
-  if (!r) return
-  if (gift.editing && gift.editing !== id && !closeOpen()) return
-  gift.editing = id
-  gift.snap = r.saved ? { ...r } : null
-  gift.removed = null
-  renderGiftSend()
-  saveDraft()
-  focusField(fname(r, 'name'))
-}
-function discardPerson(id) {
-  const r = gift.recipients.find((x) => x.id === id)
-  if (!r) return
-  Object.keys(gift.errors).forEach((k) => { if (k.startsWith(`g-${r.id}-`)) delete gift.errors[k] })
-  if (gift.snap && gift.snap.id === r.id) Object.assign(r, gift.snap, { saved: true })
-  else gift.recipients.splice(gift.recipients.indexOf(r), 1)
-  gift.editing = null
-  gift.snap = null
-  renderGiftSend()
-  saveDraft()
-  if (gift.recipients.includes(r)) focusSel(`#gift-row-${CSS.escape(r.id)}`)
-  else focusSel('[data-gift-add]')
-}
 function addPerson() {
   if (gift.recipients.length >= giftMax()) return
-  if (gift.editing && !closeOpen()) return
   const r = newPerson({})
   gift.recipients.push(r)
-  gift.editing = r.id
-  gift.snap = null
   gift.removed = null
   renderGiftSend()
   saveDraft()
   focusField(fname(r, 'name'))
-  say(`Person ${gift.recipients.length}: fill in their details.`)
+  say(`Person ${gift.recipients.length}: add their name and WhatsApp number.`)
 }
 function removePerson(id) {
   const i = gift.recipients.findIndex((r) => r.id === id)
@@ -939,10 +826,9 @@ function removePerson(id) {
   const r = gift.recipients[i]
   gift.recipients.splice(i, 1)
   Object.keys(gift.errors).forEach((k) => { if (k.startsWith(`g-${r.id}-`)) delete gift.errors[k] })
-  if (gift.editing === r.id) { gift.editing = null; gift.snap = null }
   gift.removed = { r, i }
-  // Nobody left: the first person's form again.
-  if (!gift.recipients.length) { const n = newPerson({}); gift.recipients.push(n); gift.editing = n.id }
+  // Nobody left: an empty row again.
+  if (!gift.recipients.length) gift.recipients.push(newPerson({}))
   if (gift.date && !dayFits(gift.date)) gift.date = giftEnv.dates.find((x) => dayFits(x)) || gift.date
   renderGiftSend()
   saveDraft()
@@ -953,49 +839,48 @@ function undoRemove() {
   const x = gift.removed
   if (!x) return
   gift.removed = null
-  // The empty form opened because nobody was left goes again.
-  const open = gift.recipients.find((r) => r.id === gift.editing)
-  if (open && !open.saved && blankPerson(open)) { gift.recipients.splice(gift.recipients.indexOf(open), 1); gift.editing = null }
+  // The empty row added because nobody was left goes again.
+  if (gift.recipients.length === 1 && blankPerson(gift.recipients[0])) gift.recipients = []
   if (gift.recipients.length >= giftMax()) { renderGiftSend(); return }
   gift.recipients.splice(Math.min(x.i, gift.recipients.length), 0, x.r)
   renderGiftSend()
   saveDraft()
-  focusSel(`#gift-row-${CSS.escape(x.r.id)}`)
+  focusField(fname(x.r, 'name'))
   say(`${x.r.name.trim() || 'That person'} is back.`)
 }
 
-/** "That's everyone: review and pay": everything is checked (the first mistake is opened and shown), then the review. */
-async function giftToReview() {
+/** Pay on the sticky bar: empty rows left out, every row checked (the first mistake shown and focused), the pre-order
+ *  tick, sign-in, then the booking (before the season) or the gift order (in season). */
+async function giftCheckout() {
   if (gift.busy) return
-  gift.wantReview = false
   gift.error = ''
+  gift.barHint = ''
   gift.removed = null
-  if (gift.editing && !closeOpen()) return
-  gift.recipients = gift.recipients.filter((r) => r.saved || !blankPerson(r))
-  if (!gift.recipients.length) { const r = newPerson({}); gift.recipients.push(r); gift.editing = r.id; renderGiftSend(); focusField(fname(r, 'name')); return }
-  const pins = [...new Set(gift.recipients.map((r) => r.pincode.trim()).filter((p) => /^[1-9]\d{5}$/.test(p) && giftEnv.pins[p] !== true && giftEnv.pins[p] !== false))]
+  const kept = gift.recipients.filter((r) => !blankPerson(r))
+  if (kept.length !== gift.recipients.length) { gift.recipients = kept.length ? kept : gift.recipients.slice(0, 1); renderGiftSend() }
+  const pins = [...new Set(gift.recipients.filter((r) => !askOf(r)).map((r) => r.pincode.trim()).filter((p) => /^[1-9]\d{5}$/.test(p) && giftEnv.pins[p] !== true && giftEnv.pins[p] !== false))]
   if (pins.length) await Promise.all(pins.map((p) => checkPin(p)))
   if (!giftPage() || gift.step !== 'form') return
   const probs = giftProblems(true), p = probs.find((x) => !x.pending) || probs[0]
   if (p) {
-    if (p.pending) { gift.error = `${problemText(p)} Press the button again in a moment.`; renderGiftSend(); focusSel('[data-gift-review]') } else fixProblem(p)
+    if (p.pending) { gift.error = `${problemText(p)} Press Pay again in a moment.`; renderGiftSend(); $('#gift-alert')?.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }); say(gift.error) } else fixProblem(p)
+    return
+  }
+  if (preSeason() && !gift.agree) {
+    gift.barHint = 'Tick the box to say you understand, then press Pay.'
+    giftBar()
+    focusSel('#pay-bar [name="gift-pre-agree-all"]')
+    say(gift.barHint)
     return
   }
   if (!MM.profile()) {
-    gift.wantReview = true
+    gift.wantPay = true
     saveDraft()
-    setTimeout(() => go(`/login?next=${encodeURIComponent('/gifts/send/review')}`), 200)
+    setTimeout(() => go(`/login?next=${encodeURIComponent('/gifts/send')}`), 200)
     return
   }
-  for (const r of gift.recipients) r.saved = true
-  gift.step = 'review'
-  gift.agree = false
-  gift.unpaid = null
-  gift.key = null
-  renderGiftSend()
-  saveDraft()
-  giftUrl('review')
-  giftTop()
+  if (preSeason()) giftGroupBook()
+  else giftPay()
 }
 
 /** Checks a pincode the way checkout does (GET /v1/delivery/check), once per pincode; the promise settles when the
@@ -1050,20 +935,25 @@ async function giftSlots() {
 
 const giftBody = () => (syncPeople(), {
   deliveryDate: gift.date, slotId: gift.slotId || null,
-  recipients: gift.recipients.map((r) => ({ name: r.name.trim(), phone: normPhone(r.phone), address: r.address.trim(), pincode: r.pincode.trim(), sku: r.sku, stage: r.stage, qty: r.qty, note: noteOf(r) || null })),
+  recipients: gift.recipients.map((r) => ({ name: r.name.trim(), phone: giftPhone(r.phone), address: r.address.trim(), pincode: r.pincode.trim(), sku: r.sku, stage: r.stage, qty: 1, note: noteOf() || null })),
 })
+
+/** An API mistake about one person: on their row when it is a field there, else one line naming them. */
+const ROW_FIELDS = ['name', 'phone', 'address', 'pincode']
+function markPersonError(r, field, msg) {
+  if (ROW_FIELDS.includes(field)) gift.errors[fname(r, field)] = msg
+  else if (r.own && ['sku', 'stage', 'qty'].includes(field)) gift.errors[fname(r, 'sku')] = msg
+  else if (field === 'note' || field === 'message') gift.errors['gift-note'] = msg
+  else gift.error = `${whoOf(r)}: ${msg.charAt(0).toLowerCase()}${msg.slice(1)}`
+}
 
 /** The API's answer, on the fields it names (RECIPIENTS_INVALID rows), else one line above the pay bar. */
 function giftFailed(e) {
   gift.error = ''
   const x = e.extra || {}
   if (e.code === 'RECIPIENTS_INVALID' && Array.isArray(x.rows)) {
-    const map = { stage: 'qty' }
-    for (const row of x.rows) {
-      const r = gift.recipients[row.row - 1]
-      if (r) gift.errors[fname(r, map[row.field] || row.field)] = row.message
-    }
-    gift.error = 'Some details need a look: they are marked on each person.'
+    for (const row of x.rows) { const r = gift.recipients[row.row - 1]; if (r) markPersonError(r, row.field, row.message) }
+    gift.error ||= 'Some details need a look: they are marked on each person.'
   } else if (e.code === 'STOCK_INSUFFICIENT') {
     const p = packOf(x.sku)
     gift.error = `Not enough ${p ? `${p.s.variety} ${p.kg}` : 'of one box'} boxes on ${fmtDate(gift.date)}. Choose fewer boxes or another day.`
@@ -1083,17 +973,9 @@ function giftFailed(e) {
   else gift.error = orderError(e)
 }
 
-/** In season, the review's "Pay" (before the season the review books the pre-orders instead, giftGroupBook). */
+/** In season, Pay (giftCheckout has checked everything): quote, then confirm (one Razorpay order), then pay. */
 async function giftPay() {
   if (gift.busy || preSeason()) return
-  const probs = giftProblems(true)
-  if (probs.length) { fixProblem(probs.find((x) => !x.pending) || probs[0]); return }
-  if (!MM.profile()) {
-    gift.wantReview = true
-    saveDraft()
-    setTimeout(() => go(`/login?next=${encodeURIComponent('/gifts/send/review')}`), 300)
-    return
-  }
   gift.busy = true
   gift.error = ''
   gift.unpaid = null
@@ -1118,15 +1000,13 @@ async function giftPay() {
       }
     }
   } catch (e) {
-    if (e.status === 401) { saveDraft(); go(`/login?next=${encodeURIComponent('/gifts/send/review')}`); return }
+    if (e.status === 401) { gift.wantPay = true; saveDraft(); go(`/login?next=${encodeURIComponent('/gifts/send')}`); return }
     giftFailed(e)
   } finally {
     gift.busy = false
     if (!c && giftPage() && $('#gift-send') && gift.step !== 'pay') {
-      backToErrors()
       renderGiftSend()
-      const open = gift.recipients.find((r) => r.id === gift.editing), bad = open && Object.keys(gift.errors).find((k) => k.startsWith(`g-${open.id}-`))
-      if (!(bad && focusField(bad))) $('#gift-alert')?.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' })
+      focusFirstError()
     }
   }
   if (!c) return
@@ -1207,8 +1087,15 @@ async function giftSettle(id) {
   }
 }
 
-/** Shows one problem where it is: that person's form opened with the mistake next to the field (the first wrong field
- *  gets the focus), the box everyone gets opened, or the part of the page it is about. */
+/** After the API said no: the focus on the first marked field, else the message above the bar. */
+function focusFirstError() {
+  const bad = $('#gift-form [aria-invalid="true"]')
+  if (bad) { bad.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }); bad.focus({ preventScroll: true }) }
+  else $('#gift-alert')?.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' })
+}
+
+/** Shows one problem where it is: the field on that person's row (with their other mistakes), the box everyone gets
+ *  opened, or the part of the page it is about. */
 function fixProblem(p) {
   if (!p) return
   gift.step = 'form'
@@ -1216,15 +1103,11 @@ function fixProblem(p) {
   if (m) {
     const r = gift.recipients.find((x) => x.id === m[1])
     if (!r) return
-    if (gift.editing && gift.editing !== r.id && !closeOpen()) return
-    if (gift.editing !== r.id) { gift.snap = r.saved ? { ...r } : null; gift.editing = r.id }
-    const probs = personProblems(r, true).filter((x) => !x.pending)
-    if (!p.pending && !probs.some((x) => x.name === p.name)) probs.push(p)
-    for (const x of probs) gift.errors[x.name] = x.msg
+    for (const x of personProblems(r, true).filter((x) => !x.pending)) gift.errors[x.name] = x.msg
+    if (!p.pending) gift.errors[p.name] = p.msg
     renderGiftSend()
-    const first = probs[0] || p
-    if (!focusField(first.name)) focusSel(`#${CSS.escape(fname(r, 'h'))}`)
-    say(problemText(first))
+    if (!focusField(p.name)) focusSel(`#${CSS.escape(fname(r, 'h'))}`)
+    say(problemText(p))
     return
   }
   if (p.name === '#gift-everyone') {
@@ -1249,68 +1132,7 @@ function fixProblem(p) {
   say(problemText(p))
 }
 
-/** The API marked a person's field: back to step 2 with that person's form open. A mistake in a box or note that is
- *  everyone's (not on that person's form) is said in one line instead. */
-function backToErrors() {
-  const key = Object.keys(gift.errors).find((k) => /^g-r\d+-/.test(k))
-  const biz = gift.errors['gift-biz-name'] || gift.errors['gift-gstin']
-  if (!key && !biz) return
-  gift.step = 'form'
-  if (!key) return
-  const [, id, f] = key.match(/^g-(r\d+)-(\w+)$/)
-  const r = gift.recipients.find((x) => x.id === id)
-  if (!r) return
-  if ((['sku', 'qty', 'stage'].includes(f) && !r.own) || (f === 'note' && !r.ownNote)) {
-    gift.error = `${whoOf(r)}: ${gift.errors[key]}`
-    delete gift.errors[key]
-    if (f === 'note') gift.errors['gift-note'] = gift.error
-    return
-  }
-  gift.editing = r.id
-  gift.snap = { ...r }
-}
-
-// ---- Before the season: review, book (POST /v1/preorders/groups), pay once, done.
-
-function giftReviewHTML() {
-  const pres = !!preSeason(), t = giftTotals()
-  const list = pres ? giftPreWeeks() : gift.recipients.map((r) => ({ r }))
-  const ws = new Set(list.filter((x) => x.week).map((x) => String(x.week.weekStart)))
-  const blocked = pres && list.some((x) => !x.week)
-  const bigAt = pres ? list.findIndex((x) => x.big) : -1
-  const slot = giftEnv.slots.find((s) => s.id === gift.slotId)
-  const day = !pres && gift.date ? `${fmtDate(gift.date)}${slot ? `, ${slot.label} (${slot.startsAt}–${slot.endsAt})` : ''}` : ''
-  const rows = list.map(({ r, week, first, moved, big }, i) => {
-    const p = packOf(r.sku), note = noteOf(r)
-    const when = pres
-      ? `<small class="gift-review-week${week ? '' : ' is-off'}">${icon(week ? 'calendar' : 'close')}<span>${week ? `Delivered in ${preWeekText(week.weekStart)}` : big ? esc(preTooBigWords(r.sku)) : 'No delivery week has room for these boxes'}</span></small>${moved ? `<small class="pre-moved">${esc(preFullLine(first.weekStart, week.weekStart))}</small>` : ''}`
-      : `<small class="gift-review-week">${icon('calendar')}<span>Delivered on ${esc(day)}</span></small>`
-    return `<li class="gift-review-row">${p ? thumb(p.sku, r.stage, p.s.name) : ''}<div><strong>${esc(r.name.trim() || `Person ${i + 1}`)}</strong><small>${p ? `${esc(p.name)} · ${esc(p.kg)} · ${stageOf(r.stage).stage} · ${plural(r.qty, 'box', 'boxes')}` : ''}</small><small>${esc(r.address.trim())} · ${esc(r.pincode.trim())}</small>${note ? `<small class="gift-review-note">Note: “${esc(note.length > 90 ? `${note.slice(0, 89)}…` : note)}”</small>` : ''}${when}</div><span>${p ? currency(p.s.price * r.qty) : ''}</span></li>`
-  }).join('')
-  const back = `<button type="button" class="text-button gift-quiet gift-back" data-gift-back ${gift.busy ? 'disabled' : ''}>${icon('arrow')}<span>Back to the people</span></button>`
-  if (!pres) {
-    return `<div class="gift-send-head"><h2 id="gift-send-h" tabindex="-1">Check and pay</h2><p>${plural(t.people, 'person', 'people')} · ${plural(t.boxes, 'box', 'boxes')} · one payment</p></div>
-      <ol class="gift-review">${rows}</ol>
-      ${gift.business && giftBills() ? `<p class="gift-muted">${icon('store')}<span>Bill to ${esc(gift.bizName.trim())} · GSTIN ${esc(gift.gstin.replace(/\s+/g, '').toUpperCase())}</span></p>` : ''}
-      <div class="bill-row is-total gift-review-total"><span>Total, paid once</span><strong>${currency(t.total)}</strong></div>
-      <p class="cart-disclaimer">Prices include GST. No delivery charge on gifts.</p>
-      ${coCancelNote()}
-      <div id="gift-alert">${alertHTML()}</div>
-      <button type="button" class="button primary full gift-big pre-go" data-gift-pay ${gift.busy ? 'disabled aria-describedby="gift-pay-why"' : ''}>${icon(gift.busy ? 'clock' : 'lock')}<span>${gift.busy ? 'Placing…' : `Pay ${currency(t.total)}`}</span></button>${gift.busy ? `<p class="pre-why" id="gift-pay-why" role="status">${icon('clock')}<span>Checking stock and placing your gift order…</span></p>` : ''}
-      ${back}`
-  }
-  const differ = ws.size > 1 ? `<p class="pre-why is-block">${icon('info')}<span>Not everyone gets their gift in the same week: each person’s week is shown above.</span></p>` : ''
-  const off = gift.busy ? 'Booking your gift pre-order…' : bigAt >= 0 ? `${list[bigAt].r.name.trim() || `Person ${bigAt + 1}`}: ${preTooBigWords(list[bigAt].r.sku)}` : blocked ? 'No delivery week has room for someone: go back and change their boxes' : !gift.agree ? 'Tick the box above to continue' : ''
-  return `<div class="gift-send-head"><h2 id="gift-send-h" tabindex="-1">Review your gift pre-order</h2><p>${plural(t.people, 'person', 'people')} · ${plural(t.boxes, 'box', 'boxes')} · one payment</p></div>
-    ${preNoticeHTML(giftPreWhen(giftPreWeekList(list)))}
-    <ol class="gift-review">${rows}</ol>${differ}
-    <div class="bill-row is-total gift-review-total"><span>Total, paid once</span><strong>${currency(t.total)}</strong></div>
-    <p class="cart-disclaimer">Prices include GST. No delivery charge on gifts.</p>
-    <div id="gift-alert">${alertHTML()}</div>
-    <label class="pre-agree"><input type="checkbox" name="gift-pre-agree-all" ${gift.agree ? 'checked' : ''} ${gift.busy ? 'disabled' : ''}><span>I understand this pre-order can only be cancelled if it is delayed.</span></label>
-    <button type="button" class="button primary full gift-big pre-go" data-gift-pre-book ${off ? 'disabled aria-describedby="gift-pre-why"' : ''}>${icon(gift.busy ? 'clock' : off ? 'lock' : 'sun')}<span>${gift.busy ? 'Booking…' : `Pre-order · pay ${currency(t.total)}`}</span></button>${off ? `<p class="pre-why" id="gift-pre-why"${gift.busy ? ' role="status"' : ''}>${icon(gift.busy ? 'clock' : 'info')}<span>${esc(off)}</span></p>` : ''}
-    ${back}`
-}
+// ---- Before the season: book (POST /v1/preorders/groups), pay once, done.
 
 /** The API's answer to the booking: on the person's field, the unpaid pre-order, or one line above the pay button. */
 async function giftPreFailed(e) {
@@ -1328,14 +1150,15 @@ async function giftPreFailed(e) {
     await loadWeeks().catch(() => {})
     gift.error = `${e.code === 'PREORDER_WEEK_CHANGED' ? `An earlier week has room again for ${who(x.row)}` : `${who(x.row)}’s week just filled up`}. The weeks above are updated: check them and pay again. Nothing was charged.`
   } else if (e.code === 'RECIPIENTS_INVALID' && Array.isArray(x.rows)) {
-    for (const row of x.rows) { const r = gift.recipients[row.row - 1]; if (r) gift.errors[fname(r, row.field)] = row.message }
+    for (const row of x.rows) { const r = gift.recipients[row.row - 1]; if (r) markPersonError(r, row.field, row.message) }
     gift.step = 'form'
-    gift.error = 'Some details need a look: they are marked on each person.'
+    gift.error ||= 'Some details need a look: they are marked on each person.'
   } else if (field) {
-    const r = gift.recipients[Number(field[1])], map = { recipientName: 'name', recipientPhone: 'phone', message: 'note', weekStart: 'qty', stage: 'qty' }
-    if (r) gift.errors[fname(r, map[field[2]] || field[2])] = e.message.replace(/^[^:]+:\s*/, '')
+    const r = gift.recipients[Number(field[1])], map = { recipientName: 'name', recipientPhone: 'phone', message: 'note', weekStart: 'sku', stage: 'sku', qty: 'sku' }
+    if (r) markPersonError(r, map[field[2]] || field[2], e.message.replace(/^[^:]+:\s*/, ''))
     gift.step = 'form'
-    gift.error = 'Some details need a look: they are marked on each person.'
+    gift.error ||= 'Some details need a look: they are marked on each person.'
+
   } else if (e.code === 'NOT_SERVICEABLE') gift.error = `${e.message.replace(/^Person \d+: /, `${who(x.row)}: `)}`
   else if (e.status === 404) gift.error = 'Gifting isn’t open right now. Please try again later.'
   else gift.error = preError(e) || e.message
@@ -1353,10 +1176,7 @@ async function giftGroupBook() {
   gift.key ??= MM.idem()['Idempotency-Key']
   const body = {
     ...(gift.sender.trim() ? { name: gift.sender.trim() } : {}),
-    recipients: list.map(({ r, week }) => ({
-      sku: r.sku, stage: r.stage, qty: r.qty, weekStart: week.weekStart, pincode: r.pincode.trim(), address: r.address.trim(),
-      gift: { recipientName: r.name.trim(), recipientPhone: normPhone(r.phone), ...(noteOf(r) ? { message: noteOf(r) } : {}) },
-    })),
+    recipients: list.map(({ r, week }) => giftGroupRecipient(r, week.weekStart, askOf(r), noteOf())),
   }
   let g = null
   try {
@@ -1365,13 +1185,12 @@ async function giftGroupBook() {
     }
   } catch (e) {
     gift.busy = false
-    if (e.status === 401) { saveDraft(); go(`/login?next=${encodeURIComponent('/gifts/send/review')}`); return }
+    if (e.status === 401) { gift.wantPay = true; saveDraft(); go(`/login?next=${encodeURIComponent('/gifts/send')}`); return }
     await giftPreFailed(e)
     if (giftPage()) {
-      backToErrors()
+      gift.step = 'form'
       renderGiftSend()
-      const bad = $('[data-person] [aria-invalid="true"]')
-      if (bad) { bad.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }); bad.focus({ preventScroll: true }) } else $('#gift-alert')?.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' })
+      focusFirstError()
     }
     return
   }
@@ -1394,7 +1213,7 @@ function giftPrePayHTML() {
     ? `<a class="button primary full" href="${esc(g.paymentUrl)}">${g.paymentFailed ? 'Try payment again' : 'Pay'} ${currency(g.total)} ${icon('arrow')}</a>`
     : `<div class="prototype-tag">Test mode: no payment service is connected, so no money is taken.</div><button type="button" class="button primary full" data-gift-pre-testpay ${gift.busy ? 'disabled aria-describedby="gift-pre-paying"' : ''}>${icon(gift.busy ? 'clock' : 'sun')}<span>${g.paymentFailed ? 'Try payment again (test)' : 'Pay (test)'} ${currency(g.total)}</span></button><button type="button" class="text-button" data-gift-pre-testfail ${gift.busy ? 'disabled' : ''}>Fail payment (test)</button>${gift.busy ? `<p class="pre-why" id="gift-pre-paying" role="status">${icon('clock')}<span>Confirming your payment…</span></p>` : ''}`
   return `<div class="co-pay gift-pay gift-pre-pay"><p class="gift-pre-chips"><span class="pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip gift-chip">${icon('gift')}Gift</span></p><p class="co-pay-no">Gift pre-order <strong>${esc(giftNo(g.number))}</strong></p><p class="co-pay-total">${currency(g.total)}</p><p class="gift-pay-for">${plural(g.recipientCount, 'person', 'people')} · ${plural(g.boxes, 'box', 'boxes')} · one payment</p>
-    ${preNoticeHTML(giftPreWhen(groupWeeks(g)))}
+    ${preChipHTML(esc(giftWhen(groupWeeks(g))))}
     ${g.paymentFailed ? (typeof payStateHTML === 'function' ? payStateHTML({ status: 'PAYMENT_PENDING', paymentFailed: true, holdExpiresAt: g.holdExpiresAt }) : '') : `<p class="co-pay-hold">${icon('box')}<span>Each person’s week is held for you until <strong>${fmtTime(g.holdExpiresAt)}</strong>. Pay before then to book it.</span></p>`}
     ${gift.error ? `<p class="prototype-tag" role="alert">${esc(gift.error)}</p>` : ''}${pay}
     <button type="button" class="text-button" data-gift-pre-cancel ${gift.busy ? 'disabled' : ''}>Cancel this gift pre-order</button></div>`
@@ -1454,12 +1273,78 @@ async function giftPreCancel(b) {
 function giftPreDoneHTML() {
   const g = gift.group
   if (!g) return ''
-  const rows = (g.preorders || []).map((p) => `<li class="gift-review-row">${thumb(p.sku, p.stage, p.productName)}<div><strong>${esc(p.gift ? p.gift.recipientName : '')}</strong><small>${esc(boxName(p.productName, p.sku))} · ${stageOf(p.stage).stage} · ${plural(p.qty, 'box', 'boxes')}</small><small class="gift-review-week">${icon('calendar')}<span>Delivered in ${preWeekText(p.weekStart)}</span></small><small>Pre-order ${esc(orderNo(p.number))} · ${esc(PRE_STATUS[p.status] || p.status)}</small></div><span>${currency(p.total)}</span></li>`).join('')
   return `<div class="success gift-done gift-pre-done">${icon('check')}<p class="gift-pre-chips"><span class="pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip gift-chip">${icon('gift')}Gift</span></p><h2>Gift pre-order <span class="no-wrap">${esc(giftNo(g.number))}</span> is booked.</h2><p>${plural(g.recipientCount, 'person gets', 'people get')} their own pre-order. Paid once: <strong>${currency(g.total)}</strong>.</p></div>
-    ${preNoticeHTML(giftPreWhen(groupWeeks(g)), true)}
-    <ol class="gift-review">${rows}</ol>
-    <p class="gift-find">${icon('box')}<span>Find each one in <a href="/orders" data-route>Your orders</a>, marked “Pre-order” and “Gift”.</span></p>
+    ${giftGroupBodyHTML(g, true)}
     <button type="button" class="text-button" data-gift-again>Send another gift ${icon('arrow')}</button>`
+}
+
+/** When a link may go again: `resendAfter` is a time, or seconds from now. */
+const resendAt = (l) => giftResendAt(l)
+const whenWords = (t) => (t ? new Date(t).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '')
+
+/** One person's address, as the giver sees it: typed by the giver at booking, asked of them on WhatsApp (when the link
+ *  went, "Send link" again, and the message they get), or given by them. */
+function giftAddrHTML(g, p) {
+  const st = p.addressState, l = p.addressLink || null
+  if (p.status === 'CANCELLED') return ''
+  if (st === 'ADDRESS_GIVEN') return `<p class="gift-addr-status is-done">${icon('check')}<span><strong>Address received</strong>${p.pincode ? ` · ${esc(p.pincode)}` : ''}</span></p>`
+  if (st !== 'ADDRESS_PENDING') return ''
+  const at = resendAt(l), wait = l && l.canResend === false, whyId = `gift-link-why-${p.id}`
+  const sent = l && l.sentAt ? `Link sent ${esc(whenWords(l.sentAt))}${l.sendCount > 1 ? ` (${l.sendCount} times)` : ''}` : 'We send the link once the payment is in'
+  const until = l && l.expiresAt ? ` · it works until ${esc(whenWords(l.expiresAt))}` : ''
+  const why = wait ? `<small class="gift-link-why" id="${esc(whyId)}">${at ? `You can send it again at ${esc(fmtTime(at))}` : 'It can’t be sent again'}</small>` : ''
+  const btn = g.paymentStatus === 'SUCCEEDED' ? `<button type="button" class="button secondary gift-link-btn" data-gift-link="${esc(p.id)}" data-gift-group="${esc(g.id)}"${wait ? ` disabled aria-describedby="${esc(whyId)}"` : ''} aria-label="Send the address link to ${esc(p.gift ? p.gift.recipientName : 'them')} again">${icon('mail')}<span>Send link</span></button>${why}` : ''
+  const preview = p.addressMessage ? `<details class="gift-wa-preview"><summary>Their WhatsApp message</summary><p>${esc(p.addressMessage)}</p></details>` : ''
+  return `<div class="gift-addr-status is-waiting">${icon('clock')}<div><p id="gift-addr-${esc(p.id)}" tabindex="-1"><strong>Waiting for their address</strong><small>${sent}${until}</small></p><div class="gift-link-row">${btn}</div>${preview}</div></div>`
+}
+
+/** Every person of a gift pre-order, with their box, week, status and address (the done screen and /gifts/pre/:id). */
+function giftGroupBodyHTML(g, paid) {
+  const rows = (g.preorders || []).map((p) => `<li class="gift-review-row">${thumb(p.sku, p.stage, p.productName)}<div><strong>${esc(p.gift ? p.gift.recipientName : '')}</strong><small>${esc(boxName(p.productName, p.sku))} · ${stageOf(p.stage).stage} · ${plural(p.qty, 'box', 'boxes')}</small><small class="gift-review-week">${icon('calendar')}<span>Delivered in ${preWeekText(p.weekStart)}</span></small><small>Pre-order ${esc(orderNo(p.number))} · ${esc(PRE_STATUS[p.status] || p.status)}</small>${giftAddrHTML(g, p)}</div></li>`).join('')
+  const asked = (g.preorders || []).some((p) => p.addressState === 'ADDRESS_PENDING' && p.status !== 'CANCELLED')
+  return `${preChipHTML(esc(giftWhen(groupWeeks(g))), paid)}
+    ${asked ? `<p class="gift-muted">${icon('mail')}<span>We’ve asked on WhatsApp for the addresses you didn’t enter. If one is still missing 5 days before its week, we remind them and tell you.</span></p>` : ''}
+    <ol class="gift-review">${rows}</ol>
+    <p class="gift-find">${icon('box')}<span>Find each one in <a href="/orders" data-route>Your orders</a>, marked “Pre-order” and “Gift”.</span></p>`
+}
+
+/** /gifts/pre/:id: a gift pre-order for several people, opened again later (from Your orders). */
+async function giftGroupView(id, quiet = false) {
+  document.title = 'Your gift pre-order · VMR Mangoes'
+  if (!quiet) host().innerHTML = pageHead('Your gift pre-order') + '<section class="page-card gift-group-view" id="gift-group-view" aria-busy="true"><p class="gift-muted">Loading…</p></section>'
+  let g
+  try { g = await MM.preorderGroup(id) } catch (e) {
+    const box = $('#gift-group-view')
+    if (box) { box.removeAttribute('aria-busy'); box.innerHTML = `<p class="prototype-tag" role="alert">${esc(e.status === 404 ? 'We couldn’t find this gift pre-order.' : e.message)}</p><a class="text-button" href="/orders" data-route>All orders ${icon('arrow')}</a>` }
+    return
+  }
+  const box = $('#gift-group-view')
+  if (!box) return
+  box.removeAttribute('aria-busy')
+  const paid = g.paymentStatus === 'SUCCEEDED'
+  box.innerHTML = `<div class="gift-group-top"><p class="gift-pre-chips"><span class="pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip gift-chip">${icon('gift')}Gift</span></p><h2>Gift pre-order <span class="no-wrap">${esc(giftNo(g.number))}</span></h2><p>${plural(g.recipientCount, 'person', 'people')} · ${plural(g.boxes, 'box', 'boxes')} · ${currency(g.total)}${paid ? ', paid' : ', not paid yet'}</p></div>${giftGroupBodyHTML(g, paid)}`
+}
+
+/** "Send link": the address link goes to that person again on WhatsApp; the status is read again after. */
+async function giftSendLink(b) {
+  const gid = b.dataset.giftGroup, pid = b.dataset.giftLink
+  b.disabled = true
+  try {
+    await MM.api(`/preorders/groups/${encodeURIComponent(gid)}/preorders/${encodeURIComponent(pid)}/send-link`, { method: 'POST', body: {}, auth: true })
+    toast('Sent. They’ll get the link on WhatsApp in a moment.')
+  } catch (e) {
+    const s = e.extra && Number(e.extra.retryAfter)
+    toast(e.code === 'RESEND_TOO_SOON' ? `You can send it again in ${Math.max(1, Math.ceil((s || 60) / 60))} min.` : e.code === 'RESEND_LIMIT' ? 'The link has been sent as many times as it can be. Ask them to look for our earlier message.' : e.code === 'ADDRESS_GIVEN' ? 'They’ve just given their address.' : e.message)
+  }
+  try {
+    const g = await MM.preorderGroup(gid)
+    if (gift.group && gift.group.id === gid && gift.step === 'pre-done') { gift.group = g; renderGiftSend() }
+    else if ($('#gift-group-view')) await giftGroupView(gid, true)
+    // The button is held for a while after a send: the focus goes to that person's status, which says until when.
+    const btn = $(`[data-gift-link="${CSS.escape(pid)}"]`)
+    if (btn && !btn.disabled) btn.focus()
+    else $(`#gift-addr-${CSS.escape(pid)}`)?.focus()
+  } catch { b.disabled = false }
 }
 
 // ---- One gift order (/gifts/:id): the confirmation after paying, and where the buyer finds it later.
@@ -1575,13 +1460,23 @@ document.addEventListener('click', (e) => {
   if (!b) return
   const d = b.dataset
   if (d.giftOpen) { go(`/gifts/${encodeURIComponent(d.giftOpen)}`); return }
+  if (d.giftLink) { giftSendLink(b); return }
   if (d.giftCancel || d.giftCancelOne) { giftCancel(b); return }
   if (d.giftBill) { giftBill(b); return }
   if (d.giftTestpayOrder) { b.disabled = true; giftTestPay(d.giftTestpayOrder, true); return }
   if (d.giftTestfailOrder) { b.disabled = true; giftTestFail(d.giftTestfailOrder, true); return }
   if (d.giftRzpOrder) { MM.gift(d.giftRzpOrder).then((g) => giftRazorpay({ id: g.id, number: g.number, total: g.total, razorpayKeyId: g.razorpayKeyId, razorpayOrderId: g.razorpayOrderId, holdExpiresAt: g.holdExpiresAt }, true), (err) => toast(err.message)); return }
   if (!giftPage()) return
-  if (d.giftSize) {
+  if (b.hasAttribute('data-gift-terms')) {
+    // The pre-order chip's Details: the terms open and close in place.
+    gift.terms = !gift.terms
+    for (const t of document.querySelectorAll('.gift-terms')) t.hidden = !gift.terms
+    for (const x of document.querySelectorAll('[data-gift-terms]')) x.setAttribute('aria-expanded', String(gift.terms))
+  } else if (d.giftChange) {
+    giftEnv.open = giftEnv.open || {}
+    giftEnv.open[d.giftChange] = !giftEnv.open[d.giftChange]
+    renderGiftGrid({ 'data-gift-change': d.giftChange })
+  } else if (d.giftSize) {
     slideSwitch(b, () => {
       giftEnv.size = giftEnv.size || {}
       giftEnv.size[d.variety] = d.giftSize
@@ -1592,33 +1487,21 @@ document.addEventListener('click', (e) => {
       giftEnv.stage[d.sku] = d.giftStage
       renderGiftGrid({ 'data-gift-stage': d.giftStage, 'data-sku': d.sku })
     })
-  } else if (d.giftQty) {
-    giftEnv.qty = giftEnv.qty || {}
-    giftEnv.qty[d.sku] = Math.min(GIFT_BOX_MAX, Math.max(0, cardQty(d.sku) + Number(d.giftQty)))
-    // At 0 (or the limit) that button turns off: keep the focus on the stepper.
-    const other = { 'data-gift-qty': String(-Number(d.giftQty)), 'data-sku': d.sku }
-    renderGiftGrid((d.giftQty === '-1' && cardQty(d.sku) === 0) || (d.giftQty === '1' && cardQty(d.sku) >= GIFT_BOX_MAX) ? other : { 'data-gift-qty': d.giftQty, 'data-sku': d.sku })
   } else if (d.giftBag) {
-    const n = cardQty(d.giftBag)
-    if (n > 0 && bagAddGift(d.giftBag, cardStageFor(packOf(d.giftBag) || { sku: d.giftBag }), n)) {
-      giftEnv.qty[d.giftBag] = 0
-      renderGiftGrid({ 'data-gift-qty': '1', 'data-sku': d.giftBag })
-    }
+    // Gifting switched off: the box goes in the bag as a gift for one person.
+    if (bagAddGift(d.giftBag, cardStageFor(packOf(d.giftBag) || { sku: d.giftBag }), 1)) renderGiftGrid()
   } else if (d.giftDraft) {
     if (d.giftDraft === 'clear') { gift = giftFresh(); dropDraft(); renderGiftNotice(); toast('Cleared the gift you started'); focusSel('#gift-grid', 'start') }
     else {
       if (!gift.recipients.length) readDraft()
-      const open = gift.recipients.find((r) => r.id === gift.editing)
-      openFlow(open ? `[name="${fname(open, 'name')}"]` : null)
+      const empty = gift.recipients.find((r) => !r.name.trim())
+      openFlow(empty ? `[name="${fname(empty, 'name')}"]` : null)
     }
-  } else if (d.giftSend) openSend(d.giftSend, cardStageFor(packOf(d.giftSend) || { sku: d.giftSend }), cardQty(d.giftSend))
+  } else if (d.giftSend) openSend(d.giftSend, cardStageFor(packOf(d.giftSend) || { sku: d.giftSend }))
   else if (b.hasAttribute('data-gift-add')) addPerson()
-  else if (d.giftSave) savePerson(d.giftSave)
-  else if (d.giftEdit) editPerson(d.giftEdit)
-  else if (d.giftDiscard) discardPerson(d.giftDiscard)
   else if (d.giftRemove) removePerson(d.giftRemove)
   else if (b.hasAttribute('data-gift-undo')) undoRemove()
-  else if (b.hasAttribute('data-gift-review')) giftToReview()
+  else if (b.hasAttribute('data-gift-pay')) giftCheckout()
   else if (b.hasAttribute('data-gift-boxes')) {
     // The gift cards again; the gift is kept ("Continue the gift you started").
     gift.removed = null
@@ -1638,39 +1521,24 @@ document.addEventListener('click', (e) => {
     gift.boxOpen = false
     delete gift.errors['#gift-everyone']
     renderGiftSend({ 'data-gift-box-change': '' })
-    say(`Everyone gets ${boxLine(bx.sku, bx.stage, bx.qty)}.`)
+    say(`Everyone gets the ${boxLine(bx.sku, bx.stage)}.`)
   } else if (d.giftBstage) {
     slideSwitch(b, () => {
-      gift.box ??= { sku: '', stage: 'SEMI_RIPE', qty: 1 }
+      gift.box ??= { sku: '', stage: 'SEMI_RIPE' }
       gift.box.stage = d.giftBstage
       delete gift.errors['#gift-everyone']
       if (gift.date && !dayFits(gift.date)) gift.date = giftEnv.dates.find((x) => dayFits(x)) || gift.date
       renderGiftSend({ 'data-gift-bstage': d.giftBstage })
       saveDraft()
     })
-  } else if (d.giftBstep) {
-    if (b.getAttribute('aria-disabled') === 'true') return
-    gift.box ??= { sku: '', stage: 'SEMI_RIPE', qty: 1 }
-    gift.box.qty = Math.min(GIFT_BOX_MAX, Math.max(1, gift.box.qty + Number(d.giftBstep)))
-    delete gift.errors['#gift-everyone']
-    renderGiftSend({ 'data-gift-bstep': d.giftBstep })
-    saveDraft()
   } else if (d.giftOwn) {
     const r = gift.recipients.find((x) => x.id === d.rid)
     if (!r) return
     r.own = d.giftOwn === 'on'
-    if (!r.own) { delete gift.errors[fname(r, 'sku')]; delete gift.errors[fname(r, 'qty')] }
+    if (!r.own) delete gift.errors[fname(r, 'sku')]
     renderGiftSend()
     saveDraft()
     if (r.own) focusField(fname(r, 'sku')); else focusSel(`[data-gift-own="on"][data-rid="${CSS.escape(r.id)}"]`)
-  } else if (d.giftOwnnote) {
-    const r = gift.recipients.find((x) => x.id === d.rid)
-    if (!r) return
-    r.ownNote = d.giftOwnnote === 'on'
-    if (!r.ownNote) delete gift.errors[fname(r, 'note')]
-    renderGiftSend()
-    saveDraft()
-    if (r.ownNote) focusField(fname(r, 'note')); else focusSel(`[data-gift-ownnote="on"][data-rid="${CSS.escape(r.id)}"]`)
   } else if (d.giftBiz) {
     gift.business = d.giftBiz === 'on'
     if (!gift.business) { delete gift.errors['gift-biz-name']; delete gift.errors['gift-gstin'] }
@@ -1682,47 +1550,39 @@ document.addEventListener('click', (e) => {
     if (!r) return
     slideSwitch(b, () => {
       r.stage = d.giftRstage
-      delete gift.errors[fname(r, 'qty')]
+      delete gift.errors[fname(r, 'sku')]
       if (gift.date && !dayFits(gift.date)) gift.date = giftEnv.dates.find((x) => dayFits(x)) || gift.date
       renderGiftSend({ 'data-gift-rstage': d.giftRstage, 'data-rid': d.rid })
       saveDraft()
     })
-  } else if (d.giftStep) {
-    const r = gift.recipients.find((x) => x.id === d.rid)
-    if (!r || b.getAttribute('aria-disabled') === 'true') return
-    r.qty = Math.min(GIFT_BOX_MAX, Math.max(1, r.qty + Number(d.giftStep)))
-    delete gift.errors[fname(r, 'qty')]
-    renderGiftSend({ 'data-gift-step': d.giftStep, 'data-rid': d.rid })
-    saveDraft()
   } else if (d.giftDate) {
-    if (b.getAttribute('aria-disabled') === 'true') { toast('Not enough of these boxes on that day. Choose another day, or fewer boxes.'); return }
+    if (b.getAttribute('aria-disabled') === 'true') { toast('Not enough of these boxes on that day. Choose another day.'); return }
     gift.date = d.giftDate
     gift.slotId = null
     gift.error = ''
     giftEnv.slotsFor = ''
-    Object.keys(gift.errors).forEach((k) => { if (k.endsWith('-qty')) delete gift.errors[k] })
+    Object.keys(gift.errors).forEach((k) => { if (k.endsWith('-sku')) delete gift.errors[k] })
     renderGiftSend({ 'data-gift-date': d.giftDate })
     giftSlots()
+    saveDraft()
   } else if (d.giftSlot) {
     gift.slotId = d.giftSlot
     if (gift.error) { gift.error = ''; const a = $('#gift-alert'); if (a) a.innerHTML = '' }
     giftRefresh()
-  } else if (b.hasAttribute('data-gift-pre-book')) giftGroupBook()
-  else if (b.hasAttribute('data-gift-pre-testpay')) giftPreTestPay()
+  } else if (b.hasAttribute('data-gift-pre-testpay')) giftPreTestPay()
   else if (b.hasAttribute('data-gift-pre-testfail')) giftPreTestFail()
   else if (b.hasAttribute('data-gift-testfail')) giftTestFail(gift.pay.id)
   else if (b.hasAttribute('data-gift-pre-cancel')) giftPreCancel(b)
-  else if (b.hasAttribute('data-gift-back')) giftBackTo('form', () => { gift.step = 'form'; gift.editing = null; gift.error = ''; gift.key = null; renderGiftSend(); giftTop() })
   else if (b.hasAttribute('data-gift-again')) { gift = giftFresh(); setFlow(false); giftUrl('packs'); renderGiftGrid(); focusSel('#gift-packs-h', 'start') }
-  else if (b.hasAttribute('data-gift-pay')) giftPay()
   else if (d.giftFix) fixProblem(giftProblems().find((p) => p.name === d.giftFix))
   else if (b.hasAttribute('data-gift-testpay')) giftTestPay(gift.pay.id)
   else if (b.hasAttribute('data-gift-rzp')) giftRazorpay()
   else if (b.hasAttribute('data-gift-retry')) { loadProducts(); shelfReady().then(() => renderGiftGrid()) }
 })
 
-const PERSON_FIELD = /^g-(r\d+)-(name|phone|address|pincode|sku|qty|note)$/
+const PERSON_FIELD = /^g-(r\d+)-(name|phone|address|pincode)$/
 let pinTimer = 0
+// Typing: the row's value, kept and saved a moment later (no Save button); the bar follows.
 document.addEventListener('input', (e) => {
   const t = e.target
   if (!giftPage() || !t.form || t.form.id !== 'gift-form') return
@@ -1731,9 +1591,7 @@ document.addEventListener('input', (e) => {
     const r = gift.recipients.find((x) => x.id === m[1])
     if (!r) return
     const f = m[2]
-    if (f === 'qty') { const n = Number(t.value); if (Number.isFinite(n) && t.value !== '') r.qty = Math.round(n) }
-    else if (f !== 'sku') r[f] = t.value
-    if (f === 'note') { const c = $(`#${CSS.escape(fname(r, 'count'))}`); if (c) c.textContent = noteCount(r.note) }
+    r[f] = t.value
     if (f === 'pincode') {
       const pin = t.value.trim()
       t.closest('.field')?.querySelector('.gift-pin')?.remove()
@@ -1741,14 +1599,13 @@ document.addEventListener('input', (e) => {
       if (/^[1-9]\d{5}$/.test(pin)) pinTimer = setTimeout(() => checkPin(pin), 250)
     }
     if (gift.errors[t.name]) delete gift.errors[t.name]
+    // The first letter typed in a row makes Remove appear there.
+    if (f === 'name' && !$(`[data-gift-remove="${CSS.escape(r.id)}"]`) && !blankPerson(r)) { renderGiftSend({ name: t.name }); return }
   } else if (t.name === 'gift-note') {
     gift.note = t.value
     delete gift.errors['gift-note']
     const c = $('#gift-note-count')
     if (c) c.textContent = `Optional · ${noteCount(gift.note)}`
-  } else if (t.name === 'gift-box-qty') {
-    const n = Number(t.value)
-    if (gift.box && Number.isFinite(n) && t.value !== '') gift.box.qty = Math.min(GIFT_BOX_MAX, Math.max(1, Math.round(n)))
   } else if (t.name === 'gift-sender') gift.sender = t.value
   else if (t.name === 'gift-biz-name') { gift.bizName = t.value; delete gift.errors[t.name] }
   else if (t.name === 'gift-gstin') { gift.gstin = t.value; delete gift.errors[t.name] }
@@ -1756,27 +1613,31 @@ document.addEventListener('input', (e) => {
 })
 document.addEventListener('change', (e) => {
   const t = e.target
+  // The sticky bar's pre-order tick (outside the form).
+  if (giftPage() && t.name === 'gift-pre-agree-all') { gift.agree = t.checked; gift.barHint = ''; giftBar(); return }
   if (!giftPage() || !t.form || t.form.id !== 'gift-form') return
-  const m = t.name.match(PERSON_FIELD)
-  if (m && m[2] === 'sku') {
-    const r = gift.recipients.find((x) => x.id === m[1])
+  const ask = t.name.match(/^g-(r\d+)-ask$/), sku = t.name.match(/^g-(r\d+)-sku$/)
+  if (ask) {
+    const r = gift.recipients.find((x) => x.id === ask[1])
+    if (!r) return
+    r.ask = t.value === 'ask'
+    delete gift.errors[fname(r, 'address')]
+    delete gift.errors[fname(r, 'pincode')]
+    renderGiftSend({ name: t.name, value: t.value })
+    saveDraft()
+    say(r.ask ? `We’ll ask ${whoOf(r)} for their address on WhatsApp.` : `Enter ${whoOf(r)}’s address.`)
+  } else if (sku) {
+    const r = gift.recipients.find((x) => x.id === sku[1])
     if (!r) return
     r.sku = t.value
     const p = packOf(r.sku)
     if (p && stockKnown() && !anyQty(p.sku, r.stage)) r.stage = SOLD_API.find((st) => anyQty(p.sku, st)) || r.stage
     delete gift.errors[t.name]
-    delete gift.errors[fname(r, 'qty')]
     if (gift.date && !dayFits(gift.date)) gift.date = giftEnv.dates.find((x) => dayFits(x)) || gift.date
     renderGiftSend({ name: t.name })
     saveDraft()
-  } else if (m && m[2] === 'qty') {
-    const r = gift.recipients.find((x) => x.id === m[1])
-    if (!r) return
-    r.qty = Math.min(GIFT_BOX_MAX, Math.max(1, Math.round(Number(t.value)) || 1))
-    renderGiftSend({ name: t.name })
-    saveDraft()
   } else if (t.name === 'gift-box-sku') {
-    gift.box ??= { sku: '', stage: 'SEMI_RIPE', qty: 1 }
+    gift.box ??= { sku: '', stage: 'SEMI_RIPE' }
     gift.box.sku = t.value
     const p = packOf(gift.box.sku)
     if (p && stockKnown() && !anyQty(p.sku, gift.box.stage)) gift.box.stage = SOLD_API.find((st) => anyQty(p.sku, st)) || gift.box.stage
@@ -1784,29 +1645,16 @@ document.addEventListener('change', (e) => {
     if (gift.date && !dayFits(gift.date)) gift.date = giftEnv.dates.find((x) => dayFits(x)) || gift.date
     renderGiftSend({ name: t.name })
     saveDraft()
-  } else if (t.name === 'gift-box-qty') {
-    if (!gift.box) return
-    gift.box.qty = Math.min(GIFT_BOX_MAX, Math.max(1, Math.round(Number(t.value)) || 1))
-    renderGiftSend({ name: t.name })
-    saveDraft()
-  } else if (t.name === 'gift-business') {
-    gift.business = t.checked
-    if (!t.checked) { delete gift.errors['gift-biz-name']; delete gift.errors['gift-gstin'] }
-    renderGiftSend({ name: t.checked ? 'gift-biz-name' : 'gift-business' })
-    saveDraft()
   }
-})
-// The review's non-refundable tick (before the season): the pay button follows it.
-document.addEventListener('change', (e) => {
-  if (!giftPage() || e.target.name !== 'gift-pre-agree-all') return
-  gift.agree = e.target.checked
-  renderGiftSend({ name: 'gift-pre-agree-all' })
 })
 // A field's error shows once it has been left (and stays until it is fixed).
 document.addEventListener('focusout', (e) => {
   const t = e.target
   if (!giftPage() || !t.form || t.form.id !== 'gift-form' || !t.name || t.type === 'checkbox') return
   if (String(t.value || '').trim() === '' && !gift.errors[t.name]) return
+  // A WhatsApp number typed with +91, a 0 or spaces is shown as its 10 digits (the +91 is beside the field).
+  const ph = t.name.match(/^g-(r\d+)-phone$/)
+  if (ph && !giftPhoneWhy(t.value)) { const r = gift.recipients.find((x) => x.id === ph[1]); if (r) { r.phone = giftPhone(t.value); t.value = r.phone; saveDraft() } }
   const to = e.relatedTarget
   if (to instanceof Element && to.closest('#gift-send button')) return
   checkField(t.name, true)

@@ -334,7 +334,7 @@ async function roGroup(job) {
   if (!giftPage()) return
   const g = giftGate()
   if (g) { toast(g.long); return }
-  openSend(l.sku, l.stage, Math.min(20, Math.max(1, Number(l.qty) || 1)))
+  openSend(l.sku, l.stage)
   toast(`The same box is chosen: ${roBoxName(l.sku, l.name)}, ${roStage(l.stage)}. Add the people.`)
 }
 

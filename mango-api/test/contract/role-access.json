@@ -1376,6 +1376,15 @@
   "OPERATOR": "notfound",
   "MANAGER": "notfound"
  },
+ "GET /v1/gift-address/:token": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "GET /v1/gifts": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -3599,6 +3608,15 @@
   "OPERATOR": "refused",
   "MANAGER": "refused"
  },
+ "POST /v1/gift-address/:token": {
+  "anonymous": "notfound",
+  "customer": "notfound",
+  "RIDER": "notfound",
+  "PACKER": "notfound",
+  "QC": "notfound",
+  "OPERATOR": "notfound",
+  "MANAGER": "notfound"
+ },
  "POST /v1/gifts/:id/cancel": {
   "anonymous": "signin",
   "customer": "notfound",
@@ -3904,6 +3922,15 @@
   "QC": "refused",
   "OPERATOR": "refused",
   "MANAGER": "refused"
+ },
+ "POST /v1/preorders/groups/:id/preorders/:preorderId/send-link": {
+  "anonymous": "signin",
+  "customer": "signin",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
  },
  "POST /v1/reviews": {
   "anonymous": "signin",

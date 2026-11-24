@@ -63,7 +63,7 @@ function route() {
   hidePage()
   routed()
 }
-const missingPath = (p) => p !== '/' && p !== '/index.html' && !OLD_PREORDER.test(p) && !/^\/(invite|help|account|preorders)\//.test(p) && !PAGES.some(([re]) => re.test(p))
+const missingPath = (p) => p !== '/' && p !== '/index.html' && !OLD_PREORDER.test(p) && !/^\/(invite|help|account|preorders|gift-address)\//.test(p) && !PAGES.some(([re]) => re.test(p))
 
 function notFoundView() {
   document.title = 'Page not found · VMR Mangoes'

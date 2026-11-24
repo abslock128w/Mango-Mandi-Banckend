@@ -41,6 +41,7 @@ before(async () => {
 })
 after(async () => {
   env.MULTI_GIFT = false
+  env.GIFT_ADDRESS_LINKS = false
   usePhotoStore(null)
   enforceLimitsInTests(false)
   await srv.close()
@@ -103,6 +104,8 @@ const ISOLATION_CASES = [
   'GET /v1/preorders/:id', 'POST /v1/preorders/:id/cancel',
   // A gift for several people as pre-orders (MULTI_GIFT, migration 071, test/preorders.test.js).
   'GET /v1/preorders/groups/:id',
+  // Sending a recipient the address link again (GIFT_ADDRESS_LINKS, test/gift-address.test.js): the giver's own group only.
+  'POST /v1/preorders/groups/:id/preorders/:preorderId/send-link',
   'DELETE /v1/me/addresses/:id', 'DELETE /v1/stock-alerts/:id',
   'PATCH /v1/reviews/:id', 'DELETE /v1/reviews/:id', 'GET /v1/reviews/:id/photos/:photoId',
   'POST /v1/claims', 'POST /v1/reviews', 'POST /v1/reviews/photos',
@@ -149,6 +152,9 @@ describe('every route is filed', () => {
       'GET /v1/bulk/prices', 'GET /v1/catalogue', 'GET /v1/delivery/check', 'GET /v1/delivery/slots',
       // Farm Experience (docs/farm-experience.md): the page, open dates and a price quote; nothing personal (test/farm-experience.test.js).
       'GET /v1/farm-experience', 'GET /v1/farm-experience/dates',
+      // A gift recipient's address page (GIFT_ADDRESS_LINKS): the 256-bit token sent on WhatsApp is the permission; rate
+      // limited, no-store, never the giver's phone, the price or the recipient's phone (test/gift-address.test.js).
+      'GET /v1/gift-address/:token',
       // The invoice link in the WhatsApp order confirmation: the signed link is the permission (src/bill-link.js, test/whatsapp-invoice.test.js).
       'GET /v1/invoice/:link',
       // Partner With Us (docs/partner-network.md): the form, and an enquiry with its documents. No sign-in by design;
@@ -168,6 +174,7 @@ describe('every route is filed', () => {
       'POST /v1/farm-experience/quote',
       // The Farm visit tab's enquiry form: no sign-in by design, the same limits and checks as the bulk enquiry form (test/farm-visit-enquiries.test.js).
       'POST /v1/farm-visit-enquiries',
+      'POST /v1/gift-address/:token',
       'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
     ])
   })
@@ -288,6 +295,7 @@ describe('customer to customer', () => {
     const alert = (await api.post('/v1/stock-alerts', { sku: 'ALP-3', stage: 'RAW', pincode: '560034' }, A)).body.id
     // A paid gift order to two recipients (MULTI_GIFT).
     env.MULTI_GIFT = true
+    env.GIFT_ADDRESS_LINKS = true
     const recipient = (n) => ({ name: `R ${n}`, phone: `900000000${n}`, address: `${n}, 4th Cross, Koramangala, Bengaluru`, pincode: '560034', sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 1 })
     const gq = await api.post('/v1/gifts/quote', { recipients: [recipient(1), recipient(2)] }, A)
     assert.equal(gq.status, 200, JSON.stringify(gq.body))
@@ -358,6 +366,7 @@ describe('customer to customer', () => {
       ['GET /v1/preorders/:id', () => api.get(`/v1/preorders/${pre.body.id}`, B), () => api.get('/v1/preorders/pre_none', B)],
       ['POST /v1/preorders/:id/cancel', () => api.post(`/v1/preorders/${pre.body.id}/cancel`, {}, B), () => api.post('/v1/preorders/pre_none/cancel', {}, B)],
       ['GET /v1/preorders/groups/:id', () => api.get('/v1/preorders/groups/pgr_iso', B), () => api.get('/v1/preorders/groups/pgr_none', B)],
+      ['POST /v1/preorders/groups/:id/preorders/:preorderId/send-link', () => api.post(`/v1/preorders/groups/pgr_iso/preorders/${pre.body.id}/send-link`, {}, B), () => api.post('/v1/preorders/groups/pgr_none/preorders/pre_none/send-link', {}, B)],
       ['DELETE /v1/me/addresses/:id', () => api.del(`/v1/me/addresses/${address}`, B), () => api.del('/v1/me/addresses/adr_none', B)],
       ['DELETE /v1/stock-alerts/:id', () => api.del(`/v1/stock-alerts/${alert}`, B), () => api.del('/v1/stock-alerts/sal_none', B)],
       ['PATCH /v1/reviews/:id', () => api.patch(`/v1/reviews/${rid}`, { rating: 1 }, B), () => api.patch('/v1/reviews/rvw_none', { rating: 1 }, B)],
@@ -406,6 +415,7 @@ describe('customer to customer', () => {
     assert.deepEqual(await snapshot(), before, "nothing of A's changed")
     assert.equal((await query('SELECT status FROM gift_orders WHERE id = $1', [gift.giftOrderId])).rows[0].status, 'PAID')
     env.MULTI_GIFT = false
+    env.GIFT_ADDRESS_LINKS = false
 
     // B's lists and export carry nothing of A's: no id, no phone, no address, no stored photo path.
     const aMarks = [done.orderId, open.orderId, pre.body.id, claim.body.id, rid, address, alert, claimPhoto, reviewPhoto, looseClaimPhoto, looseReviewPhoto, '9876500101', help.body.id, sub.body.id, cycle, farmBooking.id, farmBooking.number]

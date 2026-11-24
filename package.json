@@ -19,7 +19,7 @@
     "shop:build": "node shop/build-config.mjs",
     "shop:preview": "node scripts/serve-shop.mjs --port 5174",
     "shop:install": "echo \"the shop (shop/) has no packages\"",
-    "shop:test": "node --check shop/theme.js && node --check shop/catalog.js && node --check shop/shelf.js && node --check shop/map-picker.js && node --check shop/location.js && node --check shop/pages.js && node --check shop/partner.js && node --check shop/farm.js && node --check shop/legacy.js && node --check shop/app.js && node --check shop/review.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js && node --check shop/liquid.js && node --check shop/pre-bag.js"
+    "shop:test": "node --check shop/gift-rows.js && node --check shop/gifts.js && node --check shop/gift-address.js && node --check shop/gift-bag.js && node --check shop/reorder.js && node --check shop/theme.js && node --check shop/catalog.js && node --check shop/shelf.js && node --check shop/map-picker.js && node --check shop/location.js && node --check shop/pages.js && node --check shop/partner.js && node --check shop/farm.js && node --check shop/legacy.js && node --check shop/app.js && node --check shop/review.js && node --check shop/api.js && node --check shop/sw.js && node --check shop/dock.js && node --check shop/liquid.js && node --check shop/pre-bag.js"
   },
   "dependencies": {
     "@sentry/browser": "11.7.0",

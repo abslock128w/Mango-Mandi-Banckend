@@ -16,8 +16,9 @@ nothing new is written to the database.
 | --- | --- | --- |
 | `MULTI_GIFT` | `false` | Turns on gift orders to many recipients: "Send to many" in the shop, Gift orders on the panel's Orders page, the API routes below |
 | `MULTI_GIFT_MAX_RECIPIENTS` | `25` | The most recipients one gift order can have (1 to 100) |
+| `GIFT_ADDRESS_LINKS` | off | With `MULTI_GIFT`: before the season, the giver may choose "Ask them on WhatsApp" for a person's address (below, "Asking the recipient for their address"). Empty lets a manager turn it on from the panel; `false` is a kill switch |
 
-Both are in `mango-api/.env.example`.
+All three are in `mango-api/.env.example`.
 
 The shop and panel read the switch from the API, so there is no front-end build
 flag:
@@ -120,6 +121,46 @@ A gift for one person and a gift for several people are the same thing with more
 - **Season:** when the season's allocation runs, each booking becomes its own delivery order carrying its recipient, as for one gift pre-order. In season, "Send as a gift" is the gift order above, unchanged.
 - **Panel:** the Preorders page shows each booking with its recipient and a "Part of gift group PGR-… · N people" hint.
 
+### Asking the recipient for their address (GIFT_ADDRESS_LINKS)
+
+The giver often doesn't know the full address, and used to learn only at Pay whether we deliver there. Before the season,
+a gift for several people may leave a person's address to them (migrations 091 and 092, `mango-api/src/gift-address.js`).
+
+- **Booking:** a person in `POST /v1/preorders/groups` may have `askAddress: true` and no `pincode` or `address`; the gift's
+  name and mobile are then required. The booking is made with `address_state = ADDRESS_PENDING` and no pincode or address.
+  Its week is worked out by kg as for any booking (it doesn't depend on the pincode). While either switch is off,
+  `askAddress` is refused (`400 ASK_ADDRESS_OFF`). Pre-orders stay paid in full and non-refundable once paid.
+- **After payment:** when the group's one payment is captured, each pending booking gets one link (`gift_address_links`)
+  and the recipient gets `GIFT_ADDRESS_REQUEST` on WhatsApp, whose "Add my address" button opens
+  `<shop>/gift-address/<token>`. A replayed webhook adds nothing (one live link per booking).
+- **The token:** an HMAC of the link's random id with a key derived from `JWT_SECRET` (`gift-address-token.js`). Only its
+  sha256 is stored, so a copy of the database opens no link, and the same link can be sent again without storing it.
+  Request logs write `/v1/gift-address/:token`, never the token. Changing `JWT_SECRET` stops links already sent; the next
+  send works again.
+- **The recipient's page** (`shop/gift-address.js`, no sign-in): who it is from, the box and its week, the gift note; no
+  price and nothing else about the giver. They enter their address and pincode. The pincode is checked as typed and
+  again by the API, against the served pincodes as at checkout (`400 NOT_SERVICEABLE`). The address is taken **once**
+  (`409 ADDRESS_GIVEN` after), in one transaction with the booking locked, and the booking becomes `ADDRESS_GIVEN`.
+- **When it stops working:** at the start of the day before the booking's week (IST), `410 LINK_EXPIRED`; at once when the
+  booking is cancelled, `410 GIFT_CANCELLED`; when the giver's account is erased (privacy). A recipient who opens it
+  again after giving the address sees "thank you", not an error.
+- **The giver:** `GET /v1/preorders/groups/:id` gives each booking `addressState` (null: typed at booking,
+  `ADDRESS_PENDING`, `ADDRESS_GIVEN`), `addressLink` (`sentAt`, `sendCount`, `expiresAt`, `canResend`, `resendAfter`) and
+  `addressMessage` (the words the recipient gets). An address the recipient gave is not shown back to the giver; only its
+  pincode is. The shop shows this on the done screen and on `/gifts/pre/:id` (linked from each booking's sheet,
+  "See everyone"), with **Send link** and a preview of the WhatsApp message.
+- **Send link:** `POST /v1/preorders/groups/:id/preorders/:preorderId/send-link` sends the same link again: the giver's own
+  group only (else 404), once paid (`409 NOT_PAID`), while pending (`409 ADDRESS_GIVEN`, `409 NOT_ASKED`), before it
+  expires (`410 LINK_EXPIRED`), at most every 10 minutes (`429 RESEND_TOO_SOON` with `retryAfter`) and 5 times
+  (`409 RESEND_LIMIT`).
+- **The reminder:** maintenance (step `gift-address-reminders`) finds paid bookings still pending whose week is 5 days away
+  or less, and queues `GIFT_ADDRESS_REMINDER` to the recipient once and `GIFT_ADDRESS_MISSING` to the giver once (with a
+  link to the gift's page, where Send link is). A message queued before the gift was cancelled, the address given or the
+  link expired is skipped, not sent.
+- **Season:** the allocator leaves a pending booking `BOOKED` (it keeps its week's kg) and logs it. The first run after the
+  address is given turns it into its delivery order, as for any booking.
+- **In season:** the gift order (`/v1/gifts/quote`) still needs every address: its delivery day is a day or two away.
+
 ## API
 
 Customer routes (signed in, with a phone number; 404 while `MULTI_GIFT` is off):
@@ -151,19 +192,29 @@ Staff routes (managers and operators, as for the order list; 404 while off):
 
 ## Shop
 
-- **Start:** the gift part of checkout links to **Send to many** (`/gifts/new`).
-- **Editor:** one card per recipient, laid out for phones. It has:
-  - "Download the template" and "Upload a CSV"
-  - one day and time for everyone
-  - the sender's name
-  - optional business details for the one bill
-  - a promo code
-- **Review:** "Review N recipients" opens a review of every recipient and the total, then **Pay**.
+The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `shop/style.css`) sends a gift in two screens (the browser audit of 23 Nov 2026).
+
+- **Screen 1, `/gifts`: "Send a box of the season".**
+  - One card per gift box (Mixed, Alphonso, Kesar…). Each is set to 3 kg and semi-ripe. **Change** opens the size and ripeness on the card.
+  - Each card has one button, **Send as a gift**. There is no quantity counter: each person gets one box, so the number of boxes is the number of people.
+  - Before the season the pre-order terms appear once, as a chip: "Pre-order · arrives week of 1 Mar · **Details**". Details opens the terms in place.
+  - While `MULTI_GIFT` is off, the card's one button is **Add to bag as a gift** instead: one person, checked out from the bag (`shop/gift-bag.js`).
+- **Screen 2, `/gifts/send`: "Who gets it?".**
+  - The box each person gets, with **Change**. A person can have a different box ("Give this person a different box").
+  - One open row per person: **Name** and **WhatsApp number** (with +91 beside it), then the address and pincode. The pincode is checked as it is typed, so the giver learns at once whether we deliver there.
+  - Before the season, when the API offers it (`GET /v1/policy` → `features.giftAddressAsk`), each row asks "Their address": **Ask them on WhatsApp** (the default) or **I’ll enter it**. With "Ask", only the name and number are needed. While the API does not offer it, the address is asked as before.
+  - Rows save themselves as they are typed (this tab's draft, `sessionStorage` `mm-gift-draft`, version 3). There is no "Save this person". Empty rows are left out at Pay. Older drafts are read too.
+  - Up front: the **gift note** for every box, **From**, and the line "The price is hidden". Nothing the recipient gets shows a price; there is no switch for it.
+  - In season: one day and time for everyone, and the optional GST details for the one bill.
+  - The **sticky bar** at the bottom: "2 boxes · Arrives week of 1 Mar" (in season, the day), the total, and **Pay ₹3,598**. Before the season it also holds the one tick box: paid in full now, can't be cancelled once paid unless we delay it.
+  - **Pay** checks every row (the first mistake is focused), the tick, then sign-in (it comes back to `/gifts/send`, ready to press Pay again). In season it makes the gift order (quote, confirm, the Razorpay payment, verify-payment, as before). Before the season it books the gift pre-order group (`POST /v1/preorders/groups`, `qty: 1` per person, `askAddress: true` for "Ask"), then the payment link and the done screen.
+  - `/gifts/send/review` is kept for old links and opens screen 2.
 - **Gift order page (`/gifts/:id`):**
   - the payment state and each recipient's delivery with its status
   - cancel for one recipient or for the whole order, while allowed
   - the bill
 - **Orders page:** lists gift orders, and marks each delivery "gift for <name>".
+- **Order again** on a gift opens screen 2 with the same box (one box per person).
 
 ## Panel
 
@@ -190,9 +241,15 @@ Staff routes (managers and operators, as for the order list; 404 while off):
   - cross-customer 404s
   - staff roles
   - the CSV template's formula guard
+- **Address links:** `mango-api/test/gift-address.test.js`: a group with one asked and one typed address books and pays;
+  the link message is queued once, even when the payment is replayed; the page shows PENDING; an unserved pincode is
+  refused and nothing is saved; the address is accepted once (a second try is `409`); an expired link answers `410`;
+  the Send link rules; the reminder is queued once, 5 days before the week and not earlier; the allocator skips a
+  pending booking and converts it once the address is given; both switches; another customer's group answers 404.
 - **Isolation:** `mango-api/test/security-readiness.test.js` lists the gift routes among the customer routes checked for cross-customer access.
 - **Shop:**
-  - `customer-app/tests/unit/gift-csv.unit.ts` tests the CSV reader.
+  - `tests/unit/gift-rows.unit.ts` tests the shop's gifting helpers (the draft in every shape, the WhatsApp number, the week words, the booking body).
+  - `customer-app/tests/unit/gift-csv.unit.ts` tested the CSV reader of the retired Next.js shop.
   - `customer-app/tests/gifting.spec.ts` is end to end against the real API, the shop and the panel.
 - **Panel:** `tests/gifting.spec.ts`, against the mock API.
 
@@ -204,4 +261,11 @@ Staff routes (managers and operators, as for the order list; 404 while off):
 - **Buyer messages:** the buyer gets the existing order-confirmed message for each delivery, not one message for the whole gift order.
   - **Owner:** if one summary message is wanted, approve a WhatsApp template for it, so it can be added.
 - **One day per order:** all recipients get the same day and slot. Different days need separate gift orders.
+- **Address links, owner actions:**
+  - **Owner:** get the three WhatsApp templates approved by Meta (`mandi_gift_address_request`,
+    `mandi_gift_address_reminder`, `mandi_gift_address_missing`; wording and variables in `docs/whatsapp/TEMPLATES.md`),
+    then set `GIFT_ADDRESS_LINKS=true` and run migrations 091 and 092. Until then the shop never offers "Ask them on WhatsApp".
+  - A recipient whose address is not in by the day before their week is not delivered that week: their booking stays
+    booked, and staff see it in the allocator's log. **Owner:** decide what staff do then (call the giver, move the week).
+  - The recipient changes a given address by replying to our WhatsApp message (staff change it); the link takes it once.
 - **Turning it on:** set `MULTI_GIFT=true` (and optionally `MULTI_GIFT_MAX_RECIPIENTS`) on the API, and run migration 042.

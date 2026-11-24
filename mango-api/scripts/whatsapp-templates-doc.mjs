@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { AUTOMATIONS, LOGIN_CODE } from '../src/wa/registry.js'
+import { GIFT_ADDRESS_BODY } from '../src/wa/gift-address-words.js'
 
 export const DOC_FILE = new URL('../../docs/whatsapp/TEMPLATES.md', import.meta.url)
 const PREFIX = 'mandi_'
@@ -53,6 +54,7 @@ const BODY = {
   BULK_QUOTE: 'Hi {{1}}, your quote for bulk enquiry {{2}} is ready: {{3}} for {{4}}. See the details and accept it here: {{5}}',
   FARM_VISIT_ENQUIRY_RECEIVED: 'Hi {{1}}, we have your VMR Mangoes farm visit enquiry {{2}}: {{3}}. Our team will call you on WhatsApp to plan your visit.',
   BULK_ORDER_PAID: 'Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}, paid in full ({{3}}). Our team will call you on WhatsApp to arrange the delivery, usually within 5 to 7 days. You can cancel it for a full refund within 4 hours of paying, until it is dispatched: {{5}}',
+  ...GIFT_ADDRESS_BODY,
   MANAGER_DAILY_SUMMARY: 'MandiMangoes, {{1}}: {{2}} orders, {{3}} taken. Delivered {{4}} boxes, failed {{5}}. New claims {{6}}, unhappy ratings {{7}}, needs attention {{8}}.',
 }
 
@@ -66,8 +68,9 @@ const BUTTON_WORDS = {
   'order-link-flag': 'URL button "Open order", `https://<shop>/orders/{{1}}`, sent only with WHATSAPP_ORDER_LINKS=true once Meta approved the button',
   'track-order': 'URL button "Track order", `https://<shop>/orders/{{1}}` (always sent; part of this template version)',
   'copy-code': "Copy code (Meta's one-time password button; the code is the button's parameter too)",
+  'gift-address': 'URL button "Add my address", `https://<shop>/gift-address/{{1}}` (the link\'s token; always sent)',
 }
-const BUTTON_SHORT = { 'track-order': 'Track order', 'copy-code': 'Copy code' }
+const BUTTON_SHORT = { 'track-order': 'Track order', 'copy-code': 'Copy code', 'gift-address': 'Add my address' }
 
 export function render() {
   const out = [

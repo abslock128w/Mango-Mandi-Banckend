@@ -21,8 +21,10 @@ import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, CU
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { bookPreorder, bookPreorderBag, bookPreorderGroup, cancelPreorder, PREORDER_BAG_MAX_LINES, quotePreorderBag, ensureGroupPaymentLink, ensurePaymentLink, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
+import { bookPreorder, bookPreorderBag, bookPreorderGroup, cancelPreorder, PREORDER_BAG_MAX_LINES, quotePreorderBag, ensureGroupPaymentLink, ensurePaymentLink, giverPreorderView, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
 import { perRecipientMax } from './gifts.js'
+import { giftAddressOn, giverFields, linksFor, resendLink } from './gift-address.js'
+import { giftAddressPublic } from './gift-address-routes.js'
 import { seasonView } from './season-phase.js'
 import { hit, OTP_IP_WINDOW_MS, otpIpLimit, sharedLimiter } from './ratelimit.js'
 import { reportProblem } from './sentry.js'
@@ -474,6 +476,8 @@ router.get('/policy', (_req, res) => {
       funnel: isOn('FUNNEL_ANALYTICS'),
       // MULTI_GIFT: "Send to many" from the gift flow, up to this many recipients.
       multiGift: isOn('MULTI_GIFT'),
+      // GIFT_ADDRESS_LINKS with MULTI_GIFT: a gift for several people before the season may "Ask them on WhatsApp" for an address.
+      giftAddressAsk: giftAddressOn(),
       // Partner With Us links (PARTNER_NETWORK, docs/partner-network.md).
       partnerNetwork: isOn('PARTNER_NETWORK'),
       // The bulk enquiry form sends to the panel, and quotes show on the Account page (mango-api/README.md, Bulk enquiries).
@@ -611,6 +615,8 @@ router.use('/partner-network', partnerPublic)
 router.use(bulkEnquiryPublic)
 // Farm Experience: the page, dates and prices are public (docs/farm-experience.md).
 router.use(farmPublic)
+// The gift recipient's address page: GET/POST /gift-address/:token, no sign-in (GIFT_ADDRESS_LINKS, gift-address-routes.js).
+router.use(giftAddressPublic)
 
 router.use(['/cart', '/checkout', '/orders', '/claims', '/me', '/preorders', '/stock-alerts', '/reviews', '/gifts', '/farm-bookings'], requireCustomer)
 // Bulk lines in the cart (POST /cart/bulk, DELETE /cart/bulk/:listingId).
@@ -1794,16 +1800,28 @@ router.post(
  * person, booked together and paid once by one payment link (preorders.js bookPreorderGroup). Each
  * person names their box, ripeness, quantity, week (the shop shows it before paying), pincode,
  * address and the gift (name, mobile, message, as for one gift pre-order).
+ * With GIFT_ADDRESS_LINKS a person may instead have askAddress: true and no pincode or address: the recipient is asked
+ * on WhatsApp once the gift is paid (gift-address.js).
  */
 const groupRecipientSchema = z
   .object({
     sku: z.string().trim().min(1, 'Choose a box').max(40), stage: z.enum(SALE_STAGES), qty: z.number().int().min(1).max(20),
     // Optional, as for one pre-order: the week the shop showed for this person.
-    weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable(), pincode: PIN,
-    address: z.string().trim().min(10, 'Enter the full delivery address').max(500),
+    weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable(), pincode: PIN.optional().nullable(),
+    address: z.string().trim().min(10, 'Enter the full delivery address').max(500).optional().nullable(),
+    askAddress: z.boolean().optional(),
     gift: giftRecipientSchema,
   })
   .strict()
+  .superRefine((r, ctx) => {
+    if (r.askAddress) {
+      if (r.pincode != null) ctx.addIssue({ code: 'custom', path: ['pincode'], message: 'Leave the pincode empty when the recipient gives the address' })
+      if (r.address != null) ctx.addIssue({ code: 'custom', path: ['address'], message: 'Leave the address empty when the recipient gives it' })
+      return
+    }
+    if (r.pincode == null) ctx.addIssue({ code: 'custom', path: ['pincode'], message: 'pincode must be 6 digits' })
+    if (r.address == null) ctx.addIssue({ code: 'custom', path: ['address'], message: 'Enter the full delivery address' })
+  })
 
 router.post(
   '/preorders/groups',
@@ -1816,6 +1834,9 @@ router.post(
       z.object({ name: z.string().trim().max(80).optional(), recipients: z.array(groupRecipientSchema).min(1, 'Add at least one person').max(100) }).strict(),
       req.body,
     )
+    if (b.recipients.some((r) => r.askAddress) && !giftAddressOn()) {
+      throw new HttpError(400, 'ASK_ADDRESS_OFF', 'Asking the recipient for their address is not available. Enter each address.')
+    }
     if (b.recipients.length > max) throw new HttpError(400, 'TOO_MANY_RECIPIENTS', `A gift can go to up to ${max} people at once.`, { maxRecipients: max })
     const boxMax = perRecipientMax()
     const over = b.recipients.findIndex((r) => r.qty > boxMax)
@@ -1823,7 +1844,7 @@ router.post(
     const key = `${req.customer.id}:pregrp:${rawKey}`
     const hash = requestHash(b)
     const existing = () => replayFor(key, hash, 'preorder_groups')
-    const view = async (g) => res.json(groupView(g, (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [g.id])).rows))
+    const view = async (g) => res.json(await groupAnswer(g))
     const replay = await existing()
     if (replay && stillStarting(replay, 'payment_link_url')) throw startingPayment()
     if (replay) return view(replay)
@@ -1925,8 +1946,38 @@ router.get(
     const { rows } = await query('SELECT * FROM preorder_groups WHERE id = $1 AND customer_id = $2', [req.params.id, req.customer.id])
     // A gift for several people only while MULTI_GIFT is on; a pre-order bag (migration 089) always.
     if (!rows.length || (rows[0].kind !== 'BAG' && !isOn('MULTI_GIFT'))) throw notFound('Pre-order not found')
-    const members = (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [rows[0].id])).rows
-    res.json(groupView(rows[0], members))
+    res.json(await groupAnswer(rows[0]))
+  }),
+)
+
+/** A gift for several people as its giver sees it, with each booking's address link (GIFT_ADDRESS_LINKS). */
+async function groupAnswer(g) {
+  const members = (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position, id', [g.id])).rows
+  return groupView(g, members, await linksFor({ query }, members.map((p) => p.id)))
+}
+
+/**
+ * The giver sends a recipient the same address link again (GIFT_ADDRESS_LINKS, gift-address.js resendLink): their own
+ * group only (else 404). 200 { ...the booking as GET /preorders/groups/:id shows it }. Refused: 409 NOT_PAID,
+ * 410 GIFT_CANCELLED, 409 ADDRESS_GIVEN, 409 NOT_ASKED, 410 LINK_EXPIRED, 409 RESEND_LIMIT, 429 RESEND_TOO_SOON (retryAfter s).
+ */
+router.post(
+  '/preorders/groups/:id/preorders/:preorderId/send-link',
+  perCustomer('gift-link'),
+  asyncHandler(async (req, res) => {
+    if (!giftAddressOn()) throw notFound()
+    try {
+      const r = await tx((c) => resendLink(c, { groupId: req.params.id, preorderId: req.params.preorderId, customerId: req.customer.id }))
+      const g = (await query('SELECT * FROM preorder_groups WHERE id = $1', [req.params.id])).rows[0]
+      const p = (await query('SELECT * FROM preorders WHERE id = $1', [r.preorder.id])).rows[0]
+      res.json({
+        ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind }),
+        ...giverFields(p, r.link, r.paid),
+      })
+    } catch (err) {
+      if (err instanceof HttpError && err.code === 'RESEND_TOO_SOON') res.set('Retry-After', String(err.extra?.retryAfter ?? 600))
+      throw err
+    }
   }),
 )
 
@@ -1938,7 +1989,7 @@ router.get(
         WHERE p.customer_id = $1 ORDER BY COALESCE(g.created_at, p.created_at) DESC, COALESCE(p.group_id, p.id), p.group_position NULLS FIRST LIMIT 50`,
       [req.customer.id],
     )
-    res.json(rows.map(preorderView))
+    res.json(rows.map((p) => giverPreorderView(p)))
   }),
 )
 
@@ -1951,7 +2002,7 @@ router.get(
       [req.params.id, req.customer.id],
     )
     if (!rows.length) throw notFound('Preorder not found')
-    res.json(preorderView(rows[0]))
+    res.json(giverPreorderView(rows[0]))
   }),
 )
 

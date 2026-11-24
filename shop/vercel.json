@@ -215,6 +215,14 @@
     {
       "source": "/farm-bookings/:id{/}?",
       "destination": "/index.html"
+    },
+    {
+      "source": "/gifts/pre/:id{/}?",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/gift-address/:token{/}?",
+      "destination": "/index.html"
     }
   ]
 }
