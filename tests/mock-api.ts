@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import type { Attention, AuditEntry, LedgerEntry, PlanChange, PlanResult, Preorder, PreorderWeeks, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
+import type { Attention, AuditEntry, BulkEnquiryDetail, LedgerEntry, PlanChange, PlanResult, Preorder, PreorderWeeks, Product, Promo, Review, ReviewInsights, StaffMember } from '../src/types'
 import type { DayPlan, LiveBoard, OpsAnalytics } from '../src/ops/types'
 
 /** A 1×1 PNG. */
@@ -1095,11 +1095,43 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
       return json(route, 200, { date: url.searchParams.get('date'), cursor: new Date().toISOString(), changed: [], events: [], stops: [], riders: [] })
     }
     if (/^\/staff\/[^/]+\/devices$/.test(path)) return json(route, 200, [])
+    if (path === `/farm/bookings/${MOCK_FARM_BOOKING.id}` && method === 'GET' && state.features?.farmExperience) return json(route, 200, MOCK_FARM_BOOKING)
+    if (path === `/bulk-enquiries/${MOCK_FARM_VISIT_ENQUIRY.id}` && method === 'GET') return json(route, 200, MOCK_FARM_VISIT_ENQUIRY)
     if (/^\/orders\/[^/]+\/handover-override$/.test(path)) return route.fulfill({ status: 204 })
     return json(route, 404, { error: { code: 'NOT_FOUND', message: 'Not found', requestId: 'req_404' } })
   })
 
   return state
+}
+
+/**
+ * One Farm Experience booking (GET /farm/bookings/fbk_demo, while features.farmExperience is on) and one farm visit
+ * enquiry (GET /bulk-enquiries/benq_farm), with the language to speak and the other number (migration 094).
+ */
+// Shaped as src/pages/farm/api.ts Booking (not imported: that file pulls in the panel's Vite-only api.ts).
+export const MOCK_FARM_BOOKING = {
+  id: 'fbk_demo', number: 'MMF-7K2QXD9T', status: 'HOSPITALITY_REVIEW', statusLabel: 'Stay to arrange', refundStatus: null,
+  variety: { id: 'fv_alp', name: 'Alphonso' }, kg: 300, pricePerKg: 12_000, total: 3_600_000, bill: null, visitDate: '2027-04-10',
+  guests: { adults: 4, children: 2, total: 6, overnight: 4, arrivalDate: '2027-04-09', departureDate: '2027-04-10', food: { veg: 6 }, accessibility: null, notes: null, list: [] },
+  contact: { name: 'Asha Rao', phone: '+919876543210', email: null, altPhone: '+919876543211', preferredLanguage: 'Telugu' },
+  billing: null,
+  hospitality: { status: 'PENDING', plan: null, alternative: null, overCapacity: false, rooms: [], mealPlan: [] },
+  harvest: { status: 'PENDING', harvestedKg: null, acceptedKg: null, inspectionNote: null, packingStatus: 'PENDING' },
+  money: { paid: 0, refunded: 0, refunds: [] },
+  request: null, paidAt: null, cancelledAt: null, cancelReason: null, completedAt: null, checkedInAt: null, createdAt: '2027-03-20T05:00:00Z', version: 1,
+  customer: null, checkinCode: 'ABCDEFGHJKMN', kgReserved: true, harvestDay: null, payments: [], events: [], notes: [], nextMoves: [],
+}
+export const MOCK_FARM_VISIT_ENQUIRY: BulkEnquiryDetail = {
+  id: 'benq_farm', number: 'B618033989', kind: 'FARM_VISIT', status: 'NEW', createdAt: '2027-03-20T05:00:00Z', updatedAt: '2027-03-20T05:00:00Z',
+  name: 'Ravi Kumar', business: null, phone: '+919822222222', city: 'Bengaluru', customerId: null, quantityKg: 300, boxes: 0, total: null,
+  quotedAt: null, quoteSeenAt: null, respondedAt: null,
+  farmVisit: {
+    variety: 'Alphonso', kg: 300, preferredDate: '2027-04-10', flexible: false, people: 6, plannedDate: null, contactedAt: null, visitPlannedAt: null, visitedAt: null,
+    closeReason: null, preferredLanguage: 'Kannada', altPhone: '+919811111113',
+  },
+  email: null, notes: null, ripeness: null, lines: [], quote: null, quotedByEmail: null, customerMessage: null, closedAt: null, quoteText: null,
+  events: [{ id: 'bev1', type: 'RECEIVED', actor: 'system', detail: null, at: '2027-03-20T05:00:00Z' }], messages: [], whatsappOn: false, order: null,
+  deliveryAddress: null, pincode: null, paymentId: null, paymentMethod: null, cancelReason: null, refundId: null, refundRequestedAt: null, refundedAt: null,
 }
 
 /** A 1x1 orange PNG. */

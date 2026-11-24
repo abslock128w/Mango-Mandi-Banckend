@@ -1,10 +1,11 @@
 # Farm Experience
 
-Customers book a visit to the VMR Mangoes farm: they book **100 kg or more** of one mango
+Customers book a visit to the VMR Mangoes farm: they book **250 kg or more** of one mango
 variety on a visit date **without paying**, stay at the farmhouse **free of charge**, harvest and weigh
 their mangoes with the farm team, and **pay after picking** for the kilograms accepted. **Food is not
 ours to sell:** the farm team cooks meals and the visitors pay them directly at the farm; meals are never
-on our bill (the owner, 23 Nov 2026; until then the minimum was 250 kg and meals were part of the stay). Packing
+on our bill (the owner, 23 Nov 2026; until then the minimum was 250 kg and meals were part of the stay). From 24 Nov
+2026 the minimum is 250 kg again (it was 100 kg for a day) and a stay is at most two nights. Packing
 starts once the bill is paid. Staff run every booking from the
 panel under **Bulk Orders → Farm Experience Bookings**.
 
@@ -29,7 +30,9 @@ tab and the pages say farm visits are not open.
 
 | Rule | Where |
 | --- | --- |
-| Minimum 100 kg of one variety per booking, whole kilograms. A fixed business rule, not a setting. | `MIN_KG` in `mango-api/src/farm/settings.js`, checked on every quote and booking; `farm_bookings_kg_check` (migration 084) |
+| Minimum 250 kg of one variety per booking, whole kilograms. A fixed business rule, not a setting. | `MIN_KG` in `mango-api/src/farm/settings.js`, checked on every quote and booking; `farm_bookings_kg_check` (migration 084) still allows 100, so bookings made while the minimum was 100 kg stay valid |
+| A stay is at most two nights (`MAX_STAY_NIGHTS`), and the usual nights of stay a manager sets is 0 to 2. | `checkInput` in `farm/routes.js` (`FARM_STAY_DATES`); `settingsSchema` in `farm/settings.js` (a stored value above 2 reads as 2); the shop's date pickers |
+| The booking form also asks, both optional, the language to speak with the visitor (English, Telugu, Hindi, Tamil, Kannada or Other) and another mobile number. Shown on the panel's booking and in the team's new-booking WhatsApp. | `farm/contact.js`; `preferred_language`, `alt_phone` (migration 094) |
 | The stay is free. Meals are cooked by the farm team and paid to them at the farm, never on our bill. | The bill (`billFor`) charges mangoes only; the settings' `meals` say which meals the farm team can cook ("Meals available at the farm (paid there)", same stored shape); the FAQ answers for meals, accommodation, the minimum and advance payment are the rule's own (`currentFaqs` in `farm/settings.js` updates ones saved under the old rules) |
 | No maximum except what is left of that variety's bookable kg on that day. | `reserveKg` in `farm/bookings.js` (one conditional `UPDATE` on `farm_harvest`) |
 | No guest limit. A group larger than the farmhouse is flagged **Large group** and goes to a manager, who approves or proposes an alternative the customer accepts or declines. | `createBooking`, `approveHospitality`, `proposeAlternative`, `answerAlternative` |
@@ -159,4 +162,4 @@ In the panel, set up the following:
 ## Tests
 
 - **API:** `mango-api/test/farm-experience.test.js` covers the rules, the bill, the open-bookings cap, concurrency, paying the bill (webhooks, once however often), recorded payments, refunds of double or old-bill payments, the state machine and permissions. Farm routes are also in the step-up, isolation, auth-matrix and WhatsApp suites.
-- **Shop and panel together:** `node scripts/farm-shop-journey.mjs` walks the shop in a real browser against a running API (phone and desktop, light and dark): a customer books 300 kg in six steps (the minimum is 100 kg) without paying, accepts a proposed arrangement and moves the date; the farm side approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer's test payment fails once and then pays it; the visit is completed; a second visit is declined and cancelled; and with the switch off there is no card and the pages are closed. It needs the two APIs and the shop its header describes, so it is run by hand, not in CI.
+- **Shop and panel together:** `node scripts/farm-shop-journey.mjs` walks the shop in a real browser against a running API (phone and desktop, light and dark): a customer books 300 kg in six steps (the minimum is 250 kg) without paying, accepts a proposed arrangement and moves the date; the farm side approves the stay, checks the group in, records 305 kg accepted and sends the bill; the customer's test payment fails once and then pays it; the visit is completed; a second visit is declined and cancelled; and with the switch off there is no card and the pages are closed. It needs the two APIs and the shop its header describes, so it is run by hand, not in CI.

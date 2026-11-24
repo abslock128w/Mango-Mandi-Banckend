@@ -612,7 +612,7 @@ Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}
 - Template: `mandi_farm_visit_enquiry_received`
 - Category: UTILITY
 - Who may receive it: Order and service update: sent unless the number sent STOP
-- Sent when: Someone sends a farm visit enquiry from the Farm visit tab on the shop’s Bulk page (100 kg or more). The wording must say our team will call on WhatsApp to plan the visit.
+- Sent when: Someone sends a farm visit enquiry from the Farm visit tab on the shop’s Bulk page (250 kg or more). The wording must say our team will call on WhatsApp to plan the visit.
 - Only with `WHATSAPP_BULK_UPDATES=true`
 - Button: none
 - If it can't be sent: Not sent: the shop shows the enquiry number on screen and on the Account page, and the panel lists it under Farm visit enquiries.

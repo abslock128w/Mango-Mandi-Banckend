@@ -1,5 +1,5 @@
 // Farm visit enquiries (mango-api/README.md, Bulk orders and enquiries; kind FARM_VISIT, migration 087): the shop's
-// Farm visit tab sends one, signed in or not, from 100 kg (the 250 kg enquiry rule does not apply), with "we got it"
+// Farm visit tab sends one, signed in or not, from 250 kg (the farm visit's own minimum), with "we got it"
 // on WhatsApp; staff move it NEW → CONTACTED → VISIT_PLANNED (with the agreed date) → VISITED, or close it with a
 // reason; the customer sees it on their account; Needs attention counts the new ones.
 import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
@@ -40,36 +40,38 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
-const FORM = () => ({ name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', variety: 'Alphonso', kg: 150, visitDate: addDays(todayIST(), 10), flexible: false, people: 6, notes: 'Two children' })
+const FORM = () => ({ name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', variety: 'Alphonso', kg: 300, visitDate: addDays(todayIST(), 10), flexible: false, people: 6, notes: 'Two children' })
 const send = (body, opts = {}) => api.post('/v1/farm-visit-enquiries', body, { headers: { 'Idempotency-Key': newId('idem') }, ...opts })
 const row = async (id) => (await query('SELECT * FROM bulk_enquiries WHERE id = $1', [id])).rows[0]
 
 describe('sending one from the shop', () => {
-  test('signed out, 150 kg: numbered B, kind FARM_VISIT, the fields kept, "we got it" queued, the panel told', async () => {
+  test('signed out, 300 kg: numbered B, kind FARM_VISIT, the fields kept, "we got it" queued, the panel told', async () => {
     const r = await send(FORM())
     assert.equal(r.status, 201, JSON.stringify(r.body))
     assert.match(r.body.number, /^B\d{9}$/)
     assert.deepEqual([r.body.kind, r.body.status], ['FARM_VISIT', 'NEW'])
     const e = await row(r.body.id)
-    assert.deepEqual([e.kind, e.phone, e.quantity_kg, e.farm_variety, e.people, e.visit_flexible, e.customer_id, e.city], ['FARM_VISIT', '+919876543210', 150, 'Alphonso', 6, false, null, 'Bengaluru'])
+    assert.deepEqual([e.kind, e.phone, e.quantity_kg, e.farm_variety, e.people, e.visit_flexible, e.customer_id, e.city], ['FARM_VISIT', '+919876543210', 300, 'Alphonso', 6, false, null, 'Bengaluru'])
+    // Not asked: the language and the other number stay empty.
+    assert.deepEqual([e.preferred_language, e.alt_phone], [null, null])
     assert.equal(String(e.visit_date).slice(0, 10), addDays(todayIST(), 10))
     const n = (await query('SELECT * FROM notifications WHERE bulk_enquiry_id = $1', [r.body.id])).rows
     assert.deepEqual(n.map((x) => x.kind), ['FARM_VISIT_ENQUIRY_RECEIVED'])
     const p = paramsFor(n[0])
     assert.deepEqual(p.slice(0, 2), ['Asha Rao', formatOrderNumber(r.body.number)])
-    assert.match(p[2], /^150 kg of Alphonso, 6 people, around /)
+    assert.match(p[2], /^300 kg of Alphonso, 6 people, around /)
   })
 
-  test('100 kg is the minimum (not 250); whole kg; a date in the past, an unknown mango and no people are refused; "not sure" and flexible work', async () => {
-    for (const [body, field] of [[{ kg: 99 }, 'kg'], [{ kg: 120.5 }, 'kg'], [{ people: 0 }, 'people'], [{ visitDate: addDays(todayIST(), -1) }, 'visitDate'], [{ variety: 'Durian' }, 'variety']]) {
+  test('250 kg is the minimum; whole kg; a date in the past, an unknown mango and no people are refused; "not sure" and flexible work', async () => {
+    for (const [body, field] of [[{ kg: 249 }, 'kg'], [{ kg: 100 }, 'kg'], [{ kg: 260.5 }, 'kg'], [{ people: 0 }, 'people'], [{ visitDate: addDays(todayIST(), -1) }, 'visitDate'], [{ variety: 'Durian' }, 'variety']]) {
       const r = await send({ ...FORM(), ...body })
       assert.equal(r.status, 400, `${field}: ${JSON.stringify(r.body)}`)
     }
-    assert.match((await send({ ...FORM(), kg: 99 })).body.error.message, /100 kg/)
-    const ok = await send({ ...FORM(), kg: 100, variety: null, visitDate: null, flexible: true })
+    assert.match((await send({ ...FORM(), kg: 249 })).body.error.message, /250 kg/)
+    const ok = await send({ ...FORM(), kg: 250, variety: null, visitDate: null, flexible: true })
     assert.equal(ok.status, 201, JSON.stringify(ok.body))
     const e = await row(ok.body.id)
-    assert.deepEqual([e.quantity_kg, e.farm_variety, e.visit_date, e.visit_flexible], [100, null, null, true])
+    assert.deepEqual([e.quantity_kg, e.farm_variety, e.visit_date, e.visit_flexible], [250, null, null, true])
     // No date and no tick is also "flexible".
     assert.equal((await row((await send({ ...FORM(), visitDate: null, phone: '9811111112' })).body.id)).visit_flexible, true)
     // The 250 kg rule still holds for a plain enquiry.
@@ -82,7 +84,7 @@ describe('sending one from the shop', () => {
     const a = await send(FORM(), opts)
     const b = await send(FORM(), opts)
     assert.deepEqual([a.status, b.status, b.body.id], [201, 200, a.body.id])
-    assert.equal((await send({ ...FORM(), kg: 300 }, opts)).body.error.code, 'IDEMPOTENCY_KEY_REUSED')
+    assert.equal((await send({ ...FORM(), kg: 400 }, opts)).body.error.code, 'IDEMPOTENCY_KEY_REUSED')
     env.BULK_ENQUIRY_DAILY_LIMIT = 2
     assert.equal((await send(FORM())).status, 201)
     const third = await send(FORM())
@@ -96,9 +98,34 @@ describe('sending one from the shop', () => {
     assert.equal((await row(r.body.id)).customer_id, cust.customer.id)
     const mine = (await api.get('/v1/me/bulk-enquiries', { token: cust.accessToken })).body.items
     assert.equal(mine[0].kind, 'FARM_VISIT')
-    assert.deepEqual([mine[0].farmVisit.kg, mine[0].farmVisit.variety, mine[0].farmVisit.people, mine[0].farmVisit.flexible], [150, 'Alphonso', 6, false])
+    assert.deepEqual([mine[0].farmVisit.kg, mine[0].farmVisit.variety, mine[0].farmVisit.people, mine[0].farmVisit.flexible], [300, 'Alphonso', 6, false])
     assert.equal(mine[0].order, null)
     assert.equal((await send(FORM(), { headers: { 'Idempotency-Key': newId('idem') }, token: 'stale' })).status, 201)
+  })
+})
+
+describe('the language to speak and another number (migration 094)', () => {
+  test('optional; checked; kept as +91 numbers; shown on the account and to staff', async () => {
+    for (const [over, msg] of [[{ preferredLanguage: 'French' }, /preferredLanguage: Choose a language/], [{ altPhone: '5555555555' }, /altPhone: Enter a 10-digit/], [{ altPhone: '98765' }, /altPhone/]]) {
+      const r = await send({ ...FORM(), ...over })
+      assert.equal(r.status, 400, JSON.stringify(over))
+      assert.match(r.body.error.message, msg)
+    }
+    const cust = await customerToken(api, '9876543210')
+    const r = await send({ ...FORM(), preferredLanguage: 'Tamil', altPhone: '+91 98111 11113' }, { headers: { 'Idempotency-Key': newId('idem') }, token: cust.accessToken })
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    const e = await row(r.body.id)
+    assert.deepEqual([e.preferred_language, e.alt_phone], ['Tamil', '+919811111113'])
+    const mine = (await api.get(`/v1/me/bulk-enquiries/${r.body.id}`, { token: cust.accessToken })).body
+    assert.deepEqual([mine.farmVisit.preferredLanguage, mine.farmVisit.altPhone], ['Tamil', '+919811111113'])
+    const staff = (await api.get(`/admin/v1/bulk-enquiries/${r.body.id}`, { token: manager })).body
+    assert.deepEqual([staff.farmVisit.preferredLanguage, staff.farmVisit.altPhone], ['Tamil', '+919811111113'])
+    const list = (await api.get('/admin/v1/bulk-enquiries?kind=FARM_VISIT', { token: manager })).body.items
+    assert.deepEqual([list[0].farmVisit.preferredLanguage, list[0].farmVisit.altPhone], ['Tamil', '+919811111113'])
+    // Sent empty (the shop's "Choose" and an empty box): nothing stored.
+    const blank = await send({ ...FORM(), phone: '9822222223', preferredLanguage: '', altPhone: '' })
+    assert.equal(blank.status, 201, JSON.stringify(blank.body))
+    assert.deepEqual([(await row(blank.body.id)).preferred_language, (await row(blank.body.id)).alt_phone], [null, null])
   })
 })
 

@@ -1,6 +1,6 @@
 /* The bulk page's three tabs and the bulk order paid at once (mango-api README, Bulk orders).
    /bulk (Bulk order: 100 kg and above, ordered and paid now), /bulk/enquiry (Send enquiry: 250 kg and above, a quote)
-   and /bulk/farm-visit (Farm visit: 100 kg and above, pick your own, the stay is free; farm.js books it). Each tab is
+   and /bulk/farm-visit (Farm visit: 250 kg and above, pick your own, the stay is free; farm.js books it). Each tab is
    its own address, so it can be linked and the back button works. The tab row is a real tablist (arrow keys, Home,
    End) whose bead slides from the old tab to the new one.
    The list builder is pages.js's; this file adds the bulk prices (GET /v1/bulk/prices: the shop price less the
@@ -15,7 +15,7 @@ PAGES.push([/^\/bulk\/orders\/([^/]+)\/?$/, (m) => signedInThen('Bulk order', ()
 const BULK_TABS = [
   { id: 'order', href: '/bulk', name: 'Bulk order', promise: ['100 kg and above', 'order and pay now'] },
   { id: 'enquiry', href: '/bulk/enquiry', name: 'Send enquiry', promise: ['250 kg and above', 'get a quote'] },
-  { id: 'farm-visit', href: '/bulk/farm-visit', name: 'Farm visit', promise: ['100 kg and above', 'pick your own, stay free'] },
+  { id: 'farm-visit', href: '/bulk/farm-visit', name: 'Farm visit', promise: ['250 kg and above', 'pick your own, stay free'] },
 ]
 let bulkTab = 'order'
 const bulkRs = (paise) => currency((Number(paise) || 0) / 100)
@@ -84,7 +84,7 @@ function bulkKeyHTML(tab) {
     li('check', 'Nothing paid now', 'Accept or decline the quote on your account. We call you to arrange delivery and payment.'),
     li('truck', `Delivery: ${BULK_DELIVERY_PCT}% of the mangoes’ value`, 'Shown on the quote, with any extra costs such as special packaging.'),
   ] : tab === 'farm-visit' ? [
-    li('scale', `${BULK_MIN_KG} kg minimum`, `Book ${BULK_MIN_KG} kg or more of one variety for your visit day.`),
+    li('scale', `${FARM_VISIT_MIN_KG} kg minimum`, `Book ${FARM_VISIT_MIN_KG} kg or more of one variety for your visit day.`),
     li('tree', 'Your stay is free', 'Stay at the farmhouse at no charge while you visit.'),
     li('store', 'Food is paid at the farm', 'Meals are cooked by our farm team and paid to them directly at the farm. They are never on our bill.'),
     li('mango', 'Pick your own mangoes', 'Walk the orchard and pick them with our farm team.'),
@@ -298,7 +298,8 @@ document.addEventListener('click', (e) => {
 // calls to plan the visit. (The full Farm Experience booking stays in farm.js for later: a quiet link under the form
 // only while FARM_EXPERIENCE is on and bookings are open.)
 
-const FARM_VISIT_MIN_KG = 100
+/** The API's FARM_VISIT_MIN_KG (bulk-enquiries.js) and the booking's MIN_KG (farm/settings.js): farm visits are for this much and more. */
+const FARM_VISIT_MIN_KG = 250
 const FARM_VISIT_DRAFT = 'mm-farm-visit-draft'
 // `captcha`, `captchaOn`, `widget`: the Turnstile check (AUTH-01, app.js formCaptcha), drawn afresh with the form.
 const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null }
@@ -344,6 +345,8 @@ function bulkFarmDraw(errors = {}, top = '') {
       <div class="form-grid">
         <label class="field">Your name<input name="name" autocomplete="name" maxlength="100" required value="${v('name', me.name || '')}"${inv('name')}>${err('name')}</label>
         <label class="field">Mobile / WhatsApp number<input name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" required placeholder="10-digit mobile" value="${v('phone', String(me.phone || '').replace(/^\+91/, ''))}"${inv('phone')}>${err('phone')}</label>
+        <label class="field">Another number we can reach <small>(optional)</small><input name="altPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="10-digit mobile" value="${v('altPhone')}"${inv('altPhone')}>${err('altPhone')}</label>
+        <label class="field">Language you prefer we speak <small>(optional)</small><span class="bulk-select"><select name="preferredLanguage"${inv('preferredLanguage')}><option value="">No preference</option>${FARM_LANGUAGES.map((n) => `<option${d.preferredLanguage === n ? ' selected' : ''}>${n}</option>`).join('')}</select>${icon('chevron')}</span>${err('preferredLanguage')}</label>
         <label class="field">City<input name="city" autocomplete="address-level2" maxlength="100" required value="${v('city')}"${inv('city')}>${err('city')}</label>
         <label class="field">Which mango<span class="bulk-select"><select name="variety"${inv('variety')}><option value="">Not sure yet</option>${varieties.map((n) => `<option${d.variety === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${icon('chevron')}</span>${err('variety')}</label>
         <label class="field">About how many kg <small>(${FARM_VISIT_MIN_KG} or more)</small><input name="kg" type="number" inputmode="numeric" min="${FARM_VISIT_MIN_KG}" step="1" required value="${v('kg', String(FARM_VISIT_MIN_KG))}"${inv('kg')}>${err('kg')}</label>
@@ -364,7 +367,7 @@ function bulkFarmDraw(errors = {}, top = '') {
 
 function bulkFarmKeep(form) {
   const d = {}
-  for (const k of ['name', 'phone', 'city', 'variety', 'kg', 'people', 'visitDate', 'notes']) { const el = form.elements.namedItem(k); if (el) d[k] = el.value }
+  for (const k of ['name', 'phone', 'altPhone', 'preferredLanguage', 'city', 'variety', 'kg', 'people', 'visitDate', 'notes']) { const el = form.elements.namedItem(k); if (el) d[k] = el.value }
   d.flexible = form.elements.namedItem('flexible').checked
   save(FARM_VISIT_DRAFT, d)
   return d
@@ -375,6 +378,8 @@ async function bulkFarmSend(form) {
   const d = bulkFarmKeep(form), errors = {}
   if (!String(d.name).trim()) errors.name = 'Tell us your name.'
   if (!/^[6-9]\d{9}$/.test(normPhone(d.phone))) errors.phone = 'Enter a 10-digit mobile number.'
+  if (String(d.altPhone || '').trim() && !/^[6-9]\d{9}$/.test(normPhone(d.altPhone))) errors.altPhone = 'Enter a 10-digit mobile number, or leave it empty.'
+  if (d.preferredLanguage && !FARM_LANGUAGES.includes(d.preferredLanguage)) errors.preferredLanguage = 'Choose a language from the list.'
   if (!String(d.city).trim()) errors.city = 'Tell us your city.'
   if (!/^\d+$/.test(String(d.kg).trim()) || Number(d.kg) < FARM_VISIT_MIN_KG) errors.kg = `Farm visits are for ${FARM_VISIT_MIN_KG} kg and above, in whole kg.`
   if (!/^\d+$/.test(String(d.people).trim()) || Number(d.people) < 1) errors.people = 'At least one person is coming.'
@@ -388,6 +393,7 @@ async function bulkFarmSend(form) {
   const body = {
     name: String(d.name).trim(), phone: normPhone(d.phone), city: String(d.city).trim(), variety: d.variety || null, kg: Number(d.kg), people: Number(d.people),
     visitDate: d.flexible ? null : d.visitDate || null, flexible: Boolean(d.flexible) || !d.visitDate, notes: String(d.notes || '').trim() || null,
+    preferredLanguage: d.preferredLanguage || null, altPhone: String(d.altPhone || '').trim() ? normPhone(d.altPhone) : null,
   }
   try {
     const r = await MM.farmVisitEnquiry(body, fv.key, captcha)

@@ -2489,7 +2489,7 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 .gift-qty-step button:focus-visible{outline:2px solid #174631;outline-offset:-3px;border-radius:999px}
 .gift-qty-step output{min-width:34px;text-align:center;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;color:#173a28}
 .gift-qty-sum{font-size:14px;font-weight:600;color:#3d5a45;font-variant-numeric:tabular-nums}
-/* ---- Hero slide 2: the Legacy page's "50 summers" (photo-filled numerals over a deep green ground), same in both
+/* ---- Hero slide 2: the Legacy page's "50 years" (photo-filled numerals over a deep green ground), same in both
    themes. Sized from the banner's own height so it fits every breakpoint. */
 .sun-slide.sun-fifty{position:relative;display:grid;place-items:center;height:100%;min-height:0;max-height:100%;align-self:stretch;container-type:size;padding:0;overflow:hidden;background:radial-gradient(120% 90% at 50% 40%,#123a27 0%,#0b2418 62%,#07180f 100%)}
 .sf-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -2497,7 +2497,7 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 .sf-50{grid-area:1/1;font:400 74cqh/.8 'Young Serif',Georgia,serif;letter-spacing:-.07em;padding-right:.08em;white-space:nowrap}
 .sf-50.is-photo{background:url(assets/hero-orchard.webp) 78% 72%/190% auto no-repeat;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
 .sf-50.is-outline{color:transparent;-webkit-text-fill-color:transparent;-webkit-text-stroke:clamp(1.2px,.12cqw,2.4px) #f0b429;translate:2.6% 3.2%;opacity:.8}
-.sf-50.is-outline::before{content:attr(data-n)} /* the outline copy is CSS text, so the slide's text reads "50 summers" once */
+.sf-50.is-outline::before{content:attr(data-n)} /* the outline copy is CSS text, so the slide's text reads "50 years" once */
 .sf-summers{grid-area:1/1;align-self:end;translate:0 44%;font:italic 400 27cqh/1 'Young Serif',Georgia,serif;letter-spacing:-.035em;color:#f6efdc;white-space:nowrap;text-shadow:0 6px 24px #0b1f1580}
 .sf-caps{position:absolute;left:clamp(16px,4cqw,56px);top:clamp(14px,3.4cqw,40px);margin:0;font-size:clamp(9px,1.05cqw,13px);font-weight:700;letter-spacing:.32em;text-transform:uppercase;color:#f0b429}
 .sf-promise{position:absolute;right:clamp(16px,4cqw,56px);top:clamp(10px,2.8cqw,34px);margin:0;font:italic 400 clamp(14px,2.3cqw,30px)/1 'Young Serif',Georgia,serif;color:#f6efdc}

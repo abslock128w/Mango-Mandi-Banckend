@@ -82,7 +82,7 @@ export default function FarmHarvest() {
 
       <section className="card">
         <h2>Kg per day</h2>
-        <p className="muted small">Each cell: bookable kg, then booked or held. Customers can book only what is left of bookable kg, in one variety per booking, 100 kg or more.</p>
+        <p className="muted small">Each cell: bookable kg, then booked or held. Customers can book only what is left of bookable kg, in one variety per booking, 250 kg or more.</p>
         <div className="farm-actions mb-3">
           <button type="button" className="btn btn-small" onClick={() => setFrom(addDays(from, -14))}>
             Earlier

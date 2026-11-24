@@ -1814,7 +1814,7 @@ export interface LiveDeliveries {
 export type BulkEnquiryStatus =
   | 'NEW' | 'QUOTED' | 'ACCEPTED' | 'DECLINED' | 'CLOSED' | 'PAYMENT_PENDING' | 'PAID' | 'CONFIRMED' | 'DISPATCHED' | 'DELIVERED' | 'CANCELLED'
   | 'CONTACTED' | 'VISIT_PLANNED' | 'VISITED'
-/** ENQUIRY (a quote, 250 kg+), ORDER (paid at once, 100 kg+), FARM_VISIT (a farm visit enquiry, 100 kg+). */
+/** ENQUIRY (a quote, 250 kg+), ORDER (paid at once, 100 kg+), FARM_VISIT (a farm visit enquiry, 250 kg+). */
 export type BulkKind = 'ENQUIRY' | 'ORDER' | 'FARM_VISIT'
 /** A farm visit enquiry's own fields (kind FARM_VISIT). Dates are YYYY-MM-DD. */
 export interface FarmVisitFields {
@@ -1828,6 +1828,9 @@ export interface FarmVisitFields {
   visitPlannedAt: string | null
   visitedAt: string | null
   closeReason: string | null
+  /** Optional on the shop's form (migration 094): the language to speak with them, and another mobile number. Absent on an older API. */
+  preferredLanguage?: string | null
+  altPhone?: string | null
 }
 
 export interface BulkEnquiryRow {

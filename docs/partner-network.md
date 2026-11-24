@@ -1,11 +1,11 @@
 # Partner Network
 
-Partner With Us lets entrepreneurs, farmers, suppliers, distributors, retailers, corporate buyers, creators and logistics firms anywhere in India send MandiMangoes a business enquiry. Staff review and manage those enquiries in the panel's Partner Network section.
+Partner With Us lets entrepreneurs, distributors, product makers, corporate buyers, creators and logistics firms anywhere in India send MandiMangoes a business enquiry. Staff review and manage those enquiries in the panel's Partner Network section.
 
 This release covers enquiries only. There are no partner accounts, logins, dashboards, commissions or payouts. An approved product proposal never creates a shop product by itself.
 
 - Switch: `PARTNER_NETWORK`. It is on unless the environment sets it to `false`, and managers can turn it off on the Settings page. While it is off, every route below answers 404 and the shop hides its links.
-- Database: migrations `058_partner_network.sql` and `059_validate_partner_checks.sql`; `069_partner_erasure.sql` (deleting ended applications); `093_partner_short_form.sql` (the short form leaves state, country, contact preference and organisation type empty).
+- Database: migrations `058_partner_network.sql` and `059_validate_partner_checks.sql`; `069_partner_erasure.sql` (deleting ended applications); `093_partner_short_form.sql` (the short form leaves state, country, contact preference and organisation type empty); `095_partner_close_three_categories.sql` (switches off three categories, below).
 - Code:
   - `mango-api/src/partner/`: the questionnaire, enquiries, staff actions and alerts.
   - `shop/partner.js`: the shop pages.
@@ -337,6 +337,7 @@ How the detail reads:
 
 - `GET /categories` returns `{ categories: [{ code, name, description, active, displayOrder, enquiries }], states }`, where `states` is the list of Indian states.
 - `PATCH /categories/:code` takes `{ name?, description?, active?, displayOrder? }` and returns `{ categories }`. A description is required (2 to 600 characters), and the last open category can't be switched off. It is for managers only. Codes are fixed, because the questionnaire refers to them.
+- Inactive since 2026-11-24 (migration 095): Farmers & Suppliers (`FARMERS_SUPPLIERS`), Retail & Reseller Partners (`RETAIL_RESELLER`) and Other Opportunities (`OTHER`). The form no longer offers them and a new enquiry (v1 or v2) can not choose them. Their rows stay, so enquiries that chose one keep their primary and ticked categories, and the panel still names, counts and filters them. Their codes stay in `CATEGORY_CODES`, where the v1 sections name them. To offer one again, switch it on here or run `UPDATE partnership_categories SET is_active = TRUE, updated_at = now() WHERE code = '<CODE>'`.
 
 ## Messages
 

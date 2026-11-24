@@ -65,7 +65,9 @@ export async function queueFarmMessages(c, b, what, { tag = String(b.version) } 
     n++
   }
   if (TEAM[what]) {
-    const detail = `${b.kg} kg ${b.variety_name}, ${day(b.visit_date)}, ${b.adults + b.children} guests`
+    // The language to speak and the other number (migration 094), when the customer gave them.
+    const extra = [b.preferred_language && `speaks ${b.preferred_language}`, b.alt_phone && `also on ${b.alt_phone}`].filter(Boolean)
+    const detail = `${b.kg} kg ${b.variety_name}, ${day(b.visit_date)}, ${b.adults + b.children} guests${extra.length ? `, ${extra.join(', ')}` : ''}`
     for (const phone of env.FARM_ALERT_PHONES) {
       await add(c, {
         bookingId: b.id, kind: 'FARM_TEAM_ALERT', eventId: `${b.id}:${what}:${tag}:${phone}`, phone,

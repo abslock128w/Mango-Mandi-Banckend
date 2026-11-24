@@ -168,7 +168,7 @@ function cancelNote(o, canCancel) {
 }
 
 // ---- The bulk page: three tabs under the heading (bulk.js): Bulk order (100 kg and above, ordered and paid now at bulk
-// prices), Send enquiry (250 kg and above, a quote) and Farm visit (100 kg and above, farm.js). On the first two one
+// prices), Send enquiry (250 kg and above, a quote) and Farm visit (250 kg and above, farm.js). On the first two one
 // adder (a variety <select>, ripeness, 5 kg / 10 kg box, number of boxes) fills one bulk list (localStorage `mm-bulk`,
 // not the bag), shared by both tabs, shown under it with a stepper per line and both prices (the shop's struck through,
 // the bulk price from GET /v1/bulk/prices). The sticky bar (#pay-bar) offers the tab's one action: "Order and pay"

@@ -34,3 +34,18 @@ test('on, operator: the farm pages without Farm reports or Bulk Deals', async ({
   for (const name of FARM_LINKS) await expect(await openNavTo(page, name)).toBeVisible()
   for (const name of ['Farm reports', 'Bulk Deals']) await expect(mainNav(page).getByRole('link', { name, exact: true })).toHaveCount(0)
 })
+
+test('a farm booking and a farm visit enquiry show the language to speak and the other number (migration 094)', async ({ page }) => {
+  await mockApi(page, { signedIn: true, features: { farmExperience: true } })
+  await page.goto('/farm/bookings/fbk_demo')
+  await screenLoaded(page)
+  const booking = page.locator('section.card', { has: page.getByRole('heading', { name: 'Customer', exact: true }) })
+  await expect(booking.locator('dt', { hasText: 'Language to speak' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Telugu')
+  await expect(booking.locator('dt', { hasText: 'Another number' }).locator('xpath=following-sibling::dd[1]').getByRole('link')).toHaveAttribute('href', /9876543211/)
+
+  await page.goto('/bulk-enquiries/benq_farm')
+  await screenLoaded(page)
+  const enquiry = page.locator('section.card', { has: page.getByRole('heading', { name: 'Customer', exact: true }) })
+  await expect(enquiry.locator('dt', { hasText: 'Language to speak' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Kannada')
+  await expect(enquiry.locator('dt', { hasText: 'Another number' }).locator('xpath=following-sibling::dd[1]').getByRole('link')).toHaveAttribute('href', /9811111113/)
+})

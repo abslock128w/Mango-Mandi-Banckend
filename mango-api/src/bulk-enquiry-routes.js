@@ -4,7 +4,7 @@
 //                                            no sign-in needed (a signed-in sender's is linked to their account).
 //                                            Less is refused with 400 BULK_ENQUIRY_TOO_SMALL; kind ORDER with
 //                                            400 BULK_ORDER_PAY_ONLINE (orders are placed signed in and paid).
-//   POST /farm-visit-enquiries               a farm visit enquiry (kind FARM_VISIT), from 100 kg: no sign-in needed;
+//   POST /farm-visit-enquiries               a farm visit enquiry (kind FARM_VISIT), from 250 kg: no sign-in needed;
 //                                            the same Idempotency-Key, daily limit and connection limit as an enquiry
 //                                            Both forms take an optional captchaToken: with Turnstile on (TURNSTILE_SECRET_KEY)
 //                                            a form without a good one is refused (400 CAPTCHA_REQUIRED / CAPTCHA_FAILED), AUTH-01

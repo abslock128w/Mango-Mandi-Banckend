@@ -1,10 +1,10 @@
-/* Our legacy: "Fifty summers" first, at once; the film loads behind it and plays when it is ready.
+/* Our legacy: "50 years" first, at once; the film loads behind it and plays when it is ready.
 
    1. The opening, within about a second: this page's own light things only. Its fonts and its photo get at most
       LX_LIGHT to arrive (after that they swap in when they come); its pollen (drawn in a worker where the browser can)
       and its timelines are set up meanwhile, and its grain is made on the side. A plain night cover hides the first
       screen while it is painted once, so the entrance's first frame has nothing left to draw from scratch; then the
-      cover fades and "Fifty summers" makes its entrance. Nothing here waits on the film.
+      cover fades and "50 years" makes its entrance. Nothing here waits on the film.
    2. The film (One Mango, built from mango-journey/ into shop/one-mango/ and played in a frame) is only asked for once
       the opening is on screen, in an idle moment after its first frames: it fetches its code, builds every chapter,
       compiles every shader, uploads every texture and prepares its music, and reports how far it is (a fraction, by
@@ -67,7 +67,7 @@ const LX_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="fal
 const lxLetters = (text) => [...text].map((c) => `<span class="lx-chm"><span class="lx-ch">${c === ' ' ? '&nbsp;' : c}</span></span>`).join('')
 
 function lxMarkup() {
-  return `<article class="lx" aria-label="Our legacy: fifty summers, then One Mango">
+  return `<article class="lx" aria-label="Our legacy: 50 years, then One Mango">
 <div class="lx-boot" data-lx-boot aria-hidden="true"></div>
 <div class="lx-grain" aria-hidden="true"></div>
 <div class="lx-cursor" aria-hidden="true"><span class="lx-cursor-dot"></span><span class="lx-cursor-ring"><b class="lx-cursor-word"></b></span></div>
@@ -77,9 +77,9 @@ function lxMarkup() {
   <canvas class="lx-pollen is-near" aria-hidden="true"></canvas>
   <div class="lx-vignette" aria-hidden="true"></div>
   <p class="lx-caps lx-open-caps">VMR Mangoes · Since 1976</p>
-  <h1 id="lx-title" class="lx-open-title" tabindex="-1"><span class="lx-sr">Fifty summers. One promise.</span>
+  <h1 id="lx-title" class="lx-open-title" tabindex="-1"><span class="lx-sr">50 years. One promise.</span>
     <span class="lx-fifty-wrap" aria-hidden="true"><span class="lx-fifty is-outline"><span>5</span><span>0</span></span><span class="lx-fifty is-photo"><span class="lx-d5">5</span><span class="lx-d0">0</span></span></span>
-    <span class="lx-summers" aria-hidden="true">${lxLetters('summers')}</span>
+    <span class="lx-summers" aria-hidden="true">${lxLetters('years')}</span>
   </h1>
   <p class="lx-open-promise" aria-hidden="true">One promise.</p>
   <div class="lx-load" data-lx-load>

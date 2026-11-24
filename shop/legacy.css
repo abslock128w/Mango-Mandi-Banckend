@@ -1,4 +1,4 @@
-/* Our legacy (/legacy, legacy.js): the "Fifty summers" opening, then the film One Mango. Its own art-directed world,
+/* Our legacy (/legacy, legacy.js): the "50 years" opening, then the film One Mango. Its own art-directed world,
    the same in both site themes. Base rules are the static page (reduced motion, no GSAP, any failure); .lx-motion adds
    the night cover, the entrance and the fly-through into the film. Everything is scoped to .lx, .lxo- or
    body[data-page="legacy"], so the rest of the shop is untouched. Sizes are fluid; one --pad for every margin. */
@@ -120,7 +120,7 @@ body[data-page="legacy"] .dock-row{background:#0b1f15f0;-webkit-backdrop-filter:
 body[data-page="legacy"] .dock-orb{box-shadow:0 6px 18px #0007}
 body[data-page="legacy"]::after{display:none}
 
-/* ---- The first screen sits higher: the 50, "summers" and their photo lift as one block (translate on the title,
+/* ---- The first screen sits higher: the 50, "years" and their photo lift as one block (translate on the title,
    which no animation touches, so the entrance and the fly-through are unchanged). The outline's and the word's own
    offsets are relative positions in em (the same places as before) rather than transforms: GSAP folds a transform it
    finds into pixels, which then stayed wrong after a resize. */

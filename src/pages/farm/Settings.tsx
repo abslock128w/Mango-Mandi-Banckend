@@ -57,7 +57,7 @@ const NUMBERS: { key: string; label: string; hint?: string }[] = [
   },
   { key: 'cancelDays', label: 'The customer may cancel at once this many days or more before', hint: 'Nothing is charged. Closer to the visit, the request comes to a manager.' },
   { key: 'rescheduleDays', label: 'The customer may move the date this many days or more before' },
-  { key: 'stayNights', label: 'Usual nights of stay (0 for a day visit)' },
+  { key: 'stayNights', label: 'Usual nights of stay (0 to 2; 0 for a day visit)', hint: 'A stay can be up to 2 nights. The shop offers this many by default when anyone stays overnight.' },
 ]
 
 export default function FarmSettingsPage() {
@@ -191,7 +191,7 @@ function Form({ data, manager }: { data: { settings: FarmSettings; version: numb
           <label htmlFor={`${id}-extra`}>Price per kg for extra mangoes picked on the day (₹, empty = the booking's own price)</label>
           <input id={`${id}-extra`} type="number" min={0.01} step={0.01} disabled={!manager} value={extra} onChange={(e) => set({ extraPricePerKg: e.target.value === '' ? null : toPaise(e.target.value) })} />
         </div>
-        <p className="muted small">The 100 kg minimum is a fixed rule of the business, not a setting. The stay is free; meals are paid to the farm team at the farm, never on the bill.</p>
+        <p className="muted small">The 250 kg minimum and the two-night longest stay are fixed rules of the business, not settings. The stay is free; meals are paid to the farm team at the farm, never on the bill.</p>
       </section>
 
       <section className="card">

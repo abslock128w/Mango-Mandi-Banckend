@@ -53,20 +53,20 @@ let seq = 0
 const LONG = 'We run a fruit distribution business across north Karnataka and know the market well.'
 const V1 = '2026-11-v1'
 /** The current (short) form's answers. */
-function answers(n, categories = ['FARMERS_SUPPLIERS', 'PRODUCT_DEVELOPMENT']) {
+function answers(n, categories = ['SALES_DISTRIBUTION', 'PRODUCT_DEVELOPMENT']) {
   return {
     fullName: `Ravi Kumar ${n}`, mobile: `98450 1${String(n).padStart(4, '0')}`, email: `ravi${n}@example.com`, city: 'Ratnagiri',
     categories, representsBusiness: 'YES', businessName: `Kumar Orchards ${n}`, proposal: LONG, startWhen: 'MONTH', consent: true,
   }
 }
 /** The long form 2026-11-v1, still accepted: the only one whose product section makes a product proposal. */
-function answersV1(n, categories = ['FARMERS_SUPPLIERS', 'PRODUCT_DEVELOPMENT']) {
+function answersV1(n, categories = ['SALES_DISTRIBUTION', 'PRODUCT_DEVELOPMENT']) {
   const a = {
     fullName: `Ravi Kumar ${n}`, mobile: `98450 1${String(n).padStart(4, '0')}`, email: `ravi${n}@example.com`, city: 'Ratnagiri', state: 'Maharashtra', pincode: '415612', country: 'India',
     preferredContact: 'WHATSAPP', representsBusiness: 'YES', businessName: `Kumar Orchards ${n}`, businessType: 'FARMER', yearsOperating: 12, website: 'kumarorchards.in',
     businessAddress: '12 Mango Lane, Ratnagiri', categories, primaryCategory: categories[0], whyUs: LONG, valueBrought: LONG, buildTogether: LONG, hasNetwork: true,
     priorCollab: false, expectations: LONG, startWhen: 'MONTH', additionalComments: 'Call after 5 please', consent: true,
-    fs_products: 'Alphonso mangoes', fs_role: 'PRODUCER', fs_source: 'Own orchards, Ratnagiri', fs_capacity: '5 tonnes a month', fs_consistent: 'SEASONAL', fs_samples: true, fs_packaging: true,
+    sd_region: 'Hubballi and Dharwad', sd_customerBase: true, sd_hasOutlet: false, sd_channels: ['DIRECT', 'WHOLESALE'], sd_hasLogistics: true, monthlyVolume: '300 boxes', sd_exclusive: 'OPEN',
   }
   if (categories.includes('PRODUCT_DEVELOPMENT')) {
     Object.assign(a, { pd_productName: 'Mango pulp', pd_category: 'Processed fruit', pd_stage: 'EXISTING', pd_source: 'Own unit, Ratnagiri', pd_appeal: LONG, pd_cost: 180, pd_price: 320, pd_capacity: '2000 tins', pd_canManage: 'YES', pd_samples: true })
@@ -115,7 +115,7 @@ async function assertFullyErased(id, reference, { proposal = false } = {}) {
   assert.ok(e.erased_at, 'erased_at')
   assert.equal(e.reference, reference)
   assert.ok(e.submitted_at && e.status_changed_at)
-  assert.equal(e.primary_category, 'FARMERS_SUPPLIERS')
+  assert.equal(e.primary_category, 'SALES_DISTRIBUTION')
   assert.equal(await count('partner_enquiry_categories', id), 2, 'categories stay for the counts')
   for (const t of ['partner_enquiry_answers', 'partner_enquiry_documents', 'partner_enquiry_notes', 'partner_enquiry_followups', 'partner_opportunities']) assert.equal(await count(t, id), 0, t)
   const p = (await query('SELECT * FROM partner_product_proposals WHERE enquiry_id = $1', [id])).rows[0]

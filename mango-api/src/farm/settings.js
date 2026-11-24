@@ -2,15 +2,17 @@
 // meals, policies and FAQs. One row in farm_settings, edited by managers on the
 // panel's Farm Settings page. Nothing is made up here: farm details start
 // empty, and the shop says "confirmed by our team" until a manager fills them.
-// The rules that protect money and stock (the 100 kg minimum, the hold) are
-// not settings. The stay is complimentary (free); meals are cooked by the farm
+// The rules that protect money and stock (the 250 kg minimum, the hold, a stay
+// of at most MAX_STAY_NIGHTS nights) are not settings. The stay is complimentary (free); meals are cooked by the farm
 // team and paid to them at the farm, never on our bill (the owner, 23 Nov 2026).
 import { z } from 'zod'
 import { now } from '../clock.js'
 import { HttpError } from '../errors.js'
 
-/** The business rule: no booking below this. Not a setting. (250 kg until 23 Nov 2026.) */
-export const MIN_KG = 100
+/** The business rule: no booking below this. Not a setting. (250 kg until 23 Nov 2026, 100 kg until 24 Nov 2026.) */
+export const MIN_KG = 250
+/** The longest stay a booking may ask for, and the most "usual nights of stay" a manager may set (the owner, 24 Nov 2026). */
+export const MAX_STAY_NIGHTS = 2
 
 /** The FAQ questions the spec asks for. Answers start empty: a manager writes them. */
 const FAQ_QUESTIONS = [
@@ -41,14 +43,16 @@ const RULE_ANSWERS = {
 }
 
 /**
- * FAQs saved under the old rules (the 250 kg minimum, meals included, paying when booking) say what is true now. A
+ * FAQs saved under the old rules (the 100 kg minimum, meals included, paying when booking) say what is true now. A
  * question whose answer is still the old default text, or empty, gets today's rule answer; "Are meals included?"
  * always does (the owner's rule: meals are paid at the farm). A manager's own wording for anything else is kept.
  */
-const OLD_QUESTIONS = { 'Can I purchase more than 250 kg?': `Can I buy more than ${MIN_KG} kg?` }
+const OLD_QUESTIONS = { 'Can I purchase more than 250 kg?': `Can I buy more than ${MIN_KG} kg?`, 'Can I buy more than 100 kg?': `Can I buy more than ${MIN_KG} kg?` }
 const OLD_ANSWERS = new Set([
   'Yes. Every Farm Experience booking is for at least 250 kg of mangoes.',
   'Yes. Book any amount from 250 kg up, as long as that much of your variety is available for your date.',
+  'Yes. Every Farm Experience booking is for at least 100 kg of mangoes.',
+  'Yes. Book any amount from 100 kg up, as long as that much of your variety is available for your date.',
   'Yes. The full price of your mangoes is paid online when you book. Your booking is confirmed only after the payment is verified.',
   'Yes. There is no fixed limit on your group. Tell us how many are coming and our team will plan rooms and meals with you before your visit.',
 ])
@@ -77,7 +81,7 @@ export const settingsSchema = z
     // The stay.
     checkInTime: time,
     checkOutTime: time,
-    stayNights: z.number().int().min(0).max(30).default(0),
+    stayNights: z.number().int().min(0).max(MAX_STAY_NIGHTS, `A stay can be up to ${MAX_STAY_NIGHTS} nights`).default(0),
     sleepingArrangements: text(1500),
     bathroomFacilities: text(1500),
     otherFacilities: text(1500),
@@ -120,10 +124,16 @@ export const settingsSchema = z
 
 export const DEFAULTS = settingsSchema.parse({})
 
-/** The stored settings with defaults filled in (fields added later get theirs), and FAQs as today's rules say them. */
+/**
+ * The stored settings with defaults filled in (fields added later get theirs), and FAQs as today's rules say them.
+ * Usual nights of stay saved above MAX_STAY_NIGHTS (up to 30 before 24 Nov 2026) read as MAX_STAY_NIGHTS, so the
+ * shop never offers a longer stay and the next save passes.
+ */
 export function settingsFrom(row) {
-  const r = settingsSchema.safeParse({ ...DEFAULTS, ...(row?.data ?? {}) })
-  const s = r.success ? r.data : { ...DEFAULTS, ...(row?.data ?? {}) }
+  const data = { ...DEFAULTS, ...(row?.data ?? {}) }
+  if (Number.isInteger(data.stayNights) && data.stayNights > MAX_STAY_NIGHTS) data.stayNights = MAX_STAY_NIGHTS
+  const r = settingsSchema.safeParse(data)
+  const s = r.success ? r.data : data
   return { ...s, faqs: currentFaqs(s.faqs) }
 }
 

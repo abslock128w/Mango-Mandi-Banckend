@@ -122,7 +122,8 @@ export interface Booking {
     notes: string | null
     list: { name: string; child?: boolean }[]
   }
-  contact: { name: string; phone: string; email: string | null }
+  /** altPhone and preferredLanguage: optional on the booking form (migration 094); null when not given or on an older API. */
+  contact: { name: string; phone: string; email: string | null; altPhone?: string | null; preferredLanguage?: string | null }
   billing: { name: string | null; gstin: string | null } | null
   hospitality: {
     status: HospitalityStatus

@@ -2,7 +2,7 @@
 // router. While FARM_EXPERIENCE is off every route answers 404.
 //
 // Public:
-//   GET  /farm-experience            the page: farm details, what's included, policies, FAQs, varieties
+//   GET  /farm-experience            the page: farm details, what's included, policies, FAQs, varieties, minKg, maxStayNights
 //   GET  /farm-experience/dates      visit dates with enough of a variety (?varietyId=&kg=)
 //   POST /farm-experience/quote      the price for a variety and kilograms (worked out here)
 // Signed in, the caller's own bookings only (someone else's answers 404):
@@ -32,7 +32,8 @@ import {
   answerAlternative, billPayment, createBooking, customerCancel, customerMove, customerView, lockBooking, openDates,
   processFarmPayment, varietyAvailability, varietyView,
 } from './bookings.js'
-import { MIN_KG, priceFor, STATUS_WORDS } from './rules.js'
+import { altPhone, preferredLanguage } from './contact.js'
+import { MAX_STAY_NIGHTS, MIN_KG, priceFor, STATUS_WORDS } from './rules.js'
 import { loadSettings, publicSettings } from './settings.js'
 
 const whenOn = (_req, _res, next) => next(isOn('FARM_EXPERIENCE') ? undefined : notFound())
@@ -60,6 +61,7 @@ farmPublic.get(
     res.set('Cache-Control', 'no-store')
     res.json({
       minKg: MIN_KG,
+      maxStayNights: MAX_STAY_NIGHTS,
       bookingsOpen: settings.bookingsOpen,
       settings: publicSettings(settings),
       varieties: rows.map((v) => varietyView(v, avail.get(v.id) ?? { availableKg: 0, bestDayKg: 0, firstDate: null })),
@@ -113,6 +115,9 @@ const bookingSchema = z
     guestList: z.array(z.object({ name: z.string().trim().min(1).max(80), child: z.boolean().optional() }).strict()).optional(),
     contactName: z.string().trim().min(1, 'Enter your name').max(80),
     contactEmail: z.union([z.literal(''), z.string().trim().email('Enter a valid email').max(200)]).optional(),
+    // Optional (migration 094): the language to speak with them, and another number besides the account's mobile.
+    preferredLanguage,
+    altPhone,
     billingName: z.string().trim().max(120).optional(),
     billingGstin: z.string().trim().max(20).optional(),
     acceptPolicies: z.literal(true, { message: 'Please read and accept the booking policies' }),
@@ -124,7 +129,7 @@ function checkInput(b) {
   const arrival = b.arrivalDate ?? b.visitDate
   const departure = b.departureDate ?? b.visitDate
   if (arrival > b.visitDate || departure < b.visitDate) throw badRequest('Your stay has to include the visit date.', 'FARM_STAY_DATES')
-  if (diffDays(departure, arrival) > 30) throw badRequest('A stay can be up to 30 nights. Talk to us for longer.', 'FARM_STAY_DATES')
+  if (diffDays(departure, arrival) > MAX_STAY_NIGHTS) throw badRequest(`A stay can be up to ${MAX_STAY_NIGHTS} nights.`, 'FARM_STAY_DATES')
   const group = b.adults + b.children
   if (b.overnightGuests > group) throw badRequest('Overnight guests can’t be more than the whole group.', 'FARM_GUESTS')
   if (b.guestList && b.guestList.length > group) throw badRequest('You listed more names than people in the group.', 'FARM_GUESTS')

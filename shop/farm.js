@@ -4,8 +4,8 @@
    Pay, cancel, change of date, and the answer to a proposed arrangement).
    Hidden unless GET /v1/policy says features.farmExperience: no card, no tab, and the pages say the visit is not open
    (every farm route answers 404 while the switch is off).
-   The rules are the API's: 100 kg or more of one variety, no guest limit, the stay free, meals paid to the farm team at
-   the farm (never on our bill), nothing paid at booking, the bill for the mangoes after weighing, cancel and move by the
+   The rules are the API's: 250 kg or more of one variety, no guest limit, a stay of up to two nights and free, meals
+   paid to the farm team at the farm (never on our bill), nothing paid at booking, the bill for the mangoes after weighing, cancel and move by the
    farm's policy. This file only shows what the API sends and asks it again.
    Everything about the farm (name, rooms, meals, policies, FAQs) is what the farm team wrote on the panel's Farm
    settings; where they have written nothing, the page says our team will confirm it, and never makes it up.
@@ -44,6 +44,8 @@ window.addEventListener('mm:profile', () => {
 // ---- Shared bits.
 
 const FX_CONFIRM = 'Our team will confirm this with you.'
+/** The languages both farm forms offer, "Language you prefer we speak" (the API's farm/contact.js PREFERRED_LANGUAGES). bulk.js uses it too. */
+const FARM_LANGUAGES = ['English', 'Telugu', 'Hindi', 'Tamil', 'Kannada', 'Other']
 const FX_MEALS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['refreshments', 'Refreshments']]
 const FX_STATUS = {
   HOSPITALITY_REVIEW: 'Booked · stay being arranged', CONFIRMED: 'Confirmed', PREPARING: 'Being prepared', READY_FOR_VISIT: 'Ready for your visit',
@@ -70,6 +72,9 @@ const fxClock = (t) => {
 /** A whole number from a box, or null. No upper limit here: the API checks stock and group size. */
 const fxWhole = (s) => (/^\d+$/.test(String(s ?? '').trim()) ? Number(String(s).trim()) : null)
 const fxPlusDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+const fxNights = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000)
+/** The longest stay a booking may ask for (the API's MAX_STAY_NIGHTS, sent as maxStayNights). */
+const fxMaxNights = () => (fx && Number.isInteger(fx.f.maxStayNights) ? fx.f.maxStayNights : 2)
 const fxMeals = (meals) => {
   const names = FX_MEALS.filter(([k]) => meals && meals[k]).map(([, label]) => label)
   return names.length ? names.join(', ') : FX_CONFIRM
@@ -136,6 +141,7 @@ function fxPolicies(f) {
   const s = f.settings
   return `<dl class="fx-facts">
     ${fxFact('Minimum', `${fxKg(f.minKg)} of one variety per booking. No upper limit beyond what is available.`)}
+    ${fxFact('Stay', `Up to ${f.maxStayNights ?? 2} nights at the farmhouse, free of charge.`)}
     ${fxFact('Payment', `Nothing is paid when you book. After picking, you pay for the kilograms weighed and accepted, at the price per kg shown when you booked. ${s.extraPricePerKg != null ? `Mangoes picked beyond your booking cost ${fxMoney(s.extraPricePerKg)} per kg.` : 'Mangoes picked beyond your booking cost the same per kg.'}`)}
     ${fxFact('Cancelling', `Cancel ${s.cancelDays} or more days before your visit at no charge. Closer to the visit, our team reviews your request.`)}
     ${fxFact('Changing the date', `Change your visit date up to ${s.rescheduleDays} days before it, if the new date has room. Closer to the visit, our team reviews your request.`)}
@@ -190,7 +196,7 @@ async function farmView(seq = ++sheetSeq) {
       <h3>What’s included</h3>
       <ul class="fx-list">
         <li>${icon('check')}<span>${fxKg(f.minKg)} or more of the variety you choose, at the price shown when you book.</span></li>
-        <li>${icon('check')}<span><strong>Your stay is free:</strong> the farmhouse for your group, as our team confirms it, at no charge.</span></li>
+        <li>${icon('check')}<span><strong>Your stay is free:</strong> the farmhouse for your group for up to ${f.maxStayNights ?? 2} nights, as our team confirms it, at no charge.</span></li>
         <li>${icon('info')}<span><strong>Food is not included:</strong> ${fxFood(s.meals)}</span></li>
         <li>${icon(s.transportIncluded ? 'check' : 'info')}<span>${fxTransport(s.transportIncluded)}</span></li>
       </ul>
@@ -215,7 +221,7 @@ async function farmView(seq = ++sheetSeq) {
       <ol class="fx-steps">
         <li>Choose a variety and how many kilograms (${fxKg(f.minKg)} or more).</li>
         <li>Pick a visit date that has enough of your variety.</li>
-        <li>Tell us who is coming, how long you stay and what you eat.</li>
+        <li>Tell us who is coming, how long you stay (up to ${f.maxStayNights ?? 2} nights) and what you eat.</li>
         <li>Book without paying anything now. Your stay is free.</li>
         <li>Our team plans your rooms and meals and confirms your stay. You pay the farm team for meals at the farm.</li>
         <li>After picking, our team weighs and checks the mangoes with you, and you pay for the kilograms accepted, online or at the farm.</li>
@@ -245,7 +251,7 @@ function fxBlank(f) {
   return {
     varietyId: (f.varieties.find((v) => v.available) || {}).id || null, kg: String(f.minKg), visitDate: null, arrivalDate: '', departureDate: '',
     adults: '2', children: '0', overnight: '0', veg: '', nonVeg: '', jain: '', allergies: '', requests: '', accessibility: '', notes: '',
-    contactName: p.name || '', contactEmail: p.email || '', billingName: '', billingGstin: '', accept: false,
+    contactName: p.name || '', contactEmail: p.email || '', altPhone: '', preferredLanguage: '', billingName: '', billingGstin: '', accept: false,
   }
 }
 function fxSaveDraft() {
@@ -257,10 +263,11 @@ function fxClearDraft() {
 
 const fxVariety = () => fx.f.varieties.find((v) => v.id === fx.d.varietyId) || null
 const fxKgOk = () => { const kg = fxWhole(fx.d.kg); return kg != null && kg >= fx.f.minKg }
-/** The stay the customer picked, or by default the visit day plus the farm's usual nights when anyone stays overnight. */
+/** The stay the customer picked, or by default the visit day plus the farm's usual nights (never more than the most a
+ * stay may be) when anyone stays overnight. */
 function fxStayOf() {
   const d = fx.d
-  const nights = (fxWhole(d.overnight) ?? 0) > 0 ? fx.f.settings.stayNights : 0
+  const nights = (fxWhole(d.overnight) ?? 0) > 0 ? Math.min(fx.f.settings.stayNights || 0, fxMaxNights()) : 0
   return { from: d.arrivalDate || d.visitDate, to: d.departureDate || fxPlusDays(d.visitDate, nights) }
 }
 /** The kilograms of the chosen variety left on a visit date. (The day buttons carry data-day, never data-date: app.js
@@ -328,12 +335,15 @@ function fxProblem(step, quiet = false) {
     const { from, to } = fxStayOf()
     if (from > d.visitDate) return { field: 'arrivalDate', msg: 'Your stay has to include the visit date.' }
     if (to < d.visitDate) return { field: 'departureDate', msg: 'Your stay has to include the visit date.' }
+    if (fxNights(from, to) > fxMaxNights()) return { field: 'departureDate', msg: `A stay can be up to ${fxMaxNights()} nights. Choose a later arrival or an earlier departure.` }
     return null
   }
   if (step === 'details') {
     if (!(MM.profile() || {}).phone) return { msg: 'Add your mobile number on your profile first, so the farm team can reach you.' }
     if (!d.contactName.trim()) return { field: 'contactName', msg: 'Enter your name.' }
     if (d.contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.contactEmail.trim())) return { field: 'contactEmail', msg: 'Enter a valid email, or leave it empty.' }
+    if (d.altPhone.trim() && !/^[6-9]\d{9}$/.test(normPhone(d.altPhone))) return { field: 'altPhone', msg: 'Enter a 10-digit mobile number for the other number, or leave it empty.' }
+    if (d.preferredLanguage && !FARM_LANGUAGES.includes(d.preferredLanguage)) return { field: 'preferredLanguage', msg: 'Choose a language from the list.' }
     return null
   }
   return d.accept ? null : { field: 'accept', msg: 'Please read and accept the booking policies.' }
@@ -438,9 +448,10 @@ function fxStepHtml(step) {
     return `${fxNote('There is no limit on your group. If it is larger than the farmhouse, our team will plan rooms and meals with you before confirming your stay.')}
       <div class="fx-grid">${fxNum('adults', 'Adults', 1)}${fxNum('children', 'Children', 0)}${fxNum('overnight', 'Staying overnight', 0)}</div>
       <div class="fx-grid two">
-        <label class="field">Arrival date<input name="arrivalDate" type="date" max="${esc(d.visitDate)}" value="${esc(stay.from)}"></label>
-        <label class="field">Departure date<input name="departureDate" type="date" min="${esc(d.visitDate)}" value="${esc(stay.to)}"></label>
+        <label class="field">Arrival date<input name="arrivalDate" type="date" min="${esc(fxPlusDays(d.visitDate, -fxMaxNights()))}" max="${esc(d.visitDate)}" value="${esc(stay.from)}" aria-describedby="fx-stay-rule"></label>
+        <label class="field">Departure date<input name="departureDate" type="date" min="${esc(d.visitDate)}" max="${esc(fxPlusDays(stay.from, fxMaxNights()))}" value="${esc(stay.to)}" aria-describedby="fx-stay-rule"></label>
       </div>
+      <p class="fx-hint" id="fx-stay-rule">A stay can be up to ${fxMaxNights()} nights, and must include your visit day.</p>
       <p class="fx-hint" id="fx-stay-line">Visit day ${fmtDate(d.visitDate)} · stay ${fxStay(stay.from, stay.to)}</p>
       <fieldset class="fx-set"><legend>Food</legend>
         <p class="fx-hint">How many people eat each way. Leave empty if you are not sure yet.</p>
@@ -456,6 +467,8 @@ function fxStepHtml(step) {
     return `${fxInput('contactName', 'Your name', 80, 'autocomplete="name"')}
       <dl class="fx-facts">${fxFact('Mobile number', phone ? esc(phone) : `<a href="/account" data-route>Add your mobile number on your profile first.</a>`)}</dl>
       <p class="fx-hint">The farm team calls this number about your visit.</p>
+      <label class="field">Another number we can reach<span class="pn-opt">optional</span><input name="altPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="10-digit mobile" value="${esc(d.altPhone)}"></label>
+      <label class="field">Language you prefer we speak<span class="pn-opt">optional</span><span class="bulk-select"><select name="preferredLanguage"><option value="">No preference</option>${FARM_LANGUAGES.map((n) => `<option${d.preferredLanguage === n ? ' selected' : ''}>${n}</option>`).join('')}</select>${icon('chevron')}</span></label>
       <label class="field">Email<span class="pn-opt">optional</span><input name="contactEmail" type="email" maxlength="200" autocomplete="email" value="${esc(d.contactEmail)}"></label>
       ${fxInput('billingName', 'Business name for the bill', 120, 'autocomplete="organization"', true)}
       ${fxInput('billingGstin', 'GSTIN', 20, 'autocapitalize="characters" spellcheck="false"', true)}`
@@ -467,6 +480,8 @@ function fxStepHtml(step) {
       ${fxFact('Visit date', fmtDate(d.visitDate))}
       ${fxFact('Stay', `${fxStay(stay.from, stay.to)} · <strong>free</strong>`)}
       ${fxFact('Group', fxGroup(fxWhole(d.adults) ?? 0, fxWhole(d.children) ?? 0, fxWhole(d.overnight) ?? 0))}
+      ${d.preferredLanguage ? fxFact('Language we speak', esc(d.preferredLanguage)) : ''}
+      ${d.altPhone.trim() ? fxFact('Another number', `+91 ${esc(normPhone(d.altPhone))}`) : ''}
       ${fxFact('Meals', fxFood(s.meals))}
       ${fxFact('Transport', fxTransport(s.transportIncluded))}
     </dl>
@@ -560,6 +575,7 @@ async function fxBook() {
     adults: fxWhole(d.adults), children: fxWhole(d.children) ?? 0, overnightGuests: fxWhole(d.overnight) ?? 0, food,
     ...(t(d.accessibility) && { accessibility: t(d.accessibility) }), ...(t(d.notes) && { notes: t(d.notes) }),
     contactName: t(d.contactName), ...(t(d.contactEmail) && { contactEmail: t(d.contactEmail) }),
+    ...(d.preferredLanguage && { preferredLanguage: d.preferredLanguage }), ...(t(d.altPhone) && { altPhone: normPhone(d.altPhone) }),
     ...(t(d.billingName) && { billingName: t(d.billingName) }), ...(t(d.billingGstin) && { billingGstin: t(d.billingGstin) }),
     acceptPolicies: true,
   }
@@ -1030,6 +1046,8 @@ document.addEventListener('input', (e) => {
   if (['overnight', 'arrivalDate', 'departureDate'].includes(t.name)) {
     const stay = fxStayOf(), form = t.form
     if (t.name === 'overnight' && !fx.d.departureDate && form.elements.departureDate) form.elements.departureDate.value = stay.to
+    // Departure can be at most the longest stay after arrival.
+    if (form.elements.departureDate && stay.from) form.elements.departureDate.max = fxPlusDays(stay.from, fxMaxNights())
     const line = $('#fx-stay-line')
     if (line && stay.from && stay.to) line.textContent = `Visit day ${fmtDate(fx.d.visitDate)} · stay ${fxStay(stay.from, stay.to)}`
   }

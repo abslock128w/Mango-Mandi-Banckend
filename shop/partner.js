@@ -383,7 +383,7 @@ async function partnerView(seq = ++sheetSeq) {
     <section class="pn-hero">
       <span class="pn-kicker">The VMR Mangoes partner network</span>
       <h2>Grow mangoes with us. <em>Sell mangoes with us.</em></h2>
-      <p>We have grown mangoes since 1976: on sun, soil and rain, ripened the slow way. We’re looking for mango farmers who grow the same way, and for people who can take good mangoes further: distributors in new cities, and shops that want naturally ripened fruit on their shelves.</p>
+      <p>We have grown mangoes since 1976: on sun, soil and rain, ripened the slow way. We’re looking for people who can take good mangoes further: distributors in new cities, companies and hotels that buy for many, makers with a new mango product, storytellers who can share ours, and logistics partners who keep the fruit moving gently.</p>
       <div class="pn-hero-actions"><a class="button cream" href="/partner/apply" data-route>Start my application ${icon('arrow')}</a><button class="button pn-check" type="button" data-pn-check>${icon('search')} Check my application status</button></div>
       <small>No registration needed · individuals welcome · three short steps</small>
     </section>

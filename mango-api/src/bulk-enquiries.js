@@ -24,6 +24,7 @@ import { hit } from './ratelimit.js'
 import { SALE_STAGES, STAGES } from './stage.js'
 import { boxPrices } from './bulk-price.js'
 import { bulkOrderView } from './bulk-orders.js'
+import { altPhone, preferredLanguage } from './farm/contact.js'
 
 /** Enquiries: NEW, QUOTED, ACCEPTED, DECLINED, CLOSED. Paid bulk orders (bulk-orders.js, migration 084): the rest. */
 export const ENQUIRY_STATUSES = ['NEW', 'QUOTED', 'ACCEPTED', 'DECLINED', 'CLOSED']
@@ -36,8 +37,8 @@ export const BULK_STATUSES = [...ENQUIRY_STATUSES, ...ORDER_STATUSES, 'CONTACTED
  * and paid at once at bulk prices (bulk-orders.js); direct orders placed before payment came in were unpaid.
  */
 export const BULK_KINDS = ['ENQUIRY', 'ORDER', 'FARM_VISIT']
-/** The smallest farm visit enquiry, in kg (the farm visit's own minimum; the 250 kg enquiry rule does not apply). */
-export const FARM_VISIT_MIN_KG = 100
+/** The smallest farm visit enquiry, in kg: the farm visit's own minimum (farm/settings.js MIN_KG; 100 until 24 Nov 2026). */
+export const FARM_VISIT_MIN_KG = 250
 /** The smallest bulk order, in kg. */
 export const BULK_MIN_KG = 100
 /** The smallest enquiry, in kg (the owner: enquiries are for negotiating big orders). The shop has the same number. */
@@ -457,7 +458,7 @@ export function farmVisitView(e) {
   return {
     variety: e.farm_variety ?? null, kg: e.quantity_kg, preferredDate: day(e.visit_date), flexible: Boolean(e.visit_flexible), people: e.people ?? null,
     plannedDate: day(e.planned_visit_date), contactedAt: e.contacted_at ?? null, visitPlannedAt: e.visit_planned_at ?? null, visitedAt: e.visited_at ?? null,
-    closeReason: e.close_reason ?? null,
+    closeReason: e.close_reason ?? null, preferredLanguage: e.preferred_language ?? null, altPhone: e.alt_phone ?? null,
   }
 }
 
@@ -568,6 +569,9 @@ export const farmVisitBody = z
     flexible: z.boolean().optional().default(false),
     people: z.coerce.number({ message: 'Enter how many people are coming' }).int('Whole people only').min(1, 'At least one person is coming').max(500),
     notes: optionalText(1000, 'the note'),
+    // Optional (migration 094): the language to speak with them, and another number besides `phone`.
+    preferredLanguage,
+    altPhone,
   })
   .strict()
 
@@ -605,9 +609,9 @@ export async function createFarmVisitEnquiry(c, b, { customerId = null, idempote
   const number = await nextOrderNumber(c, 'B')
   await c.query(
     `INSERT INTO bulk_enquiries (id, number, customer_id, name, phone, city, notes, lines, quantity_kg, idempotency_key, created_at, updated_at, kind,
-                                 farm_variety, visit_date, visit_flexible, people)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '[]', $8, $9, $10, $10, 'FARM_VISIT', $11, $12, $13, $14)`,
-    [id, number, customerId, b.name, b.phone, b.city, b.notes, b.kg, key, at, b.variety, b.visitDate, b.flexible || !b.visitDate, b.people],
+                                 farm_variety, visit_date, visit_flexible, people, preferred_language, alt_phone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '[]', $8, $9, $10, $10, 'FARM_VISIT', $11, $12, $13, $14, $15, $16)`,
+    [id, number, customerId, b.name, b.phone, b.city, b.notes, b.kg, key, at, b.variety, b.visitDate, b.flexible || !b.visitDate, b.people, b.preferredLanguage ?? null, b.altPhone ?? null],
   )
   await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kind: 'FARM_VISIT', kg: b.kg, people: b.people })
   await addReceivedMessage(c, { enquiryId: id, kind: 'FARM_VISIT_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), farmVisitSummary(b)] })

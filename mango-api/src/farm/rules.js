@@ -3,9 +3,9 @@
 // in test/farm-experience.test.js.
 import { addDays, diffDays } from '../clock.js'
 import { HttpError } from '../errors.js'
-import { MIN_KG } from './settings.js'
+import { MAX_STAY_NIGHTS, MIN_KG } from './settings.js'
 
-export { MIN_KG }
+export { MAX_STAY_NIGHTS, MIN_KG }
 
 export const STATUSES = [
   'HOSPITALITY_REVIEW', 'CONFIRMED', 'PREPARING', 'READY_FOR_VISIT', 'CHECKED_IN', 'HARVESTING', 'WEIGHING', 'PAYMENT_DUE', 'PACKING',

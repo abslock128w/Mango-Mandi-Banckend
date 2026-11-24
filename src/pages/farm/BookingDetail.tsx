@@ -172,6 +172,12 @@ function Detail({ b }: { b: Booking }) {
             <Row label="Phone">
               <PhoneLink phone={b.contact.phone} who={b.contact.name} />
             </Row>
+            {b.contact.altPhone && (
+              <Row label="Another number">
+                <PhoneLink phone={b.contact.altPhone} who={b.contact.name} />
+              </Row>
+            )}
+            <Row label="Language to speak">{b.contact.preferredLanguage ?? 'No preference given'}</Row>
             <Row label="Email">{b.contact.email ?? '—'}</Row>
             {b.billing && (
               <Row label="Bill to">

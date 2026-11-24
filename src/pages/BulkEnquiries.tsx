@@ -137,7 +137,7 @@ function List() {
       )}
       <div {...tabPanelProps('bulk-lists', tab)}>
       {farm && (
-        <p className="muted small"><strong>Farm visit enquiries</strong> from the shop’s Farm visit tab (100 kg or more). Call each one on WhatsApp, then mark it called, plan the visit date, and mark it visited or close it with a reason.</p>
+        <p className="muted small"><strong>Farm visit enquiries</strong> from the shop’s Farm visit tab (250 kg or more). Call each one on WhatsApp, then mark it called, plan the visit date, and mark it visited or close it with a reason.</p>
       )}
       <StatusFilter
         value={status}
@@ -1027,6 +1027,20 @@ function FarmVisit({ e }: { e: BulkEnquiryDetail }) {
                 WhatsApp
               </a>
             </dd>
+            {f?.altPhone && (
+              <>
+                <dt>Another number</dt>
+                <dd>
+                  <PhoneLink phone={f.altPhone} who={e.name} />
+                </dd>
+              </>
+            )}
+            {f && (
+              <>
+                <dt>Language to speak</dt>
+                <dd>{f.preferredLanguage ?? 'No preference given'}</dd>
+              </>
+            )}
             <dt>City</dt>
             <dd>{e.city}</dd>
             <dt>Sent</dt>

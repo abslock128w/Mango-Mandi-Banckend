@@ -609,7 +609,7 @@ routes: [docs/partner-network.md](../docs/partner-network.md). Migrations 058 an
 ## Bulk orders and enquiries
 
 The shop's `/bulk` page has three tabs (`shop/bulk.js`): **Bulk order** (`/bulk`, 100 kg and above, ordered and paid
-now), **Send enquiry** (`/bulk/enquiry`, 250 kg and above, a quote) and **Farm visit** (`/bulk/farm-visit`, 100 kg
+now), **Send enquiry** (`/bulk/enquiry`, 250 kg and above, a quote) and **Farm visit** (`/bulk/farm-visit`, 250 kg
 and above: a farm visit enquiry, below). All three kinds live in `bulk_enquiries` (`kind` ORDER, ENQUIRY, FARM_VISIT),
 are numbered `B…` (order-number.js; a farm visit enquiry is labelled "Farm visit" wherever it shows, so no new letter
 is needed) and show in the panel's Bulk orders section (managers and operators), in its own list each. Money is in paise; every
@@ -649,8 +649,9 @@ the customer accepts or declines it. An order sent to the enquiry form is refuse
 
 **A farm visit enquiry** (`kind: 'FARM_VISIT'`, migration 087) is the Farm visit tab's form: always open, signed in or
 not, no farm switch needed. Name, mobile, city, which mango (a variety we sell, or not sure yet), about how many kg
-(`FARM_VISIT_MIN_KG`, 100: the 250 kg enquiry rule does not apply), a preferred date (not in the past) or flexible, how
-many people, a note. The same Idempotency-Key rules, daily per-phone limit and connection limit as an enquiry. It
+(`FARM_VISIT_MIN_KG`, 250, the farm visit's own minimum; 100 until 24 Nov 2026), a preferred date (not in the past)
+or flexible, how many people, a note, and optionally the language to speak with them (`preferred_language`: English,
+Telugu, Hindi, Tamil, Kannada or Other) and another mobile number (`alt_phone`, migration 094). The same Idempotency-Key rules, daily per-phone limit and connection limit as an enquiry. It
 queues `FARM_VISIT_ENQUIRY_RECEIVED` on WhatsApp and the live `bulk.enquiry` event (`kind: 'FARM_VISIT'`). Staff move it
 NEW → CONTACTED ("Called customer") → VISIT_PLANNED (the agreed date, `planned_visit_date`) → VISITED, or close it
 with a reason (`close_reason`, shown to the customer); every step is an event with who and when. Needs attention and

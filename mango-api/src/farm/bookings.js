@@ -221,16 +221,16 @@ export async function createBooking(c, { customerId, input, today = todayIST() }
   const { rows } = await c.query(
     `INSERT INTO farm_bookings (id, number, customer_id, variety_id, variety_name, kg, price_per_kg, total, pricing, visit_date, arrival_date, departure_date,
         adults, children, overnight_guests, food, accessibility, customer_notes, guest_list, contact_name, contact_phone, contact_email, billing_name, billing_gstin,
-        status, kg_reserved, over_capacity, checkin_code, created_at, updated_at)
+        status, kg_reserved, over_capacity, checkin_code, created_at, updated_at, preferred_language, alt_phone)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        'HOSPITALITY_REVIEW', TRUE, $25, $26, $27, $27) RETURNING *`,
+        'HOSPITALITY_REVIEW', TRUE, $25, $26, $27, $27, $28, $29) RETURNING *`,
     [
       newId('fbk'), newBookingNumber(), customerId, v.id, v.name, input.kg, price.pricePerKg, price.total,
       JSON.stringify({ basePricePerKg: v.price_per_kg, tier: price.tier, varietyVersion: v.version }),
       input.visitDate, input.arrivalDate, input.departureDate, input.adults, input.children, input.overnightGuests,
       JSON.stringify(input.food ?? {}), input.accessibility || null, input.notes || null, JSON.stringify(input.guestList ?? []),
       input.contactName, input.contactPhone, input.contactEmail || null, input.billingName || null, input.billingGstin || null,
-      input.overnightGuests > beds, newCheckinCode(), at,
+      input.overnightGuests > beds, newCheckinCode(), at, input.preferredLanguage ?? null, input.altPhone ?? null,
     ],
   )
   const b = rows[0]
@@ -655,7 +655,7 @@ function common(b, p) {
     variety: { id: b.variety_id, name: b.variety_name }, kg: b.kg, pricePerKg: b.price_per_kg, total: b.total,
     bill: b.bill ? { ...b.bill, at: b.billed_at } : null,
     visitDate: b.visit_date, guests: guestsView(b),
-    contact: { name: b.contact_name, phone: b.contact_phone, email: b.contact_email },
+    contact: { name: b.contact_name, phone: b.contact_phone, email: b.contact_email, altPhone: b.alt_phone ?? null, preferredLanguage: b.preferred_language ?? null },
     billing: b.billing_name || b.billing_gstin ? { name: b.billing_name, gstin: b.billing_gstin } : null,
     hospitality: {
       status: b.hospitality_status, plan: b.hospitality_plan, alternative: b.alternative_proposal, overCapacity: b.over_capacity,

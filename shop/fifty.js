@@ -1,4 +1,4 @@
-/* The drifting gold pollen behind the "50 summers" hero slide (#sun-s2), like the Legacy page's first screen.
+/* The drifting gold pollen behind the "50 years" hero slide (#sun-s2), like the Legacy page's first screen.
    A small canvas of short streaks carried by a slow swirling flow. It runs only while the slide is on screen and
    the tab is visible, and not at all when the device asks for reduced motion. Loaded deferred, after home.js. */
 (() => {
