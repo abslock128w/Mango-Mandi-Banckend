@@ -14,12 +14,13 @@
 //   POST /farm-bookings/:id/cancel               cancel (at once, or a request to the team, by the policy)
 //   POST /farm-bookings/:id/reschedule           move the visit (at once, or a request to the team)
 //   POST /farm-bookings/:id/hospitality          accept or decline a proposed arrangement
+//   POST /farm-bookings/:id/demo-pay             the test payment of the bill (DEMO_PAYMENTS, or a developer's machine; else 404)
 import express from 'express'
 import QRCode from 'qrcode'
 import { z } from 'zod'
 import { diffDays, now } from '../clock.js'
 import { query, tx } from '../db.js'
-import { env } from '../env.js'
+import { devRoutesOn, env } from '../env.js'
 import { asyncHandler, badRequest, HttpError, notFound, parse } from '../errors.js'
 import { isOn } from '../feature-switches.js'
 import { logger } from '../logger.js'
@@ -299,20 +300,43 @@ farmCustomer.post(
   }),
 )
 
+/**
+ * A test payment of a booking's open bill payment (the one POST /pay started), applied as the Razorpay webhook applies
+ * one (processFarmPayment): captured books the payment, failed records the failed try; paid after a cancel, refunded.
+ */
+async function testFarmPayment(bookingId, outcome, method) {
+  const { rows } = await query(
+    `SELECT * FROM farm_booking_payments WHERE booking_id = $1 AND kind = 'ONLINE' AND status IN ('INITIATED', 'CANCELLED') ORDER BY created_at DESC LIMIT 1`,
+    [bookingId],
+  )
+  if (!rows.length) throw notFound('No unpaid farm payment')
+  const r = await tx((c) => processFarmPayment(c, { farmPaymentId: rows[0].id, outcome, paymentId: `pay_${method}_${rows[0].id.slice(4, 18)}`, amount: rows[0].amount, method }))
+  if (r.result === 'refund_due') await sendDueRefunds({ farmBookingId: bookingId })
+  return r
+}
+
+/**
+ * The booking page's "Pay (test)" and "Fail payment (test)" for the caller's own booking while no payment service is set
+ * up (DEMO_PAYMENTS on a demo deploy, or a developer's machine), as for an order, a pre-order, a gift and a bulk order.
+ * 404 otherwise, and for someone else's booking. The shop calls POST /pay first, which opens the bill payment.
+ */
+farmCustomer.post(
+  '/farm-bookings/:id/demo-pay',
+  asyncHandler(async (req, res) => {
+    if (!env.DEMO_PAYMENTS && !devRoutesOn()) throw notFound('Not found')
+    const b = await own({ query }, req)
+    const { outcome } = parse(z.object({ outcome: z.enum(['captured', 'failed']) }), req.body)
+    res.json(await testFarmPayment(b.id, outcome, 'demo'))
+  }),
+)
+
 /** /v1/dev (ENABLE_DEV_ROUTES, never in production): pays or fails a farm payment, as the Razorpay webhook would. */
 export const devFarm = express.Router()
 devFarm.post(
   '/pay-farm',
   asyncHandler(async (req, res) => {
     const b = parse(z.object({ bookingId: ID, outcome: z.enum(['captured', 'failed']) }), req.body)
-    const { rows } = await query(
-      `SELECT * FROM farm_booking_payments WHERE booking_id = $1 AND kind = 'ONLINE' AND status IN ('INITIATED', 'CANCELLED') ORDER BY created_at DESC LIMIT 1`,
-      [b.bookingId],
-    )
-    if (!rows.length) throw notFound('No unpaid farm payment')
-    const r = await tx((c) => processFarmPayment(c, { farmPaymentId: rows[0].id, outcome: b.outcome, paymentId: `pay_dev_${rows[0].id.slice(4, 18)}`, amount: rows[0].amount, method: 'dev' }))
-    if (r.result === 'refund_due') await sendDueRefunds({ farmBookingId: b.bookingId })
-    res.json(r)
+    res.json(await testFarmPayment(b.bookingId, b.outcome, 'dev'))
   }),
 )
 

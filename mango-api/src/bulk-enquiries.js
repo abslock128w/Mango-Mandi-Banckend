@@ -477,6 +477,10 @@ export function staffRow(e) {
   }
 }
 
+/**
+ * The panel's lists: paid orders still to call first (PAID, "Paid · call the customer": the tab's "to call" count),
+ * then everything else newest first, whatever its status (a cancelled order of 25 Nov above an enquiry of 9 Nov).
+ */
 export async function staffList(db, { status = null, q = null, kind = null } = {}) {
   // B-743 406 080, #b743406080 or blk-7 find the number as stored (order-number.js); a name or a city as typed.
   if (q) q = normaliseOrderNumber(q)
@@ -487,8 +491,7 @@ export async function staffList(db, { status = null, q = null, kind = null } = {
       WHERE ($1::text IS NULL OR status = $1)
         AND ($2::text IS NULL OR number ILIKE $2 OR name ILIKE $2 OR business ILIKE $2 OR city ILIKE $2 OR ($3 <> '' AND phone LIKE '%' || $3 || '%'))
         AND ($4::text IS NULL OR kind = $4)
-      ORDER BY (kind = 'ORDER' AND total IS NOT NULL AND status IN ('PAID', 'CONFIRMED', 'DISPATCHED')) DESC,
-               (status IN ('NEW', 'QUOTED', 'ACCEPTED')) DESC, created_at DESC LIMIT 200`,
+      ORDER BY (kind = 'ORDER' AND total IS NOT NULL AND status = 'PAID') DESC, created_at DESC LIMIT 200`,
     [status, like, digits.length >= 4 ? digits : '', kind],
   )
   const { rows: counts } = await db.query('SELECT kind, status, count(*)::int AS n FROM bulk_enquiries GROUP BY kind, status')

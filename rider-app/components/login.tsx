@@ -46,7 +46,8 @@ export function Login() {
     try {
       await fn();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
+      // Offline: nothing on this screen is queued (api.ts's OFFLINE text says "sent when you are back online"), so say so plainly.
+      setError(err instanceof ApiError ? (err.network ? "No connection. Check your signal and try again." : err.message) : "Something went wrong. Try again.");
     } finally {
       setBusy(false);
     }

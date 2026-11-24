@@ -3554,6 +3554,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "POST /v1/farm-bookings/:id/demo-pay": {
+  "anonymous": "signin",
+  "customer": "notfound",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "POST /v1/farm-bookings/:id/hospitality": {
   "anonymous": "signin",
   "customer": "notfound",

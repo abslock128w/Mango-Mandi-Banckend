@@ -102,6 +102,7 @@ Customer API (`/v1`, signed-in customer unless marked public):
 | `GET /farm-bookings/:id/qr.svg` | Check-in QR |
 | `POST /farm-bookings/:id/pay` | Start (or pick up) the online payment of the bill |
 | `POST /farm-bookings/:id/verify-payment` | Verify a Razorpay payment signature |
+| `POST /farm-bookings/:id/demo-pay` | Test payment of the open bill, `{ outcome: 'captured' \| 'failed' }` (404 unless `DEMO_PAYMENTS` or a developer's machine) |
 | `POST /farm-bookings/:id/cancel` | Cancel, or ask to cancel |
 | `POST /farm-bookings/:id/reschedule` | Move the visit date, or ask to |
 | `POST /farm-bookings/:id/hospitality` | Accept or decline a proposed alternative |

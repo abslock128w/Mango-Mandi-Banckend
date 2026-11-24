@@ -888,7 +888,7 @@ async function fbPay() {
   }).open()
 }
 
-/** Test mode (no payment service connected, dev routes on): pays or fails the bill as the Razorpay webhook would. */
+/** Test mode (no payment service connected: DEMO_PAYMENTS, or a developer's machine): pays or fails the bill as the Razorpay webhook would. */
 async function fbTestPay(outcome) {
   const mine = fb
   if (mine.busy) return
@@ -896,7 +896,7 @@ async function fbTestPay(outcome) {
   fbRender()
   try {
     await MM.payFarm(mine.id)
-    const r = await MM.api('/' + ['dev', 'pay-farm'].join('/'), { method: 'POST', body: { bookingId: mine.id, outcome }, paise: true })
+    const r = await MM.demoPayFarm(mine.id, outcome)
     if (outcome === 'failed' || (r && r.result === 'ignored')) toast('Payment didn’t go through. Please try again.')
   } catch (e) {
     if (fb !== mine || !alive(mine.seq)) return

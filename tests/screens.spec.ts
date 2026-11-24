@@ -461,6 +461,32 @@ test("Operators cannot change a week's kg or cancel bookings", async ({ page }) 
   expect(api.calls.filter((c) => c.method !== 'GET' && c.path.startsWith('/preorder'))).toEqual([])
 })
 
+test('Pre-order plan Bookings: a pre-order bag reads as one bag, not a gift; a gift reads as a gift', async ({ page }) => {
+  const api = await mockApi(page, { signedIn: true })
+  const base = api.preorders[0]
+  // P-180 339 890: a plain pre-order bag of three lines (kind BAG, no recipient), and one gift booked alone.
+  const bag = { id: 'pgr_bag', number: 'P180339890', kind: 'BAG' as const, people: 3, total: 389700, position: null }
+  for (const [i, n] of ['P180339891', 'P180339892', 'P180339893'].entries())
+    api.preorders.push({ ...base, id: `pb${i}`, number: n, delayed: null, message: null, gift: null, group: { ...bag, position: i + 1 } })
+  api.preorders.push({ ...base, id: 'pg1', number: 'G100200300', delayed: null, message: null, gift: { recipientName: 'Meera', recipientPhone: '+919000000001', message: null }, group: null })
+  await page.goto('/preorders?tab=bookings')
+  const list = page.getByRole('region', { name: 'Pre-orders' })
+  // The panel shows every number formatted (P-180 339 891).
+  for (const n of ['P-180 339 891', 'P-180 339 892', 'P-180 339 893']) {
+    const row = list.getByRole('row', { name: new RegExp(`^${n} `) })
+    await expect(row.getByText('Bag P-180 339 890', { exact: true })).toBeVisible()
+    await expect(row.getByText('Gift', { exact: true })).toHaveCount(0)
+  }
+  await expect(list.getByRole('row', { name: /^G-100 200 300 / }).getByText('Gift', { exact: true })).toBeVisible()
+  await expect(list.getByRole('row', { name: /PRE-1001/ }).getByText('Gift', { exact: true })).toHaveCount(0)
+  // The Gift filter keeps gifts and leaves the bag out (as the API).
+  if ((page.viewportSize()?.width ?? 1280) >= 640) {
+    await page.getByRole('button', { name: 'Gift', exact: true }).click()
+    await expect(list.getByRole('row', { name: /^G-100 200 300 / })).toBeVisible()
+    await expect(list.getByRole('row', { name: /^P-180 339 891 / })).toHaveCount(0)
+  }
+})
+
 test("Planning: moving a day's orders checks first, then lists what didn't move", async ({ page }) => {
   const api = await mockApi(page, { signedIn: true })
   await page.goto('/planning')
@@ -594,6 +620,27 @@ test('Analytics: season tiles, weekly charts with hover detail, and the tables',
   const weeks = page.getByRole('region', { name: 'Week by week' })
   await expect(weeks.getByRole('row', { name: /12 Oct/ })).toContainText('52')
   await expect(page.getByRole('region', { name: 'By product' }).getByRole('row', { name: /Alphonso 3kg Box/ })).toContainText('10%')
+})
+
+test('Analytics: the week still filling up is not compared, and none the week before reads "New"', async ({ page }) => {
+  // Wednesday 25 Nov 2026: the range runs to Sunday 29 Nov, so the week of 23 Nov has no sales yet.
+  await page.clock.setFixedTime(new Date('2026-11-25T06:00:00Z'))
+  const api = await mockApi(page, { signedIn: true })
+  const week = (weekStart: string, boxes: number, revenue: number, claims: number) => ({ ...api.analytics.weeks[1], weekStart, boxes, revenue, orders: boxes ? 10 : 0, claims })
+  api.analytics = {
+    ...api.analytics, from: '2026-11-09', to: '2026-11-29',
+    weeks: [week('2026-11-09', 40, 7_393_600, 0), week('2026-11-16', 84, 15_526_600, 2), week('2026-11-23', 0, 0, 0)],
+    totals: { ...api.analytics.totals, boxes: 124, revenue: 22_920_200, claims: 2 },
+  }
+  await page.goto('/analytics')
+  const tile = (label: string) => page.locator('.tile', { hasText: label })
+  // The week of 16 Nov against the week of 9 Nov: up, not "−100%" against the empty week of 23 Nov.
+  await expect(tile('Sales')).toContainText('+110%')
+  await expect(tile('Sales')).toContainText('up 110% on the week of 9 Nov')
+  await expect(tile('Boxes sold')).toContainText('+110%')
+  await expect(page.locator('.kpis').first()).not.toContainText('−100%')
+  // No claims the week before: "New", not a percentage.
+  await expect(tile('Claims')).toContainText('New')
 })
 
 test('Operators cannot edit selling rules', async ({ page }) => {

@@ -145,6 +145,13 @@ describe('the pre-order bag', () => {
     assert.deepEqual(mine.map((p) => [p.group.id, p.group.kind, p.group.lines, p.group.position]), [[g.id, 'BAG', 3, 1], [g.id, 'BAG', 3, 2], [g.id, 'BAG', 3, 3]])
     const b = await customerToken(api)
     assert.equal((await api.get(`/v1/preorders/groups/${g.id}`, { token: b.accessToken })).status, 404)
+
+    // The panel's Bookings tab: each line carries the bag's kind and number (it reads "Bag P-…", not "Gift"), and
+    // the Gift filter leaves a bag out: it is the customer's own.
+    const admin = await adminToken(api)
+    const staff = (await api.get('/admin/v1/preorders', { token: admin })).body
+    assert.deepEqual(staff.map((p) => [p.group.kind, p.group.number, p.gift]), [['BAG', g.number, null], ['BAG', g.number, null], ['BAG', g.number, null]])
+    assert.deepEqual((await api.get('/admin/v1/preorders?filter=gift', { token: admin })).body, [])
   })
 
   test('one captured payment books every line; each keeps its own amount and week, and a paid line is non-refundable', async () => {

@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { ArrowDownRight, ArrowUpRight, Minus } from 'lucide-react'
 import { RIPENESS_LABEL, sellWindowText, type SellWindow } from './format'
 import type { Ripeness, StageWindow } from './types'
+import type { Delta } from './delta'
 
 // ---------- Sparkline ----------
 
@@ -41,48 +42,8 @@ export function Sparkline({ values, width = 96, height = 28, tone = 'teal' }: { 
 
 // ---------- KPI card ----------
 
-export interface Delta {
-  /** "+12%", "−0.4 pts" */
-  text: string
-  dir: 'up' | 'down' | 'flat'
-  /** What the change means, not which way it went: fewer claims is good. */
-  tone: 'good' | 'bad' | 'neutral'
-  /** Read after the value: "up 12% on the week before". */
-  spoken: string
-}
-
-/**
- * The change between two returned figures, as a display-only percentage (or percentage points for
- * rates). Null when there is nothing to compare with.
- */
-export function deltaOf(curr: number | null | undefined, prev: number | null | undefined, opts: { higherIsBetter?: boolean; rate?: boolean; against?: string } = {}): Delta | null {
-  const { higherIsBetter = true, rate = false, against = 'the week before' } = opts
-  if (curr == null || prev == null) return null
-  let change: number
-  let text: string
-  if (rate) {
-    change = (curr - prev) * 100
-    const r = Math.round(change * 10) / 10
-    text = `${r > 0 ? '+' : r < 0 ? '−' : '±'}${Math.abs(r).toFixed(1)} pts`
-  } else {
-    if (prev === 0) {
-      if (curr === 0) return { text: '±0%', dir: 'flat', tone: 'neutral', spoken: `no change on ${against}` }
-      return null
-    }
-    change = ((curr - prev) / Math.abs(prev)) * 100
-    const r = Math.round(change)
-    text = `${r > 0 ? '+' : r < 0 ? '−' : '±'}${Math.abs(r)}%`
-  }
-  const flat = Math.abs(change) < 0.5
-  const dir = flat ? 'flat' : change > 0 ? 'up' : 'down'
-  const better = dir === 'flat' ? null : (dir === 'up') === higherIsBetter
-  return {
-    text,
-    dir,
-    tone: better === null ? 'neutral' : better ? 'good' : 'bad',
-    spoken: dir === 'flat' ? `about the same as ${against}` : `${dir} ${text.replace(/^[+−]/, '')} on ${against}`,
-  }
-}
+// The change chip's figures live in delta.ts (plain TypeScript, unit tested); re-exported here for the cards' callers.
+export { deltaOf, type Delta } from './delta'
 
 export function DeltaChip({ delta }: { delta: Delta }) {
   const Icon = delta.dir === 'up' ? ArrowUpRight : delta.dir === 'down' ? ArrowDownRight : Minus

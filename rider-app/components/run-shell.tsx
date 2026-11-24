@@ -1,6 +1,5 @@
 "use client";
 import { MotionConfig } from "motion/react";
-import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { RunProvider, useRun } from "@/lib/run-context";
 import { useLocationTrail, useWakeLock } from "@/lib/run";
@@ -11,10 +10,12 @@ import { Spinner } from "./ui";
 /** Signed-in pages: the PIN screen in place when the session lapsed, the run's data, the screen kept on during a run, and the rider's location while signed in. */
 export function RunShell({ children }: { children: ReactNode }) {
   const s = useSession();
-  const router = useRouter();
   useEffect(() => {
-    if (s.status === "signedOut") router.replace("/");
-  }, [s.status, router]);
+    // A document load, not router.replace: offline, the client router first asks for "/"'s RSC payload, which the
+    // service worker does not cache ("Failed to fetch RSC payload"), and only then falls back to a page load. The
+    // page load is served from the precached shell at once. Signed out there is no client state worth keeping.
+    if (s.status === "signedOut") window.location.replace("/");
+  }, [s.status]);
   if (s.status === "locked") return <Unlock name={s.riderName} />;
   if (s.status !== "ready") {
     return (

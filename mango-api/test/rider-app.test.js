@@ -443,6 +443,10 @@ describe('demo login code (DEMO_OTP)', () => {
       assert.deepEqual(rider.body, { sent: true, channel: 'demo', devCode: '246810' })
       // A number that is no rider's gets the same answer.
       assert.deepEqual((await api.post('/admin/v1/rider/otp/request', { phone: '9000000099' })).body, rider.body)
+      // The fixed code is right for it too, so the verify says the number is no rider's: words that fit a number that
+      // never was one as well as a rider removed since.
+      const never = await api.post('/admin/v1/rider/otp/verify', { phone: '9000000099', code: '246810', deviceId: 'device-demo-1' })
+      assert.deepEqual([never.status, never.body.error.code, never.body.error.message], [401, 'NOT_A_RIDER', "This number isn't registered as a rider. Call ops."])
       assert.equal((await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: '111111', deviceId: 'device-demo-1' })).body.error.code, 'OTP_INVALID')
       const v = await api.post('/admin/v1/rider/otp/verify', { phone: '9000000011', code: '246810', deviceId: 'device-demo-1' })
       assert.equal(v.status, 200, JSON.stringify(v.body))

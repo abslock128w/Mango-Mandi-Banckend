@@ -994,7 +994,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
           (!week || p.weekStart === week) &&
           (filter !== 'delayed' || (Boolean(p.delayed) && ['BOOKED', 'CONVERTED'].includes(p.status))) &&
           (filter !== 'unpaid' || p.status === 'PAYMENT_PENDING') &&
-          (filter !== 'gift' || Boolean(p.gift || p.group)) &&
+          (filter !== 'gift' || Boolean(p.gift || (p.group && p.group.kind !== 'BAG'))) &&
           (filter !== 'waiting' || (p.status === 'BOOKED' && p.weekStart <= '2027-03-01')) &&
           (filter !== 'cancelledAfterDelay' || Boolean(p.cancelledAfterDelay)) &&
           (!q || [p.number, p.customerName ?? '', p.phone].some((s) => s.toLowerCase().includes(q.toLowerCase()))),

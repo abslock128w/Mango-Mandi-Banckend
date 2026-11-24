@@ -152,6 +152,22 @@ test("offline between steps: photos queue with a pending badge and upload after 
   await expect(page.getByTestId("step-4")).toHaveAttribute("data-state", "active");
 });
 
+test("offline sign-in: Send code says there is no connection, not that it will be sent later", async ({ page, context }) => {
+  const m = await mockApi(page);
+  await page.goto("/");
+  await page.getByLabel("Mobile number").fill("9812300001");
+  m.down = true;
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "Send code" }).click();
+  // Nothing on the sign-in screen is queued, so the generic offline words ("sent when you are back online") would mislead.
+  await expect(page.getByText("No connection. Check your signal and try again.")).toBeVisible();
+  await expect(page.getByText(/back online/)).toHaveCount(0);
+  m.down = false;
+  await context.setOffline(false);
+  await page.getByRole("button", { name: "Send code" }).click();
+  await expect(page.getByRole("heading", { name: "Enter the code" })).toBeVisible();
+});
+
 test("customer not home: a reason, and the stop shows as missed", async ({ page }) => {
   const m = await mockApi(page);
   await signIn(page);

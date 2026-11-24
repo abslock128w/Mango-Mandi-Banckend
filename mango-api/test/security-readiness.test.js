@@ -124,6 +124,7 @@ const ISOLATION_CASES = [
   // Farm Experience (FARM_EXPERIENCE, docs/farm-experience.md): switched on for the cases below.
   'GET /v1/farm-bookings/:id', 'GET /v1/farm-bookings/:id/qr.svg', 'POST /v1/farm-bookings/:id/pay', 'POST /v1/farm-bookings/:id/verify-payment',
   'POST /v1/farm-bookings/:id/cancel', 'POST /v1/farm-bookings/:id/reschedule', 'POST /v1/farm-bookings/:id/hospitality',
+  'POST /v1/farm-bookings/:id/demo-pay',
 ]
 const EXEMPT = ['DELETE /v1/cart/items/:sku', 'DELETE /v1/cart/bulk/:listingId', 'PUT /v1/me/favourites/:sku', 'DELETE /v1/me/favourites/:sku']
 
@@ -412,6 +413,7 @@ describe('customer to customer', () => {
       ['POST /v1/farm-bookings/:id/cancel', () => api.post(`/v1/farm-bookings/${farmBooking.id}/cancel`, {}, B), () => api.post('/v1/farm-bookings/fbk_none/cancel', {}, B)],
       ['POST /v1/farm-bookings/:id/reschedule', () => api.post(`/v1/farm-bookings/${farmBooking.id}/reschedule`, { date: farmDay }, B), () => api.post('/v1/farm-bookings/fbk_none/reschedule', { date: farmDay }, B)],
       ['POST /v1/farm-bookings/:id/hospitality', () => api.post(`/v1/farm-bookings/${farmBooking.id}/hospitality`, { accept: true }, B), () => api.post('/v1/farm-bookings/fbk_none/hospitality', { accept: true }, B)],
+      ['POST /v1/farm-bookings/:id/demo-pay', () => api.post(`/v1/farm-bookings/${farmBooking.id}/demo-pay`, { outcome: 'captured' }, B), () => api.post('/v1/farm-bookings/fbk_none/demo-pay', { outcome: 'captured' }, B)],
     ]
     assert.deepEqual([...new Set(cases.map(([r]) => r))].sort(), [...ISOLATION_CASES].sort(), 'a case for every isolation route')
     for (const [route, theirs, none] of cases) {

@@ -524,6 +524,38 @@ describe('the visit, the bill and paying after picking', () => {
     assert.equal((await webhook(captured(pay.razorpayOrderId, bill.bill.amount))).result, 'paid')
   })
 
+  test('demo payments: the bill is paid with the test button as the webhook pays it; off, not yours, or signed out is 404 or 401', async () => {
+    const { varietyId } = await setupFarm()
+    const { cust, id } = await booked(varietyId)
+    await billed(id)
+    await startPay(cust, id)
+    // As the demo deploy runs it: DEMO_PAYMENTS on, no developer routes (payment-retry.test.js asDemo).
+    const asDemo = async (fn, demo = true) => {
+      const saved = { ENABLE_DEV_ROUTES: env.ENABLE_DEV_ROUTES, DEMO_PAYMENTS: env.DEMO_PAYMENTS }
+      Object.assign(env, { ENABLE_DEV_ROUTES: false, DEMO_PAYMENTS: demo })
+      try { return await fn() } finally { Object.assign(env, saved) }
+    }
+    const pay = (outcome, token = cust.accessToken) => api.post(`/v1/farm-bookings/${id}/demo-pay`, { outcome }, { token })
+    assert.equal((await asDemo(() => pay('captured'), false)).status, 404)
+    assert.equal((await asDemo(async () => pay('captured', (await customerToken(api)).accessToken))).status, 404)
+    assert.equal((await asDemo(() => api.post(`/v1/farm-bookings/${id}/demo-pay`, { outcome: 'captured' }))).status, 401)
+    assert.equal((await asDemo(() => pay('maybe'))).status, 400)
+    assert.equal((await booking(id)).status, 'PAYMENT_DUE')
+
+    const failed = await asDemo(() => pay('failed'))
+    assert.deepEqual([failed.status, failed.body.result], [200, 'attempt_failed'], JSON.stringify(failed.body))
+    const page = await api.get(`/v1/farm-bookings/${id}`, { token: cust.accessToken })
+    assert.deepEqual([page.body.status, page.body.payment.failed, page.body.canPay], ['PAYMENT_DUE', true, true])
+    const paid = await asDemo(() => pay('captured'))
+    assert.deepEqual([paid.status, paid.body.result], [200, 'paid'], JSON.stringify(paid.body))
+    assert.equal((await booking(id)).status, 'PACKING')
+    const row = await one(`SELECT payment_method, payment_id FROM farm_booking_payments WHERE booking_id = $1 AND status = 'SUCCEEDED'`, [id])
+    assert.equal(row.payment_method, 'demo')
+    assert.match(row.payment_id, /^pay_demo_/)
+    // Nothing left to pay: the test button says so.
+    assert.equal((await asDemo(() => pay('captured'))).status, 404)
+  })
+
   test('a corrected bill replaces the open one; paying the old one is refunded in full', async () => {
     const { varietyId } = await setupFarm()
     const { cust, id } = await booked(varietyId)

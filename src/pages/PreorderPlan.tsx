@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CircleAlert, CircleCheck, Lock, Minus, Plus } from 'lucide-react'
 import { api } from '../api'
 import { RIPENESS_LABEL, date, rupees, type Tone } from '../format'
+import { formatOrderNumber } from '../orderNumber'
 import { useSession } from '../session'
 import { MONEY_CHANGE_WHY, useStepUp } from '../StepUp'
 import type { BookingFilter, PlanChange, PlanResult, Preorder, PreorderStatus, PreorderWeeks } from '../types'
@@ -749,7 +750,12 @@ function Bookings() {
                     <td data-label="Status">
                       <div className="badge-row">
                         <Badge tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Badge>
-                        {(p.gift || p.group) && <Badge tone="info">Gift</Badge>}
+                        {p.group ? (
+                          // A pre-order bag (BAG) or a gift for several people: every line carries the group's number, so they read as one.
+                          <Badge tone="info">{[p.group.kind === 'BAG' ? 'Bag' : 'Gift', formatOrderNumber(p.group.number)].filter(Boolean).join(' ')}</Badge>
+                        ) : (
+                          p.gift && <Badge tone="info">Gift</Badge>
+                        )}
                         {p.delayed && <Badge tone="warn">{p.delayed.count > 1 ? `Delayed ×${p.delayed.count}` : 'Delayed'}</Badge>}
                         {p.cancelledAfterDelay && <Badge tone="neutral">Cancelled after delay</Badge>}
                       </div>

@@ -715,8 +715,9 @@ export interface Preorder {
   order: { id: string; number: string; status: OrderStatus; deliveryDate: string } | null
   /** Booked as a gift for someone else (migration 070); the order it becomes carries the same recipient. */
   gift?: Gift | null
-  /** One of several gift pre-orders booked and paid together (migration 071); null when booked alone. */
-  group?: { id: string; number: string | null; people: number | null; total: number | null; position: number | null } | null
+  /** One of several pre-orders booked and paid together (migration 071); null when booked alone. kind (migration 089): GIFT, a gift
+   * for several people; BAG, the customer's own pre-order bag. Older answers have no kind: a gift. */
+  group?: { id: string; number: string | null; kind?: 'GIFT' | 'BAG'; people: number | null; total: number | null; position: number | null } | null
   /** The plan line it counts against (migration 078). */
   variety?: string
   /** Delayed by us (migration 079): its first promised week, the week now, when, and how often; null when not delayed. */

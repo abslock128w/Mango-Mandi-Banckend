@@ -186,6 +186,22 @@ describe('paying', () => {
     assert.deepEqual([items[0].id, items[0].paid, items[0].paidAmount], [o.id, true, 4_947_800])
   })
 
+  test('the panel lists paid orders still to call first, then everything else newest first, whatever its status', async () => {
+    // Five rows, each by its own customer, then dated and set by hand: a paid order to call (oldest), a confirmed
+    // order (already called), an order awaiting payment and a cancelled one (both 25 Nov), and an enquiry of 9 Nov.
+    const make = async () => (await place((await customerToken(api)).accessToken, { ...FORM, lines: lines(20) })).body.id
+    const [toCall, called, awaiting, cancelled] = [await make(), await make(), await make(), await make()]
+    const enquiry = (await api.post('/v1/bulk-enquiries', { name: 'Ravi', phone: '9822222222', city: 'Mysuru', lines: lines(50) }, { headers: { 'Idempotency-Key': newId('idem') } })).body.id
+    const set = (id, status, at) => query('UPDATE bulk_enquiries SET status = $2, created_at = $3 WHERE id = $1', [id, status, at])
+    await set(toCall, 'PAID', '2026-11-01T05:00:00Z')
+    await set(called, 'CONFIRMED', '2026-11-20T05:00:00Z')
+    await set(awaiting, 'PAYMENT_PENDING', '2026-11-25T05:00:00Z')
+    await set(cancelled, 'CANCELLED', '2026-11-25T06:00:00Z')
+    await set(enquiry, 'NEW', '2026-11-09T05:00:00Z')
+    const items = (await api.get('/admin/v1/bulk-enquiries', { token: manager })).body.items
+    assert.deepEqual(items.map((r) => r.id), [toCall, cancelled, awaiting, called, enquiry])
+  })
+
   test('a failed attempt changes nothing; the reconcile loop finds a payment whose webhook was lost', async () => {
     const cust = await customerToken(api)
     const o = (await place(cust.accessToken, { ...FORM, lines: lines(20) })).body

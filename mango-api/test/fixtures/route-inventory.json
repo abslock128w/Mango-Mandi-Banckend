@@ -394,6 +394,7 @@
   "POST /v1/events": "public",
   "POST /v1/farm-bookings": "customer",
   "POST /v1/farm-bookings/:id/cancel": "customer",
+  "POST /v1/farm-bookings/:id/demo-pay": "customer",
   "POST /v1/farm-bookings/:id/hospitality": "customer",
   "POST /v1/farm-bookings/:id/pay": "customer",
   "POST /v1/farm-bookings/:id/reschedule": "customer",

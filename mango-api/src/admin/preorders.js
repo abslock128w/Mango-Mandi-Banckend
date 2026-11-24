@@ -47,7 +47,8 @@ router.get(
     const where = ['($1::text IS NULL OR p.status = $1)', '($2::date IS NULL OR p.week_start = $2)']
     if (f.filter === 'delayed') where.push(`p.delayed_at IS NOT NULL AND p.week_start > p.delayed_from_week AND p.status IN ('BOOKED', 'CONVERTED')`)
     if (f.filter === 'unpaid') where.push(`p.status = 'PAYMENT_PENDING'`)
-    if (f.filter === 'gift') where.push('(p.gift_recipient_name IS NOT NULL OR p.group_id IS NOT NULL)')
+    // A gift: booked for someone else, or a line of a gift group. A pre-order bag (kind BAG) is the customer's own, not a gift.
+    if (f.filter === 'gift') where.push(`(p.gift_recipient_name IS NOT NULL OR (p.group_id IS NOT NULL AND COALESCE(g.kind, 'GIFT') <> 'BAG'))`)
     if (f.filter === 'cancelledAfterDelay') where.push('p.delay_cancelled_at IS NOT NULL')
     if (f.filter === 'waiting') {
       params.push(await allocationHorizon({ query }))

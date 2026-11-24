@@ -16,6 +16,7 @@ import { ago, clock, minutesSince, tomorrowStartIST } from '../ops/time'
 import { dayQuery, liveQuery, runsTheFloor, summaryQuery, useAttentionQueue } from '../ops/useQueue'
 import type { DayPlan, LiveBoard } from '../ops/types'
 import { FreshnessStrip, KpiCard, PipelineBar, deltaOf, type Delta } from '../viz'
+import { fullWeeks } from '../delta'
 
 const TILE_STATUSES: OrderStatus[] = [
   'CONFIRMED',
@@ -378,19 +379,9 @@ function MorningBrief() {
   )
 }
 
-/** Weeks that have ended (the current week is still filling up, so it is left out of the comparison). */
-function fullWeeks(weeks: AnalyticsWeek[]): AnalyticsWeek[] {
-  const today = istDate()
-  return weeks.filter((w) => {
-    const end = new Date(`${w.weekStart}T00:00:00+05:30`)
-    end.setDate(end.getDate() + 7)
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(end) <= today
-  })
-}
-
 /** Managers: last full week against the week before, with the trend across the range. */
 function WeekInsights({ a }: { a: Analytics }) {
-  const weeks = fullWeeks(a.weeks)
+  const weeks = fullWeeks(a.weeks, istDate())
   if (weeks.length === 0) return null
   const last = weeks[weeks.length - 1]
   const prev = weeks.length > 1 ? weeks[weeks.length - 2] : null

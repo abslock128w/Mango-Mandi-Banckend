@@ -105,6 +105,9 @@ router.post(
   }),
 )
 
+/** The answer to a number with no rider behind it: never one, or one no longer (the same words fit both). */
+const NOT_A_RIDER_NUMBER = "This number isn't registered as a rider. Call ops."
+
 /** Checks the code. Returns a 10-minute ticket to set this phone's PIN. */
 router.post(
   '/rider/otp/verify',
@@ -130,7 +133,7 @@ router.post(
     })
     if (result.error) throw result.error
     const rider = await riderByPhone(b.phone)
-    if (!rider) throw unauthorized('This number is not a rider any more. Call ops.', 'NOT_A_RIDER')
+    if (!rider) throw unauthorized(NOT_A_RIDER_NUMBER, 'NOT_A_RIDER')
     // jti: the ticket works once (POST /rider/pin/set records it as used).
     const setupToken = jwt.sign({ sub: rider.id, typ: 'rider_pin_setup', dev: b.deviceId, jti: randomBytes(16).toString('hex'), iat: Math.floor(now().getTime() / 1000) }, env.JWT_SECRET, {
       expiresIn: SETUP_TTL_S, algorithm: 'HS256',
@@ -178,7 +181,7 @@ router.post(
       ])
       if (!used.rowCount) throw unauthorized('This sign-in was already used. Ask for a new code.', 'TICKET_USED')
       const u = await riderById(c, t.sub)
-      if (!u) throw unauthorized('This number is not a rider any more. Call ops.', 'NOT_A_RIDER')
+      if (!u) throw unauthorized(NOT_A_RIDER_NUMBER, 'NOT_A_RIDER')
       const at = now()
       const replaced = await c.query('UPDATE rider_devices SET revoked_at = $3, revoked_by = $4 WHERE rider_id = $1 AND device_id = $2 AND revoked_at IS NULL', [u.id, b.deviceId, at, 'replaced'])
       const id = newId('dev')

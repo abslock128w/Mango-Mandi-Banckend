@@ -2,7 +2,8 @@ import { Suspense, lazy } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
-import { count, date, rupees, rupeesCompact, rupeesWhole } from '../format'
+import { count, date, istDate, rupees, rupeesCompact, rupeesWhole } from '../format'
+import { lastTwoFullWeeks } from '../delta'
 import type { AnalyticsWeek } from '../types'
 import { ExportPanel } from '../ExportPanel'
 import { EmptyState, QueryError, Spinner, scrollRegion, usePageTitle } from '../ui'
@@ -208,12 +209,15 @@ export default function Analytics() {
   )
 }
 
-/** Range totals, each with its trend across the weeks and the last full week against the one before. */
+/**
+ * Range totals, each with its trend across the weeks and the last FULL week against the one before. The range runs to
+ * this week's Sunday, so its last week is still filling up: it is left out of the comparison (delta.ts fullWeeks).
+ */
 function Kpis({ weeks, totals }: { weeks: AnalyticsWeek[]; totals: Omit<AnalyticsWeek, 'weekStart'> }) {
-  const [prev, last] = weeks.length >= 2 ? weeks.slice(-2) : [null, null]
-  const vs = 'the week before'
+  const pair = lastTwoFullWeeks(weeks, istDate())
+  const vs = pair ? `the week of ${weekLabel(pair.prev.weekStart)}` : ''
   const d = (k: keyof AnalyticsWeek, o: { higherIsBetter?: boolean; rate?: boolean } = {}) =>
-    last && prev ? deltaOf(last[k] as number | null, prev[k] as number | null, { ...o, against: vs }) : null
+    pair ? deltaOf(pair.last[k] as number | null, pair.prev[k] as number | null, { ...o, against: vs }) : null
   const s = (f: (w: AnalyticsWeek) => number | null | undefined) => weeks.map((w) => f(w) ?? null)
   return (
     <div className="kpis">

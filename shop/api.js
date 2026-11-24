@@ -102,6 +102,8 @@ window.MM={
   farmBooking:id=>farm(`/farm-bookings/${enc(id)}`),
   farmQr:id=>authBlob(`/farm-bookings/${enc(id)}/qr.svg`),
   payFarm:id=>farm(`/farm-bookings/${enc(id)}/pay`,'POST',{}),
+  // The test payment of the bill POST /pay opened (as demoPay for an order): 404 unless DEMO_PAYMENTS (or a developer's machine).
+  demoPayFarm:(id,outcome)=>farm(`/farm-bookings/${enc(id)}/demo-pay`,'POST',{outcome}),
   verifyFarmPayment:(id,reply)=>farm(`/farm-bookings/${enc(id)}/verify-payment`,'POST',{razorpay_payment_id:reply.razorpay_payment_id,razorpay_order_id:reply.razorpay_order_id,razorpay_signature:reply.razorpay_signature}),
   cancelFarmBooking:(id,reason)=>farm(`/farm-bookings/${enc(id)}/cancel`,'POST',reason?{reason}:{}),
   moveFarmBooking:(id,date,note)=>farm(`/farm-bookings/${enc(id)}/reschedule`,'POST',{date,...(note?{note}:{})}),
