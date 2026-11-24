@@ -44,11 +44,11 @@ const held = async (week, variety) =>
 const members = async (groupId) => (await query('SELECT * FROM preorders WHERE group_id = $1 ORDER BY group_position', [groupId])).rows
 const groupRow = async (id) => (await query('SELECT * FROM preorder_groups WHERE id = $1', [id])).rows[0]
 
-// Alphonso 3 kg x 2 (6 kg), Kesar 3 kg x 1 (3 kg), Alphonso 5 kg x 1 (5 kg): with 6 kg a week per variety, the first
+// Alphonso 3 kg x 2 (6 kg), Badami 3 kg x 1 (3 kg), Alphonso 5 kg x 1 (5 kg): with 6 kg a week per variety, the first
 // two lines fit the first week and the third, Alphonso again, goes to the next.
 const LINES = [
   { sku: 'ALP-3', stage: 'SEMI_RIPE', qty: 2 },
-  { sku: 'KES-3', stage: 'RAW', qty: 1 },
+  { sku: 'BAD-3', stage: 'RAW', qty: 1 },
   { sku: 'ALP-5', stage: 'SEMI_RIPE', qty: 1 },
 ]
 const ADDRESS = '12, 4th Cross, Koramangala, Bengaluru'
@@ -81,14 +81,14 @@ describe('the pre-order bag', () => {
     assert.equal(r.status, 200, JSON.stringify(r.body))
     assert.deepEqual(r.body.lines.map((l) => [l.sku, l.variety, l.kg, l.weekStart, l.tooBig, l.full]), [
       ['ALP-3', 'Alphonso', 6, week, false, false],
-      ['KES-3', 'Kesar', 3, week, false, false],
+      ['BAD-3', 'Badami', 3, week, false, false],
       ['ALP-5', 'Alphonso', 5, addDays(week, 7), false, false],
     ])
     assert.equal(r.body.total, r.body.lines.reduce((t, l) => t + l.unitPrice * l.qty, 0))
     assert.deepEqual([r.body.boxes, r.body.payable, r.body.nonRefundable], [4, true, true])
     assert.equal(r.body.season.phase, 'OPEN')
     // Nothing was reserved.
-    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Kesar')], [0, 0])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Badami')], [0, 0])
 
     // A line no week can take says why, and the bag can't be paid.
     const big = await quote([{ sku: 'ALP-5', stage: 'RAW', qty: 2 }])
@@ -121,7 +121,7 @@ describe('the pre-order bag', () => {
     assert.equal(g.total, g.preorders.reduce((t, p) => t + p.total, 0))
     assert.deepEqual(g.preorders.map((p) => [p.sku, p.weekStart, p.status, p.address, p.gift, p.group.kind, p.group.position]), [
       ['ALP-3', week, 'PAYMENT_PENDING', ADDRESS, null, 'BAG', 1],
-      ['KES-3', week, 'PAYMENT_PENDING', ADDRESS, null, 'BAG', 2],
+      ['BAD-3', week, 'PAYMENT_PENDING', ADDRESS, null, 'BAG', 2],
       ['ALP-5', addDays(week, 7), 'PAYMENT_PENDING', ADDRESS, null, 'BAG', 3],
     ])
     // Each line is a pre-order for yourself: its own P number.
@@ -131,7 +131,7 @@ describe('the pre-order bag', () => {
     const rows = await members(g.id)
     assert.equal(new Set(rows.map((p) => p.payment_link_id)).size, 1)
     assert.equal(rows[0].payment_link_id, (await groupRow(g.id)).payment_link_id)
-    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Kesar'), await held(addDays(week, 7), 'Alphonso')], [6, 3, 5])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Badami'), await held(addDays(week, 7), 'Alphonso')], [6, 3, 5])
 
     // The same key again: the same bag, not a second one.
     const again = await confirm(a.accessToken, lines, { key })
@@ -177,10 +177,10 @@ describe('the pre-order bag', () => {
     await setLimit(6)
     const a = await customerToken(api)
     const g = (await confirm(a.accessToken, await withWeeks())).body
-    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Kesar')], [6, 5, 3])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Badami')], [6, 5, 3])
 
     // The lazy sweep at booking: another customer's Alphonso finds the first week full of an expired hold. It frees
-    // that line and, with it, the bag's Kesar line and its Alphonso line a week later.
+    // that line and, with it, the bag's Badami line and its Alphonso line a week later.
     setNow(new Date(now().getTime() + 13 * 60_000).toISOString())
     const b = await customerToken(api)
     const other = await api.post(
@@ -190,7 +190,7 @@ describe('the pre-order bag', () => {
     )
     assert.deepEqual([other.status, other.body.weekStart], [201, week], JSON.stringify(other.body))
     assert.deepEqual((await members(g.id)).map((p) => [p.status, p.payment_status]), [['CANCELLED', 'CANCELLED'], ['CANCELLED', 'CANCELLED'], ['CANCELLED', 'CANCELLED']])
-    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Kesar')], [6, 0, 0])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Badami')], [6, 0, 0])
     assert.equal((await api.get(`/v1/preorders/groups/${g.id}`, { token: a.accessToken })).body.status, 'CANCELLED')
     assert.deepEqual(await preorderCapacityDrift({ query }), [])
   })
@@ -204,7 +204,7 @@ describe('the pre-order bag', () => {
     await tx((c) => expirePreorderHolds(c))
     assert.deepEqual((await members(g.id)).map((p) => p.status), ['CANCELLED', 'CANCELLED', 'CANCELLED'])
     // Released once each, never twice (the sweep had read every line before the first one took the others with it).
-    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Kesar')], [0, 0, 0])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Badami')], [0, 0, 0])
     const events = (await query(`SELECT preorder_id, COUNT(*)::int AS n FROM preorder_events WHERE status = 'CANCELLED' GROUP BY preorder_id`)).rows
     assert.deepEqual(events.map((e) => e.n), [1, 1, 1])
     assert.deepEqual(await preorderCapacityDrift({ query }), [])
@@ -212,7 +212,7 @@ describe('the pre-order bag', () => {
     // A late payment is honoured: every line booked again in its week.
     await payBag(g.id)
     assert.deepEqual((await members(g.id)).map((p) => [p.status, p.week_start]), [['BOOKED', week], ['BOOKED', week], ['BOOKED', addDays(week, 7)]])
-    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Kesar')], [6, 5, 3])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(addDays(week, 7), 'Alphonso'), await held(week, 'Badami')], [6, 5, 3])
   })
 
   test('an unpaid bag is one unpaid pre-order; cancelling any line before paying cancels the whole bag', async () => {
@@ -220,11 +220,11 @@ describe('the pre-order bag', () => {
     await setLimit(30)
     const a = await customerToken(api)
     const g = (await confirm(a.accessToken, await withWeeks())).body
-    const again = await confirm(a.accessToken, await withWeeks([{ sku: 'KES-3', stage: 'SEMI_RIPE', qty: 1 }]))
+    const again = await confirm(a.accessToken, await withWeeks([{ sku: 'BAD-3', stage: 'SEMI_RIPE', qty: 1 }]))
     assert.deepEqual([again.status, again.body.error.code], [409, 'UNPAID_PREORDER_EXISTS'])
     const single = await api.post(
       '/v1/preorders',
-      { sku: 'KES-3', stage: 'SEMI_RIPE', qty: 1, pincode: '560034', address: ADDRESS },
+      { sku: 'BAD-3', stage: 'SEMI_RIPE', qty: 1, pincode: '560034', address: ADDRESS },
       { token: a.accessToken, headers: { 'Idempotency-Key': newId('idem') } },
     )
     assert.deepEqual([single.status, single.body.error.code], [409, 'UNPAID_PREORDER_EXISTS'])
@@ -232,7 +232,7 @@ describe('the pre-order bag', () => {
     const [, kesar] = await members(g.id)
     assert.equal((await api.post(`/v1/preorders/${kesar.id}/cancel`, {}, { token: a.accessToken })).status, 204)
     assert.deepEqual((await members(g.id)).map((p) => p.status), ['CANCELLED', 'CANCELLED', 'CANCELLED'])
-    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Kesar')], [0, 0])
+    assert.deepEqual([await held(week, 'Alphonso'), await held(week, 'Badami')], [0, 0])
     assert.equal((await groupRow(g.id)).status, 'CANCELLED')
     // Now another bag may be made.
     assert.equal((await confirm(a.accessToken, await withWeeks())).status, 201)

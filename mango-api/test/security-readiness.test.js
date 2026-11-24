@@ -142,7 +142,7 @@ describe('every route is filed', () => {
     for (const r of ISOLATION_CASES) assert.equal(INVENTORY[r], 'customer', r)
   })
 
-  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us, the bulk enquiry form, the Farm Experience page', () => {
+  test('the public routes are the reviewed few: sign-in, catalogue (with bulk deals), policy, approved reviews and photos, funnel steps, Partner With Us, the bulk enquiry form, the Farm Experience page, the pre-order bag quote', () => {
     const open = Object.entries(INVENTORY).filter(([, k]) => k === 'public').map(([r]) => r)
     assert.deepEqual(open, [
       'GET /admin/v1/auth/config', 'GET /health', 'GET /ready', 'GET /v1/auth/config',
@@ -176,6 +176,9 @@ describe('every route is filed', () => {
       'POST /v1/farm-visit-enquiries',
       'POST /v1/gift-address/:token',
       'POST /v1/partner-network/enquiries', 'POST /v1/partner-network/enquiries/:reference/documents',
+      // The pre-order bag's quote (src/customer.js, preorders.js quotePreorderBag): each line's price and week before
+      // sign-in, as GET /v1/preorders/weeks; it books nothing and reads nothing personal (test/preorder-bag.test.js).
+      'POST /v1/preorders/quote',
     ])
   })
 })
