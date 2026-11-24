@@ -88,7 +88,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   )
   await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '',
             gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL WHERE customer_id = $1`, [me.id])
-  // Gift address links (migration 089) stop working: the page would show the recipient's and giver's names, gone now.
+  // Gift address links (migration 091) stop working: the page would show the recipient's and giver's names, gone now.
   await c.query(
     'UPDATE gift_address_links SET revoked_at = $2 WHERE revoked_at IS NULL AND preorder_id IN (SELECT id FROM preorders WHERE customer_id = $1)',
     [me.id, now()],

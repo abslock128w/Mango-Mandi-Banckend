@@ -1,6 +1,6 @@
 // "Ask them on WhatsApp" (GIFT_ADDRESS_LINKS with MULTI_GIFT, docs/gifting.md, "Before the season"): in a gift for
 // several people booked before the season, the giver may leave a recipient's address out. The booking is made with
-// address_state ADDRESS_PENDING and no pincode or address (migration 089); it takes its week's kg as any booking (the
+// address_state ADDRESS_PENDING and no pincode or address (migration 091); it takes its week's kg as any booking (the
 // week does not depend on the pincode). Pre-orders stay paid in full and non-refundable once paid.
 //
 //   1. The group's one payment is captured (preorders.js processGroupPayment): each pending booking gets ONE link

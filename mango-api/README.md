@@ -448,7 +448,7 @@ chosen: the API gives the earliest week with room, and the shop shows it before 
   refuses the whole bag naming the line ("Line N (box): …"), one payment books every line, an unpaid
   bag is one unpaid pre-order, and cancel and delay work per line as for any pre-order. It does not
   need MULTI_GIFT. `GET /v1/preorders` keeps a bag's lines together.
-- **Ask the recipient for the address** (GIFT_ADDRESS_LINKS with MULTI_GIFT, migrations 089/090,
+- **Ask the recipient for the address** (GIFT_ADDRESS_LINKS with MULTI_GIFT, migrations 091/092,
   `src/gift-address.js`): a person in a group may have `askAddress: true` and no `pincode` or
   `address` (refused with `400 ASK_ADDRESS_OFF` while either switch is off). The booking takes
   its week by kg as usual with `addressState: 'ADDRESS_PENDING'`. Once the group is paid the

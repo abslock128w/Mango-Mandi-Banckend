@@ -381,7 +381,7 @@ export function preorderView(p) {
   return {
     id: p.id, number: p.number, status: p.status, sku: p.sku, productName: findProduct(p.sku)?.name ?? p.sku, variety: bookingVariety(p), stage: p.stage,
     qty: p.qty, unitPrice: p.unit_price, total: p.total, weekStart: p.week_start, pincode: p.pincode, address: p.delivery_address, slotId: p.slot_id,
-    // Migration 089 (GIFT_ADDRESS_LINKS): null (address given at booking), ADDRESS_PENDING (no pincode or address yet:
+    // Migration 091 (GIFT_ADDRESS_LINKS): null (address given at booking), ADDRESS_PENDING (no pincode or address yet:
     // the recipient was asked on WhatsApp) or ADDRESS_GIVEN (by the recipient).
     addressState: p.address_state ?? null,
     customerName: p.customer_name, phone: p.phone, channel: p.channel,

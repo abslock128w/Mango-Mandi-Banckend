@@ -9,16 +9,16 @@
 --   - preorders.address_state: NULL for every booking made with its address (all bookings so far), else
 --     ADDRESS_PENDING / ADDRESS_GIVEN;
 --   - preorders.pincode and delivery_address may be NULL, but only while the address is pending
---     (preorders_address_present, added NOT VALID here and validated in 090);
+--     (preorders_address_present, added NOT VALID here and validated in 092);
 --   - gift_address_links: one row per link (token_hash = sha256 hex of the token; the token itself is derived from
 --     the link's id with a key from JWT_SECRET, src/gift-address-token.js, so it can be sent again without storing it);
 --     at most one live (not revoked) link per booking;
---   - three notification kinds (the kind check widened NOT VALID, validated in 090).
+--   - three notification kinds (the kind check widened NOT VALID, validated in 092).
 -- Why expand-only is safe: the previous release never writes address_state (NULL: a normal booking), always writes a
 -- pincode and an address, never reads gift_address_links, and never queues the new kinds.
 -- locks: ADD COLUMN with no default is a catalogue change under a brief ACCESS EXCLUSIVE lock; DROP NOT NULL is a
 -- catalogue change too (no scan); the three checks on existing tables (address_state, address present, notification
--- kinds) are added NOT VALID (no scan) and validated in 090; gift_address_links and its indexes are new and empty.
+-- kinds) are added NOT VALID (no scan) and validated in 092; gift_address_links and its indexes are new and empty.
 -- rollback: the previous release keeps working against this schema. To undo by hand once no booking is ADDRESS_PENDING:
 --   DROP TABLE gift_address_links; ALTER TABLE preorders DROP CONSTRAINT preorders_address_present,
 --   DROP CONSTRAINT preorders_address_state_check, DROP COLUMN address_state; ALTER TABLE preorders ALTER COLUMN pincode

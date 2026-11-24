@@ -124,7 +124,7 @@ A gift for one person and a gift for several people are the same thing with more
 ### Asking the recipient for their address (GIFT_ADDRESS_LINKS)
 
 The giver often doesn't know the full address, and used to learn only at Pay whether we deliver there. Before the season,
-a gift for several people may leave a person's address to them (migrations 089 and 090, `mango-api/src/gift-address.js`).
+a gift for several people may leave a person's address to them (migrations 091 and 092, `mango-api/src/gift-address.js`).
 
 - **Booking:** a person in `POST /v1/preorders/groups` may have `askAddress: true` and no `pincode` or `address`; the gift's
   name and mobile are then required. The booking is made with `address_state = ADDRESS_PENDING` and no pincode or address.
@@ -264,7 +264,7 @@ The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `sho
 - **Address links, owner actions:**
   - **Owner:** get the three WhatsApp templates approved by Meta (`mandi_gift_address_request`,
     `mandi_gift_address_reminder`, `mandi_gift_address_missing`; wording and variables in `docs/whatsapp/TEMPLATES.md`),
-    then set `GIFT_ADDRESS_LINKS=true` and run migrations 089 and 090. Until then the shop never offers "Ask them on WhatsApp".
+    then set `GIFT_ADDRESS_LINKS=true` and run migrations 091 and 092. Until then the shop never offers "Ask them on WhatsApp".
   - A recipient whose address is not in by the day before their week is not delivered that week: their booking stays
     booked, and staff see it in the allocator's log. **Owner:** decide what staff do then (call the giver, move the week).
   - The recipient changes a given address by replying to our WhatsApp message (staff change it); the link takes it once.
