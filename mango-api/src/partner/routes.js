@@ -1,7 +1,9 @@
 // /v1/partner-network: the shop's Partner With Us form (docs/partner-network.md).
 // No sign-in. Submissions are limited per address and, when Turnstile is set
 // up, need a solved check. Nothing here returns an enquiry's details: the
-// reference is printed on screen and may be shared, so it is not a secret.
+// reference is printed on screen and may be shared, so it is not a secret. The
+// status check answers only where the application is (progress.js), never who
+// sent it or what they wrote. partnerMe is the signed-in customer's own list.
 import express from 'express'
 import { query, tx } from '../db.js'
 import { env } from '../env.js'
@@ -11,6 +13,7 @@ import { logger } from '../logger.js'
 import { sharedLimiter } from '../ratelimit.js'
 import { requireHuman } from '../turnstile.js'
 import { addDocument, formFor, MAX_DOCUMENT_BYTES, REFERENCE_RE, stepsForCategory, submitEnquiry } from './enquiries.js'
+import { progressByReference, progressForCustomer } from './progress.js'
 
 export const partnerPublic = express.Router()
 
@@ -74,8 +77,23 @@ partnerPublic.get(
   asyncHandler(async (req, res) => {
     const ref = String(req.params.reference).toUpperCase()
     if (!REFERENCE_RE.test(ref)) throw notFound('Enquiry not found')
-    const { rows } = await query('SELECT reference FROM partner_enquiries WHERE reference = $1', [ref])
-    if (!rows.length) throw notFound('Enquiry not found')
-    res.json({ reference: rows[0].reference, received: true })
+    const p = await progressByReference({ query }, ref)
+    if (!p) throw notFound('Enquiry not found')
+    // `received` stays for older shop pages; the rest is the same summary the account shows.
+    res.json({ ...p, received: true })
+  }),
+)
+
+/**
+ * Signed in (mounted by customer.js after the customer sign-in gate): the applications sent with the
+ * customer's own mobile number, newest first, each as the status check shows it. 404 while the switch is off.
+ */
+export const partnerMe = express.Router()
+partnerMe.get(
+  '/me/partner-enquiries',
+  (_req, res, next) => (isOn('PARTNER_NETWORK') ? next() : next(notFound())),
+  asyncHandler(async (req, res) => {
+    res.set('Cache-Control', 'no-store')
+    res.json({ items: await progressForCustomer({ query }, req.customer.id) })
   }),
 )

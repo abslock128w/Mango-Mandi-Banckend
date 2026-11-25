@@ -315,11 +315,13 @@ customerGifts.get(
   asyncHandler(async (req, res) => {
     const { rows } = await query('SELECT * FROM gift_orders WHERE customer_id = $1 ORDER BY placed_at DESC LIMIT 50', [req.customer.id])
     const kids = rows.length
-      ? (await query('SELECT gift_order_id, status FROM orders WHERE gift_order_id = ANY($1)', [rows.map((g) => g.id)])).rows
+      ? (await query('SELECT gift_order_id, status, gift_recipient_name FROM orders WHERE gift_order_id = ANY($1) ORDER BY placed_at, id', [rows.map((g) => g.id)])).rows
       : []
     res.json(rows.map((g) => ({
       id: g.id, number: g.number, status: giftStatus(g, kids.filter((k) => k.gift_order_id === g.id)), deliveryDate: g.delivery_date,
       recipientCount: g.recipient_count, total: g.total, placedAt: g.placed_at,
+      // Who each box is for and how it is doing (the buyer typed the names): Your orders' Gifts list (shop pages.js).
+      recipients: kids.filter((k) => k.gift_order_id === g.id).map((k) => ({ name: k.gift_recipient_name ?? null, status: k.status })),
       // While unpaid: how long it is held, so Your orders can say it and offer Pay now / Try payment again.
       holdExpiresAt: g.status === 'PAYMENT_PENDING' ? g.hold_expires_at : null,
       ...giftPaymentState(g, giftStatus(g, kids.filter((k) => k.gift_order_id === g.id))),

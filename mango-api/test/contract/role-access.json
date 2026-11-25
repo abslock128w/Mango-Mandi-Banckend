@@ -1529,6 +1529,15 @@
   "OPERATOR": "signin",
   "MANAGER": "signin"
  },
+ "GET /v1/me/partner-enquiries": {
+  "anonymous": "signin",
+  "customer": "ok",
+  "RIDER": "signin",
+  "PACKER": "signin",
+  "QC": "signin",
+  "OPERATOR": "signin",
+  "MANAGER": "signin"
+ },
  "GET /v1/me/push": {
   "anonymous": "signin",
   "customer": "notfound",

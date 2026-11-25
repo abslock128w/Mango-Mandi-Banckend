@@ -14,9 +14,10 @@ checklist at the end).
 
 The shelf has one card per variety the API sells (`GET /v1/products`, grouped by `variety`).
 The words and photos come from the MangoKart catalogue, kept in `catalog.js`: for each of the
-15 varieties and the Mixed Box, its region, origin, flavour, story, season, sweetness,
-"best for" line, search words and occasions, plus a photo per stage in `assets/mangoes/`
-(Unsplash, see [`CREDITS.md`](CREDITS.md)). Prices, boxes and stock always come from the API;
+15 varieties and Mixed Variety Mangoes (the API's variety "Mixed Box", shown by its new name: `SHOWN`), its flavour,
+story, season, sweetness, "best for" line, search words and occasions, plus a photo per stage in `assets/mangoes/`
+(Unsplash, see [`CREDITS.md`](CREDITS.md)); every mango's origin is the one farm line, `ORIGIN`: Yellamanda Village,
+Piler, Andhra Pradesh. Prices, boxes and stock always come from the API;
 a variety in `catalog.js` that the API does not sell is not shown, and an API variety missing
 from `catalog.js` gets a plain card with the design's stage photo. A photo uploaded on the
 panel (`photoUrl`) replaces the illustrative one.
@@ -305,3 +306,6 @@ Kept as a record. Each item was moved to `shop/` or removed, then `customer-app/
 - [x] `scripts/qa-journey.sh` builds and starts the Next.js shop. Removed, with
       `tests/cross-app.spec.ts`, which drove the old shop's UI.
 - [x] Then delete `customer-app/` and its mentions in the docs.
+
+## Change request 01 (25 Nov 2026)
+The product sheet's pre-order block is one compact note; the three conditions, the Full policy link and the tick live in the "Before you pre-order" pop-up that "Pre-order · pay" opens (`#pre-pop`, app.js prePay). The season band's "Details" (shop and gifts) opens the "About pre-orders" pop-up instead of expanding. The "Added to your bag" toast is a manual popover moved into the open sheet so it shows on top. On phones the search sits under "Deliver to" (phone-search.js).

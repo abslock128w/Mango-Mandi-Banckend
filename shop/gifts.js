@@ -27,11 +27,11 @@
 //   sku   the shop box (variety and size), e.g. 'ALP-3'
 //   name  optional: the gift's name on its card (default "<variety> gift box")
 //   line  optional: one line about it (default: the variety's flavour line from catalog.js)
-// Until the owner names his own packs and prices, these are the Mixed Box and the varieties most given as gifts
+// Until the owner names his own packs and prices, these are Mixed Variety Mangoes and the varieties most given as gifts
 // (Alphonso, Kesar, Himsagar, Imam Pasand), in 3 kg and 5 kg.
 const GIFT_PACKS = [
-  { sku: 'MIX-3', name: 'Mixed gift box', line: 'Four favourites in one box: Alphonso, Kesar, Banganapalli and Himsagar.' },
-  { sku: 'MIX-5', name: 'Mixed gift box', line: 'The four favourites, with more of each to go round.' },
+  { sku: 'MIX-3', name: 'Mixed variety gift box', line: 'Four favourites in one box: Alphonso, Kesar, Banganapalli and Himsagar.' },
+  { sku: 'MIX-5', name: 'Mixed variety gift box', line: 'The four favourites, with more of each to go round.' },
   { sku: 'ALP-3', name: 'Alphonso gift box' },
   { sku: 'ALP-5', name: 'Alphonso gift box' },
   { sku: 'KES-3', name: 'Kesar gift box' },
@@ -98,11 +98,10 @@ function preNoticeHTML(when, paid = false) {
   return `<div class="pre-when pre-notice" role="note">${icon('calendar')}<p><strong>This is a pre-order.</strong> It will be delivered in <strong>${when}</strong>.</p></div>` +
     `<div class="pre-warn pre-notice" role="note">${icon('info')}<p><strong>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full now. It can’t be cancelled once you pay, unless we delay it.'}</strong> If we can’t deliver, we refund you in full.${policyLink()}</p></div>` + harvestNote()
 }
-/** The pre-order terms, said once on a screen: a chip with the week and "Details", which opens the terms. `when` is HTML
- *  (escaped by the caller). */
+/** The pre-order terms, said once on a screen: a chip with the week and "Details", which opens the terms in the "About
+ *  pre-orders" pop-up (app.js preAbout), so the chip never changes the page's height. `when` is HTML (escaped by the caller). */
 function preChipHTML(when, paid = false) {
-  const open = !!gift.terms
-  return `<div class="gift-pre-chip-wrap"><p class="gift-pre-chip">${icon('sun')}<span><strong>Pre-order</strong> · ${paid ? 'delivered' : 'arrives'} ${when}</span><button type="button" class="text-button gift-terms-btn" data-gift-terms aria-expanded="${open}" aria-controls="gift-terms">Details</button></p><div class="gift-terms" id="gift-terms"${open ? '' : ' hidden'}><p>${icon('info')}<span>${paid ? 'Paid in full. It can’t be cancelled, unless we delay it.' : 'Paid in full when you pay. It can’t be cancelled once paid, unless we delay it.'} If we can’t deliver, we refund you in full.</span></p>${harvestNote()}</div></div>`
+  return `<div class="gift-pre-chip-wrap"><p class="gift-pre-chip">${icon('sun')}<span><strong>Pre-order</strong> · ${paid ? 'delivered' : 'arrives'} ${when}</span><button type="button" class="text-button gift-terms-btn" data-gift-terms="${paid ? 'paid' : ''}" aria-haspopup="dialog">Details</button></p></div>`
 }
 /** "week of 1 Mar" (or "weeks of 1 Mar – 8 Mar" when people's weeks differ; else the first open week). Plain text. */
 function giftWhen(weeks) {
@@ -1474,10 +1473,8 @@ document.addEventListener('click', (e) => {
   if (d.giftRzpOrder) { MM.gift(d.giftRzpOrder).then((g) => giftRazorpay({ id: g.id, number: g.number, total: g.total, razorpayKeyId: g.razorpayKeyId, razorpayOrderId: g.razorpayOrderId, holdExpiresAt: g.holdExpiresAt }, true), (err) => toast(err.message)); return }
   if (!giftPage()) return
   if (b.hasAttribute('data-gift-terms')) {
-    // The pre-order chip's Details: the terms open and close in place.
-    gift.terms = !gift.terms
-    for (const t of document.querySelectorAll('.gift-terms')) t.hidden = !gift.terms
-    for (const x of document.querySelectorAll('[data-gift-terms]')) x.setAttribute('aria-expanded', String(gift.terms))
+    // The pre-order chip's Details: the terms in the "About pre-orders" pop-up.
+    preAbout(b, { paid: d.giftTerms === 'paid', gift: true })
   } else if (d.giftChange) {
     giftEnv.open = giftEnv.open || {}
     giftEnv.open[d.giftChange] = !giftEnv.open[d.giftChange]

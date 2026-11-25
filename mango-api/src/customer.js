@@ -55,7 +55,7 @@ import { movePushSubscriptions, pushPublicKey } from './push.js'
 import { trackingFor } from './route.js'
 import { customerGifts, devGifts } from './gift-routes.js'
 import { care } from './care-routes.js'
-import { partnerPublic } from './partner/routes.js'
+import { partnerMe, partnerPublic } from './partner/routes.js'
 import { assertInRange, deliveryFor, feeOf, feePolicy, weightKg } from './delivery-fee.js'
 import { bulkEnquiryMe, bulkEnquiryPublic, devBulk } from './bulk-enquiry-routes.js'
 import { devFarm, farmCustomer, farmPublic } from './farm/routes.js'
@@ -639,6 +639,8 @@ router.use(farmCustomer)
 router.use(care)
 // The caller's bulk enquiries and quotes: /me/bulk-enquiries (bulk-enquiry-routes.js).
 router.use(bulkEnquiryMe)
+// The caller's Grow with us applications, found by their mobile number: /me/partner-enquiries (partner/routes.js).
+router.use(partnerMe)
 // The shop language the customer chose: /me/language (language-routes.js, docs/languages.md).
 router.use(languages)
 

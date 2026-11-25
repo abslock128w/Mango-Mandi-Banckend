@@ -18,7 +18,7 @@ import { notify as notifyEvent } from './events.js'
 import { newId } from './ids.js'
 import { logger } from './logger.js'
 import { formatOrderNumber, normaliseOrderNumber, nextOrderNumber } from './order-number.js'
-import { boxKg, findProduct, productName, shopProducts } from './products.js'
+import { boxKg, findProduct, productName, shopProducts, shownVariety, varietyKey } from './products.js'
 import { enqueueLinkPush } from './push.js'
 import { hit } from './ratelimit.js'
 import { SALE_STAGES, STAGES } from './stage.js'
@@ -121,7 +121,7 @@ export function cleanLines(lines) {
 }
 
 /** "Alphonso 5kg Box · Ripe", or "Alphonso · 10 kg box · Ripe" for a bulk box that is not the SKU's own size. */
-const lineLabel = (l) => `${l.packKg ? `${findProduct(l.sku)?.variety ?? productName(l.sku)} · ${l.packKg} kg box` : productName(l.sku)} · ${STAGE_WORDS[l.stage] ?? l.stage}`
+const lineLabel = (l) => `${l.packKg ? `${findProduct(l.sku)?.variety ? shownVariety(findProduct(l.sku).variety) : productName(l.sku)} · ${l.packKg} kg box` : productName(l.sku)} · ${STAGE_WORDS[l.stage] ?? l.stage}`
 const boxes = (lines) => (lines ?? []).reduce((n, l) => n + (Number(l.boxes) || 0), 0)
 /** "120 kg (40 boxes)", "150 kg" */
 export const quantityWords = (e) => {
@@ -456,7 +456,7 @@ export function farmVisitView(e) {
   if (e.kind !== 'FARM_VISIT') return null
   const day = (d) => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null)
   return {
-    variety: e.farm_variety ?? null, kg: e.quantity_kg, preferredDate: day(e.visit_date), flexible: Boolean(e.visit_flexible), people: e.people ?? null,
+    variety: e.farm_variety ? shownVariety(e.farm_variety) : null, kg: e.quantity_kg, preferredDate: day(e.visit_date), flexible: Boolean(e.visit_flexible), people: e.people ?? null,
     plannedDate: day(e.planned_visit_date), contactedAt: e.contacted_at ?? null, visitPlannedAt: e.visit_planned_at ?? null, visitedAt: e.visited_at ?? null,
     closeReason: e.close_reason ?? null, preferredLanguage: e.preferred_language ?? null, altPhone: e.alt_phone ?? null,
   }
@@ -534,7 +534,7 @@ export async function staffDetail(db, id) {
       // A bulk box of another size (packKg) is priced from the SKU's own box, by weight.
       const scale = l.packKg && boxKg(l.sku) ? l.packKg / boxKg(l.sku) : 1
       return {
-        ...l, label: lineLabel(l), name: l.packKg ? `${p?.variety ?? l.sku} ${l.packKg}kg bulk box` : (p?.name ?? l.sku), variety: p?.variety ?? null,
+        ...l, label: lineLabel(l), name: l.packKg ? `${p?.variety ? shownVariety(p.variety) : l.sku} ${l.packKg}kg bulk box` : (p?.name ?? l.sku), variety: p?.variety ?? null,
         boxSize: l.packKg ? `${l.packKg}kg` : (p?.boxSize ?? null), listPrice: p?.price != null ? Math.round(p.price * scale) : null,
         // Today's bulk price (bulk-price.js): the quote builder's starting point (a quote can be lower). A paid order's
         // line carries the price it was paid at (unitPrice).
@@ -580,7 +580,7 @@ export const farmVisitBody = z
 
 const dayWords = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
 /** "150 kg of Alphonso, 6 people, around Sat, 12 Dec" for the WhatsApp message. */
-const farmVisitSummary = (b) => oneLine(`${b.kg} kg${b.variety ? ` of ${b.variety}` : ''}, ${b.people} ${b.people === 1 ? 'person' : 'people'}, ${b.visitDate ? `around ${dayWords(b.visitDate)}` : 'dates flexible'}`, 200)
+const farmVisitSummary = (b) => oneLine(`${b.kg} kg${b.variety ? ` of ${shownVariety(b.variety)}` : ''}, ${b.people} ${b.people === 1 ? 'person' : 'people'}, ${b.visitDate ? `around ${dayWords(b.visitDate)}` : 'dates flexible'}`, 200)
 
 /**
  * Saves a farm visit enquiry from the shop: "we got it" on WhatsApp (FARM_VISIT_ENQUIRY_RECEIVED) and the panel's live
@@ -594,6 +594,8 @@ export async function createFarmVisitEnquiry(c, b, { customerId = null, idempote
     if (replay) return replay
   }
   if (b.visitDate && b.visitDate < todayIST()) throw new HttpError(400, 'VALIDATION_ERROR', 'The visit date has passed. Choose today or a later date, or tick “I’m flexible”.', { field: 'visitDate' })
+  // the mango by either of its names (shownVariety); kept by its key
+  if (b.variety) b.variety = varietyKey(b.variety)
   if (b.variety && !shopProducts().some((p) => p.variety === b.variety)) throw new HttpError(400, 'VALIDATION_ERROR', `We don't grow ${b.variety}. Choose a mango from the list, or "Not sure yet".`, { field: 'variety' })
   const at = now()
   const { rows: recent } = await c.query(`SELECT count(*)::int AS n FROM bulk_enquiries WHERE phone = $1 AND created_at > $2`, [b.phone, new Date(at.getTime() - 86_400_000)])

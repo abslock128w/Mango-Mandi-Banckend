@@ -15,9 +15,11 @@
 const PAGES = [
   [/^\/cart\/?$/, () => renderCartPage()],
   [/^\/checkout\/?$/, () => checkout()],
-  [/^\/orders\/?$/, () => signedInThen('Your orders', ordersView)],
+  // Every kind of order, the filters and the Grow with us tab (accountOrdersView below; app.js ordersView is the sheet's list).
+  [/^\/orders\/?$/, () => signedInThen('Your orders', accountOrdersView)],
   [/^\/orders?\/([^/]+)\/?$/, (m) => signedInThen('Your order', () => trackView(decodeURIComponent(m[1])))],
-  [/^\/account\/?$/, () => signedInThen('Your profile', accountView)],
+  // An old "/account?enquiry=<id>" link (a bulk quote) opens the Bulk orders list, where quotes are now.
+  [/^\/account\/?$/, () => new URLSearchParams(location.search).get('enquiry') ? go(`/orders?tab=bulk&enquiry=${encodeURIComponent(new URLSearchParams(location.search).get('enquiry'))}`, { replace: true }) : signedInThen('Your profile', accountView)],
   [/^\/login\/?$/, () => loginView()],
   // /bulk is the order tab; /bulk/enquiry and /bulk/farm-visit the other two (bulk.js draws the tabs and the order flow).
   [/^\/bulk(?:\/(enquiry|farm-visit))?\/?$/, (m) => bulkPage(m[1] || 'order')],
@@ -27,6 +29,7 @@ const ANCHOR_PAGES = { preorder: '/', bulk: '/bulk', partner: '/partner' }
 /** The retired pre-order page: an old link or bookmark lands on the home page (the shop takes pre-orders before the season). */
 const OLD_PREORDER = /^\/preorder\/?$/
 const anchorPage = () => (location.pathname === '/' || location.pathname === '/index.html') && ANCHOR_PAGES[location.hash.slice(1)] || null
+// The account's tabs are drawn by accountTabs() (the orders page's two layouts); farm.js still adds to this list.
 const ACCOUNT_TABS = [['/account', 'Profile'], ['/orders', 'My orders']]
 let homeScroll = 0, nameEditing = false
 
@@ -142,14 +145,9 @@ function loginIntro() {
   return `<p class="login-intro">Sign in with your mobile number to see your orders and check out faster. We’ll send you a 6-digit code; new here, your account is made when you verify it.</p>`
 }
 
-/** The page's heading: a back button, the title, and on the account pages their tabs. */
+/** The page's heading: a back button, the title, and on the account pages their tabs (accountTabs). */
 function pageHead(title) {
-  const tabs = ['account', 'orders', 'farm-bookings'].includes(document.body.dataset.page)
-    ? `<nav class="page-tabs" aria-label="Your account">${ACCOUNT_TABS.map(([href, label]) => {
-      const on = location.pathname === href || (href === '/orders' && location.pathname.startsWith('/order')) || (href === '/farm-bookings' && location.pathname.startsWith('/farm-bookings/'))
-      return `<a href="${href}" data-route ${on ? 'aria-current="page"' : ''}>${label}</a>`
-    }).join('')}</nav>`
-    : ''
+  const tabs = ['account', 'orders', 'farm-bookings'].includes(document.body.dataset.page) ? accountTabs() : ''
   return `<div class="page-head"><button class="icon-button" data-page-back aria-label="Back">${icon('back')}</button><h1>${title}</h1></div>${tabs}`
 }
 
@@ -309,7 +307,7 @@ function adderHTML() {
   const why = !v ? 'Choose a variety first.' : room <= 0 ? `This line already has ${BULK_MAX_BOXES} boxes, the most one line can hold.` : ''
   return `<div class="bulk-pick${v ? '' : ' is-empty'}">${preview}</div>
     <div class="bulk-adder-form">
-      <label class="field bulk-variety">Variety<span class="bulk-select"><select id="bulk-variety"><option value=""${v ? '' : ' selected'}>Choose a variety…</option>${list.map((x) => { const five = bulkBoxes(x)[0], bp = bulkPriceFor(five.sku); return `<option value="${esc(x.name)}"${v && x.name === v.name ? ' selected' : ''}>${esc(x.name)} · ${currency(bp ? bp.bulk : five.price)} / 5 kg box</option>` }).join('')}</select>${icon('chevron')}</span></label>
+      <label class="field bulk-variety">Variety<span class="bulk-select"><select id="bulk-variety">${bulkVarietyOptions(list, v)}</select>${icon('chevron')}</span></label>
       <p class="pre-label" id="bulk-stage-label">Ripeness</p>
       <div class="door-stages" role="group" aria-labelledby="bulk-stage-label">${adderStages().map((x) => `<button type="button" data-adder-stage="${x.apiStage}" aria-pressed="${x.apiStage === adder.stage}"><span class="dot ${x.id}"></span>${x.stage}</button>`).join('')}</div>
       <p class="pre-label" id="bulk-box-label">Box size</p>
@@ -416,7 +414,7 @@ function bulkEnquiryBar() {
   const sent = !t.boxes && [...document.querySelectorAll('#bulk-box .bulk-sent')].find((el) => el.getClientRects().length)
   if (sent) return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Enquiry sent · your quote comes on WhatsApp</span></p></div>`)
   const hint = ok
-    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg: send it and we will quote you. Nothing is paid now.</span></p>`
+    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg: press Send enquiry to add your details. Nothing is paid now.</span></p>`
     : `<p class="pay-bar-hint is-next" role="status" id="bulk-enquiry-why">${icon('lock')}<span>${BULK_ENQUIRY_MIN_TEXT}${t.kg ? ` Your list is ${t.kg} kg.` : ''}</span></p>`
   const order = !ok && t.kg >= BULK_MIN_KG ? `<a class="button secondary pay-bar-alt" href="/bulk" data-route>Order and pay</a>` : ''
   setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>Your bulk list</small><strong><span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span></strong></div><div class="bulk-bar-go">${order}<button class="button primary pay-bar-go" id="bulk-enquiry" ${ok ? '' : 'disabled aria-describedby="bulk-enquiry-why"'}>${ok ? '' : icon('lock')}<span>Send enquiry</span>${ok ? icon('arrow') : ''}</button></div></div>`)
@@ -569,13 +567,313 @@ window.addEventListener('storage', (e) => {
   bulkBar()
 })
 
+// ---- Your account: the tabs, and the orders page (/orders) with every kind of order (change request 01, CR-11).
+// Two layouts, switched by the small "Layout: A | B" control on the orders page (localStorage mm-orders-layout, A unless
+// changed), so the client can compare them live:
+//   A: Profile | My orders | Grow with us. My orders has chips All · Shop · Pre-order · Bulk · Gifts (mm-orders-chip).
+//   B: Profile | My orders | Bulk | Gifts | Grow with us (one line, sideways on phones; the last one chosen: mm-orders-tab).
+//      My orders = shop orders and pre-orders; Bulk = bulk orders, enquiries with their quotes, farm visit requests and
+//      farm visits; Gifts = gift orders (with each person's name and how their box is doing) and gift boxes.
+// The tabs are links (/orders?tab=orders|bulk|gifts|grow), so back, forward and reload keep them; layout A reads ?tab=bulk
+// and ?tab=gifts as those chips. "All" is everything, newest first: orders (GET /orders), pre-orders (GET /preorders, a
+// bag as one card with its lines: pre-bag.js), gift orders (GET /gifts, MULTI_GIFT), bulk orders, enquiries and farm visit
+// requests (GET /me/bulk-enquiries) and farm visits (GET /farm-bookings, only while FARM_EXPERIENCE is on: a 404 is none).
+// One list that can't load leaves the others, with a note. Grow with us: the applications sent with this number
+// (GET /me/partner-enquiries) and any reference added by hand (localStorage mm-partner-refs, read through the public
+// status check), each drawn by partner.js pnTimeline, the same card as the /partner status check.
+// Styles: style.css ("Your orders: tabs, chips, cards").
+
+const ORD_LAYOUT = 'mm-orders-layout', ORD_CHIP = 'mm-orders-chip', ORD_TAB = 'mm-orders-tab', PN_REFS = 'mm-partner-refs'
+const ORD_CHIPS = [['all', 'All'], ['shop', 'Shop'], ['pre', 'Pre-order'], ['bulk', 'Bulk'], ['gifts', 'Gifts']]
+const ORD_LISTS = ['orders', 'bulk', 'gifts']
+let ordData = null, ordChipNow = 'all'
+
+const ordLayout = () => (read(ORD_LAYOUT, 'A') === 'B' ? 'B' : 'A')
+const ordQuery = (k) => new URLSearchParams(location.search).get(k)
+/** The orders page's tab: ?tab=, else (layout B) the last list chosen, else My orders. Layout A has no Bulk or Gifts tab. */
+function ordTab() {
+  const q = ordQuery('tab')
+  if (q === 'grow') return 'grow'
+  const b = ordLayout() === 'B'
+  if (ORD_LISTS.includes(q)) return b ? q : 'orders'
+  const last = read(ORD_TAB, 'orders')
+  return b && ORD_LISTS.includes(last) ? last : 'orders'
+}
+/** Layout A's chip: ?tab=bulk or ?tab=gifts (a link from elsewhere), else the last one chosen. */
+function ordChip() {
+  const q = ordQuery('tab')
+  if (q === 'bulk' || q === 'gifts') return q
+  const c = read(ORD_CHIP, 'all')
+  return ORD_CHIPS.some(([k]) => k === c) ? c : 'all'
+}
+
+/** The account's tabs for the layout in use, the current one marked. */
+function accountTabs() {
+  const b = ordLayout() === 'B', page = document.body.dataset.page, path = location.pathname
+  const now = page === 'account' ? 'profile' : page === 'farm-bookings' ? (b ? 'bulk' : 'orders') : /^\/orders\/?$/.test(path) ? ordTab() : 'orders'
+  const tabs = [['/account', 'Profile', 'profile'], ['/orders?tab=orders', 'My orders', 'orders'], ...(b ? [['/orders?tab=bulk', 'Bulk', 'bulk'], ['/orders?tab=gifts', 'Gifts', 'gifts']] : []), ['/orders?tab=grow', 'Grow with us', 'grow']]
+  // farm.js adds a "Farm visits" tab to any account tabs without a /farm-bookings link: farm visits are in Bulk now, so
+  // the (hidden) link tells it there is nothing to add.
+  return `<nav class="page-tabs acct-tabs${b ? ' is-wide' : ''}" aria-label="Your account">${tabs.map(([href, label, key]) => `<a href="${href}" data-route${key === now ? ' aria-current="page"' : ''}>${label}</a>`).join('')}<a href="/farm-bookings" data-route hidden tabindex="-1" aria-hidden="true"></a></nav>${b ? '<p class="acct-tabs-hint" aria-hidden="true">Swipe for more tabs</p>' : ''}`
+}
+
+/** "Layout: A | B" (signed in, orders page only). */
+function ordLayoutSwitch() {
+  const l = ordLayout()
+  return `<div class="ord-layout" role="group" aria-label="Orders layout"><span>Layout:</span>${['A', 'B'].map((k) => `<button type="button" data-ord-layout="${k}" aria-pressed="${k === l}" title="${k === 'A' ? 'Three tabs, with filter chips in My orders' : 'Five tabs: My orders, Bulk and Gifts apart'}">${k}</button>`).join('<span aria-hidden="true">|</span>')}</div>`
+}
+
+async function accountOrdersView(seq = ++sheetSeq) {
+  const tab = ordTab(), q = ordQuery('tab')
+  if (ordLayout() === 'B' && ORD_LISTS.includes(q)) save(ORD_TAB, q)
+  if (ordLayout() === 'A' && (q === 'bulk' || q === 'gifts')) save(ORD_CHIP, q)
+  document.title = `${tab === 'grow' ? 'Grow with us' : 'Your orders'} · VMR Mangoes`
+  const top = head(tab === 'grow' ? 'Your account' : 'Your orders') + marker(seq) + ordLayoutSwitch()
+  host().innerHTML = top + `<p>${tab === 'grow' ? 'Loading your applications…' : 'Loading your orders…'}</p>`
+  if (tab === 'grow') return accountGrow(seq, top)
+  const [ro, rp, rg, rb, rf] = await Promise.allSettled([MM.orders(), MM.preorders(), giftOrdersFor(), MM.myBulkEnquiries().then((r) => r.items || []), ordFarmBookings()])
+  if (!alive(seq)) return
+  const got = (r) => (r.status === 'fulfilled' ? r.value || [] : null)
+  // A list whose feature is off answers 404: nothing to show, not an error.
+  const none = (r) => r.status === 'rejected' && r.reason && r.reason.status === 404
+  const signedOut = [ro, rp].some((r) => r.status === 'rejected' && r.reason && r.reason.status === 401)
+  ordData = { ro, rp, rg, orders: got(ro), pres: got(rp), bulk: none(rb) ? [] : got(rb), farm: none(rf) ? [] : got(rf) }
+  const missing = [[ordData.orders, 'your orders'], [ordData.pres, 'your pre-orders'], [ordData.bulk, 'your bulk orders'], [rg.status === 'rejected' ? null : [], 'your gifts']].filter(([v]) => !v).map(([, w]) => w)
+  ordData.miss = missing.length ? `We couldn’t load ${listOf(missing)} just now, so they aren’t shown. Please try again in a minute.` : ''
+  if (signedOut || (!ordData.orders && !ordData.pres && !ordData.bulk)) {
+    host().innerHTML = top + `<div class="page-card"><p class="prototype-tag" role="alert">${esc(signedOut ? 'Please sign in again to see your orders.' : ro.reason?.message || 'We couldn’t load your orders. Please try again.')}</p></div>`
+    return
+  }
+  ordChipNow = ordChip()
+  host().innerHTML = top + `<div class="page-card ord-card">${ordLayout() === 'A' ? '<div class="ord-chips" role="group" aria-label="Show"></div>' : ''}<div id="ord-list"></div></div>`
+  ordPaint(tab)
+}
+
+/** Every row: { at (for newest first), kinds (the chips and tabs it shows under), html }. */
+function ordRows(d) {
+  const rows = [], gift = (x) => (typeof bagGiftTag === 'function' && bagGiftTag(x) ? ['gifts'] : [])
+  const became = new Set((d.pres || []).filter((p) => p.status === 'CONVERTED' && p.orderId).map((p) => p.orderId))
+  for (const g of giftListed(d.rg) || []) rows.push({ at: String(g.placedAt || g.deliveryDate || ''), kinds: ['gifts'], html: ordGiftRow(g) })
+  for (const o of (d.orders || []).filter((o) => !giftHides(o, d.rg))) {
+    const pre = became.has(o.id)
+    rows.push({ at: String(o.placedAt || o.createdAt || o.deliveryDate || ''), kinds: [pre ? 'pre' : 'shop', ...gift(o)], html: orderRow(o, pre) })
+  }
+  for (const r of preBagRows((d.pres || []).filter((p) => !(p.status === 'CONVERTED' && p.orderId && d.orders)))) {
+    const p0 = r.lines[0]
+    rows.push({
+      at: String(p0.createdAt || p0.bookedAt || p0.weekStart || ''), kinds: ['pre', ...(r.lines.some((p) => gift(p).length) ? ['gifts'] : [])],
+      html: r.bag ? `<div class="pre-bag-rows ord-bag">${preBagHead(r.bag, r.lines)}${r.lines.map(preRow).join('')}</div>` : preRow(p0),
+    })
+  }
+  for (const x of d.bulk || []) rows.push({ at: String(x.createdAt || ''), kinds: ['bulk'], html: ordBulkRow(x, x.unread || x.id === ordQuery('enquiry')) })
+  for (const b of d.farm || []) rows.push({ at: String(b.createdAt || ''), kinds: ['bulk'], html: ordFarmRow(b) })
+  return rows.sort((a, b) => b.at.localeCompare(a.at))
+}
+
+const ORD_SHOWS = { all: () => true, orders: (k) => k.includes('shop') || k.includes('pre'), shop: (k) => k.includes('shop'), pre: (k) => k.includes('pre'), bulk: (k) => k.includes('bulk'), gifts: (k) => k.includes('gifts') }
+/** What an empty list says will appear there, and where to start one. */
+function ordEmpty(which) {
+  const pre = typeof preSeason === 'function' && preSeason()
+  const browse = (label) => `<button class="button primary bag-explore" data-browse>${label} ${icon('arrow')}</button>`
+  const link = (href, label) => `<a class="button primary bag-explore" href="${href}" data-route>${label} ${icon('arrow')}</a>`
+  const [ic, title, line, cta] = {
+    all: ['box', 'No orders yet.', 'Your shop orders, pre-orders, bulk orders and gifts will all appear here, newest first.', browse('Explore the mangoes')],
+    orders: ['box', 'No orders yet.', 'Your shop orders and pre-orders will appear here, newest first.', browse('Explore the mangoes')],
+    shop: ['bag', 'No shop orders yet.', 'The boxes you order from the shop will appear here.', browse('Shop the mangoes')],
+    pre: ['sun', 'No pre-orders yet.', 'The boxes you book before the season will appear here, each with its delivery week.', pre ? link('/', 'Pre-order a box') : browse('Explore the mangoes')],
+    bulk: ['box', 'No bulk orders yet.', 'Bulk orders, enquiries with their quotes, and farm visit requests will appear here.', link('/bulk', 'Order in bulk')],
+    gifts: ['gift', 'No gifts yet.', 'The gifts you send will appear here, with each person’s name and how their box is doing.', link('/gifts', 'Send a gift')],
+  }[which]
+  return `<div class="empty-cart bag-empty empty-state ord-empty">${icon(ic)}<h2>${title}</h2><p>${line}</p>${cta}</div>`
+}
+
+/** Draws the list for the tab (B) or chip (A) from the lists already read; the chips are switched without reading again. */
+function ordPaint(tab = ordTab()) {
+  const list = $('#ord-list')
+  if (!list || !ordData) return
+  const rows = ordRows(ordData), a = ordLayout() === 'A', which = a ? ordChipNow : tab
+  const chips = $('.ord-chips')
+  if (chips) {
+    chips.innerHTML = ORD_CHIPS.map(([k, label]) => {
+      const n = rows.filter((r) => ORD_SHOWS[k](r.kinds)).length
+      return `<button type="button" class="ord-chip" data-ord-chip="${k}" aria-pressed="${k === which}">${label}${n ? ` <span class="ord-count">${n}</span>` : ''}</button>`
+    }).join('')
+  }
+  const shown = rows.filter((r) => ORD_SHOWS[which](r.kinds))
+  list.innerHTML = (ordData.miss ? `<p class="prototype-tag orders-partial" role="alert">${icon('info')}<span>${esc(ordData.miss)}</span></p>` : '') + (shown.length ? shown.map((r) => r.html).join('') : ordEmpty(which))
+  if (which === 'all' || which === 'bulk') ordBulkOpened()
+}
+
+// ---- Bulk rows: an order paid online opens its page; an enquiry with a quote opens in place to accept or decline it.
+
+const ORD_ENQUIRY = { NEW: 'Waiting for our quote', QUOTED: 'Quote sent', ACCEPTED: 'Quote accepted', DECLINED: 'Quote declined', CLOSED: 'Closed' }
+const ORD_BULK_TAG = { ORDER: ['box', 'Bulk'], ENQUIRY: ['mail', 'Enquiry'], FARM_VISIT: ['tree', 'Farm visit'] }
+function ordBulkWords(x) {
+  if (x.kind === 'FARM_VISIT') return FARM_VISIT_STATUS[x.status] || x.status
+  if (x.kind === 'ORDER') return x.unread ? 'Price confirmed' : BULK_ORDER_STATUS[x.status] || x.status
+  if (x.status === 'QUOTED' && x.quote && x.quote.validUntil && x.quote.validUntil < istDateOf(new Date().toISOString())) return 'Quote expired'
+  return x.unread ? 'New quote' : ORD_ENQUIRY[x.status] || x.status
+}
+function ordBulkLine(x) {
+  const boxes = x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''
+  if (x.kind === 'FARM_VISIT') {
+    const f = x.farmVisit || {}
+    return `${f.variety ? esc(f.variety) : 'Mango not chosen yet'}${x.quantityKg ? ` · ${x.quantityKg} kg` : ''}${f.people ? ` · ${f.people} ${f.people === 1 ? 'person' : 'people'}` : ''} · ${f.plannedDate ? `visit on ${fmtDate(f.plannedDate)}` : f.preferredDate ? `asked for ${fmtDate(f.preferredDate)}` : 'dates flexible'}`
+  }
+  const q = x.quote
+  if (x.kind === 'ORDER' && x.order) return `${x.quantityKg} kg${boxes}${x.order.amountPaise != null ? ` · ${paise(x.order.amountPaise)}` : ''}${x.order.refund ? (x.order.refund.refundedAt ? ' · refunded' : ' · refund on its way') : ''}`
+  return `${x.quantityKg} kg${boxes}${q && x.status !== 'CLOSED' ? ` · quote ${currency(q.total)}${q.validUntil && x.status === 'QUOTED' ? ` valid till ${fmtDate(q.validUntil)}` : ''}` : ` · sent ${fmtDate(istDateOf(x.createdAt))}`}`
+}
+function ordBulkRow(x, open = false) {
+  const [ic, tag] = ORD_BULK_TAG[x.kind] || ORD_BULK_TAG.ENQUIRY
+  const dot = ['CANCELLED', 'DECLINED', 'CLOSED'].includes(x.status) ? 'raw' : ['NEW', 'QUOTED', 'PAYMENT_PENDING'].includes(x.status) ? 'semi' : 'ripe'
+  const text = `<span class="dot ${dot}"></span><span><strong>${esc(orderNo(x.number))} · ${esc(ordBulkWords(x))}</strong><span class="pre-chip order-pre-chip ord-tag">${icon(ic)}${tag}</span><small>${ordBulkLine(x)}</small></span>`
+  if (x.kind === 'ORDER' && x.order) return `<div class="order-row is-bulk" id="ord-${esc(x.id)}"><a class="guide-choice" href="/bulk/orders/${encodeURIComponent(x.id)}" data-route>${text}${icon('arrow')}</a></div>`
+  if (x.quote && x.status !== 'CLOSED') return `<details class="order-row is-bulk ord-bulk" id="ord-${esc(x.id)}" data-ord-bulk="${esc(x.id)}"${open ? ' open' : ''}><summary class="guide-choice">${text}<span class="ord-chev" aria-hidden="true">${icon('chevron')}</span></summary><ul class="bq-list ord-bq">${bulkItem(x, true)}</ul></details>`
+  return `<div class="order-row is-bulk" id="ord-${esc(x.id)}"><div class="guide-choice ord-static">${text}</div></div>`
+}
+/** Keeps the lists in step after a quote is answered (bulkAnswer). */
+function ordBulkSeen(next) { if (ordData && ordData.bulk) ordData.bulk = ordData.bulk.map((x) => (x.id === next.id ? next : x)) }
+/** The bulk list is on screen: its quotes are seen (the account dot goes), and ?enquiry=<id> opens and shows that one. */
+function ordBulkOpened() {
+  if (!ordData || !ordData.bulk) return
+  bulkOpened(ordData.bulk)
+  const want = ordQuery('enquiry'), el = want && document.getElementById(`ord-${want}`)
+  if (!el) return
+  if (el.tagName === 'DETAILS') el.open = true
+  el.classList.add('is-target')
+  requestAnimationFrame(() => el.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }))
+}
+
+/** The customer's farm visits, or none while the Farm Experience is off (farm.js farmFeature: GET /v1/policy), without asking. */
+const ordFarmBookings = () => (typeof farmFeature === 'function' ? farmFeature() : Promise.resolve(true)).then((on) => (on ? MM.farmBookings() : []))
+/** A farm visit (Farm Experience, farm.js): its page has the check-in code and the bill. */
+function ordFarmRow(b) {
+  const st = (typeof FX_STATUS === 'object' && FX_STATUS[b.status]) || b.status
+  const kg = typeof fxKg === 'function' ? fxKg(b.kg) : `${b.kg} kg`
+  const money = typeof fxMoney === 'function' ? (b.billAmount != null ? fxMoney(b.billAmount) : `about ${fxMoney(b.total)}`) : ''
+  return `<div class="order-row is-bulk"><a class="guide-choice fx-row" href="/farm-bookings/${encodeURIComponent(b.id)}" data-route><span class="dot ${['CANCELLED', 'NO_SHOW'].includes(b.status) ? 'raw' : b.status === 'PAYMENT_DUE' ? 'semi' : 'ripe'}"></span><span><strong>${esc(b.number)} · ${esc(st)}</strong><span class="pre-chip order-pre-chip ord-tag">${icon('tree')}Farm visit</span><small>${kg} ${esc(b.variety || '')} · ${fmtDate(b.visitDate)}${money ? ` · ${money}` : ''}</small></span>${icon('arrow')}</a></div>`
+}
+
+/** A gift order (gifts.js giftRows, with who each box is for when the API says: GET /v1/gifts `recipients`). */
+function ordGiftRow(g) {
+  const people = Array.isArray(g.recipients) ? g.recipients.filter((r) => r && r.name) : []
+  const names = people.length ? `For ${listOf(people.slice(0, 3).map((r) => esc(r.name)).concat(people.length > 3 ? [`${people.length - 3} more`] : []))}` : plural(g.recipientCount, 'person', 'people')
+  const each = people.length > 1 ? `<small class="ord-gift-people">${people.slice(0, 6).map((r) => `${esc(r.name)}: ${esc(STATUS[r.status] || r.status)}`).join(' · ')}${people.length > 6 ? ' · …' : ''}</small>` : people.length === 1 ? `<small class="ord-gift-people">${esc(STATUS[people[0].status] || people[0].status)}</small>` : ''
+  return `<div class="order-row is-gift"><button class="guide-choice" data-gift-open="${esc(g.id)}"><span class="dot ${g.status === 'PAYMENT_PENDING' ? 'semi' : g.status === 'CANCELLED' ? 'raw' : 'ripe'}"></span><span><strong>${esc(giftNo(g.number))} · ${esc(GIFT_STATUS[g.status] || g.status)}</strong><span class="pre-chip order-pre-chip gift-chip">${icon('gift')}Gift</span><small>${names} · Delivery ${fmtDate(g.deliveryDate)} · ${currency(g.total)}</small>${each}</span>${icon('arrow')}</button>${typeof roRowHTML === 'function' ? roRowHTML(g, 'gift') : ''}</div>`
+}
+
+// ---- Grow with us: the customer's partner applications and where each one is.
+
+function pnRefsAll() { const a = read(PN_REFS, {}); return a && typeof a === 'object' && !Array.isArray(a) ? a : {} }
+/** References this customer added by hand (sent with another number), on this device. */
+function pnRefsMine() { const id = (MM.profile() || {}).id, l = id ? pnRefsAll()[id] : null; return Array.isArray(l) ? l.filter((r) => /^MMP-[A-Z0-9]{8}$/.test(r)) : [] }
+function pnRefsSave(list) { const id = (MM.profile() || {}).id; if (!id) return; const a = pnRefsAll(); a[id] = [...new Set(list)].slice(0, 10); save(PN_REFS, a) }
+
+async function accountGrow(seq, top) {
+  const added = pnRefsMine()
+  const [rm, ...ra] = await Promise.allSettled([MM.myPartnerEnquiries(), ...added.map((r) => MM.partnerStatus(r))])
+  if (!alive(seq)) return
+  const off = policy && policy.features && policy.features.partnerNetwork === false
+  if (off) {
+    host().innerHTML = top + `<div class="page-card"><div class="empty-cart bag-empty empty-state">${icon('tree')}<h2>Grow with us isn’t open right now.</h2><p>Your applications will show here again when it reopens.</p></div></div>`
+    return
+  }
+  // An API without the list yet answers 404: only the references added by hand show.
+  const mine = rm.status === 'fulfilled' ? rm.value.items || [] : rm.reason && rm.reason.status === 404 ? [] : null
+  const have = new Set((mine || []).map((p) => p.reference))
+  const extra = added.map((ref, i) => ({ ref, r: ra[i] })).filter((x) => !have.has(x.ref))
+  const phone = (MM.profile() || {}).phone || ''
+  const cards = [
+    ...(mine || []).map((p) => pnTimeline(p)),
+    ...extra.map(({ ref, r }) => r.status === 'fulfilled' ? pnTimeline({ ...r.value, reference: r.value.reference || ref }, { remove: true })
+      : `<article class="pn-app is-missing" data-pn-ref="${esc(ref)}"><p class="pn-status-msg is-bad"><strong>${r.reason && r.reason.status === 404 ? `We couldn’t find ${esc(ref)}.` : `We couldn’t check ${esc(ref)} just now.`}</strong></p><button type="button" class="text-button pn-app-drop" data-pn-forget="${esc(ref)}">Remove from this list</button></article>`),
+  ]
+  const refs = [...have, ...extra.map((x) => x.ref)]
+  const wa = String((window.MM_CONFIG || {}).supportWhatsapp || '').trim()
+  const team = /^\d+$/.test(wa)
+    ? `<a class="button secondary full pn-team" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hi VMR Mangoes, about my Grow with us application${refs.length ? ` ${refs.join(', ')}` : ''}`)}" target="_blank" rel="noopener">${icon('chat')} Message our team</a>`
+    : `<a class="button secondary full pn-team" href="/help" data-route>${icon('chat')} Message our team</a>`
+  host().innerHTML = top + `
+    <section class="page-card pn-mine" aria-labelledby="pn-mine-h">
+      <h2 id="pn-mine-h" class="pn-mine-h">Your applications</h2>
+      <p class="page-note">The applications sent with ${phone ? `<span class="no-wrap">${esc(phone.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2'))}</span>` : 'your mobile number'}, and where each one is.</p>
+      ${mine === null ? `<p class="prototype-tag" role="alert">We couldn’t load your applications just now. Please try again in a minute.</p>` : ''}
+      ${cards.length ? cards.join('') : mine === null ? '' : `<div class="empty-cart bag-empty empty-state ord-empty">${icon('tree')}<h2>No applications yet.</h2><p>When you apply to grow with us, your application and where it is will appear here.</p><a class="button primary bag-explore" href="/partner" data-route>Apply to grow with us ${icon('arrow')}</a></div>`}
+    </section>
+    <section class="page-card pn-add">
+      <h3>Applied with another number?</h3>
+      <p class="page-note">Add the reference from your confirmation (it starts with MMP-) to follow it here too.</p>
+      <form id="pn-add-form" class="pn-status-form" novalidate>
+        <label class="field">Your reference<input name="ref" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="MMP-7K2QXD9T" maxlength="20" aria-describedby="pn-add-msg"></label>
+        <button class="button primary" type="submit">Add</button>
+      </form>
+      <div id="pn-add-msg" class="pn-status-result" aria-live="polite"></div>
+    </section>
+    ${team}`
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target instanceof Element ? e.target.closest('button') : null
+  if (!b) return
+  if (b.dataset.ordChip) {
+    ordChipNow = b.dataset.ordChip
+    save(ORD_CHIP, ordChipNow)
+    // A link's ?tab=bulk chose the chip once; the choice made here is the one the address keeps.
+    if (ordQuery('tab') === 'bulk' || ordQuery('tab') === 'gifts') history.replaceState(history.state, '', '/orders?tab=orders')
+    ordPaint()
+    $(`[data-ord-chip="${ordChipNow}"]`)?.focus()
+  } else if (b.dataset.ordLayout) {
+    const to = b.dataset.ordLayout, tab = ordTab(), chip = ordChip()
+    if (to === ordLayout()) return
+    save(ORD_LAYOUT, to)
+    // The same list in the other layout: A's Bulk or Gifts chip is B's tab, and back.
+    const next = tab === 'grow' ? 'grow' : to === 'B' ? (chip === 'bulk' || chip === 'gifts' ? chip : 'orders') : tab
+    if (to === 'A' && (tab === 'bulk' || tab === 'gifts')) save(ORD_CHIP, tab)
+    go(`/orders?tab=${next}`, { replace: true })
+  } else if (b.dataset.pnForget) {
+    pnRefsSave(pnRefsMine().filter((r) => r !== b.dataset.pnForget))
+    toast(`${b.dataset.pnForget} removed from this list`)
+    route()
+  }
+})
+
+// "Applied with another number?": the reference is checked (the public status check), then kept on this device.
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'pn-add-form') return
+  e.preventDefault()
+  const form = e.target, out = $('#pn-add-msg'), input = form.elements.ref, button = form.querySelector('button')
+  const ref = pnReference(input.value)
+  if (!ref) {
+    out.innerHTML = '<p class="pn-status-msg is-bad">That doesn’t look like a reference. It starts with MMP- and has 8 letters and numbers, like MMP-7K2QXD9T.</p>'
+    input.setAttribute('aria-invalid', 'true')
+    return
+  }
+  input.removeAttribute('aria-invalid')
+  input.value = ref
+  if ($(`.pn-mine [data-pn-ref="${CSS.escape(ref)}"]`)) { out.innerHTML = `<p class="pn-status-msg">${esc(ref)} is already in your list.</p>`; return }
+  button.disabled = true
+  out.innerHTML = '<p class="pn-status-msg">Looking…</p>'
+  try {
+    await MM.partnerStatus(ref)
+    pnRefsSave([...pnRefsMine(), ref])
+    toast(`${ref} added`)
+    route()
+  } catch (err) {
+    button.disabled = false
+    out.innerHTML = err.status === 404
+      ? `<p class="pn-status-msg is-bad"><strong>We couldn’t find ${esc(ref)}.</strong> Check the letters and numbers against your confirmation and try again.</p>`
+      : `<p class="pn-status-msg is-bad">${esc(err.status === 429 ? 'That’s a lot of checks in a short while. Please try again in a few minutes.' : err.message)}</p>`
+  }
+})
+
 // ---- The profile page.
 
 async function accountView(seq = ++sheetSeq) {
   host().innerHTML = head('Your profile') + marker(seq) + '<p>Loading your profile…</p>'
-  let me = MM.profile() || {}, addresses = [], enquiries = null, error = ''
+  let me = MM.profile() || {}, addresses = [], error = ''
   try {
-    ;[me, addresses, enquiries] = await Promise.all([MM.me(), MM.addresses().catch(() => []), MM.myBulkEnquiries().then((r) => r.items || [], () => null)])
+    ;[me, addresses] = await Promise.all([MM.me(), MM.addresses().catch(() => [])])
   } catch (e) {
     error = e.status === 401 ? 'Please sign in again.' : e.message
   }
@@ -600,7 +898,6 @@ async function accountView(seq = ++sheetSeq) {
       <h3>Favourites</h3>
       ${favs.length ? `<div class="fav-chips">${favs.map((n) => `<button class="occasion" data-fav-open="${esc(n)}">${icon('heart')}${esc(n)}</button>`).join('')}</div>` : '<p class="page-note">Tap the heart on a mango to keep it here.</p>'}
     </section>
-    ${bulkSection(enquiries)}
     <section class="page-card help-card" data-help-link hidden></section>
     <section class="page-card">
       <h3>Updates</h3>
@@ -609,7 +906,7 @@ async function accountView(seq = ++sheetSeq) {
     <section class="page-card page-actions">
       <button class="button secondary" data-signout>Sign out</button>
     </section>`
-  if (enquiries) bulkOpened(enquiries)
+  // Bulk orders, enquiries and their quotes, and farm visits are under My orders (accountOrdersView).
   // Help requests and our replies (help-requests.js), while the help centre is on.
   if (typeof helpAccountLink === 'function') helpAccountLink(seq)
 }
@@ -863,7 +1160,7 @@ async function sendBulkEnquiry(form) {
   // One heading: the card's own ("Order B-743 406 080 placed."); the sheet keeps only its close button.
   $(box).innerHTML = (box === '#form-dialog' ? `<div class="sheet-head is-bare"><button class="icon-button" data-close aria-label="Close form">${icon('close')}</button></div>` : '') + `<div class="success bulk-sent" data-kind="${order ? 'ORDER' : 'ENQUIRY'}">${icon('check')}<h2>${order ? 'Order' : 'Enquiry'} <span class="no-wrap">${esc(orderNo(r.number))}</span> ${order ? 'placed' : 'sent'}.</h2>
     ${order ? `<p>Our agent will <strong>call and WhatsApp you on +91 ${esc(phone)}</strong> to confirm your wholesale price, the delivery day (${BULK_DAYS}) and payment. Nothing is charged until then. Delivery is ${BULK_DELIVERY_PCT}% of the order value.</p>` : `<p>We’ll price it and send the quote on WhatsApp to <strong>+91 ${esc(phone)}</strong>, and you’ll see it here under your account.</p>`}
-    ${signed ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(r.id)}" data-route>View in account ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
+    ${signed ? `<a class="button primary" href="/orders?tab=bulk&enquiry=${encodeURIComponent(r.id)}" data-route>View in your orders ${icon('arrow')}</a>` : `<button class="button primary" data-bulk-signin="${esc(r.id)}">Sign in to track it ${icon('arrow')}</button>`}
     ${waOk ? `<a class="button secondary" href="https://wa.me/${wa}?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : ''}
     <button class="text-button" data-close style="margin:15px auto 0">Back to the mangoes ${icon('arrow')}</button></div>`
   bulkBar()
@@ -873,21 +1170,14 @@ async function sendBulkEnquiry(form) {
   bulkWatch()
 }
 
-function bulkSection(items) {
-  if (!items) return ''
-  if (!items.length && !(policy?.features?.bulkEnquiries ?? true)) return ''
-  return `<section class="page-card bulk-mine" aria-labelledby="bulk-mine-h">
-      <h3 id="bulk-mine-h">Bulk orders and farm visits</h3>
-      ${items.length ? `<ul class="bq-list">${items.map(bulkItem).join('')}</ul>` : `<p class="page-note">Ordering ${BULK_MIN_KG} kg or more? <a href="/bulk" data-route>Place a bulk order</a> at bulk prices.</p>`}
-    </section>`
-}
-
-function bulkItem(x) {
+/** One bulk order, enquiry or farm visit with its quote (accept or decline) and payment. `bare`: inside its row on the
+ *  orders page (ordBulkRow), which already says its number, kind and status. */
+function bulkItem(x, bare = false) {
   const q = x.quote, what = `${x.quantityKg} kg${x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''}`
   const open = x.status === 'QUOTED' && q
-  return `<li class="bq-item${x.unread ? ' is-new' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}">
-    <div class="bq-head"><div><strong>${esc(orderNo(x.number))}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : x.kind === 'FARM_VISIT' ? 'Farm visit enquiry' : 'Enquiry'} · ${x.kind === 'FARM_VISIT' ? 'sent ' : ''}${fmtDate(istDateOf(x.createdAt))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.kind === 'FARM_VISIT' ? (FARM_VISIT_STATUS[x.status] || esc(x.status)) : x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>
-    ${x.farmVisit ? `<p class="bq-done">${icon('leaf')}<span>${x.farmVisit.variety ? esc(x.farmVisit.variety) : 'Mango not chosen yet'} · ${x.farmVisit.people} ${x.farmVisit.people === 1 ? 'person' : 'people'} · ${x.farmVisit.plannedDate ? `visit on <strong>${fmtDate(x.farmVisit.plannedDate)}</strong>` : x.farmVisit.preferredDate ? `you asked for ${fmtDate(x.farmVisit.preferredDate)}` : 'dates flexible'}${x.status === 'CLOSED' && x.farmVisit.closeReason ? ` · closed: ${esc(x.farmVisit.closeReason)}` : ''}</span></p>` : ''}
+  return `<li class="bq-item${x.unread ? ' is-new' : ''}${bare ? ' is-bare' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}"${bare ? ' data-bare' : ''}>
+    ${bare ? '' : `<div class="bq-head"><div><strong>${esc(orderNo(x.number))}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : x.kind === 'FARM_VISIT' ? 'Farm visit enquiry' : 'Enquiry'} · ${x.kind === 'FARM_VISIT' ? 'sent ' : ''}${fmtDate(istDateOf(x.createdAt))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.kind === 'FARM_VISIT' ? (FARM_VISIT_STATUS[x.status] || esc(x.status)) : x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>`}
+    ${x.farmVisit && !bare ? `<p class="bq-done">${icon('leaf')}<span>${x.farmVisit.variety ? esc(x.farmVisit.variety) : 'Mango not chosen yet'} · ${x.farmVisit.people} ${x.farmVisit.people === 1 ? 'person' : 'people'} · ${x.farmVisit.plannedDate ? `visit on <strong>${fmtDate(x.farmVisit.plannedDate)}</strong>` : x.farmVisit.preferredDate ? `you asked for ${fmtDate(x.farmVisit.preferredDate)}` : 'dates flexible'}${x.status === 'CLOSED' && x.farmVisit.closeReason ? ` · closed: ${esc(x.farmVisit.closeReason)}` : ''}</span></p>` : ''}
     ${x.order ? `<p class="bq-done"><span>${x.order.amountPaise != null ? `${paise(x.order.amountPaise)} · ` : ''}${x.order.refund ? (x.order.refund.refundedAt ? 'refunded in full' : 'refund on its way') : x.status === 'PAYMENT_PENDING' ? 'not paid yet' : x.status === 'CANCELLED' ? 'cancelled' : 'paid in full'}</span> <a class="text-button inline-link" href="/bulk/orders/${encodeURIComponent(x.id)}" data-route>View order ${icon('arrow')}</a></p>` : ''}
     ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(orderNo(x.number))}">
       <ul class="bq-lines">${q.lines.map((l) => `<li><span>${esc(l.label)} <small>× ${l.qty} @ ${currency(l.unitPrice)}</small></span><strong>${currency(l.linePrice)}</strong></li>`).join('')}
@@ -928,7 +1218,10 @@ async function bulkAnswer(id, decision, message, button) {
     toast(decision === 'ACCEPT' ? `Quote accepted. We’ll call you to arrange delivery.` : 'Quote declined. Thank you for letting us know.')
     bulkMine = bulkMine.map((x) => (x.id === id ? next : x))
     const li = document.getElementById(`enquiry-${id}`)
-    if (li) { li.outerHTML = bulkItem(next); document.getElementById(`enquiry-${id}`)?.querySelector('.bq-chip')?.setAttribute('tabindex', '-1') }
+    // On the orders page the whole row is drawn again (its status line changes too); on its own, the item.
+    const row = li && li.closest('[data-ord-bulk]')
+    if (row) { ordBulkSeen(next); row.outerHTML = ordBulkRow(next, true); document.querySelector(`[data-ord-bulk="${CSS.escape(id)}"] summary`)?.focus() }
+    else if (li) { li.outerHTML = bulkItem(next); document.getElementById(`enquiry-${id}`)?.querySelector('.bq-chip')?.setAttribute('tabindex', '-1') }
     bulkSigns()
   } catch (e) {
     if (button) button.disabled = false
@@ -945,7 +1238,7 @@ async function bulkWatch() {
   bulkSigns()
   const toasted = read(BULK_TOASTED, [])
   const fresh = bulkMine.filter((x) => x.unread && !toasted.includes(`${x.id}:${x.quotedAt}`))
-  if (fresh.length && document.body.dataset.page !== 'account') {
+  if (fresh.length && !['account', 'orders'].includes(document.body.dataset.page)) {
     toast(fresh.length === 1 ? `New bulk quote ready: ${orderNo(fresh[0].number)}` : `${fresh.length} new bulk quotes ready`)
     save(BULK_TOASTED, [...toasted, ...fresh.map((x) => `${x.id}:${x.quotedAt}`)].slice(-30))
   }
@@ -962,7 +1255,7 @@ function bulkSigns() {
   const dismissed = read(BULK_DISMISSED, [])
   const show = unread.find((x) => !dismissed.includes(`${x.id}:${x.quotedAt}`))
   let bar = $('#bulk-quote-banner')
-  if (!show || document.body.dataset.page === 'account') { if (bar) bar.hidden = true; return }
+  if (!show || ['account', 'orders'].includes(document.body.dataset.page)) { if (bar) bar.hidden = true; return }
   if (!bar) {
     bar = document.createElement('aside')
     bar.id = 'bulk-quote-banner'
@@ -970,7 +1263,7 @@ function bulkSigns() {
     bar.setAttribute('aria-label', 'Your bulk quote')
     $('header.header').insertAdjacentElement('afterend', bar)
   }
-  bar.innerHTML = `<a class="bulk-banner-go" href="/account?enquiry=${encodeURIComponent(show.id)}" data-route>${icon('box')}<span><strong>Your bulk quote is ready</strong><small>${esc(orderNo(show.number))} · ${currency(show.quote.total)}</small></span><span class="bulk-banner-cta">View quote ${icon('arrow')}</span></a><button class="bulk-banner-close" data-bulk-dismiss="${esc(show.id)}:${esc(show.quotedAt)}" aria-label="Hide this for now">${icon('close')}</button>`
+  bar.innerHTML = `<a class="bulk-banner-go" href="/orders?tab=bulk&enquiry=${encodeURIComponent(show.id)}" data-route>${icon('box')}<span><strong>Your bulk quote is ready</strong><small>${esc(orderNo(show.number))} · ${currency(show.quote.total)}</small></span><span class="bulk-banner-cta">View quote ${icon('arrow')}</span></a><button class="bulk-banner-close" data-bulk-dismiss="${esc(show.id)}:${esc(show.quotedAt)}" aria-label="Hide this for now">${icon('close')}</button>`
   bar.hidden = false
 }
 
@@ -992,7 +1285,7 @@ document.addEventListener('click', (e) => {
     bulkSigns()
   } else if (d.bulkSignin) {
     closeDialogs()
-    go(`/login?next=${encodeURIComponent(`/account?enquiry=${d.bulkSignin}`)}`)
+    go(`/login?next=${encodeURIComponent(`/orders?tab=bulk&enquiry=${d.bulkSignin}`)}`)
   }
 })
 document.addEventListener('submit', (e) => {

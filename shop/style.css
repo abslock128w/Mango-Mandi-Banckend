@@ -1433,19 +1433,31 @@ a.hero-kicker:hover{background:#17463124}
 @media(max-width:1000px){.hero .hero-vows li{font-size:15.5px}.hero .photo-label{font-size:14px;padding:12px 18px}}
 @media(max-width:700px){.hero .hero-vows{gap:9px 12px}.hero .hero-vows li{font-size:14.5px}.hero .hero-vows svg{width:20px;height:20px}.hero .photo-label{font-size:13px;padding:11px 15px;bottom:18px;max-width:92%;white-space:normal;text-align:left}}
 
-/* Search suggestions (suggest.js): mango names under the search box from the first letter. */
+/* Search suggestions (suggest.js): the mangoes under the search box from the second letter, each with a 40 px photo, the
+   name (typed part in bold) and a grey line; "Showing results for …" on top when the search was read as another name.
+   The same line over the shelf (shelf.js searchFixLine, .is-shelf). */
 .search{position:relative}
-.search-names{position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:40;margin:0;padding:8px;list-style:none;max-height:min(340px,50vh);overflow:auto;background:#fffaf2;border:1px solid #dcded2;border-radius:20px;box-shadow:0 18px 44px #17463126}
-.search-names li{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:13px;font-size:15px;color:#27402f;cursor:pointer}
-.search-names li svg{flex:none;width:16px;height:16px;opacity:.5}
+.search-names{position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:40;padding:8px;max-height:min(420px,60vh);overflow:auto;background:#fffaf2;border:1px solid #dcded2;border-radius:20px;box-shadow:0 18px 44px #17463126}
+.search-names-list{margin:0;padding:0;list-style:none}
+.search-names li{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:13px;color:#27402f;cursor:pointer}
+.search-names li img,.search-names-nophoto{flex:none;width:40px;height:40px;border-radius:10px;object-fit:cover;background:#e8eddb}
+.search-names-text{display:flex;flex-direction:column;min-width:0}
+.search-names-name{font-size:15px;line-height:1.3}
 .search-names li b{color:var(--green);font-weight:700}
+.search-names li small{font-size:12.5px;line-height:1.35;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search-names li:hover,.search-names li[aria-selected=true]{background:#17463112}
-/* above the phone dock: laid over the page, its bottom edge set from the dock's search box (suggest.js) */
-.search-names.is-above{position:fixed;left:14px;right:14px;top:auto;z-index:120;max-height:min(300px,44vh)}
+.search-names-fix{margin:0;padding:6px 12px 8px;font-size:13px;line-height:1.45;color:var(--muted)}
+.search-names-fix strong{color:var(--ink);font-weight:700}
+.search-names-exact{padding:0;font-size:inherit;color:var(--green);text-decoration:underline;text-underline-offset:3px}
+.search-names-fix.is-shelf{padding:0;margin:0 0 14px;font-size:14px}
 [data-theme="dark"] .search-names{background:#12281d;border-color:#2c4a3a;box-shadow:0 18px 44px #0008}
 [data-theme="dark"] .search-names li{color:#f6efdcd9}
 [data-theme="dark"] .search-names li b{color:#ffb81f}
+[data-theme="dark"] .search-names li small{color:#f6efdc99}
 [data-theme="dark"] .search-names li:hover,[data-theme="dark"] .search-names li[aria-selected=true]{background:#f6efdc14}
+[data-theme="dark"] .search-names-fix{color:#f6efdcb3}
+[data-theme="dark"] .search-names-fix strong{color:#f6efdc}
+[data-theme="dark"] .search-names-exact{color:#ffb81f}
 
 /* An order's cancel window (pages.js cancelNote): until when it can be cancelled, or that cancelling has closed. */
 .cancel-note{display:flex;align-items:flex-start;gap:9px;margin:12px 0 0;font-size:13.5px;line-height:1.45;color:#4a5a48}
@@ -2029,6 +2041,20 @@ html{scroll-padding-top:128px}
 .bulk-key-list details[open] summary>svg:last-child{transform:rotate(180deg)}
 .bulk-key-list strong{display:block;font-size:15px;line-height:1.25;color:var(--band-ink)}
 .bulk-key-list details>span{display:block;padding:0 14px 14px;font-size:14px;line-height:1.45;color:#e4ead9}
+/* With a mouse (bulk.js BULK_KEY_HOVER, the same query): no chevrons and nothing to open; a card's line floats over the
+   section in a small panel while the pointer is on the card or it has the keyboard's focus, so the row keeps its height.
+   Hidden, the line stays in the card for screen readers (clipped, not removed). Escape hides it (.is-quiet). */
+@media (hover:hover) and (pointer:fine){
+.bulk-key-list.is-hover{align-items:stretch}
+.bulk-key-card{position:relative;cursor:default}
+.bulk-key-head{display:flex;align-items:center;gap:10px;height:100%;padding:10px 12px;border-radius:16px;transition:background .2s}
+.bulk-key-card:hover .bulk-key-head,.bulk-key-card:focus-visible .bulk-key-head{background:#ffffff14}
+.bulk-key-head>svg{flex:none;width:20px;height:20px;padding:7px;box-sizing:content-box;border-radius:12px;background:#ffcf4a26;color:var(--band-icon);fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.bulk-key-tip{position:absolute;left:0;top:100%;z-index:8;width:max(100%,260px);padding-top:8px}
+.bulk-key-tip>span{display:block;padding:12px 14px;border-radius:14px;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.45;box-shadow:0 16px 36px #17463133,inset 0 0 0 1px var(--line)}
+.bulk-key-card:not(:hover):not(:focus-within) .bulk-key-tip,.bulk-key-card.is-quiet .bulk-key-tip{width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.bulk-key-list.is-hover li:nth-child(n+4) .bulk-key-tip{left:auto;right:0}}
+@media (hover:hover) and (pointer:fine) and (max-width:1100px){.bulk-key-list.is-hover li:nth-child(n+4) .bulk-key-tip{left:0;right:auto}.bulk-key-list.is-hover li:nth-child(3n) .bulk-key-tip{left:auto;right:0}}
 .bulk-key-note{display:flex;gap:10px;align-items:flex-start;margin:16px 0 0;padding:14px 16px;border-radius:14px;background:#f5cb58;color:#173a29;font-size:16px;font-weight:600;line-height:1.45}
 .bulk-key-note strong{font-weight:800}
 .bulk-key-note svg{flex:none;width:22px;height:22px;margin-top:1px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
@@ -3065,3 +3091,141 @@ html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 .gift-group-view{max-width:760px}
 .gift-group-top h2{margin:6px 0 4px;font:400 26px/1.2 'Young Serif',Georgia,serif;color:var(--ink)}
 .gift-group-top p{margin:0 0 12px;color:var(--muted)}
+
+/* ---- Change request 01 (25 Nov 2026), home and pre-order: CR-01, CR-03, CR-05, CR-09, CR-10.
+   CR-01, PCs (1024 px and wider): a shorter slideshow (the picture is object-fit:cover, so the crate stays in frame), the use
+   chips (#occasions) in the ripeness pills' row with Sort (app.js moves them into .collection-toolbar, and the price note up
+   beside "Shop by variety"), so the first row of mangoes shows on the first screen. Phones and tablets are unchanged. */
+@media(min-width:1024px){
+.sun-banner{height:clamp(300px,40vh,400px)}
+.sun-hero{margin-top:12px}
+.sun-slide .sun-copy{width:52%;padding:12px 0 50px 48px}
+.sun-slide .sun-title{font-size:clamp(30px,min(3.4cqw,5.4vh),50px)}
+.sun-slide .sun-text{max-width:none;margin:6px 0 0;font-size:15px;line-height:1.4}
+.sun-slide .sun-text br{display:none}
+.sun-points{margin:8px 0 0;gap:4px 18px}
+.sun-points li{font-size:14px}
+.sun-slide .sun-go.button{margin-top:10px;min-height:44px}
+.sun-controls{bottom:10px}
+.sun-slide .sun-seal{top:14px;right:16px;scale:.82;transform-origin:top right}
+.collection{padding-top:20px}
+#shop .variety-head{align-items:center}
+.variety-title>div{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:14px}
+#shop .variety-head h2{font-size:clamp(28px,2.4vw,34px)}
+#shop .variety-head .variety-title p{margin:0}
+.variety-icon{width:40px;height:40px;border-radius:14px}
+.variety-icon svg{width:22px;height:22px}
+#shop .variety-head .variety-title{flex:1}
+#shop .variety-head .shelf-note{flex:0 1 auto;max-width:40%;margin:0 0 0 auto;font-size:13px;line-height:1.4;text-align:right;color:var(--muted)}
+.collection-toolbar{gap:14px;margin:8px 0;padding:4px 0}
+.collection-toolbar .segmented{flex:none}
+.collection-toolbar .occasion-row{flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;margin:0;padding:2px;scrollbar-width:none}
+.collection-toolbar .occasion-row::-webkit-scrollbar{display:none}
+.collection-toolbar .occasion-row>*{flex:none}
+.season-band{margin-bottom:14px}
+.season-chip-more{position:relative;min-height:36px}
+.season-chip-more::after{content:"";position:absolute;inset:-4px 0}
+}
+@media(min-width:1024px) and (max-height:820px){.sun-banner{height:300px}.sun-hero{margin-top:8px}.collection{padding-top:16px}}
+/* Narrow PCs: the use chips wrap inside the row rather than hide past its end (a mouse can't scroll it sideways). */
+@media(min-width:1024px) and (max-width:1199px){.collection-toolbar .occasion-row{flex-wrap:wrap;overflow:visible;row-gap:6px}}
+
+/* CR-03, phones and tablets (up to 900 px): the search sits right under "Deliver to", in the sticky .shop-top, so the ripeness
+   row sticks lower by the search's 44 px and its gap (phone-search.js). */
+.shop-top .phone-search{margin:8px 0 0}
+.shop-top .phone-search .search{width:100%}
+@media(min-width:701px) and (max-width:900px){.collection-toolbar{top:180px}html{scroll-padding-top:190px}}
+@media(max-width:700px){.collection-toolbar{top:180px}html{scroll-padding-top:180px}}
+
+/* CR-05: the toast is a manual popover (app.js toast()), so it shows in the top layer, above an open sheet. These undo the
+   browser's popover box (centred, bordered) and keep it rendered while closed, so it still fades in and out in place. */
+.toast[popover]{top:auto;right:auto;margin:0;overflow:visible;display:block;height:auto}
+
+/* CR-09: the product sheet's one compact pre-order note (app.js preWarn), in place of the three boxes and the tick. */
+.pre-short{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;padding:7px 10px;border-radius:12px;background:var(--sage);border:1.5px solid var(--accent);color:var(--ink)}
+.pre-short>svg{flex:none;width:16px;height:16px;margin-top:1px;stroke-width:2.2;color:var(--accent)}
+.pre-short p{margin:0;font-size:13px;line-height:1.35;color:var(--ink)}
+.pre-short strong{font-weight:800}
+.pre-short .pre-short-more{display:inline;min-height:0;padding:0;font:inherit;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:3px;position:relative}
+.pre-short .pre-short-more::after{content:"";position:absolute;inset:-12px -8px}
+.pre-short+.pre-go,.pre-short~.pre-go{margin-top:12px}
+
+/* CR-09 and CR-10: the pre-order pop-ups (#pre-pop, app.js prePay / preTermsPop / preAbout): the form sheet's look, centred on
+   wide screens, a bottom sheet on phones. */
+.pop-sheet{width:520px}
+.pop-sheet .sheet-head{margin-bottom:12px}
+.pop-sheet .sheet-head h2{font-size:26px}
+.pre-pop-body>.pre-when{margin-top:0}
+.pre-pop-body .pre-agree{margin:14px 0 0}
+.pre-pop-body .button{margin-top:12px}
+.pre-pop-body .pre-why{margin-top:8px}
+.pre-about p{margin:0 0 12px;font-size:15px;line-height:1.5;color:var(--body)}
+.pre-about strong{color:var(--ink);font-weight:700}
+@media(max-width:700px){
+.pop-sheet{width:100%;max-width:100%;margin:auto 0 0;border-radius:22px 22px 0 0;max-height:88dvh}
+.pop-sheet .sheet-head h2{font-size:23px}
+.pre-about p{font-size:14.5px}
+}
+
+/* CR-11: Your orders (pages.js accountTabs, accountOrdersView, accountGrow) and the Grow with us timeline (partner.js
+   pnTimeline, also drawn by the /partner status check): the account tabs on one line (sideways on phones), the small
+   "Layout: A | B" control, the filter chips, the bulk and farm visit rows, and the four steps. */
+.acct-tabs{max-width:100%;overflow-x:auto;scrollbar-width:none;vertical-align:top}
+.acct-tabs::-webkit-scrollbar{display:none}
+.acct-tabs a{flex:none;white-space:nowrap}
+.acct-tabs-hint{display:none}
+.ord-layout{display:flex;justify-content:flex-end;align-items:center;gap:4px;margin:-12px 0 8px;font-size:12px;color:var(--muted)}
+.ord-layout button{min-width:36px;min-height:36px;padding:0 10px;border-radius:18px;font-size:12px;font-weight:700;color:var(--muted)}
+.ord-layout button[aria-pressed="true"]{background:var(--chip);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.ord-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -4px 6px;padding:2px 4px 10px}
+.ord-chips::-webkit-scrollbar{display:none}
+.ord-chip{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 16px;border-radius:999px;font-size:13px;font-weight:600;color:var(--ink);background:var(--chip);box-shadow:inset 0 0 0 1px var(--line);white-space:nowrap}
+.ord-chip[aria-pressed="true"]{background:var(--accent-bead);color:var(--accent-ink);box-shadow:inset 0 1px 1px #ffffff59,0 4px 12px var(--accent-glow)}
+.ord-count{font-size:11px;font-weight:700;opacity:.75;font-variant-numeric:tabular-nums}
+#ord-list>.order-row:first-child,#ord-list>.orders-partial+.order-row{border-top:0}
+.ord-bulk>summary{list-style:none;cursor:pointer}
+.ord-bulk>summary::-webkit-details-marker{display:none}
+.ord-chev{display:grid;place-items:center;transition:transform .3s var(--ease)}
+.ord-chev svg{width:18px;height:18px}
+.ord-bulk[open] .ord-chev{transform:rotate(180deg)}
+.ord-bq{margin:0 0 14px}
+.bq-item.is-bare{padding-top:10px}
+.ord-static{cursor:default}
+.order-row.is-target>.guide-choice,.order-row.is-target>summary{background:var(--sage);border-radius:12px}
+.ord-tag svg{width:14px;height:14px}
+.guide-choice small.ord-gift-people{margin-top:4px}
+#ord-list>.ord-bag{margin:10px 0;padding:6px 14px;border:1px solid var(--line);border-radius:16px;background:var(--paper)}
+#ord-list>.ord-bag+.order-row{border-top:0}
+.pn-mine-h{font-size:24px;margin:0 0 4px}
+.pn-app{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--paper);margin-top:14px}
+.pn-app-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}
+.pn-app-head h3{font-family:'Figtree',sans-serif;font-size:15px;font-weight:700;margin:0;line-height:1.35}
+.pn-app-head small{display:block;font-size:12px;color:var(--muted);margin-top:4px}
+.pn-app-now{flex:none;display:inline-flex;align-items:center;min-height:28px;padding:4px 11px;border-radius:20px;font-size:12.5px;font-weight:700;background:var(--sun);color:var(--mango-ink,#15130c)}
+.pn-app-now.is-ended{background:var(--sage);color:var(--ink)}
+.pn-steps{list-style:none;margin:0;padding:0}
+.pn-step{position:relative;display:flex;gap:12px;padding:0 0 16px}
+.pn-step:last-child{padding-bottom:0}
+.pn-step:not(:last-child)::before{content:'';position:absolute;left:10px;top:24px;bottom:2px;width:2px;border-radius:2px;background:var(--line)}
+.pn-step.is-done:not(:last-child)::before{background:var(--green)}
+.pn-step-dot{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--line);color:var(--paper);position:relative}
+.pn-step-dot svg{width:13px;height:13px;stroke-width:3}
+.pn-step.is-done .pn-step-dot{background:var(--green)}
+.pn-step.is-current .pn-step-dot{background:var(--sun);box-shadow:0 0 0 4px #ffc93c40}
+.pn-step.is-skipped .pn-step-dot{background:none;box-shadow:inset 0 0 0 2px var(--line)}
+.pn-step strong{display:block;font-size:14px;font-weight:700;color:var(--ink);line-height:1.4}
+.pn-step small{display:block;font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+.pn-step.is-next strong,.pn-step.is-skipped strong{color:var(--muted);font-weight:600}
+.pn-app-drop{margin-top:12px;padding:6px 0;text-decoration:underline}
+.pn-app.is-missing .pn-status-msg{margin-top:0}
+.pn-add h3{font-size:20px}
+.pn-team{margin-top:4px}
+.pn-status-result .pn-app{margin-top:14px}
+@media(max-width:700px){
+.acct-tabs.is-wide{display:flex;margin-bottom:6px}
+.acct-tabs-hint{display:block;margin:0 0 14px 6px;font-size:11px;color:var(--muted)}
+.ord-layout{margin:-12px 0 6px}
+.ord-chip{min-height:40px;padding:0 14px}
+.pn-app{padding:14px}
+.pn-app-head{flex-direction:column;gap:8px}
+}

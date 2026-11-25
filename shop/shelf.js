@@ -30,14 +30,18 @@ const cardStage = {} // variety → stage picked on its card
 const cardBox = {} // variety → sku picked on its card
 const hits = new Map() // variety → synonym hit for the current search
 let searchStage = null // a stage word typed into search
+let searchFix = null // { from, to }: the search read as another name or a typo ("Showing results for Alphonso"); catalog.js find
+let searchExact = null // the words the customer asked to search as typed ("search instead for …")
 let detail = null // the open product sheet: { name, stage, sku }
 
 const boxText = (s) => `${String(s.boxSize).replace('kg', ' kg')} box`
 
 function contentFor(name, list) {
-  const known = CATALOG.varieties.find((v) => v.name.toLowerCase() === String(name).toLowerCase())
+  const want = String(CATALOG.shown ? CATALOG.shown(name) : name).toLowerCase()
+  const known = CATALOG.varieties.find((v) => v.name.toLowerCase() === want)
+  // Every VMR mango is grown at the farm in Piler (catalog.js ORIGIN), a variety the catalogue does not know too.
   const c = known ? { ...known } : {
-    name, region: '', origin: '', flavour: list[0]?.description || '', story: list[0]?.description || '',
+    name, region: CATALOG.originShort || '', origin: CATALOG.origin || '', flavour: list[0]?.description || '', story: list[0]?.description || '',
     season: null, sweetness: null, popularity: 0, bestFor: '', tags: [], occasions: [], photos: null, gallery: [],
   }
   // A photo uploaded on the panel replaces the illustrative one for every stage.
@@ -56,7 +60,9 @@ function contentForLine(sku, name) {
   const onShelf = s && shelf.find((v) => v.name === s.variety)
   if (onShelf) return onShelf.c
   const label = String(s ? s.variety : name || '').toLowerCase()
-  return CATALOG.varieties.slice().sort((a, b) => b.name.length - a.name.length).find((v) => label.startsWith(v.name.toLowerCase())) || null
+  // a line from before a rename ("Mixed Box 5kg Box") still finds its variety by the old name (catalog.js keyOf)
+  const names = (v) => [v.name, CATALOG.keyOf ? CATALOG.keyOf(v.name) : v.name].map((n) => n.toLowerCase())
+  return CATALOG.varieties.slice().sort((a, b) => b.name.length - a.name.length).find((v) => names(v).some((n) => label.startsWith(n))) || null
 }
 
 function buildShelf() {
@@ -240,13 +246,16 @@ function cardHTML(v) {
 // ---- Which cards, in what order
 
 function haystack(v) {
-  return [v.name, v.c.region, v.c.origin, v.c.flavour, v.c.bestFor, ...(v.c.tags || [])].join(' ').toLowerCase()
+  return [v.name, v.c.region, v.c.origin, v.c.flavour, v.c.bestFor, ...(v.c.tags || []), ...(v.c.contents || []).map((x) => x.name)].join(' ').toLowerCase()
 }
 
 function visibleShelf() {
   const q = $('#search').value.trim().toLowerCase()
   hits.clear()
   searchStage = null
+  searchFix = null
+  if (searchExact && searchExact !== q) searchExact = null
+  let fixed = null
   let list = occasion === 'all' ? shelf : shelf.filter((v) => (v.c.occasions || []).includes(occasion))
   if (q) {
     for (const syn of CATALOG.synonyms) {
@@ -256,7 +265,18 @@ function visibleShelf() {
     const stageWord = words.find((w) => STAGE_WORDS[w])
     if (stageWord) searchStage = STAGE_WORDS[stageWord]
     const rest = words.filter((w) => !STAGE_WORDS[w])
+    const base = list
     list = list.filter((v) => hits.has(v.name) || (rest.length ? rest.every((w) => haystack(v).includes(w)) : Boolean(stageWord)))
+    // Nothing as typed: read it as another name or a typo (catalog.js find: "alpfonso" is Alphonso) and show what that
+    // finds, with a line saying so, unless the customer asked to search the words as typed.
+    if (!list.length && rest.length && searchExact !== q && CATALOG.find) {
+      const r = CATALOG.find(rest.join(' '), base.map((v) => ({ name: v.name, about: CATALOG.aboutOf(v.c) })))
+      if (r.fixed) {
+        fixed = r.items.map((x) => x.name)
+        list = base.filter((v) => fixed.includes(v.name))
+        searchFix = { from: $('#search').value.trim(), to: r.fixed }
+      }
+    }
   }
   const price = (v) => skuOf(boxFor(v, stageFor(v))).price
   const order = {
@@ -269,6 +289,7 @@ function visibleShelf() {
   const rank = [...hits.keys()]
   const hitRank = (v) => (hits.has(v.name) ? rank.indexOf(v.name) : rank.length)
   return list.slice().sort((a, b) =>
+    (fixed ? fixed.indexOf(a.name) - fixed.indexOf(b.name) : 0) ||
     hitRank(a) - hitRank(b) ||
     Number(soldOut(a, stageFor(a))) - Number(soldOut(b, stageFor(b))) ||
     order(a, b))
@@ -300,12 +321,28 @@ function renderProducts() {
   const list = visibleShelf()
   grid.innerHTML = list.map(cardHTML).join('')
   $('#no-results').hidden = list.length > 0
+  searchFixLine(grid)
   $('#shelf-count').textContent = list.length === shelf.length ? `${shelf.length} ${shelf.length === 1 ? 'variety' : 'varieties'} · ` : `${list.length} of ${shelf.length} varieties · `
   if (!list.length) {
     $('#search-suggest').innerHTML = CATALOG.trending.map((t) => `<button class="occasion" data-trending="${esc(t)}">${esc(t)}</button>`).join('')
   }
   if (window.gsap && !reduced) gsap.fromTo('.product-card', { y: 12, opacity: 0.5 }, { y: 0, opacity: 1, duration: 0.45, stagger: 0.06, ease: 'power3.out', clearProps: 'transform,translate,rotate,scale,opacity' })
   window.Liquid?.scan(grid)
+}
+
+/** Over the shelf while a search was read as another name: "Showing results for Alphonso · search instead for ‘alpfonso’". */
+function searchFixLine(grid) {
+  let line = $('#search-fix')
+  if (!line && !searchFix) return
+  if (!line) {
+    line = document.createElement('p')
+    line.id = 'search-fix'
+    line.className = 'search-names-fix is-shelf'
+    line.setAttribute('aria-live', 'polite')
+    grid.before(line)
+  }
+  line.hidden = !searchFix
+  line.innerHTML = searchFix ? `<span>Showing results for <strong>${esc(searchFix.to)}</strong></span> <span aria-hidden="true">·</span> <button type="button" class="search-names-exact" data-search-exact>search instead for ‘${esc(searchFix.from)}’</button>` : ''
 }
 
 /** Re-render one card in place (stage or box change) and keep focus on the control used. */
@@ -563,6 +600,10 @@ document.addEventListener('click', (e) => {
     add(detail.name, detail.sku, detail.stage)
     closeDialogs()
     rerenderCard(detail.name)
+  } else if (b.hasAttribute('data-search-exact')) {
+    searchExact = $('#search').value.trim().toLowerCase()
+    renderProducts()
+    window.dispatchEvent(new Event('mm:search-exact'))
   } else if (b.dataset.trending) {
     $('#search').value = b.dataset.trending
     renderProducts()

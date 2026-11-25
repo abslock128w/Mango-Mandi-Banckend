@@ -36,7 +36,7 @@ import { dateWords, enqueuePreorder, enqueuePreorderMoves, sendNotificationsNow,
 import { cancelOrder, createOrder, customerCancel, customerCancelDelayed, LAZY_SWEEP_GATEWAY_GRACE_MS, NON_REFUNDABLE_PREORDER_MESSAGE, recordDuplicatePayment, sweepExpiredPlanned, SYSTEM } from './orders.js'
 import { canStartCall } from './budget.js'
 import { applyCapture, claimRefund, GATEWAY_CALL_MS, createPaymentLink, fetchLinkPayments, gatewayRefund, refundAttemptFailed, refundReceipt } from './payments.js'
-import { boxKg, findProduct, sellable, shopProducts } from './products.js'
+import { boxKg, findProduct, sellable, shopProducts, shownVariety } from './products.js'
 import { seasonPhase } from './season-phase.js'
 import { mondayOf } from './plan-kg.js'
 import { giverFields, openLinks, PENDING } from './gift-address.js'
@@ -115,7 +115,7 @@ export const DELIVERY_DAYS_PER_WEEK = 7
 // that variety's weekly kg, and a booking only ever counts against its own variety. A Mixed Box is its own variety
 // (its line in the plan): the products data does not say which varieties are in it.
 
-/** The variety a box counts against (products.variety, e.g. "Alphonso"; "Mixed Box"). */
+/** The variety a box counts against (products.variety, e.g. "Alphonso"; "Mixed Box", a key: customers see "Mixed Variety Mangoes", products.js shownVariety). */
 export const varietyOf = (sku) => findProduct(sku)?.variety ?? sku
 /** The variety a booking counts against: the one it was booked with (preorders.variety, 078), else its box's. */
 export const bookingVariety = (p) => p.variety ?? varietyOf(p.sku)
@@ -583,7 +583,7 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
   const load = weekLoad({ sku: b.sku, qty: b.qty })
   const biggest = await biggestWeek(c, weeks, p.variety)
   if (biggest > 0 && load > biggest) {
-    throw new HttpError(409, 'PREORDER_TOO_BIG', `That is more than a whole delivery week of ${p.variety} can take (${biggest} kg). Choose fewer boxes.`, { kg: load, limit: biggest })
+    throw new HttpError(409, 'PREORDER_TOO_BIG', `That is more than a whole delivery week of ${shownVariety(p.variety)} can take (${biggest} kg). Choose fewer boxes.`, { kg: load, limit: biggest })
   }
   if (!group) await checkUnpaidPreorders(c, b.customerId, b.qty)
   const got = await assignWeek(c, { sku: b.sku, qty: b.qty, variety: p.variety }, weeks)
@@ -594,7 +594,7 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
     throw new HttpError(409, 'PREORDER_WEEK_CHANGED', `An earlier week has room again: your order would be delivered in ${weekWords(got)}.`, extra)
   }
   if (!got && (group || !b.waitlist)) {
-    throw new HttpError(409, 'PREORDER_FULL', `Every delivery week of ${p.variety} this season is fully booked. Join the waitlist to get the next free spot.`, { weekStart: null, requested: b.weekStart ?? null })
+    throw new HttpError(409, 'PREORDER_FULL', `Every delivery week of ${shownVariety(p.variety)} this season is fully booked. Join the waitlist to get the next free spot.`, { weekStart: null, requested: b.weekStart ?? null })
   }
   const week = got ?? weeks.at(-1)
   const id = newId('pre')

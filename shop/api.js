@@ -78,7 +78,10 @@ window.MM={
   partnerNetwork:()=>raw('/partner-network'),
   partnerEnquiry:(body,key)=>raw('/partner-network/enquiries',{method:'POST',body,headers:{'Idempotency-Key':key}}),
   partnerDocument:(reference,uploadToken,file,category,onProgress)=>sendFile(`/partner-network/enquiries/${enc(reference)}/documents`+qs({category,name:file.name}),file,{'X-Upload-Token':uploadToken},onProgress),
+  // Where an application is: {reference, submittedAt, status, step, outcome, callAt, steps:[{key,state,at}]} (mango-api partner/progress.js).
   partnerStatus:reference=>raw(`/partner-network/enquiries/${enc(reference)}`),
+  // Signed in: the applications sent with the account's mobile number, each as partnerStatus answers it; 404 while the feature is off.
+  myPartnerEnquiries:()=>auth('/me/partner-enquiries'),
   // Bulk enquiries (mango-api README): sent signed in or not; quotes on the Account page. Extras' `amount` stays in paise (shown with /100).
   // `captchaToken`: the Turnstile check's token (AUTH-01), sent only when the shop has the check on.
   bulkEnquiry:(body,key,captchaToken)=>maybeAuth('/bulk-enquiries',{method:'POST',body:{...body,...(captchaToken?{captchaToken}:{})},headers:{'Idempotency-Key':key}}),

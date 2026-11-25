@@ -8,7 +8,10 @@
    checkout's own sign-in steps, review, pay by Razorpay payment link, or the test payment locally) and the order
    page /bulk/orders/:id (payment, receipt, cancel within 4 hours of paying for a full refund, refund).
    Money from these routes stays in paise (api.js `bulk…` calls) and is shown with bulkRs.
-   Loaded after pages.js and farm.js (it adds to PAGES) and before app.js: top-level code only declares and listens. */
+   It also draws each tab's "How it works" cards (bulkKeyHTML: a hover panel with a mouse, tap-to-open on touch), puts
+   Mixed Variety Mangoes first in the variety lists and chooses it when the adder first shows (bulkVarietyOptions).
+   Loaded after pages.js and farm.js (it adds to PAGES; it sets the adder's first pick) and before app.js: other
+   top-level code only declares and listens. Styles: style.css (.bulk-key, .bulk-pick, List B). */
 
 PAGES.push([/^\/bulk\/orders\/([^/]+)\/?$/, (m) => signedInThen('Bulk order', () => bulkOrderView(decodeURIComponent(m[1])))])
 
@@ -75,9 +78,15 @@ document.addEventListener('keydown', (e) => {
   go(BULK_TABS[n].href)
 })
 
-/** "How it works" for the tab: each card shows its title; a tap (or Enter/Space) opens its detail line. */
+/** "How it works" for the tab, five cards with a title each. With a mouse (a screen that can hover: BULK_KEY_HOVER) a card
+    shows its detail line in a small panel floating over the section while the pointer is on it or it has the keyboard's
+    focus (Tab), so the row never changes height; Escape hides it. The line is part of the card, so a screen reader reads
+    it with the title. On phones and tablets each card is a tap-to-open <details> with a chevron, all closed at first. */
+const BULK_KEY_HOVER = matchMedia('(hover: hover) and (pointer: fine)')
 function bulkKeyHTML(tab) {
-  const li = (ic, title, text) => `<li><details><summary>${icon(ic)}<strong>${title}</strong>${icon('chevron')}</summary><span>${text}</span></details></li>`
+  const li = (ic, title, text) => BULK_KEY_HOVER.matches
+    ? `<li class="bulk-key-card" tabindex="0"><span class="bulk-key-head">${icon(ic)}<strong>${title}</strong></span><span class="bulk-key-tip"><span>${text}</span></span></li>`
+    : `<li><details><summary>${icon(ic)}<strong>${title}</strong>${icon('chevron')}</summary><span>${text}</span></details></li>`
   const items = tab === 'enquiry' ? [
     li('scale', `${BULK_ENQUIRY_MIN_KG} kg minimum`, `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg and more. From ${BULK_MIN_KG} kg you can also order and pay at the bulk price straight away.`),
     li('tag', 'A price for you', 'We start from the bulk price and quote you on WhatsApp. Your quote can be lower.'),
@@ -97,7 +106,34 @@ function bulkKeyHTML(tab) {
     li('clock', `Cancel within ${hoursWord(cancelHours())} of paying`, 'For a full refund, until it is dispatched.'),
   ]
   const title = tab === 'enquiry' ? 'How enquiries work' : tab === 'farm-visit' ? 'How farm visits work' : 'How bulk orders work'
-  return `<section class="bulk-key" aria-labelledby="bulk-key-h"><h2 id="bulk-key-h">${title}</h2><ul class="bulk-key-list">${items.join('')}</ul></section>`
+  return `<section class="bulk-key" aria-labelledby="bulk-key-h"><h2 id="bulk-key-h">${title}</h2><ul class="bulk-key-list${BULK_KEY_HOVER.matches ? ' is-hover' : ''}">${items.join('')}</ul></section>`
+}
+// A mouse plugged in or taken away: the cards are drawn again the other way.
+BULK_KEY_HOVER.addEventListener('change', () => {
+  const key = $('.bulk-key')
+  if (key) key.outerHTML = bulkKeyHTML(bulkTab)
+})
+// Escape hides the open panel until the pointer leaves the card or the focus moves on.
+document.addEventListener('keydown', (e) => {
+  const card = e.key === 'Escape' && e.target instanceof Element && e.target.closest('.bulk-key-card')
+  if (card) card.classList.add('is-quiet')
+})
+for (const type of ['mouseleave', 'focusout']) document.addEventListener(type, (e) => { if (e.target instanceof Element && e.target.matches('.bulk-key-card')) e.target.classList.remove('is-quiet') }, true)
+
+// ---- The variety list (the owner, change request 01: "mixed mangoes pre-selected", "on top of the list")
+
+/** The mixed box comes first in the bulk lists and is the adder's pick when /bulk or /bulk/enquiry opens. */
+const BULK_FIRST = 'Mixed Variety Mangoes'
+// pages.js adderHTML shows the variety in adder.variety; nothing chosen yet means the mixed box (when it is on sale).
+if (!adder.variety) adder.variety = BULK_FIRST
+/** Varieties in the bulk lists' order: the mixed box, then the single varieties A to Z. */
+const bulkVarietyOrder = (list) => [...list.filter((v) => v.name === BULK_FIRST), ...list.filter((v) => v.name !== BULK_FIRST).sort((a, b) => a.name.localeCompare(b.name))]
+/** The adder's <select id="bulk-variety"> options: the mixed box, then "Single varieties" A to Z, each with its bulk price
+    for a 5 kg box. "Choose a variety…" is there only while nothing is chosen, as a hint that can't be picked. */
+function bulkVarietyOptions(list, v) {
+  const row = (x) => { const five = bulkBoxes(x)[0], bp = bulkPriceFor(five.sku); return `<option value="${esc(x.name)}"${v && x.name === v.name ? ' selected' : ''}>${esc(x.name)} · ${currency(bp ? bp.bulk : five.price)} / 5 kg box</option>` }
+  const all = bulkVarietyOrder(list), first = all.filter((x) => x.name === BULK_FIRST), rest = all.filter((x) => x.name !== BULK_FIRST)
+  return (v ? '' : '<option value="" disabled selected>Choose a variety…</option>') + first.map(row).join('') + (rest.length ? (first.length ? `<optgroup label="Single varieties">${rest.map(row).join('')}</optgroup>` : rest.map(row).join('')) : '')
 }
 
 // ---- Bulk prices (GET /v1/bulk/prices, paise) as rupees, by the list's ids ("ALP-5", "ALP-5@10").
@@ -334,7 +370,9 @@ function bulkFarmDraw(errors = {}, top = '') {
   }
   const d = read(FARM_VISIT_DRAFT, {}) || {}, me = MM.profile() || {}
   const v = (k, fallback = '') => esc(d[k] ?? fallback)
-  const varieties = [...new Set((shelf || []).map((x) => x.name))]
+  // the mixed box first, then A to Z; the value sent is the API's name for it (catalog.js keyOf), the default "Not sure yet"
+  const keyOf = (n) => (window.MM_CATALOG && MM_CATALOG.keyOf ? MM_CATALOG.keyOf(n) : n)
+  const varieties = bulkVarietyOrder([...new Map((shelf || []).map((x) => [x.name, x])).values()]).map((x) => x.name)
   const err = (k) => errors[k] ? `<span class="field-error" id="fv-${k}-err">${icon('info')}${esc(errors[k])}</span>` : ''
   const inv = (k) => errors[k] ? ` aria-invalid="true" aria-describedby="fv-${k}-err"` : ''
   const flexible = d.flexible === true || d.flexible === 'on'
@@ -348,7 +386,7 @@ function bulkFarmDraw(errors = {}, top = '') {
         <label class="field">Another number we can reach <small>(optional)</small><input name="altPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="10-digit mobile" value="${v('altPhone')}"${inv('altPhone')}>${err('altPhone')}</label>
         <label class="field">Language you prefer we speak <small>(optional)</small><span class="bulk-select"><select name="preferredLanguage"${inv('preferredLanguage')}><option value="">No preference</option>${FARM_LANGUAGES.map((n) => `<option${d.preferredLanguage === n ? ' selected' : ''}>${n}</option>`).join('')}</select>${icon('chevron')}</span>${err('preferredLanguage')}</label>
         <label class="field">City<input name="city" autocomplete="address-level2" maxlength="100" required value="${v('city')}"${inv('city')}>${err('city')}</label>
-        <label class="field">Which mango<span class="bulk-select"><select name="variety"${inv('variety')}><option value="">Not sure yet</option>${varieties.map((n) => `<option${d.variety === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${icon('chevron')}</span>${err('variety')}</label>
+        <label class="field">Which mango<span class="bulk-select"><select name="variety"${inv('variety')}><option value="">Not sure yet</option>${varieties.map((n) => `<option value="${esc(keyOf(n))}"${d.variety === keyOf(n) || d.variety === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${icon('chevron')}</span>${err('variety')}</label>
         <label class="field">About how many kg <small>(${FARM_VISIT_MIN_KG} or more)</small><input name="kg" type="number" inputmode="numeric" min="${FARM_VISIT_MIN_KG}" step="1" required value="${v('kg', String(FARM_VISIT_MIN_KG))}"${inv('kg')}>${err('kg')}</label>
         <label class="field">How many people are coming<input name="people" type="number" inputmode="numeric" min="1" step="1" required value="${v('people', '2')}"${inv('people')}>${err('people')}</label>
         <label class="field">Preferred visit date <small>(optional)</small><input name="visitDate" type="date" min="${fvToday()}" value="${v('visitDate')}"${flexible ? ' disabled' : ''}${inv('visitDate')}>${err('visitDate')}</label>

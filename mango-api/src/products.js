@@ -46,6 +46,14 @@ export const sellable = (sku) => {
   return p?.active ? p : null
 }
 export const productName = (sku) => bySku.get(sku)?.name ?? sku
+// The name customers see for a variety. products.variety is a key (the pre-order plan, batches and the rules are kept
+// by it, and it can't change once a batch holds the product: admin/products.js), so a variety renamed for customers
+// keeps its key and is shown by its new name: the mixed box is "Mixed Variety Mangoes" (change request 01,
+// 25 Nov 2026; the shop's catalog.js SHOWN says the same).
+const SHOWN_VARIETY = { 'Mixed Box': 'Mixed Variety Mangoes' }
+export const shownVariety = (variety) => SHOWN_VARIETY[variety] ?? variety
+/** The key for a variety a customer named by either name ("Mixed Variety Mangoes" → "Mixed Box"). */
+export const varietyKey = (name) => Object.keys(SHOWN_VARIETY).find((k) => SHOWN_VARIETY[k] === name) ?? name
 
 /** Test hook: an instance that has not loaded anything yet (a cold start). */
 export const forgetProductsForTests = () => {

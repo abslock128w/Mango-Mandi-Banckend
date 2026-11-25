@@ -1,7 +1,7 @@
 // Partner Network (docs/partner-network.md): the public enquiry form, documents,
 // staff management and product proposals. WhatsApp goes to a stub sender
 // through the outbox; nothing reaches Meta. Documents use an in-memory store.
-import { adminToken, client, closeAll, resetDb, startServer } from './helpers.js'
+import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { now, setNow } from '../src/clock.js'
@@ -191,9 +191,11 @@ describe('submitting an enquiry', () => {
     assert.equal(by.proposal.display_value, LONG)
     assert.equal(by.proposal.section_key, 'proposal')
     assert.equal(by.startWhen.display_value, 'Within a month')
-    // The public acknowledgement says nothing but that it was received.
+    // The public check says where it is (progress.js), never who sent it: the tests under "where an application is".
     const ack = await api.get(`/v1/partner-network/enquiries/${r.body.reference}`)
-    assert.deepEqual(ack.body, { reference: r.body.reference, received: true })
+    assert.equal(ack.body.reference, r.body.reference)
+    assert.equal(ack.body.received, true)
+    assert.equal(ack.body.step, 'SUBMITTED')
     assert.equal((await api.get('/v1/partner-network/enquiries/MMP-AAAAAAAA')).status, 404)
   })
 
@@ -648,6 +650,156 @@ describe('staff', () => {
 })
 
 // ---------------------------------------------------------------- product proposals
+
+// ---------------------------------------------------------------- where an application is
+
+describe('where an application is: the status check and the account', () => {
+  const STEP_KEYS = ['SUBMITTED', 'UNDER_REVIEW', 'CALL', 'DECISION']
+  const SUMMARY_KEYS = ['approved', 'callAt', 'outcome', 'reference', 'status', 'step', 'steps', 'submittedAt', 'updatedAt']
+  const check = async (ref) => (await api.get(`/v1/partner-network/enquiries/${ref}`)).body
+  const mine = (token) => api.get('/v1/me/partner-enquiries', { token })
+  const states = (p) => p.steps.map((x) => x.state)
+  /** Nothing the applicant or staff wrote, and none of their details, is in it. */
+  const nothingPersonal = (p, extra = []) => {
+    const text = JSON.stringify(p)
+    for (const w of ['Ravi', 'Kumar', '9845012345', 'example.com', 'Ratnagiri', 'fruit distribution', ...extra]) assert.ok(!text.includes(w), `${w} in ${text}`)
+  }
+
+  test('a new application: the four steps, Submitted done and Under review next; nothing personal', async () => {
+    const r = await submit()
+    const p = await check(r.body.reference)
+    assert.deepEqual(Object.keys(p).sort(), [...SUMMARY_KEYS, 'received'].sort())
+    assert.equal(p.received, true)
+    assert.equal(p.status, 'NEW')
+    assert.equal(p.step, 'SUBMITTED')
+    assert.equal(p.submittedAt, new Date(r.body.submittedAt).toISOString())
+    assert.deepEqual(p.steps.map((x) => x.key), STEP_KEYS)
+    assert.deepEqual(states(p), ['done', 'next', 'next', 'next'])
+    assert.equal(p.steps[0].at, p.submittedAt)
+    assert.deepEqual(p.steps.slice(1).map((x) => x.at), [null, null, null])
+    assert.equal(p.outcome, null)
+    assert.equal(p.callAt, null)
+    for (const x of p.steps) assert.deepEqual(Object.keys(x).sort(), ['at', 'key', 'state'])
+    nothingPersonal(p)
+    assert.equal((await api.get('/v1/partner-network/enquiries/MMP-AAAAAAAA')).status, 404)
+  })
+
+  test('every move shows as the same step in the status check and the account, with a booked call and the outcome', async () => {
+    const r = await submit()
+    const ref = r.body.reference
+    const id = await enquiryId(ref)
+    const { accessToken } = await customerToken(api, '9845012345')
+    // The account's entry is the status check's answer, field for field (less the older shops' `received`).
+    const same = async () => {
+      const p = await check(ref)
+      const list = await mine(accessToken)
+      assert.equal(list.status, 200, JSON.stringify(list.body))
+      assert.equal(list.body.items.length, 1)
+      const { received, ...summary } = p
+      assert.equal(received, true)
+      assert.deepEqual(list.body.items[0], summary)
+      return p
+    }
+    let p = await same()
+    assert.equal(p.step, 'SUBMITTED')
+
+    await api.patch(A(`/enquiries/${id}`), { status: 'UNDER_REVIEW' }, { token: operator })
+    p = await same()
+    assert.equal(p.step, 'UNDER_REVIEW')
+    assert.deepEqual(states(p), ['done', 'current', 'next', 'next'])
+    assert.ok(p.steps[1].at)
+
+    const at = new Date(now().getTime() + 2 * 86_400_000)
+    assert.equal((await api.post(A(`/enquiries/${id}/followups`), { scheduledAt: at.toISOString(), notes: 'Ask about the Pune warehouse' }, { token: operator })).status, 201)
+    p = await same()
+    assert.equal(p.callAt, at.toISOString())
+    assert.equal(p.step, 'UNDER_REVIEW')
+
+    await api.patch(A(`/enquiries/${id}`), { status: 'CONTACTED' }, { token: operator })
+    p = await same()
+    assert.equal(p.step, 'CALL')
+    assert.deepEqual(states(p), ['done', 'done', 'current', 'next'])
+    assert.ok(p.steps[2].at)
+
+    await api.post(A(`/enquiries/${id}/approve`), { note: 'Strong network in Pune' }, { token: manager })
+    p = await same()
+    assert.equal(p.status, 'NEGOTIATION')
+    assert.equal(p.step, 'CALL')
+    assert.equal(p.approved, true)
+    assert.equal(p.outcome, null)
+
+    await api.post(A(`/enquiries/${id}/convert`), { title: 'Pune distribution 2027' }, { token: manager })
+    p = await same()
+    assert.equal(p.step, 'DECISION')
+    assert.equal(p.outcome, 'PARTNER')
+    assert.equal(p.approved, false)
+    assert.deepEqual(states(p), ['done', 'done', 'done', 'done'])
+    assert.ok(p.steps[3].at)
+    // An ended application has no call to wait for, even with a follow-up still on the staff list.
+    assert.equal(p.callAt, null)
+    nothingPersonal(p, ['Pune', 'Strong network'])
+  })
+
+  test('a decision without a call skips the call step; reopening goes back to Under review; closing is an outcome', async () => {
+    const r = await submit()
+    const ref = r.body.reference
+    const id = await enquiryId(ref)
+    await api.post(A(`/enquiries/${id}/reject`), { reason: 'Not this season, sorry' }, { token: manager })
+    let p = await check(ref)
+    assert.equal(p.step, 'DECISION')
+    assert.equal(p.outcome, 'NOT_TAKEN_FORWARD')
+    assert.deepEqual(states(p), ['done', 'done', 'skipped', 'done'])
+    assert.equal(p.steps[2].at, null)
+    nothingPersonal(p, ['season'])
+
+    await api.post(A(`/enquiries/${id}/reopen`), { reason: 'Applicant came back' }, { token: manager })
+    p = await check(ref)
+    assert.equal(p.step, 'UNDER_REVIEW')
+    assert.equal(p.outcome, null)
+    assert.deepEqual(states(p), ['done', 'current', 'next', 'next'])
+    assert.equal(p.steps[3].at, null)
+
+    await api.post(A(`/enquiries/${id}/close`), { reason: 'They went quiet' }, { token: manager })
+    p = await check(ref)
+    assert.equal(p.outcome, 'CLOSED')
+    assert.deepEqual(states(p), ['done', 'done', 'skipped', 'done'])
+  })
+
+  test('the account lists the applications sent with its own number only, newest first; signed in, switch on', async () => {
+    const a = await submit()
+    const b = await submit(answers(['LOGISTICS'], { email: 'ravi.k@example.com', proposal: `${LONG} A second idea.` }))
+    const other = await submit(answers(['SALES_DISTRIBUTION'], { fullName: 'Asha Rao', mobile: '98450 99999', email: 'asha@example.org', businessName: 'Rao Fruits' }))
+    assert.equal(b.status, 201, JSON.stringify(b.body))
+    assert.equal(other.status, 201, JSON.stringify(other.body))
+    const { accessToken: ravi } = await customerToken(api, '9845012345')
+    let list = (await mine(ravi)).body.items
+    assert.deepEqual(list.map((x) => x.reference).sort(), [a.body.reference, b.body.reference].sort())
+    assert.ok(list[0].submittedAt >= list[1].submittedAt, 'newest first')
+    for (const x of list) {
+      assert.deepEqual(Object.keys(x).sort(), SUMMARY_KEYS)
+      nothingPersonal(x)
+    }
+    // Someone else's application is not listed; its reference still answers the status check (the account's "add a reference").
+    assert.equal((await check(other.body.reference)).step, 'SUBMITTED')
+    const { accessToken: stranger } = await customerToken(api)
+    assert.deepEqual((await mine(stranger)).body, { items: [] })
+    // Signed in as a customer only.
+    assert.equal((await api.get('/v1/me/partner-enquiries')).status, 401)
+    assert.equal((await api.get('/v1/me/partner-enquiries', { token: manager })).status, 401)
+
+    // An application whose details were deleted has no number left: it leaves the list, and the check still answers.
+    const idA = await enquiryId(a.body.reference)
+    await api.post(A(`/enquiries/${idA}/close`), { reason: 'They went quiet' }, { token: manager })
+    assert.equal((await api.post(A(`/enquiries/${idA}/erase`), {}, { token: manager })).status, 200)
+    list = (await mine(ravi)).body.items
+    assert.deepEqual(list.map((x) => x.reference), [b.body.reference])
+    assert.equal((await check(a.body.reference)).outcome, 'CLOSED')
+
+    env.PARTNER_NETWORK = false
+    assert.equal((await mine(ravi)).status, 404)
+    assert.equal((await api.get(`/v1/partner-network/enquiries/${b.body.reference}`)).status, 404)
+  })
+})
 
 describe('product proposals', () => {
   test('v1: created from the product section; reviewed, sampled and approved without touching the catalogue', async () => {

@@ -283,8 +283,9 @@ over a product, not a second stock. Tables: migration `033_bulk_deals.sql`.
 
 ## Preorders (phase 2)
 
-> **Since migrations 078 to 080: the pre-order plan per variety.** Each variety (`products.variety`; a Mixed Box is its
-> own line) has its own expected kg a day (`preorderVarietyDayKg`, others `preorderOtherVarietyDayKg`, 20 kg placeholder)
+> **Since migrations 078 to 080: the pre-order plan per variety.** Each variety (`products.variety`; the mixed box is its
+> own line, kept under the key "Mixed Box" and shown to customers as "Mixed Variety Mangoes" since migration 096:
+> `products.js` `shownVariety`) has its own expected kg a day (`preorderVarietyDayKg`, others `preorderOtherVarietyDayKg`, 20 kg placeholder)
 > and a week takes 7 days of it, or the week's own kg for that variety (`preorder_variety_week_kg`). Managers change it on
 > the panel's Pre-order plan page: `POST /admin/v1/preorder-plan/preview` (dry run) then `/apply` (step-up for a daily-kg
 > change), which recalculates the open weeks oldest first (`src/preorder-plan.js`; weeks whose deliveries started are

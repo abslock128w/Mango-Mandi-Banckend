@@ -169,6 +169,7 @@
   "GET /v1/me/help/requests/:id": "customer",
   "GET /v1/me/language": "customer",
   "GET /v1/me/ordered-products": "customer",
+  "GET /v1/me/partner-enquiries": "customer",
   "GET /v1/me/push": "customer",
   "GET /v1/me/referral": "customer",
   "GET /v1/me/reviews": "customer",

@@ -57,6 +57,30 @@ Proposal statuses: SUBMITTED, UNDER_EVALUATION, SAMPLE_REQUESTED, QUALITY_REVIEW
 
 Priorities: LOW, NORMAL (the default), HIGH and URGENT.
 
+### Where an application is (what the applicant sees)
+
+The applicant sees four steps: **Submitted → Under review → Call / meeting → Decision**. One function maps the
+record to them (`mango-api/src/partner/progress.js`, `progressOf`), and both the public status check on /partner and
+the Grow with us tab of the signed-in account use it, so the same reference always shows the same step.
+
+| Status | Step | What the shop says |
+|---|---|---|
+| NEW | Submitted (Under review next) | Submitted |
+| UNDER_REVIEW | Under review | Under review |
+| CONTACTED | Call / meeting | We have spoken to you |
+| NEGOTIATION (decision APPROVED) | Call / meeting | Approved for a business discussion |
+| CONVERTED | Decision | You are a partner now |
+| REJECTED | Decision | Not taken forward this time |
+| CLOSED | Decision | Closed |
+
+- Each step carries the date it was last reached (from the status moves in the activity history; Submitted is the
+  submission time). A reopened application is at Under review again, and the later steps lose their dates.
+- A decision made without a call shows the Call / meeting step as skipped.
+- A pending follow-up (a call booked by staff, not more than an hour overdue) shows on the Call / meeting step as its
+  time (`callAt`), while the application has not ended.
+- Nothing personal is in it: no name, number, email, place, answers, documents, notes, reasons, follow-up notes or who
+  handled it.
+
 ## How long applications are kept
 
 The Grow with us form promises this, in full before the first question and on `/partner/privacy`, in short by the
@@ -203,7 +227,26 @@ Uploads one supporting document. Call it once per file, after submitting.
 
 ### `GET /v1/partner-network/enquiries/:reference`
 
-Returns `{ "reference", "received": true }`, or 404. Nothing about the enquiry is shown, because the reference is not a secret.
+Returns where the application is ("Where an application is" above), or 404:
+
+```json
+{ "reference": "MMP-7K2QXD9T", "submittedAt": "…", "status": "CONTACTED", "step": "CALL", "approved": false,
+  "outcome": null, "callAt": "…" | null, "updatedAt": "…", "received": true,
+  "steps": [{ "key": "SUBMITTED" | "UNDER_REVIEW" | "CALL" | "DECISION", "state": "done" | "current" | "next" | "skipped", "at": "…" | null }] }
+```
+
+`outcome` is `PARTNER`, `NOT_TAKEN_FORWARD` or `CLOSED` once decided. `received` stays for older shop pages. Nothing
+about who sent it or what they wrote is shown, because the reference is not a secret: it is printed on screen and
+may be shared.
+
+### `GET /v1/me/partner-enquiries` (signed-in customer)
+
+`{ "items": [ … ] }`: the applications sent with the customer's own mobile number (`partner_enquiries.mobile_number`,
+`+91` and 10 digits, compared with the account's number), newest first, at most 20, each exactly as the status check
+above answers it (without `received`). An application whose details were deleted has no number left, so it is no
+longer listed (its reference still answers the status check). 404 while the feature is off. The shop's account
+(Grow with us tab) also lets the customer add a reference sent with another number; it is kept in that browser
+(localStorage `mm-partner-refs`) and read through the status check.
 
 ## Staff API (`/admin/v1/partner-network`)
 
@@ -368,5 +411,5 @@ Delivery details:
 - Documents are private:
   - The first bytes are checked against PDF, JPEG, PNG or WebP. The name is cleaned.
   - Files are stored in private Vercel Blob (or the row, locally) and served only through the staff route above.
-- Notes and activity are only ever in staff responses.
+- Notes and activity are only ever in staff responses. The applicant's status check and account list show only the step summary above.
 - Logs carry the reference and enquiry id, never the name, phone or email.

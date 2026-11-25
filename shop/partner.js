@@ -433,6 +433,47 @@ function pnReference(raw) {
   return /^[A-Z0-9]{8}$/.test(s) ? `MMP-${s}` : null
 }
 
+// ---- Where an application is: ONE drawing for the status check here and the account's Grow with us tab (pages.js
+// accountGrow), from the API's one mapping (mango-api partner/progress.js): Submitted → Under review → Call / meeting →
+// Decision, each step done, current, next or skipped, with the date it was reached. Styles: style.css ("Grow with us
+// timeline").
+
+const PN_STEP = { SUBMITTED: 'Submitted', UNDER_REVIEW: 'Under review', CALL: 'Call / meeting', DECISION: 'Decision' }
+const PN_NOW = { NEW: 'Submitted', UNDER_REVIEW: 'Under review', CONTACTED: 'Call / meeting', NEGOTIATION: 'Approved for a business discussion', CONVERTED: 'You’re a partner now', REJECTED: 'Not taken forward this time', CLOSED: 'Closed' }
+const PN_OUTCOME = { PARTNER: 'Approved: you’re a partner now', NOT_TAKEN_FORWARD: 'Not taken forward this time', CLOSED: 'Closed' }
+const pnIST = (t, o) => { const d = new Date(t); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', ...o }) }
+const pnDay = (t) => pnIST(t, { day: 'numeric', month: 'short' })
+const pnDate = (t) => pnIST(t, { day: 'numeric', month: 'short', year: 'numeric' })
+const pnWhen = (t) => pnIST(t, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+
+/** The line under a step: when it happened, or what comes next. */
+function pnStepNote(p, s) {
+  const at = s.at ? pnDay(s.at) : ''
+  if (s.key === 'SUBMITTED') return at
+  if (s.key === 'UNDER_REVIEW') return s.state === 'next' ? 'We read every application' : at
+  if (s.key === 'CALL') {
+    if (s.state === 'skipped') return 'No call was needed'
+    if (p.callAt) return `Scheduled ${pnWhen(p.callAt)}`
+    if (s.state === 'next') return 'We call you to talk it through'
+    if (p.status === 'NEGOTIATION') return `Approved for a business discussion${at ? ` · ${at}` : ''}`
+    return `We spoke to you${at ? ` · ${at}` : ''}`
+  }
+  if (s.state === 'next') return 'We let you know either way'
+  return `${PN_OUTCOME[p.outcome] || 'Decided'}${at ? ` · ${at}` : ''}`
+}
+
+/** One application as a card: the reference, the date sent, where it is now and the four steps. An answer from an
+ *  older API (only { reference, received }) says it is with the team. */
+function pnTimeline(p, { remove = false } = {}) {
+  const ref = esc(p.reference || '')
+  const top = `<div class="pn-app-head"><div><h3>Partner application · <span class="no-wrap">${ref}</span></h3>${p.submittedAt ? `<small>Submitted ${esc(pnDate(p.submittedAt))}</small>` : ''}</div>${p.status ? `<span class="pn-app-now is-${p.outcome ? 'ended' : 'open'}">${esc(PN_NOW[p.status] || p.status)}</span>` : ''}</div>`
+  const steps = Array.isArray(p.steps) && p.steps.length
+    ? `<ol class="pn-steps">${p.steps.map((s) => `<li class="pn-step is-${esc(s.state)}"${s.state === 'current' ? ' aria-current="step"' : ''}><span class="pn-step-dot" aria-hidden="true">${s.state === 'done' ? icon('check') : ''}</span><div><strong>${esc(PN_STEP[s.key] || s.key)}</strong><small>${esc(pnStepNote(p, s))}</small></div></li>`).join('')}</ol>`
+    : `<p class="pn-status-msg is-good">${icon('check')}<span><strong>We have it.</strong> It is with our partnerships team, and we’ll be in touch.</span></p>`
+  const drop = remove ? `<button type="button" class="text-button pn-app-drop" data-pn-forget="${ref}" aria-label="Remove ${ref} from this list">Remove from this list</button>` : ''
+  return `<article class="pn-app" data-pn-ref="${ref}">${top}${steps}${drop}</article>`
+}
+
 document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'pn-status-form') return
   e.preventDefault()
@@ -449,8 +490,9 @@ document.addEventListener('submit', async (e) => {
   out.innerHTML = '<p class="pn-status-msg">Looking…</p>'
   try {
     const r = await MM.partnerStatus(ref)
-    out.innerHTML = r && r.received
-      ? `<p class="pn-status-msg is-good">${icon('check')}<span><strong>We have it.</strong> ${esc(r.reference || ref)} is with our partnerships team, and we’ll be in touch.</span></p>`
+    // The same card as the account's Grow with us tab (pnTimeline): the same step for the same reference.
+    out.innerHTML = r && (r.received || r.steps)
+      ? pnTimeline({ ...r, reference: r.reference || ref })
       : `<p class="pn-status-msg is-bad">We couldn’t find ${esc(ref)}.</p>`
   } catch (err) {
     out.innerHTML = err.status === 404

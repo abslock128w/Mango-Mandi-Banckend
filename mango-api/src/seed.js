@@ -9,6 +9,7 @@ import { deployEnv, env, isProd } from './env.js'
 import { newId } from './ids.js'
 import { ledger } from './inventory.js'
 import { logger, maskEmail } from './logger.js'
+import { shownVariety } from './products.js'
 
 // Fresh mangoes: HSN 0804 50, nil GST. Prices are GST-inclusive paise.
 const ALPHONSO = 'Alphonso (Hapus): saffron flesh, rich and sweet, with almost no fibre.'
@@ -37,7 +38,9 @@ const DEMO_VARIETIES = [
   ['RAS', 'Raspuri', 99_900, 159_900, 'Raspuri from Mysuru: full of juice, made for pulp, juice and ice cream.'],
   ['IMP', 'Imam Pasand', 169_900, 269_900, 'Imam Pasand: large, thin-skinned and fibreless, richly sweet. Once a royal favourite.'],
   ['MLG', 'Malgova', 144_900, 229_900, 'Malgova from Salem: round, soft and juicy, a summer staple in Tamil Nadu.'],
-  ['MIX', 'Mixed Box', 179_900, 279_900, 'Mixed Box: four favourites in one box, each wrapped and labelled to taste side by side.'],
+  // The mixed box keeps "Mixed Box" as its variety (the key the plan and batches use); its products are named and
+  // described as customers know it, Mixed Variety Mangoes (products.js shownVariety; migration 096 renamed older rows).
+  ['MIX', 'Mixed Box', 179_900, 279_900, 'Mixed Variety Mangoes: four favourites in one box, each wrapped and labelled to taste side by side.'],
 ]
 /** [code, age today, status, QC rating or null, farm, 3 kg boxes, 5 kg boxes]; ages spread the stages. */
 const DEMO_BATCHES = [
@@ -255,7 +258,7 @@ async function seedDemoVarieties() {
       for (const [box, price] of [['3kg', price3], ['5kg', price5]]) {
         await c.query(
           `INSERT INTO products (sku, name, variety, box_size, price, gst_rate, hsn_code, description) VALUES ($1, $2, $3, $4, $5, 0, '08045020', $6) ON CONFLICT DO NOTHING`,
-          [`${code}-${box.replace('kg', '')}`, `${variety} ${box} Box`, variety, box, price, description],
+          [`${code}-${box.replace('kg', '')}`, `${shownVariety(variety)} ${box} Box`, variety, box, price, description],
         )
       }
     }
