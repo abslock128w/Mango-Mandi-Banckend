@@ -6,12 +6,14 @@ import vm from 'node:vm'
 // The shop's pre-order bag helpers (shop/pre-bag.js), without a browser: the file is a plain script whose top level only
 // declares (its listeners wait for a document), so it runs in an empty context and its functions are read from there.
 type Line = { sku: string; stage: string; qty: number; gift?: boolean }
-type Pre = { id: string; group: { id: string; kind: string } | null }
+type Pre = { id: string; group: { id: string; kind: string; oneDelivery?: boolean; people?: number } | null }
+type Booked = { status: string; qty: number; sku: string; weekStart?: string | null; createdAt?: string }
 const ctx = vm.createContext({})
 vm.runInContext(readFileSync(new URL('../../shop/pre-bag.js', import.meta.url), 'utf8'), ctx)
 const preBagLines = ctx.preBagLines as (lines: unknown[]) => Line[]
 const preBagSame = ctx.preBagSame as (lines: Line[], q: unknown) => boolean
-const preBagRows = ctx.preBagRows as (list: Pre[]) => { bag: { id: string } | null; lines: Pre[] }[]
+const preBagRows = ctx.preBagRows as (list: Pre[]) => { bag: { id: string } | null; gift?: { id: string }; lines: Pre[] }[]
+const preGiftSum = ctx.preGiftSum as (lines: Booked[], kgOf: (p: Booked) => number) => { boxes: number; kg: number; week: string | null; status: string; at: string }
 const plain = <T>(x: T): T => JSON.parse(JSON.stringify(x))
 
 test('the bag sends only your own boxes, one line per box and ripeness, in bag order, 20 boxes a line at most', () => {
@@ -57,4 +59,37 @@ test("Your orders shows a pre-order bag's lines together under it, everything el
     [null, ['pre_d']],
   ])
   assert.deepEqual(plain(preBagRows([])), [])
+})
+
+test('a gift for one person is ONE row with all its boxes; a gift for several people stays one row per person', () => {
+  const one = { id: 'pgr_g', kind: 'GIFT', oneDelivery: true, people: 1 }, legacy = { id: 'pgr_l', kind: 'GIFT', people: 3 }, single = { id: 'pgr_s', kind: 'GIFT', people: 1 }
+  const rows = preBagRows([
+    { id: 'pre_a', group: one },
+    { id: 'pre_b', group: legacy },
+    { id: 'pre_c', group: one },
+    { id: 'pre_d', group: legacy },
+    { id: 'pre_e', group: single },
+    { id: 'pre_f', group: one },
+  ])
+  assert.deepEqual(plain(rows.map((r) => [r.bag?.id ?? null, r.gift?.id ?? null, r.lines.map((p) => p.id)])), [
+    [null, 'pgr_g', ['pre_a', 'pre_c', 'pre_f']],
+    [null, null, ['pre_b']],
+    [null, null, ['pre_d']],
+    [null, 'pgr_s', ['pre_e']],
+  ])
+})
+
+test("a one-person gift's row: boxes, kg, the latest week, one status, booked when its first box was", () => {
+  const kg = (p: Booked) => Number(p.sku.split('-')[1])
+  const lines: Booked[] = [
+    { status: 'BOOKED', qty: 1, sku: 'MIX-3', weekStart: '2027-03-01', createdAt: '2026-11-25T14:52:16.242Z' },
+    { status: 'BOOKED', qty: 2, sku: 'ALP-3', weekStart: '2027-03-08', createdAt: '2026-11-25T14:52:16.269Z' },
+    { status: 'BOOKED', qty: 1, sku: 'ALP-5', weekStart: '2027-03-01', createdAt: '2026-11-25T14:52:16.287Z' },
+  ]
+  assert.deepEqual(plain(preGiftSum(lines, kg)), { boxes: 4, kg: 14, week: '2027-03-08', status: 'BOOKED', at: '2026-11-25T14:52:16.242Z' })
+  // A cancelled box is left out of the count; one unpaid line makes the gift unpaid; all cancelled: cancelled, counted as booked.
+  assert.deepEqual(plain(preGiftSum([{ ...lines[0], status: 'CANCELLED' }, { ...lines[1], status: 'PAYMENT_PENDING' }], kg)), { boxes: 2, kg: 6, week: '2027-03-08', status: 'PAYMENT_PENDING', at: '2026-11-25T14:52:16.242Z' })
+  assert.equal(preGiftSum(lines.map((p) => ({ ...p, status: 'CANCELLED' })), kg).status, 'CANCELLED')
+  assert.equal(preGiftSum(lines.map((p) => ({ ...p, status: 'CANCELLED' })), kg).boxes, 4)
+  assert.equal(preGiftSum(lines.map((p) => ({ ...p, status: 'CONVERTED' })), kg).status, 'CONVERTED')
 })

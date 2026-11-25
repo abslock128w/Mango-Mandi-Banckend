@@ -645,8 +645,10 @@ footer .footer-legal{grid-column:1/-1;margin:-10px 0 0;line-height:1.6}
 .pay-bar-on footer{padding-bottom:calc(110px + env(safe-area-inset-bottom))}
 html.pay-bar-on .toast{bottom:calc(96px + env(safe-area-inset-bottom))}
 @media(max-width:380px){.pay-bar .pay-bar-go,.pay-bar .pay-bar-go.button{padding:0 16px;font-size:16px}.pay-bar-total strong{font-size:21px}}
-/* While a field is being typed in on a phone, the bar steps aside for the keyboard (like the dock's is-away). */
-@media(pointer:coarse){body:has(#page-body :is(input:not([type=checkbox],[type=radio]),textarea):focus) .pay-bar{display:none}}
+/* While a field is being typed in on a phone, the bar steps aside for the keyboard (like the dock's is-away): only fields
+   that open the keyboard, not a date, a read-only box or a tick box. It comes back once the tap that ended the typing is
+   done (body.bar-hold, dock.js), so that tap is never caught by the bar appearing under it. */
+@media(pointer:coarse){body:has(#page-body :is(input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=date],[readonly]),textarea:not([readonly])):focus) .pay-bar,body.bar-hold .pay-bar{display:none}}
 
 /* ---- The bag page (/cart). */
 .bag-saved{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding:12px 16px;border-radius:14px;background:var(--save-bg);color:var(--save-ink);font-size:15px;font-weight:600}
@@ -3118,6 +3120,11 @@ html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 .gift-bar-when{display:flex;align-items:center;gap:6px;margin:0;font-size:14px;font-weight:700;color:var(--band-icon)}
 .gift-bar-when svg{flex:none;width:17px;height:17px;stroke-width:2.2}
 .gift-bar-when.is-off{color:var(--band-ink)}
+/* CR2-06: step 1's one-delivery rule, under the week it explains. */
+.gift-bar-when.has-rule{align-items:flex-start}
+.gift-bar-when.has-rule svg{margin-top:1px}
+.gift-bar-when.has-rule>span{display:flex;flex-direction:column;gap:2px}
+.gift-bar-rule{font-size:12.5px;font-weight:500;line-height:1.3;color:var(--band-ink);opacity:.86}
 .gift-bar.is-pick .gift-next{margin-left:auto}
 #pay-bar .gift-bar .pay-bar-go.button,#pay-bar .gift-bar .pay-bar-go{background:var(--sun);color:var(--band-bg);box-shadow:0 4px 14px #00000030}
 #pay-bar .gift-bar .pay-bar-go:hover{background:var(--sun);filter:brightness(.94)}
@@ -3182,6 +3189,7 @@ html.pay-bar-on body[data-page="gifts"] .gift-packs{padding-bottom:40px}
 .gift-bar-sum{flex:1 1 60%}
 .gift-bar-sum strong{font-size:18px}
 .gift-bar.is-pick .gift-bar-when{order:3;flex:1 1 100%;font-size:13px}
+.gift-bar-rule{font-size:12px}
 .gift-bar.is-pay .gift-bar-when{font-size:13px}
 .gift-bar.is-pick .gift-next{order:4;flex:1 1 100%;margin:6px 0 0}
 .gift-line{grid-template-columns:44px minmax(0,1fr) auto;gap:8px 10px}
@@ -3329,6 +3337,13 @@ html.pay-bar-on body[data-page="gifts"] .gift-packs{padding-bottom:40px}
 .guide-choice small.ord-gift-people{margin-top:4px}
 #ord-list>.ord-bag{margin:10px 0;padding:6px 14px;border:1px solid var(--line);border-radius:16px;background:var(--paper)}
 #ord-list>.ord-bag+.order-row{border-top:0}
+/* Your orders: a gift for one person (change request 02, pre-bag.js preGiftHTML), one card with its boxes listed inside. */
+#ord-list>.ord-gift-group{margin:10px 0;padding:0 14px;border:1px solid var(--line);border-radius:16px;background:var(--paper)}
+#ord-list>.ord-gift-group+.order-row{border-top:0}
+.ord-gift-lines{list-style:none;margin:10px 0 0;padding:8px 0 0;border-top:1px dashed var(--line);display:grid;gap:4px;font-size:12px;line-height:1.4;color:var(--body,var(--ink))}
+.ord-gift-lines li{display:flex;justify-content:space-between;gap:12px}
+.ord-gift-lines li>span:last-child{flex:none;font-variant-numeric:tabular-nums}
+.ord-gift-lines li.is-cancelled{color:var(--muted);text-decoration:line-through}
 .pn-mine-h{font-size:24px;margin:0 0 4px}
 .pn-app{border:1px solid var(--line);border-radius:16px;padding:16px;background:var(--paper);margin-top:14px}
 .pn-app-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px}
@@ -3407,6 +3422,38 @@ html.pay-bar-on body[data-page="gifts"] .gift-packs{padding-bottom:40px}
 .fv-range-says svg{flex:none;width:17px;height:17px;margin-top:1px;color:var(--accent)}
 .fv-range-says strong{color:var(--ink)}
 .fv-flex.bulk-farm-flex{flex:0 1 auto;align-self:auto;margin-top:26px}
+/* The visit dates' range calendar (bulk.js fvCalHTML): the two read-only Day boxes over one month grid, Day 1 in sun, Day 2
+   in sun-soft; the box a tap picks next is ringed. */
+.fv-range .field input.fv-day-box{cursor:pointer;font-weight:600}
+.fv-range .field input.fv-day-box.is-picking:not([aria-invalid="true"]){box-shadow:inset 0 0 0 2px var(--sun),0 0 0 3px var(--sun-soft)}
+.fv-dates.is-flexible .fv-range .field input.fv-day-box.is-picking{box-shadow:none}
+.fv-cal-wrap{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 22px;margin-top:12px}
+.fv-cal{flex:0 1 340px;min-width:0;padding:10px 12px 12px;border:1px solid var(--line);border-radius:16px;background:var(--paper)}
+.fv-cal-head{display:flex;align-items:center;gap:4px;margin:0 0 4px}
+.fv-cal-month{flex:1;margin:0 0 0 4px;font-size:14px;font-weight:700;color:var(--ink)}
+.fv-cal-nav{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;color:var(--ink)}
+.fv-cal-nav svg{width:18px;height:18px;transform:rotate(90deg)}
+.fv-cal-nav.is-next svg{transform:rotate(-90deg)}
+.fv-cal-nav:hover:not(:disabled){background:var(--chip)}
+.fv-cal-nav:disabled{opacity:.3}
+.fv-cal-grid{width:100%;border-collapse:separate;border-spacing:0 3px;table-layout:fixed}
+.fv-cal-grid th{padding:2px 0 4px;font-size:11.5px;font-weight:700;color:var(--muted);text-align:center}
+.fv-cal-grid td{height:40px;padding:0;border-radius:999px;font-size:14px;font-weight:600;text-align:center;color:var(--ink);font-variant-numeric:tabular-nums;cursor:pointer;transition:background .2s,color .2s}
+.fv-cal-grid td.is-blank{cursor:default}
+.fv-cal-grid td[aria-disabled="true"]{color:var(--muted);font-weight:500;opacity:.45;cursor:not-allowed}
+.fv-cal-grid td:not(.is-blank):not([aria-disabled="true"]):not(.is-from):not(.is-to):hover{background:var(--chip);box-shadow:inset 0 0 0 1px var(--line)}
+.fv-cal-grid td.is-today:not(.is-from):not(.is-to){box-shadow:inset 0 0 0 1px var(--line)}
+.fv-cal-grid td.is-from{background:var(--sun);color:var(--band-bg);font-weight:800}
+.fv-cal-grid td.is-to{background:var(--sun-soft);color:var(--ink);font-weight:800;box-shadow:inset 0 0 0 1.5px var(--sun)}
+.fv-cal-grid td.is-from.is-joined{border-radius:999px 0 0 999px}
+.fv-cal-grid td.is-to.is-joined{border-radius:0 999px 999px 0}
+.fv-cal-side{flex:1 1 200px;min-width:0;display:grid;gap:8px;padding-top:6px}
+.fv-cal-help{margin:0;font-size:13px;line-height:1.45;color:var(--body,var(--muted))}
+.fv-cal-side .fv-range-says{margin:0}
+.fv-cal-side .fv-range-says:empty{display:none}
+.fv-cal-clear.text-button{justify-self:start;min-height:40px;padding:0;font-size:13px;font-weight:700;text-decoration:underline;text-underline-offset:3px;color:var(--ink)}
+.fv-cal-clear[hidden]{display:none}
+.fv-dates.is-flexible .fv-cal-wrap{opacity:.55}
 .fv-kg-field>label{display:block;font-size:11px}
 .fv-kg-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:7px}
 .fv-kg.card-stepper{height:52px;width:230px;background:var(--paper);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--sun)}
@@ -3416,7 +3463,8 @@ html.pay-bar-on body[data-page="gifts"] .gift-packs{padding-bottom:40px}
 .fv-kg-box{flex:1;display:flex;align-items:baseline;justify-content:center;gap:4px;min-width:0}
 .bulk-farm-form .fv-kg-box input{width:4.5ch;min-height:0;height:40px;margin:0;padding:0;border:0;background:transparent;text-align:right;font-size:18px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
 .fv-kg-box input::-webkit-inner-spin-button,.fv-kg-box input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
-.fv-kg-box input:focus-visible{outline:none}
+/* The stepper draws the one focus ring (focus-within, below): the number box's own ring overlapped its "kg" (CR2 acceptance). */
+.bulk-farm-form .fv-kg-box input#fv-kg:focus,.bulk-farm-form .fv-kg-box input#fv-kg:focus-visible{outline:none;box-shadow:none}
 .fv-kg.card-stepper:focus-within{outline:3px solid var(--focus,#bc8b22);outline-offset:2px}
 .fv-kg-box>span{font-size:16px;font-weight:700;color:var(--muted)}
 .fv-kg-picks{display:flex;flex-wrap:wrap;gap:8px}
@@ -3459,6 +3507,9 @@ html .bulk-farm-form .fv-kg-box input,html[data-theme="dark"] .bulk-farm-form .f
 .fv-sec{padding:18px 16px;border-radius:18px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm);margin-bottom:14px}
 .fv-sec-h{font-size:20px;margin-bottom:14px}
 .fv-range{gap:6px}
+.fv-cal{flex:1 1 100%}
+.fv-cal-grid td{height:44px}
+.fv-cal-side{padding-top:0}
 .fv-range-arrow svg{width:16px;height:16px}
 .fv-flex.bulk-farm-flex{margin-top:4px}
 .fv-kg.card-stepper{width:100%}

@@ -692,8 +692,8 @@ function checkField(name, announce) {
   if (p && announce) { const live = $('#gift-live'); if (live) live.textContent = problemText(p) }
 }
 
-/** The sticky bar. Screen 1: "Gift for one person", "3 boxes · 9 kg · ₹5,597", "Arrives together · week of 1 Mar" and
- *  "Next: who gets it" (off until there is a box). Screen 2: the pre-order tick (before the season), the same words, the
+/** The sticky bar. Screen 1: "Gift for one person", "3 boxes · 9 kg · ₹5,597", "Arrives together · week of 1 Mar" with
+ *  the rule under it ("Everything arrives together, in the week of the box that’s ready last.") and "Next: who gets it" (off until there is a box). Screen 2: the pre-order tick (before the season), the same words, the
  *  total and Pay. Redrawn only when it changes, keeping the focus on the control in use; empty on every other step. */
 let lastBar = ''
 function giftBar() {
@@ -709,7 +709,10 @@ function giftBar() {
   let html
   if (pick) {
     const go = t.boxes > 0
-    html = `${hint}<div class="gift-bar is-pick"><div class="gift-bar-sum"><small>Gift for one person</small><strong>${esc(giftBarLine(t.boxes, t.kg))} · ${currency(t.total)}</strong></div>${when}<button type="button" class="button primary pay-bar-go gift-next" data-gift-next${go ? '' : ' disabled aria-describedby="gift-next-why"'}><span>Next: who gets it</span>${icon('arrow')}</button>${go ? '' : '<p class="sr-only" id="gift-next-why">Add at least one box first.</p>'}</div>`
+    // CR2-06: the one-delivery rule sits right under the delivery week it explains.
+    const rule = `<small class="gift-bar-rule">${pres ? GIFT_WEEK_RULE : GIFT_DAY_RULE}</small>`
+    const whenRule = when.replace(/<\/span><\/p>$/, `${rule}</span></p>`).replace('class="gift-bar-when', 'class="gift-bar-when has-rule')
+    html = `${hint}<div class="gift-bar is-pick"><div class="gift-bar-sum"><small>Gift for one person</small><strong>${esc(giftBarLine(t.boxes, t.kg))} · ${currency(t.total)}</strong></div>${whenRule}<button type="button" class="button primary pay-bar-go gift-next" data-gift-next${go ? '' : ' disabled aria-describedby="gift-next-why"'}><span>Next: who gets it</span>${icon('arrow')}</button>${go ? '' : '<p class="sr-only" id="gift-next-why">Add at least one box first.</p>'}</div>`
   } else {
     const agree = pres ? `<label class="gift-bar-agree"><input type="checkbox" name="gift-pre-agree-all"${gift.agree ? ' checked' : ''}${gift.busy ? ' disabled' : ''}><span>I understand it’s paid in full now and can’t be cancelled once paid, unless you delay it.</span></label>` : ''
     html = `${hint}<div class="gift-bar is-pay">${agree}<div class="pay-bar-row"><div class="pay-bar-total"><small>Gift for one person · ${esc(giftBarLine(t.boxes, t.kg))}</small>${when}<strong>${currency(t.total)}</strong></div><button type="button" class="button primary pay-bar-go" data-gift-pay${gift.busy || !t.boxes ? ' disabled' : ''}>${icon(gift.busy ? 'clock' : 'lock')}<span>${gift.busy ? (pres ? 'Booking…' : 'Placing…') : `Pay ${currency(t.total)}`}</span></button></div></div>`
@@ -1249,7 +1252,7 @@ function giftGroupBodyHTML(g, paid) {
   if (g.oneDelivery) {
     const list = g.preorders || [], first = list[0] || {}, live = list.filter((p) => p.status !== 'CANCELLED')
     const linked = list.find((p) => p.addressLink) || list.find((p) => p.addressState) || first
-    const where = first.address ? `<small>${esc(first.address)}${first.landmark ? ` · ${esc(first.landmark)}` : ''}${first.pincode ? ` · ${esc(first.pincode)}` : ''}</small>` : ''
+    const where = first.address ? `<small>Delivering to ${esc(first.address)}${first.pincode ? ` · ${esc(first.pincode)}` : ''}${landmarkText(first)}</small>` : ''
     const rows = list.map((p) => `<li class="gift-review-row${p.status === 'CANCELLED' ? ' is-cancelled' : ''}">${thumb(p.sku, p.stage, p.productName)}<div><strong>${esc(boxName(p.productName, p.sku))}</strong><small>${stageOf(p.stage).stage} · ${plural(p.qty, 'box', 'boxes')} · ${currency(p.total)}</small><small>Pre-order ${esc(orderNo(p.number))} · ${esc(PRE_STATUS[p.status] || p.status)}</small></div></li>`).join('')
     return `${preChipHTML(esc(giftWhen(groupWeeks(g))), paid)}
     ${askNote}
@@ -1341,7 +1344,7 @@ async function giftOrderView(id, quiet = false) {
       <div class="gift-rcpt-copy">
         <p class="gift-rcpt-top"><strong>${esc(r.name || `Person ${r.position}`)}</strong><span class="gift-status is-${esc(String(r.status).toLowerCase())}">${esc(STATUS[r.status] || r.status)}</span></p>
         ${boxes.map((b, i) => `<small>${b}${i === boxes.length - 1 ? ` · ${currency(r.total)}` : ''}</small>`).join('')}
-        <small>${esc(r.address || '')}${r.landmark ? ` · ${esc(r.landmark)}` : ''}${r.pincode ? ` · ${esc(r.pincode)}` : ''}${r.phone ? ` · ${esc(String(r.phone).replace(/^\+91/, '+91 '))}` : ''}</small>
+        <small>${esc(r.address || '')}${r.pincode ? ` · ${esc(r.pincode)}` : ''}${landmarkText(r)}${r.phone ? ` · ${esc(String(r.phone).replace(/^\+91/, '+91 '))}` : ''}</small>
         ${r.note ? `<blockquote class="gift-rcpt-note">“${esc(r.note)}”</blockquote>` : ''}
         ${refund ? `<small class="gift-refund">${icon('check')}<span>${esc(refund)}</span></small>` : ''}
         ${r.cancellable ? `<button type="button" class="text-button gift-cancel-one" data-gift-cancel-one="${esc(r.orderId)}" data-gift="${esc(g.id)}" data-name="${esc(r.name || '')}" data-amount="${esc(currency(r.total))}">Cancel this delivery</button>` : ''}

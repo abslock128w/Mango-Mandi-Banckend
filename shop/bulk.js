@@ -337,7 +337,11 @@ document.addEventListener('click', (e) => {
 // Change request 02 (CR2-01, CR2-02, CR2-04): a hero band (bulkFarmHeroHTML), then the form in three numbered sections
 // (About you · Your visit · Your mangoes) beside a live "Your visit" card (on PC) or over a sticky bottom bar (phones,
 // bulkFarmBar). The visit is two dates, Day 1 (arrive) and Day 2 (leave), 2 days at most: Day 2 is Day 1 or the next
-// day (a 1-day visit is fine). Picking Day 1 fills Day 2 with the next day. "I'm flexible" makes the dates optional.
+// day (a 1-day visit is fine). They are picked on one range calendar (a month grid under the two Day boxes, built here with
+// no library: fvCalHTML, its rules in fvRangePick / fvDayState / fvCalMove, tests/unit/farm-visit-range.unit.ts): the first
+// tap is Day 1 and fills Day 2 with the next day; a tap on Day 1 again (or on Day 2 itself) makes it a 1-day visit; no day
+// after Day 1 + 1 can be picked as Day 2 (the Day 1 box picks a new Day 1). The boxes are read-only; the dates go in the
+// hidden visitFrom / visitTo fields the draft, the checks and the payload read. "I'm flexible" makes the dates optional.
 // The kg field is a stepper from 250 with quick picks. The hero and form draw at once; the mangoes and the season's
 // first day (GET /farm-experience, only while it is on) fill in when they arrive. Styles: style.css (.fv-*).
 
@@ -348,7 +352,8 @@ const FV_KG_STEP = 10
 const FV_KG_PICKS = [250, 500, 1000]
 // `captcha`, `captchaOn`, `widget`: the Turnstile check (AUTH-01, app.js formCaptcha), drawn afresh with the form.
 // `season`: the farm's first and last visit days, when the farm sets them (GET /farm-experience settings).
-const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null, season: { start: '', end: '' } }
+// `cal`: the calendar's month on show ('2026-11'), the day keyboard focus is on, and what a tap picks ('from': Day 1, 'to').
+const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null, season: { start: '', end: '' }, cal: { month: '', focus: '', pick: 'from' } }
 const fvToday = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
 /** Phones and narrow screens: the bottom bar instead of the card beside the form. */
 const FV_WIDE = matchMedia('(min-width: 1000px)')
@@ -367,6 +372,45 @@ function fvRange(from, to, short = false) {
 }
 /** The first day Day 1 may be: today, or the season's first day if the farm sets a later one. */
 const fvEarliest = () => (fv.season.start && fv.season.start > fvToday() ? fv.season.start : fvToday())
+
+// ---- The range calendar's rules (pure: dates are 'YYYY-MM-DD' strings; `lim` is { earliest, last }, last '' for none).
+
+/** '2026-11' moved by n months. */
+const fvMonthAdd = (month, n) => { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7) }
+/** A month's days as weeks from Monday to Sunday: each day 'YYYY-MM-DD', or null before the 1st and after the last. */
+function fvMonthWeeks(month) {
+  const [y, m] = month.split('-').map(Number), first = `${month}-01`
+  const lead = (new Date(`${first}T00:00:00Z`).getUTCDay() + 6) % 7, count = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  const cells = [...Array(lead).fill(null), ...Array.from({ length: count }, (_, i) => fvAdd(first, i))]
+  while (cells.length % 7) cells.push(null)
+  const weeks = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+  return weeks
+}
+/** A day on the calendar for the visit `v` { from, to, pick }: `off` when it can't be picked (before the earliest day,
+ *  after the season's last, or, while Day 2 is being picked, later than Day 1 + 1), and whether it is Day 1 or Day 2. */
+function fvDayState(day, v, lim) {
+  const off = day < lim.earliest || (!!lim.last && day > lim.last) || (v.pick === 'to' && !!v.from && day > fvAdd(v.from, 1))
+  return { off, from: !!v.from && day === v.from, to: !!v.to && day === v.to && v.to !== v.from }
+}
+/** The visit after a tap on `day`. Picking Day 1 (or nothing picked yet), or a day before Day 1: that day is Day 1 and
+ *  Day 2 the next day (Day 1 again when the season ends that day), and Day 2 is picked next. Picking Day 2: Day 1 again,
+ *  or Day 2's own day, makes a 1-day visit; the day after Day 1 makes it 2 days. A day that is off changes nothing. */
+function fvRangePick(v, day, lim) {
+  if (fvDayState(day, v, lim).off) return v
+  const next = fvAdd(day, 1)
+  if (v.pick !== 'to' || !v.from || day < v.from) return { from: day, to: lim.last && next > lim.last ? day : next, pick: 'to' }
+  if (day === v.from || day === v.to) return { from: v.from, to: v.from, pick: 'to' }
+  return { from: v.from, to: day, pick: 'to' }
+}
+/** The day the keyboard moves to: arrows a day or a week, Home / End the week's Monday / Sunday, Page Up / Down a month
+ *  (the same date, or the month's last day). null for any other key. */
+function fvCalMove(day, key) {
+  const wd = (new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7
+  const month = (n) => { const m = fvMonthAdd(day.slice(0, 7), n), last = fvMonthWeeks(m).flat().filter(Boolean).pop(); return `${m}-${day.slice(8)}` > last ? last : `${m}-${day.slice(8)}` }
+  const to = { ArrowLeft: () => fvAdd(day, -1), ArrowRight: () => fvAdd(day, 1), ArrowUp: () => fvAdd(day, -7), ArrowDown: () => fvAdd(day, 7), Home: () => fvAdd(day, -wd), End: () => fvAdd(day, 6 - wd), PageUp: () => month(-1), PageDown: () => month(1) }[key]
+  return to ? to() : null
+}
 
 /** The page's top: the farm photo with where it is, the kicker, the headline and three facts. */
 function bulkFarmHeroHTML() {
@@ -461,12 +505,20 @@ function bulkFarmDraw(errors = {}, top = '') {
           <div class="fv-dates${flexible ? ' is-flexible' : ''}" role="group" aria-labelledby="fv-dates-label"${errors.dates ? ' aria-describedby="fv-dates-err"' : ''}>
             <p class="fv-dates-label" id="fv-dates-label">Visit dates · 2 days at most <small class="fv-opt"${flexible ? '' : ' hidden'}>(optional)</small></p>
             <div class="fv-range">
-              <label class="field">Day 1 <small>(arrive)</small><input name="visitFrom" type="date" min="${fvEarliest()}"${fv.season.end ? ` max="${fv.season.end}"` : ''} value="${from}"${inv('dates')}></label>
+              <label class="field">Day 1 <small>(arrive)</small><input class="fv-day-box" id="fv-day1" data-fv-box="from" type="text" readonly placeholder="Pick a day" aria-controls="fv-cal" aria-describedby="fv-cal-help fv-range-says${errors.dates ? ' fv-dates-err' : ''}" value="${from ? fvRange(from) : ''}"${errors.dates ? ' aria-invalid="true"' : ''}></label>
               <span class="fv-range-arrow" aria-hidden="true">${icon('arrow')}</span>
-              <label class="field">Day 2 <small>(leave)</small><input name="visitTo" type="date" value="${to}"${inv('dates')}></label>
+              <label class="field">Day 2 <small>(leave)</small><input class="fv-day-box" id="fv-day2" data-fv-box="to" type="text" readonly placeholder="Pick a day" aria-controls="fv-cal" aria-describedby="fv-cal-help fv-range-says${errors.dates ? ' fv-dates-err' : ''}" value="${to ? fvRange(to) : ''}"${errors.dates ? ' aria-invalid="true"' : ''}></label>
+              <input type="hidden" name="visitFrom" value="${from}"><input type="hidden" name="visitTo" value="${to}">
             </div>
             ${err('dates')}
-            <p class="fv-range-says" id="fv-range-says" aria-live="polite"></p>
+            <div class="fv-cal-wrap">
+              <div class="fv-cal" id="fv-cal"></div>
+              <div class="fv-cal-side">
+                <p class="fv-cal-help" id="fv-cal-help"></p>
+                <p class="fv-range-says" id="fv-range-says" aria-live="polite"></p>
+                <button type="button" class="text-button fv-cal-clear" data-fv-cal-clear hidden>Clear the dates</button>
+              </div>
+            </div>
           </div>
           <label class="bulk-farm-flex fv-flex"><input type="checkbox" name="flexible"${flexible ? ' checked' : ''}><span>I’m flexible about the dates</span></label>
         </div>
@@ -514,20 +566,84 @@ function bulkFarmDraw(errors = {}, top = '') {
   // A token works once: while sending, the one taken is kept (fv.busy) and no new check is drawn.
   if (!fv.busy) formCaptcha($('#farm-visit-form .pn-captcha', el), 'farm-visit', fv)
   const form = $('#farm-visit-form')
+  // Dates already there (a draft): a tap next changes Day 2 (Day 1 again: a 1-day visit); none: a tap picks Day 1.
+  fv.cal.pick = from ? 'to' : 'from'
+  fv.cal.month = ''
   fvDatesFix(form)
   fvUpdate(form)
 }
 
-/** Day 1 from the earliest day (the season's last day at most); Day 2 from Day 1 to the next day: the picker can't choose more. */
+/** The calendar opens on Day 1's month (or the earliest day's), never before the earliest day's month; with no Day 1 it
+ *  picks Day 1. Run when the form is drawn and when the season's days arrive. */
 function fvDatesFix(form) {
+  const v = fvVisit(form), first = fvEarliest().slice(0, 7)
+  if (!v.from) fv.cal.pick = 'from'
+  const want = v.from && v.from.slice(0, 7) >= first ? v.from.slice(0, 7) : first
+  if (!fv.cal.month || fv.cal.month < first || !form.contains(document.activeElement)) fv.cal.month = want
+  fv.cal.focus = ''
+  fvCalPaint(form)
+}
+
+const fvLim = () => ({ earliest: fvEarliest(), last: fv.season.end || '' })
+/** The visit as the form holds it now: { from, to, pick }. */
+function fvVisit(form) {
   const a = form.elements.namedItem('visitFrom'), b = form.elements.namedItem('visitTo')
-  if (!a || !b) return
-  a.min = fvEarliest()
-  if (fv.season.end) a.max = fv.season.end
-  if (fvIsDay(a.value)) {
-    b.min = a.value
-    b.max = fv.season.end && fv.season.end < fvAdd(a.value, 1) ? fv.season.end : fvAdd(a.value, 1)
-  } else { b.min = fvEarliest(); b.removeAttribute('max') }
+  const from = a && fvIsDay(a.value) ? a.value : '', to = b && fvIsDay(b.value) ? b.value : ''
+  return { from, to, pick: from ? fv.cal.pick : 'from' }
+}
+const FV_WD_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const FV_MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** The month grid (a real grid: arrow keys move, Enter or Space picks, the picked days are aria-selected) with the month's
+ *  name and the previous / next month buttons. */
+function fvCalHTML(v, lim, month, focus) {
+  const [y, m] = month.split('-').map(Number)
+  const prev = fvMonthAdd(month, -1) >= lim.earliest.slice(0, 7), next = (!lim.last || fvMonthAdd(month, 1) <= lim.last.slice(0, 7)) && fvMonthAdd(month, 1) <= fvMonthAdd(lim.earliest.slice(0, 7), 18)
+  const head = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => `<th scope="col" abbr="${d}"><span aria-hidden="true">${d[0]}</span></th>`).join('')
+  // Day 1 and Day 2 on the same row read as one band (not when Day 1 is a Sunday: Day 2 starts the next row).
+  const joined = !!v.from && !!v.to && v.to !== v.from && new Date(`${v.from}T00:00:00Z`).getUTCDay() !== 0
+  const rows = fvMonthWeeks(month).map((w) => `<tr>${w.map((day) => {
+    if (!day) return '<td class="is-blank"></td>'
+    const st = fvDayState(day, v, lim), t = new Date(`${day}T00:00:00Z`)
+    const name = `${FV_WD_LONG[t.getUTCDay()]} ${t.getUTCDate()} ${FV_MON_LONG[t.getUTCMonth()]}${st.from ? `, Day 1${v.to === v.from ? ', a 1-day visit' : ''}` : st.to ? ', Day 2' : ''}`
+    return `<td data-fv-day="${day}" tabindex="${day === focus ? 0 : -1}" aria-label="${name}" aria-selected="${st.from || st.to}"${st.off ? ' aria-disabled="true"' : ''} class="${[st.from ? 'is-from' : '', st.to ? 'is-to' : '', joined && (st.from || st.to) ? 'is-joined' : '', day === fvToday() ? 'is-today' : ''].filter(Boolean).join(' ')}">${t.getUTCDate()}</td>`
+  }).join('')}</tr>`).join('')
+  return `<div class="fv-cal-head"><p class="fv-cal-month" id="fv-cal-month" aria-live="polite">${FV_MON_LONG[m - 1]} ${y}</p>
+      <button type="button" class="fv-cal-nav" data-fv-cal-month="-1" aria-label="Previous month"${prev ? '' : ' disabled'}>${icon('chevron')}</button><button type="button" class="fv-cal-nav is-next" data-fv-cal-month="1" aria-label="Next month"${next ? '' : ' disabled'}>${icon('chevron')}</button></div>
+    <table class="fv-cal-grid" role="grid" aria-labelledby="fv-dates-label fv-cal-month" aria-describedby="fv-cal-help"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`
+}
+
+/** Draws the calendar, the two Day boxes and the help for the visit as it is, keeping the keyboard on the day it was on. */
+function fvCalPaint(form) {
+  const cal = $('#fv-cal', form)
+  if (!cal) return
+  const v = fvVisit(form), lim = fvLim(), month = fv.cal.month || (v.from || lim.earliest).slice(0, 7)
+  const inMonth = (d) => d && d.slice(0, 7) === month
+  // The day Tab lands on: the one the keyboard was on, else Day 2, Day 1, the first day that can be picked, the 1st.
+  const days = fvMonthWeeks(month).flat().filter(Boolean)
+  const focus = [fv.cal.focus, v.pick === 'to' ? v.to : v.from, v.from].find(inMonth) || days.find((d) => !fvDayState(d, v, lim).off) || days[0]
+  const had = cal.contains(document.activeElement) ? document.activeElement : null
+  cal.innerHTML = fvCalHTML(v, lim, month, focus)
+  if (had && had.dataset.fvDay) $(`[data-fv-day="${focus}"]`, cal)?.focus()
+  else if (had && had.dataset.fvCalMonth) { const b = $(`[data-fv-cal-month="${had.dataset.fvCalMonth}"]`, cal); (b && !b.disabled ? b : $(`[data-fv-day="${focus}"]`, cal))?.focus() }
+  const one = $('#fv-day1', form), two = $('#fv-day2', form)
+  if (one) { one.value = v.from ? fvRange(v.from) : ''; one.classList.toggle('is-picking', v.pick === 'from') }
+  if (two) { two.value = v.to ? fvRange(v.to) : ''; two.classList.toggle('is-picking', v.pick === 'to') }
+  const help = $('#fv-cal-help', form)
+  if (help) help.textContent = v.pick === 'from' ? 'Pick Day 1, the day you arrive. Day 2 fills in as the next day.' : 'Tap Day 1 again for a 1-day visit. Day 2 is never later than the day after Day 1. To arrive on another day, tap a day before it, or the Day 1 box.'
+  const clear = $('[data-fv-cal-clear]', form)
+  if (clear) clear.hidden = !v.from
+}
+
+/** A day picked on the calendar (a tap, or Enter / Space): the visit after it, saved with the draft. */
+function fvCalPick(form, day) {
+  const a = form.elements.namedItem('visitFrom'), b = form.elements.namedItem('visitTo'), now = fvVisit(form)
+  const v = fvRangePick(now, day, fvLim())
+  fv.cal.focus = day
+  if (v === now) return
+  a.value = v.from; b.value = v.to; fv.cal.pick = v.pick
+  bulkFarmKeep(form)
+  fvUpdate(form)
 }
 
 /** What the form says now, from its fields (no checks). */
@@ -542,7 +658,8 @@ function fvUpdate(form) {
   const d = fvRead(form), from = fvIsDay(d.visitFrom) ? d.visitFrom : '', to = fvIsDay(d.visitTo) ? d.visitTo : ''
   const ok = from && to && to >= from && fvDays(from, to) <= 2
   const says = $('#fv-range-says')
-  if (says) says.innerHTML = ok ? `${icon('calendar')}<span>Your visit: <strong>${fvDays(from, to)} ${fvDays(from, to) === 1 ? 'day' : 'days'}, ${fvRange(from, to)}</strong></span>` : `<span>Pick Day 1; Day 2 fills in as the next day. Make Day 2 the same day for a 1-day visit.</span>`
+  if (says) says.innerHTML = ok ? `${icon('calendar')}<span>Your visit: <strong>${fvDays(from, to)} ${fvDays(from, to) === 1 ? 'day' : 'days'}, ${fvRange(from, to)}</strong></span>` : ''
+  fvCalPaint(form)
   const dates = $('.fv-dates', form)
   if (dates) { dates.classList.toggle('is-flexible', d.flexible); const o = $('.fv-opt', dates); if (o) o.hidden = !d.flexible }
   const kg = Number(d.kg)
@@ -667,12 +784,6 @@ document.addEventListener('change', (e) => {
   const f = e.target.form
   if (!f || f.id !== 'farm-visit-form') return
   const n = e.target.name
-  // Day 1 chosen: Day 2 is the next day (or Day 1 when the season ends that day). Day 2 may then be moved back to Day 1.
-  if (n === 'visitFrom' && fvIsDay(e.target.value)) {
-    const b = f.elements.namedItem('visitTo'), next = fvAdd(e.target.value, 1)
-    b.value = fv.season.end && next > fv.season.end ? e.target.value : next
-  }
-  if (n === 'visitFrom' || n === 'visitTo') fvDatesFix(f)
   if (n === 'kg') fvKgSay(f)
   bulkFarmKeep(f)
   fvUpdate(f)
@@ -700,6 +811,56 @@ document.addEventListener('click', (e) => {
   fvKgSay(form)
   bulkFarmKeep(form)
   fvUpdate(form)
+})
+
+// The calendar: a day, the month buttons, the Day boxes (which say what a tap picks), "Clear the dates", and the keys.
+document.addEventListener('click', (e) => {
+  const el = e.target instanceof Element ? e.target.closest('[data-fv-day],[data-fv-cal-month],[data-fv-box],[data-fv-cal-clear]') : null
+  const form = el && el.closest('#farm-visit-form')
+  if (!form) return
+  if (el.dataset.fvDay) { if (el.getAttribute('aria-disabled') !== 'true') fvCalPick(form, el.dataset.fvDay); else { fv.cal.focus = el.dataset.fvDay; fvCalPaint(form) } return }
+  if (el.dataset.fvCalMonth) { fv.cal.month = fvMonthAdd(fv.cal.month, Number(el.dataset.fvCalMonth)); fv.cal.focus = ''; fvCalPaint(form); return }
+  if (el.hasAttribute('data-fv-cal-clear')) {
+    form.elements.namedItem('visitFrom').value = ''; form.elements.namedItem('visitTo').value = ''
+    fv.cal.pick = 'from'; fv.cal.focus = ''
+    bulkFarmKeep(form); fvUpdate(form)
+    $('#fv-day1', form)?.focus()
+    return
+  }
+  fvBoxPick(form, el.dataset.fvBox)
+})
+/** A Day box chosen: a tap picks that day next (Day 2 only once there is a Day 1), and the calendar shows its month. */
+function fvBoxPick(form, which) {
+  const v = fvVisit(form)
+  fv.cal.pick = which === 'to' && v.from ? 'to' : 'from'
+  const day = fv.cal.pick === 'to' ? v.to : v.from
+  if (day) fv.cal.month = day.slice(0, 7)
+  fv.cal.focus = ''
+  fvCalPaint(form)
+}
+document.addEventListener('keydown', (e) => {
+  const el = e.target instanceof Element ? e.target : null
+  const form = el && el.closest('#farm-visit-form')
+  if (!form) return
+  // A Day box: Enter, Space or Down picks that day on the calendar (and never sends the form).
+  if (el.dataset.fvBox && ['Enter', ' ', 'ArrowDown'].includes(e.key)) {
+    e.preventDefault()
+    fvBoxPick(form, el.dataset.fvBox)
+    $('#fv-cal td[tabindex="0"]', form)?.focus()
+    return
+  }
+  if (!el.dataset.fvDay) return
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (el.getAttribute('aria-disabled') !== 'true') fvCalPick(form, el.dataset.fvDay); return }
+  const to = fvCalMove(el.dataset.fvDay, e.key)
+  if (!to) return
+  e.preventDefault()
+  const lim = fvLim(), first = `${lim.earliest.slice(0, 7)}-01`
+  // The keys never leave the months the calendar can show.
+  if (to < first || fvMonthAdd(to.slice(0, 7), 0) > fvMonthAdd(lim.earliest.slice(0, 7), 18) || (lim.last && to.slice(0, 7) > lim.last.slice(0, 7))) return
+  fv.cal.focus = to
+  fv.cal.month = to.slice(0, 7)
+  fvCalPaint(form)
+  $(`#fv-cal [data-fv-day="${to}"]`, form)?.focus()
 })
 
 /** The shop's WhatsApp contact as a button (shop config supportWhatsapp), or the help link when none is set. */

@@ -24,9 +24,15 @@ mini.addEventListener('animationend',()=>mini.classList.remove('is-pulse'));
 window.addEventListener('mm:cart',e=>{syncBag(e.detail);requestAnimationFrame(()=>measure())});
 
 // ---- The keyboard: while a field is being typed in, the dock steps out of the way.
-const touch=matchMedia('(pointer:coarse)'),TYPING='input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset],[type=file],[type=color]),textarea,[contenteditable=""],[contenteditable=true]';
-function keyboard(){const a=document.activeElement,vv=window.visualViewport,inset=vv?Math.max(0,innerHeight-vv.height-vv.offsetTop):0,up=inset>100,own=!!a&&dock.contains(a),typing=!!a&&!own&&a.matches(TYPING);dock.style.bottom=own&&up?`${inset}px`:'';dock.classList.toggle('is-away',typing&&(up||touch.matches))}
+// Only fields that open the keyboard count: a date, a read-only box (the farm visit's Day 1 / Day 2) or a tick box keeps the
+// dock and the sticky bar in place (style.css says the same for the bar).
+const touch=matchMedia('(pointer:coarse)'),TYPING='input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=submit],[type=reset],[type=file],[type=color],[type=date],[readonly]),textarea:not([readonly]),[contenteditable=""],[contenteditable=true]';
+function keyboard(){const a=document.activeElement,vv=window.visualViewport,inset=vv?Math.max(0,innerHeight-vv.height-vv.offsetTop):0,up=inset>100,own=!!a&&dock.contains(a),typing=!!a&&!own&&a.matches(TYPING);dock.style.bottom=own&&up?`${inset}px`:'';dock.classList.toggle('is-away',(typing&&(up||touch.matches))||document.body.classList.contains('bar-hold'))}
 if(window.visualViewport)visualViewport.addEventListener('resize',keyboard);document.addEventListener('focusin',keyboard);document.addEventListener('focusout',()=>setTimeout(keyboard,60));
+// A tap that ends the typing (on "I'm flexible" just above the bar, say) lands where it was aimed: the dock and the sticky
+// bar come back only once that tap is done (body.bar-hold, style.css), or after 700 ms when there is no tap.
+let barHoldT=0;const barBack=()=>{clearTimeout(barHoldT);barHoldT=setTimeout(()=>{document.body.classList.remove('bar-hold');keyboard()},0)};
+document.addEventListener('focusout',e=>{if(!touch.matches||!(e.target instanceof Element)||!e.target.matches(TYPING)||dock.contains(e.target))return;document.body.classList.add('bar-hold');document.addEventListener('click',barBack,{once:true,capture:true});clearTimeout(barHoldT);barHoldT=setTimeout(barBack,700)});
 
 // ---- Layout measures for CSS (style.css polish block). --bar-clear: how much of the screen the sticky pay bar (and
 // the dock under it) covers, so the footer pads exactly that + 24px. --above-h/--footer-h: so a short page fills the

@@ -7,7 +7,7 @@
    and pays again. Paid pre-orders are non-refundable unless we delay them: the checkout says so and waits for the tick.
    The single-box "Pre-order · pay" stays as the shortcut. Gift boxes (gift-bag.js) are unchanged: they check out on their own.
    Loaded after gift-bag.js and before app.js: top-level code only declares and listens (app.js's functions are used at call time).
-   The first three functions are pure (tests/unit/pre-bag.unit.ts). */
+   The first three functions and preGiftSum are pure (tests/unit/pre-bag.unit.ts). */
 
 /** Your own (not gift) bag lines as the API takes them: one line per box and ripeness, in bag order, at most 20 boxes a line. */
 function preBagLines(lines) {
@@ -28,17 +28,32 @@ function preBagSame(lines, q) {
   return !!q && Array.isArray(q.lines) && q.lines.length === lines.length && lines.every((l, i) => q.lines[i].sku === l.sku && q.lines[i].stage === l.stage && q.lines[i].qty === l.qty)
 }
 
-/** Pre-orders as the orders list shows them (GET /v1/preorders keeps a bag's lines together): each bag as one row with its
- * lines ({ bag, lines }), every other pre-order alone ({ bag: null, lines: [p] }), in the API's order. */
+/** Pre-orders as the orders list shows them (GET /v1/preorders keeps a group's lines together): each bag as one row with
+ * its lines ({ bag, lines }), each gift for ONE person (change request 02: `oneDelivery`, or a gift group for one person) as
+ * one row with its boxes ({ bag: null, gift, lines }), every other pre-order alone ({ bag: null, lines: [p] }; a gift for
+ * several people booked before CR2 stays one row per person), in the API's order. */
 function preBagRows(list) {
   const rows = [], at = new Map()
   for (const p of list || []) {
-    const g = p && p.group && p.group.kind === 'BAG' ? p.group : null
-    if (!g) { rows.push({ bag: null, lines: [p] }); continue }
-    if (!at.has(g.id)) { at.set(g.id, rows.length); rows.push({ bag: g, lines: [] }) }
-    rows[at.get(g.id)].lines.push(p)
+    const k = p && p.group, bag = k && k.kind === 'BAG' ? k : null
+    const gift = k && k.kind === 'GIFT' && k.id && (k.oneDelivery || Number(k.people) === 1) ? k : null
+    if (!bag && !gift) { rows.push({ bag: null, lines: [p] }); continue }
+    if (!at.has(k.id)) { at.set(k.id, rows.length); rows.push(bag ? { bag, lines: [] } : { bag: null, gift, lines: [] }) }
+    rows[at.get(k.id)].lines.push(p)
   }
   return rows
+}
+
+/** A gift for one person, summed for its row: boxes and kg (cancelled boxes left out, unless all are), the ONE week it
+ * arrives in (the latest), the status the row shows, and when it was booked (for newest first). `kgOf(p)` is a line's box kg. */
+function preGiftSum(lines, kgOf) {
+  const all = lines || [], live = all.filter((p) => p.status !== 'CANCELLED'), use = live.length ? live : all
+  const boxes = use.reduce((n, p) => n + (Number(p.qty) || 0), 0)
+  const kg = use.reduce((n, p) => n + (Number(p.qty) || 0) * (Number(kgOf(p)) || 0), 0)
+  const week = use.map((p) => p.weekStart).filter(Boolean).sort().pop() || null
+  const status = !live.length ? 'CANCELLED' : live.some((p) => p.status === 'PAYMENT_PENDING') ? 'PAYMENT_PENDING' : live.some((p) => p.status === 'WAITLISTED') ? 'WAITLISTED' : live.every((p) => p.status === 'CONVERTED') ? 'CONVERTED' : 'BOOKED'
+  const at = all.map((p) => String(p.createdAt || p.bookedAt || '')).filter(Boolean).sort()[0] || ''
+  return { boxes, kg: Math.round(kg * 10) / 10, week, status, at }
 }
 
 // ---- State: the last quote (for the bag page and the checkout), the tick, an unpaid pre-order in the way, the booked bag.
@@ -207,6 +222,41 @@ function preBagHead(g, lines) {
   const paid = lines.some((p) => p.paymentStatus === 'SUCCEEDED')
   return `<p class="pre-group-line">${icon('bag')}<span>Pre-order ${esc(orderNo(g.number || ''))} · ${lines.length} ${lines.length === 1 ? 'box line' : 'box lines'} · ${paid ? 'paid' : 'one payment of'} ${currency(g.total || 0)}</span></p>`
 }
+
+/** A box line's kg: the catalogue's box, else the "-5" of its SKU or the "5kg" of its name. */
+function preLineKg(p) {
+  const s = typeof skuOf === 'function' && skuOf(p.sku)
+  if (s && kgOf(s)) return kgOf(s)
+  const m = String(p.sku || '').match(/-(\d+(?:\.\d+)?)$/) || String(p.productName || '').match(/(\d+(?:\.\d+)?)\s*kg/i)
+  return m ? Number(m[1]) : 0
+}
+
+/** The orders list's row for a gift for one person (change request 02): ONE card, "Gift for Asha · G-270 509 835", its
+ * boxes, kg, status, the week they arrive together and the one payment, its lines listed inside; it opens the gift's page
+ * (/gifts/pre/:id, gifts.js giftGroupView). Styles: style.css ("Your orders: a gift for one person"). */
+function preGiftHTML(g, lines) {
+  const s = preGiftSum(lines, preLineKg), live = lines.filter((p) => p.status !== 'CANCELLED')
+  const who = ((lines.find((p) => p.gift && p.gift.recipientName) || {}).gift || {}).recipientName || ''
+  const paid = lines.some((p) => p.paymentStatus === 'SUCCEEDED'), total = Number(g.total) || lines.reduce((n, p) => n + (Number(p.total) || 0), 0)
+  const dot = ['PAYMENT_PENDING', 'WAITLISTED'].includes(s.status) ? 'semi' : s.status === 'CANCELLED' ? 'raw' : 'ripe'
+  const when = s.status !== 'CANCELLED' && s.week ? ` · arrives together week of ${esc(fmtWeek(s.week))}` : ''
+  const kg = s.kg ? ` · ${s.kg} kg` : ''
+  const refund = live.some((p) => p.nonRefundable && !p.delayed) ? ` · ${paid ? 'Non-refundable' : 'Non-refundable once paid'}` : ''
+  const items = lines.map((p) => `<li${p.status === 'CANCELLED' ? ' class="is-cancelled"' : ''}><span>${esc(boxName(p.productName, p.sku))} · ${stageOf(p.stage).stage} · ${boxWord(p.qty)}${p.status === 'CANCELLED' ? ' · cancelled' : ''}</span><span>${currency(p.total)}</span></li>`).join('')
+  const name = `Gift for ${esc(who || 'one person')} · ${esc(orderNo(g.number || ''))}`
+  const act = lines.find((p) => p.status === 'PAYMENT_PENDING') || live[0] || lines[0]
+  const delays = lines.map((p) => `${p.status === 'BOOKED' ? delayBlock(p, 'pre', 'list') : ''}${delayDone(p)}`).join('')
+  return `<div class="order-row is-pre is-gift ord-gift-group"><a class="guide-choice" href="/gifts/pre/${encodeURIComponent(g.id)}" data-route><span class="dot ${dot}"></span><span><strong>${name}</strong><span class="pre-chip order-pre-chip">${icon('sun')}Pre-order</span><span class="pre-chip order-pre-chip gift-chip">${icon('gift')}Gift</span><small>${boxWord(s.boxes)}${kg} · ${esc(PRE_STATUS[s.status] || s.status)}${when} · ${currency(total)}${refund}</small><ul class="ord-gift-lines" aria-label="The boxes in this gift">${items}</ul></span>${icon('arrow')}</a>${delays}${typeof roRowHTML === 'function' && act ? roRowHTML(act, 'pre') : ''}</div>`
+}
+
+/** One row of pre-orders (preBagRows) as the orders lists draw it: a bag, a gift for one person, or one pre-order. */
+function preRowsHTML(r, cls = '') {
+  if (r.bag) return `<div class="pre-bag-rows${cls ? ` ${cls}` : ''}">${preBagHead(r.bag, r.lines)}${r.lines.map(preRow).join('')}</div>`
+  if (r.gift) return preGiftHTML(r.gift, r.lines)
+  return preRow(r.lines[0])
+}
+/** When a row of pre-orders was booked, for newest first. */
+const preRowsAt = (r) => (r.gift ? preGiftSum(r.lines, () => 0).at : String(r.lines[0].createdAt || r.lines[0].bookedAt || r.lines[0].weekStart || ''))
 
 if (typeof document !== 'undefined') {
   document.addEventListener('submit', (e) => { if (e.target.id === 'co-prebag') { e.preventDefault(); preBagPay() } })

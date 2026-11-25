@@ -430,7 +430,7 @@ function bulkEnquirySteps() {
 }
 
 /** The enquiry tab's bar: a meter of the list's kg towards 250 ("Your bulk list · 180 kg of 250 kg", "Add 70 kg more
- *  mangoes to send"), green and "Ready" from 250 kg, when "Send enquiry" unlocks; under 250 kg from 100 kg, the way to
+ *  mangoes to send · enquiries are for 250 kg+ mangoes", CR2-02's wording), green and "Ready" from 250 kg, when "Send enquiry" unlocks; under 250 kg from 100 kg, the way to
  *  order and pay instead. */
 function bulkEnquiryBar() {
   bulkEnquirySteps()
@@ -440,7 +440,7 @@ function bulkEnquiryBar() {
   const pct = Math.min(100, Math.round((t.kg / BULK_ENQUIRY_MIN_KG) * 100)), more = BULK_ENQUIRY_MIN_KG - t.kg
   const say = ok
     ? `${icon('check')}<span>Ready: send it and we’ll quote you.</span>`
-    : `${icon('lock')}<span>${t.kg ? `Add ${more} kg more mangoes to send.` : `Enquiries need at least ${BULK_ENQUIRY_MIN_KG} kg of mangoes. Add boxes to your list.`}</span>`
+    : `${icon('lock')}<span>${t.kg ? `Add ${more} kg more mangoes to send · enquiries are for ${BULK_ENQUIRY_MIN_KG} kg+ mangoes.` : `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg+ mangoes. Add boxes to your list.`}</span>`
   const order = !ok && t.kg >= BULK_MIN_KG ? `<a class="button secondary pay-bar-alt" href="/bulk" data-route>Order and pay</a>` : ''
   setBar(`<div class="pay-bar-row bulk-bar bq-bar${ok ? ' is-ready' : ''}"><div class="bq-meter">
       <p class="bq-meter-top"><strong>Your bulk list · <span class="no-wrap">${t.kg} kg of ${BULK_ENQUIRY_MIN_KG} kg</span></strong><small>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</small></p>
@@ -711,12 +711,9 @@ function ordRows(d) {
     const pre = became.has(o.id)
     rows.push({ at: String(o.placedAt || o.createdAt || o.deliveryDate || ''), kinds: [pre ? 'pre' : 'shop', ...gift(o)], html: orderRow(o, pre) })
   }
+  // A bag is one row; a gift for one person is ONE row (and counts once under Gifts), whatever its number of boxes.
   for (const r of preBagRows((d.pres || []).filter((p) => !(p.status === 'CONVERTED' && p.orderId && d.orders)))) {
-    const p0 = r.lines[0]
-    rows.push({
-      at: String(p0.createdAt || p0.bookedAt || p0.weekStart || ''), kinds: ['pre', ...(r.lines.some((p) => gift(p).length) ? ['gifts'] : [])],
-      html: r.bag ? `<div class="pre-bag-rows ord-bag">${preBagHead(r.bag, r.lines)}${r.lines.map(preRow).join('')}</div>` : preRow(p0),
-    })
+    rows.push({ at: preRowsAt(r), kinds: ['pre', ...(r.gift || r.lines.some((p) => gift(p).length) ? ['gifts'] : [])], html: preRowsHTML(r, 'ord-bag') })
   }
   for (const x of d.bulk || []) rows.push({ at: String(x.createdAt || ''), kinds: ['bulk'], html: ordBulkRow(x, x.unread || x.id === ordQuery('enquiry')) })
   for (const b of d.farm || []) rows.push({ at: String(b.createdAt || ''), kinds: ['bulk'], html: ordFarmRow(b) })
@@ -1096,7 +1093,7 @@ async function trackView(id, quiet = false, seq = ++sheetSeq) {
     </section>
     <section class="page-card">
       <h3>${o.gift && o.gift.recipientName ? `Delivering to ${esc(o.gift.recipientName)}` : 'Delivering to'}</h3>
-      <p class="track-address">${esc(addressText(o.deliveryAddress))}${o.pincode ? ` · ${esc(o.pincode)}` : ''}</p>
+      <p class="track-address">${esc(addressText(o.deliveryAddress))}${o.pincode ? ` · ${esc(o.pincode)}` : ''}${landmarkText(o)}</p>
       ${pin ? '<div class="track-map" role="img" aria-label="Delivery location on the map"></div>' : ''}
     </section>
     <section class="page-card">
