@@ -94,6 +94,11 @@ function StopFlow({ o }: { o: RunOrder }) {
         <MapPin aria-hidden size={22} className="mt-0.5 shrink-0 text-green" />
         <div className="min-w-0 flex-1">
           <p className="line-clamp-2 text-base">{address}</p>
+          {o.deliveryLandmark && (
+            <p className="text-sm text-ink" data-testid="stop-landmark">
+              Landmark: {o.deliveryLandmark}
+            </p>
+          )}
           <p className="text-sm text-muted">
             {o.boxes} box{o.boxes === 1 ? "" : "es"} · {o.items.map((i) => `${i.quantity} × ${i.productName} (${STAGE[i.stage] ?? i.stage.toLowerCase()})`).join(", ")}
           </p>

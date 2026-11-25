@@ -64,7 +64,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
   const me = rows[0]
   if (!force && (await hasOpenBusiness(c, me.id))) throw conflict('You have an order or booking that is not finished yet. Cancel it, or wait until it is delivered, then delete your account.', 'OPEN_ORDERS')
   await c.query(
-    `UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL,
+    `UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL, delivery_landmark = NULL,
             gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL WHERE customer_id = $1`,
     [me.id],
   )
@@ -86,7 +86,7 @@ export async function eraseCustomer(c, customerId, { force = false, deletedAt = 
       WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1) AND removed_at IS NULL`,
     [me.id, now()],
   )
-  await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '',
+  await c.query(`UPDATE preorders SET customer_name = NULL, phone = '', delivery_address = '', delivery_landmark = NULL,
             gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL WHERE customer_id = $1`, [me.id])
   // Gift address links (migration 091) stop working: the page would show the recipient's and giver's names, gone now.
   await c.query(

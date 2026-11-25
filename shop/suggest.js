@@ -1,12 +1,14 @@
 /* Search suggestions: the mangoes on the shelf in a list under the search box (#search) from the second letter typed,
-   like a shop's search: up to six rows, each with a small photo, the name with the typed part in bold and one grey
-   line (its ripeness and pre-order week, or the words that matched, such as “Alphonso-like”). The search forgives
+   like a shop's search: the first six of the cards the grid shows for it (best first), each row with a small photo,
+   the name with the typed part in bold and one grey line (its ripeness and pre-order week, or the words that matched,
+   such as “Alphonso-like”). The search forgives
    typos and knows other names (catalog.js find: "alpfonso", "alfonso" and "hapus" find Alphonso, "mix" finds Mixed
    Variety Mangoes); when it read the search as another name the list says so ("Showing results for Alphonso · search
    instead for ‘alpfonso’") and the shelf under it is filtered the same way (shelf.js visibleShelf).
    Tapping a row, or Enter on it, opens that mango's product sheet (shelf.js productDetail); Enter with no row chosen
    takes the customer to the shelf's first card (goToResult). Up and down arrows move, Escape closes. The box is an
-   ARIA combobox with a listbox, and a status line says how many mangoes were found.
+   ARIA combobox with a listbox, and a status line says how many mangoes the grid now shows (not how many rows the list
+   has): "Showing results for Alphonso: 3 mangoes.", "16 mangoes.", "No mangoes found.".
    The list sits inside the search box's own field (.search), so it follows the field wherever the page puts it (under
    the header, or higher up on phones: phone-search.js). Loaded after app.js and shelf.js, whose globals (shelf,
    stageFor, stageOf, preSeason, pre, productDetail, searchExact) it reads at call time. Styles: style.css (.search-names). */
@@ -16,7 +18,7 @@
   const catalog = () => window.MM_CATALOG || {}
   const onShelf = () => (typeof shelf !== 'undefined' && Array.isArray(shelf) ? shelf : [])
   // the name with the part that was typed in bold; a name found another way (another name, a typo) is bold all through
-  const mark = (name, at) => (at ? esc(name.slice(0, at[0])) + '<b>' + esc(name.slice(at[0], at[1])) + '</b>' + esc(name.slice(at[1])) : `<b>${esc(name)}</b>`)
+  const mark = (name, at, plain) => (plain ? esc(name) : at ? esc(name.slice(0, at[0])) + '<b>' + esc(name.slice(at[0], at[1])) + '</b>' + esc(name.slice(at[1])) : `<b>${esc(name)}</b>`)
   const weekWords = (d) => { const [y, m, day] = String(d).split('-').map(Number); return new Date(y, m - 1, day).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) }
 
   /** The grey line under a name: its ripeness and, before the season, the first pre-order week with room. */
@@ -36,15 +38,27 @@
     return src ? `<img src="${esc(src)}" alt="" width="40" height="40" loading="lazy" decoding="async">` : '<span class="search-names-nophoto"></span>'
   }
 
-  /** What the list shows for a search: { rows: [{ v, hit }], fixed }. */
+  /**
+   * What the list shows for a search: the first six cards the shelf now shows (shelf.js visibleShelf, best first), so the
+   * list and the grid always agree, each with how it matched (catalog.js find: the typed part of the name in bold, or the
+   * words that matched). Returns { rows: [{ v, hit }], fixed, count }: count is how many cards the grid shows.
+   */
   function look(text) {
-    const list = onShelf(), C = catalog()
-    if (!C.find || !list.length) return { rows: [], fixed: null }
-    const r = C.find(text, list.map((v) => ({ name: v.name, about: C.aboutOf(v.c) })))
-    // "search instead for …": the words as typed, which found nothing
-    if (r.fixed && typeof searchExact !== 'undefined' && searchExact === text.trim().toLowerCase()) return { rows: [], fixed: null }
-    const rows = r.items.map((hit) => ({ v: list.find((v) => v.name === hit.name), hit })).filter((x) => x.v).slice(0, ROWS)
-    return { rows, fixed: rows.length ? r.fixed : null }
+    const C = catalog()
+    if (typeof visibleShelf !== 'function' || !onShelf().length) return { rows: [], fixed: null, count: 0 }
+    const cards = visibleShelf()
+    const fixed = typeof searchFix !== 'undefined' && searchFix ? searchFix.to : null
+    const how = new Map()
+    if (C.find) for (const hit of C.find(text, cards.map((v) => ({ name: v.name, about: C.aboutOf(v.c) }))).items) how.set(hit.name, hit)
+    const words = text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1 && !/^(mangoe?s?|box|raw|semi|ripe|the|for|and|of)$/.test(w))
+    const hitFor = (v) => {
+      if (how.has(v.name)) return how.get(v.name)
+      // a card found some other way: the typed word in its name is still marked; otherwise the name is plain
+      const name = v.name.toLowerCase()
+      for (const w of words) { const at = name.indexOf(w); if (at >= 0) return { name: v.name, how: 'name', mark: [at, at + w.length] } }
+      return { name: v.name, how: 'all', mark: null }
+    }
+    return { rows: cards.slice(0, ROWS).map((v) => ({ v, hit: hitFor(v) })), fixed, count: cards.length }
   }
 
   // After Enter with no row chosen: take the customer straight to the shelf. It has just been filtered, so the first
@@ -96,6 +110,8 @@
       clearTimeout(sayTimer)
       sayTimer = setTimeout(() => { if (text !== said) { said = text; count.textContent = text } }, 400)
     }
+    // what the status line says is the number of cards the grid shows, not the rows in the list (catalog.js status)
+    const announce = (count, fixed) => say(catalog().status ? catalog().status(count, fixed) : count ? `${count} mangoes.` : 'No mangoes found.')
     const close = () => {
       panel.hidden = true; shown = []; at = -1
       input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant')
@@ -107,15 +123,14 @@
     const open = () => {
       const text = input.value.trim()
       if (text.length < 2) { say(''); return close() }
-      const { rows, fixed } = look(text)
+      const { rows, fixed, count } = look(text)
       shown = rows
-      const n = rows.length, words = `${n} ${n === 1 ? 'mango' : 'mangoes'}`
-      if (!n) { say('No mangoes found.'); return close() }
-      say(fixed ? `Showing results for ${fixed}: ${words}.` : `${words} found.`)
+      announce(count, fixed)
+      if (!rows.length) return close()
       at = -1
       fix.hidden = !fixed
       fix.innerHTML = fixed ? `<span>Showing results for <strong>${esc(fixed)}</strong></span> <span aria-hidden="true">·</span> <button type="button" class="search-names-exact" data-search-exact tabindex="-1">search instead for ‘${esc(text)}’</button>` : ''
-      list.innerHTML = rows.map(({ v, hit }, i) => `<li role="option" id="${list.id}-${i}" aria-selected="false" data-name="${esc(v.name)}">${photoFor(v)}<span class="search-names-text"><span class="search-names-name">${mark(v.name, hit.how === 'name' ? hit.mark : null)}</span><small>${esc(lineFor(v, hit))}</small></span></li>`).join('')
+      list.innerHTML = rows.map(({ v, hit }, i) => `<li role="option" id="${list.id}-${i}" aria-selected="false" data-name="${esc(v.name)}">${photoFor(v)}<span class="search-names-text"><span class="search-names-name">${mark(v.name, hit.how === 'name' ? hit.mark : null, hit.how === 'all')}</span><small>${esc(lineFor(v, hit))}</small></span></li>`).join('')
       panel.hidden = false
       input.setAttribute('aria-expanded', 'true')
     }
@@ -141,7 +156,12 @@
       const li = e.target.closest('[data-name]')
       if (li) choose(li.dataset.name)
     })
-    window.addEventListener('mm:search-exact', () => { if (document.activeElement === input) open(); else close() })
+    // "search instead for …" changed the grid: say the new count, wherever the focus is
+    window.addEventListener('mm:search-exact', () => {
+      if (document.activeElement === input) return open()
+      close()
+      if (input.value.trim().length >= 2) { const { fixed, count } = look(input.value.trim()); announce(count, fixed) }
+    })
     document.addEventListener('pointerdown', (e) => { if (e.target !== input && !panel.contains(e.target)) close() })
     input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) close() }, 150))
     window.addEventListener('mm:route', close)

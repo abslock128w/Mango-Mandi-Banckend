@@ -19,7 +19,8 @@ import { addEvent, createOrder, customerCancel, processPayment, recordDuplicateP
 /** Statuses in which a buyer may still cancel a delivery (as for any order: before packing). */
 export const GIFT_CANCELLABLE = ['PAYMENT_PENDING', 'CONFIRMED', 'PROCESSING']
 
-/** How many boxes one recipient may get: the cart's per-line limit, and never more than one buyer may hold. */
+/** How many boxes one recipient may get, over all their box lines: 20 (change request 02, Q2: a gift for one person
+ *  holds up to 20 boxes), and never more than one buyer may hold. */
 export const perRecipientMax = () => Math.min(20, getConfig().maxHeldBoxes)
 
 /**
@@ -72,7 +73,9 @@ export async function createGiftOrder(c, { customerId, buyerName, phone, q, prom
         customerId, customerName: buyerName, phone, pincode: r.pincode, address: r.address,
         deliveryDate: q.deliveryDate, slotId: q.slotId ?? null, strictSlot: Boolean(q.slotId), status: 'PAYMENT_PENDING', paymentStatus: 'INITIATED',
         allOrNothing: true, holdExpiresAt,
-        lines: [{ sku: r.sku, stage: r.stage, qty: r.qty, unitPrice: r.unitPrice }],
+        // Every box line of this person, in their one delivery (change request 02); a quote from before has one.
+        lines: (r.lines ?? [r]).map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty, unitPrice: l.unitPrice })),
+        landmark: r.landmark ?? null,
         discount: shares[i], promoCode: promo && shares[i] ? promo.code : null,
         gift: { recipientName: r.name, recipientPhone: r.phone, message: r.note || null },
         eventReason: `Gift order ${formatOrderNumber(number)}, recipient ${i + 1} of ${recipients.length}`,

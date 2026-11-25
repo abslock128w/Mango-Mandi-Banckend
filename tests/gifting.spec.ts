@@ -137,3 +137,25 @@ test('the Gift orders view at phone width passes the accessibility scan', async 
   expect(overflow).toBeLessThanOrEqual(0)
   await scan(page)
 })
+
+test('a gift for one person lists every box line of its one delivery, and the landmark', async ({ page }) => {
+  await mockApi(page, { signedIn: true, role: 'OPERATOR' })
+  await giftSwitch(page, 'OPERATOR', true)
+  const one: GiftOrderListItem = {
+    ...GIFT, id: 'gft2', number: 'GFT-1002', recipientCount: 1, boxes: 3, discount: 0, promoCode: null, business: null, subtotal: 559700, total: 559700,
+    children: [{
+      id: 'o9', number: 'G-743 406 080', position: 1, status: 'CONFIRMED', deliveryDate: '2026-10-16', pincode: '560038', recipientName: 'Ravi Kumar', total: 559700,
+      box: { sku: 'ALP-3', name: 'Alphonso 3kg Box', stage: 'SEMI_RIPE', qty: 2 },
+      boxes: [{ sku: 'ALP-3', name: 'Alphonso 3kg Box', stage: 'SEMI_RIPE', qty: 2 }, { sku: 'MIX-3', name: 'Mixed Variety Mangoes 3kg Box', stage: 'SEMI_RIPE', qty: 1 }],
+      landmark: 'near Sai Baba temple', refund: null,
+    }],
+  }
+  await page.route(/\/admin\/v1\/gift-orders(\?|$)/, (route) => route.fulfill({ json: { page: 1, pageSize: 20, total: 1, items: [one] } }))
+  await page.goto('/orders?view=gifts')
+  const gift = page.getByRole('region', { name: 'GFT-1002', exact: true })
+  await expect(gift).toContainText('1 recipient, 3 boxes')
+  const row = gift.getByRole('row').nth(1)
+  await expect(row).toContainText('2 × Alphonso 3kg Box, Semi-ripe')
+  await expect(row).toContainText('1 × Mixed Variety Mangoes 3kg Box, Semi-ripe')
+  await expect(row).toContainText('Landmark: near Sai Baba temple')
+})

@@ -56,7 +56,7 @@ export function monthsBefore(day, months) {
 export async function anonymiseOldOrders(at = now(), { months = env.PII_RETENTION_MONTHS, batch = 1_000 } = {}) {
   const cutoff = monthsBefore(todayIST(at), months)
   const { rows } = await query(
-    `UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL,
+    `UPDATE orders SET customer_name = NULL, phone = NULL, delivery_address = NULL, delivery_landmark = NULL,
             gift_recipient_name = NULL, gift_recipient_phone = NULL, gift_message = NULL, pii_removed_at = $3
       WHERE id IN (
         SELECT id FROM orders

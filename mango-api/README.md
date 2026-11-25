@@ -468,6 +468,14 @@ chosen: the API gives the earliest week with room, and the shop shows it before 
   maintenance step `gift-address-reminders` sends `GIFT_ADDRESS_REMINDER` to the recipient and
   `GIFT_ADDRESS_MISSING` to the giver, once each. The allocator leaves a booking without an
   address BOOKED (it keeps its kg) and converts it on the first run after the address is given.
+- **A gift for one person, many boxes** (change request 02, migration 098, docs/gifting.md): `POST /v1/preorders/groups`
+  with `oneDelivery: true` takes one entry per box line for the SAME person and address (else `400 RECIPIENTS_INVALID`;
+  a box and ripeness twice refused; over 20 boxes `400 GIFT_TOO_MANY_BOXES` with `maxBoxes`). Every line is booked in one
+  week, the earliest in which all of them have room together (the week of the box ready last); a shown `weekStart` that
+  no longer matches answers `409 PREORDER_FULL` / `PREORDER_WEEK_CHANGED` with the new `weekStart`. The group has
+  `oneDelivery: true`, `recipientCount` 1 and `lineCount`; the allocator turns its booked lines of a week into one
+  delivery order. An asked address has one link (the first line) and is copied to every line. Entries may carry
+  `landmark` (optional, 100 characters, `preorders.delivery_landmark`; `landmark` on each booking).
 - **Season.** Two rules on the Planning page, `seasonStartsOn` and `preorderOpensOn`
   (both optional, `src/season-phase.js`): before the season starts the shop's home page is
   the pre-order shop (phase `PREORDER`), before pre-orders open nothing can be booked
@@ -650,8 +658,10 @@ the customer accepts or declines it. An order sent to the enquiry form is refuse
 
 **A farm visit enquiry** (`kind: 'FARM_VISIT'`, migration 087) is the Farm visit tab's form: always open, signed in or
 not, no farm switch needed. Name, mobile, city, which mango (a variety we sell, or not sure yet), about how many kg
-(`FARM_VISIT_MIN_KG`, 250, the farm visit's own minimum; 100 until 24 Nov 2026), a preferred date (not in the past)
-or flexible, how many people, a note, and optionally the language to speak with them (`preferred_language`: English,
+(`FARM_VISIT_MIN_KG`, 250, the farm visit's own minimum; 100 until 24 Nov 2026), the visit's two dates or flexible
+(Day 1, arrive, from today, in `visit_date`; Day 2, leave, in `visit_to`, migration 097: Day 1 or the day after, as a
+visit is 2 days at most and a 1-day visit is fine; an enquiry sent with the older single `visitDate` keeps it as Day 1
+with no Day 2, and so do the rows sent before 097), how many people, a note, and optionally the language to speak with them (`preferred_language`: English,
 Telugu, Hindi, Tamil, Kannada or Other) and another mobile number (`alt_phone`, migration 094). The same Idempotency-Key rules, daily per-phone limit and connection limit as an enquiry. It
 queues `FARM_VISIT_ENQUIRY_RECEIVED` on WhatsApp and the live `bulk.enquiry` event (`kind: 'FARM_VISIT'`). Staff move it
 NEW → CONTACTED ("Called customer") → VISIT_PLANNED (the agreed date, `planned_visit_date`) → VISITED, or close it
@@ -662,7 +672,7 @@ and bookings are open.
 
 | Route | Who | What |
 |---|---|---|
-| `POST /v1/farm-visit-enquiries` | anyone (a signed-in customer's token links it) | `{name, phone, city, variety?, kg, visitDate?, flexible?, people, notes?}`; `201 {id, number, status: 'NEW', kind: 'FARM_VISIT'}`. Listed in `GET /v1/me/bulk-enquiries` with `farmVisit: {variety, kg, preferredDate, flexible, people, plannedDate, contactedAt, visitPlannedAt, visitedAt, closeReason}` |
+| `POST /v1/farm-visit-enquiries` | anyone (a signed-in customer's token links it) | `{name, phone, city, variety?, kg, visitFrom?, visitTo?, flexible?, people, notes?, preferredLanguage?, altPhone?}` (`visitDate?`, the older single date, is still taken as Day 1); a longer visit is `400` "A farm visit is 2 days at most." (`field: 'visitTo'`); `201 {id, number, status: 'NEW', kind: 'FARM_VISIT'}`. Listed in `GET /v1/me/bulk-enquiries` with `farmVisit: {variety, kg, visitFrom, visitTo, visitDays, visitWords ("Thu 26 – Fri 27 Nov, 2 days"), preferredDate (= visitFrom), flexible, people, plannedDate, contactedAt, visitPlannedAt, visitedAt, closeReason}` |
 | `POST /admin/v1/bulk-enquiries/:id/farm-status` | managers, operators | `{to: 'CONTACTED' \| 'VISIT_PLANNED' \| 'VISITED', date?, note?}` (VISIT_PLANNED needs a date from today); closing is `/close` with `{reason}` (required for a farm visit) |
 | `GET /v1/bulk/prices` | anyone | `{discountPct, items: [{sku, variety, name, custom, packs: [{packKg: 5 \| 10, price, bulkPrice, savingPct}]}]}` (paise): every variety on sale with a 5 kg box |
 | `POST /v1/bulk-enquiries` | anyone (a signed-in customer's token links it to the account) | an enquiry: `{name, business?, email?, phone, city, notes?, lines: [{sku, stage, boxes, packKg?}] \| quantityKg, ripeness?}`, 250 kg or more; `Idempotency-Key` honoured for the same sender and body (another body: `422`); `BULK_ENQUIRY_DAILY_LIMIT` per phone a day, 10 an hour per connection. Answers `{id, number, status, kind}` |

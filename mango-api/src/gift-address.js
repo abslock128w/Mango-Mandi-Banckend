@@ -91,9 +91,12 @@ async function sameLinkToken(c, link) {
  * first GIFT_ADDRESS_REQUEST. A booking that already has a live link is left alone, so a replay adds nothing.
  * Returns how many links were made.
  */
-export async function openLinks(c, members) {
+export async function openLinks(c, members, { oneDelivery = false } = {}) {
   let made = 0
-  for (const p of members) {
+  // A gift for one person (migration 098) is one address for all its box lines: one link, on its first pending line;
+  // the address given there is copied to every line (fillLink).
+  const list = oneDelivery ? members.filter((p) => p.address_state === PENDING && p.status === 'BOOKED').slice(0, 1) : members
+  for (const p of list) {
     if (p.address_state !== PENDING || p.status !== 'BOOKED') continue
     if (await liveLink(c, p.id)) continue
     const id = newId('gal')
@@ -170,8 +173,16 @@ export function giverFields(p, link, paid, at = now()) {
 export async function resendLink(c, { groupId, preorderId, customerId }) {
   const g = (await c.query('SELECT * FROM preorder_groups WHERE id = $1 AND customer_id = $2 FOR UPDATE', [groupId, customerId])).rows[0]
   if (!g) throw notFound('Gift pre-order not found')
-  const p = (await c.query('SELECT * FROM preorders WHERE id = $1 AND group_id = $2 FOR UPDATE', [preorderId, g.id])).rows[0]
+  let p = (await c.query('SELECT * FROM preorders WHERE id = $1 AND group_id = $2 FOR UPDATE', [preorderId, g.id])).rows[0]
   if (!p) throw notFound('Gift pre-order not found')
+  // A gift for one person (migration 098): its one link is on the line that has it (the first pending line).
+  if (g.one_delivery && !(await liveLink(c, p.id))) {
+    const { rows } = await c.query(
+      `SELECT p.* FROM preorders p JOIN gift_address_links gl ON gl.preorder_id = p.id AND gl.revoked_at IS NULL WHERE p.group_id = $1 ORDER BY p.group_position LIMIT 1 FOR UPDATE OF p`,
+      [g.id],
+    )
+    if (rows[0]) p = rows[0]
+  }
   const paid = g.payment_status === 'SUCCEEDED'
   let link = await liveLink(c, p.id, { lock: true })
   const refused = resendRefusal(p, link, paid)
@@ -237,7 +248,7 @@ export async function readLink(rawToken, at = now()) {
  * 404 LINK_NOT_FOUND, 410 GIFT_CANCELLED, 409 ADDRESS_GIVEN (a second time), 410 LINK_EXPIRED, 400 NOT_SERVICEABLE.
  * Returns { state: 'GIVEN', weekStart }.
  */
-export async function fillLink(rawToken, { address, pincode }) {
+export async function fillLink(rawToken, { address, pincode, landmark = null }) {
   return await tx(async (c) => {
     const { p, link } = await find(c, rawToken, { lock: true })
     if (p.status === 'CANCELLED') throw new HttpError(410, 'GIFT_CANCELLED', 'This gift was cancelled.')
@@ -246,7 +257,16 @@ export async function fillLink(rawToken, { address, pincode }) {
     const { rows } = await c.query('SELECT 1 FROM pincodes WHERE pincode = $1 AND active', [pincode])
     if (!rows.length) throw new HttpError(400, 'NOT_SERVICEABLE', 'We do not deliver to this pincode yet')
     const at = now()
-    await c.query(`UPDATE preorders SET pincode = $2, delivery_address = $3, address_state = 'ADDRESS_GIVEN' WHERE id = $1`, [p.id, pincode, address])
+    await c.query(`UPDATE preorders SET pincode = $2, delivery_address = $3, delivery_landmark = $4, address_state = 'ADDRESS_GIVEN' WHERE id = $1`, [p.id, pincode, address, landmark || null])
+    // A gift for one person (migration 098): every box line goes to the one address, delivered together.
+    if (p.group_id) {
+      await c.query(
+        `UPDATE preorders SET pincode = $2, delivery_address = $3, delivery_landmark = $4, address_state = 'ADDRESS_GIVEN'
+          WHERE group_id = $1 AND id <> $5 AND address_state = 'ADDRESS_PENDING' AND status <> 'CANCELLED'
+            AND EXISTS (SELECT 1 FROM preorder_groups g WHERE g.id = $1 AND g.one_delivery)`,
+        [p.group_id, pincode, address, landmark || null, p.id],
+      )
+    }
     await c.query('UPDATE gift_address_links SET filled_at = $2 WHERE id = $1', [link.id, at])
     await addEvent(c, p, 'Address given by the recipient', 'recipient')
     return { state: 'GIVEN', weekStart: p.week_start }

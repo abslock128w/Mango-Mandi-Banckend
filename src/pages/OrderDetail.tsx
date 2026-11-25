@@ -465,6 +465,12 @@ function OrderView({ order }: { order: Order }) {
               )}
               <dt>Address</dt>
               <dd>{order.deliveryAddress ?? '—'}</dd>
+              {order.deliveryLandmark && (
+                <>
+                  <dt>Landmark</dt>
+                  <dd>{order.deliveryLandmark}</dd>
+                </>
+              )}
               <dt>Pincode</dt>
               <dd>{order.pincode ?? '—'}</dd>
               <dt>Placed via</dt>

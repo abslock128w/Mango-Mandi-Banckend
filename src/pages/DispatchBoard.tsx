@@ -476,6 +476,7 @@ function StopPeek({
         <dd>
           {s.o.deliveryAddress ?? 'No address'}, {s.pincode}
           {s.area ? ` · ${s.area}` : ''}
+          {s.o.deliveryLandmark && <div className="small muted">Landmark: {s.o.deliveryLandmark}</div>}
         </dd>
         <dt>Slot</dt>
         <dd>{s.slot ? `${s.slot.label} ${s.slot.startsAt}–${s.slot.endsAt}${s.dueAt ? `, due by ${clock(s.dueAt)}` : ''}` : 'No slot'}</dd>

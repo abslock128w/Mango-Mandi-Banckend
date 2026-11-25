@@ -33,6 +33,40 @@ demo.
 
 Migration: `mango-api/migrations/042_gifting.sql`.
 
+## One person, many boxes (change request 02, 25 Nov 2026)
+
+The shop now sends a gift to **one person**, with as many mangoes as they like (CR2-06, CR2-07). A gift order for several
+people (below) still works on the API and still opens in the shop and the panel, but the shop never makes one.
+
+- **Any box the shop sells** can be in a gift: every variety in `GET /v1/products` (16 today: 15 single varieties and
+  Mixed Variety Mangoes), in any size and ripeness, so a new variety is giftable as soon as it is on sale. The same
+  variety in two sizes or ripenesses is two box lines.
+- **At most 20 boxes** in one gift (Q2): `GIFT_MAX_BOXES` in `mango-api/src/preorders.js`, `perRecipientMax()` in
+  `gifts.js` (also capped by `maxHeldBoxes`), and `GET /v1/policy` → `giftMaxBoxes` for the shop.
+- **One delivery.** In season the recipient is one delivery order with a line per box (`POST /v1/gifts/quote` takes
+  `recipients[].lines: [{ sku, stage, qty }]`; the old `sku, stage, qty` still works). Only days with every box in stock
+  are offered. Before the season `POST /v1/preorders/groups` takes `oneDelivery: true`: each entry is one box line for the
+  same person and address (`400 RECIPIENTS_INVALID` otherwise; a box and ripeness twice is refused; more than 20 boxes is
+  `400 GIFT_TOO_MANY_BOXES` with `maxBoxes`). Every line is booked in the **same week**: the earliest week in which every
+  line has room together, which is the week of the box that is ready last (`togetherWeek`). The shop sends the week it
+  showed (`weekStart`); a week that changed answers `409 PREORDER_FULL` / `PREORDER_WEEK_CHANGED` with the new
+  `weekStart`, and nothing is booked. The group is stored with `preorder_groups.one_delivery` (migration 098),
+  `recipient_count` 1, and the season's allocator turns its booked lines of a week into **one** delivery order (a line per
+  box, the first line's number, the payment amounts added up). One payment link for the whole gift, as before.
+- **Asking for the address** (`GIFT_ADDRESS_LINKS`) on a one-person gift: one link, on the first line; the address the
+  recipient gives is copied to every line.
+- **Landmark** (CR2-07, Q3: optional, up to 100 characters), stored apart from the address: `orders.delivery_landmark`
+  and `preorders.delivery_landmark` (migration 098). Taken by `POST /v1/gifts/quote` (`recipients[].landmark`),
+  `POST /v1/preorders/groups` (`recipients[].landmark`) and the recipient's address page (`POST /v1/gift-address/:token`,
+  `landmark`). Shown in `GET /v1/gifts/:id` (`recipients[].landmark`), `GET /v1/orders/:id` and
+  `GET /admin/v1/orders/:id` (`deliveryLandmark`), the panel's gift orders list (`children[].landmark`), the delivery run
+  (`GET /admin/v1/manifest`, `deliveryLandmark`: the panel's Deliveries page, its printed run and the rider app's stop),
+  and pre-orders (`landmark`). Erased with the address (account deletion, PII retention), and redacted from the logs.
+  Packers do not see it (as the address).
+- **City from the pincode:** `GET /v1/delivery/check` → `city` (the served pincode's city), shown read-only on the form.
+- **WhatsApp:** the approved confirmation templates (`ORDER_CONFIRMED`, `PREORDER_BOOKED`) have no address variable,
+  so the landmark is not in them. Adding it needs a new template version approved by Meta (**owner action**).
+
 ## How it works
 
 ### The data
@@ -192,29 +226,36 @@ Staff routes (managers and operators, as for the order list; 404 while off):
 
 ## Shop
 
-The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `shop/style.css`) sends a gift in two screens (the browser audit of 23 Nov 2026).
+The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `shop/style.css`) sends a gift in two
+screens (change request 02).
 
-- **Screen 1, `/gifts`: "Send a box of the season".**
-  - One card per gift box (Mixed, Alphonso, Kesar…). Each is set to 3 kg and semi-ripe. **Change** opens the size and ripeness on the card.
-  - Each card has one button, **Send as a gift**. There is no quantity counter: each person gets one box, so the number of boxes is the number of people.
-  - Before the season the pre-order terms appear once, as a chip: "Pre-order · arrives week of 1 Mar · **Details**". Details opens the terms in place.
-  - While `MULTI_GIFT` is off, the card's one button is **Add to bag as a gift** instead: one person, checked out from the bag (`shop/gift-bag.js`).
+- **Screen 1, `/gifts`: "Send a gift of the season" · "Choose the mangoes".**
+  - "Pick as many mangoes as you like for one person. You pay once, and everything arrives together." Steps "1 Choose
+    the mangoes · 2 Who gets it". Before the season a chip "Pre-order · arrives together week of 1 Mar · Details"
+    (Details opens the pre-order pop-up).
+  - One card per variety from the live catalogue, Mixed Variety Mangoes first with "Most gifted", then A to Z; a search
+    box filters them. Each card: photo, name, shop price, size (3 kg / 5 kg, or "One size"), the ripeness with
+    **Change**, and **+ Add to gift**, which becomes a stepper "− 1 in gift +".
+  - The sticky bar: "Gift for one person · 3 boxes · 9 kg · ₹5,597 · Arrives together · week of 1 Mar" and
+    **Next: who gets it**, off until there is a box. At 20 boxes + is off, with a friendly line.
+  - While `MULTI_GIFT` is off a card's button is **Add to bag as a gift** instead (`shop/gift-bag.js`).
 - **Screen 2, `/gifts/send`: "Who gets it?".**
-  - The box each person gets, with **Change**. A person can have a different box ("Give this person a different box").
-  - One open row per person: **Name** and **WhatsApp number** (with +91 beside it), then the address and pincode. The pincode is checked as it is typed, so the giver learns at once whether we deliver there.
-  - Before the season, when the API offers it (`GET /v1/policy` → `features.giftAddressAsk`), each row asks "Their address": **Ask them on WhatsApp** (the default) or **I’ll enter it**. With "Ask", only the name and number are needed. While the API does not offer it, the address is asked as before.
-  - Rows save themselves as they are typed (this tab's draft, `sessionStorage` `mm-gift-draft`, version 3). There is no "Save this person". Empty rows are left out at Pay. Older drafts are read too.
-  - Up front: the **gift note** for every box, **From**, and the line "The price is hidden". Nothing the recipient gets shows a price; there is no switch for it.
-  - In season: one day and time for everyone, and the optional GST details for the one bill.
-  - The **sticky bar** at the bottom: "2 boxes · Arrives week of 1 Mar" (in season, the day), the total, and **Pay ₹3,598**. Before the season it also holds the one tick box: paid in full now, can't be cancelled once paid unless we delay it.
-  - **Pay** checks every row (the first mistake is focused), the tick, then sign-in (it comes back to `/gifts/send`, ready to press Pay again). In season it makes the gift order (quote, confirm, the Razorpay payment, verify-payment, as before). Before the season it books the gift pre-order group (`POST /v1/preorders/groups`, `qty: 1` per person, `askAddress: true` for "Ask"), then the payment link and the done screen.
+  - **Their gift**: one row per box line (photo, name, size · ripeness, − qty +, price; 0 takes it out), **+ Add more
+    mangoes** (screen 1, everything kept), the boxes and kg, and "Arrives together · week of 1 Mar" with the rule.
+  - **Who gets it**: Name, WhatsApp number (+91), House / flat, street, area, Landmark (optional), Pincode (checked as it
+    is typed) and City (from the pincode, read-only). Before the season, when the API offers it, "Ask them on WhatsApp".
+  - **With the gift**: the gift note, From, and "The price is hidden".
+  - In season: the day (only days with every box) and time, and the optional GST details for the one bill.
+  - The sticky bar: the pre-order tick (before the season), "Gift for one person · 3 boxes · 9 kg", "Arrives together ·
+    week of 1 Mar" and **Pay ₹5,597**. Pay checks the details, the tick, then sign-in (it comes back to `/gifts/send`),
+    then books: before the season `POST /v1/preorders/groups` with `oneDelivery`, in season quote → confirm → Razorpay.
+  - The selection and the person are this tab's draft (`sessionStorage` `mm-gift-draft`, version 4); a draft for several
+    people from before opens as a gift for its first person.
   - `/gifts/send/review` is kept for old links and opens screen 2.
-- **Gift order page (`/gifts/:id`):**
-  - the payment state and each recipient's delivery with its status
-  - cancel for one recipient or for the whole order, while allowed
-  - the bill
-- **Orders page:** lists gift orders, and marks each delivery "gift for <name>".
-- **Order again** on a gift opens screen 2 with the same box (one box per person).
+- **Gift order page (`/gifts/:id`)** and **gift pre-order page (`/gifts/pre/:id`)**: a one-person gift shows the person,
+  their address and landmark, and every box; older gifts for several people show each person.
+- **The bag** no longer offers "Make this a gift" on a line (Q5): it links to Gifts ("Sending a gift? Gifts →"). A gift
+  line already in a bag still shows and checks out, and can be moved back ("This one is for me").
 
 ## Panel
 
@@ -247,8 +288,11 @@ The static shop (`shop/gifts.js`, helpers in `shop/gift-rows.js`, styles in `sho
   the Send link rules; the reminder is queued once, 5 days before the week and not earlier; the allocator skips a
   pending booking and converts it once the address is given; both switches; another customer's group answers 404.
 - **Isolation:** `mango-api/test/security-readiness.test.js` lists the gift routes among the customer routes checked for cross-customer access.
+- **One person, many boxes:** `mango-api/test/gift-one-person.test.js`: many lines for one recipient in one delivery and
+  one payment (in season and before the season, through the allocator), the 20-box cap, the shared week, the landmark in
+  the order, the gift view, the panel and the delivery run, and the city from the pincode.
 - **Shop:**
-  - `tests/unit/gift-rows.unit.ts` tests the shop's gifting helpers (the draft in every shape, the WhatsApp number, the week words, the booking body).
+  - `tests/unit/gift-rows.unit.ts` tests the shop's gifting helpers (the draft in every shape, the WhatsApp number, the box lines and the cap, the shared week, the booking bodies).
   - `customer-app/tests/unit/gift-csv.unit.ts` tested the CSV reader of the retired Next.js shop.
   - `customer-app/tests/gifting.spec.ts` is end to end against the real API, the shop and the panel.
 - **Panel:** `tests/gifting.spec.ts`, against the mock API.

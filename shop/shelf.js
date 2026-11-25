@@ -20,8 +20,6 @@ const stageOf = (apiStage) => STAGES.find((s) => s.apiStage === apiStage) || STA
 const stageById = (id) => STAGES.find((s) => s.id === id)
 const CATALOG = window.MM_CATALOG || { varieties: [], ripeness: {}, occasions: [], synonyms: [], trending: [] }
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const STOP_WORDS = new Set(['mango', 'mangoes', 'for', 'the', 'a', 'an', 'and', 'of', 'box'])
-const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', 'semi-ripe': 'SEMI_RIPE', ripe: 'SEMI_RIPE' }
 
 let shelf = [] // [{ name, c: content, skus: [api product] }]
 let occasion = 'all'
@@ -245,38 +243,24 @@ function cardHTML(v) {
 
 // ---- Which cards, in what order
 
-function haystack(v) {
-  return [v.name, v.c.region, v.c.origin, v.c.flavour, v.c.bestFor, ...(v.c.tags || []), ...(v.c.contents || []).map((x) => x.name)].join(' ').toLowerCase()
-}
-
+// The search itself is catalog.js filter (also unit tested): "mango", "box" and the ripeness words alone filter nothing,
+// other names and typos are read as the name they mean (searchFix, the line over the grid), and the matches come best
+// first. suggest.js lists the first six cards of this same list.
 function visibleShelf() {
-  const q = $('#search').value.trim().toLowerCase()
+  const typed = $('#search').value.trim(), q = typed.toLowerCase()
   hits.clear()
   searchStage = null
   searchFix = null
   if (searchExact && searchExact !== q) searchExact = null
-  let fixed = null
   let list = occasion === 'all' ? shelf : shelf.filter((v) => (v.c.occasions || []).includes(occasion))
-  if (q) {
-    for (const syn of CATALOG.synonyms) {
-      if (!hits.has(syn.variety) && syn.terms.some((t) => q.includes(t) || (q.length >= 3 && t.startsWith(q)))) hits.set(syn.variety, syn)
-    }
-    const words = q.split(/\s+/).filter((w) => !STOP_WORDS.has(w))
-    const stageWord = words.find((w) => STAGE_WORDS[w])
-    if (stageWord) searchStage = STAGE_WORDS[stageWord]
-    const rest = words.filter((w) => !STAGE_WORDS[w])
-    const base = list
-    list = list.filter((v) => hits.has(v.name) || (rest.length ? rest.every((w) => haystack(v).includes(w)) : Boolean(stageWord)))
-    // Nothing as typed: read it as another name or a typo (catalog.js find: "alpfonso" is Alphonso) and show what that
-    // finds, with a line saying so, unless the customer asked to search the words as typed.
-    if (!list.length && rest.length && searchExact !== q && CATALOG.find) {
-      const r = CATALOG.find(rest.join(' '), base.map((v) => ({ name: v.name, about: CATALOG.aboutOf(v.c) })))
-      if (r.fixed) {
-        fixed = r.items.map((x) => x.name)
-        list = base.filter((v) => fixed.includes(v.name))
-        searchFix = { from: $('#search').value.trim(), to: r.fixed }
-      }
-    }
+  let tier = () => 0
+  if (q && CATALOG.filter) {
+    const r = CATALOG.filter(q, list, { exact: searchExact === q })
+    searchStage = r.stage
+    for (const syn of r.hits) hits.set(syn.variety, syn)
+    if (r.fixed) searchFix = { from: typed, to: r.fixed }
+    if (r.names) list = list.filter((v) => r.names.includes(v.name))
+    tier = (v) => (v.name in r.tier ? r.tier[v.name] : 999)
   }
   const price = (v) => skuOf(boxFor(v, stageFor(v))).price
   const order = {
@@ -285,12 +269,10 @@ function visibleShelf() {
     'price-asc': (a, b) => price(a) - price(b),
     'price-desc': (a, b) => price(b) - price(a),
   }[sortBy]
-  // Search hits first (in the synonyms' order), sold-out cards last, then the chosen order.
-  const rank = [...hits.keys()]
-  const hitRank = (v) => (hits.has(v.name) ? rank.indexOf(v.name) : rank.length)
+  // Best matches first (catalog.js filter's tiers: search-word hits, the name, a word of it, the words about it), then
+  // sold-out cards last, then the chosen order.
   return list.slice().sort((a, b) =>
-    (fixed ? fixed.indexOf(a.name) - fixed.indexOf(b.name) : 0) ||
-    hitRank(a) - hitRank(b) ||
+    tier(a) - tier(b) ||
     Number(soldOut(a, stageFor(a))) - Number(soldOut(b, stageFor(b))) ||
     order(a, b))
 }

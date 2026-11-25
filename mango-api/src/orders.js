@@ -186,6 +186,8 @@ export async function createOrder(c, o, actor) {
       [newId('itm'), id, l.sku, l.qty, l.stage, l.unitPrice, l.unitPrice * l.qty, l.listingId ?? null, l.pricing ?? null, o.planned ? lineKg(l) : null, o.planned ? planVarietyOf(l.sku) : null],
     )
   }
+  // An optional landmark kept apart from the address (migration 098; a gift's recipient, CR2-07).
+  if (o.landmark) await c.query('UPDATE orders SET delivery_landmark = $2 WHERE id = $1', [id, o.landmark])
   await addEvent(c, id, null, o.status, actor, o.eventReason ?? null)
   const order = { id, number, delivery_date: o.deliveryDate, status: o.status, slot_id: slotId }
   // Booked against the plan (plan-orders.js): no stock now. Its fruit is set aside when it arrives, after that week's pre-orders.

@@ -166,7 +166,8 @@ function cancelNote(o, canCancel) {
 }
 
 // ---- The bulk page: three tabs under the heading (bulk.js): Bulk order (100 kg and above, ordered and paid now at bulk
-// prices), Send enquiry (250 kg and above, a quote) and Farm visit (250 kg and above, farm.js). On the first two one
+// prices), Send enquiry (250 kg+ mangoes, a quote: three numbered steps and a kg meter in the bar, CR2-05) and Farm visit
+// (250 kg+ mangoes, a farm visit enquiry: bulk.js). On the first two one
 // adder (a variety <select>, ripeness, 5 kg / 10 kg box, number of boxes) fills one bulk list (localStorage `mm-bulk`,
 // not the bag), shared by both tabs, shown under it with a stepper per line and both prices (the shop's struck through,
 // the bulk price from GET /v1/bulk/prices). The sticky bar (#pay-bar) offers the tab's one action: "Order and pay"
@@ -175,7 +176,7 @@ function cancelNote(o, canCancel) {
 const BULK_MIN_KG = 100
 /** Enquiries are for this many kg and more (the API's BULK_ENQUIRY_MIN_KG): below it, order and pay instead. */
 const BULK_ENQUIRY_MIN_KG = 250
-const BULK_ENQUIRY_MIN_TEXT = `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg and above. From ${BULK_MIN_KG} kg you can order and pay directly.`
+const BULK_ENQUIRY_MIN_TEXT = `Enquiries need at least ${BULK_ENQUIRY_MIN_KG} kg of mangoes. From ${BULK_MIN_KG} kg you can order and pay directly.`
 // Bulk boxes are 5 kg or 10 kg only. The catalogue has no 10 kg box, so the 10 kg bulk box is the variety's 5 kg fruit packed
 // double: id "<5 kg sku>@10" in the list, sent to the API as that sku with packKg 10, shown at twice the 5 kg price.
 const BULK_PACKS_KG = [5, 10]
@@ -302,7 +303,7 @@ function adderHTML() {
   const max = adderFix(), v = adderVariety(), list = shelf.filter((x) => bulkBoxes(x).length)
   const s = v && adderBox(v), st = stageOf(adder.stage), src = v && v.c.photos && v.c.photos[adder.stage], room = v ? adderRoom(v) : 0
   const preview = v
-    ? `<div class="bulk-pick-photo fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${esc(v.name)}">${src ? `<img src="${src}" alt="" width="720" height="720" decoding="async">` : ''}</div><div class="bulk-pick-copy"><p class="bulk-pick-kicker">Your pick</p><h3>${esc(v.name)}</h3><p>${esc(v.c.flavour)}</p><p class="bulk-pick-meta"><span>${st.stage}</span><span>${esc(kgText(s))} box</span>${bulkPriceHTML(s.sku, s.price)}</p></div>`
+    ? `<div class="bulk-pick-photo fruit-photo${src ? ' photo' : ''}" role="img" aria-label="${st.stage} ${esc(v.name)}">${src ? `<img src="${src}" alt="" width="720" height="720" decoding="async">` : ''}${bulkTab === 'enquiry' && v.name === BULK_FIRST ? '<span class="bq-most">Most asked</span>' : ''}</div><div class="bulk-pick-copy"><p class="bulk-pick-kicker">Your pick</p><h3>${esc(v.name)}</h3><p>${esc(v.c.flavour)}</p><p class="bulk-pick-meta"><span>${st.stage}</span><span>${esc(kgText(s))} box</span>${bulkPriceHTML(s.sku, s.price)}</p></div>`
     : `<div class="bulk-pick-photo is-empty" aria-hidden="true">${icon('mango')}</div><div class="bulk-pick-copy"><p class="bulk-pick-kicker">Your pick</p><h3>Choose a variety</h3><p>Pick one from the list: its picture and a line about it show here.</p></div>`
   const why = !v ? 'Choose a variety first.' : room <= 0 ? `This line already has ${BULK_MAX_BOXES} boxes, the most one line can hold.` : ''
   return `<div class="bulk-pick${v ? '' : ' is-empty'}">${preview}</div>
@@ -346,9 +347,11 @@ function renderBulkGrid(focus) {
     save('mm-bulk', bulkList)
   }
   const intro = bulkTab === 'enquiry'
-    ? `Pick a variety, the ripeness and a <strong>5 kg or 10 kg box</strong>. Enquiries are for <strong>${BULK_ENQUIRY_MIN_KG} kg and above</strong>: we price your list and send a quote, which can be lower than the bulk price shown. Nothing is paid now.`
+    ? `Pick a variety, the ripeness and a <strong>5 kg or 10 kg box</strong>. Enquiries are for <strong>${BULK_ENQUIRY_MIN_KG} kg+ mangoes</strong>: we price your list and send a quote, which can be lower than the bulk price shown. Nothing is paid now.`
     : `Pick a variety, the ripeness and a <strong>5 kg or 10 kg box</strong>. Bulk orders start at ${BULK_MIN_KG} kg, at <strong>bulk prices</strong> (the shop price is struck through), and you pay when you order.`
-  grid.innerHTML = `<div class="door-intro"><h2 class="flow-head">Build your bulk list</h2><p>${intro}</p></div><div class="bulk-adder">${adderHTML()}</div>${bulkListHTML()}`
+  // Send enquiry (change request 02, CR2-05): the section's head has its step number, as on the farm visit page.
+  const title = bulkTab === 'enquiry' ? '<span class="fv-num" aria-hidden="true">1</span>Build your bulk list' : 'Build your bulk list'
+  grid.innerHTML = `<div class="door-intro${bulkTab === 'enquiry' ? ' bq-head' : ''}"><h2 class="flow-head${bulkTab === 'enquiry' ? ' fv-sec-h' : ''}">${title}</h2><p>${intro}</p></div><div class="bulk-adder">${adderHTML()}</div>${bulkListHTML()}`
   refocus(grid, focus)
 }
 
@@ -389,10 +392,10 @@ function adderSet(b) {
 }
 
 /** The sticky bar on /bulk: the list's weight and boxes, and the tab's action: "Order and pay" (from 100 kg) or "Send
- *  enquiry" (from 250 kg). The farm tab has no bar. */
+ *  enquiry" (from 250 kg). The farm tab's bar (phones only) is bulk.js bulkFarmBar. */
 function bulkBar() {
   if (document.body.dataset.page !== 'bulk') return
-  if (bulkTab === 'farm-visit') return setBar('')
+  if (bulkTab === 'farm-visit') return bulkFarmBar()
   if (bulkTab === 'enquiry') return bulkEnquiryBar()
   const t = bulkTotals(), ok = t.kg >= BULK_MIN_KG
   // Just sent (the "sent" card is on screen and the list is empty): say so, no disabled button or hint.
@@ -408,16 +411,44 @@ function bulkBar() {
   setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>${ok && t.priced ? 'Total to pay' : 'Your bulk list'}</small><strong>${ok && t.priced ? `<span>${currency(t.bulk + fee)}</span>` : `<span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span>`}</strong></div><div class="bulk-bar-go"><button class="button primary pay-bar-go" id="bulk-order" ${ok ? '' : `disabled aria-describedby="bulk-order-why"`}>${ok ? '' : icon('lock')}<span>Order and pay</span>${ok ? icon('arrow') : ''}</button></div></div>`)
 }
 
-/** The enquiry tab's bar: "Send enquiry" from 250 kg; under it, why not, and the way to order and pay instead. */
+/** The Send enquiry tab's three steps (change request 02, CR2-05), under the tabs: 1 while the list is built, 2 once the
+ *  details form is open, 3 once it is sent. bulkEnquirySteps marks the one you are on. */
+function bulkStepsHTML() {
+  const steps = [['Build your list', `${BULK_ENQUIRY_MIN_KG} kg+ mangoes`], ['Your details', 'name, city, WhatsApp'], ['Get your quote', 'on WhatsApp, often lower']]
+  return `<ol class="bq-steps" aria-label="Sending an enquiry">${steps.map(([t, sub], i) => `<li${i ? '' : ' class="is-now" aria-current="step"'}><span class="fv-num" aria-hidden="true">${i + 1}</span><span class="bq-step-copy"><strong>${t}</strong><small>${sub}</small></span></li>`).join('')}</ol>`
+}
+function bulkEnquirySteps() {
+  const ol = $('.bq-steps')
+  if (!ol) return
+  const box = $('#bulk-box'), sent = box && [...box.querySelectorAll('.bulk-sent')].some((el) => el.getClientRects().length)
+  const at = sent ? 3 : box && !box.hidden && $('#bulk-form', box) ? 2 : 1
+  $$('li', ol).forEach((li, i) => {
+    li.classList.toggle('is-now', i + 1 === at)
+    li.classList.toggle('is-done', i + 1 < at)
+    if (i + 1 === at) li.setAttribute('aria-current', 'step'); else li.removeAttribute('aria-current')
+  })
+}
+
+/** The enquiry tab's bar: a meter of the list's kg towards 250 ("Your bulk list · 180 kg of 250 kg", "Add 70 kg more
+ *  mangoes to send"), green and "Ready" from 250 kg, when "Send enquiry" unlocks; under 250 kg from 100 kg, the way to
+ *  order and pay instead. */
 function bulkEnquiryBar() {
+  bulkEnquirySteps()
   const t = bulkTotals(), ok = t.kg >= BULK_ENQUIRY_MIN_KG
   const sent = !t.boxes && [...document.querySelectorAll('#bulk-box .bulk-sent')].find((el) => el.getClientRects().length)
   if (sent) return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Enquiry sent · your quote comes on WhatsApp</span></p></div>`)
-  const hint = ok
-    ? `<p class="pay-bar-hint is-next is-ok" role="status">${icon('check')}<span>${t.kg} kg: press Send enquiry to add your details. Nothing is paid now.</span></p>`
-    : `<p class="pay-bar-hint is-next" role="status" id="bulk-enquiry-why">${icon('lock')}<span>${BULK_ENQUIRY_MIN_TEXT}${t.kg ? ` Your list is ${t.kg} kg.` : ''}</span></p>`
+  const pct = Math.min(100, Math.round((t.kg / BULK_ENQUIRY_MIN_KG) * 100)), more = BULK_ENQUIRY_MIN_KG - t.kg
+  const say = ok
+    ? `${icon('check')}<span>Ready: send it and we’ll quote you.</span>`
+    : `${icon('lock')}<span>${t.kg ? `Add ${more} kg more mangoes to send.` : `Enquiries need at least ${BULK_ENQUIRY_MIN_KG} kg of mangoes. Add boxes to your list.`}</span>`
   const order = !ok && t.kg >= BULK_MIN_KG ? `<a class="button secondary pay-bar-alt" href="/bulk" data-route>Order and pay</a>` : ''
-  setBar(`${hint}<div class="pay-bar-row bulk-bar"><div class="pay-bar-total"><small>Your bulk list</small><strong><span>${t.kg} kg ·</span> <span>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</span></strong></div><div class="bulk-bar-go">${order}<button class="button primary pay-bar-go" id="bulk-enquiry" ${ok ? '' : 'disabled aria-describedby="bulk-enquiry-why"'}>${ok ? '' : icon('lock')}<span>Send enquiry</span>${ok ? icon('arrow') : ''}</button></div></div>`)
+  setBar(`<div class="pay-bar-row bulk-bar bq-bar${ok ? ' is-ready' : ''}"><div class="bq-meter">
+      <p class="bq-meter-top"><strong>Your bulk list · <span class="no-wrap">${t.kg} kg of ${BULK_ENQUIRY_MIN_KG} kg</span></strong><small>${t.boxes} ${t.boxes === 1 ? 'box' : 'boxes'}</small></p>
+      <div class="bq-track" role="progressbar" aria-label="Your bulk list towards ${BULK_ENQUIRY_MIN_KG} kg" aria-valuemin="0" aria-valuemax="${BULK_ENQUIRY_MIN_KG}" aria-valuenow="${Math.min(t.kg, BULK_ENQUIRY_MIN_KG)}" aria-valuetext="${t.kg} kg of ${BULK_ENQUIRY_MIN_KG} kg"><span></span><i aria-hidden="true"></i></div>
+      <p class="bq-meter-say" id="bulk-enquiry-why" role="status">${say}</p>
+    </div><div class="bulk-bar-go">${order}<button class="button primary pay-bar-go bq-go" id="bulk-enquiry" ${ok ? '' : 'disabled aria-describedby="bulk-enquiry-why"'}>${ok ? '' : icon('lock')}<span>Send enquiry</span>${ok ? icon('arrow') : ''}</button></div></div>`)
+  const fill = $('#pay-bar .bq-track span')
+  if (fill) fill.style.width = `${pct}%`
 }
 
 function bulkStep(b) {
@@ -444,6 +475,10 @@ function bulkRedraw(kind) {
   bulkForm('#bulk-box', kind)
   const now = $('#bulk-form', box)
   if (!now) return
+  // Send enquiry (CR2-05): the details are step 2, headed like the farm visit page's sections.
+  const head = bulkTab === 'enquiry' && $('.flow-head', box)
+  box.classList.toggle('bq-details', Boolean(head))
+  if (head) { head.classList.add('fv-sec-h'); head.innerHTML = '<span class="fv-num" aria-hidden="true">2</span>Your details' }
   for (const [k, v] of typed) { const f = now.elements.namedItem(k); if (f && f.type !== 'hidden') f.value = v }
   const q = now.querySelector('input[name="quantity"][type="number"]')
   if (q && qty) q.value = qty
@@ -456,6 +491,7 @@ function bulkFollow() {
   if (!form) return
   if (bulkTotals().kg >= BULK_ENQUIRY_MIN_KG) bulkRedraw('ENQUIRY')
   else { box.hidden = true; box.innerHTML = '' }
+  bulkEnquirySteps()
 }
 
 /** Opens the tab's form under the list: the order flow (100 kg or more, bulk.js) or the enquiry form (250 kg or more). */
@@ -473,6 +509,7 @@ function openBulkEnquiry(kind = 'ORDER') {
   }
   box.hidden = false
   bulkRedraw(kind)
+  bulkEnquirySteps()
   box.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
   const h = $('.flow-head', box)
   if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }) }
@@ -482,13 +519,14 @@ function bulkPage(tab = 'order') {
   const was = bulkTab
   bulkTab = tab
   document.title = `${BULK_TABS.find((x) => x.id === tab).name} · VMR Mangoes`
-  host().innerHTML = pageHead('Bulk orders') + bulkTabsHTML(tab) + `<div class="bulk-panel" id="bulk-panel" role="tabpanel" aria-labelledby="bulk-tab-${tab}" tabindex="-1">${bulkKeyHTML(tab)}${tab === 'farm-visit' ? '<section class="bulk-farm" id="bulk-farm" aria-busy="true"><p>Loading the farm visit…</p></section>' : `
+  // Farm visit: the hero, how it works, then the form, drawn at once (bulk.js). Send enquiry: its three steps first.
+  host().innerHTML = pageHead('Bulk orders') + bulkTabsHTML(tab) + `<div class="bulk-panel${tab === 'farm-visit' ? ' is-farm' : ''}" id="bulk-panel" role="tabpanel" aria-labelledby="bulk-tab-${tab}" tabindex="-1">${tab === 'farm-visit' ? bulkFarmHeroHTML() : tab === 'enquiry' ? bulkStepsHTML() : ''}${bulkKeyHTML(tab)}${tab === 'farm-visit' ? '<section class="bulk-farm" id="bulk-farm" aria-label="Ask about a farm visit"></section>' : `
     <section class="door-cards bulk-build" id="bulk-grid" aria-label="Build your bulk list"></section>
     <section class="page-card door-flow" id="bulk-box" aria-label="${tab === 'enquiry' ? 'Your enquiry' : 'Your bulk order'}" hidden></section>`}</div>`
   bulkTabsSlide(was)
   bulkFlowReset()
-  bulkBar()
   if (tab === 'farm-visit') { bulkFarmTab(); return }
+  bulkBar()
   renderBulkGrid()
   loadBulkPrices().then(() => { if (document.body.dataset.page === 'bulk' && bulkTab === tab) { renderBulkGrid(); bulkBar() } })
   shelfReady().then(() => {
@@ -617,6 +655,20 @@ function accountTabs() {
   return `<nav class="page-tabs acct-tabs${b ? ' is-wide' : ''}" aria-label="Your account">${tabs.map(([href, label, key]) => `<a href="${href}" data-route${key === now ? ' aria-current="page"' : ''}>${label}</a>`).join('')}<a href="/farm-bookings" data-route hidden tabindex="-1" aria-hidden="true"></a></nav>${b ? '<p class="acct-tabs-hint" aria-hidden="true">Swipe for more tabs</p>' : ''}`
 }
 
+/** The chosen account tab (layout B scrolls sideways on phones) and the chosen chip (layout A) scrolled fully into view in
+    their own strip, never the page: the last tab, "Grow with us", sat half outside the strip (CR-01 acceptance test). */
+function ordRevealCurrent() {
+  requestAnimationFrame(() => {
+    for (const [strip, on] of [[$('.acct-tabs'), $('.acct-tabs [aria-current="page"]')], [$('.ord-chips'), $('.ord-chips [aria-pressed="true"]')]]) {
+      if (!strip || !on || strip.scrollWidth <= strip.clientWidth + 1) continue
+      const s = strip.getBoundingClientRect(), r = on.getBoundingClientRect(), pad = 16
+      if (r.left < s.left) strip.scrollLeft -= s.left - r.left + pad
+      else if (r.right > s.right) strip.scrollLeft += r.right - s.right + pad
+    }
+  })
+}
+window.addEventListener('mm:route', ordRevealCurrent)
+
 /** "Layout: A | B" (signed in, orders page only). */
 function ordLayoutSwitch() {
   const l = ordLayout()
@@ -630,6 +682,7 @@ async function accountOrdersView(seq = ++sheetSeq) {
   document.title = `${tab === 'grow' ? 'Grow with us' : 'Your orders'} · VMR Mangoes`
   const top = head(tab === 'grow' ? 'Your account' : 'Your orders') + marker(seq) + ordLayoutSwitch()
   host().innerHTML = top + `<p>${tab === 'grow' ? 'Loading your applications…' : 'Loading your orders…'}</p>`
+  ordRevealCurrent()
   if (tab === 'grow') return accountGrow(seq, top)
   const [ro, rp, rg, rb, rf] = await Promise.allSettled([MM.orders(), MM.preorders(), giftOrdersFor(), MM.myBulkEnquiries().then((r) => r.items || []), ordFarmBookings()])
   if (!alive(seq)) return
@@ -702,6 +755,7 @@ function ordPaint(tab = ordTab()) {
   const shown = rows.filter((r) => ORD_SHOWS[which](r.kinds))
   list.innerHTML = (ordData.miss ? `<p class="prototype-tag orders-partial" role="alert">${icon('info')}<span>${esc(ordData.miss)}</span></p>` : '') + (shown.length ? shown.map((r) => r.html).join('') : ordEmpty(which))
   if (which === 'all' || which === 'bulk') ordBulkOpened()
+  ordRevealCurrent()
 }
 
 // ---- Bulk rows: an order paid online opens its page; an enquiry with a quote opens in place to accept or decline it.
@@ -718,7 +772,7 @@ function ordBulkLine(x) {
   const boxes = x.boxes ? ` · ${x.boxes} ${x.boxes === 1 ? 'box' : 'boxes'}` : ''
   if (x.kind === 'FARM_VISIT') {
     const f = x.farmVisit || {}
-    return `${f.variety ? esc(f.variety) : 'Mango not chosen yet'}${x.quantityKg ? ` · ${x.quantityKg} kg` : ''}${f.people ? ` · ${f.people} ${f.people === 1 ? 'person' : 'people'}` : ''} · ${f.plannedDate ? `visit on ${fmtDate(f.plannedDate)}` : f.preferredDate ? `asked for ${fmtDate(f.preferredDate)}` : 'dates flexible'}`
+    return `${f.variety ? esc(f.variety) : 'Mango not chosen yet'}${x.quantityKg ? ` · ${x.quantityKg} kg` : ''}${f.people ? ` · ${f.people} ${f.people === 1 ? 'person' : 'people'}` : ''} · ${f.plannedDate ? `visit on ${fmtDate(f.plannedDate)}` : f.visitWords ? `asked for ${esc(f.visitWords)}` : f.preferredDate ? `asked for ${fmtDate(f.preferredDate)}` : 'dates flexible'}`
   }
   const q = x.quote
   if (x.kind === 'ORDER' && x.order) return `${x.quantityKg} kg${boxes}${x.order.amountPaise != null ? ` · ${paise(x.order.amountPaise)}` : ''}${x.order.refund ? (x.order.refund.refundedAt ? ' · refunded' : ' · refund on its way') : ''}`
@@ -777,7 +831,7 @@ async function accountGrow(seq, top) {
   const off = policy && policy.features && policy.features.partnerNetwork === false
   if (off) {
     host().innerHTML = top + `<div class="page-card"><div class="empty-cart bag-empty empty-state">${icon('tree')}<h2>Grow with us isn’t open right now.</h2><p>Your applications will show here again when it reopens.</p></div></div>`
-    return
+    return ordRevealCurrent()
   }
   // An API without the list yet answers 404: only the references added by hand show.
   const mine = rm.status === 'fulfilled' ? rm.value.items || [] : rm.reason && rm.reason.status === 404 ? [] : null
@@ -811,6 +865,7 @@ async function accountGrow(seq, top) {
       <div id="pn-add-msg" class="pn-status-result" aria-live="polite"></div>
     </section>
     ${team}`
+  ordRevealCurrent()
 }
 
 document.addEventListener('click', (e) => {
@@ -1177,7 +1232,7 @@ function bulkItem(x, bare = false) {
   const open = x.status === 'QUOTED' && q
   return `<li class="bq-item${x.unread ? ' is-new' : ''}${bare ? ' is-bare' : ''}" id="enquiry-${esc(x.id)}" data-enquiry="${esc(x.id)}"${bare ? ' data-bare' : ''}>
     ${bare ? '' : `<div class="bq-head"><div><strong>${esc(orderNo(x.number))}</strong><small>${x.kind === 'ORDER' ? 'Bulk order' : x.kind === 'FARM_VISIT' ? 'Farm visit enquiry' : 'Enquiry'} · ${x.kind === 'FARM_VISIT' ? 'sent ' : ''}${fmtDate(istDateOf(x.createdAt))} · ${esc(what)}</small></div><span class="bq-chip is-${x.status.toLowerCase()}">${x.kind === 'FARM_VISIT' ? (FARM_VISIT_STATUS[x.status] || esc(x.status)) : x.unread ? (x.kind === 'ORDER' ? 'Price confirmed' : 'New quote') : (x.kind === 'ORDER' && BULK_ORDER_STATUS[x.status]) || BULK_STATUS[x.status] || esc(x.status)}</span></div>`}
-    ${x.farmVisit && !bare ? `<p class="bq-done">${icon('leaf')}<span>${x.farmVisit.variety ? esc(x.farmVisit.variety) : 'Mango not chosen yet'} · ${x.farmVisit.people} ${x.farmVisit.people === 1 ? 'person' : 'people'} · ${x.farmVisit.plannedDate ? `visit on <strong>${fmtDate(x.farmVisit.plannedDate)}</strong>` : x.farmVisit.preferredDate ? `you asked for ${fmtDate(x.farmVisit.preferredDate)}` : 'dates flexible'}${x.status === 'CLOSED' && x.farmVisit.closeReason ? ` · closed: ${esc(x.farmVisit.closeReason)}` : ''}</span></p>` : ''}
+    ${x.farmVisit && !bare ? `<p class="bq-done">${icon('leaf')}<span>${x.farmVisit.variety ? esc(x.farmVisit.variety) : 'Mango not chosen yet'} · ${x.farmVisit.people} ${x.farmVisit.people === 1 ? 'person' : 'people'} · ${x.farmVisit.plannedDate ? `visit on <strong>${fmtDate(x.farmVisit.plannedDate)}</strong>` : x.farmVisit.visitWords ? `you asked for ${esc(x.farmVisit.visitWords)}` : x.farmVisit.preferredDate ? `you asked for ${fmtDate(x.farmVisit.preferredDate)}` : 'dates flexible'}${x.status === 'CLOSED' && x.farmVisit.closeReason ? ` · closed: ${esc(x.farmVisit.closeReason)}` : ''}</span></p>` : ''}
     ${x.order ? `<p class="bq-done"><span>${x.order.amountPaise != null ? `${paise(x.order.amountPaise)} · ` : ''}${x.order.refund ? (x.order.refund.refundedAt ? 'refunded in full' : 'refund on its way') : x.status === 'PAYMENT_PENDING' ? 'not paid yet' : x.status === 'CANCELLED' ? 'cancelled' : 'paid in full'}</span> <a class="text-button inline-link" href="/bulk/orders/${encodeURIComponent(x.id)}" data-route>View order ${icon('arrow')}</a></p>` : ''}
     ${q && x.status !== 'CLOSED' ? `<div class="bq-quote" aria-label="Quote for ${esc(orderNo(x.number))}">
       <ul class="bq-lines">${q.lines.map((l) => `<li><span>${esc(l.label)} <small>× ${l.qty} @ ${currency(l.unitPrice)}</small></span><strong>${currency(l.linePrice)}</strong></li>`).join('')}

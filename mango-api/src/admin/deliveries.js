@@ -41,7 +41,7 @@ router.get(
     // SEC-02: a rider sees only their own stops, and no delivered ones from before today.
     const statuses = isPacker(req) || (rider && date < todayIST()) ? MANIFEST_STATUSES.filter((s) => s !== 'DELIVERED') : MANIFEST_STATUSES
     const { rows: orders } = await query(
-      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.status, o.slot_id, o.delivery_failures,
+      `SELECT o.id, o.number, o.customer_name, o.phone, o.pincode, o.delivery_address, o.delivery_landmark, o.status, o.slot_id, o.delivery_failures,
               o.gift_recipient_name, o.gift_recipient_phone, o.gift_message, o.rider_id, r.email AS rider_email, r.display_name AS rider_name,
               o.delivery_code_tries, o.handover_override_at,
               w.id AS wh_id, w.name AS wh_name, w.address AS wh_address, w.lat AS wh_lat, w.lng AS wh_lng,
@@ -84,6 +84,8 @@ router.get(
       const entry = {
         // A gift goes to the recipient: the rider sees and calls them.
         id: o.id, number: o.number, status: o.status, deliveryAddress: o.delivery_address,
+        // CR2-07: the recipient's landmark on its own line (migration 098), null when none was given.
+        deliveryLandmark: o.delivery_landmark ?? null,
         customerName: o.gift_recipient_name ?? o.customer_name, phone: o.gift_recipient_phone ?? o.phone,
         gift: o.gift_recipient_name ? { from: o.customer_name, message: o.gift_message } : null,
         packed: !['CONFIRMED', 'PROCESSING'].includes(o.status), boxes,

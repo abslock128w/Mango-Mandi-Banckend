@@ -3059,6 +3059,139 @@ html .liquid-navigation{left:max(8px,env(safe-area-inset-left));right:max(8px,en
 html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 @media (max-width:420px){.gift-bar .pay-bar-go{padding:0 16px;font-size:16px}.gift-bar .pay-bar-total strong{font-size:21px}}
 
+/* ==== Gifting for one person, as many mangoes as they like (change request 02, CR2-06/07; gifts.js): the search and the
+   pre-order chip above the cards, "Most gifted", the card's size, ripeness and "+ Add to gift" / "− 1 in gift +", the
+   sticky gift bar in the green band with the sun button, "Their gift" on screen 2, Landmark and City. Existing colours
+   only (tokens: --band-*, --sun, --accent, --chip), so the dark theme follows. */
+.gift-stepline{grid-template-columns:repeat(2,minmax(0,1fr))}
+.gift-hero .gift-stepline li{color:var(--band-ink)}
+.gift-hero .gift-stepline li+li::before{background:var(--band-line)}
+.gift-hero .gift-stepline-n{background:transparent;color:var(--band-ink);box-shadow:inset 0 0 0 2px var(--band-line)}
+.gift-hero .gift-stepline li.is-now .gift-stepline-n{background:var(--sun);color:var(--band-bg);box-shadow:0 0 0 4px #ffc93c40}
+.gift-tools{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;margin:0 0 14px}
+.gift-tools .gift-pre-chip-wrap{margin:0}
+.gift-when-chip:empty{display:none}
+.gift-search{display:flex;align-items:center;gap:10px;flex:0 1 360px;min-width:min(100%,240px);min-height:48px;margin-left:auto;padding:0 16px;border-radius:999px;background:var(--paper);box-shadow:inset 0 0 0 1.5px var(--control-line,var(--line));color:var(--muted)}
+.gift-search:focus-within{box-shadow:inset 0 0 0 2px var(--accent)}
+.gift-search svg{flex:none;width:19px;height:19px}
+.gift-search input{flex:1;min-width:0;height:46px;border:0;background:transparent;outline:none;font-size:16px;color:var(--ink)}
+.gift-search input::placeholder{color:var(--muted);opacity:1}
+.gift-grid-count{margin:14px 0 0;font-size:14px;text-align:center;color:var(--muted)}
+.gift-none{grid-column:1/-1;display:grid;justify-items:center;gap:10px;padding:36px 16px;border-radius:var(--r-card,22px);background:var(--card,var(--surface));box-shadow:inset 0 0 0 1px var(--line);text-align:center;color:var(--ink)}
+.gift-none>svg{width:30px;height:30px;color:var(--accent)}
+.gift-none p{margin:0;font-size:16px}
+.gift-tag{position:absolute;left:10px;top:10px;display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;background:var(--sun);color:var(--band-bg);font-size:12.5px;font-weight:800;line-height:1.2;box-shadow:0 2px 8px #183c2124}
+.gift-tag svg{width:14px;height:14px;stroke-width:2.4;fill:currentColor}
+.gift-tag+.gift-badge{top:44px}
+.gift-card[data-variety] .gift-card-photo{aspect-ratio:1.6}
+.gift-card.is-in{box-shadow:inset 0 0 0 2px var(--accent),var(--shadow-sm,0 6px 18px #183c210d)}
+.gift-card-price{margin:6px 0 10px;font-size:14px;color:var(--muted)}
+.gift-card-price strong{font-size:18px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.gift-card-controls .gift-size-one{justify-content:flex-start;gap:6px}
+.gift-ripe{margin:0 0 10px}
+.gift-ripe-now{display:flex;align-items:center;gap:8px;min-height:44px;margin:0;font-size:14px;font-weight:600;color:var(--ink)}
+.gift-ripe-now .dot{width:11px;height:11px}
+.gift-ripe-now .gift-change{margin-left:auto;min-height:44px;padding:0 6px;font-size:14px;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.gift-ripe .gift-pick-opts{margin:4px 0 0}
+.gift-card .gift-add-btn.button{width:100%;min-height:52px;margin:0;font-size:16px;font-weight:700;box-shadow:inset 0 0 0 1.5px var(--accent)}
+.gift-card .gift-add-btn.button>span[aria-hidden]{font-size:22px;line-height:1}
+.gift-card .gift-add-btn.button:disabled{opacity:1;background:var(--chip);color:var(--muted);box-shadow:inset 0 0 0 1.5px var(--control-line);cursor:not-allowed}
+.gift-step{display:flex;align-items:center;justify-content:space-between;gap:6px;min-height:52px;padding:4px;border-radius:999px;background:var(--accent);color:var(--on-accent)}
+.gift-step button{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;font-size:22px;font-weight:700;color:inherit}
+.gift-step button:hover{background:var(--on-accent-soft,#ffffff24)}
+.gift-step button[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.gift-step-n{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.gift-step-n b{font-size:18px;font-weight:800}
+.gift-step.is-row{min-height:44px;padding:2px;background:var(--chip);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.gift-step.is-row button{width:40px;height:40px;color:var(--accent)}
+.gift-step.is-row button:hover{background:var(--paper)}
+.gift-step.is-row .gift-step-n{min-width:2ch;text-align:center}
+.gift-card-also{display:flex;gap:6px;align-items:flex-start;margin:8px 0 0;font-size:13px;line-height:1.35;color:var(--ink)}
+.gift-card-also svg{flex:none;width:15px;height:15px;margin-top:1px;color:var(--accent);stroke-width:2.2}
+/* The sticky gift bar (both screens): the deep-green band, the yellow sun button. */
+#pay-bar:has(.gift-bar){background:var(--band-bg);color:var(--band-ink);border-top-color:var(--band-line);box-shadow:0 -10px 28px #17463138}
+.gift-bar{max-width:1120px}
+.gift-bar.is-pick{display:flex;flex-wrap:wrap;align-items:center;gap:6px 22px}
+.gift-bar-sum{display:flex;flex-direction:column;min-width:0;line-height:1.2}
+.gift-bar-sum small,.gift-bar.is-pay .pay-bar-total small{font-size:13px;font-weight:600;color:var(--band-ink);opacity:.82}
+.gift-bar-sum strong{font-size:21px;font-weight:800;color:var(--band-ink);font-variant-numeric:tabular-nums}
+.gift-bar-when{display:flex;align-items:center;gap:6px;margin:0;font-size:14px;font-weight:700;color:var(--band-icon)}
+.gift-bar-when svg{flex:none;width:17px;height:17px;stroke-width:2.2}
+.gift-bar-when.is-off{color:var(--band-ink)}
+.gift-bar.is-pick .gift-next{margin-left:auto}
+#pay-bar .gift-bar .pay-bar-go.button,#pay-bar .gift-bar .pay-bar-go{background:var(--sun);color:var(--band-bg);box-shadow:0 4px 14px #00000030}
+#pay-bar .gift-bar .pay-bar-go:hover{background:var(--sun);filter:brightness(.94)}
+#pay-bar .gift-bar .pay-bar-go:disabled{background:#ffffff1f;color:var(--band-ink);opacity:.7;box-shadow:inset 0 0 0 1.5px var(--band-line)}
+.gift-bar.is-pay .pay-bar-row{max-width:none}
+.gift-bar.is-pay .pay-bar-total strong{color:var(--band-ink)}
+.gift-bar.is-pay .gift-bar-when{margin:2px 0}
+#pay-bar .gift-bar-agree{color:var(--band-ink)}
+#pay-bar .gift-bar-agree input{accent-color:var(--sun)}
+#pay-bar:has(.gift-bar) .pay-bar-hint{color:var(--band-icon);max-width:1120px}
+html.pay-bar-on body[data-page="gifts"] .gift-packs{padding-bottom:40px}
+/* Screen 2: their gift, the person (Landmark, City). */
+.gift-their{margin:0 0 16px;padding:18px;border-radius:18px;background:var(--paper);box-shadow:inset 0 0 0 2px var(--accent);scroll-margin-top:120px}
+.gift-their:focus{outline:none}
+.gift-their-top{display:flex;align-items:baseline;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;margin:0 0 6px}
+.gift-their-top h3{margin:0;font:800 13px/1.3 'Figtree',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.gift-their-top span{font-size:15px;font-weight:700;color:var(--ink)}
+.gift-lines{margin:0;padding:0;list-style:none}
+.gift-line{display:grid;grid-template-columns:52px minmax(0,1fr) auto auto;gap:8px 14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.gift-line .cart-thumb{width:52px;height:52px;border-radius:12px}
+.gift-line-copy strong{display:block;font-size:17px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+.gift-line-copy small{display:block;font-size:15px;color:var(--body,var(--muted))}
+.gift-line-price{min-width:6ch;font-size:17px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
+.gift-their-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 18px;margin:14px 0 0}
+.gift-send .gift-more-btn.button{min-height:48px;padding:0 18px;font-size:16px;font-weight:700}
+.gift-send .gift-more-btn.button>span[aria-hidden]{font-size:20px;line-height:1}
+.gift-together{display:flex;gap:8px;align-items:flex-start;margin:0;font-size:15px;line-height:1.35;color:var(--ink)}
+.gift-together>svg{flex:none;width:19px;height:19px;margin-top:1px;color:var(--accent);stroke-width:2.2}
+.gift-together strong{display:block;color:var(--accent)}
+.gift-together small{display:block;font-size:13.5px;color:var(--body,var(--muted))}
+.gift-together.is-off>svg,.gift-together.is-off strong{color:var(--warn-line)}
+.gift-empty{display:flex;gap:8px;align-items:center;margin:8px 0}
+.gift-opt{font-size:14px;font-weight:500;color:var(--muted)}
+.gift-who .gift-fields{align-items:start}
+.gift-send .gift-who .gift-fields .field+.field{margin-top:0}
+.gift-send .gift-city-field input{background:var(--chip);color:var(--ink);cursor:default}
+.gift-group-who{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;padding:14px 16px;border-radius:16px;background:var(--chip)}
+.gift-group-who>svg{flex:none;width:20px;height:20px;color:var(--accent);stroke-width:2}
+.gift-group-who strong{display:block;font-size:17px;color:var(--ink)}
+.gift-group-who small{display:block;font-size:14px;color:var(--body,var(--muted));overflow-wrap:anywhere}
+.gift-review-row.is-cancelled{opacity:.6}
+.bag-to-gifts{display:flex;align-items:center;gap:8px;margin:10px 0 0;font-size:14px;color:var(--muted)}
+.bag-to-gifts>svg{flex:none;width:17px;height:17px;color:var(--accent)}
+.bag-to-gifts a{display:inline-flex;align-items:center;gap:4px;min-height:44px;font-weight:700;color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+.bag-to-gifts a svg{width:16px;height:16px}
+@media(min-width:1000px){.gift-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:700px){
+.gift-tools{flex-direction:column;align-items:stretch}
+.gift-search{flex:1 1 auto;margin-left:0}
+.gift-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gift-card{padding:7px}
+.gift-card-body{padding:10px 3px 3px}
+.gift-card-body h3{font-size:17px}
+.gift-card-price strong{font-size:16px}
+.gift-card-controls .detail-stages.gift-sizes button{padding:0 6px}
+.gift-card .gift-add-btn.button{min-height:48px;padding:0 10px;font-size:15px}
+.gift-step{min-height:48px}
+.gift-step button{width:40px;height:40px}
+.gift-step-n{font-size:14px}
+.gift-tag{left:6px;top:6px;padding:4px 8px;font-size:11.5px}
+.gift-bar.is-pick{gap:4px 12px}
+.gift-bar-sum{flex:1 1 60%}
+.gift-bar-sum strong{font-size:18px}
+.gift-bar.is-pick .gift-bar-when{order:3;flex:1 1 100%;font-size:13px}
+.gift-bar.is-pay .gift-bar-when{font-size:13px}
+.gift-bar.is-pick .gift-next{order:4;flex:1 1 100%;margin:6px 0 0}
+.gift-line{grid-template-columns:44px minmax(0,1fr) auto;gap:8px 10px}
+.gift-line .cart-thumb{width:44px;height:44px}
+.gift-line .gift-step{grid-column:2;justify-self:start}
+.gift-line-price{grid-column:3;grid-row:1}
+.gift-their{padding:14px}
+}
+@media(max-width:360px){.gift-grid{grid-template-columns:minmax(0,1fr)}}
+
 /* ---- The recipient's address page (gift-address.js, /gift-address/:token) and each person's address status for the giver
    (gifts.js giftAddrHTML: the done screen and /gifts/pre/:id). */
 .ga-card{max-width:620px;margin:0 auto 14px}
@@ -3127,8 +3260,8 @@ html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 .season-chip-more::after{content:"";position:absolute;inset:-4px 0}
 }
 @media(min-width:1024px) and (max-height:820px){.sun-banner{height:300px}.sun-hero{margin-top:8px}.collection{padding-top:16px}}
-/* Narrow PCs: the use chips wrap inside the row rather than hide past its end (a mouse can't scroll it sideways). */
-@media(min-width:1024px) and (max-width:1199px){.collection-toolbar .occasion-row{flex-wrap:wrap;overflow:visible;row-gap:6px}}
+/* Narrow PCs (1024 to 1199 px) keep the same one-line chip row: it scrolls sideways with its edge fade, as on phones, so the
+   filter row stays one line high and the first cards stay on the first screen. */
 
 /* CR-03, phones and tablets (up to 900 px): the search sits right under "Deliver to", in the sticky .shop-top, so the ripeness
    row sticks lower by the search's 44 px and its gap (phone-search.js). */
@@ -3229,3 +3362,152 @@ html.pay-bar-on body[data-page="gifts"] #gift-send{padding-bottom:150px}
 .pn-app{padding:14px}
 .pn-app-head{flex-direction:column;gap:8px}
 }
+
+/* ==== Change request 02 (25 Nov 2026), builder D: the Farm visit page (bulk.js bulkFarmHeroHTML, bulkFarmDraw, .fv-*)
+   and the Send enquiry page (pages.js bulkStepsHTML, bulkEnquiryBar, .bq-*). Existing colours only: green (--band-bg,
+   --accent), mango yellow (--sun, --sun-soft), cream and paper; every colour is a token, so the dark theme follows. ==== */
+/* The yellow step badge and the serif section head with a rule (both pages). */
+.fv-num{flex:none;display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--sun);color:var(--band-bg);font:700 15px/1 'Figtree',sans-serif;box-shadow:0 2px 6px #e8891a33}
+.fv-sec-h{display:flex;align-items:center;gap:12px;margin:0 0 16px;font-family:'Young Serif',Georgia,serif;font-weight:400;font-size:22px;line-height:1.2;color:var(--ink)}
+.fv-sec-h::after{content:'';flex:1;height:1px;background:var(--line)}
+/* Hero: the orchard photo with where the farm is, the kicker, the headline and three facts. */
+.fv-hero{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:32px;align-items:center;margin:0 0 22px;padding:18px 32px 18px 18px;border-radius:var(--r-card,22px);background:var(--sun-soft);box-shadow:inset 0 0 0 1px var(--line)}
+.fv-hero-photo{position:relative;aspect-ratio:16/10;border-radius:18px;overflow:hidden;background:var(--sage)}
+.fv-hero-photo img{display:block;width:100%;height:100%;object-fit:cover;object-position:60% 60%}
+.fv-pin{position:absolute;left:12px;bottom:12px;right:12px;width:max-content;max-width:calc(100% - 24px);display:inline-flex;align-items:center;gap:7px;padding:8px 14px 8px 10px;border-radius:999px;background:var(--band-bg);color:var(--band-ink);font-size:13.5px;font-weight:600;line-height:1.25;box-shadow:0 6px 16px #0000002e}
+.fv-pin svg{width:17px;height:17px;color:var(--band-icon);stroke-width:2}
+.fv-kicker{display:flex;align-items:center;gap:8px;margin:0 0 8px;font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.fv-kicker::before{content:'';width:22px;height:3px;border-radius:2px;background:var(--sun)}
+.fv-hero h2{margin:0 0 18px;font-size:clamp(30px,3.4vw,44px);line-height:1.08;color:var(--ink);text-wrap:balance}
+.fv-facts{list-style:none;display:flex;flex-wrap:wrap;gap:10px;margin:0;padding:0}
+.fv-facts li{display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:0 16px 0 12px;border-radius:999px;background:var(--paper);color:var(--ink);font-size:15px;font-weight:700;box-shadow:inset 0 0 0 1.5px var(--sun)}
+.fv-facts li::before{content:'';width:12px;height:12px;border-radius:50%;background:var(--sun);box-shadow:0 0 0 3px var(--sun-soft),0 0 0 4px var(--sun)}
+.bulk-panel.is-farm .bulk-key{margin-bottom:22px}
+/* The form beside the "Your visit" card. */
+.fv-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:22px;align-items:start}
+.fv-form.page-card{margin:0;padding:28px 30px}
+.fv-form-top .flow-head{margin:0 0 6px}
+.fv-form-top>p:not(.fv-min):not(.bulk-error){margin:0 0 14px;color:var(--body,var(--muted));font-size:15px;line-height:1.5}
+.fv-min{display:flex;align-items:center;gap:12px;margin:0 0 22px;padding:12px 16px;border-radius:16px;background:var(--sun-soft);color:var(--ink);font-size:15px;line-height:1.4;box-shadow:inset 0 0 0 1.5px var(--sun)}
+.fv-min-tag{flex:none;display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--sun);color:var(--band-bg);font-size:13px;font-weight:800}
+.fv-sec{min-width:0;margin:0 0 22px;padding:0;border:0}
+.fv-sec .form-grid{gap:16px}
+.fv-visit{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 22px;margin:0 0 16px}
+.fv-dates{flex:1 1 420px;min-width:0}
+.fv-dates-label{margin:0 0 6px;font-size:13px;font-weight:700;color:var(--ink)}
+.fv-dates-label small{font-weight:500;color:var(--muted)}
+.fv-range{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:end;gap:10px}
+.fv-range .field input{margin-top:5px}
+.fv-range .field input:not([aria-invalid="true"]){box-shadow:inset 0 0 0 1px var(--sun);border-color:var(--sun)}
+.fv-range-arrow{display:grid;place-items:center;height:52px;color:var(--muted)}
+.fv-range-arrow svg{width:20px;height:20px}
+.fv-dates.is-flexible .fv-range{opacity:.55}
+.fv-dates.is-flexible .fv-range .field input{box-shadow:none;border-color:var(--line)}
+.fv-range-says{display:flex;align-items:flex-start;gap:7px;margin:8px 0 0;font-size:13.5px;line-height:1.45;color:var(--body,var(--muted))}
+.fv-range-says svg{flex:none;width:17px;height:17px;margin-top:1px;color:var(--accent)}
+.fv-range-says strong{color:var(--ink)}
+.fv-flex.bulk-farm-flex{flex:0 1 auto;align-self:auto;margin-top:26px}
+.fv-kg-field>label{display:block;font-size:11px}
+.fv-kg-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:7px}
+.fv-kg.card-stepper{height:52px;width:230px;background:var(--paper);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--sun)}
+.fv-kg.card-stepper button{height:52px;width:52px;color:var(--ink)}
+.fv-kg.card-stepper button:hover{background:var(--sun-soft)}
+.fv-kg.card-stepper button[aria-disabled="true"]{opacity:.35;cursor:not-allowed}
+.fv-kg-box{flex:1;display:flex;align-items:baseline;justify-content:center;gap:4px;min-width:0}
+.bulk-farm-form .fv-kg-box input{width:4.5ch;min-height:0;height:40px;margin:0;padding:0;border:0;background:transparent;text-align:right;font-size:18px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.fv-kg-box input::-webkit-inner-spin-button,.fv-kg-box input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.fv-kg-box input:focus-visible{outline:none}
+.fv-kg.card-stepper:focus-within{outline:3px solid var(--focus,#bc8b22);outline-offset:2px}
+.fv-kg-box>span{font-size:16px;font-weight:700;color:var(--muted)}
+.fv-kg-picks{display:flex;flex-wrap:wrap;gap:8px}
+.fv-chip{min-height:44px;padding:0 16px;border-radius:999px;background:var(--paper);color:var(--ink);font-size:14.5px;font-weight:700;box-shadow:inset 0 0 0 1.5px var(--line)}
+.fv-chip:hover{box-shadow:inset 0 0 0 1.5px var(--sun)}
+.fv-chip[aria-pressed="true"]{background:var(--band-bg);color:var(--band-ink);box-shadow:none}
+.fv-kg-hint{display:block;margin-top:7px;font-size:12.5px;color:var(--muted)}
+.fv-kg-hint[hidden]{display:none}
+/* Over the dark theme's yellow stepper and dark fields (theme.css): the kg stepper stays a paper field with a yellow edge. */
+[data-theme="dark"] .fv-kg.card-stepper{background:var(--paper);color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--sun)}
+[data-theme="dark"] .fv-kg.card-stepper button:hover{background:var(--sun-soft)}
+html .bulk-farm-form .fv-kg-box input,html[data-theme="dark"] .bulk-farm-form .fv-kg-box input{background:transparent;border:0;box-shadow:none;color:var(--ink)}
+.fv-kg.card-stepper:has(input[aria-invalid="true"]){box-shadow:inset 0 0 0 2px var(--warn-line)}
+.fv-kg-field .field-error{margin-top:8px}
+.fv-foot{margin:12px 0 0}
+/* "Your visit": deep green, sticky beside the form on PC, the send button in yellow. The form's own button is for
+   narrower screens, where the bar at the bottom also sends it. */
+.fv-sum{position:sticky;top:110px;padding:24px 22px 20px;border-radius:var(--r-card,22px);background:radial-gradient(60% 90% at 100% 0,#2c6a42 0,#2c6a4200 70%),var(--band-bg);color:var(--band-ink);box-shadow:0 16px 36px #17463126}
+[data-theme="dark"] .fv-sum{background:radial-gradient(60% 90% at 100% 0,#24543499 0,#24543400 70%),var(--band-bg);box-shadow:0 16px 36px #0008,inset 0 0 0 1px #ffffff0d}
+.fv-sum-kicker{margin:0 0 14px;font-size:13px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--band-icon)}
+.fv-sum-list{display:grid;gap:12px;margin:0 0 20px}
+.fv-sum-list dt{font-size:12.5px;color:var(--band-ink);opacity:.78}
+.fv-sum-list dd{margin:2px 0 0;font-size:16.5px;font-weight:700;line-height:1.3;color:var(--band-ink);overflow-wrap:anywhere}
+.button.fv-sum-go{width:100%;min-height:54px;background:var(--sun);color:var(--band-bg);font-size:16.5px;font-weight:800;box-shadow:0 6px 16px #0000002e}
+.button.fv-sum-go:hover{background:var(--sun-soft);color:var(--band-bg)}
+[data-theme="dark"] .button.fv-sum-go:hover{background:#ffd766}
+.fv-sum-note{margin:12px 0 0;font-size:13px;line-height:1.45;color:var(--band-ink);opacity:.82}
+@media(min-width:1000px){.fv-send-inline{display:none}}
+@media(max-width:999px){.fv-layout{grid-template-columns:1fr}.fv-sum{display:none}}
+@media(max-width:860px){.fv-hero{grid-template-columns:1fr;gap:16px;padding:12px 12px 20px}.fv-hero-copy{padding:0 6px}}
+@media(max-width:700px){
+.fv-hero{margin-bottom:16px}
+.fv-hero-photo{aspect-ratio:16/9;border-radius:14px}
+.fv-pin{font-size:12.5px;left:8px;bottom:8px}
+.fv-hero h2{font-size:28px;margin-bottom:14px}
+.fv-facts{gap:8px}.fv-facts li{min-height:36px;padding:0 12px 0 10px;font-size:13.5px}
+/* Phones: each numbered section is its own card; the form's own card steps back. */
+.fv-form.page-card{padding:0;background:none;box-shadow:none}
+.fv-form-top{padding:0 2px}
+.fv-sec{padding:18px 16px;border-radius:18px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line),var(--shadow-sm);margin-bottom:14px}
+.fv-sec-h{font-size:20px;margin-bottom:14px}
+.fv-range{gap:6px}
+.fv-range-arrow svg{width:16px;height:16px}
+.fv-flex.bulk-farm-flex{margin-top:4px}
+.fv-kg.card-stepper{width:100%}
+.fv-kg-picks{width:100%}.fv-chip{flex:1}
+}
+/* The phone's bar on the farm visit tab: one line about the visit, the send button. */
+.pay-bar .fv-bar .pay-bar-total strong{font-size:16px;white-space:normal}
+@media(max-width:700px){.pay-bar-row.fv-bar .pay-bar-total{flex-direction:column;align-items:flex-start}}
+
+/* ---- Send enquiry (CR2-05): the three steps under the tabs, the numbered heads, "Most asked", the kg meter in the bar. */
+.bq-steps{list-style:none;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 18px;padding:0;counter-reset:none}
+.bq-steps li{position:relative;display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:18px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);color:var(--muted)}
+.bq-steps li:not(:last-child)::after{content:'';position:absolute;top:50%;right:-9px;width:8px;height:2px;background:var(--line)}
+.bq-steps .fv-num{background:var(--sage);color:var(--muted);box-shadow:none}
+.bq-steps strong{display:block;font-size:15px;line-height:1.25;color:var(--ink)}
+.bq-steps small{display:block;font-size:12.5px;line-height:1.35}
+.bq-steps li.is-now{background:var(--sun-soft);box-shadow:inset 0 0 0 1.5px var(--sun);color:var(--ink)}
+.bq-steps li.is-now .fv-num,.bq-steps li.is-done .fv-num{background:var(--sun);color:var(--band-bg)}
+.bq-steps li.is-done{color:var(--ink)}
+.bq-head .fv-sec-h{font-size:26px;margin-bottom:8px}
+.bq-head .fv-sec-h::after{display:none}
+.bulk-pick-photo{position:relative}
+.bq-most{position:absolute;left:10px;top:10px;padding:5px 11px;border-radius:999px;background:var(--sun);color:var(--band-bg);font-size:12.5px;font-weight:800;line-height:1.2;box-shadow:0 3px 10px #0000002e}
+#bulk-box.bq-details .fv-sec-h{font-size:24px}
+/* The meter: "Your bulk list · 180 kg of 250 kg", a yellow bar towards 250 (a tick marks 250), green when it gets there. */
+.bq-bar .bq-meter{flex:1;min-width:0}
+.bq-meter-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 6px}
+.bq-meter-top strong{font-size:16px;font-weight:800;color:var(--ink)}
+.bq-meter-top small{font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap}
+.bq-track{position:relative;height:10px;border-radius:999px;background:var(--sage);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+.bq-track span{display:block;width:0;height:100%;border-radius:inherit;background:var(--sun);transition:width .45s var(--ease),background .3s}
+.bq-track i{position:absolute;top:0;bottom:0;right:0;width:2px;background:var(--ink);opacity:.45}
+.bq-bar.is-ready .bq-track span{background:var(--leaf-a)}
+.bq-meter-say{display:flex;align-items:flex-start;gap:6px;margin:6px 0 0;font-size:13px;font-weight:600;line-height:1.35;color:var(--ink)}
+.bq-meter-say svg{flex:none;width:15px;height:15px;margin-top:1px;stroke-width:2.2;color:var(--muted)}
+.bq-bar.is-ready .bq-meter-say svg{color:var(--leaf-a)}
+.pay-bar .bq-bar.is-ready .pay-bar-go.bq-go:not(:disabled),.pay-bar .bq-bar.is-ready .pay-bar-go.bq-go:not(:disabled):hover{background:var(--sun);color:var(--band-bg);box-shadow:0 6px 16px #e8891a40}
+@media(prefers-reduced-motion:reduce){.bq-track span{transition:none}}
+@media(max-width:700px){
+.bq-steps{gap:6px;margin-bottom:14px}
+.bq-steps li{flex-direction:column;align-items:flex-start;gap:6px;padding:10px}
+.bq-steps li:not(:last-child)::after{right:-5px;width:4px}
+.bq-steps .fv-num{width:26px;height:26px;font-size:13px}
+.bq-steps strong{font-size:13px}.bq-steps small{display:none}
+.bq-head .fv-sec-h{font-size:22px}
+.pay-bar-row.bq-bar{flex-wrap:wrap}
+.pay-bar-row.bq-bar .bq-meter{flex:1 1 100%}
+.bq-meter-top strong{font-size:14.5px}
+}
+@media(max-width:700px){body[data-page="bulk"]:has(#bulk-box:not([hidden]) #bulk-form) .pay-bar .bq-meter-say{display:none}}
+/* The meter makes the enquiry bar taller on phones: a toast sits over all of it (dock.js measures --bar-clear). */
+@media(max-width:900px){html.pay-bar-on body[data-page="bulk"]:has(.pay-bar .bq-bar) .toast{bottom:calc(var(--bar-clear,300px) + 12px)}}

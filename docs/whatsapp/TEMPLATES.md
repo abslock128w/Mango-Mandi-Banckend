@@ -619,7 +619,7 @@ Suggested wording: Hi {{1}}, we have your VMR Mangoes bulk order {{2}} for {{4}}
 - Variables:
   1. name (example: Asha)
   2. enquiry number (example: B-618 033 989)
-  3. what they asked (example: 150 kg of Alphonso, 6 people, around Sat, 12 Dec)
+  3. what they asked (example: 150 kg of Alphonso, 6 people, Thu 26 – Fri 27 Nov, 2 days)
 
 Suggested wording: Hi {{1}}, we have your VMR Mangoes farm visit enquiry {{2}}: {{3}}. Our team will call you on WhatsApp to plan your visit.
 

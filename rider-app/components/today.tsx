@@ -146,7 +146,14 @@ function CurrentStop({ o, index, total, waiting }: { o: RunOrder; index: number;
         <h2 className="font-display text-4xl leading-tight text-ink">{firstName(o.customerName)}</h2>
         <p className="flex gap-2 text-lg">
           <MapPin aria-hidden size={22} className="mt-0.5 shrink-0 text-green" />
-          <span className="line-clamp-2">{address(o)}</span>
+          <span className="flex min-w-0 flex-col">
+            <span className="line-clamp-2">{address(o)}</span>
+            {o.deliveryLandmark && (
+              <span className="text-base text-muted" data-testid="current-landmark">
+                Landmark: {o.deliveryLandmark}
+              </span>
+            )}
+          </span>
         </p>
         <p className="flex gap-2 text-base text-muted">
           <Package aria-hidden size={22} className="mt-0.5 shrink-0 text-green" />
@@ -270,7 +277,10 @@ function StopRow({ o, index }: { o: RunOrder; index: number }) {
             <div className="flex flex-col gap-2 px-4 pb-4">
               <p className="flex gap-2 text-base">
                 <MapPin aria-hidden size={20} className="mt-0.5 shrink-0 text-green" />
-                {address(o)}
+                <span className="flex min-w-0 flex-col">
+                  <span>{address(o)}</span>
+                  {o.deliveryLandmark && <span className="text-sm text-muted">Landmark: {o.deliveryLandmark}</span>}
+                </span>
               </p>
               <p className="text-base text-muted">{contents(o)}</p>
               {action && (

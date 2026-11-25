@@ -11,6 +11,8 @@ export type MockOrder = {
   status: string;
   customerName: string;
   deliveryAddress: string;
+  /** CR2-07: a landmark near the address, its own field (optional). */
+  deliveryLandmark?: string | null;
   phone: string;
   pincode: string;
   boxes: number;
@@ -48,6 +50,7 @@ export function demoOrders(): MockOrder[] {
       status: "PACKED",
       customerName: "Asha Rao",
       deliveryAddress: "12, 4th Cross, Indiranagar",
+      deliveryLandmark: "near Sai Baba temple",
       phone: "+919812345678",
       pincode: "560038",
       boxes: 1,

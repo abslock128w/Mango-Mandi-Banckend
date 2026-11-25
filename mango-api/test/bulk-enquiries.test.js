@@ -66,7 +66,7 @@ describe('bulk enquiries from the shop', () => {
     for (const body of [{ ...FORM, quantityKg: 40 }, { ...FORM, quantityKg: 249, ripeness: 'A mix' }, { ...FORM, ...bulk(245) }, { ...FORM, ...bulk(200), kind: 'ENQUIRY' }]) {
       const r = await send(body)
       assert.deepEqual([r.status, r.body.error?.code], [400, 'BULK_ENQUIRY_TOO_SMALL'], JSON.stringify(r.body))
-      assert.equal(r.body.error.message, 'Enquiries are for 250 kg and above. From 100 kg you can order and pay directly.')
+      assert.equal(r.body.error.message, 'Enquiries need at least 250 kg of mangoes. From 100 kg you can order and pay directly.')
     }
     // The old shop's unpaid direct order: refused, with what to do.
     const order = await send({ ...FORM, kind: 'ORDER', ...bulk(150) })

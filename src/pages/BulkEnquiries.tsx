@@ -175,7 +175,7 @@ function List() {
                 <th scope="col">Name and mobile</th>
                 <th scope="col">Mango</th>
                 <th scope="col" className="num">kg</th>
-                <th scope="col">Preferred date</th>
+                <th scope="col">Visit dates</th>
                 <th scope="col" className="num">People</th>
                 <th scope="col">Sent</th>
                 <th scope="col">Status</th>
@@ -220,6 +220,8 @@ function List() {
 
 /** "Sat, 12 Dec" from YYYY-MM-DD. */
 const dayWords = (d: string | null | undefined) => (d ? date(d) : '')
+/** The visit dates they asked for: "Thu 26 – Fri 27 Nov, 2 days" (the API's words), one date on an older enquiry, else Flexible. */
+const visitAsked = (f: BulkEnquiryRow['farmVisit']) => f?.visitWords ?? (f?.preferredDate ? dayWords(f.preferredDate) : 'Flexible')
 
 function FarmRow({ r }: { r: BulkEnquiryRow }) {
   const f = r.farmVisit
@@ -241,7 +243,7 @@ function FarmRow({ r }: { r: BulkEnquiryRow }) {
       </td>
       <td data-label="Mango">{f?.variety ?? <span className="muted">Not sure yet</span>}</td>
       <td data-label="kg" className="num">{f?.kg ?? r.quantityKg}</td>
-      <td data-label="Preferred date">{f?.plannedDate ? <strong>Planned {dayWords(f.plannedDate)}</strong> : f?.preferredDate ? dayWords(f.preferredDate) : 'Flexible'}</td>
+      <td data-label="Visit dates">{f?.plannedDate ? <strong>Planned {dayWords(f.plannedDate)}</strong> : visitAsked(f)}</td>
       <td data-label="People" className="num">{f?.people ?? '—'}</td>
       <td data-label="Sent">{dateTime(r.createdAt)}</td>
       <td data-label="Status">
@@ -994,8 +996,8 @@ function FarmVisit({ e }: { e: BulkEnquiryDetail }) {
             <dd>{f?.variety ?? 'Not sure yet'}</dd>
             <dt>About how many kg</dt>
             <dd>{f?.kg ?? e.quantityKg} kg</dd>
-            <dt>Preferred date</dt>
-            <dd>{f?.preferredDate ? dayWords(f.preferredDate) : 'Flexible'}{f?.preferredDate && f.flexible ? ' (flexible)' : ''}</dd>
+            <dt>Visit dates</dt>
+            <dd>{visitAsked(f)}{f?.preferredDate && f.flexible ? ' (flexible)' : ''}</dd>
             <dt>People coming</dt>
             <dd>{f?.people ?? '—'}</dd>
             {f?.plannedDate && (

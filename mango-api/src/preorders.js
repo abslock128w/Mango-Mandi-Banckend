@@ -425,6 +425,8 @@ export function preorderView(p) {
   return {
     id: p.id, number: p.number, status: p.status, sku: p.sku, productName: findProduct(p.sku)?.name ?? p.sku, variety: bookingVariety(p), stage: p.stage,
     qty: p.qty, unitPrice: p.unit_price, total: p.total, weekStart: p.week_start, pincode: p.pincode, address: p.delivery_address, slotId: p.slot_id,
+    // Migration 098 (CR2-07): an optional landmark, kept apart from the address.
+    landmark: p.delivery_landmark ?? null,
     // Migration 091 (GIFT_ADDRESS_LINKS): null (address given at booking), ADDRESS_PENDING (no pincode or address yet:
     // the recipient was asked on WhatsApp) or ADDRESS_GIVEN (by the recipient).
     addressState: p.address_state ?? null,
@@ -449,13 +451,15 @@ export function preorderView(p) {
       ? {
           id: p.group_id, number: p.group_number ?? null, kind: p.group_kind ?? 'GIFT', people: p.group_people ?? null, lines: p.group_people ?? null,
           total: p.group_total ?? null, position: p.group_position ?? null,
+          // Migration 098: a gift for ONE person with several box lines, all in one week and one delivery.
+          oneDelivery: Boolean(p.group_one_delivery),
         }
       : null,
   }
 }
 
 /** The columns preorderView reads for a booking's group: join `preorder_groups g` on p.group_id. */
-export const GROUP_COLUMNS = 'g.number AS group_number, g.recipient_count AS group_people, g.total AS group_total, g.kind AS group_kind'
+export const GROUP_COLUMNS = 'g.number AS group_number, g.recipient_count AS group_people, g.total AS group_total, g.kind AS group_kind, g.one_delivery AS group_one_delivery'
 
 /** A booking's gift recipient, in the shape createOrder's `gift` takes and the answers show; null when not a gift. */
 function giftOf(p) {
@@ -586,12 +590,18 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
     throw new HttpError(409, 'PREORDER_TOO_BIG', `That is more than a whole delivery week of ${shownVariety(p.variety)} can take (${biggest} kg). Choose fewer boxes.`, { kg: load, limit: biggest })
   }
   if (!group) await checkUnpaidPreorders(c, b.customerId, b.qty)
-  const got = await assignWeek(c, { sku: b.sku, qty: b.qty, variety: p.variety }, weeks)
+  // A gift for one person (migration 098, group.week): every line takes the group's one week, found by bookGroup.
+  const got = group?.week
+    ? ((await reserve(c, { sku: b.sku, qty: b.qty, variety: p.variety }, group.week)) ? group.week : null)
+    : await assignWeek(c, { sku: b.sku, qty: b.qty, variety: p.variety }, weeks)
   if (got && b.weekStart != null && got !== b.weekStart) {
     // The transaction is rolled back by the caller: the week taken above is not kept.
     const extra = { weekStart: got, requested: b.weekStart }
     if (got > b.weekStart) throw new HttpError(409, 'PREORDER_FULL', `The week of ${dateWords(b.weekStart)} just filled up. Your order would be delivered in ${weekWords(got)}.`, extra)
     throw new HttpError(409, 'PREORDER_WEEK_CHANGED', `An earlier week has room again: your order would be delivered in ${weekWords(got)}.`, extra)
+  }
+  if (!got && group?.week) {
+    throw new HttpError(409, 'PREORDER_FULL', `The week of ${dateWords(group.week)} just filled up for ${shownVariety(p.variety)}.`, { weekStart: null, requested: group.week })
   }
   if (!got && (group || !b.waitlist)) {
     throw new HttpError(409, 'PREORDER_FULL', `Every delivery week of ${shownVariety(p.variety)} this season is fully booked. Join the waitlist to get the next free spot.`, { weekStart: null, requested: b.weekStart ?? null })
@@ -615,10 +625,12 @@ export async function bookPreorder(c, b, actor, { group = null } = {}) {
       group?.id ?? null, group?.position ?? null, load, p.variety, ask ? PENDING : null,
     ],
   )
+  if (b.landmark) await c.query('UPDATE preorders SET delivery_landmark = $2 WHERE id = $1', [id, b.landmark])
   const moved = got && got !== weeks[0] ? `Earlier weeks full: booked for ${weekWords(got)}` : null
   const part = !group ? null
     : group.kind === 'BAG' ? `Pre-order bag ${formatOrderNumber(group.number)}, line ${group.position} of ${group.size}`
-      : `Gift for several people: ${formatOrderNumber(group.number)}, person ${group.position}`
+      : group.week ? `Gift for one person: ${formatOrderNumber(group.number)}, box line ${group.position} of ${group.size}, delivered together`
+        : `Gift for several people: ${formatOrderNumber(group.number)}, person ${group.position}`
   const why = got ? [part, ask ? 'Address to be given by the recipient' : null, moved].filter(Boolean).join('. ') || null : 'Every week full: joined the waitlist'
   await event(c, id, status, actor, why)
   return (await c.query('SELECT * FROM preorders WHERE id = $1', [id])).rows[0]
@@ -1040,13 +1052,30 @@ export async function allocatePreorders() {
     )
     if (waiting.length) logger.warn({ count: waiting.length, preorders: waiting.map((p) => formatOrderNumber(p.number)) }, 'pre-orders waiting for the recipient\u2019s address were not turned into deliveries')
     const { rows } = await c.query(
-      `SELECT * FROM preorders WHERE status = 'BOOKED' AND week_start <= $1 AND address_state IS DISTINCT FROM 'ADDRESS_PENDING'
-        ORDER BY booked_at, created_at, id FOR UPDATE SKIP LOCKED LIMIT 200`,
+      `SELECT p.*, g.one_delivery AS group_one_delivery FROM preorders p LEFT JOIN preorder_groups g ON g.id = p.group_id
+        WHERE p.status = 'BOOKED' AND p.week_start <= $1 AND p.address_state IS DISTINCT FROM 'ADDRESS_PENDING'
+        ORDER BY p.booked_at, p.created_at, p.id FOR UPDATE OF p SKIP LOCKED LIMIT 200`,
       [horizon],
     )
     let converted = 0
     let moved = 0
+    const seen = new Set()
     for (const p of rows) {
+      if (seen.has(p.id)) continue
+      // A gift for one person (migration 098): its box lines in this week become ONE delivery order, a line per box.
+      // A line another run holds right now waits for the next run with the rest; a line a manager moved to another
+      // week goes on its own when its week comes.
+      let set = [p]
+      if (p.group_one_delivery) {
+        set = rows.filter((x) => x.group_id === p.group_id && x.week_start === p.week_start).sort((a, b) => (a.group_position ?? 0) - (b.group_position ?? 0))
+        for (const x of set) seen.add(x.id)
+        const { rows: [all] } = await c.query(
+          `SELECT COUNT(*)::int AS n FROM preorders WHERE group_id = $1 AND week_start = $2 AND status = 'BOOKED' AND address_state IS DISTINCT FROM 'ADDRESS_PENDING'`,
+          [p.group_id, p.week_start],
+        )
+        if (all.n > set.length) continue
+      }
+      const lead = set[0]
       const last = addDays(p.week_start, 6)
       let order = null
       for (let d = p.week_start < earliest ? earliest : p.week_start; d <= last && d <= horizon && !order; d = addDays(d, 1)) {
@@ -1054,30 +1083,35 @@ export async function allocatePreorders() {
           createOrder(
             c,
             {
-              customerId: p.customer_id, customerName: p.customer_name, phone: p.phone, pincode: p.pincode, address: p.delivery_address,
-              deliveryDate: d, slotId: p.slot_id, strictSlot: false, status: 'CONFIRMED', paymentStatus: 'SUCCEEDED',
-              paymentMethod: p.payment_method ?? 'preorder', allOrNothing: true, channel: p.channel,
+              customerId: lead.customer_id, customerName: lead.customer_name, phone: lead.phone, pincode: lead.pincode, address: lead.delivery_address,
+              landmark: lead.delivery_landmark ?? null,
+              deliveryDate: d, slotId: lead.slot_id, strictSlot: false, status: 'CONFIRMED', paymentStatus: 'SUCCEEDED',
+              paymentMethod: lead.payment_method ?? 'preorder', allOrNothing: true, channel: lead.channel,
               // The boxes held for pre-orders (holdback.js) are this booking's to take.
               holdBack: false,
-              lines: [{ sku: p.sku, stage: p.stage, qty: p.qty, unitPrice: p.unit_price }], eventReason: `From preorder ${formatOrderNumber(p.number)}`,
-              gift: giftOf(p),
+              lines: set.map((x) => ({ sku: x.sku, stage: x.stage, qty: x.qty, unitPrice: x.unit_price })),
+              eventReason: set.length > 1 ? `From gift pre-order lines ${set.map((x) => formatOrderNumber(x.number)).join(', ')}, delivered together` : `From preorder ${formatOrderNumber(lead.number)}`,
+              gift: giftOf(lead),
               // The customer keeps one number: the delivery order carries the booking's own (P or G). A booking
               // from before lettered numbers (PRE-1035) gets a new number of its letter, and still says where it came from.
-              ...(LETTERED.test(p.number) ? { number: p.number } : { letter: giftOf(p) || p.group_id ? 'G' : 'P' }),
+              ...(LETTERED.test(lead.number) ? { number: lead.number } : { letter: giftOf(lead) || lead.group_id ? 'G' : 'P' }),
             },
             SYSTEM,
           ),
         )
       }
       if (order) {
-        await c.query('UPDATE orders SET preorder_id = $2, payment_id = $3, payment_amount = $4 WHERE id = $1', [order.id, p.id, p.payment_id, p.paid_amount ?? p.total])
-        await c.query(`UPDATE preorders SET status = 'CONVERTED', order_id = $2 WHERE id = $1`, [p.id, order.id])
-        await event(c, p.id, 'CONVERTED', SYSTEM, `Delivering on ${order.delivery_date} as ${formatOrderNumber(order.number)}`)
-        converted++
+        const paid = set.reduce((t, x) => t + Number(x.paid_amount ?? x.total), 0)
+        await c.query('UPDATE orders SET preorder_id = $2, payment_id = $3, payment_amount = $4 WHERE id = $1', [order.id, lead.id, lead.payment_id, paid])
+        for (const x of set) {
+          await c.query(`UPDATE preorders SET status = 'CONVERTED', order_id = $2 WHERE id = $1`, [x.id, order.id])
+          await event(c, x.id, 'CONVERTED', SYSTEM, `Delivering on ${order.delivery_date} as ${formatOrderNumber(order.number)}`)
+        }
+        converted += set.length
       } else if (last < earliest) {
         // The same delayed path as a recalculation (flag, message, the customer's cancel right): taken by force, the fruit owes it.
-        await moveBooking(c, p, addDays(p.week_start, 7), SYSTEM, `no fruit came in the week of ${p.week_start}`, { force: true })
-        moved++
+        for (const x of set) await moveBooking(c, x, addDays(x.week_start, 7), SYSTEM, `no fruit came in the week of ${x.week_start}`, { force: true })
+        moved += set.length
       }
     }
     return { converted, moved }
@@ -1162,7 +1196,8 @@ export function groupView(g, members, links = new Map()) {
   const paid = g.payment_status === 'SUCCEEDED'
   return {
     id: g.id, number: g.number, kind: g.kind ?? 'GIFT', status, paymentStatus: g.payment_status, total: g.total, recipientCount: g.recipient_count,
-    lineCount: g.recipient_count, boxes: g.boxes,
+    // Migration 098: a gift for one person, its box lines (one booking each) in one week and one delivery.
+    oneDelivery: Boolean(g.one_delivery), lineCount: g.one_delivery ? members.length : g.recipient_count, boxes: g.boxes,
     holdExpiresAt: g.hold_expires_at, createdAt: g.created_at, paidAt: g.paid_at, nonRefundable: true,
     paymentUrl: status === 'PAYMENT_PENDING' ? g.payment_link_url : null,
     // The booking to pay through (the shop's pre-order sheet, the dev pay route): the first one.
@@ -1171,7 +1206,7 @@ export function groupView(g, members, links = new Map()) {
     // Migration 086 (marked on the bookings): the last payment attempt failed; the link can be paid again while held.
     paymentFailed: status === 'PAYMENT_PENDING' && g.payment_status !== 'SUCCEEDED' && members.some((p) => p.status === 'PAYMENT_PENDING' && p.payment_failed_at),
     preorders: members.map((p) => ({
-      ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind }),
+      ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind, group_one_delivery: g.one_delivery }),
       // GIFT_ADDRESS_LINKS: addressLink (sentAt, sendCount, expiresAt, canResend, resendAfter) and addressMessage.
       ...giverFields(p, links.get(p.id) ?? null, paid),
     })),
@@ -1209,8 +1244,37 @@ async function cancelGroupUnpaid(c, g, actor) {
  * one booking: pre-orders open, the week open, the pincode served, one unpaid booking (a group counts
  * once), the boxes one buyer may hold. Returns the group row.
  */
-export function bookPreorderGroup(c, { customerId, name, phone, recipients }, actor) {
-  return bookGroup(c, { kind: 'GIFT', customerId, name, phone, entries: recipients }, actor)
+export function bookPreorderGroup(c, { customerId, name, phone, recipients, oneDelivery = false }, actor) {
+  return bookGroup(c, { kind: 'GIFT', customerId, name, phone, entries: recipients, oneDelivery }, actor)
+}
+
+/** The most boxes one gift for one person may hold (change request 02, Q2: 20). */
+export const GIFT_MAX_BOXES = 20
+
+/**
+ * The one week a gift for one person arrives in (migration 098): the earliest week in which EVERY line has room
+ * together (lines of one variety share its kg), which is the week of the line that is ready last. Found by taking each
+ * line's kg in turn under a savepoint that is always rolled back, so nothing is kept; a week that looks full first lets
+ * its lapsed holds go (as assignWeek). null when no week can take the whole gift.
+ */
+async function togetherWeek(c, entries, weeks) {
+  const loads = entries.map((r) => ({ sku: r.sku, qty: r.qty, variety: varietyOf(r.sku) }))
+  const fits = async (w) => {
+    await c.query('SAVEPOINT together_week')
+    let ok = true
+    try {
+      for (const p of loads) if (!(await reserve(c, p, w))) { ok = false; break }
+    } finally {
+      await c.query('ROLLBACK TO SAVEPOINT together_week')
+      await c.query('RELEASE SAVEPOINT together_week')
+    }
+    return ok
+  }
+  for (const w of weeks) {
+    if (await fits(w)) return w
+    if ((await expireWeekHolds(c, w)) + (await sweepExpiredPlanned(c, w)) > 0 && (await fits(w))) return w
+  }
+  return null
 }
 
 /** The most box lines one pre-order bag takes (a line is one box size and ripeness; 20 boxes a line at most). */
@@ -1234,7 +1298,7 @@ export function bookPreorderBag(c, { customerId, name, phone, pincode, address, 
 }
 
 /** The two kinds' one booker: the group row, then each entry as an ordinary pre-order of it, in order. */
-async function bookGroup(c, { kind, customerId, name, phone, entries }, actor) {
+async function bookGroup(c, { kind, customerId, name, phone, entries, oneDelivery = false }, actor) {
   const cfg = getConfig()
   if (seasonPhase(todayIST(), cfg) === 'BEFORE') {
     throw conflict(`Pre-orders open on ${dateWords(cfg.preorderOpensOn)}.`, 'PREORDERS_NOT_OPEN')
@@ -1253,17 +1317,36 @@ async function bookGroup(c, { kind, customerId, name, phone, entries }, actor) {
     return p.price * r.qty
   })
   const total = priced.reduce((t, x) => t + x, 0)
+  // A gift for one person (migration 098): one week for every line, the week the shop showed (weekStart) or 409.
+  let week = null
+  if (oneDelivery) {
+    const weeks = await deliveryWeeks(c)
+    if (!weeks.length) throw badRequest('Pre-orders are closed: no delivery week is left this season', 'INVALID_WEEK')
+    week = await togetherWeek(c, entries, weeks)
+    const shown = entries.find((r) => r.weekStart)?.weekStart ?? null
+    if (!week) {
+      throw new HttpError(409, 'PREORDER_FULL', 'No delivery week this season has room for every box in this gift together. Take out a box or two.', { weekStart: null, requested: shown })
+    }
+    if (shown && week !== shown) {
+      const extra = { weekStart: week, requested: shown }
+      if (week > shown) throw new HttpError(409, 'PREORDER_FULL', `The week of ${dateWords(shown)} just filled up. The whole gift would arrive in ${weekWords(week)}.`, extra)
+      throw new HttpError(409, 'PREORDER_WEEK_CHANGED', `An earlier week has room again: the whole gift would arrive in ${weekWords(week)}.`, extra)
+    }
+  }
   await c.query(
-    `INSERT INTO preorder_groups (id, number, customer_id, status, recipient_count, boxes, total, payment_status, hold_expires_at, created_at, kind)
-     VALUES ($1, $2, $3, 'PAYMENT_PENDING', $4, $5, $6, 'INITIATED', $7, $8, $9)`,
-    [id, number, customerId, entries.length, boxes, total, holdExpiresAt, now(), kind],
+    `INSERT INTO preorder_groups (id, number, customer_id, status, recipient_count, boxes, total, payment_status, hold_expires_at, created_at, kind, one_delivery)
+     VALUES ($1, $2, $3, 'PAYMENT_PENDING', $4, $5, $6, 'INITIATED', $7, $8, $9, $10)`,
+    [id, number, customerId, oneDelivery ? 1 : entries.length, boxes, total, holdExpiresAt, now(), kind, Boolean(oneDelivery)],
   )
   for (const [i, r] of entries.entries()) {
+    const line = oneDelivery ? `Box line ${i + 1} (${findProduct(r.sku)?.name ?? r.sku})` : label(i, r.sku)
     try {
-      await bookPreorder(c, { ...r, customerId, name, phone, channel: 'app', waitlist: false }, actor, { group: { id, number, kind, position: i + 1, size: entries.length, holdExpiresAt } })
+      await bookPreorder(c, { ...r, ...(week ? { weekStart: null } : {}), customerId, name, phone, channel: 'app', waitlist: false }, actor, {
+        group: { id, number, kind, position: i + 1, size: entries.length, holdExpiresAt, week },
+      })
     } catch (err) {
       if (!(err instanceof HttpError)) throw err
-      throw new HttpError(err.status, err.code, `${label(i, r.sku)}: ${err.message}`, { weekStart: r.weekStart ?? null, ...(err.extra ?? {}), row: i + 1, sku: r.sku })
+      throw new HttpError(err.status, err.code, `${line}: ${err.message}`, { weekStart: r.weekStart ?? null, ...(err.extra ?? {}), row: i + 1, sku: r.sku })
     }
   }
   return (await c.query('SELECT * FROM preorder_groups WHERE id = $1', [id])).rows[0]
@@ -1355,7 +1438,7 @@ async function processGroupPayment(c, groupId, { outcome, paymentId, amount, met
   const results = []
   for (const p of members) results.push(await applyPaid(c, p, [null, method, p.total, now()], actor))
   // Recipients asked for their address (GIFT_ADDRESS_LINKS): one link and one WhatsApp message each, now it is paid.
-  if (members.some((p) => p.address_state === PENDING)) await openLinks(c, await groupMembers(c, g.id))
+  if (members.some((p) => p.address_state === PENDING)) await openLinks(c, await groupMembers(c, g.id), { oneDelivery: Boolean(g.one_delivery) })
   if (results.length && results.every((r) => r === 'refund_due')) return 'refund_due'
   return results.includes('booked') ? 'booked' : 'ignored'
 }

@@ -1,6 +1,6 @@
 /* The bulk page's three tabs and the bulk order paid at once (mango-api README, Bulk orders).
-   /bulk (Bulk order: 100 kg and above, ordered and paid now), /bulk/enquiry (Send enquiry: 250 kg and above, a quote)
-   and /bulk/farm-visit (Farm visit: 250 kg and above, pick your own, the stay is free; farm.js books it). Each tab is
+   /bulk (Bulk order: 100 kg and above, ordered and paid now), /bulk/enquiry (Send enquiry: 250 kg+ mangoes, a quote)
+   and /bulk/farm-visit (Farm visit: 250 kg+ mangoes, pick your own, the stay is free: a farm visit enquiry, below). Each tab is
    its own address, so it can be linked and the back button works. The tab row is a real tablist (arrow keys, Home,
    End) whose bead slides from the old tab to the new one.
    The list builder is pages.js's; this file adds the bulk prices (GET /v1/bulk/prices: the shop price less the
@@ -11,14 +11,15 @@
    It also draws each tab's "How it works" cards (bulkKeyHTML: a hover panel with a mouse, tap-to-open on touch), puts
    Mixed Variety Mangoes first in the variety lists and chooses it when the adder first shows (bulkVarietyOptions).
    Loaded after pages.js and farm.js (it adds to PAGES; it sets the adder's first pick) and before app.js: other
-   top-level code only declares and listens. Styles: style.css (.bulk-key, .bulk-pick, List B). */
+   top-level code only declares and listens. Styles: style.css (.bulk-key, .bulk-pick, List B; .fv-* for the farm visit
+   page and the numbered sections, .bq-* for the Send enquiry steps and meter, change request 02). */
 
 PAGES.push([/^\/bulk\/orders\/([^/]+)\/?$/, (m) => signedInThen('Bulk order', () => bulkOrderView(decodeURIComponent(m[1])))])
 
 const BULK_TABS = [
   { id: 'order', href: '/bulk', name: 'Bulk order', promise: ['100 kg and above', 'order and pay now'] },
-  { id: 'enquiry', href: '/bulk/enquiry', name: 'Send enquiry', promise: ['250 kg and above', 'get a quote'] },
-  { id: 'farm-visit', href: '/bulk/farm-visit', name: 'Farm visit', promise: ['250 kg and above', 'pick your own, stay free'] },
+  { id: 'enquiry', href: '/bulk/enquiry', name: 'Send enquiry', promise: ['250 kg+ mangoes', 'get a quote'] },
+  { id: 'farm-visit', href: '/bulk/farm-visit', name: 'Farm visit', promise: ['250 kg+ mangoes', 'pick your own, stay free'] },
 ]
 let bulkTab = 'order'
 const bulkRs = (paise) => currency((Number(paise) || 0) / 100)
@@ -88,13 +89,13 @@ function bulkKeyHTML(tab) {
     ? `<li class="bulk-key-card" tabindex="0"><span class="bulk-key-head">${icon(ic)}<strong>${title}</strong></span><span class="bulk-key-tip"><span>${text}</span></span></li>`
     : `<li><details><summary>${icon(ic)}<strong>${title}</strong>${icon('chevron')}</summary><span>${text}</span></details></li>`
   const items = tab === 'enquiry' ? [
-    li('scale', `${BULK_ENQUIRY_MIN_KG} kg minimum`, `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg and more. From ${BULK_MIN_KG} kg you can also order and pay at the bulk price straight away.`),
+    li('scale', `${BULK_ENQUIRY_MIN_KG} kg+ mangoes`, `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg of mangoes and more. From ${BULK_MIN_KG} kg you can also order and pay at the bulk price straight away.`),
     li('tag', 'A price for you', 'We start from the bulk price and quote you on WhatsApp. Your quote can be lower.'),
     li('check', 'Nothing paid now', 'Accept or decline the quote on your account. We call you to arrange delivery and payment.'),
     li('truck', `Delivery: ${BULK_DELIVERY_PCT}% of the mangoes’ value`, 'Shown on the quote, with any extra costs such as special packaging.'),
   ] : tab === 'farm-visit' ? [
-    li('scale', `${FARM_VISIT_MIN_KG} kg minimum`, `Book ${FARM_VISIT_MIN_KG} kg or more of one variety for your visit day.`),
-    li('tree', 'Your stay is free', 'Stay at the farmhouse at no charge while you visit.'),
+    li('scale', `${FARM_VISIT_MIN_KG} kg+ mangoes`, `Book ${FARM_VISIT_MIN_KG} kg or more of one variety for your visit.`),
+    li('tree', 'Your stay is free', 'Stay at the farmhouse free for the night of your visit.'),
     li('store', 'Food is paid at the farm', 'Meals are cooked by our farm team and paid to them directly at the farm. They are never on our bill.'),
     li('mango', 'Pick your own mangoes', 'Walk the orchard and pick them with our farm team.'),
     li('scale', 'Pay for the mangoes after weighing', 'You pay only for the kilograms weighed and accepted, after picking.'),
@@ -333,28 +334,90 @@ document.addEventListener('click', (e) => {
 // ---- The farm visit tab: a farm visit ENQUIRY (POST /v1/farm-visit-enquiries), always open, signed in or not. Our team
 // calls to plan the visit. (The full Farm Experience booking stays in farm.js for later: a quiet link under the form
 // only while FARM_EXPERIENCE is on and bookings are open.)
+// Change request 02 (CR2-01, CR2-02, CR2-04): a hero band (bulkFarmHeroHTML), then the form in three numbered sections
+// (About you · Your visit · Your mangoes) beside a live "Your visit" card (on PC) or over a sticky bottom bar (phones,
+// bulkFarmBar). The visit is two dates, Day 1 (arrive) and Day 2 (leave), 2 days at most: Day 2 is Day 1 or the next
+// day (a 1-day visit is fine). Picking Day 1 fills Day 2 with the next day. "I'm flexible" makes the dates optional.
+// The kg field is a stepper from 250 with quick picks. The hero and form draw at once; the mangoes and the season's
+// first day (GET /farm-experience, only while it is on) fill in when they arrive. Styles: style.css (.fv-*).
 
 /** The API's FARM_VISIT_MIN_KG (bulk-enquiries.js) and the booking's MIN_KG (farm/settings.js): farm visits are for this much and more. */
 const FARM_VISIT_MIN_KG = 250
 const FARM_VISIT_DRAFT = 'mm-farm-visit-draft'
+const FV_KG_STEP = 10
+const FV_KG_PICKS = [250, 500, 1000]
 // `captcha`, `captchaOn`, `widget`: the Turnstile check (AUTH-01, app.js formCaptcha), drawn afresh with the form.
-const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null }
+// `season`: the farm's first and last visit days, when the farm sets them (GET /farm-experience settings).
+const fv = { key: null, busy: false, sent: null, captcha: null, captchaOn: false, widget: null, season: { start: '', end: '' } }
 const fvToday = () => new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10)
+/** Phones and narrow screens: the bottom bar instead of the card beside the form. */
+const FV_WIDE = matchMedia('(min-width: 1000px)')
 
-async function bulkFarmTab() {
-  const el = $('#bulk-farm')
-  if (!el) return
-  await shelfReady()
-  if (!$('#bulk-farm') || bulkTab !== 'farm-visit') return
-  el.removeAttribute('aria-busy')
+// Dates as YYYY-MM-DD, worked out in UTC so no time zone moves a day.
+const fvAdd = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10)
+const fvDays = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1
+const FV_WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], FV_MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const fvPart = (d) => { const t = new Date(`${d}T00:00:00Z`); return { wd: FV_WD[t.getUTCDay()], n: t.getUTCDate(), mon: FV_MON[t.getUTCMonth()] } }
+const fvIsDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`))
+/** "Thu 26 – Fri 27 Nov" (long) or "26–27 Nov" (short); one day: "Thu 26 Nov" / "26 Nov". */
+function fvRange(from, to, short = false) {
+  const a = fvPart(from), b = to && to !== from ? fvPart(to) : null
+  if (short) return b ? (a.mon === b.mon ? `${a.n}–${b.n} ${b.mon}` : `${a.n} ${a.mon} – ${b.n} ${b.mon}`) : `${a.n} ${a.mon}`
+  return b ? `${a.wd} ${a.n}${a.mon === b.mon ? '' : ` ${a.mon}`} – ${b.wd} ${b.n} ${b.mon}` : `${a.wd} ${a.n} ${a.mon}`
+}
+/** The first day Day 1 may be: today, or the season's first day if the farm sets a later one. */
+const fvEarliest = () => (fv.season.start && fv.season.start > fvToday() ? fv.season.start : fvToday())
+
+/** The page's top: the farm photo with where it is, the kicker, the headline and three facts. */
+function bulkFarmHeroHTML() {
+  const where = (window.MM_CATALOG && MM_CATALOG.origin) || 'Yellamanda Village, Piler, Andhra Pradesh'
+  return `<section class="fv-hero" aria-labelledby="fv-hero-h">
+    <div class="fv-hero-photo"><img src="/assets/hero-orchard-960.webp" srcset="/assets/hero-orchard-960.webp 960w, /assets/hero-orchard.webp 1672w" sizes="(max-width: 700px) calc(100vw - 32px), 560px" alt="Ripe mangoes on a wooden tray under the mango trees of our orchard" width="960" height="541" decoding="async" fetchpriority="high"><span class="fv-pin">${icon('pin')}<span>${esc(where)}</span></span></div>
+    <div class="fv-hero-copy"><p class="fv-kicker">Farm visit</p><h2 id="fv-hero-h">Pick your own mangoes at our farm</h2>
+      <ul class="fv-facts" aria-label="The visit at a glance"><li>2-day visit</li><li>Free farm stay</li><li>${FARM_VISIT_MIN_KG} kg+ mangoes</li></ul></div>
+  </section>`
+}
+
+function bulkFarmTab() {
+  if (!$('#bulk-farm')) return
   bulkFarmDraw()
-  // The quiet way into the full booking, for a date already agreed with us: only while it is switched on and open.
-  if (await farmFeature()) {
+  // The mangoes to choose from arrive with the catalogue; only the list is filled in, so nothing typed is lost.
+  shelfReady().then(() => { if ($('#bulk-farm') && bulkTab === 'farm-visit') fvVarietiesFill() })
+  // While the Farm Experience is on: the season's first and last days, and the quiet way into the full booking.
+  farmFeature().then(async (on) => {
+    if (!on) return
     let f = null
     try { f = await MM.farmExperience() } catch { f = null }
+    if (!f || !$('#bulk-farm') || bulkTab !== 'farm-visit') return
+    const s = f.settings || {}
+    fv.season = { start: fvIsDay(s.seasonStart) ? s.seasonStart : '', end: fvIsDay(s.seasonEnd) ? s.seasonEnd : '' }
+    const form = $('#farm-visit-form')
+    if (form) fvDatesFix(form)
     const spot = $('#bulk-farm-book')
-    if (spot && f && f.bookingsOpen) spot.innerHTML = `<a class="text-button" href="/farm-experience/book" data-route>Already agreed a date with us? Book your visit ${icon('arrow')}</a>`
-  }
+    if (spot && f.bookingsOpen) spot.innerHTML = `<a class="text-button" href="/farm-experience/book" data-route>Already agreed a date with us? Book your visit ${icon('arrow')}</a>`
+  })
+}
+
+/** The saved draft (mm-farm-visit-draft), with a draft from before CR2-01 (one visitDate) read as Day 1 and the next day. */
+function fvDraft() {
+  const d = read(FARM_VISIT_DRAFT, {}) || {}
+  if (d.visitDate && !d.visitFrom && fvIsDay(d.visitDate)) { d.visitFrom = d.visitDate; d.visitTo = fvAdd(d.visitDate, 1) }
+  delete d.visitDate
+  return d
+}
+
+/** The mango choices: "Not sure yet", the mixed box, then A to Z (the value is the API's name, catalog.js keyOf). */
+function fvVarietyOptions(chosen) {
+  const keyOf = (n) => (window.MM_CATALOG && MM_CATALOG.keyOf ? MM_CATALOG.keyOf(n) : n)
+  const names = bulkVarietyOrder([...new Map((shelf || []).map((x) => [x.name, x])).values()]).map((x) => x.name)
+  const known = names.some((n) => keyOf(n) === chosen || n === chosen)
+  return `<option value="">Not sure yet</option>${names.map((n) => `<option value="${esc(keyOf(n))}"${chosen && (chosen === keyOf(n) || chosen === n) ? ' selected' : ''}>${esc(n)}</option>`).join('')}${chosen && !known ? `<option value="${esc(chosen)}" selected>${esc(chosen)}</option>` : ''}`
+}
+function fvVarietiesFill() {
+  const sel = $('#farm-visit-form select[name="variety"]')
+  if (!sel) return
+  sel.innerHTML = fvVarietyOptions(sel.value || fvDraft().variety || '')
+  fvUpdate(sel.form)
 }
 
 function bulkFarmDraw(errors = {}, top = '') {
@@ -363,74 +426,217 @@ function bulkFarmDraw(errors = {}, top = '') {
   if (fv.sent) {
     const x = fv.sent
     el.innerHTML = `<section class="page-card bulk-farm-sent" tabindex="-1" role="status"><div class="success">${icon('check')}<h2>Farm visit enquiry <span class="no-wrap">${esc(orderNo(x.number))}</span> sent.</h2>
-      <p>Our team will call you on WhatsApp on <strong>+91 ${esc(x.phone)}</strong> to plan your visit.</p>
+      <p>Our team will call you on WhatsApp on <strong>+91 ${esc(x.phone)}</strong> to plan your 2-day visit.</p>
       ${MM.profile() ? `<a class="button primary" href="/account?enquiry=${encodeURIComponent(x.id)}" data-route>See it in your account ${icon('arrow')}</a>` : ''}
       <button type="button" class="text-button" data-farm-visit-again style="margin:15px auto 0">Send another enquiry</button></div></section>`
+    bulkBar()
     return
   }
-  const d = read(FARM_VISIT_DRAFT, {}) || {}, me = MM.profile() || {}
+  const d = fvDraft(), me = MM.profile() || {}
   const v = (k, fallback = '') => esc(d[k] ?? fallback)
-  // the mixed box first, then A to Z; the value sent is the API's name for it (catalog.js keyOf), the default "Not sure yet"
-  const keyOf = (n) => (window.MM_CATALOG && MM_CATALOG.keyOf ? MM_CATALOG.keyOf(n) : n)
-  const varieties = bulkVarietyOrder([...new Map((shelf || []).map((x) => [x.name, x])).values()]).map((x) => x.name)
   const err = (k) => errors[k] ? `<span class="field-error" id="fv-${k}-err">${icon('info')}${esc(errors[k])}</span>` : ''
-  const inv = (k) => errors[k] ? ` aria-invalid="true" aria-describedby="fv-${k}-err"` : ''
+  const inv = (k, also = k) => errors[k] ? ` aria-invalid="true" aria-describedby="fv-${also}-err"` : ''
   const flexible = d.flexible === true || d.flexible === 'on'
-  el.innerHTML = `<form class="page-card bulk-farm-form" id="farm-visit-form" novalidate aria-labelledby="farm-visit-h">
-      <h2 id="farm-visit-h" class="flow-head">Ask about a farm visit</h2>
-      <p>Tell us who is coming and roughly what you want. Our team calls you on WhatsApp to plan the day. Nothing is booked or paid now, and you don’t need to sign in.</p>
-      ${top ? `<p class="prototype-tag bulk-error" role="alert">${esc(top)}</p>` : ''}
-      <div class="form-grid">
-        <label class="field">Your name<input name="name" autocomplete="name" maxlength="100" required value="${v('name', me.name || '')}"${inv('name')}>${err('name')}</label>
-        <label class="field">Mobile / WhatsApp number<input name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" required placeholder="10-digit mobile" value="${v('phone', String(me.phone || '').replace(/^\+91/, ''))}"${inv('phone')}>${err('phone')}</label>
-        <label class="field">Another number we can reach <small>(optional)</small><input name="altPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="10-digit mobile" value="${v('altPhone')}"${inv('altPhone')}>${err('altPhone')}</label>
-        <label class="field">Language you prefer we speak <small>(optional)</small><span class="bulk-select"><select name="preferredLanguage"${inv('preferredLanguage')}><option value="">No preference</option>${FARM_LANGUAGES.map((n) => `<option${d.preferredLanguage === n ? ' selected' : ''}>${n}</option>`).join('')}</select>${icon('chevron')}</span>${err('preferredLanguage')}</label>
-        <label class="field">City<input name="city" autocomplete="address-level2" maxlength="100" required value="${v('city')}"${inv('city')}>${err('city')}</label>
-        <label class="field">Which mango<span class="bulk-select"><select name="variety"${inv('variety')}><option value="">Not sure yet</option>${varieties.map((n) => `<option value="${esc(keyOf(n))}"${d.variety === keyOf(n) || d.variety === n ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>${icon('chevron')}</span>${err('variety')}</label>
-        <label class="field">About how many kg <small>(${FARM_VISIT_MIN_KG} or more)</small><input name="kg" type="number" inputmode="numeric" min="${FARM_VISIT_MIN_KG}" step="1" required value="${v('kg', String(FARM_VISIT_MIN_KG))}"${inv('kg')}>${err('kg')}</label>
-        <label class="field">How many people are coming<input name="people" type="number" inputmode="numeric" min="1" step="1" required value="${v('people', '2')}"${inv('people')}>${err('people')}</label>
-        <label class="field">Preferred visit date <small>(optional)</small><input name="visitDate" type="date" min="${fvToday()}" value="${v('visitDate')}"${flexible ? ' disabled' : ''}${inv('visitDate')}>${err('visitDate')}</label>
-        <label class="bulk-farm-flex"><input type="checkbox" name="flexible"${flexible ? ' checked' : ''}><span>I’m flexible about the date</span></label>
-        <label class="field wide">Anything else? <small>(optional)</small><textarea name="notes" rows="3" maxlength="1000" placeholder="Who is coming, food needs, the week that suits you">${v('notes')}</textarea></label>
+  const from = fvIsDay(d.visitFrom) ? d.visitFrom : '', to = fvIsDay(d.visitTo) ? d.visitTo : ''
+  const kg = /^\d+$/.test(String(d.kg ?? '')) ? String(d.kg) : String(FARM_VISIT_MIN_KG)
+  const head = (n, id, title) => `<h3 class="fv-sec-h" id="${id}"><span class="fv-num" aria-hidden="true">${n}</span>${title}</h3>`
+  el.innerHTML = `<div class="fv-layout">
+    <form class="page-card bulk-farm-form fv-form" id="farm-visit-form" novalidate aria-labelledby="farm-visit-h">
+      <div class="fv-form-top">
+        <h2 id="farm-visit-h" class="flow-head">Ask about a farm visit</h2>
+        <p>Tell us who is coming and what you want. Our team calls you on WhatsApp to plan your 2-day visit. Nothing is booked or paid now, and you don’t need to sign in.</p>
+        <p class="fv-min"><span class="fv-min-tag" aria-hidden="true">kg</span><span><strong>Minimum ${FARM_VISIT_MIN_KG} kg of mangoes.</strong> You buy at least ${FARM_VISIT_MIN_KG} kg on your visit.</span></p>
+        ${top ? `<p class="prototype-tag bulk-error" role="alert">${esc(top)}</p>` : ''}
       </div>
+      <fieldset class="fv-sec" aria-labelledby="fv-s1">${head(1, 'fv-s1', 'About you')}
+        <div class="form-grid">
+          <label class="field">Your name<input name="name" autocomplete="name" maxlength="100" required value="${v('name', me.name || '')}"${inv('name')}>${err('name')}</label>
+          <label class="field">Mobile / WhatsApp number<input name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" required placeholder="10-digit mobile" value="${v('phone', String(me.phone || '').replace(/^\+91/, ''))}"${inv('phone')}>${err('phone')}</label>
+          <label class="field">Another number we can reach <small>(optional)</small><input name="altPhone" type="tel" inputmode="tel" autocomplete="off" maxlength="20" placeholder="10-digit mobile" value="${v('altPhone')}"${inv('altPhone')}>${err('altPhone')}</label>
+          <label class="field">Language you prefer we speak <small>(optional)</small><span class="bulk-select"><select name="preferredLanguage"${inv('preferredLanguage')}><option value="">No preference</option>${FARM_LANGUAGES.map((n) => `<option${d.preferredLanguage === n ? ' selected' : ''}>${n}</option>`).join('')}</select>${icon('chevron')}</span>${err('preferredLanguage')}</label>
+        </div>
+      </fieldset>
+      <fieldset class="fv-sec" aria-labelledby="fv-s2">${head(2, 'fv-s2', 'Your visit')}
+        <div class="fv-visit">
+          <div class="fv-dates${flexible ? ' is-flexible' : ''}" role="group" aria-labelledby="fv-dates-label"${errors.dates ? ' aria-describedby="fv-dates-err"' : ''}>
+            <p class="fv-dates-label" id="fv-dates-label">Visit dates · 2 days at most <small class="fv-opt"${flexible ? '' : ' hidden'}>(optional)</small></p>
+            <div class="fv-range">
+              <label class="field">Day 1 <small>(arrive)</small><input name="visitFrom" type="date" min="${fvEarliest()}"${fv.season.end ? ` max="${fv.season.end}"` : ''} value="${from}"${inv('dates')}></label>
+              <span class="fv-range-arrow" aria-hidden="true">${icon('arrow')}</span>
+              <label class="field">Day 2 <small>(leave)</small><input name="visitTo" type="date" value="${to}"${inv('dates')}></label>
+            </div>
+            ${err('dates')}
+            <p class="fv-range-says" id="fv-range-says" aria-live="polite"></p>
+          </div>
+          <label class="bulk-farm-flex fv-flex"><input type="checkbox" name="flexible"${flexible ? ' checked' : ''}><span>I’m flexible about the dates</span></label>
+        </div>
+        <div class="form-grid">
+          <label class="field">How many people are coming<input name="people" type="number" inputmode="numeric" min="1" step="1" required value="${v('people', '2')}"${inv('people')}>${err('people')}</label>
+          <label class="field">City you come from<input name="city" autocomplete="address-level2" maxlength="100" required value="${v('city')}"${inv('city')}>${err('city')}</label>
+        </div>
+      </fieldset>
+      <fieldset class="fv-sec" aria-labelledby="fv-s3">${head(3, 'fv-s3', 'Your mangoes')}
+        <div class="form-grid">
+          <label class="field wide">Which mango<span class="bulk-select"><select name="variety"${inv('variety')}>${fvVarietyOptions(d.variety || '')}</select>${icon('chevron')}</span>${err('variety')}</label>
+          <div class="field wide fv-kg-field">
+            <label for="fv-kg">How many kg of mangoes will you buy?</label>
+            <div class="fv-kg-row">
+              <div class="card-stepper fv-kg" role="group" aria-label="Kilograms of mangoes">
+                <button type="button" data-fv-kg-step="-${FV_KG_STEP}" aria-label="${FV_KG_STEP} kg fewer">−</button>
+                <span class="fv-kg-box"><input id="fv-kg" name="kg" type="number" inputmode="numeric" min="${FARM_VISIT_MIN_KG}" step="1" required value="${esc(kg)}"${inv('kg')}${errors.kg ? '' : ' aria-describedby="fv-kg-hint"'}><span aria-hidden="true">kg</span></span>
+                <button type="button" data-fv-kg-step="${FV_KG_STEP}" aria-label="${FV_KG_STEP} kg more">+</button>
+              </div>
+              <div class="fv-kg-picks" role="group" aria-label="Quick picks">${FV_KG_PICKS.map((n) => `<button type="button" class="fv-chip" data-fv-kg="${n}" aria-pressed="false">${n.toLocaleString('en-IN')} kg</button>`).join('')}</div>
+            </div>
+            ${errors.kg ? err('kg') : `<small class="fv-kg-hint" id="fv-kg-hint">${FARM_VISIT_MIN_KG} kg or more, in whole kg.</small>`}
+          </div>
+          <label class="field wide">Anything else? <small>(optional)</small><textarea name="notes" rows="3" maxlength="1000" placeholder="Who is coming, food needs, anything we should know">${v('notes')}</textarea></label>
+        </div>
+      </fieldset>
       <div class="pn-captcha" hidden></div>
-      <button class="button primary full" type="submit" ${fv.busy ? 'disabled aria-describedby="fv-busy"' : ''}>${fv.busy ? 'Sending…' : `Send farm visit enquiry ${icon('arrow')}`}</button>
+      <button class="button primary full fv-send-inline" type="submit" ${fv.busy ? 'disabled' : ''}>${fv.busy ? 'Sending…' : `Send farm visit enquiry ${icon('arrow')}`}</button>
       ${fv.busy ? `<p class="bulk-add-why" id="fv-busy">${icon('clock')}<span>Sending your enquiry. One moment.</span></p>` : ''}
-      <p class="form-footer">We use your details only to plan this visit.</p>
+      <p class="form-footer fv-foot">We use your details only to plan this visit.</p>
       <p class="bulk-farm-book" id="bulk-farm-book"></p>
-    </form>`
+    </form>
+    <aside class="fv-sum" aria-labelledby="fv-sum-h">
+      <p class="fv-sum-kicker" id="fv-sum-h">Your visit</p>
+      <dl class="fv-sum-list">
+        <div><dt>Dates</dt><dd data-fv-sum="dates"></dd></div>
+        <div><dt>People</dt><dd data-fv-sum="people"></dd></div>
+        <div><dt>Mangoes</dt><dd data-fv-sum="mangoes"></dd></div>
+        <div><dt>Stay</dt><dd>Free, at the farm</dd></div>
+      </dl>
+      <button class="button fv-sum-go" type="submit" form="farm-visit-form" ${fv.busy ? 'disabled' : ''}>${fv.busy ? 'Sending…' : `Send enquiry ${icon('arrow')}`}</button>
+      <p class="fv-sum-note">We use your details only to plan this visit. Nothing is booked or paid now.</p>
+    </aside>
+  </div>`
   // A token works once: while sending, the one taken is kept (fv.busy) and no new check is drawn.
   if (!fv.busy) formCaptcha($('#farm-visit-form .pn-captcha', el), 'farm-visit', fv)
+  const form = $('#farm-visit-form')
+  fvDatesFix(form)
+  fvUpdate(form)
 }
 
+/** Day 1 from the earliest day (the season's last day at most); Day 2 from Day 1 to the next day: the picker can't choose more. */
+function fvDatesFix(form) {
+  const a = form.elements.namedItem('visitFrom'), b = form.elements.namedItem('visitTo')
+  if (!a || !b) return
+  a.min = fvEarliest()
+  if (fv.season.end) a.max = fv.season.end
+  if (fvIsDay(a.value)) {
+    b.min = a.value
+    b.max = fv.season.end && fv.season.end < fvAdd(a.value, 1) ? fv.season.end : fvAdd(a.value, 1)
+  } else { b.min = fvEarliest(); b.removeAttribute('max') }
+}
+
+/** What the form says now, from its fields (no checks). */
+function fvRead(form) {
+  const f = (k) => { const el = form.elements.namedItem(k); return el ? el.value : '' }
+  return { name: f('name'), phone: f('phone'), altPhone: f('altPhone'), preferredLanguage: f('preferredLanguage'), city: f('city'), variety: f('variety'), kg: f('kg'), people: f('people'), visitFrom: f('visitFrom'), visitTo: f('visitTo'), notes: f('notes'), flexible: form.elements.namedItem('flexible').checked }
+}
+
+/** Live: the line under the dates, the kg picks, the greyed dates when flexible, the "Your visit" card and the phone's bar. */
+function fvUpdate(form) {
+  if (!form) return
+  const d = fvRead(form), from = fvIsDay(d.visitFrom) ? d.visitFrom : '', to = fvIsDay(d.visitTo) ? d.visitTo : ''
+  const ok = from && to && to >= from && fvDays(from, to) <= 2
+  const says = $('#fv-range-says')
+  if (says) says.innerHTML = ok ? `${icon('calendar')}<span>Your visit: <strong>${fvDays(from, to)} ${fvDays(from, to) === 1 ? 'day' : 'days'}, ${fvRange(from, to)}</strong></span>` : `<span>Pick Day 1; Day 2 fills in as the next day. Make Day 2 the same day for a 1-day visit.</span>`
+  const dates = $('.fv-dates', form)
+  if (dates) { dates.classList.toggle('is-flexible', d.flexible); const o = $('.fv-opt', dates); if (o) o.hidden = !d.flexible }
+  const kg = Number(d.kg)
+  $$('[data-fv-kg]', form).forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.fvKg) === kg)))
+  const down = $('[data-fv-kg-step^="-"]', form)
+  if (down) { if (!(kg > FARM_VISIT_MIN_KG)) down.setAttribute('aria-disabled', 'true'); else down.removeAttribute('aria-disabled') }
+  const sel = form.elements.namedItem('variety'), mango = sel && sel.value ? sel.options[sel.selectedIndex].text : ''
+  const people = /^\d+$/.test(d.people.trim()) && Number(d.people) > 0 ? Number(d.people) : 0
+  const sum = {
+    dates: ok ? `${fvRange(from, to, true)} · ${fvDays(from, to)} ${fvDays(from, to) === 1 ? 'day' : 'days'}` : d.flexible ? 'Flexible: we’ll agree them' : 'Pick your dates',
+    people: people ? `${people} ${people === 1 ? 'person' : 'people'}` : '—',
+    mangoes: `${kg > 0 ? `${kg.toLocaleString('en-IN')} kg` : '— kg'}${mango ? ` · ${mango}` : ' · mango not chosen yet'}`,
+  }
+  for (const [k, text] of Object.entries(sum)) { const dd = $(`.fv-sum [data-fv-sum="${k}"]`); if (dd) dd.textContent = text }
+  fv.summary = { dates: ok ? fvRange(from, to, true) : d.flexible ? 'Dates flexible' : 'Dates to pick', people, kg }
+  bulkBar()
+}
+
+/** The phone's sticky bar on the farm visit tab: the visit in one line and the send button (none beside the card on PC). */
+function bulkFarmBar() {
+  if (fv.sent) return setBar(`<div class="pay-bar-row is-sent"><p class="pay-bar-sent" role="status">${icon('check')}<span>Farm visit enquiry sent · we call you on WhatsApp</span></p></div>`)
+  if (FV_WIDE.matches || !$('#farm-visit-form')) return setBar('')
+  const s = fv.summary || { dates: 'Dates to pick', people: 0, kg: FARM_VISIT_MIN_KG }
+  const line = [s.dates, s.people ? `${s.people} ${s.people === 1 ? 'person' : 'people'}` : '', s.kg > 0 ? `${s.kg.toLocaleString('en-IN')} kg` : ''].filter(Boolean).join(' · ')
+  setBar(`<div class="pay-bar-row bulk-bar fv-bar"><div class="pay-bar-total"><small>Your visit</small><strong>${esc(line)}</strong></div><div class="bulk-bar-go"><button class="button primary pay-bar-go fv-bar-go" id="fv-send" ${fv.busy ? 'disabled' : ''}><span>${fv.busy ? 'Sending…' : 'Send farm visit enquiry'}</span>${fv.busy ? '' : icon('arrow')}</button></div></div>`)
+}
+FV_WIDE.addEventListener('change', () => { if (document.body.dataset.page === 'bulk' && bulkTab === 'farm-visit') bulkBar() })
+
 function bulkFarmKeep(form) {
-  const d = {}
-  for (const k of ['name', 'phone', 'altPhone', 'preferredLanguage', 'city', 'variety', 'kg', 'people', 'visitDate', 'notes']) { const el = form.elements.namedItem(k); if (el) d[k] = el.value }
-  d.flexible = form.elements.namedItem('flexible').checked
+  const d = fvRead(form)
   save(FARM_VISIT_DRAFT, d)
   return d
 }
 
-async function bulkFarmSend(form) {
-  if (fv.busy) return
-  const d = bulkFarmKeep(form), errors = {}
+/** The checks, each said under its own field: { field: message }. */
+function fvChecks(d) {
+  const errors = {}
   if (!String(d.name).trim()) errors.name = 'Tell us your name.'
   if (!/^[6-9]\d{9}$/.test(normPhone(d.phone))) errors.phone = 'Enter a 10-digit mobile number.'
   if (String(d.altPhone || '').trim() && !/^[6-9]\d{9}$/.test(normPhone(d.altPhone))) errors.altPhone = 'Enter a 10-digit mobile number, or leave it empty.'
   if (d.preferredLanguage && !FARM_LANGUAGES.includes(d.preferredLanguage)) errors.preferredLanguage = 'Choose a language from the list.'
-  if (!String(d.city).trim()) errors.city = 'Tell us your city.'
-  if (!/^\d+$/.test(String(d.kg).trim()) || Number(d.kg) < FARM_VISIT_MIN_KG) errors.kg = `Farm visits are for ${FARM_VISIT_MIN_KG} kg and above, in whole kg.`
+  const from = d.visitFrom, to = d.visitTo, any = from || to
+  if (!d.flexible || any) {
+    if (!fvIsDay(from) || !fvIsDay(to)) errors.dates = 'Pick your visit dates.'
+    else if (from < fvEarliest()) errors.dates = fvEarliest() > fvToday() ? `Visits start on ${fvRange(fvEarliest())}. Choose that day or later, or tick “I’m flexible”.` : 'That date has passed. Choose today or later, or tick “I’m flexible”.'
+    else if (fv.season.end && from > fv.season.end) errors.dates = `The season’s last visit day is ${fvRange(fv.season.end)}.`
+    else if (to < from) errors.dates = 'Day 2 can’t be before Day 1.'
+    else if (fvDays(from, to) > 2) errors.dates = 'A farm visit is 2 days at most.'
+  }
   if (!/^\d+$/.test(String(d.people).trim()) || Number(d.people) < 1) errors.people = 'At least one person is coming.'
-  if (!d.flexible && d.visitDate && d.visitDate < fvToday()) errors.visitDate = 'That date has passed. Choose a later one, or tick “I’m flexible”.'
-  if (Object.keys(errors).length) { bulkFarmDraw(errors); $(`#farm-visit-form [aria-invalid="true"]`)?.focus(); return }
+  if (!String(d.city).trim()) errors.city = 'Tell us your city.'
+  errors.kg = fvKgCheck(d.kg)
+  if (!errors.kg) delete errors.kg
+  return errors
+}
+const fvKgCheck = (kg) => (!/^\d+$/.test(String(kg).trim()) ? 'Enter the kg of mangoes, in whole kg.' : Number(kg) < FARM_VISIT_MIN_KG ? `A farm visit needs at least ${FARM_VISIT_MIN_KG} kg of mangoes.` : '')
+
+/** The kg field said its error, or stopped saying it, without drawing the form again (it is checked when it changes). */
+function fvKgSay(form) {
+  const input = form.elements.namedItem('kg'), wrap = input && input.closest('.fv-kg-field')
+  if (!wrap) return
+  const msg = fvKgCheck(input.value)
+  let out = $('#fv-kg-err', wrap)
+  const hint = $('.fv-kg-hint', wrap)
+  if (msg) {
+    if (!out) { out = document.createElement('span'); out.className = 'field-error'; out.id = 'fv-kg-err'; wrap.append(out) }
+    out.innerHTML = `${icon('info')}${esc(msg)}`
+    input.setAttribute('aria-invalid', 'true'); input.setAttribute('aria-describedby', 'fv-kg-err')
+    if (hint) hint.hidden = true
+  } else {
+    if (out) out.remove()
+    input.removeAttribute('aria-invalid'); input.setAttribute('aria-describedby', 'fv-kg-hint')
+    if (hint) hint.hidden = false
+  }
+}
+
+async function bulkFarmSend(form) {
+  if (fv.busy) return
+  const d = bulkFarmKeep(form), errors = fvChecks(d)
+  if (Object.keys(errors).length) {
+    bulkFarmDraw(errors)
+    const first = $('#farm-visit-form [aria-invalid="true"]')
+    if (first) { first.focus({ preventScroll: true }); first.scrollIntoView({ block: 'center', behavior: reduced ? 'instant' : 'smooth' }) }
+    return
+  }
   if (fv.captchaOn && !fv.captcha) return bulkFarmDraw({}, CAPTCHA_ASK)
   const captcha = fv.captcha
   fv.key ||= MM.idem()['Idempotency-Key']
   fv.busy = true
   bulkFarmDraw()
+  const dated = fvIsDay(d.visitFrom) && fvIsDay(d.visitTo)
   const body = {
     name: String(d.name).trim(), phone: normPhone(d.phone), city: String(d.city).trim(), variety: d.variety || null, kg: Number(d.kg), people: Number(d.people),
-    visitDate: d.flexible ? null : d.visitDate || null, flexible: Boolean(d.flexible) || !d.visitDate, notes: String(d.notes || '').trim() || null,
+    visitFrom: dated ? d.visitFrom : null, visitTo: dated ? d.visitTo : null, flexible: Boolean(d.flexible) || !dated, notes: String(d.notes || '').trim() || null,
     preferredLanguage: d.preferredLanguage || null, altPhone: String(d.altPhone || '').trim() ? normPhone(d.altPhone) : null,
   }
   try {
@@ -442,11 +648,13 @@ async function bulkFarmSend(form) {
     fv.busy = false
     const field = e.extra && e.extra.field
     const msg = e.code === 'NETWORK' ? 'You seem to be offline. Your details are still here: send it again when you’re back online.' : e.status === 404 ? 'Farm visit enquiries are paused right now. Message us on WhatsApp instead.' : e.message
-    return bulkFarmDraw(field ? { [field]: msg } : {}, field ? '' : msg)
+    const at = ['visitFrom', 'visitTo', 'visitDate'].includes(field) ? 'dates' : field
+    return bulkFarmDraw(at ? { [at]: msg } : {}, at ? '' : msg)
   }
   fv.busy = false
   bulkFarmDraw()
   $('#bulk-farm .bulk-farm-sent')?.focus()
+  $('#bulk-farm')?.scrollIntoView({ block: 'start', behavior: reduced ? 'instant' : 'smooth' })
   bulkWatch()
 }
 
@@ -458,14 +666,40 @@ document.addEventListener('submit', (e) => {
 document.addEventListener('change', (e) => {
   const f = e.target.form
   if (!f || f.id !== 'farm-visit-form') return
-  if (e.target.name === 'flexible') { const dt = f.elements.namedItem('visitDate'); dt.disabled = e.target.checked; if (e.target.checked) dt.value = '' }
+  const n = e.target.name
+  // Day 1 chosen: Day 2 is the next day (or Day 1 when the season ends that day). Day 2 may then be moved back to Day 1.
+  if (n === 'visitFrom' && fvIsDay(e.target.value)) {
+    const b = f.elements.namedItem('visitTo'), next = fvAdd(e.target.value, 1)
+    b.value = fv.season.end && next > fv.season.end ? e.target.value : next
+  }
+  if (n === 'visitFrom' || n === 'visitTo') fvDatesFix(f)
+  if (n === 'kg') fvKgSay(f)
   bulkFarmKeep(f)
+  fvUpdate(f)
+})
+document.addEventListener('input', (e) => {
+  const f = e.target.form
+  if (!f || f.id !== 'farm-visit-form') return
+  // A kg error goes as soon as the number is right again (it is said when the field changes, not while typing).
+  if (e.target.name === 'kg' && $('#fv-kg-err', f) && !fvKgCheck(e.target.value)) fvKgSay(f)
+  fvUpdate(f)
 })
 document.addEventListener('click', (e) => {
-  const b = e.target instanceof Element ? e.target.closest('[data-farm-visit-again]') : null
+  const b = e.target instanceof Element ? e.target.closest('[data-farm-visit-again],[data-fv-kg-step],[data-fv-kg],#fv-send') : null
   if (!b) return
-  fv.sent = null
-  bulkFarmDraw()
+  if (b.hasAttribute('data-farm-visit-again')) { fv.sent = null; bulkFarmDraw(); return }
+  const form = $('#farm-visit-form')
+  if (!form) return
+  if (b.id === 'fv-send') { if (form.requestSubmit) form.requestSubmit(); else bulkFarmSend(form); return }
+  const input = form.elements.namedItem('kg'), now = Math.floor(Number(input.value)) || 0
+  if (b.dataset.fvKgStep) {
+    if (b.getAttribute('aria-disabled') === 'true') return
+    const step = Number(b.dataset.fvKgStep)
+    input.value = String(Math.min(100000, Math.max(FARM_VISIT_MIN_KG, step > 0 && now < FARM_VISIT_MIN_KG ? FARM_VISIT_MIN_KG : now + step)))
+  } else input.value = b.dataset.fvKg
+  fvKgSay(form)
+  bulkFarmKeep(form)
+  fvUpdate(form)
 })
 
 /** The shop's WhatsApp contact as a button (shop config supportWhatsapp), or the help link when none is set. */

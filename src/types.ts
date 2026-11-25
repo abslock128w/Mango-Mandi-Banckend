@@ -283,6 +283,10 @@ export interface GiftOrderListItem {
     total: number
     atRisk?: boolean
     box: { sku: string; name: string; stage: string; qty: number } | null
+    /** Every box line of this delivery (change request 02: one person, several boxes together). Older APIs: absent. */
+    boxes?: { sku: string; name: string; stage: string; qty: number }[]
+    /** The recipient's landmark (migration 098), or null. */
+    landmark?: string | null
     refund: { requestedAt: string; refundedAt: string | null } | null
   }[]
 }
@@ -338,6 +342,8 @@ export interface OrderDetail {
   phone: string | null
   pincode: string | null
   deliveryAddress: string | null
+  /** CR2-07: a landmark near the address ("near Sai Baba temple"), its own field; null when none was given. */
+  deliveryLandmark?: string | null
   deliveryDate: string
   placedAt: string
   total: number
@@ -839,6 +845,8 @@ export interface ManifestOrder {
   /** Left out (null) for packers: they handle boxes, riders handle people. */
   phone: string | null
   deliveryAddress: string | null
+  /** CR2-07: a landmark near the address, shown to the rider and on the printed run; null when none. */
+  deliveryLandmark?: string | null
   status: OrderStatus
   packed: boolean
   boxes: number
@@ -1821,7 +1829,14 @@ export type BulkKind = 'ENQUIRY' | 'ORDER' | 'FARM_VISIT'
 export interface FarmVisitFields {
   variety: string | null
   kg: number
+  /** Day 1 of the visit (the same as visitFrom; kept for older code). */
   preferredDate: string | null
+  /** The visit's two days (migration 097): Day 1 (arrive) and Day 2 (leave), 2 days at most. visitTo is null on an enquiry
+   *  sent with one date. visitWords: "Thu 26 – Fri 27 Nov, 2 days", "Thu 26 Nov, 1 day". Absent on an older API. */
+  visitFrom?: string | null
+  visitTo?: string | null
+  visitDays?: number | null
+  visitWords?: string | null
   flexible: boolean
   people: number | null
   plannedDate: string | null

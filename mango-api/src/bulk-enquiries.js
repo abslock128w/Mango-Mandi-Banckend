@@ -44,7 +44,7 @@ export const BULK_MIN_KG = 100
 /** The smallest enquiry, in kg (the owner: enquiries are for negotiating big orders). The shop has the same number. */
 export const BULK_ENQUIRY_MIN_KG = 250
 /** A plain enquiry under BULK_ENQUIRY_MIN_KG is refused with this (BULK_ENQUIRY_TOO_SMALL). */
-export const BULK_ENQUIRY_MIN_MESSAGE = `Enquiries are for ${BULK_ENQUIRY_MIN_KG} kg and above. From ${BULK_MIN_KG} kg you can order and pay directly.`
+export const BULK_ENQUIRY_MIN_MESSAGE = `Enquiries need at least ${BULK_ENQUIRY_MIN_KG} kg of mangoes. From ${BULK_MIN_KG} kg you can order and pay directly.`
 /** The public form no longer places orders: a bulk order is placed signed in and paid at once (BULK_ORDER_PAY_ONLINE). */
 export const BULK_ORDER_PAY_MESSAGE = 'Bulk orders are paid online when you place them now. Refresh the page, sign in and place your order again.'
 /** A bulk order is packed in boxes of these sizes only. */
@@ -456,7 +456,12 @@ export function farmVisitView(e) {
   if (e.kind !== 'FARM_VISIT') return null
   const day = (d) => (d ? (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10)) : null)
   return {
+    // The two visit days (migration 097): visit_date is Day 1 (arrive), visit_to Day 2 (leave; the same day for a 1-day
+    // visit). visitTo is null on an enquiry sent with one date (before 097, or from a shop that still sends visitDate).
+    // preferredDate stays Day 1 for an older panel. visitWords: "Thu 26 – Fri 27 Nov, 2 days", "Thu 26 Nov, 1 day".
     variety: e.farm_variety ? shownVariety(e.farm_variety) : null, kg: e.quantity_kg, preferredDate: day(e.visit_date), flexible: Boolean(e.visit_flexible), people: e.people ?? null,
+    visitFrom: day(e.visit_date), visitTo: day(e.visit_to), visitDays: e.visit_date && e.visit_to ? visitDays(day(e.visit_date), day(e.visit_to)) : null,
+    visitWords: e.visit_date ? visitWords(day(e.visit_date), day(e.visit_to)) : null,
     plannedDate: day(e.planned_visit_date), contactedAt: e.contacted_at ?? null, visitPlannedAt: e.visit_planned_at ?? null, visitedAt: e.visited_at ?? null,
     closeReason: e.close_reason ?? null, preferredLanguage: e.preferred_language ?? null, altPhone: e.alt_phone ?? null,
   }
@@ -559,6 +564,25 @@ export async function staffDetail(db, id) {
 
 // ---------------------------------------------------------------- farm visit enquiries (kind FARM_VISIT, migration 087)
 
+const dateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date').optional().nullable().transform((v) => v || null)
+/** A farm visit is 2 days at most: Day 2 is Day 1 or the day after (CR2-01, 25 Nov 2026). */
+export const FARM_VISIT_MAX_DAYS = 2
+const DAY_MS = 86_400_000
+/** Days from Day 1 to Day 2, both counted: 1 or 2. */
+export const visitDays = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dayParts = (d) => { const t = new Date(`${d}T00:00:00Z`); return { wd: WEEKDAYS[t.getUTCDay()], n: t.getUTCDate(), mon: MONTHS[t.getUTCMonth()] } }
+/** "Thu 26 – Fri 27 Nov, 2 days", "Mon 30 Nov – Tue 1 Dec, 2 days", "Thu 26 Nov, 1 day"; one date only (no Day 2): "Thu 26 Nov". */
+export function visitWords(from, to) {
+  const a = dayParts(from)
+  if (!to) return `${a.wd} ${a.n} ${a.mon}`
+  const n = visitDays(from, to)
+  if (n <= 1) return `${a.wd} ${a.n} ${a.mon}, 1 day`
+  const b = dayParts(to)
+  return `${a.wd} ${a.n}${a.mon === b.mon ? '' : ` ${a.mon}`} – ${b.wd} ${b.n} ${b.mon}, ${n} days`
+}
+
 /** The shop's farm visit form. Signing in is not needed; a signed-in sender's is linked to their account. */
 export const farmVisitBody = z
   .object({
@@ -567,8 +591,12 @@ export const farmVisitBody = z
     city: text(100, 'the city').min(1, 'Enter your city'),
     // A variety we sell, or null: "Not sure yet".
     variety: z.string().trim().max(80).optional().nullable().transform((v) => v || null),
-    kg: z.coerce.number({ message: 'Enter about how many kg' }).int('Whole kilograms only').min(FARM_VISIT_MIN_KG, `Farm visits are for ${FARM_VISIT_MIN_KG} kg and above`).max(100_000),
-    visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date').optional().nullable().transform((v) => v || null),
+    kg: z.coerce.number({ message: 'Enter about how many kg' }).int('Whole kilograms only').min(FARM_VISIT_MIN_KG, `A farm visit needs at least ${FARM_VISIT_MIN_KG} kg of mangoes.`).max(100_000),
+    // Day 1 (arrive) and Day 2 (leave) of the visit, 2 days at most (migration 097); Day 2 may be Day 1 (a 1-day visit).
+    visitFrom: dateField,
+    visitTo: dateField,
+    // The one "preferred date" the shop sent before 097: still taken while a cached shop sends it; kept as Day 1 only.
+    visitDate: dateField,
     flexible: z.boolean().optional().default(false),
     people: z.coerce.number({ message: 'Enter how many people are coming' }).int('Whole people only').min(1, 'At least one person is coming').max(500),
     notes: optionalText(1000, 'the note'),
@@ -578,9 +606,23 @@ export const farmVisitBody = z
   })
   .strict()
 
-const dayWords = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
-/** "150 kg of Alphonso, 6 people, around Sat, 12 Dec" for the WhatsApp message. */
-const farmVisitSummary = (b) => oneLine(`${b.kg} kg${b.variety ? ` of ${shownVariety(b.variety)}` : ''}, ${b.people} ${b.people === 1 ? 'person' : 'people'}, ${b.visitDate ? `around ${dayWords(b.visitDate)}` : 'dates flexible'}`, 200)
+/** "150 kg of Alphonso, 6 people, Thu 26 – Fri 27 Nov, 2 days" for the WhatsApp message ("around Sat 12 Dec" for one date). */
+const farmVisitSummary = (b, from, to) => oneLine(`${b.kg} kg${b.variety ? ` of ${shownVariety(b.variety)}` : ''}, ${b.people} ${b.people === 1 ? 'person' : 'people'}, ${from ? (to ? visitWords(from, to) : `around ${visitWords(from)}`) : 'dates flexible'}`, 200)
+
+/**
+ * The visit's two days from the form: { from, to }. visitFrom and visitTo (Day 2 defaults to Day 1); or the older single
+ * visitDate as Day 1 with no Day 2. Day 1 from today; Day 2 not before Day 1 and at most the day after (2 days at most).
+ */
+function visitRange(b) {
+  const from = b.visitFrom ?? b.visitDate ?? null
+  const to = b.visitFrom ? (b.visitTo ?? b.visitFrom) : null
+  const field = b.visitFrom || !b.visitDate ? 'visitFrom' : 'visitDate'
+  if (!from && b.visitTo) throw new HttpError(400, 'VALIDATION_ERROR', 'Pick your visit dates: Day 1 and Day 2.', { field: 'visitFrom' })
+  if (from && from < todayIST()) throw new HttpError(400, 'VALIDATION_ERROR', 'The visit date has passed. Choose today or a later date, or tick “I’m flexible”.', { field })
+  if (to && to < from) throw new HttpError(400, 'VALIDATION_ERROR', 'Day 2 can’t be before Day 1.', { field: 'visitTo' })
+  if (to && visitDays(from, to) > FARM_VISIT_MAX_DAYS) throw new HttpError(400, 'VALIDATION_ERROR', 'A farm visit is 2 days at most.', { field: 'visitTo' })
+  return { from, to }
+}
 
 /**
  * Saves a farm visit enquiry from the shop: "we got it" on WhatsApp (FARM_VISIT_ENQUIRY_RECEIVED) and the panel's live
@@ -593,7 +635,7 @@ export async function createFarmVisitEnquiry(c, b, { customerId = null, idempote
     const replay = await replayEnquiry(c, key, hash)
     if (replay) return replay
   }
-  if (b.visitDate && b.visitDate < todayIST()) throw new HttpError(400, 'VALIDATION_ERROR', 'The visit date has passed. Choose today or a later date, or tick “I’m flexible”.', { field: 'visitDate' })
+  const { from, to } = visitRange(b)
   // the mango by either of its names (shownVariety); kept by its key
   if (b.variety) b.variety = varietyKey(b.variety)
   if (b.variety && !shopProducts().some((p) => p.variety === b.variety)) throw new HttpError(400, 'VALIDATION_ERROR', `We don't grow ${b.variety}. Choose a mango from the list, or "Not sure yet".`, { field: 'variety' })
@@ -614,12 +656,12 @@ export async function createFarmVisitEnquiry(c, b, { customerId = null, idempote
   const number = await nextOrderNumber(c, 'B')
   await c.query(
     `INSERT INTO bulk_enquiries (id, number, customer_id, name, phone, city, notes, lines, quantity_kg, idempotency_key, created_at, updated_at, kind,
-                                 farm_variety, visit_date, visit_flexible, people, preferred_language, alt_phone)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, '[]', $8, $9, $10, $10, 'FARM_VISIT', $11, $12, $13, $14, $15, $16)`,
-    [id, number, customerId, b.name, b.phone, b.city, b.notes, b.kg, key, at, b.variety, b.visitDate, b.flexible || !b.visitDate, b.people, b.preferredLanguage ?? null, b.altPhone ?? null],
+                                 farm_variety, visit_date, visit_to, visit_flexible, people, preferred_language, alt_phone)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, '[]', $8, $9, $10, $10, 'FARM_VISIT', $11, $12, $13, $14, $15, $16, $17)`,
+    [id, number, customerId, b.name, b.phone, b.city, b.notes, b.kg, key, at, b.variety, from, to, b.flexible || !from, b.people, b.preferredLanguage ?? null, b.altPhone ?? null],
   )
   await addEvent(c, id, 'RECEIVED', customerId ? { type: 'customer', id: customerId } : { type: 'system' }, { kind: 'FARM_VISIT', kg: b.kg, people: b.people })
-  await addReceivedMessage(c, { enquiryId: id, kind: 'FARM_VISIT_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), farmVisitSummary(b)] })
+  await addReceivedMessage(c, { enquiryId: id, kind: 'FARM_VISIT_ENQUIRY_RECEIVED', eventId: `${id}:received`, phone: b.phone, params: [oneLine(b.name, 60) || 'there', formatOrderNumber(number), farmVisitSummary(b, from, to)] })
   await notifyEvent(c, 'bulk.enquiry', { id, number, status: 'NEW', change: 'created', kind: 'FARM_VISIT' })
   return { status: 201, body: { id, number, status: 'NEW', kind: 'FARM_VISIT' } }
 }

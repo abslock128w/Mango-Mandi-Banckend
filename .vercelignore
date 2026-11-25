@@ -13,3 +13,7 @@ deploy/backup-config
 deploy/.env
 **/.env.local
 docs/screenshots
+# The shop's own notes (shop/README.md, shop/REBUILD-PLAN.md) are for the team, not the public site. shop/CREDITS.md
+# (the photo credits) stays public. The shop is uploaded from here, so its folder's own .vercelignore alone is not enough.
+shop/README.md
+shop/REBUILD-PLAN.md

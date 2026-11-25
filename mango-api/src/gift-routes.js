@@ -23,6 +23,7 @@ import { checkCapacity, slotView } from './delivery.js'
 import { devRoutesOn, env } from './env.js'
 import { asyncHandler, badRequest, conflict, HttpError, notFound, parse, StockError } from './errors.js'
 import { cancelGiftOrder, cancelGiftRecipient, createGiftOrder, giftChildren, GIFT_CANCELLABLE, giftStatus, perRecipientMax, processGiftPayment } from './gifts.js'
+import { GIFT_MAX_BOXES } from './preorders.js'
 import { newId } from './ids.js'
 import { availability } from './inventory.js'
 import { logger } from './logger.js'
@@ -40,6 +41,9 @@ import {
 } from './customer.js'
 
 export const customerGifts = express.Router()
+
+/** A stored quote's recipient as box lines: `lines` since change request 02, else its one box (a quote from before). */
+export const recipientLines = (r) => r.lines ?? [{ sku: r.sku, stage: r.stage, qty: r.qty, unitPrice: r.unitPrice }]
 const whenOn = (_req, _res, next) => next(isOn('MULTI_GIFT') ? undefined : notFound())
 customerGifts.use('/gifts', whenOn)
 
@@ -68,19 +72,51 @@ customerGifts.get('/gifts/template.csv', (_req, res) => {
   res.send(recipientsTemplate())
 })
 
+const boxLine = () => ({
+  sku: z.string().trim().min(1, 'Choose a box').max(40),
+  stage: z.enum(SALE_STAGES, { message: 'Ripeness must be RAW or SEMI_RIPE' }),
+  qty: z.number({ message: 'Enter how many boxes' }).int('Enter a whole number of boxes').min(1, 'At least 1 box'),
+})
+
+/**
+ * One recipient: who, where, and their boxes. Either one box line (sku, stage, qty: as before) or `lines`, several
+ * (change request 02, CR2-06: one person, as many varieties as they like), all delivered together in their one
+ * delivery order. A box and ripeness given twice is counted as one line.
+ */
 const recipientSchema = () =>
   z
     .object({
       name: z.string().trim().min(1, "Enter the recipient's name").max(80, 'The name can be up to 80 characters'),
       phone: phoneSchema,
       address: z.string().trim().min(10, 'Enter the full delivery address').max(500, 'The address can be up to 500 characters'),
+      // Optional (migration 098, CR2-07), kept apart from the address.
+      landmark: z.string().trim().max(100, 'The landmark can be up to 100 characters').optional().nullable(),
       pincode: z.string().trim().regex(/^\d{6}$/, 'The pincode must be 6 digits'),
-      sku: z.string().trim().min(1, 'Choose a box').max(40),
-      stage: z.enum(SALE_STAGES, { message: 'Ripeness must be RAW or SEMI_RIPE' }),
-      qty: z.number({ message: 'Enter how many boxes' }).int('Enter a whole number of boxes').min(1, 'At least 1 box'),
+      ...Object.fromEntries(Object.entries(boxLine()).map(([k, v]) => [k, v.optional()])),
+      lines: z.array(z.object(boxLine()).strict()).min(1, 'Choose a box').max(GIFT_MAX_BOXES, `Up to ${GIFT_MAX_BOXES} box lines`).optional(),
       note: z.string().trim().max(200, 'The note can be up to 200 characters').optional().nullable(),
     })
     .strict()
+    .superRefine((r, ctx) => {
+      if (r.lines) {
+        for (const f of ['sku', 'stage', 'qty']) if (r[f] != null) ctx.addIssue({ code: 'custom', path: [f], message: `Give ${f} inside lines, not beside them` })
+        return
+      }
+      if (r.sku == null) ctx.addIssue({ code: 'custom', path: ['sku'], message: 'Choose a box' })
+      if (r.stage == null) ctx.addIssue({ code: 'custom', path: ['stage'], message: 'Ripeness must be RAW or SEMI_RIPE' })
+      if (r.qty == null) ctx.addIssue({ code: 'custom', path: ['qty'], message: 'Enter how many boxes' })
+    })
+    .transform((r) => {
+      // Every recipient as lines (one box and ripeness once each), with qty the boxes in all and sku/stage the first
+      // line's, as the quote and older readers had them.
+      const merged = new Map()
+      for (const l of r.lines ?? [{ sku: r.sku, stage: r.stage, qty: r.qty }]) {
+        const k = `${l.sku}|${l.stage}`
+        merged.set(k, { sku: l.sku, stage: l.stage, qty: (merged.get(k)?.qty ?? 0) + l.qty })
+      }
+      const lines = [...merged.values()]
+      return { ...r, landmark: r.landmark || null, lines, sku: lines[0].sku, stage: lines[0].stage, qty: lines.reduce((t, l) => t + l.qty, 0) }
+    })
 
 /**
  * Checks every recipient and reports every problem at once, by row (1 = the
@@ -106,8 +142,8 @@ async function checkRecipients(c, list) {
     const v = r.data
     if (!served.has(v.pincode)) served.set(v.pincode, await serviceable(c, v.pincode))
     if (!served.get(v.pincode)) problems.push({ row, field: 'pincode', message: `We do not deliver to ${v.pincode} yet` })
-    if (!sellable(v.sku)) problems.push({ row, field: 'sku', message: `${findProduct(v.sku)?.name ?? v.sku} is not on sale` })
-    if (v.qty > boxMax) problems.push({ row, field: 'qty', message: `Up to ${boxMax} boxes for one recipient` })
+    for (const l of v.lines) if (!sellable(l.sku)) problems.push({ row, field: 'sku', message: `${findProduct(l.sku)?.name ?? l.sku} is not on sale` })
+    if (v.qty > boxMax) problems.push({ row, field: 'qty', message: `Up to ${boxMax} boxes in one gift` })
     out.push(v)
   }
   if (problems.length) {
@@ -138,13 +174,17 @@ customerGifts.post(
       }
       const pool = await availability(c, date)
       const need = new Map()
-      for (const r of recipients) need.set(`${r.sku}|${r.stage}`, (need.get(`${r.sku}|${r.stage}`) ?? 0) + r.qty)
+      for (const r of recipients) for (const l of r.lines) need.set(`${l.sku}|${l.stage}`, (need.get(`${l.sku}|${l.stage}`) ?? 0) + l.qty)
       for (const [key, qty] of need) if ((pool.get(key) ?? 0) < qty) throw new StockError(key.split('|')[0])
       await checkCapacity(c, date, boxes, null, { lock: false })
       const slot = await quoteSlot(c, date, b.slotId ?? null, boxes)
       const priced = recipients.map((r) => {
-        const p = findProduct(r.sku)
-        return { ...r, note: r.note || null, boxName: p.name, unitPrice: p.price, linePrice: p.price * r.qty, eatBy: eatByFor(r.stage, date) }
+        const lines = r.lines.map((l) => {
+          const p = findProduct(l.sku)
+          return { ...l, name: p.name, unitPrice: p.price, linePrice: p.price * l.qty, eatBy: eatByFor(l.stage, date) }
+        })
+        // boxName, unitPrice and eatBy: the first line's, as a one-box recipient had them; linePrice: all the boxes.
+        return { ...r, note: r.note || null, lines, boxName: lines[0].name, unitPrice: lines[0].unitPrice, linePrice: lines.reduce((t, l) => t + l.linePrice, 0), eatBy: lines[0].eatBy }
       })
       const subtotal = priced.reduce((s, r) => s + r.linePrice, 0)
       const promo = b.promoCode?.trim() ? await applyPromo(c, b.promoCode, req.customer.id, subtotal) : null
@@ -216,12 +256,12 @@ customerGifts.post(
       // Every pincode is checked again, and the day is still open.
       for (const pin of new Set(data.recipients.map((r) => r.pincode))) await deliveryDateFor(c, pin, data.deliveryDate)
       // Prices are read again: one that moved since the review fails, so the buyer sees the new total before paying.
-      for (const r of data.recipients) {
-        if (!sellable(r.sku)) throw new HttpError(409, 'PRODUCT_UNAVAILABLE', `${findProduct(r.sku)?.name ?? r.sku} is no longer sold`, { sku: r.sku, stage: r.stage })
-        const price = findProduct(r.sku).price
-        if (price !== r.unitPrice) {
-          throw new HttpError(409, 'PRICE_CHANGED', `The price of ${findProduct(r.sku).name} changed since you reviewed your order. Review it again to see the new total.`, {
-            sku: r.sku, unitPrice: price,
+      for (const l of data.recipients.flatMap(recipientLines)) {
+        if (!sellable(l.sku)) throw new HttpError(409, 'PRODUCT_UNAVAILABLE', `${findProduct(l.sku)?.name ?? l.sku} is no longer sold`, { sku: l.sku, stage: l.stage })
+        const price = findProduct(l.sku).price
+        if (price !== l.unitPrice) {
+          throw new HttpError(409, 'PRICE_CHANGED', `The price of ${findProduct(l.sku).name} changed since you reviewed your order. Review it again to see the new total.`, {
+            sku: l.sku, unitPrice: price,
           })
         }
       }
@@ -295,12 +335,15 @@ async function giftView(c, g) {
     cancelUntil: (() => { const k = kids.find((x) => x.status !== 'CANCELLED' && GIFT_CANCELLABLE.includes(x.status)); return k ? (cancelClosesAt(k)?.toISOString() ?? null) : null })(),
     bill: billView(bill.rows[0] ?? null),
     recipients: kids.map((k) => {
-      const i = items.rows.find((x) => x.order_id === k.id)
+      const mine = items.rows.filter((x) => x.order_id === k.id)
+      const i = mine[0]
       return {
         orderId: k.id, number: k.number, position: k.gift_position, status: k.status,
-        name: k.gift_recipient_name, phone: k.gift_recipient_phone, note: k.gift_message, address: k.delivery_address, pincode: k.pincode,
-        sku: i?.sku ?? null, boxName: i ? findProduct(i.sku)?.name ?? i.sku : null, stage: i?.stage ?? null, qty: i?.quantity ?? 0,
-        linePrice: i?.line_price ?? 0, discount: k.discount, total: k.total,
+        name: k.gift_recipient_name, phone: k.gift_recipient_phone, note: k.gift_message, address: k.delivery_address, landmark: k.delivery_landmark ?? null, pincode: k.pincode,
+        // The first box (as before) and, since change request 02, every box line of this person's one delivery.
+        sku: i?.sku ?? null, boxName: i ? findProduct(i.sku)?.name ?? i.sku : null, stage: i?.stage ?? null, qty: mine.reduce((t, x) => t + x.quantity, 0),
+        lines: mine.map((x) => ({ sku: x.sku, boxName: findProduct(x.sku)?.name ?? x.sku, stage: x.stage, qty: x.quantity, unitPrice: x.unit_price, linePrice: x.line_price })),
+        linePrice: mine.reduce((t, x) => t + x.line_price, 0), discount: k.discount, total: k.total,
         // One recipient can be cancelled on their own once the order is paid, before packing and within the
         // cancel window (orders.js CUSTOMER_CANCEL_HOURS); refunded their own amount.
         cancellable: g.payment_status === 'SUCCEEDED' && ['CONFIRMED', 'PROCESSING'].includes(k.status) && withinCancelWindow(k),

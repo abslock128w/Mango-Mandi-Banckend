@@ -70,12 +70,16 @@ function bagBillHead() {
 /** Your own boxes and the gift, as two groups (one group: the bag as it always was, with the gift heading for a gift). */
 function bagGroups(row, { wd, stuck }) {
   const g = ofKind(cart, true), s = ofKind(cart, false)
+  // Change request 02 (Q5): a box of your own is no longer made a gift here; gifts are sent from the Gifts page (one
+  // person, as many boxes as they like). A gift line kept in a bag from before can still be moved back to your own.
   const line = (x) => {
     const i = cart.indexOf(x), name = `${stageOf(x.stage).stage} ${skuOf(x.sku)?.variety || x.sku}`
-    const move = `<button type="button" class="text-button bag-kind" data-bag-kind="${i}" aria-label="${x.gift ? `Move the ${esc(name)} to your own order` : `Make the ${esc(name)} a gift`}">${icon(x.gift ? 'user' : 'gift')}<span>${x.gift ? 'This one is for me' : 'Make this a gift'}</span></button>`
+    if (!x.gift) return row(x, i)
+    const move = `<button type="button" class="text-button bag-kind" data-bag-kind="${i}" aria-label="Move the ${esc(name)} to your own order">${icon('user')}<span>This one is for me</span></button>`
     return row(x, i).replace('</div><div class="bag-row-end">', `${move}</div><div class="bag-row-end">`)
   }
-  const more = `<a class="bag-more" href="/#shop" data-route><span>Forgot something?</span><b>Add more mangoes ${icon('arrow')}</b></a>`
+  const toGifts = s.length ? `<p class="bag-to-gifts">${icon('gift')}<span>Sending a gift?</span><a href="/gifts" data-route>Gifts ${icon('arrow')}</a></p>` : ''
+  const more = `${toGifts}<a class="bag-more" href="/#shop" data-route><span>Forgot something?</span><b>Add more mangoes ${icon('arrow')}</b></a>`
   let h = nextBanner(s, g)
   if (!g.length) return h + s.map(line).join('') + more
   // Before the season the pre-order is said plainly and prominently (the owner, 18 Nov 2026), not in small print.
@@ -102,7 +106,7 @@ function groupFoot(gift, lines, wd, both, stuck) {
   if (pre && !gift) note = `<p class="bag-group-note">${icon('sun')}<span>Pre-ordered together: one payment, each box delivered in its own week.</span></p>`
   const id = `bag-co-why-${gift ? 'gift' : 'self'}`
   const btn = both ? `<div class="bag-group-go"><p class="bag-group-sum"><span>Subtotal · ${boxWord(t.count)}</span><strong>${currency(t.price)}</strong></p><button type="button" class="button ${gift ? 'primary' : 'secondary'}" data-bag-checkout="${gift ? 'gift' : 'self'}"${off ? ` disabled aria-describedby="${id}"` : ''}>${off ? icon('lock') : ''}${gift ? 'Checkout the gift' : pre ? 'Pre-order my boxes' : 'Checkout my order'} ${off ? '' : icon('arrow')}</button>${off ? `<p class="pay-bar-why bag-group-why" id="${id}">${icon('info')}<span>${esc(off)}</span></p>` : ''}</div>` : ''
-  const several = gift ? `<p class="bag-group-note">${icon('gift')}<span>One bag, one person, one address${both || pre ? '' : ', with its own delivery charge if there is one'}. Sending to several people? <a href="/gifts" data-route>Send it from Gifting</a>: one box each, one payment</span></p>` : ''
+  const several = gift ? `<p class="bag-group-note">${icon('gift')}<span>One bag, one person, one address${both || pre ? '' : ', with its own delivery charge if there is one'}. Sending a gift with several boxes? <a href="/gifts" data-route>Send it from Gifts</a>: one person, as many boxes as you like, one payment</span></p>` : ''
   return `<div class="bag-group-foot${gift ? ' is-gift' : ''}">${note}${btn}${several}</div>`
 }
 

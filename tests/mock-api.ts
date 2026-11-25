@@ -191,6 +191,8 @@ export function seed() {
       phone: '9876543210',
       pincode: '400001',
       deliveryAddress: '12 Marine Drive, Mumbai',
+      // CR2-07: the landmark is its own field on the address (gift and regular orders alike).
+      deliveryLandmark: 'near Sai Baba temple',
       deliveryDate: '2026-10-16',
       placedAt: '2026-10-14T06:00:00Z',
       total: 249900,
@@ -256,7 +258,7 @@ export function seed() {
               zone: 'South',
               orders: [
                 {
-                  id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', deliveryAddress: '12 Marine Drive',
+                  id: 'o1', number: 'ORD-1042', customerName: 'Asha Rao', phone: '9876543210', deliveryAddress: '12 Marine Drive', deliveryLandmark: 'opposite the bus stop',
                   status: 'PACKED', packed: true, boxes: 2, attempt: 1, items: [{ sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', quantity: 2 }],
                 },
                 {
@@ -1126,7 +1128,8 @@ export const MOCK_FARM_VISIT_ENQUIRY: BulkEnquiryDetail = {
   name: 'Ravi Kumar', business: null, phone: '+919822222222', city: 'Bengaluru', customerId: null, quantityKg: 300, boxes: 0, total: null,
   quotedAt: null, quoteSeenAt: null, respondedAt: null,
   farmVisit: {
-    variety: 'Alphonso', kg: 300, preferredDate: '2027-04-10', flexible: false, people: 6, plannedDate: null, contactedAt: null, visitPlannedAt: null, visitedAt: null,
+    variety: 'Alphonso', kg: 300, preferredDate: '2027-04-10', visitFrom: '2027-04-10', visitTo: '2027-04-11', visitDays: 2, visitWords: 'Sat 10 – Sun 11 Apr, 2 days',
+    flexible: false, people: 6, plannedDate: null, contactedAt: null, visitPlannedAt: null, visitedAt: null,
     closeReason: null, preferredLanguage: 'Kannada', altPhone: '+919811111113',
   },
   email: null, notes: null, ripeness: null, lines: [], quote: null, quotedByEmail: null, customerMessage: null, closedAt: null, quoteText: null,

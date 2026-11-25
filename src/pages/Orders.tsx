@@ -231,9 +231,13 @@ function GiftOrders({ q, page, onPage }: { q: string; page: number; onPage: (n: 
                     <td data-label="Recipient">
                       {k.recipientName ?? '—'}
                       {k.pincode && <div className="muted small">{k.pincode}</div>}
+                      {k.landmark && <div className="muted small">Landmark: {k.landmark}</div>}
                     </td>
                     <td data-label="Box">
-                      {k.box ? `${k.box.qty} × ${k.box.name}, ${RIPENESS_LABEL[k.box.stage as Ripeness] ?? k.box.stage}` : '—'}
+                      {(k.boxes?.length ? k.boxes : k.box ? [k.box] : []).map((b) => (
+                        <div key={`${b.sku}|${b.stage}`}>{`${b.qty} × ${b.name}, ${RIPENESS_LABEL[b.stage as Ripeness] ?? b.stage}`}</div>
+                      ))}
+                      {!k.box && !k.boxes?.length && '—'}
                     </td>
                     <td className="num" data-label="Total">
                       {rupees(k.total)}

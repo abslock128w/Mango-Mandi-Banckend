@@ -21,7 +21,7 @@ import { cancelClosesAt, checkUnpaidLimit, createOrder, CUSTOMER_CANCELLABLE, CU
 import { enqueue } from './notify.js'
 import { createGatewayOrder, devGateway, reconcileOrderNow, reconcilePendingPayments, refundsFor, sendDueRefunds, verifyCheckoutSignature } from './payments.js'
 import { findProduct, sellable, shopProducts } from './products.js'
-import { bookPreorder, bookPreorderBag, bookPreorderGroup, cancelPreorder, PREORDER_BAG_MAX_LINES, quotePreorderBag, ensureGroupPaymentLink, ensurePaymentLink, giverPreorderView, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
+import { bookPreorder, bookPreorderBag, bookPreorderGroup, cancelPreorder, GIFT_MAX_BOXES, PREORDER_BAG_MAX_LINES, quotePreorderBag, ensureGroupPaymentLink, ensurePaymentLink, giverPreorderView, GROUP_COLUMNS, groupView, openWeeks, preorderView, processPreorderPayment, WEEK_COUNTS_BY, defaultWeekKg, varietyDayKg, delayView, BEFORE_PACKED } from './preorders.js'
 import { perRecipientMax } from './gifts.js'
 import { giftAddressOn, giverFields, linksFor, resendLink } from './gift-address.js'
 import { giftAddressPublic } from './gift-address-routes.js'
@@ -361,13 +361,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const pincode = parse(PIN, req.query.pincode)
     const ok = await serviceable({ query }, pincode)
+    // The served pincode's city (CR2-07: the gift form's City fills from the pincode), null when not served.
+    const city = ok ? ((await query('SELECT city FROM pincodes WHERE pincode = $1', [pincode])).rows[0]?.city ?? null) : null
     const dates = ok ? await orderableDates({ query }) : []
     const slots = ok ? (await activeSlots({ query })).map(slotView) : []
     // The delivery charge for this pincode (and the shop's map pin, when it has one), so the bag can show it
     // before checkout. Named only while the charge is on, so the answer is as before while it is off.
     const delivery = ok ? await deliveryFor({ query }, { pincode, location: pinFrom(req.query) }) : { enabled: false }
     res.json({
-      serviceable: ok, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots,
+      serviceable: ok, city, earliestDeliveryDate: dates[0] ?? null, deliveryDates: dates, cutoffTime: cutoffLabel(), slots,
       ...(delivery.enabled ? { delivery: deliveryView(delivery) } : {}),
     })
   }),
@@ -487,7 +489,8 @@ router.get('/policy', (_req, res) => {
       // SHOP_LANGUAGES: the shop in Hindi and Kannada as well as English (docs/languages.md).
       languages: isOn('SHOP_LANGUAGES'),
     },
-    ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS } : {}),
+    // giftMaxBoxes: the most boxes in a gift for one person (change request 02, Q2), over all its box lines.
+    ...(isOn('MULTI_GIFT') ? { multiGiftMaxRecipients: env.MULTI_GIFT_MAX_RECIPIENTS, giftMaxBoxes: GIFT_MAX_BOXES } : {}),
     // Backorders: a box with no stock can still be ordered, delivered in leadDays–windowDays days (mango-api/README.md).
     backorders: backorderPolicy(),
     // Customer care (docs/care.md): help requests with a message thread, and subscriptions (and whether new ones can start).
@@ -1564,7 +1567,7 @@ router.get(
       rating: r ? { stars: r.stars, comment: r.comment, packaging: r.packaging, condition: r.condition, sweetness: r.sweetness, at: r.updated_at } : null,
       slot: slot.rows[0] ? (({ id, label, startsAt, endsAt }) => ({ id, label, startsAt, endsAt }))(slotView(slot.rows[0])) : null,
       id: o.id, number: o.number, status: o.status, deliveryDate: o.delivery_date, placedAt: o.placed_at, pincode: o.pincode,
-      deliveryAddress: o.delivery_address, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code,
+      deliveryAddress: o.delivery_address, deliveryLandmark: o.delivery_landmark ?? null, subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code,
       // The delivery charge: what the total is above the goods less the promo (delivery-fee.js), and how far it was measured.
       deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km), total: o.total, paymentStatus: o.payment_status,
       gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,
@@ -1811,6 +1814,8 @@ const groupRecipientSchema = z
     // Optional, as for one pre-order: the week the shop showed for this person.
     weekStart: z.string().refine(isDate, 'weekStart must be YYYY-MM-DD').optional().nullable(), pincode: PIN.optional().nullable(),
     address: z.string().trim().min(10, 'Enter the full delivery address').max(500).optional().nullable(),
+    // Optional (migration 098, CR2-07): "near Sai Baba temple", kept apart from the address.
+    landmark: z.string().trim().max(100, 'The landmark can be up to 100 characters').optional().nullable(),
     askAddress: z.boolean().optional(),
     gift: giftRecipientSchema,
   })
@@ -1825,6 +1830,27 @@ const groupRecipientSchema = z
     if (r.address == null) ctx.addIssue({ code: 'custom', path: ['address'], message: 'Enter the full delivery address' })
   })
 
+/**
+ * A gift for one person (oneDelivery): every line goes to the same person and address, no box and ripeness twice, and
+ * at most GIFT_MAX_BOXES boxes in all (400 GIFT_TOO_MANY_BOXES with maxBoxes; RECIPIENTS_INVALID otherwise).
+ */
+function oneDeliveryCheck(lines) {
+  const who = (r) => JSON.stringify([r.gift.recipientName.trim(), r.gift.recipientPhone, r.gift.message ?? null, r.pincode ?? null, r.address ?? null, r.landmark || null, Boolean(r.askAddress)])
+  const first = who(lines[0])
+  const other = lines.findIndex((r) => who(r) !== first)
+  if (other >= 0) {
+    throw new HttpError(400, 'RECIPIENTS_INVALID', `Box line ${other + 1}: a gift for one person goes to one person and one address`, { rows: [{ row: other + 1, field: 'gift', message: 'Every box goes to the same person and address' }] })
+  }
+  const seen = new Set()
+  for (const [i, r] of lines.entries()) {
+    const k = `${r.sku}|${r.stage}`
+    if (seen.has(k)) throw new HttpError(400, 'RECIPIENTS_INVALID', `Box line ${i + 1}: that box and ripeness is already in the gift`, { rows: [{ row: i + 1, field: 'sku', message: 'Already in the gift: change its number of boxes instead' }] })
+    seen.add(k)
+  }
+  const boxes = lines.reduce((t, r) => t + r.qty, 0)
+  if (boxes > GIFT_MAX_BOXES) throw new HttpError(400, 'GIFT_TOO_MANY_BOXES', `A gift can have up to ${GIFT_MAX_BOXES} boxes.`, { maxBoxes: GIFT_MAX_BOXES, boxes })
+}
+
 router.post(
   '/preorders/groups',
   asyncHandler(async (req, res) => {
@@ -1833,13 +1859,19 @@ router.post(
     if (!rawKey || rawKey.length > 100) throw badRequest('An Idempotency-Key header is required', 'IDEMPOTENCY_KEY_REQUIRED')
     const max = env.MULTI_GIFT_MAX_RECIPIENTS
     const b = parse(
-      z.object({ name: z.string().trim().max(80).optional(), recipients: z.array(groupRecipientSchema).min(1, 'Add at least one person').max(100) }).strict(),
+      z.object({
+        name: z.string().trim().max(80).optional(), recipients: z.array(groupRecipientSchema).min(1, 'Add at least one person').max(100),
+        // A gift for ONE person (change request 02, migration 098): each entry is a box line for the same person, and every
+        // line arrives together, in one week and one delivery.
+        oneDelivery: z.boolean().optional(),
+      }).strict(),
       req.body,
     )
+    if (b.oneDelivery) oneDeliveryCheck(b.recipients)
     if (b.recipients.some((r) => r.askAddress) && !giftAddressOn()) {
       throw new HttpError(400, 'ASK_ADDRESS_OFF', 'Asking the recipient for their address is not available. Enter each address.')
     }
-    if (b.recipients.length > max) throw new HttpError(400, 'TOO_MANY_RECIPIENTS', `A gift can go to up to ${max} people at once.`, { maxRecipients: max })
+    if (!b.oneDelivery && b.recipients.length > max) throw new HttpError(400, 'TOO_MANY_RECIPIENTS', `A gift can go to up to ${max} people at once.`, { maxRecipients: max })
     const boxMax = perRecipientMax()
     const over = b.recipients.findIndex((r) => r.qty > boxMax)
     if (over >= 0) throw new HttpError(400, 'RECIPIENTS_INVALID', `Person ${over + 1}: up to ${boxMax} boxes for one person`, { rows: [{ row: over + 1, field: 'qty', message: `Up to ${boxMax} boxes for one person` }] })
@@ -1855,7 +1887,7 @@ router.post(
       if (!ins.rowCount) return null
       if (b.name) await c.query('UPDATE customers SET name = $2 WHERE id = $1', [req.customer.id, b.name])
       const cust = await requirePhone(c, req.customer.id)
-      const g = await bookPreorderGroup(c, { customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone, recipients: b.recipients }, req.actor)
+      const g = await bookPreorderGroup(c, { customerId: req.customer.id, name: b.name ?? cust.name, phone: cust.phone, recipients: b.recipients, oneDelivery: Boolean(b.oneDelivery) }, req.actor)
       await c.query('UPDATE idempotency_keys SET order_id = $2 WHERE key = $1', [key, g.id])
       return g
     })
@@ -1973,7 +2005,7 @@ router.post(
       const g = (await query('SELECT * FROM preorder_groups WHERE id = $1', [req.params.id])).rows[0]
       const p = (await query('SELECT * FROM preorders WHERE id = $1', [r.preorder.id])).rows[0]
       res.json({
-        ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind }),
+        ...giverPreorderView({ ...p, group_number: g.number, group_people: g.recipient_count, group_total: g.total, group_kind: g.kind, group_one_delivery: g.one_delivery }),
         ...giverFields(p, r.link, r.paid),
       })
     } catch (err) {

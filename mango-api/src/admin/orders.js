@@ -139,7 +139,7 @@ export async function orderDetail(c, orderId) {
     bill: billView(bill),
     // The delivery attempt a report made now is for (sent back with "Couldn't deliver").
     attempt: o.delivery_failures + 1,
-    deliveryAddress: o.delivery_address, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
+    deliveryAddress: o.delivery_address, deliveryLandmark: o.delivery_landmark ?? null, deliveryDate: o.delivery_date, placedAt: o.placed_at, total: o.total,
     // The delivery charge and the distance it was measured over (delivery-fee.js).
     deliveryFee: feeOf(o), deliveryKm: o.delivery_km == null ? null : Number(o.delivery_km),
     subtotal: o.subtotal, discount: o.discount, promoCode: o.promo_code, gift: o.gift_recipient_name ? { recipientName: o.gift_recipient_name, recipientPhone: o.gift_recipient_phone, message: o.gift_message } : null,

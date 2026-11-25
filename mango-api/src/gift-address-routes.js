@@ -3,7 +3,7 @@
 // that has never seen the shop.
 //   GET  /gift-address/:token   200 { state: 'PENDING'|'GIVEN', recipientName, fromName, box: { name, qty, stage },
 //                               weekStart, message, expiresAt }; 404 LINK_NOT_FOUND, 410 LINK_EXPIRED, 410 GIFT_CANCELLED
-//   POST /gift-address/:token   { address (10–500 characters), pincode (6 digits) } once: 200 { state: 'GIVEN', weekStart };
+//   POST /gift-address/:token   { address (10–500 characters), pincode (6 digits), landmark? (up to 100) } once: 200 { state: 'GIVEN', weekStart };
 //                               400 VALIDATION_ERROR, 400 NOT_SERVICEABLE, 404 LINK_NOT_FOUND, 409 ADDRESS_GIVEN,
 //                               410 LINK_EXPIRED, 410 GIFT_CANCELLED
 // Never the giver's phone, the price or the recipient's phone. Every answer is Cache-Control: no-store, limited per
@@ -30,6 +30,8 @@ const body = z
   .object({
     address: z.string().trim().min(10, 'Enter the full delivery address').max(500, 'The address is too long'),
     pincode: z.string().trim().regex(/^\d{6}$/, 'pincode must be 6 digits'),
+    // Optional (migration 098, CR2-07): kept apart from the address.
+    landmark: z.string().trim().max(100, 'The landmark can be up to 100 characters').optional().nullable(),
   })
   .strict()
 

@@ -522,7 +522,7 @@ test('Deliveries: the rider run by slot and pincode, flagging unpacked orders', 
   await expect(stop.getByRole('listitem', { name: 'ORD-1044' })).toContainText('Not packed yet')
   await expect(stop.getByRole('listitem', { name: 'ORD-1042' })).toContainText('9876543210')
   await expect(stop.getByRole('link', { name: 'Call ORD-1042' })).toHaveAttribute('href', 'tel:+919876543210')
-  await expect(stop.getByRole('link', { name: 'Map for ORD-1042' })).toHaveAttribute('href', /google\.com\/maps\/search\/.*12%20Marine%20Drive%20400001/)
+  await expect(stop.getByRole('link', { name: 'Map for ORD-1042' })).toHaveAttribute('href', /google\.com\/maps\/search\/.*12%20Marine%20Drive%20opposite%20the%20bus%20stop%20400001/)
   expect(api.calls.some((c) => c.path === '/manifest')).toBe(true)
 })
 

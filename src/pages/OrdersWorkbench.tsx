@@ -354,6 +354,7 @@ function OrderPeek({ id, onClose }: { id: string; onClose: () => void }) {
             <dd>
               {o!.deliveryAddress ?? '—'}
               {o!.pincode ? `, ${o!.pincode}` : ''}
+              {o!.deliveryLandmark && <div className="small muted">Landmark: {o!.deliveryLandmark}</div>}
             </dd>
             <dt>Items</dt>
             <dd>{o!.items.map((i) => `${i.quantity} × ${i.productName}${i.stage ? ` (${RIPENESS_LABEL[i.stage as Ripeness] ?? i.stage})` : ''}`).join(', ')}</dd>

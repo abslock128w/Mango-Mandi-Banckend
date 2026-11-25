@@ -20,11 +20,15 @@ const PAGE_SIZE = 25
 const likeEscape = (s) => s.replace(/[\\%_]/g, (m) => `\\${m}`)
 
 const childView = (k, items) => {
-  const i = items.find((x) => x.order_id === k.id)
+  const mine = items.filter((x) => x.order_id === k.id)
+  const i = mine[0]
   return {
     id: k.id, number: k.number, position: k.gift_position, status: k.status, deliveryDate: k.delivery_date, pincode: k.pincode,
     recipientName: k.gift_recipient_name, total: k.total, atRisk: k.at_risk,
+    // The first box (as before) and, since change request 02 (one person, several boxes in one delivery), every line.
     box: i ? { sku: i.sku, name: productName(i.sku), stage: i.stage, qty: i.quantity } : null,
+    boxes: mine.map((x) => ({ sku: x.sku, name: productName(x.sku), stage: x.stage, qty: x.quantity })),
+    landmark: k.delivery_landmark ?? null,
     refund: k.refund_requested_at ? { requestedAt: k.refund_requested_at, refundedAt: k.refunded_at } : null,
   }
 }

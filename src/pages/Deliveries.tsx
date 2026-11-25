@@ -37,7 +37,7 @@ function addDays(day: string, n: number) {
 }
 
 const mapsLink = (o: ManifestOrder, pincode: string) =>
-  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.deliveryAddress ?? ''} ${pincode}`.trim())}`
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([o.deliveryAddress, o.deliveryLandmark, pincode].filter(Boolean).join(' '))}`
 
 /**
  * The day's delivery run, slot by slot and stop by stop. Riders start a run,
@@ -370,6 +370,7 @@ function RiderRoute({
           <p className="route-address">
             {current.o.deliveryAddress ?? 'No address'}, {current.pincode}
           </p>
+          {current.o.deliveryLandmark && <p className="small route-landmark">Landmark: {current.o.deliveryLandmark}</p>}
           {current.o.gift && (
             <p className="small">
               <Badge>Gift</Badge> from {current.o.gift.from ?? 'a customer'}
@@ -689,6 +690,7 @@ function StopCard({
         </div>
       )}
       <div>{o.deliveryAddress ?? (me?.role === 'PACKER' ? `Area ${pincode}` : 'No address')}</div>
+      {o.deliveryAddress && o.deliveryLandmark && <div className="small stop-landmark">Landmark: {o.deliveryLandmark}</div>}
       <div className="small muted">
         {o.items.map((i) => `${i.quantity} × ${i.productName}${i.stage ? ` (${RIPENESS_LABEL[i.stage]})` : ''}`).join(', ')}
       </div>

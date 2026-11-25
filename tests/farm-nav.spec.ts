@@ -49,3 +49,11 @@ test('a farm booking and a farm visit enquiry show the language to speak and the
   await expect(enquiry.locator('dt', { hasText: 'Language to speak' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Kannada')
   await expect(enquiry.locator('dt', { hasText: 'Another number' }).locator('xpath=following-sibling::dd[1]').getByRole('link')).toHaveAttribute('href', /9811111113/)
 })
+
+test('a farm visit enquiry shows both visit days, 2 days at most (CR2-01, migration 097)', async ({ page }) => {
+  await mockApi(page, { signedIn: true })
+  await page.goto('/bulk-enquiries/benq_farm')
+  await screenLoaded(page)
+  const asked = page.locator('section.card', { has: page.getByRole('heading', { name: 'What they asked for', exact: true }) })
+  await expect(asked.locator('dt', { hasText: 'Visit dates' }).locator('xpath=following-sibling::dd[1]')).toHaveText('Sat 10 – Sun 11 Apr, 2 days')
+})

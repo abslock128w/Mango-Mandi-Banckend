@@ -36,6 +36,8 @@ export const REDACT_PATHS = [
   '*.recipientPhone',
   '*.delivery_address',
   '*.deliveryAddress',
+  '*.delivery_landmark',
+  '*.deliveryLandmark',
   'body.address',
   '*.body.address',
   'req.headers["x-razorpay-signature"]',
@@ -49,7 +51,7 @@ export const REDACT_PATHS = [
 const DEEP_KEYS = new Set([
   'password', 'password_hash', 'passwordHash', 'devCode', 'accessToken', 'refreshToken', 'authorization', 'cookie',
   'phone', 'gift_recipient_phone', 'giftRecipientPhone', 'recipientPhone', 'delivery_address', 'deliveryAddress',
-  'email', 'contact', 'vpa', 'customer_name', 'customerName', 'gstin', 'x-razorpay-signature',
+  'delivery_landmark', 'deliveryLandmark', 'email', 'contact', 'vpa', 'customer_name', 'customerName', 'gstin', 'x-razorpay-signature',
 ])
 /** Allowed at the top level only, and only masked. */
 const TOP_LEVEL_MASKED = new Set(['phone', 'email'])

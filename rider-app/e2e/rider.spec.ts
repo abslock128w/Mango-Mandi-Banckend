@@ -23,8 +23,11 @@ async function toDoor(page: Page) {
     "href",
     "https://www.google.com/maps/dir/?api=1&destination=12%2C%204th%20Cross%2C%20Indiranagar%2C%20560038&travelmode=driving",
   );
+  // CR2-07: the landmark is its own line under the address, on the run and on the stop screen.
+  await expect(page.getByTestId("current-landmark")).toHaveText("Landmark: near Sai Baba temple");
   await page.getByTestId("current-stop").getByRole("link", { name: "At the door" }).click();
   await expect(page.getByTestId("step-1")).toHaveAttribute("data-state", "active");
+  await expect(page.getByTestId("stop-landmark")).toHaveText("Landmark: near Sai Baba temple");
 }
 
 test("login: phone, code and PIN, then today's run; a cold start asks only for the PIN", async ({ page }) => {

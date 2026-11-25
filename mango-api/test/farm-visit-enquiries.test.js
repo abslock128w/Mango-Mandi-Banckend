@@ -1,6 +1,6 @@
 // Farm visit enquiries (mango-api/README.md, Bulk orders and enquiries; kind FARM_VISIT, migration 087): the shop's
-// Farm visit tab sends one, signed in or not, from 250 kg (the farm visit's own minimum), with "we got it"
-// on WhatsApp; staff move it NEW → CONTACTED → VISIT_PLANNED (with the agreed date) → VISITED, or close it with a
+// Farm visit tab sends one, signed in or not, from 250 kg (the farm visit's own minimum), with Day 1 and Day 2 of the
+// visit (2 days at most, migration 097) and "we got it" on WhatsApp; staff move it NEW → CONTACTED → VISIT_PLANNED (with the agreed date) → VISITED, or close it with a
 // reason; the customer sees it on their account; Needs attention counts the new ones.
 import { adminToken, client, closeAll, customerToken, resetDb, startServer } from './helpers.js'
 import assert from 'node:assert/strict'
@@ -40,7 +40,7 @@ afterEach(() => {
   globalThis.fetch = realFetch
 })
 
-const FORM = () => ({ name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', variety: 'Alphonso', kg: 300, visitDate: addDays(todayIST(), 10), flexible: false, people: 6, notes: 'Two children' })
+const FORM = () => ({ name: 'Asha Rao', phone: '98765 43210', city: 'Bengaluru', variety: 'Alphonso', kg: 300, visitFrom: addDays(todayIST(), 10), visitTo: addDays(todayIST(), 11), flexible: false, people: 6, notes: 'Two children' })
 const send = (body, opts = {}) => api.post('/v1/farm-visit-enquiries', body, { headers: { 'Idempotency-Key': newId('idem') }, ...opts })
 const row = async (id) => (await query('SELECT * FROM bulk_enquiries WHERE id = $1', [id])).rows[0]
 
@@ -54,26 +54,71 @@ describe('sending one from the shop', () => {
     assert.deepEqual([e.kind, e.phone, e.quantity_kg, e.farm_variety, e.people, e.visit_flexible, e.customer_id, e.city], ['FARM_VISIT', '+919876543210', 300, 'Alphonso', 6, false, null, 'Bengaluru'])
     // Not asked: the language and the other number stay empty.
     assert.deepEqual([e.preferred_language, e.alt_phone], [null, null])
-    assert.equal(String(e.visit_date).slice(0, 10), addDays(todayIST(), 10))
+    const ymd = (d) => (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10)
+    assert.deepEqual([ymd(e.visit_date), ymd(e.visit_to)], [addDays(todayIST(), 10), addDays(todayIST(), 11)])
     const n = (await query('SELECT * FROM notifications WHERE bulk_enquiry_id = $1', [r.body.id])).rows
     assert.deepEqual(n.map((x) => x.kind), ['FARM_VISIT_ENQUIRY_RECEIVED'])
     const p = paramsFor(n[0])
     assert.deepEqual(p.slice(0, 2), ['Asha Rao', formatOrderNumber(r.body.number)])
-    assert.match(p[2], /^300 kg of Alphonso, 6 people, around /)
+    assert.match(p[2], /^300 kg of Alphonso, 6 people, \w{3} \d{1,2}( \w{3})? – \w{3} \d{1,2} \w{3}, 2 days$/)
+  })
+
+  test('two visit dates (CR2-01): Day 2 is Day 1 or the next day; longer, backwards or Day 2 alone is refused; one day is fine', async () => {
+    const d = (n) => addDays(todayIST(), n)
+    for (const [over, field, msg] of [
+      [{ visitFrom: d(5), visitTo: d(7) }, 'visitTo', /2 days at most/],
+      [{ visitFrom: d(5), visitTo: d(4) }, 'visitTo', /Day 2 can’t be before Day 1/],
+      [{ visitFrom: null, visitTo: d(5) }, 'visitFrom', /Pick your visit dates/],
+      [{ visitFrom: d(-1), visitTo: d(0) }, 'visitFrom', /has passed/],
+    ]) {
+      const r = await send({ ...FORM(), ...over })
+      assert.equal(r.status, 400, JSON.stringify(over))
+      assert.equal(r.body.error.field, field, JSON.stringify(r.body))
+      assert.match(r.body.error.message, msg)
+    }
+    // A 1-day visit (Q4): Day 2 = Day 1, or no Day 2 sent.
+    for (const [over, phone] of [[{ visitFrom: d(3), visitTo: d(3) }, '9811111121'], [{ visitFrom: d(3), visitTo: null }, '9811111122']]) {
+      const r = await send({ ...FORM(), ...over, phone })
+      assert.equal(r.status, 201, JSON.stringify(r.body))
+      const e = await row(r.body.id)
+      assert.equal(String(e.visit_to instanceof Date ? e.visit_to.toISOString() : e.visit_to).slice(0, 10), d(3))
+    }
+    // The account and the panel show both days and the words.
+    const cust = await customerToken(api, '9876543210')
+    const r = await send(FORM(), { headers: { 'Idempotency-Key': newId('idem') }, token: cust.accessToken })
+    const mine = (await api.get(`/v1/me/bulk-enquiries/${r.body.id}`, { token: cust.accessToken })).body.farmVisit
+    assert.deepEqual([mine.visitFrom, mine.visitTo, mine.visitDays, mine.preferredDate], [d(10), d(11), 2, d(10)])
+    assert.match(mine.visitWords, /^\w{3} \d{1,2}( \w{3})? – \w{3} \d{1,2} \w{3}, 2 days$/)
+    const staff = (await api.get(`/admin/v1/bulk-enquiries/${r.body.id}`, { token: manager })).body.farmVisit
+    assert.deepEqual([staff.visitFrom, staff.visitTo, staff.visitDays, staff.visitWords], [d(10), d(11), 2, mine.visitWords])
+    // The database refuses a longer visit too (migration 097).
+    await assert.rejects(query(`UPDATE bulk_enquiries SET visit_to = visit_date + 2 WHERE id = $1`, [r.body.id]), /check/i)
+  })
+
+  test('the older single visitDate still sends (a cached shop): Day 1 with no Day 2, "around" in the message', async () => {
+    const { visitFrom: _f, visitTo: _t, ...old } = FORM()
+    const r = await send({ ...old, visitDate: addDays(todayIST(), 4) })
+    assert.equal(r.status, 201, JSON.stringify(r.body))
+    const e = await row(r.body.id)
+    assert.deepEqual([String(e.visit_date instanceof Date ? e.visit_date.toISOString() : e.visit_date).slice(0, 10), e.visit_to], [addDays(todayIST(), 4), null])
+    const n = (await query('SELECT * FROM notifications WHERE bulk_enquiry_id = $1', [r.body.id])).rows
+    assert.match(paramsFor(n[0])[2], /, around \w{3} \d{1,2} \w{3}$/)
+    const past = await send({ ...old, phone: '9811111123', visitDate: addDays(todayIST(), -1) })
+    assert.equal(past.status, 400)
   })
 
   test('250 kg is the minimum; whole kg; a date in the past, an unknown mango and no people are refused; "not sure" and flexible work', async () => {
-    for (const [body, field] of [[{ kg: 249 }, 'kg'], [{ kg: 100 }, 'kg'], [{ kg: 260.5 }, 'kg'], [{ people: 0 }, 'people'], [{ visitDate: addDays(todayIST(), -1) }, 'visitDate'], [{ variety: 'Durian' }, 'variety']]) {
+    for (const [body, field] of [[{ kg: 249 }, 'kg'], [{ kg: 100 }, 'kg'], [{ kg: 260.5 }, 'kg'], [{ people: 0 }, 'people'], [{ visitFrom: addDays(todayIST(), -1), visitTo: null }, 'visitFrom'], [{ variety: 'Durian' }, 'variety']]) {
       const r = await send({ ...FORM(), ...body })
       assert.equal(r.status, 400, `${field}: ${JSON.stringify(r.body)}`)
     }
     assert.match((await send({ ...FORM(), kg: 249 })).body.error.message, /250 kg/)
-    const ok = await send({ ...FORM(), kg: 250, variety: null, visitDate: null, flexible: true })
+    const ok = await send({ ...FORM(), kg: 250, variety: null, visitFrom: null, visitTo: null, flexible: true })
     assert.equal(ok.status, 201, JSON.stringify(ok.body))
     const e = await row(ok.body.id)
-    assert.deepEqual([e.quantity_kg, e.farm_variety, e.visit_date, e.visit_flexible], [250, null, null, true])
+    assert.deepEqual([e.quantity_kg, e.farm_variety, e.visit_date, e.visit_to, e.visit_flexible], [250, null, null, null, true])
     // No date and no tick is also "flexible".
-    assert.equal((await row((await send({ ...FORM(), visitDate: null, phone: '9811111112' })).body.id)).visit_flexible, true)
+    assert.equal((await row((await send({ ...FORM(), visitFrom: null, visitTo: null, phone: '9811111112' })).body.id)).visit_flexible, true)
     // The 250 kg rule still holds for a plain enquiry.
     const plain = await api.post('/v1/bulk-enquiries', { name: 'Ravi', phone: '9822222222', city: 'Mysuru', quantityKg: 150 }, { headers: { 'Idempotency-Key': newId('idem') } })
     assert.equal(plain.body.error.code, 'BULK_ENQUIRY_TOO_SMALL')

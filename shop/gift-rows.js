@@ -1,58 +1,127 @@
-/* Gifting, the plain helpers (no page, no network): reading this tab's saved gift, the WhatsApp number check, the week
-   words and the booking body. Loaded before gifts.js, which uses them; tests/unit/gift-rows.unit.ts runs them in Node.
-   A person is { name, phone, ask, address, pincode, sku, stage, own }: one box each (the number of boxes is the number
-   of people), `ask` true when we ask them for their address on WhatsApp (false: the giver typed it; null: not chosen
-   yet, which means "ask" wherever asking is open), `own` when their box differs from the one everyone gets. */
+/* Gifting, the plain helpers (no page, no network): reading this tab's saved gift, the WhatsApp number check, the box
+   lines (add, count, the 20-box cap), the one week a gift arrives in, the week words and the booking bodies. Loaded
+   before gifts.js, which uses them; tests/unit/gift-rows.unit.ts runs them in Node.
+   A gift goes to ONE person with as many boxes as they like (change request 02, CR2-06/07): `lines` [{ sku, stage, qty }]
+   (one line per box size and ripeness), and the person { name, phone, ask, address, landmark, pincode }, `ask` true when
+   we ask them for their address on WhatsApp (false: the giver typed it; null: not chosen yet, which means "ask" wherever
+   asking is open). */
 
-const GIFT_DRAFT_V = 3
+const GIFT_DRAFT_V = 4
 const GIFT_STAGES = ['RAW', 'SEMI_RIPE']
+/** The most boxes in one gift (change request 02, Q2; the API's GIFT_MAX_BOXES, policy giftMaxBoxes). */
+const GIFT_MAX_BOXES = 20
 const giftStr = (v, max = 500) => String(v == null ? '' : v).slice(0, max)
 
-/** A saved person, from any draft shape (v1: each with a box, boxes and note; v2: the box for everyone plus
- *  `own`; v3: this one). A person who had an address typed keeps it, and is "I'll enter it". */
+/** The person, from any draft shape (a v1 to v3 person kept a box too, read separately). A person who had an address
+ *  typed keeps it, and is "I'll enter it". */
 function giftPersonFrom(r) {
+  r = r && typeof r === 'object' ? r : {}
   const address = giftStr(r.address), pincode = giftStr(r.pincode, 6)
   const ask = r.ask === true ? true : r.ask === false ? false : address.trim() || pincode.trim() ? false : null
-  return {
-    name: giftStr(r.name, 80), phone: giftStr(r.phone, 16), ask, address, pincode,
-    sku: giftStr(r.sku, 40), stage: GIFT_STAGES.includes(r.stage) ? r.stage : 'SEMI_RIPE', own: !!r.own,
-  }
+  return { name: giftStr(r.name, 80), phone: giftStr(r.phone, 16), ask, address, landmark: giftStr(r.landmark, 100), pincode }
 }
-const giftBlank = (r) => !r.name.trim() && !r.phone.trim() && !r.address.trim() && !r.pincode.trim()
+const giftBlank = (r) => !r.name.trim() && !r.phone.trim() && !r.address.trim() && !r.pincode.trim() && !String(r.landmark || '').trim()
 
-/** This tab's saved gift (the JSON string, or null), as { box, note, people, ... }, or null when there is none. */
+/** One saved box line, or null when it is not one. */
+function giftLineFrom(l) {
+  if (!l || typeof l !== 'object' || !l.sku) return null
+  const qty = Math.floor(Number(l.qty))
+  return { sku: giftStr(l.sku, 40), stage: GIFT_STAGES.includes(l.stage) ? l.stage : 'SEMI_RIPE', qty: qty >= 1 ? Math.min(qty, GIFT_MAX_BOXES) : 1 }
+}
+
+/** Box lines with one line per box and ripeness (added up), at most `max` boxes in all (the later lines cut back). */
+function giftMergeLines(lines, max = GIFT_MAX_BOXES) {
+  const out = []
+  let left = max
+  for (const raw of lines || []) {
+    const l = giftLineFrom(raw)
+    if (!l || left <= 0) continue
+    const q = Math.min(l.qty, left)
+    const same = out.find((x) => x.sku === l.sku && x.stage === l.stage)
+    if (same) same.qty += q
+    else out.push({ ...l, qty: q })
+    left -= q
+  }
+  return out
+}
+
+/** This tab's saved gift (the JSON string, or null), as { lines, person, note, ... }, or null when there is none.
+ *  v4 is this shape; a v1 to v3 draft (a gift for several people) becomes a gift for its first person, with their box. */
 function readGiftDraft(json) {
   let d
   try { d = JSON.parse(json) } catch { return null }
-  if (!d || typeof d !== 'object' || !Array.isArray(d.recipients) || !d.recipients.length) return null
-  const raw = d.recipients.slice(0, 100).filter((r) => r && typeof r === 'object')
-  let people = raw.map(giftPersonFrom), box = null, note = ''
-  if (d.v === 2 || d.v === GIFT_DRAFT_V) {
-    box = d.box && d.box.sku ? { sku: giftStr(d.box.sku, 40), stage: GIFT_STAGES.includes(d.box.stage) ? d.box.stage : 'SEMI_RIPE' } : null
+  if (!d || typeof d !== 'object') return null
+  let lines = [], person = null, note = ''
+  if (d.v === GIFT_DRAFT_V) {
+    lines = giftMergeLines(Array.isArray(d.lines) ? d.lines : [])
+    person = giftPersonFrom(d.person)
     note = giftStr(d.note, 200)
-  } else {
-    // v1: every person had a box and a note of their own; the first box is everyone's, one shared note stays shared.
-    people = people.filter((r) => !giftBlank(r))
-    const first = people.find((r) => r.sku) || null
-    box = first ? { sku: first.sku, stage: first.stage } : null
-    for (const r of people) r.own = !!(box && (r.sku !== box.sku || r.stage !== box.stage))
-    const notes = raw.map((r) => giftStr(r.note, 200).trim())
-    if (notes.length && notes.every((x) => x && x === notes[0])) note = notes[0]
-  }
-  if (!people.length) return null
+  } else if (Array.isArray(d.recipients) && d.recipients.length) {
+    const raw = d.recipients.slice(0, 100).filter((r) => r && typeof r === 'object')
+    const first = raw.find((r) => !giftBlank(giftPersonFrom(r))) || raw[0]
+    if (!first) return null
+    person = giftPersonFrom(first)
+    const box = (d.v === 2 || d.v === 3) && d.box && d.box.sku && !first.own ? d.box : first.sku ? first : d.box
+    lines = giftMergeLines(box && box.sku ? [{ sku: box.sku, stage: box.stage, qty: 1 }] : [])
+    if (d.v === 2 || d.v === 3) note = giftStr(d.note, 200)
+    else {
+      const notes = raw.map((r) => giftStr(r.note, 200).trim())
+      if (notes.length && notes.every((x) => x && x === notes[0])) note = notes[0]
+    }
+  } else return null
+  if (!lines.length && giftBlank(person)) return null
   return {
-    box, note, people,
+    lines, person, note,
     date: d.date || null, slotId: d.slotId || null, sender: giftStr(d.sender, 80),
     business: !!d.business, bizName: giftStr(d.bizName, 100), gstin: giftStr(d.gstin, 20), wantPay: !!d.wantPay,
   }
 }
-/** What is saved: the same shape readGiftDraft reads (v3). */
+/** What is saved: the same shape readGiftDraft reads (v4). */
 function giftDraftJSON(g) {
+  const p = g.person || {}
   return JSON.stringify({
-    v: GIFT_DRAFT_V, box: g.box, note: g.note,
-    recipients: g.recipients.map((r) => ({ name: r.name, phone: r.phone, ask: r.ask, address: r.address, pincode: r.pincode, sku: r.sku, stage: r.stage, own: r.own })),
+    v: GIFT_DRAFT_V, lines: (g.lines || []).map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty })), note: g.note,
+    person: { name: p.name, phone: p.phone, ask: p.ask, address: p.address, landmark: p.landmark, pincode: p.pincode },
     date: g.date, slotId: g.slotId, sender: g.sender, business: g.business, bizName: g.bizName, gstin: g.gstin, wantPay: !!g.wantPay,
   })
+}
+
+/** How many boxes the lines hold. */
+const giftBoxCount = (lines) => (lines || []).reduce((n, l) => n + (Number(l.qty) || 0), 0)
+
+/** The lines after `delta` boxes of one box and ripeness (a new line when it is not in yet; a line at 0 goes), never more
+ *  than `max` boxes in all: { lines, capped } (capped: some of the boxes asked for did not fit). */
+function giftAddLine(lines, sku, stage, delta, max = GIFT_MAX_BOXES) {
+  const out = (lines || []).map((l) => ({ ...l }))
+  const i = out.findIndex((l) => l.sku === sku && l.stage === stage)
+  const room = max - giftBoxCount(out)
+  const d = delta > 0 ? Math.min(delta, Math.max(room, 0)) : delta
+  if (i < 0) { if (d > 0) out.push({ sku, stage, qty: d }) }
+  else {
+    out[i].qty += d
+    if (out[i].qty <= 0) out.splice(i, 1)
+  }
+  return { lines: out, capped: delta > 0 && d < delta }
+}
+
+/** The one week a gift arrives in, before the season (the API's togetherWeek): the earliest week in which every line
+ *  has room together, lines of one variety sharing its room, which is the week of the box that is ready last. `daysOf(sku)`
+ *  gives that box's variety weeks [{ weekStart, remaining }], `varietyOf(sku)` its variety and `need(qty, sku)` what a
+ *  line takes from a week (kg). Returns the week (YYYY-MM-DD) or null when no week can take the whole gift. */
+function giftTogetherWeek(lines, daysOf, varietyOf, need) {
+  if (!lines || !lines.length) return null
+  const byVariety = new Map()
+  for (const l of lines) {
+    const v = varietyOf(l.sku)
+    const x = byVariety.get(v) || { sku: l.sku, kg: 0 }
+    x.kg += need(l.qty, l.sku)
+    byVariety.set(v, x)
+  }
+  const weeks = [...new Set(lines.flatMap((l) => (daysOf(l.sku) || []).map((d) => String(d.weekStart))))].sort()
+  return weeks.find((w) => [...byVariety.values()].every((x) => {
+    const d = (daysOf(x.sku) || []).find((y) => String(y.weekStart) === w)
+    return !!d && Number(d.remaining) >= x.kg - 1e-9
+  })) || null
 }
 
 /** A WhatsApp number as the API takes it: 10 digits, without +91 or a leading 0. */
@@ -71,16 +140,27 @@ function giftWeekSpan(weeks, fmt) {
   return ws.length === 1 ? `week of ${fmt(ws[0])}` : `weeks of ${fmt(ws[0])} – ${fmt(ws[ws.length - 1])}`
 }
 
-/** One person of a gift pre-order (POST /v1/preorders/groups): one box, their week, and either their address or
- *  `askAddress` (the API asks them on WhatsApp after the payment). */
-function giftGroupRecipient(r, weekStart, ask, note) {
-  const gift = { recipientName: r.name.trim(), recipientPhone: giftPhone(r.phone), ...(note ? { message: note } : {}) }
-  const base = { sku: r.sku, stage: r.stage, qty: 1, weekStart }
-  return ask ? { ...base, askAddress: true, gift } : { ...base, pincode: r.pincode.trim(), address: r.address.trim(), gift }
+/** One box line of a gift for one person before the season (POST /v1/preorders/groups with oneDelivery): the line, the
+ *  gift's one week, and either the address (and landmark) or `askAddress` (the API asks them on WhatsApp after paying). */
+function giftGroupLine(p, l, weekStart, ask, note) {
+  const gift = { recipientName: p.name.trim(), recipientPhone: giftPhone(p.phone), ...(note ? { message: note } : {}) }
+  const base = { sku: l.sku, stage: l.stage, qty: l.qty, weekStart }
+  if (ask) return { ...base, askAddress: true, gift }
+  const landmark = String(p.landmark || '').trim()
+  return { ...base, pincode: p.pincode.trim(), address: p.address.trim(), ...(landmark ? { landmark } : {}), gift }
 }
 
-/** The sticky bar's line: "2 boxes · Arrives week of 1 Mar". */
-const giftBarLine = (boxes, when) => `${boxes} ${boxes === 1 ? 'box' : 'boxes'}${when ? ` · Arrives ${when}` : ''}`
+/** The one recipient of a gift order in season (POST /v1/gifts/quote): every box line in their one delivery. */
+function giftSeasonRecipient(p, lines, note) {
+  const landmark = String(p.landmark || '').trim()
+  return {
+    name: p.name.trim(), phone: giftPhone(p.phone), address: p.address.trim(), ...(landmark ? { landmark } : {}), pincode: p.pincode.trim(),
+    lines: lines.map((l) => ({ sku: l.sku, stage: l.stage, qty: l.qty })), note: note || null,
+  }
+}
+
+/** "3 boxes · 9 kg" (kg left out while unknown). */
+const giftBarLine = (boxes, kg) => `${boxes} ${boxes === 1 ? 'box' : 'boxes'}${kg ? ` · ${Math.round(kg * 10) / 10} kg` : ''}`
 
 /** The recipient's box in words (the address page): "Alphonso gift box · Semi-ripe", "2 × Kesar gift box · Raw".
  *  `stageWord` turns RAW / SEMI_RIPE into its word. */

@@ -353,6 +353,7 @@ export function redactForPacker(order) {
     ...order,
     phone: null,
     deliveryAddress: null,
+    ...('deliveryLandmark' in order ? { deliveryLandmark: null } : {}),
     ...(order.gift ? { gift: { ...order.gift, recipientPhone: null } } : {}),
     ...('payment' in order ? { payment: null } : {}),
     ...('notifications' in order ? { notifications: [] } : {}),

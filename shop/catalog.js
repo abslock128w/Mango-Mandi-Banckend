@@ -47,7 +47,7 @@
       [5, 7], 2, 75, [22, 24, 28, 23], 'For the pickle jar', ['pickle', 'kairi', 'chutney', 'tangy', 'achar'], ['pickle']],
     ['Himsagar', 'Creamy, fibreless and very sweet',
       "Bengal's pride, Himsagar has a short season and a creamy texture loved for mishti doi and desserts.",
-      [5, 6], 5, 78, [1, 34, 30, 20], "Bengal's creamy pride", ['bengal', 'dessert', 'fibreless'], ['dessert']],
+      [5, 6], 5, 78, [1, 34, 30, 20], 'Short season, creamy pride', ['bengal', 'dessert', 'fibreless'], ['dessert']],
     ['Neelam', 'Floral, mildly sweet with a long shelf life',
       'Neelam fruits late and keeps well. Its floral aroma makes it a favourite for smoothies and milkshakes.',
       [6, 8], 3, 60, [17, 28, 22, 13], 'Keeps well, blends well', ['floral', 'shake', 'smoothie'], ['juice']],
@@ -59,7 +59,7 @@
       [5, 7], 5, 66, [6, 38, 24, 8], 'Intensely sweet', ['hybrid', 'sweet'], ['dessert', 'juice']],
     ['Badami', 'Alphonso-like richness at a gentler price',
       'Called the Karnataka Alphonso, Badami shares the creamy texture of Hapus with an almond-shaped profile.',
-      [3, 6], 4, 72, [2, 30, 25, 36], "Karnataka's Alphonso", ['karnataka alphonso', 'dessert'], ['dessert']],
+      [3, 6], 4, 72, [2, 30, 25, 36], "Alphonso's creamy cousin", ['karnataka alphonso', 'dessert'], ['dessert']],
     ['Raspuri', 'Juicy and sweet, made for pulp and juice',
       'Raspuri means full of juice. It is the mango Mysuru grows for pulp, juice and ice cream.',
       [4, 6], 4, 58, [18, 27, 26, 37], 'Juiciest pulp', ['juice', 'pulp', 'ice cream'], ['juice']],
@@ -85,6 +85,25 @@
   const mixed = varieties.find((v) => v.name === 'Mixed Variety Mangoes')
   mixed.contents = ['Alphonso', 'Kesar', 'Banganapalli', 'Himsagar'].map((name) => ({ name, share: 'a quarter of the box' }))
 
+  // Search words that point at a variety (and the stage it should open at). filter reads them; shelf.js shows the reason.
+  const SYNONYMS = [
+    { terms: ['pickle', 'achar', 'achaar', 'kairi', 'chutney', 'sour'], variety: 'Totapuri', stage: 'RAW', reason: 'Best for pickle' },
+    { terms: ['pickle', 'achar', 'kairi'], variety: 'Banganapalli', stage: 'RAW', reason: 'Firm raw slices' },
+    { terms: ['dessert', 'sweet', 'aamras', 'shrikhand', 'premium'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Most loved for desserts' },
+    { terms: ['aamras', 'dessert'], variety: 'Kesar', stage: 'SEMI_RIPE', reason: 'Classic aamras mango' },
+    { terms: ['hapus'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Hapus is Alphonso' },
+    { terms: ['juice', 'pulp', 'shake', 'smoothie'], variety: 'Raspuri', stage: 'SEMI_RIPE', reason: 'Juiciest pulp' },
+    { terms: ['gift', 'assorted', 'sampler', 'mix', 'combo'], variety: 'Mixed Variety Mangoes', stage: null, reason: 'Four varieties in one box' },
+    { terms: ['panna', 'green', 'raw'], variety: 'Totapuri', stage: 'RAW', reason: 'Tangy raw mango' },
+    { terms: ['benishan'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Benishan is Banganapalli' },
+    // other spellings customers use (the search suggestions offer these names: suggest.js)
+    { terms: ['banginapalli', 'banganpalli', 'bangalapalli'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Also spelt Banganapalli' },
+    { terms: ['himayath', 'himayat', 'himam pasand'], variety: 'Imam Pasand', stage: 'SEMI_RIPE', reason: 'Himayath is Imam Pasand' },
+    { terms: ['rathgiri', 'ratnagiri', 'rathnagiri'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Ratnagiri Alphonso' },
+    { terms: ['dasari', 'dussehri', 'dasehri'], variety: 'Dasheri', stage: 'SEMI_RIPE', reason: 'Dasari is Dasheri' },
+    { terms: ['malgoa', 'malgoba'], variety: 'Malgova', stage: 'SEMI_RIPE', reason: 'Also spelt Malgova' },
+  ]
+
   // ---- Search that forgives typos (suggest.js lists the mangoes as you type; shelf.js filters the shelf with it when
   // the words typed are not found as they are). Other names and spellings customers type for a variety, so old
   // wording ("mixed box") and common misspellings still find it.
@@ -97,7 +116,8 @@
     Malgova: ['malgoa', 'malgoba'],
     'Mixed Variety Mangoes': ['mix', 'mixed', 'mixed box', 'mixed variety', 'assorted', 'assorted box'],
   }
-  // Words a search for a name leaves out: "mango", the box, and the ripeness (shelf.js reads that from the words itself).
+  // Words a search for a name leaves out: "mango", the box, and the ripeness (filter reads that from the words itself).
+  // A search of nothing but these filters nothing: "mango", "mangoes", "mango box" and "raw" show every mango.
   const STOP = new Set(['mango', 'mangoes', 'mangos', 'mangoe', 'aam', 'the', 'a', 'an', 'of', 'for', 'and', 'box', 'raw', 'ripe', 'semi', 'semiripe'])
   /** Lower case, letters and digits only, single spaces. */
   const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
@@ -177,6 +197,69 @@
     return { items: [{ name: best.name, how: best.how, mark: null }, ...again], fixed: best.name }
   }
 
+  // Ripeness words typed into a search: the shelf shows every card it finds at that stage ("raw alphonso").
+  const STAGE_WORDS = { raw: 'RAW', semi: 'SEMI_RIPE', semiripe: 'SEMI_RIPE', ripe: 'SEMI_RIPE' }
+  /** Everything a search of the shelf reads for one variety, folded: name, origin, flavour, best for, search words, contents. */
+  const textOf = (name, c = {}) => fold([name, c.region, c.origin, c.flavour, c.bestFor, ...(c.tags || []), ...(c.contents || []).map((x) => x.name)].filter(Boolean).join(' '))
+
+  /**
+   * Which mangoes the shelf shows for a search, best first (shelf.js visibleShelf; suggest.js lists the first six of the
+   * same cards, so the list and the grid always agree). `list`: the varieties on the shelf, [{ name, c }] (c: content).
+   * `exact`: the customer asked to search the words as typed ("search instead for …"): no other names, no typos.
+   * Returns { names, tier, fixed, stage, hits }:
+   *   names  the names shown, best first; null when nothing is left to look for once "mango", "box" and the ripeness
+   *          words are left out ("mango", "mangoes", "mango box", "raw"): then every mango is shown;
+   *   tier   name → its place (lower first): synonym hits, then the name starting with the words, a word of the name, a
+   *          word about it, then any other match. Cards in one tier keep the shelf's own order (sort, sold out last);
+   *   fixed  the name the search was read as when the words found nothing as typed ("Showing results for Alphonso");
+   *   stage  'RAW' or 'SEMI_RIPE' when a ripeness word was typed;
+   *   hits   the SYNONYMS rows that point at a mango on the shelf (their reason is shown on its card).
+   */
+  function filter(query, list, { exact = false } = {}) {
+    const q = fold(query)
+    const out = { names: null, tier: {}, fixed: null, stage: null, hits: [] }
+    if (!q) return out
+    const words = q.split(' ')
+    const stageWord = words.find((w) => STAGE_WORDS[w])
+    if (stageWord) out.stage = STAGE_WORDS[stageWord]
+    const rest = words.filter((w) => !STAGE_WORDS[w] && !STOP.has(w))
+    // search words that point at a mango ("pickle" is Totapuri), read in the words left once "mango" and the ripeness
+    // are out ("raw alphonso" is Alphonso, not raw Totapuri), or in all of them when nothing else is left ("raw")
+    const on = new Set(list.map((v) => v.name)), said = rest.length ? rest.join(' ') : q
+    if (!exact) for (const syn of SYNONYMS) if (on.has(syn.variety) && !out.hits.some((h) => h.variety === syn.variety) && syn.terms.some((t) => said.includes(t) || (said.length >= 3 && t.startsWith(said)))) out.hits.push(syn)
+    const hitAt = (name) => out.hits.findIndex((h) => h.variety === name)
+    out.hits.forEach((h, i) => { out.tier[h.variety] = i })
+    if (!rest.length) return out
+    const text = rest.join(' ')
+    const literal = list.filter((v) => rest.every((w) => textOf(v.name, v.c).includes(w)))
+    const about = (xs) => xs.map((v) => ({ name: v.name, about: aboutOf(v.c || {}) }))
+    // Nothing as typed: read it as another name or a typo, unless a search word points elsewhere ("sour" is Totapuri).
+    if (!literal.length && !exact) {
+      const r = find(text, about(list))
+      if (r.fixed && (!out.hits.length || hitAt(r.fixed) >= 0)) {
+        out.fixed = r.fixed
+        out.names = r.items.map((x) => x.name)
+        out.tier = Object.fromEntries(out.names.map((n, i) => [n, i]))
+        return out
+      }
+    }
+    const h = out.hits.length
+    const ranked = literal.length && !exact ? find(text, about(literal)) : { items: [], fixed: null }
+    for (const x of ranked.fixed ? [] : ranked.items) if (!(x.name in out.tier)) out.tier[x.name] = h + (x.how === 'name' ? (x.mark && x.mark[0] === 0 ? 0 : 1) : 2)
+    for (const v of literal) if (!(v.name in out.tier)) out.tier[v.name] = h + 3
+    const keep = new Set([...out.hits.map((x) => x.variety), ...literal.map((v) => v.name)])
+    out.names = list.map((v) => v.name).filter((n) => keep.has(n)).sort((a, b) => out.tier[a] - out.tier[b])
+    out.tier = Object.fromEntries(out.names.map((n) => [n, out.tier[n]]))
+    return out
+  }
+
+  /** What the search's status line says to screen readers: how many mangoes the shelf now shows. */
+  function status(count, fixed) {
+    if (!count) return 'No mangoes found.'
+    const words = `${count} ${count === 1 ? 'mango' : 'mangoes'}`
+    return fixed ? `Showing results for ${fixed}: ${words}.` : `${words}.`
+  }
+
   window.MM_CATALOG = {
     varieties,
 
@@ -195,23 +278,7 @@
     ],
 
     // Search words that point at a variety (and the stage it should open at).
-    synonyms: [
-      { terms: ['pickle', 'achar', 'achaar', 'kairi', 'chutney', 'sour'], variety: 'Totapuri', stage: 'RAW', reason: 'Best for pickle' },
-      { terms: ['pickle', 'achar', 'kairi'], variety: 'Banganapalli', stage: 'RAW', reason: 'Firm raw slices' },
-      { terms: ['dessert', 'sweet', 'aamras', 'shrikhand', 'premium'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Most loved for desserts' },
-      { terms: ['aamras', 'dessert'], variety: 'Kesar', stage: 'SEMI_RIPE', reason: 'Classic aamras mango' },
-      { terms: ['hapus'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Hapus is Alphonso' },
-      { terms: ['juice', 'pulp', 'shake', 'smoothie'], variety: 'Raspuri', stage: 'SEMI_RIPE', reason: 'Juiciest pulp' },
-      { terms: ['gift', 'assorted', 'sampler', 'mix', 'combo'], variety: 'Mixed Variety Mangoes', stage: null, reason: 'Four varieties in one box' },
-      { terms: ['panna', 'green', 'raw'], variety: 'Totapuri', stage: 'RAW', reason: 'Tangy raw mango' },
-      { terms: ['benishan'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Benishan is Banganapalli' },
-      // other spellings customers use (the search suggestions offer these names: suggest.js)
-      { terms: ['banginapalli', 'banganpalli', 'bangalapalli'], variety: 'Banganapalli', stage: 'SEMI_RIPE', reason: 'Also spelt Banganapalli' },
-      { terms: ['himayath', 'himayat', 'himam pasand'], variety: 'Imam Pasand', stage: 'SEMI_RIPE', reason: 'Himayath is Imam Pasand' },
-      { terms: ['rathgiri', 'ratnagiri', 'rathnagiri'], variety: 'Alphonso', stage: 'SEMI_RIPE', reason: 'Ratnagiri Alphonso' },
-      { terms: ['dasari', 'dussehri', 'dasehri'], variety: 'Dasheri', stage: 'SEMI_RIPE', reason: 'Dasari is Dasheri' },
-      { terms: ['malgoa', 'malgoba'], variety: 'Malgova', stage: 'SEMI_RIPE', reason: 'Also spelt Malgova' },
-    ],
+    synonyms: SYNONYMS,
 
     trending: ['Alphonso', 'Raw mango for pickle', 'Kesar', 'Mixed Variety Mangoes', 'Dasheri', 'Mango for aamras'],
 
@@ -221,6 +288,9 @@
     keyOf,
     aliases: ALIASES,
     find,
+    filter,
+    status,
+    textOf,
     aboutOf,
     typos,
   }

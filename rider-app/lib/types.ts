@@ -20,6 +20,8 @@ export type ManifestOrder = {
   number: string;
   status: OrderStatus;
   deliveryAddress: string | null;
+  /** A landmark near the address ("near Sai Baba temple"), its own field since CR2-07; null or absent when none. */
+  deliveryLandmark?: string | null;
   customerName: string | null;
   phone: string | null;
   boxes: number;

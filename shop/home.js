@@ -2,8 +2,8 @@
    - the header's bag button says how many boxes are in it (its count is drawn by app.js updateCart; the badge hides
      at zero through html.no-bag-lines);
    - the hero carousel: three slides in one banner, swiped natively (scroll-snap), dots that are buttons, arrow keys,
-     auto-advance every 6 s, paused while touched, hovered, focused, off screen or by its pause button, and never
-     with reduced motion;
+     auto-advance every 6 s, paused while the slides are touched, hovered or focused (not the dots or the pause button),
+     off screen or by its pause button, and never with reduced motion;
    - "Shop by variety": the grid shows two rows of cards until "See all" (remembered for the tab session); a ripeness
      filter, an occasion chip or a search always shows every match.
    Loaded after app.js and dock.js; reads app.js/shelf.js globals (filter, occasion, shelf) at call time. */
@@ -63,10 +63,12 @@
     const holdOn = (why) => { hold.add(why); tick() }
     const holdOff = (why) => { hold.delete(why); tick() }
 
-    hero.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') holdOn('hover') })
-    hero.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') holdOff('hover') })
-    hero.addEventListener('focusin', () => holdOn('focus'))
-    hero.addEventListener('focusout', (e) => { if (!hero.contains(e.relatedTarget)) holdOff('focus') })
+    // Hover and focus hold the slides only while on the slides themselves (the track and its links), never on the dots
+    // or the pause button: pressing Play leaves the focus on the button, and the slides must move again.
+    track.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') holdOn('hover') })
+    track.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') holdOff('hover') })
+    track.addEventListener('focusin', () => holdOn('focus'))
+    track.addEventListener('focusout', (e) => { if (!track.contains(e.relatedTarget)) holdOff('focus') })
     track.addEventListener('touchstart', () => holdOn('touch'), { passive: true })
     track.addEventListener('touchend', () => holdOff('touch'), { passive: true })
     track.addEventListener('touchcancel', () => holdOff('touch'), { passive: true })
