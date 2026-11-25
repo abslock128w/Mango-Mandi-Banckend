@@ -667,7 +667,7 @@ function Bookings() {
       >
         <label htmlFor="plan-search">Find a pre-order</label>
         <div className="btn-row">
-          <input id="plan-search" type="search" placeholder="Number (any way), name or phone" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input id="plan-search" type="search" placeholder="Number (any way), name, phone or address" value={search} onChange={(e) => setSearch(e.target.value)} />
           <button type="submit" className="btn">
             Find
           </button>
@@ -728,7 +728,15 @@ function Bookings() {
                           <PhoneLink phone={p.phone} who={p.customerName ?? 'the customer'} />
                         </div>
                       )}
-                      {p.gift && <div className="small">For {p.gift.recipientName}</div>}
+                      {p.gift && (
+                        <>
+                          <div className="small">For {p.gift.recipientName}</div>
+                          {(p.address || p.pincode) && (
+                            <div className="muted small">{[p.address, p.pincode].filter(Boolean).join(' · ')}</div>
+                          )}
+                          {p.landmark && <div className="muted small">Landmark: {p.landmark}</div>}
+                        </>
+                      )}
                     </td>
                     <td data-label="Box">
                       {p.qty} × {p.productName}

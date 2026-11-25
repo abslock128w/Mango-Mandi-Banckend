@@ -707,7 +707,11 @@ export interface Preorder {
   unitPrice: number
   total: number
   weekStart: string
-  pincode: string
+  pincode: string | null
+  /** The delivery address line (null while a gift recipient is still asked for it, migration 091). */
+  address?: string | null
+  /** Optional (migration 098, CR2-07): "Near Sai Baba temple", kept apart from the address. */
+  landmark?: string | null
   customerName: string | null
   phone: string
   channel: 'app' | 'whatsapp'

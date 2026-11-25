@@ -363,6 +363,12 @@ export function seed() {
         variety: 'Kesar', kg: 3, delayed: null,
         message: { kind: 'PREORDER_BOOKED', status: 'SENT', error: null, logged: false, sentAt: '2027-01-06T06:03:00Z' },
       },
+      // A gift: the recipient's address and landmark show under "For …" so staff see where it goes before it is allocated.
+      {
+        id: 'p3', number: 'PRE-1003', status: 'BOOKED', sku: 'ALP-3', productName: 'Alphonso 3kg Box', stage: 'RIPE', qty: 1, unitPrice: 129900, total: 129900, weekStart: '2027-03-08', pincode: '560001', address: '12 Test Street, Indiranagar', landmark: 'Near Sai Baba temple, opposite bus stop', customerName: 'Meera Iyer', phone: '+919845012345', channel: 'app', paymentStatus: 'SUCCEEDED', movedCount: 0, createdAt: '2027-01-07T06:00:00Z', bookedAt: '2027-01-07T06:02:00Z', nonRefundable: true, refund: null, order: null,
+        gift: { recipientName: 'Ravi Kumar', recipientPhone: '+919000000002', message: null }, group: null,
+        variety: 'Alphonso', kg: 3, delayed: null, message: null,
+      },
     ] as Preorder[],
     calendar: [{ date: '2026-10-20', isOpen: false, maxBoxes: null, note: 'Diwali' }],
     config: {
@@ -988,7 +994,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
 
     if (path === '/coverage') return json(route, 200, state.coverage)
     if (path === '/preorders') {
-      // As the API: status, week, filter (the Bookings tab's chips) and q (number, name or phone).
+      // As the API: status, week, filter (the Bookings tab's chips) and q (number, name, phone, address or landmark).
       const [status, week, filter, q] = ['status', 'week', 'filter', 'q'].map((k) => url.searchParams.get(k) || null)
       const found = state.preorders.filter(
         (p) =>
@@ -999,7 +1005,7 @@ export async function mockApi(page: Page, opts: MockOptions = {}): Promise<MockS
           (filter !== 'gift' || Boolean(p.gift || (p.group && p.group.kind !== 'BAG'))) &&
           (filter !== 'waiting' || (p.status === 'BOOKED' && p.weekStart <= '2027-03-01')) &&
           (filter !== 'cancelledAfterDelay' || Boolean(p.cancelledAfterDelay)) &&
-          (!q || [p.number, p.customerName ?? '', p.phone].some((s) => s.toLowerCase().includes(q.toLowerCase()))),
+          (!q || [p.number, p.customerName ?? '', p.phone, p.address ?? '', p.landmark ?? ''].some((s) => s.toLowerCase().includes(q.toLowerCase()))),
       )
       return json(route, 200, found)
     }

@@ -30,8 +30,8 @@ export const BOOKING_FILTERS = ['delayed', 'unpaid', 'gift', 'waiting', 'cancell
 /**
  * The bookings, for the Pre-order plan's list (oldest week first, 500 at most): `status`, `week`, `filter` (delayed: we
  * moved it later and it still is; unpaid; gift; waiting: paid, in a week whose deliveries have started, no delivery
- * order yet (waiting for fruit); cancelledAfterDelay) and `q` (a number typed any way, order-number.js, a name or a
- * phone). Each row carries its latest WhatsApp message about the booking (`message`: kind, status, error).
+ * order yet (waiting for fruit); cancelledAfterDelay) and `q` (a number typed any way, order-number.js, a name, a
+ * phone, or part of the delivery address or landmark). Each row carries its latest WhatsApp message about the booking (`message`: kind, status, error).
  */
 router.get(
   '/preorders',
@@ -58,7 +58,8 @@ router.get(
       const q = normaliseOrderNumber(f.q)
       params.push(`${likeEscape(q)}%`, `%${likeEscape(q)}%`)
       const [starts, has] = [`$${params.length - 1}`, `$${params.length}`]
-      where.push(`(p.number ILIKE ${starts} OR g.number ILIKE ${starts} OR o.number ILIKE ${starts} OR p.phone ILIKE ${has} OR p.customer_name ILIKE ${has} OR p.gift_recipient_name ILIKE ${has})`)
+      where.push(`(p.number ILIKE ${starts} OR g.number ILIKE ${starts} OR o.number ILIKE ${starts} OR p.phone ILIKE ${has} OR p.customer_name ILIKE ${has} OR p.gift_recipient_name ILIKE ${has}
+                 OR p.delivery_address ILIKE ${has} OR p.delivery_landmark ILIKE ${has})`)
     }
     const { rows } = await query(
       `SELECT p.*, o.number AS order_number, o.status AS order_status, o.delivery_date AS order_date, ${GROUP_COLUMNS},

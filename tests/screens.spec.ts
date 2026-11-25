@@ -426,6 +426,21 @@ test("Pre-order plan: a full delivery week, a delayed booking and its order, the
   await expect(pre1001).toContainText('Delay message: sent')
   await expect(pre1001.getByText('Delayed', { exact: true })).toBeVisible()
   await expect(list.getByRole('row', { name: /PRE-1002/ }).getByRole('link', { name: 'ORD-1042' })).toHaveAttribute('href', '/orders/o1')
+  // A gift shows where it goes: the recipient's address line and pincode, then the landmark; a booking for yourself adds nothing.
+  const pre1003 = list.getByRole('row', { name: /PRE-1003/ })
+  await expect(pre1003.getByText('For Ravi Kumar', { exact: true })).toBeVisible()
+  await expect(pre1003.getByText('12 Test Street, Indiranagar · 560001', { exact: true })).toBeVisible()
+  await expect(pre1003.getByText('Landmark: Near Sai Baba temple, opposite bus stop', { exact: true })).toBeVisible()
+  await expect(pre1001.getByText(/Landmark:/)).toHaveCount(0)
+  // The search finds a booking by its landmark.
+  await page.getByLabel('Find a pre-order').fill('sai baba')
+  await page.getByRole('button', { name: 'Find', exact: true }).click()
+  await expect(page).toHaveURL(/q=sai\+baba/)
+  await expect(list.getByRole('row', { name: /PRE-1003/ })).toBeVisible()
+  await expect(list.getByRole('row', { name: /PRE-1001/ })).toHaveCount(0)
+  await page.getByLabel('Find a pre-order').fill('')
+  await page.getByRole('button', { name: 'Find', exact: true }).click()
+  await expect(list.getByRole('row', { name: /PRE-1001/ })).toBeVisible()
 
   // The filters: chips on a wide screen, a select on a phone; each writes ?filter=.
   const phone = (page.viewportSize()?.width ?? 1280) < 640

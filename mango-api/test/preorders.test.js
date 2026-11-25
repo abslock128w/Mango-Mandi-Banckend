@@ -489,6 +489,13 @@ describe('season phase', () => {
     const staff = (await api.get('/admin/v1/preorders', { token: admin })).body
     assert.deepEqual(staff.find((x) => x.id === booked.body.id).gift, want)
     assert.equal(staff.find((x) => x.id === plain.body.id).gift, null)
+    // The Bookings search finds a booking by part of its delivery address or its landmark (staff check where a gift goes).
+    await query('UPDATE preorders SET delivery_landmark = $2 WHERE id = $1', [booked.body.id, 'Near Sai Baba temple, opposite bus stop'])
+    const find = async (q) => (await api.get(`/admin/v1/preorders?q=${encodeURIComponent(q)}`, { token: admin })).body.map((x) => x.id)
+    assert.deepEqual(await find('sai baba'), [booked.body.id])
+    assert.deepEqual((await api.get('/admin/v1/preorders?q=sai', { token: admin })).body[0].landmark, 'Near Sai Baba temple, opposite bus stop')
+    assert.deepEqual((await find('4th cross, koramangala')).sort(), [plain.body.id, booked.body.id].sort())
+    assert.deepEqual(await find('no such street'), [])
 
     await payLink(await pre(booked.body.id))
     await makeBatch({ age: 0, rating: 'RAW', lines: { 'ALP-3': 10 } })
